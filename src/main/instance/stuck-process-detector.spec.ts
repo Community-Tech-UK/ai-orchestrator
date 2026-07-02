@@ -357,6 +357,89 @@ describe('StuckProcessDetector', () => {
     });
   });
 
+  describe('host-load scaling', () => {
+    let loadDetector: StuckProcessDetector;
+    const aliveSet = new Set<string>();
+    let multiplier = 1;
+
+    beforeEach(() => {
+      multiplier = 1;
+      loadDetector = new StuckProcessDetector({
+        isProcessAlive: (id) => aliveSet.has(id),
+        getTimeoutMultiplier: () => multiplier,
+      });
+    });
+
+    afterEach(() => {
+      loadDetector.shutdown();
+      aliveSet.clear();
+    });
+
+    it('stretches the hard timeout for an alive process while the host is overloaded', () => {
+      const hardHandler = vi.fn();
+      loadDetector.on('process:stuck', hardHandler);
+      loadDetector.startTracking('inst-1');
+      loadDetector.updateState('inst-1', 'generating');
+      aliveSet.add('inst-1');
+      multiplier = 3;
+
+      // Base hard 240s × alive 2 × load 3 = 1440s. Not stuck at 1000s.
+      vi.advanceTimersByTime(1_000_000);
+      expect(hardHandler).not.toHaveBeenCalled();
+
+      // Fires once the scaled threshold passes.
+      vi.advanceTimersByTime(500_000);
+      expect(hardHandler).toHaveBeenCalled();
+    });
+
+    it('does NOT scale dead-process detection — a missing PID is conclusive', () => {
+      const stuckHandler = vi.fn();
+      loadDetector.on('process:stuck', stuckHandler);
+      loadDetector.startTracking('inst-1');
+      loadDetector.updateState('inst-1', 'generating');
+      multiplier = 4; // heavy load, but the process is gone
+
+      // Dead process fires at the UNSCALED soft threshold (60s for generating).
+      vi.advanceTimersByTime(70_000);
+      expect(stuckHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it('scales the tool_executing alive grace ceiling', () => {
+      const softHandler = vi.fn();
+      const hardHandler = vi.fn();
+      loadDetector.on('process:suspect-stuck', softHandler);
+      loadDetector.on('process:stuck', hardHandler);
+      loadDetector.startTracking('inst-1');
+      loadDetector.updateState('inst-1', 'tool_executing');
+      aliveSet.add('inst-1');
+      multiplier = 2;
+
+      // Past the base grace ceiling (1200s) but under the scaled one (2400s):
+      // escalation stays suppressed.
+      vi.advanceTimersByTime(1_300_000);
+      expect(softHandler).not.toHaveBeenCalled();
+      expect(hardHandler).not.toHaveBeenCalled();
+    });
+
+    it('clamps and survives a broken multiplier supplier', () => {
+      const stuckHandler = vi.fn();
+      const throwingDetector = new StuckProcessDetector({
+        isProcessAlive: () => true,
+        getTimeoutMultiplier: () => {
+          throw new Error('boom');
+        },
+      });
+      throwingDetector.on('process:stuck', stuckHandler);
+      throwingDetector.startTracking('inst-1');
+      throwingDetector.updateState('inst-1', 'generating');
+
+      // Falls back to multiplier 1: hard 240s × alive 2 = 480s.
+      vi.advanceTimersByTime(490_000);
+      expect(stuckHandler).toHaveBeenCalled();
+      throwingDetector.shutdown();
+    });
+  });
+
   describe('external activity suppression', () => {
     let externalDetector: StuckProcessDetector;
     const activeSet = new Set<string>();

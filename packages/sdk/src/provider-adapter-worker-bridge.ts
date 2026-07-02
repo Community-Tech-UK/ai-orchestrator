@@ -361,7 +361,14 @@ export class WorkerPluginProviderAdapterRuntime {
       throw new Error(`Provider adapter factory ${operation.factoryRef} is not registered`);
     }
     const adapter = await factory(operation.config);
-    validateWorkerProviderAdapter(operation.provider, adapter);
+    try {
+      validateWorkerProviderAdapter(operation.provider, adapter);
+    } catch (error) {
+      // The factory may already have spawned a live child process; make sure a
+      // non-conforming adapter is torn down instead of leaking per attempt.
+      await terminateAdapterQuietly(adapter);
+      throw error;
+    }
     const subscription = adapter.events$.subscribe({
       next: (envelope) => {
         this.postEvent({
@@ -376,5 +383,42 @@ export class WorkerPluginProviderAdapterRuntime {
       unsubscribe: () => subscription.unsubscribe(),
     });
     return adapter;
+  }
+
+  /**
+   * Unsubscribe and terminate every live adapter. Used by the worker's
+   * graceful shutdown path as defense-in-depth so teardown does not rely
+   * solely on `worker.terminate()`. Idempotent with per-adapter `terminate`:
+   * entries are removed from the map before their adapters are torn down, and
+   * failures in one adapter's cleanup never block the others.
+   */
+  async disposeAll(): Promise<void> {
+    const records = Array.from(this.instances.values());
+    this.instances.clear();
+    await Promise.all(
+      records.map(async (record) => {
+        try {
+          record.unsubscribe?.();
+        } catch {
+          /* intentionally ignored: unsubscribe failure must not block teardown */
+        }
+        await terminateAdapterQuietly(record.adapter);
+      }),
+    );
+  }
+}
+
+/**
+ * Best-effort terminate for an adapter that may not conform to the contract
+ * (e.g. it just failed validation). Never throws.
+ */
+async function terminateAdapterQuietly(adapter: unknown): Promise<void> {
+  if (!isRecord(adapter) || typeof adapter['terminate'] !== 'function') {
+    return;
+  }
+  try {
+    await (adapter as { terminate(graceful?: boolean): Promise<void> | void }).terminate(true);
+  } catch {
+    /* intentionally ignored: teardown of a failing adapter is best-effort */
   }
 }

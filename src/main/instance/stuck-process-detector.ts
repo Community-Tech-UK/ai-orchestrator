@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import { getLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
 import { registerCleanup } from '../util/cleanup-registry';
 
 const logger = getLogger('StuckProcessDetector');
@@ -93,7 +94,18 @@ export interface StuckDetectorOptions {
    * Defaults to `TOOL_EXECUTING_ALIVE_GRACE_MS`.
    */
   toolExecutingAliveGraceMs?: number;
+  /**
+   * Returns the host-load timeout multiplier (>= 1). While the machine is
+   * oversubscribed, a starved-but-healthy process legitimately goes silent, so
+   * soft/hard thresholds for ALIVE processes stretch by this factor.
+   * Dead-process detection is intentionally NOT scaled — a missing PID is
+   * conclusive regardless of load. Defaults to the shared SystemLoadMonitor.
+   */
+  getTimeoutMultiplier?: () => number;
 }
+
+/** Hard ceiling on the load multiplier, guarding against a misbehaving injected fn. */
+const MAX_LOAD_MULTIPLIER = 8;
 
 interface ProcessTracker {
   lastOutputAt: number;
@@ -132,6 +144,7 @@ export class StuckProcessDetector extends EventEmitter {
   private isProcessAlive: ((instanceId: string) => boolean) | undefined;
   private hasExternalActivity: ((instanceId: string) => boolean) | undefined;
   private readonly toolExecutingAliveGraceMs: number;
+  private readonly getTimeoutMultiplier: () => number;
   private lastCheckTime = Date.now();
 
   constructor(options?: StuckDetectorOptions) {
@@ -140,6 +153,7 @@ export class StuckProcessDetector extends EventEmitter {
     this.hasExternalActivity = options?.hasExternalActivity;
     this.toolExecutingAliveGraceMs =
       options?.toolExecutingAliveGraceMs ?? TOOL_EXECUTING_ALIVE_GRACE_MS;
+    this.getTimeoutMultiplier = options?.getTimeoutMultiplier ?? getLoadWatchdogMultiplier;
     this.checkInterval = setInterval(() => this.checkAll(), CHECK_INTERVAL_MS);
     if (this.checkInterval.unref) this.checkInterval.unref();
     registerCleanup(() => this.shutdown());
@@ -223,6 +237,21 @@ export class StuckProcessDetector extends EventEmitter {
     this.trackers.clear();
   }
 
+  /**
+   * Current host-load multiplier, clamped to [1, MAX_LOAD_MULTIPLIER] and
+   * hardened against a throwing/broken supplier (a watchdog must never die
+   * because a diagnostics helper did).
+   */
+  private safeLoadMultiplier(): number {
+    try {
+      const multiplier = this.getTimeoutMultiplier();
+      if (!Number.isFinite(multiplier) || multiplier < 1) return 1;
+      return Math.min(multiplier, MAX_LOAD_MULTIPLIER);
+    } catch {
+      return 1;
+    }
+  }
+
   private checkAll(): void {
     const now = Date.now();
     const checkGap = now - this.lastCheckTime;
@@ -245,6 +274,10 @@ export class StuckProcessDetector extends EventEmitter {
       }
       return;
     }
+
+    // Host-load scaling: while the machine is oversubscribed, silence from an
+    // ALIVE process is expected starvation, not a hang. Sampled once per pass.
+    const loadMultiplier = this.safeLoadMultiplier();
 
     for (const [instanceId, tracker] of this.trackers) {
       if (tracker.instanceState === 'idle') continue;
@@ -294,10 +327,11 @@ export class StuckProcessDetector extends EventEmitter {
       const inToolExecutingGrace =
         tracker.instanceState === 'tool_executing' &&
         processAlive &&
-        elapsed < this.toolExecutingAliveGraceMs;
+        elapsed < this.toolExecutingAliveGraceMs * loadMultiplier;
 
-      const hardMultiplier = processAlive ? ALIVE_PROCESS_TIMEOUT_MULTIPLIER : 1;
+      const hardMultiplier = processAlive ? ALIVE_PROCESS_TIMEOUT_MULTIPLIER * loadMultiplier : 1;
       const effectiveHardMs = config.hardMs * hardMultiplier;
+      const effectiveSoftMs = processAlive ? config.softMs * loadMultiplier : config.softMs;
 
       if (!inToolExecutingGrace && elapsed >= effectiveHardMs) {
         logger.warn('Process stuck — hard timeout exceeded', {
@@ -306,6 +340,7 @@ export class StuckProcessDetector extends EventEmitter {
           elapsedMs: elapsed,
           processAlive,
           aliveDeferrals: tracker.aliveDeferrals,
+          loadMultiplier,
         });
         this.emit('process:stuck', {
           instanceId,
@@ -313,7 +348,7 @@ export class StuckProcessDetector extends EventEmitter {
           elapsedMs: elapsed,
         });
         this.trackers.delete(instanceId);
-      } else if (!inToolExecutingGrace && elapsed >= config.softMs && !tracker.softWarningEmitted) {
+      } else if (!inToolExecutingGrace && elapsed >= effectiveSoftMs && !tracker.softWarningEmitted) {
         // If process is alive and we haven't exhausted deferrals, defer
         // instead of warning — the instance is actively working.
         const maxDeferrals = MAX_ALIVE_DEFERRALS_BY_STATE[tracker.instanceState] ?? DEFAULT_MAX_ALIVE_DEFERRALS;
@@ -334,6 +369,7 @@ export class StuckProcessDetector extends EventEmitter {
           state: tracker.instanceState,
           elapsedMs: elapsed,
           processAlive,
+          loadMultiplier,
         });
         tracker.softWarningEmitted = true;
         this.emit('process:suspect-stuck', {

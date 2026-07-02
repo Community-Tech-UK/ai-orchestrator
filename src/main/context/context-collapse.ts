@@ -11,6 +11,7 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { repairOrphanedToolPairs } from './tool-pair-repair';
 
 const logger = getLogger('ContextCollapse');
 
@@ -31,7 +32,14 @@ export interface CollapsibleTurn {
   tokenCount: number;
   timestamp: number;
   collapsible?: boolean;
-  toolCalls?: Array<{ name: string; id: string }>;
+  toolCalls?: { name: string; id: string; output?: string }[];
+  /**
+   * Set when this turn IS a tool_result for a tool_use issued on an
+   * earlier turn (split tool_use/tool_result message models only —
+   * this codebase's primary `ConversationTurn` model pairs input/output
+   * on the same `toolCalls[]` entry and never sets this).
+   */
+  toolResultFor?: string;
 }
 
 export interface StagedCollapse {
@@ -63,7 +71,24 @@ export class ContextCollapse {
    * This is a cheap computation (no LLM). Collapses are not applied yet.
    */
   stageCollapses(turns: CollapsibleTurn[]): StagedCollapse {
-    const protectedIndex = Math.max(0, turns.length - this.config.collapseAfterTurns);
+    const naiveProtectedIndex = Math.max(0, turns.length - this.config.collapseAfterTurns);
+
+    // Orphan-repair invariant (B3): collapsing turns before `protectedIndex`
+    // is itself a "cut" — collapsed turns lose their toolCalls entirely
+    // (see applyCollapses). If the boundary would split a tool_use turn
+    // from its tool_result turn (split message models only; this
+    // codebase's ConversationTurn pairs input/output on one turn and is
+    // unaffected), walk the protected boundary backward so the pair
+    // collapses or survives together rather than being torn apart.
+    const repaired = repairOrphanedToolPairs(turns, naiveProtectedIndex);
+    const protectedIndex = naiveProtectedIndex - repaired.boundaryShift;
+    if (repaired.dropped.length > 0) {
+      logger.warn('Dropped orphaned tool call(s) at collapse boundary', {
+        boundaryShift: repaired.boundaryShift,
+        dropped: repaired.dropped,
+      });
+    }
+
     const collapsedTurnIds: string[] = [];
     let estimatedTokensSaved = 0;
 

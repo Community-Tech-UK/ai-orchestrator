@@ -127,3 +127,50 @@ export class CodexHomeManager {
 export function stripMcpServers(config: string): string {
   return new CodexTomlEditor().stripMcpServers(config);
 }
+
+/** Temp-dir prefixes created by CodexHomeManager. */
+const TEMP_HOME_PREFIXES = ['codex-nomcp-', 'codex-browser-mcp-'] as const;
+
+/**
+ * Only sweep temp homes that haven't been touched for a day. Cleanup during
+ * normal operation is per-instance and best-effort (`cleanup()`), so crashes
+ * and force-kills leak directories; anything this old cannot belong to a
+ * codex process spawned by the current app run.
+ */
+const STALE_TEMP_HOME_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Startup sweep for leaked temporary CODEX_HOME directories.
+ * Returns the number of directories removed. Never throws.
+ *
+ * @param baseDir Injectable for tests — sweeping the real tmpdir with a tiny
+ *   maxAgeMs in a spec could delete CODEX_HOMEs of live codex processes.
+ */
+export function sweepStaleCodexTempHomes(
+  maxAgeMs: number = STALE_TEMP_HOME_MAX_AGE_MS,
+  baseDir?: string,
+): number {
+  let removed = 0;
+  try {
+    const base = baseDir ?? tmpdir();
+    for (const entry of readdirSync(base)) {
+      if (!TEMP_HOME_PREFIXES.some((prefix) => entry.startsWith(prefix))) continue;
+      const fullPath = join(base, entry);
+      try {
+        const stat = lstatSync(fullPath);
+        if (!stat.isDirectory()) continue;
+        if (Date.now() - stat.mtimeMs < maxAgeMs) continue;
+        rmSync(fullPath, { recursive: true, force: true });
+        removed++;
+      } catch {
+        // Best-effort per entry; a racing process or permissions issue is fine.
+      }
+    }
+  } catch {
+    // Best-effort overall — never block startup on temp cleanup.
+  }
+  if (removed > 0) {
+    logger.info('Swept stale temporary CODEX_HOME directories', { removed });
+  }
+  return removed;
+}

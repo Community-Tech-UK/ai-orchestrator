@@ -22,6 +22,7 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
 }));
 
 import { CodexCliAdapter, CodexTimeoutError } from './codex-cli-adapter';
+import { isRecoverableThreadResumeError } from './codex/exec-error-classifier';
 
 type MockChildProcess = Omit<ChildProcess, 'killed'> & EventEmitter & {
   emitClose: (code?: number | null, signal?: string | null) => void;
@@ -1163,10 +1164,8 @@ Hey! I'm here. What do you want to tackle?`;
 
     describe('isRecoverableThreadResumeError classifier', () => {
       it('matches thread-loss phrases with thread/session context', () => {
-        const adapter = new CodexCliAdapter();
         const classify = (msg: string): boolean =>
-          (adapter as unknown as { isRecoverableThreadResumeError(e: unknown): boolean })
-            .isRecoverableThreadResumeError(new Error(msg));
+          isRecoverableThreadResumeError(new Error(msg));
 
         expect(classify('Thread does not exist')).toBe(true);
         expect(classify('thread not found: thread-abc')).toBe(true);
@@ -1179,10 +1178,8 @@ Hey! I'm here. What do you want to tackle?`;
       });
 
       it('ignores loss phrases that lack thread/session context', () => {
-        const adapter = new CodexCliAdapter();
         const classify = (msg: string): boolean =>
-          (adapter as unknown as { isRecoverableThreadResumeError(e: unknown): boolean })
-            .isRecoverableThreadResumeError(new Error(msg));
+          isRecoverableThreadResumeError(new Error(msg));
 
         // "not found" alone could be a missing file, missing config, etc. —
         // reopening the thread for those would be wrong.
@@ -1579,6 +1576,57 @@ Hey! I'm here. What do you want to tackle?`;
           requestedSessionId: 'thread-requested',
           actualSessionId: 'thread-fresh',
         });
+      });
+
+      it('abandoned init (stale epoch) discards the late client and does not clobber live state', async () => {
+        const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+        (adapter as unknown as { sessionId: string }).sessionId = 'thread-requested';
+
+        const request = vi.fn().mockImplementation((method: string) => {
+          if (method === 'thread/resume') {
+            return Promise.resolve({ threadId: 'thread-requested' });
+          }
+          return Promise.resolve({});
+        });
+        const close = vi.fn().mockResolvedValue(undefined);
+        const neverExits = new Promise<void>(() => {
+          // Intentionally pending.
+        });
+        vi.spyOn(
+          adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },
+          'connectAppServer',
+        ).mockResolvedValue({
+          request,
+          close,
+          exitPromise: neverExits,
+          getExitError: () => null,
+        });
+
+        // Simulate the live exec-mode session's state that a late init must not touch.
+        const liveCursor = {
+          provider: 'openai' as const,
+          threadId: 'thread-live-exec',
+          workspacePath: '/tmp/project',
+          capturedAt: 123,
+          scanSource: 'native' as const,
+        };
+        (adapter as unknown as { resumeCursor: unknown }).resumeCursor = liveCursor;
+
+        // Epoch 1 was handed to this attempt, but the adapter has since moved
+        // on (spawn's init budget elapsed → exec fallback bumped the epoch).
+        (adapter as unknown as { appServerInitEpoch: number }).appServerInitEpoch = 2;
+
+        await (adapter as unknown as { initAppServerMode(epoch: number): Promise<void> }).initAppServerMode(1);
+
+        expect(close).toHaveBeenCalled();
+        expect((adapter as unknown as { appServerClient?: unknown }).appServerClient).toBeFalsy();
+        expect((adapter as unknown as { appServerThreadId?: unknown }).appServerThreadId).toBeFalsy();
+        // Live state untouched: resume flag not consumed, cursor not overwritten,
+        // attempt result not committed.
+        expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(true);
+        expect(adapter.getResumeCursor()).toEqual(liveCursor);
+        expect(adapter.getResumeAttemptResult()).toBeNull();
       });
     });
 

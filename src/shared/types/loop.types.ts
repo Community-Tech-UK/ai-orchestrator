@@ -231,6 +231,16 @@ export interface LoopCompletionConfig {
    */
   requireCompletedFileRename: boolean; // default false
   /**
+   * F2 (#22): cap on coordinator-enforced REVIEW→PLAN back-edges. After a
+   * REVIEW-stage iteration whose derived 3-field veto fires (review not
+   * clean, or a blocking / critical fresh-eyes finding), the coordinator
+   * forces STAGE back to PLAN rather than trusting the agent to volunteer
+   * the rewind. This cap bounds those forced rewinds per run — separate
+   * from the global caps — so review thrash converges. `0` disables the
+   * enforced back-edge entirely. Default 10.
+   */
+  maxReviewCycles?: number;
+  /**
    * Optional fresh-eyes cross-model review before accepting completion.
    *
    * When this block is explicitly set with `{ enabled: true }` and the agent
@@ -604,6 +614,8 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       maxCostCents: DEFAULT_LOOP_MAX_COST_CENTS,
       maxToolCallsPerIteration: 200,
       maxCompletionAttempts: 3,
+      // D2 (#6 interim): end capped runs with a structured hand-off iteration.
+      capWrapUpIteration: true,
     },
     progressThresholds: {
       identicalHashWarnConsecutive: 2,
@@ -662,6 +674,8 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       quickVerifyTimeoutMs: 120_000,
       runVerifyTwice: true,
       requireCompletedFileRename: false,
+      // F2 (#22): coordinator-enforced REVIEW→PLAN back-edge cap. 0 disables.
+      maxReviewCycles: 10,
     },
     allowDestructiveOps: false,
     initialStage: 'IMPLEMENT',

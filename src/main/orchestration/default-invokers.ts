@@ -731,7 +731,11 @@ import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.type
 import { defaultLoopContextConfig, LOOP_DEFAULT_MAX_TURNS_PER_ITERATION } from '../../shared/types/loop.types';
 import { shouldRecycleLoopContext } from './loop-context-discipline';
 import { attachInvocationActivity, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
-import { createLoopInvocationCapture, extractFinishReasonFromResponse } from './loop-invoker-capture';
+import {
+  createLoopInvocationCapture,
+  createToolTimeoutWatchdogWidener,
+  extractFinishReasonFromResponse,
+} from './loop-invoker-capture';
 import {
   runBranchSelect,
   pickCandidateProvider,
@@ -1247,6 +1251,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     }
     const workspaceDir = p.executionCwd ?? p.workspaceCwd;
     const capture = createLoopInvocationCapture({ workspaceDir });
+    const loopIterationTimeoutMs = p.iterationTimeoutMs ?? 30 * 60 * 1000;
+    const loopActiveTimeoutMs = p.streamIdleTimeoutMs ?? LOOP_DEFAULT_ACTIVE_TIMEOUT_MS;
     // FU-1: when we see meaningful activity from the adapter's event
     // stream (tool use, assistant tokens, input_required), nudge the
     // adapter's stream-idle watchdog so it doesn't fire while the child
@@ -1269,8 +1275,24 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       const a = activeAdapterRef as { noteActivity?: () => void } | null;
       if (a && typeof a.noteActivity === 'function') a.noteActivity();
     };
+    // E2 (#12): widen the adapter's stream-idle kill threshold to cover an
+    // in-flight tool call's own declared timeout (e.g. a 20-minute Bash
+    // build), reverting once that call settles. Composes with host-load
+    // scaling — setStreamIdleTimeoutMs only changes the base the adapter
+    // later multiplies by SystemLoadMonitor's multiplier.
+    const toolTimeoutWidener = createToolTimeoutWatchdogWidener({
+      baseTimeoutMs: loopActiveTimeoutMs,
+      applyTimeoutMs: (timeoutMs) => {
+        const setter = (activeAdapterRef as { setStreamIdleTimeoutMs?: (ms: number) => void } | null)
+          ?.setStreamIdleTimeoutMs;
+        if (typeof setter === 'function') setter.call(activeAdapterRef, timeoutMs);
+      },
+    });
     const emitActivity = (activity: LoopInvocationActivity) => {
       if (meaningfulKinds.has(activity.kind)) nudgeAdapterIdle();
+      if (activity.kind === 'tool_use') toolTimeoutWidener.onToolUse(activity);
+      else if (activity.kind === 'tool_result') toolTimeoutWidener.onToolResult(activity);
+      else if (activity.kind === 'complete' || activity.kind === 'error') toolTimeoutWidener.onIterationSettled();
       capture.recordActivity(activity);
       coordinator.emit('loop:activity', {
         loopRunId: p.loopRunId,
@@ -1285,8 +1307,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       message: `Iteration ${p.seq} starting in ${p.executionCwd ?? p.workspaceCwd}`,
       detail: { provider: p.provider, contextStrategy: p.config?.contextStrategy ?? 'same-session' },
     });
-    const loopIterationTimeoutMs = p.iterationTimeoutMs ?? 30 * 60 * 1000;
-    const loopActiveTimeoutMs = p.streamIdleTimeoutMs ?? LOOP_DEFAULT_ACTIVE_TIMEOUT_MS;
     // Agentic-turn backstop: `null` disables, `undefined` falls back to the
     // default. Bounds runaway single iterations (observed: one iteration at
     // 7.24M tokens) that the wall-clock/iteration caps cannot catch.

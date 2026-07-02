@@ -20,6 +20,7 @@ import net from 'net';
 import readline from 'readline';
 import { getLogger } from '../../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
+import { getClampedLoadWatchdogMultiplier } from '../../../runtime/system-load-monitor';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import { buildCliSpawnOptions } from '../../cli-environment';
 import { parseNdjsonLine } from '../../json-parse';
@@ -83,6 +84,11 @@ const DEFAULT_CAPABILITIES: InitializeCapabilities = {
 };
 
 const GRACEFUL_SHUTDOWN_MS = CODEX_TIMEOUTS.GRACEFUL_SHUTDOWN_MS;
+
+/** Host-load timeout scale for control RPCs (clamped, throw-safe). */
+function loadScale(): number {
+  return getClampedLoadWatchdogMultiplier();
+}
 
 // ─── Abstract Base Client ───────────────────────────────────────────────────
 
@@ -171,16 +177,21 @@ abstract class AppServerClientBase {
   /**
    * Returns the default per-RPC timeout for a given method.
    * turn/start has no timeout (0) — it's governed by the turn-level timeout and idle watchdog.
+   *
+   * Control/default timeouts are scaled by the host-load watchdog multiplier:
+   * under heavy load (2026-07-01: loadavg ~290) a healthy app-server can take
+   * far longer than 60s to answer `thread/start`, and failing that RPC is what
+   * turned starvation into terminally dead sessions.
    */
   private resolveDefaultTimeout(method: string): number {
     const controlMethods = ['initialize', 'thread/start', 'thread/resume', 'thread/read', 'thread/list', 'thread/turns/list', 'thread/compact/start'];
     if (controlMethods.includes(method)) {
-      return CODEX_TIMEOUTS.RPC_CONTROL_MS;
+      return CODEX_TIMEOUTS.RPC_CONTROL_MS * loadScale();
     }
     if (method === 'turn/start') {
       return 0; // Long-running — turn-level timeout handles this
     }
-    return CODEX_TIMEOUTS.RPC_DEFAULT_MS;
+    return CODEX_TIMEOUTS.RPC_DEFAULT_MS * loadScale();
   }
 
   /**

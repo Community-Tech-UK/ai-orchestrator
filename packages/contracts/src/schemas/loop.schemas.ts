@@ -78,6 +78,9 @@ export const LoopHardCapsSchema = z.object({
   /** LF-7: bound on verified-but-ungated completion attempts before the loop
    *  stops as `cap-reached`. Optional; defaults to 3 via `defaultLoopConfig`. */
   maxCompletionAttempts: z.number().int().positive().max(100).optional(),
+  /** D2 (#6 interim): one final prompt-only wrap-up iteration on cap-out.
+   *  Mirrors `LoopHardCaps.capWrapUpIteration`. Optional; defaults true. */
+  capWrapUpIteration: z.boolean().optional(),
 });
 
 export const LoopProgressThresholdsSchema = z.object({
@@ -219,6 +222,10 @@ export const LoopCompletionConfigSchema = z.object({
   quickVerifyTimeoutMs: z.number().int().positive().max(60 * 60 * 1000).optional(),
   runVerifyTwice: z.boolean(),
   requireCompletedFileRename: z.boolean(),
+  /** F2 (#22): cap on coordinator-enforced REVIEW→PLAN back-edges per run.
+   *  0 disables the enforced back-edge. Mirrors
+   *  `LoopCompletionConfig.maxReviewCycles`. Default 10. */
+  maxReviewCycles: z.number().int().min(0).max(1000).optional(),
   /** Optional. When set, the loop coordinator runs a different CLI provider
    *  as a fresh-eyes reviewer before accepting completion. Blocking findings
    *  re-open the loop with the findings injected as user interventions. */
@@ -374,6 +381,7 @@ export const LoopQueueDrainModeSchema = z.enum(['all', 'one-at-a-time']);
 export const LoopPendingInputSourceSchema = z.enum([
   'human', 'block-override', 'plan-regen', 'phase-recovery',
   'context-survival', 'announce-then-halt', 'subagent-result', 'wakeup',
+  'cap-wrap-up',
 ]);
 
 export const LoopPendingInputSchema = z.object({
@@ -582,6 +590,13 @@ export const LoopStateSchema = z.object({
   /** Consecutive iterations since the ledger open-count last reached a new low.
    *  Mirrors `LoopState.ledgerNoImprovementIterations`. */
   ledgerNoImprovementIterations: z.number().int().nonnegative().optional(),
+  /** F2 (#22): coordinator-enforced REVIEW→PLAN back-edge count this run.
+   *  Mirrors `LoopState.reviewCycles`. Optional for back-compat with rows
+   *  persisted before the field existed. */
+  reviewCycles: z.number().int().nonnegative().optional(),
+  /** A3 (#29): paused because blocked on operator input (sticky waiting state
+   *  exempt from stall kills). Mirrors `LoopState.pausedForInput`. */
+  pausedForInput: z.boolean().optional(),
   /** B5: marks that the prior iteration reset/compacted the context; consumed by
    *  the next iteration's post-compaction health canary. Mirrors
    *  `LoopState.justCompacted`. */

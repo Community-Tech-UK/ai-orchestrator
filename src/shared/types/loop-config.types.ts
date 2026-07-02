@@ -23,4 +23,13 @@ export interface LoopHardCaps {
    * (`?? 3`) so configs/tests that omit it still bound.
    */
   maxCompletionAttempts?: number;
+  /**
+   * D2 (#6, prompt-only interim): when a hard cap fires, run ONE final
+   * iteration with a strong "summarize, do not start new work" directive so
+   * the run ends with a structured hand-off instead of an abrupt mid-action
+   * cut, then terminate. Not API-enforced (tools stay available) — the full
+   * tools-disabled variant needs per-provider adapter plumbing and is
+   * deferred. Optional; defaults to true, read defensively (`?? true`).
+   */
+  capWrapUpIteration?: boolean;
 }

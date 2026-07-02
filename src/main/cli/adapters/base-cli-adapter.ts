@@ -12,6 +12,7 @@ import { getOutputPersistenceManager } from '../../context/output-persistence';
 import { buildCliSpawnOptions } from '../cli-environment';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
+import { getClampedLoadWatchdogMultiplier } from '../../runtime/system-load-monitor';
 import type { FileAttachment } from '../../../shared/types/instance.types';
 import { estimateTokens as sharedEstimateTokens } from '../../../shared/utils/token-estimate';
 import type { DegradedOutputSignals } from './degraded-output-classifier';
@@ -674,24 +675,34 @@ export abstract class BaseCliAdapter extends EventEmitter {
   protected resetStreamIdleWatchdog(generation?: number): void {
     this.clearStreamIdleWatchdog();
     const expectedGen = generation ?? this.processGeneration;
+    // Host-load scaling: a starved-but-healthy CLI legitimately goes silent
+    // while the machine is oversubscribed. Stretch the no-output cutoff by the
+    // current load multiplier so we don't kill processes that only need CPU.
+    const effectiveTimeoutMs = this.streamIdleTimeoutMs * this.loadMultiplier();
     this.streamIdleTimer = setTimeout(() => {
       // Guard: discard if process has exited or generation has changed
       // (prevents stale timer from previous process firing on a new one)
       if (!this.processAlive || expectedGen !== this.processGeneration) return;
       logger.warn('Stream idle timeout exceeded', {
         adapter: this.getName(),
-        timeoutMs: this.streamIdleTimeoutMs,
+        timeoutMs: effectiveTimeoutMs,
+        baseTimeoutMs: this.streamIdleTimeoutMs,
         pid: this.getPid(),
       });
       // A3: record that the idle watchdog fired for the degraded-output classifier.
       this.streamIdleDidFire = true;
       this.emit('stream:idle', {
         adapter: this.getName(),
-        timeoutMs: this.streamIdleTimeoutMs,
+        timeoutMs: effectiveTimeoutMs,
         pid: this.getPid(),
       });
-    }, this.streamIdleTimeoutMs);
+    }, effectiveTimeoutMs);
     if (this.streamIdleTimer.unref) this.streamIdleTimer.unref();
+  }
+
+  /** Current host-load watchdog multiplier (clamped, throw-safe). */
+  private loadMultiplier(): number {
+    return getClampedLoadWatchdogMultiplier();
   }
 
   /**
@@ -700,15 +711,17 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   protected armPostSpawnWatchdog(generation: number): void {
     if (this.postSpawnTimer) clearTimeout(this.postSpawnTimer);
+    // Host-load scaling: first-byte latency stretches with an oversubscribed CPU.
+    const effectiveTimeoutMs = POST_SPAWN_WATCHDOG_MS * this.loadMultiplier();
     this.postSpawnTimer = setTimeout(() => {
       if (!this.processAlive || generation !== this.processGeneration) return;
       logger.warn('Post-spawn first-byte watchdog fired — no output after spawn', {
         adapter: this.getName(),
-        timeoutMs: POST_SPAWN_WATCHDOG_MS,
+        timeoutMs: effectiveTimeoutMs,
         pid: this.getPid(),
       });
-      this.emit('spawn:stall', { adapter: this.getName(), timeoutMs: POST_SPAWN_WATCHDOG_MS, pid: this.getPid() });
-    }, POST_SPAWN_WATCHDOG_MS);
+      this.emit('spawn:stall', { adapter: this.getName(), timeoutMs: effectiveTimeoutMs, pid: this.getPid() });
+    }, effectiveTimeoutMs);
     if (this.postSpawnTimer.unref) this.postSpawnTimer.unref();
   }
 

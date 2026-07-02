@@ -5,6 +5,7 @@ import { getHibernationManager } from '../process/hibernation-manager';
 import { getPoolManager } from '../process/pool-manager';
 import { getLogger } from '../logging/logger';
 import { readPriorWatchdogReport } from '../runtime/main-process-watchdog';
+import { getSystemLoadMonitor } from '../runtime/system-load-monitor';
 
 const logger = getLogger('RuntimeDiagnostics');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -98,6 +99,11 @@ export function installRuntimeDiagnostics(): void {
     if (stallMs < MAIN_PROCESS_STALL_THRESHOLD_MS) {
       return;
     }
+
+    // Feed the stall into the load monitor so process watchdogs (stream-idle,
+    // stuck detection, codex control RPCs) stretch their thresholds while the
+    // host is demonstrably starved.
+    getSystemLoadMonitor().reportEventLoopStall(stallMs);
 
     const memory = process.memoryUsage();
     logger.warn('Main process event loop stall detected', {

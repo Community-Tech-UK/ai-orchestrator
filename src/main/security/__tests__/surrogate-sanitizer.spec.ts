@@ -35,5 +35,43 @@ describe('surrogate-sanitizer', () => {
       const date = new Date('2026-07-01T00:00:00.000Z');
       expect(sanitizeProviderText(date)).toBe(date);
     });
+
+    it('handles circular references without recursing forever', () => {
+      const node: { text: string; self?: unknown; items?: unknown[] } = { text: 'a\uD800b' };
+      node.self = node;
+      node.items = [node];
+
+      const sanitized = sanitizeProviderText(node);
+      expect(sanitized.text).toBe('ab');
+      expect(sanitized.self).toBe(sanitized);
+      expect(sanitized.items?.[0]).toBe(sanitized);
+    });
+
+    it('preserves the shape of a string system prompt request byte-for-byte', () => {
+      const request = {
+        model: 'claude-test',
+        max_tokens: 64,
+        system: 'You are a helpful assistant.',
+        messages: [{ role: 'user', content: 'hello' }],
+      };
+
+      expect(JSON.stringify(sanitizeProviderText(request))).toBe(JSON.stringify(request));
+    });
+
+    it('preserves the shape of a block-array system prompt request byte-for-byte', () => {
+      const request = {
+        model: 'claude-test',
+        max_tokens: 64,
+        system: [
+          { type: 'text', text: 'cached preamble', cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: 'tail' },
+        ],
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        ],
+      };
+
+      expect(JSON.stringify(sanitizeProviderText(request))).toBe(JSON.stringify(request));
+    });
   });
 });

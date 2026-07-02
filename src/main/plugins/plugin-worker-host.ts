@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { WorkerPluginModule } from './plugin-worker-module';
 import {
   Worker,
   isMainThread,
@@ -64,6 +65,8 @@ interface PluginWorkerData {
   context: PluginWorkerContext;
   requestedSlot?: PluginSlot;
   providerBridgeEntrypoint: string;
+  /** Resolved main-side (workers have no `__dirname` under the tsx ESM hook). */
+  workerHelperEntrypoint: string;
 }
 
 type PluginWorkerOperation =
@@ -104,75 +107,6 @@ type HostProviderAdapterApi = ProviderAdapterPluginApi & {
   registerPluginProviderAdapter?: (descriptor: PluginProviderAdapterDescriptor, factoryRef: string, bridge: PluginProviderAdapterBridge) => void;
   unregisterPluginProviderAdapter?: (provider: PluginProviderId) => void;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function isPluginModuleDefinition(value: unknown): value is WorkerPluginModuleDefinition {
-  return isRecord(value) && (
-    'hooks' in value ||
-    'detect' in value ||
-    'slot' in value ||
-    'create' in value
-  );
-}
-
-interface WorkerPluginModuleDefinition<T = unknown> {
-  hooks?: TypedOrchestratorHooks;
-  detect?: (ctx: PluginWorkerContext) => boolean | Promise<boolean>;
-  slot?: PluginSlot;
-  create?: (ctx: PluginWorkerContext) => T | Promise<T>;
-}
-
-type WorkerPluginModule =
-  | TypedOrchestratorHooks
-  | WorkerPluginModuleDefinition
-  | ((ctx: PluginWorkerContext) =>
-      | TypedOrchestratorHooks
-      | WorkerPluginModuleDefinition
-      | Promise<TypedOrchestratorHooks | WorkerPluginModuleDefinition>);
-
-function normalizePluginModule(
-  value: TypedOrchestratorHooks | WorkerPluginModuleDefinition,
-): WorkerPluginModuleDefinition {
-  if (isPluginModuleDefinition(value)) {
-    return {
-      hooks: value.hooks ?? {},
-      detect: value.detect,
-      slot: value.slot,
-      create: value.create,
-    };
-  }
-
-  return {
-    hooks: value,
-  };
-}
-
-function validateWorkerRuntime(slot: PluginSlot, runtime: unknown): string | null {
-  if (runtime === null || runtime === undefined) {
-    return `${slot} plugins must return a runtime from create()`;
-  }
-
-  if (slot === 'notifier') {
-    return isRecord(runtime) && typeof runtime['notify'] === 'function'
-      ? null
-      : 'notifier plugins must return an object with notify(notification)';
-  }
-  if (slot === 'tracker') {
-    return isRecord(runtime) && typeof runtime['track'] === 'function'
-      ? null
-      : 'tracker plugins must return an object with track(event)';
-  }
-  if (slot === 'telemetry_exporter') {
-    return isRecord(runtime) && typeof runtime['export'] === 'function'
-      ? null
-      : 'telemetry_exporter plugins must return an object with export(record)';
-  }
-
-  return null;
-}
 
 /**
  * Task 17: decide the worker's `execArgv`. tsx must be registered when EITHER the
@@ -229,6 +163,27 @@ function loadProviderAdapterBridgeModule(entrypoint = resolveProviderAdapterBrid
   return providerAdapterBridgeModulePromise;
 }
 
+// The worker-thread entrypoint cannot use static relative runtime imports:
+// the tsx hook registered via `--import tsx` in worker execArgv does not
+// resolve them for the entrypoint's own module graph. Mirror the bridge
+// loader above: resolve an explicit .js/.ts path main-side (workers have no
+// `__dirname`), pass it through workerData, and dynamic-import it.
+type WorkerHelperModule = typeof import('./plugin-worker-module');
+
+let workerHelperModulePromise: Promise<WorkerHelperModule> | null = null;
+
+function resolveWorkerHelperEntrypoint(): string {
+  const base = path.join(__dirname, 'plugin-worker-module');
+  return existsSync(`${base}.js`) ? `${base}.js` : `${base}.ts`;
+}
+
+function loadWorkerHelperModule(entrypoint: string): Promise<WorkerHelperModule> {
+  workerHelperModulePromise ??= import(
+    pathToFileURL(entrypoint).href
+  ) as Promise<WorkerHelperModule>;
+  return workerHelperModulePromise;
+}
+
 export class PluginWorkerHost {
   private worker: Worker | null = null;
   private nextRpcId = 0;
@@ -261,6 +216,7 @@ export class PluginWorkerHost {
       filePath: this.options.filePath,
       context: this.options.context,
       providerBridgeEntrypoint: resolveProviderAdapterBridgeEntrypoint(),
+      workerHelperEntrypoint: resolveWorkerHelperEntrypoint(),
       ...(this.options.requestedSlot ? { requestedSlot: this.options.requestedSlot } : {}),
     };
     const worker = this.workerFactory(workerDataValue);
@@ -578,6 +534,7 @@ async function loadModule(filePath: string): Promise<WorkerPluginModule> {
 
 async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
   const bridgeModule = await loadProviderAdapterBridgeModule(data.providerBridgeEntrypoint);
+  const helpers = await loadWorkerHelperModule(data.workerHelperEntrypoint);
   workerProviderAdapterRuntime = new bridgeModule.WorkerPluginProviderAdapterRuntime(
     (message: WorkerPluginProviderAdapterEventMessage) => {
       parentPort!.postMessage(message satisfies PluginWorkerOutboundMessage);
@@ -589,7 +546,7 @@ async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
     typeof loaded === 'function'
       ? await loaded(runtimeContext)
       : loaded;
-  const moduleDef = normalizePluginModule(resolved || {});
+  const moduleDef = helpers.normalizePluginModule(resolved || {});
   workerHooks = moduleDef.hooks ?? {};
   workerSlot = data.requestedSlot ?? moduleDef.slot ?? 'hook';
 
@@ -616,7 +573,7 @@ async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
     workerRuntime = await moduleDef.create(runtimeContext);
   }
 
-  const validationError = workerSlot === 'hook' ? null : validateWorkerRuntime(workerSlot, workerRuntime);
+  const validationError = workerSlot === 'hook' ? null : helpers.validateWorkerRuntime(workerSlot, workerRuntime);
   if (validationError) {
     throw new Error(validationError);
   }
@@ -672,8 +629,13 @@ function runWorkerThread(): void {
 
   parentPort!.on('message', (message: PluginWorkerInboundMessage) => {
     if (message.type === 'shutdown') {
-      parentPort!.postMessage({ type: 'rpc-response', id: message.id } satisfies PluginWorkerOutboundMessage);
-      process.exit(0);
+      void loadWorkerHelperModule((workerData as PluginWorkerData).workerHelperEntrypoint)
+        .then((helpers) => helpers.disposeProviderAdaptersBounded(workerProviderAdapterRuntime))
+        .catch(() => undefined)
+        .finally(() => {
+          parentPort!.postMessage({ type: 'rpc-response', id: message.id } satisfies PluginWorkerOutboundMessage);
+          process.exit(0);
+        });
       return;
     }
 

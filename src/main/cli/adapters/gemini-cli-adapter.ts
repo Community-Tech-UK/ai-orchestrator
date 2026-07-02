@@ -31,7 +31,18 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
-import { logGeminiParseFailure, parseGeminiNdjsonEvent, parseGeminiStreamingEvent } from './gemini-json';
+import {
+  geminiApiErrorMessage,
+  geminiAssistantText,
+  geminiErrorText,
+  geminiEventType,
+  geminiResultText,
+  geminiToolName,
+  geminiUsageTotals,
+  logGeminiParseFailure,
+  parseGeminiNdjsonEvent,
+  parseGeminiStreamingEvent,
+} from './gemini-json';
 
 const logger = getLogger('GeminiCliAdapter');
 
@@ -236,16 +247,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             // Primary content events:
             //   {"type":"message","role":"assistant","content":"..."}
             //   {"type":"text","text":"..."}
-            let newContent = '';
-            if (
-              event.type === 'message' &&
-              event.role === 'assistant' &&
-              event.content
-            ) {
-              newContent = event.content;
-            } else if (event.type === 'text' && event.text) {
-              newContent = event.text;
-            }
+            const newContent = geminiAssistantText(event);
 
             if (newContent) {
               accumulatedContent += newContent;
@@ -269,13 +271,13 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             // shows up to the parent as "Child exited without producing any
             // output." The exact event shape varies across gemini-cli
             // versions, so we accept several common variants.
+            const eventType = geminiEventType(event);
             if (
-              event.type === 'tool_call' ||
-              event.type === 'tool_use' ||
-              event.type === 'tool.execution_start'
+              eventType === 'tool_call' ||
+              eventType === 'tool_use' ||
+              eventType === 'tool.execution_start'
             ) {
-              const toolName =
-                event.tool || event.name || event.toolName || event.data?.toolName || 'unknown';
+              const toolName = geminiToolName(event);
               this.emit('output', {
                 id: generateId(),
                 timestamp: Date.now(),
@@ -289,16 +291,12 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             // Tool failures — explicit error variants first, then generic
             // tool_result events that carry an error payload.
             if (
-              event.type === 'tool_error' ||
-              event.type === 'tool.execution_error' ||
-              (event.type === 'tool_result' && event.error)
+              eventType === 'tool_error' ||
+              eventType === 'tool.execution_error' ||
+              (eventType === 'tool_result' && event['error'] !== undefined && event['error'] !== null)
             ) {
-              const toolName =
-                event.tool || event.name || event.toolName || event.data?.toolName || 'unknown';
-              const errText =
-                typeof event.error === 'string'
-                  ? event.error
-                  : event.error?.message || event.message || JSON.stringify(event.error ?? event);
+              const toolName = geminiToolName(event);
+              const errText = geminiErrorText(event);
               const content = `Tool ${toolName} failed: ${errText}`;
               this.emit('output', {
                 id: generateId(),
@@ -311,17 +309,11 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             }
 
             if (
-              event.type === 'tool_result' ||
-              event.type === 'tool.execution_complete'
+              eventType === 'tool_result' ||
+              eventType === 'tool.execution_complete'
             ) {
-              const toolName =
-                event.tool || event.name || event.toolName || event.data?.toolName || 'unknown';
-              const resultText =
-                typeof event.result === 'string'
-                  ? event.result
-                  : event.result !== undefined
-                    ? JSON.stringify(event.result)
-                    : 'ok';
+              const toolName = geminiToolName(event);
+              const resultText = geminiResultText(event);
               this.emit('output', {
                 id: generateId(),
                 timestamp: Date.now(),
@@ -333,9 +325,8 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             }
 
             // Generic error events that aren't tool-scoped.
-            if (event.type === 'error' || (event.type === 'result' && event.status === 'error')) {
-              const errText =
-                event.error?.message || event.message || JSON.stringify(event.error ?? event);
+            if (eventType === 'error' || (eventType === 'result' && event['status'] === 'error')) {
+              const errText = geminiErrorText(event);
               this.emit('output', {
                 id: generateId(),
                 timestamp: Date.now(),
@@ -482,14 +473,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             throw new Error('Invalid JSON stream line');
           }
           // Assistant messages: {"type":"message","role":"assistant","content":"..."}
-          if (
-            event.type === 'message' &&
-            event.role === 'assistant' &&
-            event.content
-          ) {
-            yield event.content;
-          } else if (event.type === 'text' && event.text) {
-            yield event.text;
+          const text = geminiAssistantText(event);
+          if (text) {
+            yield text;
           }
         } catch {
           // Not JSON, yield if it looks like content
@@ -542,14 +528,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           logGeminiParseFailure(logger, line);
           continue;
         }
-        if (
-          event.type === 'message' &&
-          event.role === 'assistant' &&
-          event.content
-        ) {
-          contentParts.push(event.content);
-        } else if (event.type === 'text' && event.text) {
-          contentParts.push(event.text);
+        const text = geminiAssistantText(event);
+        if (text) {
+          contentParts.push(text);
         }
       } catch {
         /* intentionally ignored: non-JSON lines are skipped during output parsing */
@@ -626,8 +607,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           logGeminiParseFailure(logger, line);
           continue;
         }
-        if (event.type === 'result' && event.status === 'error' && event.error) {
-          return event.error.message || JSON.stringify(event.error);
+        const apiError = geminiApiErrorMessage(event);
+        if (apiError) {
+          return apiError;
         }
       } catch {
         /* intentionally ignored: non-JSON lines are skipped during output parsing */
@@ -710,55 +692,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           continue;
         }
 
-        // Format 1: result with stats
-        if (event.type === 'result' && event.stats) {
-          return {
-            inputTokens: event.stats.input_tokens || event.stats.input || 0,
-            outputTokens: event.stats.output_tokens || 0,
-            totalTokens: event.stats.total_tokens || 0
-          };
-        }
-
-        // Format 2: result with usageMetadata (Google API style)
-        if (event.type === 'result' && event.usageMetadata) {
-          const meta = event.usageMetadata;
-          const input = meta.promptTokenCount || 0;
-          const output = meta.candidatesTokenCount || 0;
-          return {
-            inputTokens: input,
-            outputTokens: output,
-            totalTokens: meta.totalTokenCount || (input + output)
-          };
-        }
-
-        // Format 3: turn.completed with usage (like Codex)
-        if (event.type === 'turn.completed' && event.usage && typeof event.usage === 'object') {
-          const u = event.usage as Record<string, unknown>;
-          const input = typeof u['input_tokens'] === 'number' ? u['input_tokens'] : 0;
-          const output = typeof u['output_tokens'] === 'number' ? u['output_tokens'] : 0;
-          return {
-            inputTokens: input,
-            outputTokens: output,
-            totalTokens: input + output
-          };
-        }
-
-        // Format 4: any event with a top-level usage object containing token fields
-        if (event.usage && typeof event.usage === 'object') {
-          const u = event.usage as Record<string, unknown>;
-          const input = (typeof u['input_tokens'] === 'number' ? u['input_tokens'] : 0) ||
-            (typeof u['promptTokenCount'] === 'number' ? u['promptTokenCount'] : 0);
-          const output = (typeof u['output_tokens'] === 'number' ? u['output_tokens'] : 0) ||
-            (typeof u['candidatesTokenCount'] === 'number' ? u['candidatesTokenCount'] : 0);
-          const total = (typeof u['total_tokens'] === 'number' ? u['total_tokens'] : 0) ||
-            (typeof u['totalTokenCount'] === 'number' ? u['totalTokenCount'] : 0);
-          if (input || output || total) {
-            return {
-              inputTokens: input,
-              outputTokens: output,
-              totalTokens: total || (input + output)
-            };
-          }
+        const usage = geminiUsageTotals(event);
+        if (usage) {
+          return usage;
         }
       } catch {
         /* intentionally ignored: non-JSON lines are skipped during token count parsing */

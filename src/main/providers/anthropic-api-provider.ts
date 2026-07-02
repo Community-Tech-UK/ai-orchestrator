@@ -33,10 +33,10 @@ import type {
   ProviderAttachment,
 } from '../../shared/types/provider.types';
 import {
-  MODEL_PRICING,
   CLAUDE_MODELS,
   getProviderModelContextWindow
 } from '../../shared/types/provider.types';
+import { getModelRate } from '../../shared/data/model-pricing';
 import type {
   OutputMessage,
   InstanceStatus,
@@ -259,7 +259,7 @@ export class AnthropicApiProvider extends BaseProvider {
       const providerRequest = sanitizeProviderText({
         model: this.model,
         max_tokens: this.maxTokens,
-        system: this.session.systemPrompt as any,
+        system: this.session.systemPrompt,
         messages: this.session.messages,
       });
       let response: Anthropic.Message;
@@ -440,8 +440,7 @@ export class AnthropicApiProvider extends BaseProvider {
     });
 
     // Update usage statistics
-    const modelId = this.model;
-    const pricing = (MODEL_PRICING as any)[modelId] || { input: 3.0, output: 15.0 };
+    const pricing = getModelRate(this.model);
 
     // Calculate cost, accounting for cache pricing if available
     const cacheUsage = usage as CacheUsageMetrics;
@@ -488,7 +487,7 @@ export class AnthropicApiProvider extends BaseProvider {
       const tokenCount = await this.client.messages.countTokens(
         sanitizeProviderText({
           model: this.model,
-          system: this.session.systemPrompt as any,
+          system: this.session.systemPrompt,
           messages: this.session.messages,
         }),
         {

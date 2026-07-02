@@ -69,6 +69,16 @@ import type {
   UserInput,
 } from './codex/app-server-types';
 import { SERVICE_NAME } from './codex/app-server-types';
+import { startThreadWithRetry } from './codex/thread-start-retry';
+import {
+  getCommandAggregatedOutput,
+  getCommandExitCode,
+  getFileChangePath,
+  getToolCallInput,
+  getToolCallName,
+  isCommandExecutionItem,
+} from './codex/thread-item-accessors';
+import { getClampedLoadWatchdogMultiplier } from '../../runtime/system-load-monitor';
 import { CodexSessionScanner } from './codex/session-scanner';
 import type { ResumeCursor } from '../../session/session-continuity';
 import { supportsCodexInlineImage } from './codex/attachments';
@@ -76,7 +86,7 @@ import { extractCodexAppServerError, formatCodexAppServerError } from './codex/a
 import { CodexHomeManager } from './codex/codex-home-manager';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './codex/exec-diagnostics';
 import { parseCodexExecTranscript } from './codex/exec-transcript-parser';
-import { isBenignCodexStdinNotice, isCodexModelUnavailableError, isFatalSpawnError } from './codex/exec-error-classifier';
+import { isBenignCodexStdinNotice, isCodexModelUnavailableError, isFatalSpawnError, isRecoverableThreadResumeError } from './codex/exec-error-classifier';
 import { CodexTimeoutError, type CodexExecPhase, type CodexTimeoutKind } from './codex/exec-timeout';
 import { enrichSpawnError } from './base-cli-adapter-utils';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
@@ -461,21 +471,31 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     if (appServerAvailable) {
-      // App-server mode: persistent JSON-RPC connection
+      // App-server mode: persistent JSON-RPC connection.
+      // The init budget scales with host load: under overload (2026-07-01:
+      // loadavg ~290) a healthy app-server can take several minutes to answer
+      // control RPCs, and the thread/start retry inside init needs room to run.
+      const initBudgetMs = CODEX_TIMEOUTS.APP_SERVER_INIT_MS * getClampedLoadWatchdogMultiplier();
+      const initEpoch = ++this.appServerInitEpoch;
+      let initBudgetTimer: NodeJS.Timeout | undefined;
       try {
         await Promise.race([
-          this.initAppServerMode(),
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () => reject(new Error('Codex app-server initialization timed out after 30s')),
-              CODEX_TIMEOUTS.APP_SERVER_INIT_MS
-            )
-          ),
+          this.initAppServerMode(initEpoch),
+          new Promise<never>((_, reject) => {
+            initBudgetTimer = setTimeout(
+              () => reject(new Error(`Codex app-server initialization timed out after ${Math.round(initBudgetMs / 1000)}s`)),
+              initBudgetMs
+            );
+            initBudgetTimer.unref?.();
+          }),
         ]);
         this.useAppServer = true;
         this.setSpawnMode('app-server');
         logger.info('Codex adapter using app-server mode');
       } catch (err) {
+        // Invalidate the abandoned init attempt so a late success cannot
+        // assign a stale app-server client while we run in exec mode.
+        this.appServerInitEpoch++;
         // Falling back to exec mode silently here is how users ended up
         // waiting 10 minutes for a "Codex CLI timeout" error. Log the
         // specific reason at warn level so post-mortem debugging works.
@@ -491,6 +511,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
         if (!this.config.env?.['CODEX_HOME']) {
           this.prepareCodexHome();
         }
+      } finally {
+        // Don't leave the budget timer pending for up to initBudgetMs after
+        // the race has already settled (its late rejection is swallowed by
+        // Promise.race, but the timer itself would linger).
+        if (initBudgetTimer) clearTimeout(initBudgetTimer);
       }
     } else {
       // Exec mode: spawn per message.
@@ -685,13 +710,31 @@ export class CodexCliAdapter extends BaseCliAdapter {
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Initializes the persistent app-server connection and starts a thread.
+   * Monotonic token identifying the current app-server init attempt. Bumped
+   * when an attempt is abandoned (init budget elapsed → exec fallback) so a
+   * late-finishing init cannot assign a stale client over the live mode.
    */
-  private async initAppServerMode(): Promise<void> {
+  private appServerInitEpoch = 0;
+
+  /**
+   * Initializes the persistent app-server connection and starts a thread.
+   *
+   * @param initEpoch The value of `appServerInitEpoch` when this attempt began.
+   *   If the epoch has moved on by the time the thread is ready (the spawn
+   *   raced past its init budget and fell back to exec mode), the client is
+   *   closed and discarded instead of being assigned.
+   */
+  private async initAppServerMode(initEpoch?: number): Promise<void> {
     const cwd = this.cliConfig.workingDir || process.cwd();
 
     // For persistent mode we need to establish a connection and keep the client alive.
     const client = await this.connectAppServer(cwd);
+
+    // Resume-attempt bookkeeping accumulates locally and commits to `this.*`
+    // only after the abandoned-attempt (init epoch) check: a late init racing
+    // a live exec-mode session must not clobber lastResumeAttemptResult,
+    // consume shouldResumeNextTurn, or overwrite the exec session's cursor.
+    let resumeAttempt: ResumeAttemptResult | null = null;
 
     try {
       const approvalPolicy = this.cliConfig.approvalMode === 'full-auto' ? 'never' : 'never';
@@ -705,7 +748,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const resumeRequested = this.shouldResumeNextTurn;
       const requestedResumeSessionId = resumeRequested ? this.sessionId ?? undefined : undefined;
       const hasSpecificResumeTarget = Boolean(requestedResumeSessionId);
-      this.lastResumeAttemptResult = resumeRequested
+      resumeAttempt = resumeRequested
         ? {
             source: 'none',
             confirmed: false,
@@ -733,7 +776,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           if (resumedThreadId === requestedSessionId) {
             threadId = resumedThreadId;
             resumeSource = 'native';
-            this.lastResumeAttemptResult = {
+            resumeAttempt = {
               source: 'native',
               confirmed: true,
               requestedSessionId,
@@ -741,7 +784,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             };
             logger.info('App-server thread resumed from persisted cursor', { threadId });
           } else {
-            this.lastResumeAttemptResult = {
+            resumeAttempt = {
               source: 'native',
               confirmed: false,
               requestedSessionId,
@@ -756,9 +799,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
             });
           }
         } catch (error) {
-          if (this.isRecoverableThreadResumeError(error)) {
+          if (isRecoverableThreadResumeError(error)) {
             logger.warn('Persisted cursor resume failed (recoverable), falling back to fresh thread', { error: String(error) });
-            this.lastResumeAttemptResult = {
+            resumeAttempt = {
               source: 'native',
               confirmed: false,
               requestedSessionId: requestedResumeSessionId,
@@ -794,7 +837,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
               });
               threadId = resumeResult.threadId || resumeResult.thread?.id || null;
               resumeSource = 'thread-list';
-              this.lastResumeAttemptResult = {
+              resumeAttempt = {
                 source: 'native',
                 confirmed: Boolean(threadId),
                 requestedSessionId,
@@ -802,7 +845,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
               };
               logger.info('App-server thread resumed from thread/list', { threadId, candidateId: requestedSessionId });
             } catch (resumeErr) {
-              if (this.isRecoverableThreadResumeError(resumeErr)) {
+              if (isRecoverableThreadResumeError(resumeErr)) {
                 logger.warn('thread/list candidate resume failed (recoverable), falling through to JSONL scan', {
                   candidateId: requestedSessionId,
                   error: String(resumeErr),
@@ -833,7 +876,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             });
             threadId = resumeResult.threadId || resumeResult.thread?.id || null;
             resumeSource = 'jsonl-scan';
-            this.lastResumeAttemptResult = {
+            resumeAttempt = {
               source: 'jsonl-scan',
               confirmed: Boolean(threadId),
               requestedSessionId,
@@ -841,9 +884,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
             };
             logger.info('App-server thread resumed from JSONL scan', { threadId, scannedFile: scanResult.sessionFilePath });
           } catch (error) {
-            if (this.isRecoverableThreadResumeError(error)) {
+            if (isRecoverableThreadResumeError(error)) {
               logger.warn('JSONL scan resume failed (recoverable), falling back to fresh start', { error: String(error) });
-              this.lastResumeAttemptResult = {
+              resumeAttempt = {
                 source: 'jsonl-scan',
                 confirmed: false,
                 requestedSessionId: scanResult.threadId,
@@ -855,7 +898,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           }
         } else {
           logger.info('No matching Codex session found on filesystem for workspace', { cwd });
-          this.lastResumeAttemptResult = {
+          resumeAttempt = {
             source: 'jsonl-scan',
             confirmed: false,
             requestedSessionId: this.sessionId ?? undefined,
@@ -866,7 +909,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       // Step 4: Fresh start (replay continuity preamble is handled at a higher level by SessionContinuityManager)
       if (!threadId) {
-        const startResult = await client.request('thread/start', {
+        // Retried with backoff: under host overload a healthy app-server can
+        // miss the (load-scaled) control-RPC deadline; one timeout must not
+        // fail the spawn terminally.
+        const startResult = await startThreadWithRetry(client, {
           cwd,
           model: this.cliConfig.model || null,
           approvalPolicy,
@@ -879,7 +925,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         });
         threadId = startResult.threadId || startResult.thread?.id || null;
         resumeSource = null;
-        this.lastResumeAttemptResult = resumeRequested
+        resumeAttempt = resumeRequested
           ? {
               source: 'fresh-fallback',
               confirmed: false,
@@ -895,6 +941,24 @@ export class CodexCliAdapter extends BaseCliAdapter {
             };
         logger.info('App-server thread started fresh', { threadId });
       }
+
+      // Abandoned attempt: the spawn's init budget elapsed and the adapter
+      // already fell back to exec mode. Discard the late client instead of
+      // assigning stale state over the live mode. Checked BEFORE any `this.*`
+      // commits so a late init can't consume the resume flag, clobber the
+      // exec session's resume cursor, or overwrite the attempt result.
+      if (initEpoch !== undefined && initEpoch !== this.appServerInitEpoch) {
+        logger.warn('App-server init completed after being abandoned — discarding late client', {
+          threadId,
+        });
+        try {
+          await client.close();
+        } catch { /* best-effort cleanup */ }
+        return;
+      }
+
+      // ── Commit (all-or-nothing after the abandoned-attempt check) ──
+      this.lastResumeAttemptResult = resumeAttempt;
 
       // Consume resume flag
       this.shouldResumeNextTurn = false;
@@ -932,6 +996,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
         this.emit('exit', code, null);
       });
     } catch (err) {
+      // Preserve attempt visibility for the exec fallback (runtime-readiness,
+      // history restore, and lifecycle consult getResumeAttemptResult after a
+      // failed init) — but never from an abandoned attempt racing a live mode.
+      if (resumeAttempt && (initEpoch === undefined || initEpoch === this.appServerInitEpoch)) {
+        this.lastResumeAttemptResult = resumeAttempt;
+      }
       // Thread creation/resume failed — close the client to prevent orphaning
       try {
         await client.close();
@@ -972,7 +1042,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const approvalPolicy = this.cliConfig.approvalMode === 'full-auto' ? 'never' : 'never';
     const sandbox = this.mapSandboxMode();
 
-    const startResult = await this.appServerClient.request('thread/start', {
+    const startResult = await startThreadWithRetry(this.appServerClient, {
       cwd,
       model: this.cliConfig.model || null,
       approvalPolicy,
@@ -1024,7 +1094,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     try {
       await this.appServerSendMessageInner(message, attachments);
     } catch (err) {
-      if (!this.isRecoverableThreadResumeError(err)) throw err;
+      if (!isRecoverableThreadResumeError(err)) throw err;
       logger.warn('Codex app-server turn failed recoverably, reopening thread and retrying', {
         previousThreadId: this.appServerThreadId,
         cause: err instanceof Error ? err.message : String(err),
@@ -1598,7 +1668,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
 
         // Emit real-time tool_use events for various item types
-        if (this.isCommandExecutionItem(item) && item.command) {
+        if (isCommandExecutionItem(item) && item.command) {
           const phase: TurnPhase = VERIFICATION_CMD_PATTERN.test(item.command)
             ? 'verifying'
             : 'running';
@@ -1610,7 +1680,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             metadata: { name: 'Bash', streaming: true, phase },
           });
         } else if (item.type === 'file_change' || item.type === 'fileChange') {
-          const path = this.getFileChangePath(item);
+          const path = getFileChangePath(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
@@ -1627,22 +1697,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
             metadata: { name: 'other', streaming: true, phase: 'reviewing' as TurnPhase },
           });
         } else if (item.type === 'mcpToolCall') {
-          const toolName = this.getToolCallName(item);
+          const toolName = getToolCallName(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Calling ${item.server || 'mcp'}/${toolName}`,
-            metadata: { name: toolName, input: this.getToolCallInput(item), streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: { name: toolName, input: getToolCallInput(item), streaming: true, phase: 'investigating' as TurnPhase },
           });
         } else if (item.type === 'dynamicToolCall') {
-          const toolName = this.getToolCallName(item);
+          const toolName = getToolCallName(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Running tool: ${toolName}`,
-            metadata: { name: toolName, input: this.getToolCallInput(item), streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: { name: toolName, input: getToolCallInput(item), streaming: true, phase: 'investigating' as TurnPhase },
           });
         } else if (item.type === 'collabAgentToolCall') {
           const subagentLabels = (item.receiverThreadIds ?? [])
@@ -1703,11 +1773,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
 
         // ── Command execution ──
-        if (this.isCommandExecutionItem(item)) {
+        if (isCommandExecutionItem(item)) {
           state.commandExecutions.push(item);
-          const output = this.getCommandAggregatedOutput(item);
+          const output = getCommandAggregatedOutput(item);
           if (output) {
-            const exitCode = this.getCommandExitCode(item);
+            const exitCode = getCommandExitCode(item);
             this.emit('output', {
               id: generateId(),
               timestamp: Date.now(),
@@ -1746,7 +1816,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         // ── File change ──
         if (item.type === 'file_change' || item.type === 'fileChange') {
           state.fileChanges.push(item);
-          const path = this.getFileChangePath(item);
+          const path = getFileChangePath(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
@@ -1779,25 +1849,25 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
         // ── MCP tool call completed ──
         if (item.type === 'mcpToolCall') {
-          const toolName = this.getToolCallName(item);
+          const toolName = getToolCallName(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_result',
             content: `Tool ${item.server || 'mcp'}/${toolName} ${item.status || 'completed'}`,
-            metadata: { name: toolName, input: this.getToolCallInput(item), is_error: false, phase: 'investigating' },
+            metadata: { name: toolName, input: getToolCallInput(item), is_error: false, phase: 'investigating' },
           });
         }
 
         // ── Dynamic tool call completed ──
         if (item.type === 'dynamicToolCall') {
-          const toolName = this.getToolCallName(item);
+          const toolName = getToolCallName(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_result',
             content: `Tool ${toolName} ${item.status || 'completed'}`,
-            metadata: { name: toolName, input: this.getToolCallInput(item), is_error: false, phase: 'investigating' },
+            metadata: { name: toolName, input: getToolCallInput(item), is_error: false, phase: 'investigating' },
           });
         }
 
@@ -2152,7 +2222,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const toolCalls: CliToolCall[] = [];
 
     for (const cmd of state.commandExecutions) {
-      const exitCode = this.getCommandExitCode(cmd);
+      const exitCode = getCommandExitCode(cmd);
       toolCalls.push({
         id: cmd.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: 'command_execution',
@@ -2161,7 +2231,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           exitCode,
           status: cmd.status,
         },
-        result: this.getCommandAggregatedOutput(cmd) || undefined,
+        result: getCommandAggregatedOutput(cmd) || undefined,
       });
     }
 
@@ -2178,63 +2248,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     return toolCalls;
-  }
-
-  private isCommandExecutionItem(item: ThreadItem): boolean {
-    return item.type === 'command_execution' || item.type === 'commandExecution';
-  }
-
-  private getCommandAggregatedOutput(item: ThreadItem): string | undefined {
-    if (typeof item.aggregated_output === 'string') {
-      return item.aggregated_output;
-    }
-    if (typeof item.aggregatedOutput === 'string') {
-      return item.aggregatedOutput;
-    }
-    return undefined;
-  }
-
-  private getCommandExitCode(item: ThreadItem): number | undefined {
-    if (typeof item.exit_code === 'number') {
-      return item.exit_code;
-    }
-    if (typeof item.exitCode === 'number') {
-      return item.exitCode;
-    }
-    return undefined;
-  }
-
-  private getFileChangePath(item: ThreadItem): string {
-    if (typeof item.path === 'string' && item.path.trim()) {
-      return item.path;
-    }
-    if (Array.isArray(item.changes)) {
-      const firstPath = item.changes
-        .map((change) => change?.path)
-        .find((path): path is string => typeof path === 'string' && path.trim().length > 0);
-      if (firstPath) {
-        return firstPath;
-      }
-    }
-    return 'unknown';
-  }
-
-  private getToolCallName(item: ThreadItem): string {
-    for (const value of [item.tool, item.toolName, item['name']]) {
-      if (typeof value === 'string' && value.trim()) {
-        return value.trim();
-      }
-    }
-    return 'unknown';
-  }
-
-  private getToolCallInput(item: ThreadItem): Record<string, unknown> {
-    for (const value of [item.input, item['arguments'], item['args']]) {
-      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        return value as Record<string, unknown>;
-      }
-    }
-    return {};
   }
 
   /**
@@ -2438,7 +2451,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         return await this.sendMessageExec(message);
       }
 
-      if (!this.isRecoverableThreadResumeError(err) || !this.shouldUseResumeCommand()) {
+      if (!isRecoverableThreadResumeError(err) || !this.shouldUseResumeCommand()) {
         throw err;
       }
 
@@ -2528,7 +2541,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           throw enrichSpawnError(lastError, this.config.command, this.config.cwd);
         }
 
-        if (this.isRecoverableThreadResumeError(lastError)) {
+        if (isRecoverableThreadResumeError(lastError)) {
           if (resumeCommandAtStart) {
             logger.info('Codex exec resume failed with a stale thread/session id - skipping same-command retry', {
               attempt,
@@ -3328,19 +3341,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   private cleanupCodexHome(): void {
     this.codexHome.cleanup();
-  }
-
-  /**
-   * Classifies an error as recoverable by reopening a fresh Codex thread. Most
-   * cases require BOTH thread/session context AND a loss indicator — without
-   * that gate a bare "not found" from an unrelated source (e.g. a missing file)
-   * would incorrectly trigger a full thread reopen.
-   */
-  private isRecoverableThreadResumeError(error: unknown): boolean {
-    const msg = String(error instanceof Error ? error.message : error).toLowerCase();
-    if (msg.includes('codex turn stalled') && msg.includes('no notifications received')) return true;
-    if (!/thread|session/.test(msg)) return false;
-    return /not found|no rollout found|rollout not found|missing|no such|unknown|expired|invalid|does not exist/.test(msg);
   }
 
   getResumeCursor(): ResumeCursor | null {

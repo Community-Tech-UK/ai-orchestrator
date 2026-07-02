@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isBenignCodexStdinNotice, isCodexModelUnavailableError, isFatalSpawnError } from './exec-error-classifier';
+import { isBenignCodexStdinNotice, isCodexModelUnavailableError, isFatalSpawnError, isRecoverableThreadResumeError } from './exec-error-classifier';
 import { CliSpawnCwdError, directoryExists, enrichSpawnError } from '../base-cli-adapter-utils';
-import { CodexCliAdapter } from '../codex-cli-adapter';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -61,10 +60,8 @@ describe('isFatalSpawnError', () => {
 });
 
 describe('spawn errors vs other codex classifiers (cross-checks)', () => {
-  const adapter = new CodexCliAdapter();
   const isRecoverableResume = (msg: string): boolean =>
-    (adapter as unknown as { isRecoverableThreadResumeError(e: unknown): boolean })
-      .isRecoverableThreadResumeError(new Error(msg));
+    isRecoverableThreadResumeError(new Error(msg));
 
   it('spawn codex ENOENT does NOT satisfy isRecoverableThreadResumeError', () => {
     expect(isRecoverableResume('spawn codex ENOENT')).toBe(false);

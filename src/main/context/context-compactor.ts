@@ -19,6 +19,7 @@ import { ContextCollapse, type CollapsibleTurn, type ApplyResult } from './conte
 import { buildCompactionPrompt, redactSecrets } from './context-compaction-prompt';
 import { generateLocalSummary } from './context-local-summary';
 import { extractFileOperationsFromTurns } from './file-operation-extractor';
+import { repairOrphanedToolPairs } from './tool-pair-repair';
 
 export { buildCompactionPrompt, redactSecrets } from './context-compaction-prompt';
 
@@ -354,12 +355,25 @@ export class ContextCompactor extends EventEmitter {
 
       // Phase 2: Summarize old turns
       const turnsToPreserve = Math.min(this.config.preserveRecent, this.state.turns.length);
-      const turnsToCompact = turnsToPreserve === 0
-        ? [...this.state.turns]
-        : this.state.turns.slice(0, -turnsToPreserve);
-      const preservedTurns = turnsToPreserve === 0
-        ? []
-        : this.state.turns.slice(-turnsToPreserve);
+
+      // Orphan-repair invariant (B3): a naive "keep last N" cut can land
+      // between a tool_use and its tool_result. Walk the boundary backward
+      // to a non-orphaning cut and drop any tool call that still can't be
+      // paired, so neither side of the split ever ships a dangling call.
+      const cutIndex = turnsToPreserve === 0
+        ? this.state.turns.length
+        : this.state.turns.length - turnsToPreserve;
+      const repaired = repairOrphanedToolPairs(this.state.turns, cutIndex);
+      if (repaired.dropped.length > 0) {
+        compactorLogger.warn('Dropped orphaned tool call(s) at compaction cut boundary', {
+          boundaryShift: repaired.boundaryShift,
+          dropped: repaired.dropped,
+        });
+      }
+      const repairedBoundary = cutIndex - repaired.boundaryShift;
+
+      const turnsToCompact = this.state.turns.slice(0, repairedBoundary);
+      const preservedTurns = repaired.turns;
 
       // Always protect the most recent user turn, even if it falls outside preserveRecent.
       // This ensures the active user request is never silently dropped into the summary.

@@ -15,6 +15,7 @@ import { getObservationIngestor, getObserverAgent, getReflectorAgent } from '../
 import { initializePathValidator } from '../security/path-validator';
 import { getLogger } from '../logging/logger';
 import { initTruncationCleanup } from '../util/tool-output-truncation';
+import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manager';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { registerBuiltinTerminationGates } from '../session/builtin-termination-gates';
@@ -412,6 +413,7 @@ export function createInitializationSteps(
       fn: () => setupCompactionCoordinator(instanceManager, windowManager),
     },
     { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
+    { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); } },
     {
       name: 'Resource governor',
       fn: () => {

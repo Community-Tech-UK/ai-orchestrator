@@ -56,6 +56,27 @@ export function materializeLoopConfig(
   };
 }
 
+/**
+ * D2 (#6, prompt-only interim): the directive injected into the ONE final
+ * wrap-up iteration a capped loop runs before terminating. Strong instruction
+ * only — tools are NOT API-disabled (that variant needs per-provider adapter
+ * plumbing and is deferred), so this is best-effort by design.
+ */
+export function buildCapWrapUpDirective(
+  cap: 'iterations' | 'wall-time' | 'tokens' | 'cost',
+  reason: string,
+): string {
+  return (
+    `FINAL ITERATION — the loop's ${cap} cap has been reached (${reason}). ` +
+    `This is a wrap-up turn, not a work turn. Do NOT start new work, do NOT ` +
+    `begin new edits, and do NOT run long commands. Produce a structured ` +
+    `hand-off: (1) work completed this run, (2) work remaining (each item ` +
+    `with enough detail to resume), (3) the exact next step you would have ` +
+    `taken, and (4) current verify/build status as last observed. Update ` +
+    `LOOP_TASKS.md and NOTES.md to match, then stop.`
+  );
+}
+
 export function checkLoopHardCaps(state: LoopState): null | 'iterations' | 'wall-time' | 'tokens' | 'cost' {
   const caps = state.config.caps;
   if (caps.maxIterations !== null && state.totalIterations >= caps.maxIterations) return 'iterations';

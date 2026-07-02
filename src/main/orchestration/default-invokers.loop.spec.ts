@@ -508,6 +508,68 @@ describe('Loop Mode invoker plumbing', () => {
     expect(hoisted.setStreamIdleTimeoutMs).toHaveBeenCalledWith(240_000);
   });
 
+  it('E2 (#12): widens the stream-idle threshold for a tool call with a declared timeout, then reverts', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockImplementation(async () => {
+      // A 20-minute declared Bash build timeout, well past the 240s base.
+      hoisted.adapterRef.current.emit('tool_use', {
+        id: 'build-1',
+        name: 'Bash',
+        arguments: { command: 'make', timeout: 20 * 60 * 1000 },
+      });
+      hoisted.adapterRef.current.emit('tool_result', {
+        id: 'build-1',
+        name: 'Bash',
+        arguments: { command: 'make', timeout: 20 * 60 * 1000 },
+        result: 'build ok',
+      });
+      return { content: 'ok', usage: { totalTokens: 1 } };
+    });
+
+    const result = emitIteration({ streamIdleTimeoutMs: 240_000 });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    const calls = hoisted.setStreamIdleTimeoutMs.mock.calls.map((call) => call[0]);
+    // Initial apply from the streamIdleTimeoutMs override, then widen to
+    // declared+grace when the build tool_use fires, then revert to the base
+    // 240s once its tool_result arrives.
+    expect(calls).toContain(20 * 60 * 1000 + 30_000);
+    expect(calls[calls.length - 1]).toBe(240_000);
+  });
+
+  it('E2 (#12): does not widen the stream-idle threshold when no tool declares a timeout', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockImplementation(async () => {
+      hoisted.adapterRef.current.emit('tool_use', {
+        id: 'bash-1',
+        name: 'Bash',
+        arguments: { command: 'npm test' },
+      });
+      hoisted.adapterRef.current.emit('tool_result', {
+        id: 'bash-1',
+        name: 'Bash',
+        arguments: { command: 'npm test' },
+        result: 'ok',
+      });
+      return { content: 'ok', usage: { totalTokens: 1 } };
+    });
+
+    const result = emitIteration({ streamIdleTimeoutMs: 240_000 });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    // No tool declared a timeout, so the watchdog seam never fires: every
+    // call to setStreamIdleTimeoutMs (there may be more than one from
+    // unrelated same-session adapter-creation plumbing) uses the configured
+    // base — undeclared timeout means byte-identical behavior to before.
+    const calls = hoisted.setStreamIdleTimeoutMs.mock.calls.map((call) => call[0]);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((value) => value === 240_000)).toBe(true);
+  });
+
   it('does not abort the iteration when adapter emits stream:idle before the CLI finishes', async () => {
     registerDefaultLoopInvoker({} as never);
     let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;

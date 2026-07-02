@@ -64,3 +64,16 @@ export function isCodexModelUnavailableError(error: unknown): boolean {
     /\bmodel\b[^.]*\bnot available\b/.test(msg)
   );
 }
+
+/**
+ * Classifies an error as recoverable by reopening a fresh Codex thread. Most
+ * cases require BOTH thread/session context AND a loss indicator — without
+ * that gate a bare "not found" from an unrelated source (e.g. a missing file)
+ * would incorrectly trigger a full thread reopen.
+ */
+export function isRecoverableThreadResumeError(error: unknown): boolean {
+  const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (msg.includes('codex turn stalled') && msg.includes('no notifications received')) return true;
+  if (!/thread|session/.test(msg)) return false;
+  return /not found|no rollout found|rollout not found|missing|no such|unknown|expired|invalid|does not exist/.test(msg);
+}

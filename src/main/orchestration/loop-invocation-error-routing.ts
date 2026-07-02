@@ -1,6 +1,7 @@
 import type { LoopStage, LoopState } from '../../shared/types/loop.types';
 import { resolveContextWindowSize } from '../context/context-window-guard';
 import { classifyLoopError } from '../core/loop-error-classification';
+import { decideRecoveryRecipe, type RecoveryAttemptRecord } from '../core/loop-recovery-recipes';
 import { getLogger } from '../logging/logger';
 import { excerpt } from './loop-coordinator-utils';
 import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
@@ -18,12 +19,62 @@ export function routeClassifiedLoopInvocationFailure(params: {
   contextOverflowRecoveryAttempted: boolean;
   providerLimitHandler: LoopProviderLimitHandler;
   emit: (eventName: string, payload: unknown) => void;
+  /** Optional sink for the recovery-recipe audit record so the caller can
+   *  attach it to the iteration log. Called at most once per invocation. */
+  onRecoveryAttempt?: (record: RecoveryAttemptRecord) => void;
 }): ClassifiedInvocationRoute {
   const { state, error, seq, stage } = params;
   const classification = classifyLoopError(error, {
     provider: state.config.provider,
     model: params.model,
   });
+
+  // C3 (#16): consult the named recovery-recipe catalog before the existing
+  // branches below. Classifications with no catalog entry are untouched —
+  // `decideRecoveryRecipe` returns `kind: 'no-recipe'` and every branch below
+  // behaves exactly as it did before this wiring. Catalogued reasons get
+  // exactly one automatic attempt per loop run; a repeat within the same run
+  // is forced to escalate (`do-not-retry`) instead of retrying again —
+  // regardless of whether the underlying classification is otherwise
+  // retryable — so recipe-covered errors can't loop forever. This does not
+  // replace the `shouldCompress` (context-overflow) branch below, which keeps
+  // its own existing single-retry gate (`contextOverflowRecoveryAttempted`);
+  // the recipe entry for `context_overflow` only annotates that route for the
+  // audit trail (see loop-recovery-recipes.ts).
+  const recipeDecision = decideRecoveryRecipe({
+    loopRunId: state.id,
+    seq,
+    reason: classification.reason,
+    allowDestructiveOps: state.config.allowDestructiveOps,
+  });
+  params.onRecoveryAttempt?.(recipeDecision.record);
+  if (recipeDecision.kind !== 'no-recipe') {
+    logger.info('Recovery recipe consulted for classified invocation failure', {
+      loopRunId: state.id,
+      seq,
+      reason: classification.reason,
+      decision: recipeDecision.kind,
+      proposedDestructiveSteps: recipeDecision.proposedDestructiveSteps.map(step => step.description),
+    });
+  }
+  if (recipeDecision.kind === 'escalate' && classification.reason !== 'context_overflow') {
+    params.emit('loop:activity', {
+      loopRunId: state.id,
+      seq,
+      stage,
+      timestamp: Date.now(),
+      kind: 'status',
+      message: `Recovery recipe for "${classification.reason}" already used its one automatic attempt this run — escalating to BLOCKED`,
+      detail: {
+        reason: classification.reason,
+        proposedDestructiveSteps: recipeDecision.proposedDestructiveSteps.map(step => ({
+          description: step.description,
+          command: step.command,
+        })),
+      },
+    });
+    return 'do-not-retry';
+  }
 
   if (classification.reason === 'rate_limit' && classification.retryAfterMs !== null) {
     const resumeAt = Date.now() + Math.max(0, classification.retryAfterMs);

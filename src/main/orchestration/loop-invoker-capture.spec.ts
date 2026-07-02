@@ -1,9 +1,14 @@
 import { createHash } from 'crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createLoopInvocationCapture,
+  createToolTimeoutWatchdogWidener,
+  DECLARED_TOOL_TIMEOUT_GRACE_MS,
+  extractDeclaredToolTimeoutMs,
   extractFinishReasonFromResponse,
+  MAX_DECLARED_TOOL_TIMEOUT_MS,
 } from './loop-invoker-capture';
+import type { LoopInvocationActivity } from './loop-invocation-activity';
 
 describe('createLoopInvocationCapture', () => {
   it('captures read paths, result hashes, durations, and unresolved tool calls', () => {
@@ -65,6 +70,118 @@ describe('extractFinishReasonFromResponse', () => {
     expect(extractFinishReasonFromResponse({ finishReason: 'end_turn' })).toBe('end_turn');
     expect(extractFinishReasonFromResponse({ metadata: { stopReason: 'tool_use' } })).toBe('tool_use');
     expect(extractFinishReasonFromResponse({ raw: { stop_reason: 'max_tokens' } })).toBe('max_tokens');
+  });
+});
+
+describe('extractDeclaredToolTimeoutMs', () => {
+  it('reads timeout, timeout_ms, and timeoutMs keys', () => {
+    expect(extractDeclaredToolTimeoutMs({ timeout: 1_200_000 })).toBe(1_200_000);
+    expect(extractDeclaredToolTimeoutMs({ timeout_ms: 60_000 })).toBe(60_000);
+    expect(extractDeclaredToolTimeoutMs({ timeoutMs: 90_000 })).toBe(90_000);
+  });
+
+  it('returns undefined for missing, non-numeric, zero/negative, or absurd values', () => {
+    expect(extractDeclaredToolTimeoutMs(undefined)).toBeUndefined();
+    expect(extractDeclaredToolTimeoutMs({})).toBeUndefined();
+    expect(extractDeclaredToolTimeoutMs({ command: 'npm test' })).toBeUndefined();
+    expect(extractDeclaredToolTimeoutMs({ timeout: '60000' })).toBeUndefined();
+    expect(extractDeclaredToolTimeoutMs({ timeout: 0 })).toBeUndefined();
+    expect(extractDeclaredToolTimeoutMs({ timeout: -1 })).toBeUndefined();
+    expect(extractDeclaredToolTimeoutMs({ timeout: Number.NaN })).toBeUndefined();
+    expect(extractDeclaredToolTimeoutMs({ timeout: MAX_DECLARED_TOOL_TIMEOUT_MS + 1 })).toBeUndefined();
+  });
+
+  it('accepts a declared timeout right at the sanity ceiling', () => {
+    expect(extractDeclaredToolTimeoutMs({ timeout: MAX_DECLARED_TOOL_TIMEOUT_MS })).toBe(MAX_DECLARED_TOOL_TIMEOUT_MS);
+  });
+});
+
+describe('createToolTimeoutWatchdogWidener', () => {
+  function toolUse(id: string, input: Record<string, unknown>): LoopInvocationActivity {
+    return { kind: 'tool_use', message: `Using tool: ${id}`, detail: { id, name: 'Bash', input } };
+  }
+  function toolResult(id: string): LoopInvocationActivity {
+    return { kind: 'tool_result', message: `Tool result: ${id}`, detail: { id, success: true } };
+  }
+
+  it('does not call applyTimeoutMs when no tool declares a timeout (byte-identical to today)', () => {
+    const applyTimeoutMs = vi.fn();
+    const widener = createToolTimeoutWatchdogWidener({ baseTimeoutMs: 90_000, applyTimeoutMs });
+
+    widener.onToolUse(toolUse('bash-1', { command: 'npm test' }));
+    widener.onToolResult(toolResult('bash-1'));
+    widener.onIterationSettled();
+
+    expect(applyTimeoutMs).not.toHaveBeenCalled();
+  });
+
+  it('widens to max(base, declared + grace) for a long declared build and does not false-kill it', () => {
+    const applyTimeoutMs = vi.fn();
+    const widener = createToolTimeoutWatchdogWidener({ baseTimeoutMs: 90_000, applyTimeoutMs });
+
+    // A 20-minute declared build timeout.
+    widener.onToolUse(toolUse('build-1', { command: 'make', timeout: 20 * 60 * 1000 }));
+
+    expect(applyTimeoutMs).toHaveBeenCalledTimes(1);
+    expect(applyTimeoutMs).toHaveBeenCalledWith(20 * 60 * 1000 + DECLARED_TOOL_TIMEOUT_GRACE_MS);
+  });
+
+  it('reverts to the base threshold once the tool settles via tool_result', () => {
+    const applyTimeoutMs = vi.fn();
+    const widener = createToolTimeoutWatchdogWidener({ baseTimeoutMs: 90_000, applyTimeoutMs });
+
+    widener.onToolUse(toolUse('build-1', { timeout: 20 * 60 * 1000 }));
+    widener.onToolResult(toolResult('build-1'));
+
+    expect(applyTimeoutMs).toHaveBeenCalledTimes(2);
+    expect(applyTimeoutMs).toHaveBeenLastCalledWith(90_000);
+  });
+
+  it('reverts via onIterationSettled when a tool_result never arrives (unresolved tool call)', () => {
+    const applyTimeoutMs = vi.fn();
+    const widener = createToolTimeoutWatchdogWidener({ baseTimeoutMs: 90_000, applyTimeoutMs });
+
+    widener.onToolUse(toolUse('build-1', { timeout: 20 * 60 * 1000 }));
+    widener.onIterationSettled();
+
+    expect(applyTimeoutMs).toHaveBeenCalledTimes(2);
+    expect(applyTimeoutMs).toHaveBeenLastCalledWith(90_000);
+  });
+
+  it('never widens below the existing base ceiling (short declared timeout)', () => {
+    const applyTimeoutMs = vi.fn();
+    const widener = createToolTimeoutWatchdogWidener({ baseTimeoutMs: 90_000, applyTimeoutMs });
+
+    // A 5s declared timeout is well under the existing 90s base ceiling.
+    widener.onToolUse(toolUse('quick-1', { timeout: 5_000 }));
+
+    expect(applyTimeoutMs).not.toHaveBeenCalled();
+  });
+
+  it('keeps the widened threshold while multiple declared-timeout tools overlap', () => {
+    const applyTimeoutMs = vi.fn();
+    const widener = createToolTimeoutWatchdogWidener({ baseTimeoutMs: 90_000, applyTimeoutMs });
+
+    widener.onToolUse(toolUse('build-1', { timeout: 10 * 60 * 1000 }));
+    widener.onToolUse(toolUse('build-2', { timeout: 20 * 60 * 1000 }));
+    applyTimeoutMs.mockClear();
+
+    // The shorter of the two settles first — threshold must stay widened for build-2.
+    widener.onToolResult(toolResult('build-1'));
+    expect(applyTimeoutMs).not.toHaveBeenCalled();
+
+    widener.onToolResult(toolResult('build-2'));
+    expect(applyTimeoutMs).toHaveBeenCalledWith(90_000);
+  });
+
+  it('falls back to the oldest in-flight call when tool_result omits an id', () => {
+    const applyTimeoutMs = vi.fn();
+    const widener = createToolTimeoutWatchdogWidener({ baseTimeoutMs: 90_000, applyTimeoutMs });
+
+    widener.onToolUse(toolUse('build-1', { timeout: 20 * 60 * 1000 }));
+    widener.onToolResult({ kind: 'tool_result', message: 'Tool result', detail: { success: true } });
+
+    expect(applyTimeoutMs).toHaveBeenLastCalledWith(90_000);
   });
 });
 

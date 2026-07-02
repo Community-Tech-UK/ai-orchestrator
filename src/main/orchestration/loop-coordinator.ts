@@ -13,7 +13,6 @@ import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import {
   defaultCrossModelReviewConfig,
-  defaultSemanticProgressConfig,
   type LoopConfig,
   type LoopFinalAuditResult,
   type LoopIteration,
@@ -66,6 +65,7 @@ import {
   applyVerifyOutcomeToIteration,
   buildOperatorReviewPauseMessages,
   completedPlanWatchDirs,
+  confirmLoopStablyStopped,
   excerpt,
   jaccard,
   selectedVerifyFailureKind,
@@ -94,16 +94,19 @@ import {
   type FreshEyesReviewer,
 } from './loop-fresh-eyes-reviewer';
 import {
+  applySemanticProgressModifier,
   defaultSemanticProgressReviewer,
-  findPreviousSemanticResult,
-  reconcileSemanticVerdict,
-  shouldRunSemanticCheck,
   type LoopSemanticProgressReviewer,
 } from './loop-semantic-progress';
 import {
   defaultCleanReviewClassifier,
   type LoopCleanReviewClassifier,
 } from './loop-clean-review-classifier';
+import { enforceReviewBackEdgeAction } from './loop-review-backedge';
+import {
+  buildEnvelopeRewrapCorrection,
+  detectMalformedCompletionEnvelope,
+} from './loop-envelope-rewrap';
 import {
   defaultBranchSelector,
   type LoopBranchSelector,
@@ -162,6 +165,7 @@ import type { PingPongReviewer } from './agentic-pingpong-reviewer';
 import type { PingPongSubject } from '../../shared/types/loop-pingpong.types';
 import {
   applyLoopPlanRegenerationOnStall,
+  buildCapWrapUpDirective,
   captureLoopOutstanding,
   canRegenerateLoopPlanOnStall,
   checkLoopHardCaps,
@@ -183,6 +187,7 @@ import {
 import {
   isActiveLoopRuntimeState,
   isParkedLoopRuntimeState,
+  isStickyWaitingForInput,
   isTerminalLoopRuntimeState,
   isTerminalLoopRuntimeStatus,
 } from './loop-runtime-status';
@@ -199,8 +204,8 @@ import type { LongRunResourceDecision } from '../runtime/long-run-resource-gover
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
 import { LoopPingPongReviewAbortRegistry } from './loop-pingpong-review-abort';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
-import { getLoopStore } from './loop-store';
 import { routeClassifiedLoopInvocationFailure } from './loop-invocation-error-routing';
+import { cleanupLoopWorktreeAfterTerminate } from './loop-worktree-termination-cleanup';
 export { computeWorkHash } from './loop-work-hash';
 export type {
   FreshEyesFinding,
@@ -386,6 +391,10 @@ export class LoopCoordinator extends EventEmitter {
 
   /** Current model downshift override, keyed by loopRunId. */
   private downshiftModelByLoop = new Map<string, string>();
+  /** D2 (#6 interim): loops that already ran their single cap wrap-up iteration. */
+  private capWrapUpRuns = new Map<string, 'iterations' | 'wall-time' | 'tokens' | 'cost'>();
+  /** D4 (#28): per-run count of malformed-envelope corrections issued. */
+  private envelopeRewraps = new Map<string, number>();
   private scheduledWakeups = new Map<string, ScheduledWakeup>();
 
   /** Override the quota snapshot source (production wiring / tests). */
@@ -1240,6 +1249,8 @@ export class LoopCoordinator extends EventEmitter {
     // A manual resume supersedes any pending provider-limit auto-resume timer.
     this.providerLimitHandler.clearResumeTimer(loopRunId);
     state.status = 'running';
+    // A3 (#29): no longer waiting on input once the operator resumes.
+    state.pausedForInput = false;
     const gate = this.pauseGates.get(loopRunId);
     if (gate) {
       gate.resolve();
@@ -1360,7 +1371,29 @@ export class LoopCoordinator extends EventEmitter {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+    // A2 (#18): verify-the-abort. Cleanup resolving is a claim, not proof —
+    // confirm the child actually went quiet, and escalate a zombie turn
+    // (activity arriving after terminate) to a hard adapter cleanup.
+    await this.confirmStablyStopped(loopRunId);
+    this.emit('loop:cancel-confirmed', { loopRunId });
     return true;
+  }
+
+  /** A2 (#18): see `confirmLoopStablyStopped` in loop-coordinator-utils.ts. */
+  private async confirmStablyStopped(loopRunId: string): Promise<void> {
+    await confirmLoopStablyStopped({
+      loopRunId,
+      hasAdapterCleanupHook: this.adapterCleanupHook !== null,
+      inFlight: this.active.get(loopRunId)?.inFlightIteration !== undefined,
+      subscribeActivity: (listener) => {
+        this.on('loop:activity', listener);
+        return () => this.off('loop:activity', listener);
+      },
+      escalate: async () => {
+        await this.adapterCleanupHook?.(loopRunId);
+      },
+      warn: (message, meta) => logger.warn(message, meta),
+    });
   }
 
   /**
@@ -1583,9 +1616,28 @@ export class LoopCoordinator extends EventEmitter {
       const capHit = checkLoopHardCaps(state);
       if (capHit) {
         const reason = describeLoopCapReason(state, capHit, this.convergenceNotes.get(state.id));
-        this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit, reason });
-        this.terminate(state, 'cap-reached', reason);
-        return;
+        // D2 (#6, prompt-only interim): before terminating on a cap, run ONE
+        // final wrap-up iteration with a strong "summarize, do not start new
+        // work" directive so the run ends with a structured hand-off instead
+        // of an abrupt mid-action cut. Guarded to exactly one wrap-up per run.
+        const wrapUpEnabled = state.config.caps.capWrapUpIteration ?? true;
+        if (wrapUpEnabled && !this.capWrapUpRuns.has(state.id) && state.status === 'running') {
+          this.capWrapUpRuns.set(state.id, capHit);
+          state.pendingInterventions.push(
+            createLoopPendingInput(buildCapWrapUpDirective(capHit, reason), { source: 'cap-wrap-up' }),
+          );
+          this.emit('loop:cap-wrap-up', { loopRunId: state.id, cap: capHit, reason });
+          logger.info('Loop cap reached — running one final wrap-up iteration', {
+            loopRunId: state.id,
+            cap: capHit,
+          });
+          // fall through: spawn the single wrap-up iteration; the next pass
+          // re-detects the cap and terminates.
+        } else {
+          this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit, reason });
+          this.terminate(state, 'cap-reached', reason);
+          return;
+        }
       }
 
       // -- usage-aware throttle (preventive) --
@@ -1695,6 +1747,9 @@ export class LoopCoordinator extends EventEmitter {
           failedProbeDetail = probe.detail;
         }
         state.status = 'paused';
+        // A3 (#29): this pause is *waiting for operator input*, not a stall —
+        // sticky state exempt from idle/stall kills until resumed.
+        state.pausedForInput = true;
         const signal: ProgressSignalEvidence = {
           id: 'BLOCKED',
           verdict: 'CRITICAL',
@@ -1748,7 +1803,12 @@ export class LoopCoordinator extends EventEmitter {
       // review-driven loops converge by going quiet (no changes + clean review),
       // which the structural no-progress detector would mistake for a stall. The
       // clean-pass counter + hard caps bound these runs instead.
-      const block = reviewDriven ? null : this.progressDetector.shouldRefuseToSpawnNext(state, history);
+      // A3 (#29): a loop waiting on (or just handed) operator input is a
+      // sticky state — the stall kill switch must not fire before the loop
+      // gets an iteration to act on that input.
+      const block = reviewDriven || isStickyWaitingForInput(state)
+        ? null
+        : this.progressDetector.shouldRefuseToSpawnNext(state, history);
       if (block) {
         // LF-4: when disposable-plan regeneration is enabled and budget remains,
         // bypass the kill switch (spawn an iteration so the post-iteration
@@ -2128,74 +2188,21 @@ export class LoopCoordinator extends EventEmitter {
       iteration.progressSignals = evaluation.signals;
 
       // -- LF-2: semantic progress signal (escalation modifier; default OFF) --
-      // A cheap model check that confirms/softens the structural verdict. It is
-      // cadence-gated, requires two consecutive confident checks to flip a
-      // verdict, and is NEVER a sole stop/continue authority. Runs BEFORE the
-      // WARN-tracking and CRITICAL-pause below so any flip propagates downstream.
-      const semCfg = state.config.semanticProgress ?? defaultSemanticProgressConfig();
-      if (
-        shouldRunSemanticCheck({
-          enabled: semCfg.enabled,
-          structuralVerdict: evaluation.verdict,
-          seq,
-          cadence: semCfg.cadence,
-        })
-      ) {
-        try {
-          // LF-2: ground the reviewer in the loop's declared remaining work
-          // (NOTES.md tail — the completion inventory + recent summaries) so it
-          // compares against intent, not just the raw diff. Best-effort.
-          let progressContext: string | undefined;
-          try {
-            const notes = await stageMachine.readNotes();
-            if (notes.trim()) progressContext = notes.slice(-2000);
-          } catch { /* notes unreadable — reviewer still runs without grounding */ }
-          const semantic = await this.semanticProgressReviewer({
-            goal: state.config.initialPrompt,
-            workspaceCwd: state.config.workspaceCwd,
-            filesChangedThisIteration: iteration.filesChanged.map((f) => f.path),
-            iterationOutput: iteration.outputExcerpt,
-            progressContext,
-            config: semCfg,
-          });
-          iteration.semanticProgress = semantic;
-          const reconciled = reconcileSemanticVerdict({
-            structuralVerdict: evaluation.verdict,
-            structuralSignals: evaluation.signals,
-            current: semantic,
-            previous: findPreviousSemanticResult(history),
-            confidenceFloor: semCfg.confidenceFloor,
-          });
-          if (reconciled.changed) {
-            logger.info('Loop semantic-progress modifier applied', {
-              loopRunId: state.id,
-              seq,
-              from: evaluation.verdict,
-              to: reconciled.verdict,
-              advanced: semantic.advanced,
-              confidence: semantic.confidence,
-              reason: reconciled.reason,
-            });
-            this.emit('loop:semantic-progress', {
-              loopRunId: state.id,
-              seq,
-              advanced: semantic.advanced,
-              confidence: semantic.confidence,
-              from: evaluation.verdict,
-              to: reconciled.verdict,
-              reason: reconciled.reason,
-            });
-            evaluation.verdict = reconciled.verdict;
-            iteration.progressVerdict = reconciled.verdict;
-          }
-        } catch (err) {
-          logger.warn('Semantic progress check failed; leaving structural verdict unchanged', {
-            loopRunId: state.id,
-            seq,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      // Cadence-gated model check that confirms/softens the structural verdict
+      // (mutates evaluation.verdict/iteration.progressVerdict on a confirmed
+      // flip). Runs BEFORE the WARN-tracking and CRITICAL-pause below so any
+      // flip propagates downstream. See loop-semantic-progress.ts.
+      await applySemanticProgressModifier({
+        state,
+        iteration,
+        evaluation,
+        seq,
+        history,
+        reviewer: this.semanticProgressReviewer,
+        readNotes: () => stageMachine.readNotes(),
+        emit: (eventName, payload) => this.emit(eventName, payload),
+        log: logger,
+      });
 
       if (evaluation.verdict === 'WARN') {
         state.recentWarnIterationSeqs.push(seq);
@@ -2250,6 +2257,9 @@ export class LoopCoordinator extends EventEmitter {
       // review-driven terminal decision (computed below, acted on after the
       // iteration is logged so the converging iteration still lands in history).
       let reviewDrivenTerminal: { status: 'completed' | 'completed-needs-review'; reason: string } | null = null;
+      // F2 (#22): the fresh-eyes gate outcome for THIS iteration, when a
+      // completion attempt ran it. Feeds the REVIEW→PLAN back-edge veto below.
+      let freshEyesGateForBackEdge: FreshEyesGateResult | null = null;
       // Ping-pong terminal decision (broad LoopStatus — can carry the new
       // arbitration / unreliable / cost-exceeded terminals).
       let pingPongTerminal: PingPongTerminal | null = null;
@@ -2337,6 +2347,7 @@ export class LoopCoordinator extends EventEmitter {
           freshEyesRan = review.ran;
           freshEyesBlockingCount = review.blocked ? 1 : 0;
           freshEyesErrored = review.errored;
+          freshEyesGateForBackEdge = review;
         }
 
         const finalAudit = await runLoopFinalAudit(state, iteration, v2.status, stageMachine);
@@ -2649,6 +2660,44 @@ export class LoopCoordinator extends EventEmitter {
         || pauseBecauseCompletionCannotBeVerified,
       );
       if (!completionWillStopOrPause && state.status === 'running') maybeQueueAnnounceThenHaltContinuation(state, iteration);
+      // D4 (#28): self-correcting output-envelope re-wrap. A near-miss
+      // completion marker (unclosed/misspelled/paraphrased promise) means the
+      // agent believes it declared done but no parser saw it — queue a
+      // one-shot correction so the next iteration can stop cleanly. Bounded
+      // by maxCompletionAttempts per run; gated mode only (review-driven and
+      // ping-pong converge on their own phrases, not the promise envelope).
+      if (
+        !completionWillStopOrPause &&
+        state.status === 'running' &&
+        !reviewDriven &&
+        !pingPongEnabled &&
+        !this.completionDetector.hasSufficientSignal(completionSignals)
+      ) {
+        const rewraps = this.envelopeRewraps.get(state.id) ?? 0;
+        if (rewraps < (state.config.caps.maxCompletionAttempts ?? 3)) {
+          const detection = detectMalformedCompletionEnvelope(
+            childResult.output,
+            state.config.completion.donePromiseRegex,
+          );
+          if (detection.malformed) {
+            this.envelopeRewraps.set(state.id, rewraps + 1);
+            state.pendingInterventions.push(
+              createLoopPendingInput(buildEnvelopeRewrapCorrection(detection.excerpt ?? '')),
+            );
+            this.emit('loop:envelope-rewrap', {
+              loopRunId: state.id,
+              seq,
+              excerpt: detection.excerpt,
+              attempt: rewraps + 1,
+            });
+            logger.info('Loop malformed completion envelope — one-shot correction queued', {
+              loopRunId: state.id,
+              seq,
+              excerpt: detection.excerpt,
+            });
+          }
+        }
+      }
       if (!completionWillStopOrPause && state.status === 'running') {
         // B5a rehydration must fire whenever a context reset happened, even if
         // the operator/reviewer already queued interventions — surviving the
@@ -2656,6 +2705,20 @@ export class LoopCoordinator extends EventEmitter {
         // non-empty queue (suppressNudge), preserving the old "don't pile
         // automated nudges on active steering" behaviour.
         await applyLoopContextSurvivalDecision({ manager: this.contextSurvivalManager, state, iteration, childResult, pendingContextReset: this.pendingContextReset, emit: (eventName, payload) => this.emit(eventName, payload), suppressNudge: state.pendingInterventions.length > 0 });
+      }
+
+      // F2 (#22): coordinator-enforced REVIEW→PLAN back-edge. Only for
+      // gated-mode loops (review-driven and ping-pong have their own
+      // convergence machinery) that just ran a REVIEW iteration and are
+      // continuing. Agent proposes stage transitions; coordinator disposes.
+      if (
+        !completionWillStopOrPause &&
+        state.status === 'running' &&
+        !reviewDriven &&
+        !pingPongEnabled &&
+        stage === 'REVIEW'
+      ) {
+        await this.enforceReviewBackEdge(state, iteration, stageMachine, freshEyesGateForBackEdge, seq);
       }
       for (const hook of this.iterationHooks) {
         try { await hook({ state, iteration }); } catch (err) {
@@ -2948,13 +3011,10 @@ export class LoopCoordinator extends EventEmitter {
       // verify passes the loop is converging, not stuck; the rename-gate budget
       // above bounds any genuine oscillation. So only pause for no-progress
       // when this iteration did NOT pass verify.
-      //
-      // review-driven loops are EXEMPT: their convergence is precisely "stops
-      // changing things", which the structural detector reads as a stall. The
-      // clean-pass counter handles done-detection and the hard caps bound
-      // runaway churn, so a no-progress pause here would just block the very
-      // signal we want.
-      if (!reviewDriven && evaluation.verdict === 'CRITICAL' && iteration.verifyStatus !== 'passed') {
+      // Review-driven loops and cap wrap-up turns are exempt: both must be
+      // allowed to reach their own terminal decision path instead of pausing.
+      const suppressNoProgressForCapWrapUp = this.capWrapUpRuns.has(state.id) && checkLoopHardCaps(state) !== null;
+      if (!reviewDriven && !suppressNoProgressForCapWrapUp && evaluation.verdict === 'CRITICAL' && iteration.verifyStatus !== 'passed') {
         // -- LF-5: branch-and-select before pausing (opt-in, default off) --
         // When exploration is enabled and a cost cap is set, fan out candidate
         // iterations, verify + select the best, and adopt the winner instead of
@@ -3023,9 +3083,10 @@ export class LoopCoordinator extends EventEmitter {
         logger.info('Loop paused — no-progress CRITICAL', { loopRunId: state.id, signal: primary });
         // loop continues after user resumes/cancels
       } else if (!reviewDriven && evaluation.verdict === 'CRITICAL') {
-        logger.info('Suppressed no-progress pause — iteration verify passed (converging, not stuck)', {
+        logger.info('Suppressed no-progress pause', {
           loopRunId: state.id,
           seq,
+          reason: suppressNoProgressForCapWrapUp ? 'cap-wrap-up' : 'verify-passed',
         });
       }
 
@@ -3139,6 +3200,29 @@ export class LoopCoordinator extends EventEmitter {
       iteration,
       verifyOutput,
       reviewer: this.freshEyesReviewer,
+      emit: (eventName, payload) => this.emit(eventName, payload),
+      setConvergenceNote: (note) => this.convergenceNotes.set(state.id, note),
+    });
+  }
+
+  /**
+   * F2 (#22): coordinator-enforced REVIEW→PLAN back-edge. See
+   * `loop-review-backedge.ts` for the veto derivation and application.
+   */
+  private async enforceReviewBackEdge(
+    state: LoopState,
+    iteration: LoopIteration,
+    stageMachine: LoopStageMachine,
+    freshEyesGate: FreshEyesGateResult | null,
+    seq: number,
+  ): Promise<void> {
+    await enforceReviewBackEdgeAction({
+      state,
+      iteration,
+      stageMachine,
+      freshEyesGate,
+      seq,
+      classifyCleanReview: this.cleanReviewClassifier,
       emit: (eventName, payload) => this.emit(eventName, payload),
       setConvergenceNote: (note) => this.convergenceNotes.set(state.id, note),
     });
@@ -3294,6 +3378,9 @@ export class LoopCoordinator extends EventEmitter {
 
   private async pauseForBlockIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
     const loopControl = this.loopControls.get(state.id);
+    // A3 (#29): a block-intent pause is waiting for operator input — sticky
+    // state exempt from idle/stall kills until resumed.
+    state.pausedForInput = true;
     await pauseForBlockIntentAction({
       state,
       intent,
@@ -3338,6 +3425,8 @@ export class LoopCoordinator extends EventEmitter {
     this.providerLimitHandler.clearResumeTimer(state.id);
     this.pingPongReviewAborts.abortTerminal(state.id, reason ?? status);
     this.downshiftModelByLoop.delete(state.id);
+    this.capWrapUpRuns.delete(state.id);
+    this.envelopeRewraps.delete(state.id);
     this.scheduledWakeups.delete(state.id);
     state.status = status;
     state.inFlightIteration = undefined;
@@ -3382,104 +3471,12 @@ export class LoopCoordinator extends EventEmitter {
     // Fire-and-forget (best-effort): worktree cleanup never blocks termination.
     const worktreeSessionId = this.worktreeSessionIds.get(state.id);
     this.worktreeSessionIds.delete(state.id);
-    if (worktreeSessionId) {
-      void (async () => {
-        try {
-          const worktreeManager = getWorktreeManager();
-          const isSuccess = status === 'completed' || status === 'completed-needs-review';
-          // Yield to the synchronous caller so it can register the adapter cleanup
-          // hook and store its promise in terminalCleanupPromises before we proceed.
-          // Without this yield the promise map is empty when we look it up below.
-          await Promise.resolve();
-          // Wait for the adapter (CLI child) to fully stop BEFORE harvesting.
-          // Decision C ordering: stop child → harvest → reap. If we harvest while
-          // the child is still alive it can write files after our commit snapshot,
-          // and those post-harvest writes would be silently deleted by cleanup.
-          const adapterDonePromise = this.terminalCleanupPromises.get(state.id);
-          if (adapterDonePromise) {
-            try {
-              await adapterDonePromise;
-            } catch {
-              // Adapter cleanup errors are already logged; proceed to harvest.
-            }
-          }
-          // Now harvest: commit any uncommitted agent work to the session branch so
-          // the branch is durable and reachable after the worktree is reaped.
-          // harvestWorktree is a no-op when there's nothing to commit.
-          const harvestResult = await worktreeManager.harvestWorktree(worktreeSessionId);
-          if (!harvestResult.committed && harvestResult.hasUncommittedWork) {
-            // Harvest failed but there is uncommitted agent work. Skip forced
-            // removal to avoid data loss — the worktree stays on disk for manual
-            // inspection. The next boot reconcile will see this as an orphan and
-            // can reap it after the operator has reviewed/retrieved the work.
-            logger.error('Loop terminate: harvest failed with uncommitted work — skipping worktree removal to preserve agent output', undefined, {
-              loopRunId: state.id,
-              worktreeSessionId,
-              status,
-            });
-            return;
-          }
-          // Auto-integration (Decision C): on terminal-success, merge the
-          // harvested session branch into the shared integration branch via a
-          // dedicated integration worktree (never the root checkout). On conflict
-          // the session branch + integration branch are left untouched for manual
-          // resolution; the worktree dir is still reaped below since the work is
-          // safely committed on the session branch.
-          if (isSuccess && state.config.autoIntegrateWorktree !== false) {
-            try {
-              const integration = await worktreeManager.integrateWorktree(worktreeSessionId, {
-                advanceBaseIfUnchecked: true,
-              });
-              if (integration.success) {
-                logger.info('Loop terminate: auto-integrated session branch', {
-                  loopRunId: state.id,
-                  worktreeSessionId,
-                  integrationBranch: integration.integrationBranch,
-                  mergeCommit: integration.mergeCommit,
-                  alreadyIntegrated: integration.alreadyIntegrated ?? false,
-                  baseAdvanced: integration.baseAdvanced ?? false,
-                });
-              } else {
-                logger.warn('Loop terminate: auto-integration conflict — session branch preserved for manual resolution', {
-                  loopRunId: state.id,
-                  worktreeSessionId,
-                  integrationBranch: integration.integrationBranch,
-                  conflictFiles: integration.conflictFiles,
-                });
-              }
-            } catch (integErr) {
-              logger.warn('Loop terminate: auto-integration failed (best-effort)', {
-                loopRunId: state.id,
-                worktreeSessionId,
-                error: integErr instanceof Error ? integErr.message : String(integErr),
-              });
-            }
-          }
-          if (!isSuccess) {
-            // Non-success: mark abandoned so the branch is kept (not deleted on
-            // cleanup) and callers know this worktree was not cleanly completed.
-            await worktreeManager.abandonWorktree(worktreeSessionId, `loop-${status}`);
-          }
-          // Do NOT use { force: true }. On the success path the harvest above
-          // already committed all changes so the worktree is clean; cleanupWorktree
-          // will verify this and fail loudly if somehow it is not. On the non-success
-          // path abandonWorktree set session.status = 'abandoned', which cleanupWorktree
-          // treats as pre-cleared. Neither path needs force — and using force on the
-          // success path would bypass the refuse-dirty guard that is P4's safety contract.
-          await worktreeManager.cleanupWorktree(worktreeSessionId);
-          // Clear the DB registry columns so the next boot reconcile does not
-          // try to reap a worktree that is already gone.
-          try { getLoopStore().clearWorktreeInfo(state.id); } catch { /* best-effort */ }
-          logger.info('Loop terminate: worktree cleaned up', { loopRunId: state.id, worktreeSessionId, status });
-        } catch (err) {
-          logger.warn('Loop terminate: worktree cleanup failed (best-effort)', {
-            loopRunId: state.id,
-            worktreeSessionId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      })();
-    }
+    cleanupLoopWorktreeAfterTerminate({
+      state,
+      status,
+      worktreeSessionId,
+      terminalCleanupPromises: this.terminalCleanupPromises,
+    });
     // A4: drop this run's evidence journal so the table stays compact. Evidence
     // is per-loop-run and only consumed within the run (contradiction
     // detection); a terminated run never resumes under the same id. Fail-soft.

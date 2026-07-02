@@ -44,20 +44,39 @@ function isPlainObject(value: object): boolean {
 }
 
 export function sanitizeProviderText<T>(value: T): T {
+  return sanitizeValue(value, new WeakMap()) as T;
+}
+
+/**
+ * Recursive worker with a seen-map so shared references stay shared and
+ * circular structures cannot recurse forever (each visited container maps to
+ * its sanitized copy before children are walked).
+ */
+function sanitizeValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
   if (typeof value === 'string') {
-    return stripLoneSurrogates(value) as T;
+    return stripLoneSurrogates(value);
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeProviderText(item)) as T;
+    const existing = seen.get(value);
+    if (existing !== undefined) return existing;
+    const sanitized: unknown[] = [];
+    seen.set(value, sanitized);
+    for (const item of value) {
+      sanitized.push(sanitizeValue(item, seen));
+    }
+    return sanitized;
   }
 
   if (value !== null && typeof value === 'object' && isPlainObject(value)) {
+    const existing = seen.get(value);
+    if (existing !== undefined) return existing;
     const sanitized: Record<string, unknown> = {};
+    seen.set(value, sanitized);
     for (const [key, entry] of Object.entries(value)) {
-      sanitized[key] = sanitizeProviderText(entry);
+      sanitized[key] = sanitizeValue(entry, seen);
     }
-    return sanitized as T;
+    return sanitized;
   }
 
   return value;

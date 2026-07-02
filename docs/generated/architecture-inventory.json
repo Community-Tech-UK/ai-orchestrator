@@ -5140,7 +5140,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3547
+      "lines": 3544
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
@@ -5219,12 +5219,12 @@
       "lines": 2288
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2234
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 2236
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 2188
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2234
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
@@ -5299,12 +5299,12 @@
       "lines": 1720
     },
     {
-      "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
-      "lines": 1635
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1636
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1616
+      "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
+      "lines": 1635
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
@@ -5327,6 +5327,10 @@
       "lines": 1540
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1521
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
       "lines": 1517
     },
@@ -5341,10 +5345,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1459
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
@@ -5743,6 +5743,10 @@
       "lines": 932
     },
     {
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 930
+    },
+    {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 925
     },
@@ -5755,12 +5759,8 @@
       "lines": 924
     },
     {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 917
-    },
-    {
-      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
-      "lines": 913
+      "path": "src/main/context/context-compactor.ts",
+      "lines": 909
     },
     {
       "path": "src/main/history/history-manager.spec.ts",
@@ -5777,10 +5777,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency.md",
       "lines": 897
-    },
-    {
-      "path": "src/main/context/context-compactor.ts",
-      "lines": 895
     },
     {
       "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
@@ -5875,6 +5871,10 @@
       "lines": 850
     },
     {
+      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
+      "lines": 849
+    },
+    {
       "path": "src/main/orchestration/embedding-service.ts",
       "lines": 845
     },
@@ -5936,7 +5936,7 @@
     },
     {
       "path": "src/main/app/initialization-steps.ts",
-      "lines": 812
+      "lines": 814
     },
     {
       "path": "interrupt-resume-recovery-plan_completed.md",

@@ -73,7 +73,8 @@ export type LoopPendingInputSource =
   | 'context-survival'
   | 'announce-then-halt'
   | 'subagent-result'
-  | 'wakeup';
+  | 'wakeup'
+  | 'cap-wrap-up';
 
 export interface LoopPendingInput {
   id: string;
@@ -345,6 +346,21 @@ export interface LoopState {
   repeatedEvidenceCount?: number;
   consecutiveCleanReviewPasses?: number;
   reviewDrivenStallIterations?: number;
+  /**
+   * F2 (#22): count of coordinator-enforced REVIEW→PLAN back-edges this run.
+   * Incremented every time the post-REVIEW 3-field veto fires (whether or not
+   * the coordinator had to overwrite STAGE.md itself); bounded by
+   * `completion.maxReviewCycles` so review thrash converges. Dedicated counter,
+   * deliberately separate from the global caps.
+   */
+  reviewCycles?: number;
+  /**
+   * A3 (#29): true when the loop is paused *because it is blocked on input*
+   * (BLOCKED.md handshake or a terminal `block` intent) rather than stalled.
+   * A sticky waiting state: idle/stall watchdogs must not count it toward a
+   * kill. Cleared when the operator resumes the loop.
+   */
+  pausedForInput?: boolean;
   /**
    * Lowest `LOOP_TASKS.md` open-item count observed so far this run (undefined
    * until the first ledger reading). "Net ledger progress" = reaching a new low.

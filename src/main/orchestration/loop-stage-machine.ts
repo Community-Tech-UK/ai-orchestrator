@@ -173,6 +173,16 @@ export class LoopStageMachine {
     }
   }
 
+  /**
+   * F2 (#22): coordinator-authoritative STAGE.md write. Used by the enforced
+   * REVIEW→PLAN back-edge — the agent *proposes* stage transitions by writing
+   * the file itself; the coordinator *disposes* by overwriting it when the
+   * post-review veto fires.
+   */
+  async writeStage(stage: LoopStage): Promise<void> {
+    await fsp.writeFile(this.paths.stage, `${stage}\n`, 'utf8');
+  }
+
   /** Read PLAN.md (the user's plan file the loop is driving). */
   async readPlan(config: LoopConfig): Promise<string | null> {
     if (!config.planFile) return null;
@@ -449,7 +459,7 @@ export class LoopStageMachine {
     4. Append \`<promise>DONE</promise>\` on its own line at the end of your output, only after \`${reportRel}\` and \`${doneRel}\` both exist.`
       : `If the work for the current STAGE is complete:
 - PLAN done → write \`REVIEW\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.**
-- REVIEW done → write \`IMPLEMENT\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.**
+- REVIEW done → write \`IMPLEMENT\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.** If your review found blocking issues, write \`PLAN\` instead — you propose stage transitions, but the coordinator independently classifies review output and will overwrite \`${stageRel}\` back to \`PLAN\` (bounded by its review-cycle cap) when blocking issues are detected.
 - IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into \`${stageRel}\` (loop back through review).
 - IMPLEMENT done **and the plan or completion inventory is fully implemented & verified** →
     1. Confirm there are no open items: every \`${tasksRel}\` ledger item is \`[x]\` (done) or \`[-]\` (deferred with a reason), no unchecked plan items, and no unchecked \`${notesRel}\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope (deferring it in the ledger with a reason).

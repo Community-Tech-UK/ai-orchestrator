@@ -19,6 +19,7 @@ import {
 import type {
   FreshEyesReviewer,
   FreshEyesReviewerResult,
+  FreshEyesSeverity,
 } from './loop-fresh-eyes-reviewer';
 import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
 import type { LoopStageMachine } from './loop-stage-machine';
@@ -40,6 +41,12 @@ export interface FreshEyesGateResult {
   ran: boolean;
   /** The reviewer threw / infrastructure was unavailable. */
   errored: boolean;
+  /**
+   * F2 (#22): distinct severities among the blocking findings (worst-first,
+   * only set when `blocked`). Feeds the REVIEW→PLAN back-edge veto's
+   * `architecturalStatus` field.
+   */
+  blockingSeverities?: FreshEyesSeverity[];
 }
 
 export async function evaluateReviewDrivenCompletion(args: {
@@ -327,5 +334,5 @@ export async function runFreshEyesReviewGate(args: {
     blocking: ranked.length,
     severities: orderedSeverities,
   });
-  return { blocked: true, ran: true, errored: false };
+  return { blocked: true, ran: true, errored: false, blockingSeverities: orderedSeverities };
 }

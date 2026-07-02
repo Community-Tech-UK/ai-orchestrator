@@ -26,9 +26,12 @@
  *    progressing through a refactor that merely looks like churn).
  */
 
+import { defaultSemanticProgressConfig } from '../../shared/types/loop.types';
 import type {
+  LoopIteration,
   LoopSemanticProgressConfig,
   LoopSemanticProgressResult,
+  LoopState,
   LoopVerdict,
   ProgressSignalEvidence,
   ProgressSignalId,
@@ -293,4 +296,98 @@ export function findPreviousSemanticResult(
     if (sp) return sp;
   }
   return null;
+}
+
+// ============ Coordinator action ============
+
+export interface ApplySemanticProgressModifierArgs {
+  state: LoopState;
+  iteration: LoopIteration;
+  /** Structural evaluation — `verdict` is mutated in place when a flip fires. */
+  evaluation: { verdict: LoopVerdict; signals: ProgressSignalEvidence[] };
+  seq: number;
+  history: readonly { semanticProgress?: LoopSemanticProgressResult }[];
+  reviewer: LoopSemanticProgressReviewer;
+  /** NOTES.md reader for grounding context (best-effort). */
+  readNotes: () => Promise<string>;
+  emit: (eventName: string, payload: unknown) => void;
+  log: {
+    info(message: string, meta: Record<string, unknown>): void;
+    warn(message: string, meta: Record<string, unknown>): void;
+  };
+}
+
+/**
+ * LF-2 coordinator action: run the cadence-gated semantic-progress check and
+ * reconcile it against the structural verdict, mutating `evaluation.verdict`
+ * and `iteration.progressVerdict` when a confirmed flip fires. Extracted from
+ * the coordinator loop body; behavior-preserving.
+ */
+export async function applySemanticProgressModifier(args: ApplySemanticProgressModifierArgs): Promise<void> {
+  const { state, iteration, evaluation, seq, history, reviewer, readNotes, emit, log } = args;
+  const semCfg = state.config.semanticProgress ?? defaultSemanticProgressConfig();
+  if (
+    !shouldRunSemanticCheck({
+      enabled: semCfg.enabled,
+      structuralVerdict: evaluation.verdict,
+      seq,
+      cadence: semCfg.cadence,
+    })
+  ) {
+    return;
+  }
+  try {
+    // Ground the reviewer in the loop's declared remaining work (NOTES.md
+    // tail — the completion inventory + recent summaries) so it compares
+    // against intent, not just the raw diff. Best-effort.
+    let progressContext: string | undefined;
+    try {
+      const notes = await readNotes();
+      if (notes.trim()) progressContext = notes.slice(-2000);
+    } catch { /* notes unreadable — reviewer still runs without grounding */ }
+    const semantic = await reviewer({
+      goal: state.config.initialPrompt,
+      workspaceCwd: state.config.workspaceCwd,
+      filesChangedThisIteration: iteration.filesChanged.map((f) => f.path),
+      iterationOutput: iteration.outputExcerpt,
+      progressContext,
+      config: semCfg,
+    });
+    iteration.semanticProgress = semantic;
+    const reconciled = reconcileSemanticVerdict({
+      structuralVerdict: evaluation.verdict,
+      structuralSignals: evaluation.signals,
+      current: semantic,
+      previous: findPreviousSemanticResult(history),
+      confidenceFloor: semCfg.confidenceFloor,
+    });
+    if (reconciled.changed) {
+      log.info('Loop semantic-progress modifier applied', {
+        loopRunId: state.id,
+        seq,
+        from: evaluation.verdict,
+        to: reconciled.verdict,
+        advanced: semantic.advanced,
+        confidence: semantic.confidence,
+        reason: reconciled.reason,
+      });
+      emit('loop:semantic-progress', {
+        loopRunId: state.id,
+        seq,
+        advanced: semantic.advanced,
+        confidence: semantic.confidence,
+        from: evaluation.verdict,
+        to: reconciled.verdict,
+        reason: reconciled.reason,
+      });
+      evaluation.verdict = reconciled.verdict;
+      iteration.progressVerdict = reconciled.verdict;
+    }
+  } catch (err) {
+    log.warn('Semantic progress check failed; leaving structural verdict unchanged', {
+      loopRunId: state.id,
+      seq,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }

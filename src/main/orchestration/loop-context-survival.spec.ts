@@ -6,8 +6,10 @@ import { CompactionCoordinator } from '../context/compaction-coordinator';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 import {
   applyLoopContextSurvivalDecision,
+  CONTEXT_CACHE_TTL_MS,
   defaultLoopContextSurvivalManager,
   evaluatePostCompactionCanary,
+  _resetContextSurvivalIdleTrackingForTesting,
 } from './loop-context-survival';
 import { createLoopPendingInput } from '../../shared/types/loop.types';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
@@ -86,6 +88,16 @@ function makeChildResult(tokens: number): LoopChildResult {
   };
 }
 
+/** Like `makeIteration`, but with explicit start/end timestamps for B4 idle-gap tests. */
+function makeTimedIteration(
+  tokens: number,
+  startedAt: number,
+  endedAt: number,
+  seq = 0,
+): LoopIteration {
+  return { ...makeIteration(tokens), startedAt, endedAt, seq };
+}
+
 describe('evaluatePostCompactionCanary (B5)', () => {
   it('passes when the post-compaction turn produced a usable turn', () => {
     const result = evaluatePostCompactionCanary({ iterationVoid: false, workspaceAlive: false });
@@ -109,6 +121,7 @@ describe('evaluatePostCompactionCanary (B5)', () => {
 describe('defaultLoopContextSurvivalManager', () => {
   afterEach(() => {
     CompactionCoordinator._resetForTesting();
+    _resetContextSurvivalIdleTrackingForTesting();
   });
 
   it('returns a soft-floor nudge when a sufficient completion signal fires under budget', async () => {
@@ -147,6 +160,115 @@ describe('defaultLoopContextSurvivalManager', () => {
     const coordinator = CompactionCoordinator.getInstance();
     expect(coordinator.getBudgetTracker(loopA.id).getStats().continuations).toBe(1);
     expect(coordinator.getBudgetTracker(loopB.id).getStats().continuations).toBe(1);
+  });
+
+  describe('B4 (#14) idle cache-TTL trigger', () => {
+    it('does not trigger on a fresh iteration cadence (gap under the cache TTL)', async () => {
+      const state = makeState('loop-b4-fresh');
+      const t0 = 1_000_000;
+
+      await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(400, t0, t0 + 60_000, 0),
+        childResult: makeChildResult(400),
+      });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        // Next iteration starts 5 minutes after the previous one ended — well
+        // under the 60min cache TTL.
+        iteration: makeTimedIteration(400, t0 + 60_000 + 5 * 60_000, t0 + 60_000 + 6 * 60_000, 1),
+        childResult: makeChildResult(400),
+      });
+
+      expect(decision.action).toBe('none');
+      expect(decision.reason).not.toContain('cache TTL');
+    });
+
+    it('recommends the micro tier when idle exceeds the cache TTL, without forcing a reset under budget', async () => {
+      const state = makeState('loop-b4-stale');
+      const t0 = 1_000_000;
+
+      await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(400, t0, t0 + 60_000, 0),
+        childResult: makeChildResult(400),
+      });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        // Next iteration starts 90 minutes after the previous one ended —
+        // past the ~60min cache TTL — but token utilization stays tiny.
+        iteration: makeTimedIteration(
+          400,
+          t0 + 60_000 + CONTEXT_CACHE_TTL_MS + 30 * 60_000,
+          t0 + 60_000 + CONTEXT_CACHE_TTL_MS + 31 * 60_000,
+          1,
+        ),
+        childResult: makeChildResult(400),
+      });
+
+      expect(decision.action).toBe('micro');
+      expect(decision.forceContextReset).toBe(false);
+      expect(decision.reason).toContain('cache TTL');
+    });
+
+    it('composes the stale-cache micro tier with forceContextReset when utilization also meets the LF-1 reset threshold', async () => {
+      const state = makeState('loop-b4-stale-over-budget');
+      state.totalTokens = 150_000; // 75% of the 200k loop context window ≥ default 60% reset threshold.
+      const t0 = 1_000_000;
+
+      await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(400, t0, t0 + 60_000, 0),
+        childResult: makeChildResult(400),
+      });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(
+          400,
+          t0 + 60_000 + CONTEXT_CACHE_TTL_MS + 30 * 60_000,
+          t0 + 60_000 + CONTEXT_CACHE_TTL_MS + 31 * 60_000,
+          1,
+        ),
+        childResult: makeChildResult(400),
+      });
+
+      expect(decision.action).toBe('micro');
+      expect(decision.forceContextReset).toBe(true);
+      expect(decision.reason).toContain('composing with a full recycle');
+    });
+
+    it('never drives a reset for a self-managing borrowed adapter, even when idle exceeds the cache TTL', async () => {
+      const coordinator = CompactionCoordinator.getInstance();
+      // Stub the injected self-managed predicate the way compaction-runtime.ts wires it.
+      (coordinator as unknown as {
+        selfManagedAutoCompactionForInstance: (instanceId: string) => boolean;
+      }).selfManagedAutoCompactionForInstance = () => true;
+
+      const state = makeState('loop-b4-self-managed');
+      state.totalTokens = 150_000; // Would meet the reset threshold if not self-managed.
+      const t0 = 1_000_000;
+
+      await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(400, t0, t0 + 60_000, 0),
+        // Borrowed from the chat instance (transcriptBound) — the one case
+        // where `isSelfManagedAutoCompaction(state.chatId)` is meaningful.
+        childResult: { ...makeChildResult(400), transcriptBound: true },
+      });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(
+          400,
+          t0 + 60_000 + CONTEXT_CACHE_TTL_MS + 30 * 60_000,
+          t0 + 60_000 + CONTEXT_CACHE_TTL_MS + 31 * 60_000,
+          1,
+        ),
+        childResult: { ...makeChildResult(400), transcriptBound: true },
+      });
+
+      expect(decision.forceContextReset).toBe(false);
+      expect(decision.action).not.toBe('micro');
+    });
   });
 
   describe('B5a rehydration after a context reset', () => {

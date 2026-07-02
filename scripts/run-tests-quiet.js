@@ -482,7 +482,11 @@ async function main() {
     }
   }
 
-  process.exit(exitCode);
+  // Contract: the exit code must reflect real pass/fail. vitest can exit 0
+  // even when its JSON report contains failed tests (observed 2026-07-01 on
+  // the full suite); without this floor the wrapper prints failures but
+  // reports success to CI/agents.
+  process.exit(exitCode !== 0 ? exitCode : 1);
 }
 
 main().catch((err) => {

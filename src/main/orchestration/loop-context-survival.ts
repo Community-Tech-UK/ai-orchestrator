@@ -4,11 +4,20 @@ import { BudgetAction } from '../context/token-budget-tracker';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getLogger } from '../logging/logger';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { loopContextUtilization } from './loop-context-discipline';
 import type { LoopChildResult } from './loop-coordinator.types';
 import { createLoopPendingInput, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
 const DEFAULT_CONTEXT_BUDGET_TOKENS = 1_000_000;
 const logger = getLogger('LoopContextSurvival');
+
+// B4 (#14): claude-code's cache-TTL time trigger. Anthropic's prompt cache
+// (and equivalents on other providers) expires after ~1h idle; once it does,
+// the NEXT call re-pays the full prefix cost regardless of token count, so a
+// cheap context action is worth recommending even when utilization alone
+// wouldn't trigger one yet. Named constant so the threshold is one edit, not
+// a buried magic number.
+export const CONTEXT_CACHE_TTL_MS = 60 * 60 * 1000;
 
 // B5a: post-compaction rehydration. After a context reset (LF-1 full recycle,
 // PLAN→IMPLEMENT transition, or degraded-adapter recovery — anything that
@@ -106,6 +115,57 @@ function resolveBudgetTokens(state: LoopState): number {
   return state.config.caps.maxTokens ?? DEFAULT_CONTEXT_BUDGET_TOKENS;
 }
 
+// B4 idle-gap tracking. `LoopState`/`LoopIteration` carry no "previous
+// iteration's end time" — `state.lastIteration` is already reassigned to the
+// iteration being sealed by the time this hook runs (loop-coordinator.ts,
+// `state.lastIteration = iteration` precedes the survival-decision call), and
+// the coordinator's iteration history is a private local, not exposed on
+// state. So — same idiom as `TokenBudgetTracker` above, keyed by `state.id`
+// (the loopRunId; `childInstanceId` is `null` in production, see B1) — track
+// the last-sealed iteration's `endedAt` here. Module-local, not part of
+// `LoopState`, so restored/resumed loops just start a fresh idle clock
+// (conservative: never fires a stale-cache micro tier spuriously on resume).
+const lastIterationEndByLoopId = new Map<string, number>();
+
+/** Test-only: clear idle-gap bookkeeping between spec runs. */
+export function _resetContextSurvivalIdleTrackingForTesting(): void {
+  lastIterationEndByLoopId.clear();
+}
+
+/**
+ * Gap since the previous sealed iteration for this loop, or `null` when there
+ * is no prior iteration to compare against (first iteration this process has
+ * seen — conservatively never treated as a cache-stale gap).
+ */
+function idleGapMs(state: LoopState, iteration: LoopIteration): number | null {
+  const previousEnd = lastIterationEndByLoopId.get(state.id);
+  const now = iteration.startedAt;
+  return typeof previousEnd === 'number' && Number.isFinite(previousEnd) && Number.isFinite(now)
+    ? Math.max(0, now - previousEnd)
+    : null;
+}
+
+function recordIterationEnd(state: LoopState, iteration: LoopIteration): void {
+  const end = iteration.endedAt ?? iteration.startedAt;
+  if (Number.isFinite(end)) lastIterationEndByLoopId.set(state.id, end);
+}
+
+/**
+ * §9 `selfManagesAutoCompaction` guard. Only meaningful when this iteration
+ * ran on a *borrowed* live chat instance (`childResult.transcriptBound` —
+ * set from `borrowedFromInstance` in `default-invokers.ts`): that is the one
+ * case where `state.chatId` names a real, queryable adapter instance. A
+ * loop's own persistent same-session adapter (not borrowed) is keyed by
+ * `loopRunId`, not an instance id `CompactionCoordinator` knows about, and
+ * `fresh-child` iterations have no persistent adapter at all — so for those
+ * this predicate is vacuously false (nothing to defer to) and the manager
+ * stays free to recommend its own actions.
+ */
+function isBorrowedAdapterSelfManaged(state: LoopState, childResult: LoopChildResult): boolean {
+  if (!childResult.transcriptBound) return false;
+  return getCompactionCoordinator().isSelfManagedAutoCompaction(state.chatId);
+}
+
 /**
  * Collect the small, fixed set of paths worth rehydrating after a context
  * reset: the plan file, the LOOP_TASKS.md ledger, and this iteration's recently
@@ -158,6 +218,15 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
   async onIterationSealed(
     { state, iteration, childResult }: LoopContextSurvivalContext,
   ): Promise<LoopContextSurvivalDecision> {
+    // B4 idle-gap measurement happens before any early return so the next
+    // iteration always has a fresh baseline, and is recorded unconditionally
+    // below (`recordIterationEnd`) regardless of which branch decides the
+    // outcome. `gap === null` on the loop's first sealed iteration this
+    // process has seen — never treated as stale (conservative default).
+    const gap = idleGapMs(state, iteration);
+    const cacheStale = gap !== null && gap > CONTEXT_CACHE_TTL_MS;
+    recordIterationEnd(state, iteration);
+
     // Independent of the budget/compaction gate below: whenever a context
     // reset just happened (however it was triggered), the next prompt starts
     // from a blank session and benefits from rehydration — including when
@@ -182,6 +251,51 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
 
     if (budget.action === BudgetAction.STOP) {
       return withRehydrate(noDecision(budget.reason ?? 'token budget stop condition reached'));
+    }
+
+    // B4 (#14): free deterministic pre-compaction pass.
+    //
+    // What "micro" actually drives here — read this before changing it. The
+    // loop delegates whole turns to CLI subprocesses; there is no
+    // coordinator-owned message/turn list for ANY `contextStrategy` to run
+    // `Microcompact.compact()` against (`same-session` = one persistent
+    // adapter process owning its own transcript; `fresh-child` = a new
+    // one-shot process per iteration with nothing to compact; `hybrid` mixes
+    // both). `Microcompact` IS wired today, but only inside
+    // `ContextCompactor.compactLayered()` (`context-compactor.ts`), which
+    // operates on a *different*, singleton, instance-scoped turn buffer used
+    // by the borrowed-chat-instance compaction path — not something this
+    // per-loop manager can safely drive for an arbitrary loop's persistent
+    // session. So `action:'micro'` cannot literally invoke `Microcompact`
+    // from here; it is the cheap tier of the *decision*, using the levers
+    // `applyLoopContextSurvivalDecision` actually has: bookkeeping + a
+    // reason recorded on the emitted event/log (never silent — the point of
+    // B4 is that this is visible even though it's a no-op on disk), plus
+    // `forceContextReset` composed in ONLY when LF-1's own recycle threshold
+    // is independently already met (never an extra reset LF-1 wouldn't
+    // already be about to trigger on its next cumulative-token check in
+    // `default-invokers.ts`) — i.e. "prefer the cheap tier, escalate only
+    // when it's insufficient" without duplicating or racing LF-1.
+    //
+    // Two triggers land here, both gated by the §9 `selfManagesAutoCompaction`
+    // opt-out (Claude CLI self-compacts on a borrowed instance): a stale
+    // prompt cache (idle > `CONTEXT_CACHE_TTL_MS`, claude-code's TTL rule —
+    // recommended even when utilization wouldn't trigger one) and micro-tier
+    // utilization pressure below LF-1's own reset threshold.
+    if (cacheStale && !isBorrowedAdapterSelfManaged(state, childResult)) {
+      const resetAtUtilization = state.config.context?.compaction.resetAtUtilization ?? 0.6;
+      const utilization = loopContextUtilization(state.totalTokens);
+      const alsoOverThreshold = utilization >= resetAtUtilization;
+      const gapMinutes = Math.round((gap ?? 0) / 60_000);
+      return withRehydrate({
+        action: 'micro',
+        forceContextReset: alsoOverThreshold,
+        reason: alsoOverThreshold
+          ? `idle ${gapMinutes}m exceeds cache TTL and utilization ${Math.round(utilization * 100)}% ` +
+            `already meets the reset threshold — composing with a full recycle rather than a second reset`
+          : `idle ${gapMinutes}m exceeds cache TTL (~60min) — cache prefix will be rewritten on the next ` +
+            'call regardless; recording a cheap context nudge (no coordinator-owned turn list to prune)',
+      });
     }
 
     if (hasSufficientCompletionSignal(iteration) && budget.nudgeMessage) {

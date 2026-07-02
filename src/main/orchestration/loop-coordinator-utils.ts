@@ -161,3 +161,59 @@ export function jaccard(a: string, b: string): number {
 export function completedPlanWatchDirs(config: LoopConfig): string[] {
   return [...new Set(completedPlanFileCandidates(config).map((candidate) => path.dirname(candidate)))];
 }
+
+/**
+ * A2 (#18): bounded post-terminate confirmation that a cancelled loop's child
+ * is *stably* stopped. Watches `loop:activity` for the run: no activity for
+ * `stableQuietMs` → confirmed. Activity after terminate is a zombie turn —
+ * escalate once via the adapter-cleanup hook (hard kill), then wait for quiet
+ * again. Always returns within ~`maxWaitMs`. Fast path: with no cleanup hook
+ * registered and no iteration in flight nothing could still be running, so
+ * skip the quiet window rather than taxing every cancel (and the test suite).
+ */
+export async function confirmLoopStablyStopped(args: {
+  loopRunId: string;
+  hasAdapterCleanupHook: boolean;
+  inFlight: boolean;
+  subscribeActivity: (listener: (payload: { loopRunId?: string }) => void) => () => void;
+  escalate: () => Promise<void>;
+  warn: (message: string, meta: Record<string, unknown>) => void;
+  sleepMs?: (ms: number) => Promise<void>;
+  stableQuietMs?: number;
+  maxWaitMs?: number;
+}): Promise<void> {
+  const { loopRunId, subscribeActivity, escalate, warn } = args;
+  if (!args.hasAdapterCleanupHook && !args.inFlight) return;
+  const stableQuietMs = args.stableQuietMs ?? 1_000;
+  const maxWaitMs = args.maxWaitMs ?? 5_000;
+  const sleepMs = args.sleepMs ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  const startedAt = Date.now();
+  let lastActivityAt = 0;
+  let escalated = false;
+  const unsubscribe = subscribeActivity((payload) => {
+    if (payload?.loopRunId === loopRunId) lastActivityAt = Date.now();
+  });
+  try {
+    while (Date.now() - startedAt < maxWaitMs) {
+      await sleepMs(200);
+      const quietSince = Math.max(lastActivityAt, startedAt);
+      if (Date.now() - quietSince >= stableQuietMs) return; // stably stopped
+      if (lastActivityAt > 0 && !escalated) {
+        escalated = true;
+        warn('Loop activity after terminate (zombie turn) — escalating to hard adapter cleanup', { loopRunId });
+        try {
+          await escalate();
+        } catch (err) {
+          warn('cancelLoop: zombie-escalation cleanup hook rejected', {
+            loopRunId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+    warn('cancelLoop: stable-stop confirmation window elapsed without sustained quiet', { loopRunId, escalated });
+  } finally {
+    unsubscribe();
+  }
+}
