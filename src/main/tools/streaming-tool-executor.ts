@@ -19,6 +19,7 @@ import {
   type ToolOutputMetadata,
   type ToolResultTelemetry,
 } from './tool-result-normalizer';
+import { ToolRwLock, type ToolRwLockRequest } from './tool-rw-lock';
 
 const logger = getLogger('StreamingToolExecutor');
 
@@ -46,7 +47,13 @@ export interface AddToolParams {
   toolId: string;
   args: unknown;
   concurrencySafe: boolean;
+  lock?: ToolRwLockRequest;
   executeFn: (args: unknown, ctx: unknown, signal?: AbortSignal) => Promise<{ ok: boolean; output?: unknown; error?: string }>;
+}
+
+export interface StreamingToolExecutorOptions {
+  rwLocksEnabled?: boolean;
+  rwLock?: ToolRwLock;
 }
 
 export interface TrackedTool {
@@ -54,6 +61,7 @@ export interface TrackedTool {
   toolId: string;
   args: unknown;
   concurrencySafe: boolean;
+  lock?: ToolRwLockRequest;
   executeFn: AddToolParams['executeFn'];
   status: ToolStatus;
   result?: ToolExecutionResult;
@@ -75,6 +83,14 @@ export class StreamingToolExecutor extends EventEmitter {
   private hasErrored = false;
   private discarded = false;
   private resolveWaiting: (() => void) | null = null;
+  private readonly rwLocksEnabled: boolean;
+  private readonly rwLock: ToolRwLock;
+
+  constructor(options: StreamingToolExecutorOptions = {}) {
+    super();
+    this.rwLocksEnabled = options.rwLocksEnabled ?? false;
+    this.rwLock = options.rwLock ?? new ToolRwLock();
+  }
 
   addTool(params: AddToolParams): void {
     if (this.discarded) {
@@ -94,6 +110,7 @@ export class StreamingToolExecutor extends EventEmitter {
       toolId: params.toolId,
       args: params.args,
       concurrencySafe: params.concurrencySafe,
+      lock: params.lock,
       executeFn: params.executeFn,
       status: ToolStatus.QUEUED,
       abortController: toolAbortController,
@@ -143,6 +160,7 @@ export class StreamingToolExecutor extends EventEmitter {
           },
           durationMs: tool.startedAt ? Date.now() - tool.startedAt : 0,
         };
+        this.emit('tool:discarded', tool.toolUseId);
       }
     }
 
@@ -228,7 +246,14 @@ export class StreamingToolExecutor extends EventEmitter {
         if (tool.abortController.signal.aborted) {
           throw new Error('aborted');
         }
-        const result = await tool.executeFn(tool.args, {}, tool.abortController.signal);
+        const execute = () => {
+          if (tool.abortController.signal.aborted) throw new Error('aborted');
+          return tool.executeFn(tool.args, {}, tool.abortController.signal);
+        };
+        const result = this.rwLocksEnabled && tool.lock
+          ? await this.rwLock.run(tool.lock, execute, tool.abortController.signal)
+          : await execute();
+        if (tool.status === ToolStatus.DISCARDED) return;
         const durationMs = Date.now() - tool.startedAt!;
         const normalized = normalizeToolResultPayload(
           result.ok ? result.output : undefined,
@@ -252,6 +277,7 @@ export class StreamingToolExecutor extends EventEmitter {
           this.siblingAbortController.abort('sibling_error');
         }
       } catch (err) {
+        if (tool.status === ToolStatus.DISCARDED && tool.result) return;
         const durationMs = Date.now() - (tool.startedAt || Date.now());
         const message = err instanceof Error ? err.message : String(err);
         const isAbort = tool.abortController.signal.aborted;

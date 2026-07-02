@@ -147,4 +147,38 @@ describe('runBranchSelect orchestration (LF-5)', () => {
     expect(listwiseScore).toHaveBeenCalledTimes(1);
     expect(result.winnerId).toBe('b'); // list-wise score beats the files heuristic
   });
+
+  it('validates subagent task packets before fanout when Phase 4 contracts are enabled', async () => {
+    const d = deps();
+    const result = await runBranchSelect(
+      baseInput({
+        phase4: { subagentContracts: { enabled: true } },
+        taskPackets: [null],
+      }),
+      d,
+    );
+
+    expect(result.adopted).toBe(false);
+    expect(result.reason).toContain('subagent contract validation failed');
+    expect(d.fanout).not.toHaveBeenCalled();
+  });
+
+  it('builds valid isolated task packets for branch candidates when contracts are enabled', async () => {
+    const d = deps();
+    const result = await runBranchSelect(
+      baseInput({ phase4: { subagentContracts: { enabled: true } } }),
+      d,
+    );
+
+    expect(result.adopted).toBe(true);
+    expect(d.fanout).toHaveBeenCalledTimes(1);
+    expect(d.fanout).toHaveBeenCalledWith(expect.objectContaining({
+      taskPackets: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'branch-candidate-1',
+          verificationPlan: ['true'],
+        }),
+      ]),
+    }));
+  });
 });

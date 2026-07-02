@@ -18,6 +18,11 @@
 
 import { getLogger } from '../logging/logger';
 import type { LoopExplorationConfig, LoopHardCaps } from '../../shared/types/loop.types';
+import { normalizeLoopPhase4Config, type LoopPhase4ConfigInput } from '../../shared/types/loop-phase4.types';
+import {
+  validateLoopTaskPackets,
+  type LoopTaskPacket,
+} from './loop-subagent-contracts';
 
 const logger = getLogger('LoopBranchSelect');
 
@@ -40,6 +45,10 @@ export interface BranchSelectInput {
   verifyTimeoutMs: number;
   /** Per-candidate CLI wall-clock timeout (ms). */
   iterationTimeoutMs: number;
+  /** Phase 4 opt-ins consumed by fan-out safety gates. */
+  phase4?: LoopPhase4ConfigInput | null;
+  /** Optional caller-supplied task packets for the fan-out candidates. */
+  taskPackets?: readonly unknown[];
 }
 
 /**
@@ -162,17 +171,34 @@ export interface BranchSelectDeps {
 export async function runBranchSelect(input: BranchSelectInput, deps: BranchSelectDeps): Promise<BranchSelectResult> {
   const gate = shouldRunBranchSelect(input);
   if (!gate.run) return { adopted: false, reason: gate.reason, candidateCount: 0 };
+  let runtimeInput = input;
+  const contracts = normalizeLoopPhase4Config(input.phase4).subagentContracts;
+  if (contracts.enabled) {
+    const packets = input.taskPackets ?? buildBranchSelectTaskPackets(input);
+    const validation = validateLoopTaskPackets(packets, {
+      maxDepth: contracts.maxDepth,
+      requireNonOverlappingWriteScopes: contracts.requireNonOverlappingWriteScopes,
+    });
+    if (!validation.ok) {
+      return {
+        adopted: false,
+        reason: `subagent contract validation failed: ${validation.errors.join('; ')}`,
+        candidateCount: 0,
+      };
+    }
+    runtimeInput = { ...input, taskPackets: validation.packets };
+  }
 
   let candidates: BranchCandidate[] = [];
   try {
-    candidates = await deps.fanout(input);
+    candidates = await deps.fanout(runtimeInput);
     if (candidates.length === 0) {
       return { adopted: false, reason: 'fan-out produced no candidates', candidateCount: 0 };
     }
     let listwise: Record<string, number> | undefined;
-    if (input.exploration.selector === 'verify+listwise' && deps.listwiseScore) {
+    if (runtimeInput.exploration.selector === 'verify+listwise' && deps.listwiseScore) {
       try {
-        listwise = await deps.listwiseScore(candidates, input.goal);
+        listwise = await deps.listwiseScore(candidates, runtimeInput.goal);
       } catch (err) {
         logger.warn('Branch-select list-wise scoring failed; falling back to verify+heuristic', {
           loopRunId: input.loopRunId,
@@ -184,7 +210,7 @@ export async function runBranchSelect(input: BranchSelectInput, deps: BranchSele
     if (!selection.winner) {
       return { adopted: false, reason: selection.reason, candidateCount: candidates.length, scores: selection.scores };
     }
-    await deps.adopt(selection.winner, input.workspaceCwd);
+    await deps.adopt(selection.winner, runtimeInput.workspaceCwd);
     return {
       adopted: true,
       reason: selection.reason,
@@ -210,6 +236,23 @@ export async function runBranchSelect(input: BranchSelectInput, deps: BranchSele
       });
     }
   }
+}
+
+function buildBranchSelectTaskPackets(input: BranchSelectInput): LoopTaskPacket[] {
+  const verify = input.verifyCommand.trim() || 'no verify command configured';
+  return Array.from({ length: Math.max(0, input.exploration.fanout) }, (_, index) => ({
+    id: `branch-candidate-${index + 1}`,
+    objective: input.prompt,
+    scope: {
+      read: [input.workspaceCwd],
+      // Candidates write in separate worktrees. Use logical per-candidate
+      // scopes so the non-overlap gate models the isolation boundary.
+      write: [`branch-select/${input.loopRunId}/candidate-${index + 1}`],
+    },
+    acceptanceCriteria: ['Produce a candidate change that advances the loop goal.'],
+    verificationPlan: [verify],
+    depth: 0,
+  }));
 }
 
 /**

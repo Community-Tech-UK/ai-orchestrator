@@ -18,6 +18,10 @@ import {
   defaultLoopConfig,
   type LoopConfig,
 } from '../../shared/types/loop.types';
+import {
+  normalizeLoopPhase4Config,
+  resolvePhase4ContextStrategy,
+} from '../../shared/types/loop-phase4.types';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
 
@@ -47,6 +51,21 @@ export function attachNextObjectivePlanner<
     ...config,
     nextObjectivePlanner: createAuxiliaryNextObjectivePlanner(),
   };
+}
+
+function finalizeStartConfig<
+  T extends Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string },
+>(config: T): T {
+  const phase4 = normalizeLoopPhase4Config(config.phase4);
+  const defaultContextStrategy = defaultLoopConfig(config.workspaceCwd, config.initialPrompt).contextStrategy;
+  return attachNextObjectivePlanner({
+    ...config,
+    phase4,
+    contextStrategy: resolvePhase4ContextStrategy(
+      config.contextStrategy ?? defaultContextStrategy,
+      phase4,
+    ),
+  }) as T;
 }
 
 export async function prepareLoopStartConfig(
@@ -85,7 +104,7 @@ export async function prepareLoopStartConfig(
       workspaceCwd: config.workspaceCwd,
       verifyCommand: verifyCommand || '(none)',
     });
-    return attachNextObjectivePlanner({
+    return finalizeStartConfig({
       ...config,
       audit,
       completion: {
@@ -98,7 +117,7 @@ export async function prepareLoopStartConfig(
 
   // --- gated mode (explicit, or the operator-reviewed escape hatch) ---
   if (verifyCommand || config.completion?.allowOperatorReviewedCompletion) {
-    return attachNextObjectivePlanner({
+    return finalizeStartConfig({
       ...config,
       audit,
       completion: {
@@ -115,7 +134,7 @@ export async function prepareLoopStartConfig(
   // an explicit `crossModelReview: { enabled: false }` from the caller is
   // honoured.
   if (config.completion?.crossModelReview !== undefined) {
-    return attachNextObjectivePlanner({
+    return finalizeStartConfig({
       ...config,
       audit,
       completion: {
@@ -129,7 +148,7 @@ export async function prepareLoopStartConfig(
   logger.info('No verify command configured (gated mode) — defaulting completion gate to fresh-eyes cross-model review', {
     workspaceCwd: config.workspaceCwd,
   });
-  return attachNextObjectivePlanner({
+  return finalizeStartConfig({
     ...config,
     audit,
     completion: {

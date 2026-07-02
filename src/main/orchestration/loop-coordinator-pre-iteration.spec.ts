@@ -170,4 +170,69 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
     expect(errored.endReason).toBe('checkpoint failed');
     expect(coordinator.getLoop(state.id)?.inFlightIteration).toBeUndefined();
   });
+
+  it('stops post-iteration flow when an iteration hook terminates the loop', async () => {
+    let iterationCompleteEmitted = false;
+    coordinator.on('loop:iteration-complete', () => {
+      iterationCompleteEmitted = true;
+    });
+    coordinator.registerIterationHook(({ state }) => {
+      coordinator.failLoop(state.id, 'hook safety failure');
+    });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (result: LoopChildResult) => void };
+      queueMicrotask(() => p.callback(childResult()));
+    });
+    const failed = new Promise<LoopState>((resolve) => {
+      coordinator.on('loop:state-changed', (payload: unknown) => {
+        const state = (payload as { state?: LoopState }).state;
+        if (state?.status === 'failed') resolve(state);
+      });
+    });
+
+    const config = defaultLoopConfig(workspace, 'fail from hook');
+    config.caps.maxIterations = 2;
+    config.completion.verifyCommand = '';
+    const state = await coordinator.startLoop('chat-hook-fail', config);
+    const failedState = await failed;
+
+    expect(failedState.id).toBe(state.id);
+    expect(failedState.endReason).toBe('hook safety failure');
+    expect(iterationCompleteEmitted).toBe(false);
+  });
+
+  it('fails closed when Phase 4 tool rw-lock conflicts are observed', async () => {
+    let invokeCount = 0;
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      invokeCount += 1;
+      const p = payload as { callback: (result: LoopChildResult) => void };
+      queueMicrotask(() => p.callback({
+        ...childResult(),
+        output: 'conflicting writes',
+        exitedCleanly: false,
+        errors: [{
+          bucket: 'tool-rw-lock-conflict',
+          exactHash: 'conflict-hash',
+          excerpt: 'Overlapping write tools',
+        }],
+      }));
+    });
+    const failed = new Promise<LoopState>((resolve) => {
+      coordinator.on('loop:state-changed', (payload: unknown) => {
+        const state = (payload as { state?: LoopState }).state;
+        if (state?.status === 'failed') resolve(state);
+      });
+    });
+
+    const config = defaultLoopConfig(workspace, 'fail on rw conflict');
+    config.caps.maxIterations = 3;
+    config.completion.verifyCommand = '';
+    const state = await coordinator.startLoop('chat-rw-conflict', config);
+    const failedState = await failed;
+
+    expect(failedState.id).toBe(state.id);
+    expect(failedState.endReason).toContain('phase4.toolRwLocks safety violation');
+    expect(failedState.lastIteration?.errors[0]?.bucket).toBe('tool-rw-lock-conflict');
+    expect(invokeCount).toBe(1);
+  });
 });

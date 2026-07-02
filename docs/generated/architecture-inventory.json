@@ -5150,12 +5150,12 @@
       "lines": 3817
     },
     {
-      "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
-      "lines": 3564
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 3568
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3533
+      "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
+      "lines": 3564
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
@@ -5315,11 +5315,15 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1652
+      "lines": 1671
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1623
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
@@ -5328,10 +5332,6 @@
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
       "lines": 1582
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1564
     },
     {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
@@ -5408,6 +5408,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
       "lines": 1344
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-28-pi-borrowed-capabilities_completed.md",
+      "lines": 1343
     },
     {
       "path": "src/main/memory/unified-controller.ts",
@@ -5546,6 +5550,10 @@
       "lines": 1152
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
+      "lines": 1151
+    },
+    {
       "path": "src/main/security/permission-manager.ts",
       "lines": 1151
     },
@@ -5570,10 +5578,6 @@
       "lines": 1123
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
-      "lines": 1122
-    },
-    {
       "path": "docs/plans/bigchange_remote-nodes_completed.md",
       "lines": 1113
     },
@@ -5588,6 +5592,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-context-token-management.COMPLETED.md",
       "lines": 1104
+    },
+    {
+      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
+      "lines": 1096
     },
     {
       "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
@@ -5628,10 +5636,6 @@
     {
       "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
       "lines": 1044
-    },
-    {
-      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
-      "lines": 1041
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
@@ -5844,6 +5848,10 @@
     {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
       "lines": 868
+    },
+    {
+      "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
+      "lines": 867
     },
     {
       "path": "src/renderer/app/features/semantic-search/semantic-search-page.component.ts",

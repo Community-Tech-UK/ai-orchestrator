@@ -181,6 +181,29 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
       cleanlinessScan: false,
     });
   });
+
+  it('uses fresh-child context only when the Phase 4 fresh-session gate is enabled', async () => {
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      contextStrategy: 'same-session',
+      phase4: {
+        commitRatchet: {
+          enabled: false,
+          worktreeOnly: true,
+          keepPolicy: 'score-improvement',
+          resetOnRegression: true,
+        },
+        freshSessionPerIteration: { enabled: true },
+        subagentContracts: {
+          enabled: false,
+          maxDepth: 1,
+          requireNonOverlappingWriteScopes: true,
+        },
+        toolRwLocks: { enabled: false },
+      },
+    } as unknown as Partial<LoopConfigInput>));
+
+    expect(prepared.contextStrategy).toBe('fresh-child');
+  });
 });
 
 describe('attachNextObjectivePlanner', () => {

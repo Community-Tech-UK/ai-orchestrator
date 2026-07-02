@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import * as path from 'path';
-import type { LoopToolCallRecord } from '../../shared/types/loop.types';
+import type { LoopErrorRecord, LoopToolCallRecord } from '../../shared/types/loop.types';
 import type { LoopInvocationActivity } from './loop-invocation-activity';
 
 export interface LoopInvocationCaptureSnapshot {
@@ -8,12 +8,19 @@ export interface LoopInvocationCaptureSnapshot {
   filesRead: string[];
   unresolvedToolCalls: boolean;
   finishReason?: string;
+  toolRwLockConflicts: LoopErrorRecord[];
 }
 
 interface TrackedToolCall {
   id: string;
   startedAt: number;
   index: number;
+}
+
+interface TrackedWriteLock {
+  id: string;
+  toolName: string;
+  paths: string[];
 }
 
 const READ_FILE_TOOLS = new Set([
@@ -27,8 +34,26 @@ const READ_FILE_TOOLS = new Set([
   'viewFile',
 ]);
 
+const WRITE_FILE_TOOLS = new Set([
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'Write',
+  'write_file',
+  'writeFile',
+  'edit_file',
+  'editFile',
+  'replace_file',
+  'replaceFile',
+  'delete_file',
+  'deleteFile',
+  'create_file',
+  'createFile',
+]);
+
 export function createLoopInvocationCapture(options: {
   workspaceDir: string;
+  rwLocksEnabled?: boolean;
   now?: () => number;
 }): {
   recordActivity: (activity: LoopInvocationActivity) => void;
@@ -39,6 +64,9 @@ export function createLoopInvocationCapture(options: {
   const pending = new Map<string, TrackedToolCall>();
   const filesRead: string[] = [];
   const filesReadSeen = new Set<string>();
+  const pendingWrites = new Map<string, TrackedWriteLock>();
+  const toolRwLockConflicts: LoopErrorRecord[] = [];
+  const toolRwLockConflictSeen = new Set<string>();
   let anonymousSeq = 0;
   let finishReason: string | undefined;
 
@@ -79,6 +107,12 @@ export function createLoopInvocationCapture(options: {
           rememberReadPath(input[key]);
         }
       }
+      if (options.rwLocksEnabled && input) {
+        const writePaths = extractWriteLockPaths(toolName, input, options.workspaceDir);
+        if (writePaths.length > 0) {
+          recordWriteLockConflicts({ id, toolName, paths: writePaths });
+        }
+      }
       return;
     }
 
@@ -87,6 +121,7 @@ export function createLoopInvocationCapture(options: {
       const id = readString(detail, 'id');
       const tracked = id ? pending.get(id) : firstPending(pending);
       if (!tracked) return;
+      pendingWrites.delete(tracked.id);
       const content = readResultString(detail, 'result') ?? readResultString(detail, 'content') ?? activity.message;
       const success = readBoolean(detail, 'success') ?? (readBoolean(detail, 'isError') === true ? false : true);
       toolCalls[tracked.index] = {
@@ -110,7 +145,27 @@ export function createLoopInvocationCapture(options: {
           };
         }
       }
+      pendingWrites.clear();
     }
+  };
+
+  const recordWriteLockConflicts = (incoming: TrackedWriteLock): void => {
+    for (const existing of pendingWrites.values()) {
+      if (!pathSetsOverlap(existing.paths, incoming.paths)) continue;
+      const excerpt =
+        `Overlapping write tools while phase4.toolRwLocks.enabled: ` +
+        `${existing.toolName}(${existing.paths.join(', ')}) and ${incoming.toolName}(${incoming.paths.join(', ')})`;
+      const exactHash = hashStable(`tool-rw-lock-conflict:${excerpt}`);
+      if (!toolRwLockConflictSeen.has(exactHash)) {
+        toolRwLockConflictSeen.add(exactHash);
+        toolRwLockConflicts.push({
+          bucket: 'tool-rw-lock-conflict',
+          exactHash,
+          excerpt: excerpt.slice(0, 512),
+        });
+      }
+    }
+    pendingWrites.set(incoming.id, incoming);
   };
 
   return {
@@ -121,10 +176,50 @@ export function createLoopInvocationCapture(options: {
         toolCalls: [...toolCalls],
         filesRead: [...filesRead],
         unresolvedToolCalls: pending.size > 0,
+        toolRwLockConflicts: [...toolRwLockConflicts],
         ...(finalFinishReason ? { finishReason: finalFinishReason } : {}),
       };
     },
   };
+}
+
+function extractWriteLockPaths(toolName: string, input: Record<string, unknown>, workspaceDir: string): string[] {
+  const lock = readRecord(input, 'lock');
+  if (readString(lock, 'mode') === 'write') {
+    const fromLock = readStringArray(lock, 'paths')
+      .map((candidate) => normalizeReadPath(candidate, workspaceDir))
+      .filter((candidate): candidate is string => Boolean(candidate));
+    if (fromLock.length > 0) return [...new Set(fromLock)];
+  }
+  if (!WRITE_FILE_TOOLS.has(toolName)) return [];
+  const paths: string[] = [];
+  for (const key of ['file_path', 'path', 'filePath', 'filename', 'file']) {
+    const normalized = normalizeReadPath(input[key], workspaceDir);
+    if (normalized) paths.push(normalized);
+  }
+  return [...new Set(paths)];
+}
+
+function readStringArray(value: unknown, key: string): string[] {
+  if (!isRecord(value)) return [];
+  const child = value[key];
+  return Array.isArray(child) ? child.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function pathSetsOverlap(left: string[], right: string[]): boolean {
+  return left.some((a) => right.some((b) => pathsOverlap(a, b)));
+}
+
+function pathsOverlap(a: string, b: string): boolean {
+  const left = normalizePathScope(a);
+  const right = normalizePathScope(b);
+  if (left === '.' || right === '.') return true;
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+function normalizePathScope(value: string): string {
+  const cleaned = value.trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '');
+  return cleaned || '.';
 }
 
 /**

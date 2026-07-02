@@ -45,6 +45,7 @@ describe('createLoopInvocationCapture', () => {
     expect(capture.finalize()).toEqual({
       filesRead: ['src/input.ts'],
       finishReason: 'tool_use',
+      toolRwLockConflicts: [],
       unresolvedToolCalls: true,
       toolCalls: [
         {
@@ -81,6 +82,62 @@ describe('createLoopInvocationCapture', () => {
     for (const record of capture.finalize().toolCalls) {
       expect(record.declaredTimeoutMs).toBeUndefined();
     }
+  });
+
+  it('records overlapping write tool conflicts only when rw locks are enabled', () => {
+    const disabled = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
+    disabled.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: Edit',
+      detail: { id: 'edit-1', name: 'Edit', input: { file_path: 'src/app.ts' } },
+    });
+    disabled.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: Edit',
+      detail: { id: 'edit-2', name: 'Edit', input: { file_path: '/workspace/project/src/app.ts' } },
+    });
+    expect(disabled.finalize().toolRwLockConflicts).toEqual([]);
+
+    const enabled = createLoopInvocationCapture({ workspaceDir: '/workspace/project', rwLocksEnabled: true });
+    enabled.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: Edit',
+      detail: { id: 'edit-1', name: 'Edit', input: { file_path: 'src' } },
+    });
+    enabled.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: Write',
+      detail: { id: 'write-1', name: 'Write', input: { file_path: 'src/app.ts' } },
+    });
+
+    const conflicts = enabled.finalize().toolRwLockConflicts;
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toEqual(expect.objectContaining({
+      bucket: 'tool-rw-lock-conflict',
+      exactHash: expect.any(String),
+      excerpt: expect.stringContaining('Overlapping write tools'),
+    }));
+  });
+
+  it('does not report a write conflict after the first write tool has settled', () => {
+    const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project', rwLocksEnabled: true });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: Edit',
+      detail: { id: 'edit-1', name: 'Edit', input: { file_path: 'src/app.ts' } },
+    });
+    capture.recordActivity({
+      kind: 'tool_result',
+      message: 'Tool result: Edit',
+      detail: { id: 'edit-1', success: true, result: 'ok' },
+    });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: Write',
+      detail: { id: 'write-1', name: 'Write', input: { file_path: 'src/app.ts' } },
+    });
+
+    expect(capture.finalize().toolRwLockConflicts).toEqual([]);
   });
 });
 

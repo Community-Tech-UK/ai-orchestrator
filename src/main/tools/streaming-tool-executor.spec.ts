@@ -6,7 +6,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { StreamingToolExecutor, ToolStatus } from './streaming-tool-executor';
+import { StreamingToolExecutor, ToolStatus, type ToolExecutionResult } from './streaming-tool-executor';
 
 describe('StreamingToolExecutor', () => {
   let executor: StreamingToolExecutor;
@@ -33,7 +33,7 @@ describe('StreamingToolExecutor', () => {
       executeFn,
     });
 
-    const results: any[] = [];
+    const results: ToolExecutionResult[] = [];
     for await (const result of executor.getRemainingResults()) {
       results.push(result);
     }
@@ -64,7 +64,7 @@ describe('StreamingToolExecutor', () => {
     executor.addTool({ toolUseId: 'a', toolId: 'read', args: {}, concurrencySafe: true, executeFn: makeTimed('a') });
     executor.addTool({ toolUseId: 'b', toolId: 'read', args: {}, concurrencySafe: true, executeFn: makeTimed('b') });
 
-    const results: any[] = [];
+    const results: ToolExecutionResult[] = [];
     for await (const r of executor.getRemainingResults()) results.push(r);
 
     expect(results).toHaveLength(2);
@@ -83,12 +83,118 @@ describe('StreamingToolExecutor', () => {
     executor.addTool({ toolUseId: 'a', toolId: 'bash', args: {}, concurrencySafe: false, executeFn: makeTimed('a') });
     executor.addTool({ toolUseId: 'b', toolId: 'bash', args: {}, concurrencySafe: false, executeFn: makeTimed('b') });
 
-    const results: any[] = [];
+    const results: ToolExecutionResult[] = [];
     for await (const r of executor.getRemainingResults()) results.push(r);
 
     expect(results).toHaveLength(2);
     // Second should start after first finishes (~50ms gap)
     expect(startTimes[1] - startTimes[0]).toBeGreaterThanOrEqual(40);
+  });
+
+  it('serializes overlapping write locks when rw-locks are enabled', async () => {
+    executor = new StreamingToolExecutor({ rwLocksEnabled: true });
+    const startTimes: number[] = [];
+    const makeTimed = (id: string) => vi.fn(async () => {
+      startTimes.push(Date.now());
+      await new Promise(r => setTimeout(r, id === 'a' ? 50 : 5));
+      return { ok: true as const, output: id };
+    });
+
+    executor.addTool({
+      toolUseId: 'a',
+      toolId: 'edit',
+      args: {},
+      concurrencySafe: true,
+      lock: { mode: 'write', paths: ['src/app'] },
+      executeFn: makeTimed('a'),
+    });
+    executor.addTool({
+      toolUseId: 'b',
+      toolId: 'edit',
+      args: {},
+      concurrencySafe: true,
+      lock: { mode: 'write', paths: ['src/app/component.ts'] },
+      executeFn: makeTimed('b'),
+    });
+
+    const results: ToolExecutionResult[] = [];
+    for await (const r of executor.getRemainingResults()) results.push(r);
+
+    expect(results).toHaveLength(2);
+    expect(startTimes[1] - startTimes[0]).toBeGreaterThanOrEqual(40);
+  });
+
+  it('ignores lock metadata by default so existing parallel behavior is unchanged', async () => {
+    const startTimes: number[] = [];
+    const makeTimed = (id: string) => vi.fn(async () => {
+      startTimes.push(Date.now());
+      await new Promise(r => setTimeout(r, 50));
+      return { ok: true as const, output: id };
+    });
+
+    executor.addTool({
+      toolUseId: 'a',
+      toolId: 'edit',
+      args: {},
+      concurrencySafe: true,
+      lock: { mode: 'write', paths: ['src/app'] },
+      executeFn: makeTimed('a'),
+    });
+    executor.addTool({
+      toolUseId: 'b',
+      toolId: 'edit',
+      args: {},
+      concurrencySafe: true,
+      lock: { mode: 'write', paths: ['src/app/component.ts'] },
+      executeFn: makeTimed('b'),
+    });
+
+    const results: ToolExecutionResult[] = [];
+    for await (const r of executor.getRemainingResults()) results.push(r);
+
+    expect(results).toHaveLength(2);
+    expect(Math.abs(startTimes[0] - startTimes[1])).toBeLessThan(30);
+  });
+
+  it('does not execute a locked tool that was discarded while waiting for the lock', async () => {
+    executor = new StreamingToolExecutor({ rwLocksEnabled: true });
+    let releaseFirst!: () => void;
+    const firstFn = vi.fn(async (_args: unknown, _ctx: unknown, signal?: AbortSignal) => {
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+        signal?.addEventListener('abort', resolve, { once: true });
+      });
+      return { ok: true as const, output: 'first' };
+    });
+    const secondFn = vi.fn(async () => ({ ok: true as const, output: 'second' }));
+
+    executor.addTool({
+      toolUseId: 'first',
+      toolId: 'edit',
+      args: {},
+      concurrencySafe: true,
+      lock: { mode: 'write', paths: ['src/app'] },
+      executeFn: firstFn,
+    });
+    executor.addTool({
+      toolUseId: 'second',
+      toolId: 'edit',
+      args: {},
+      concurrencySafe: true,
+      lock: { mode: 'write', paths: ['src/app/component.ts'] },
+      executeFn: secondFn,
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    executor.discard();
+    releaseFirst();
+
+    const results: ToolExecutionResult[] = [];
+    for await (const r of executor.getRemainingResults()) results.push(r);
+
+    expect(results).toHaveLength(2);
+    expect(secondFn).not.toHaveBeenCalled();
+    expect(results.find((r) => r.toolUseId === 'second')?.error).toContain('discard');
   });
 
   it('cascades sibling abort on error when tool is non-concurrent', async () => {
@@ -108,7 +214,7 @@ describe('StreamingToolExecutor', () => {
     executor.addTool({ toolUseId: 'fail', toolId: 'bash', args: {}, concurrencySafe: false, executeFn: failFn });
     executor.addTool({ toolUseId: 'slow', toolId: 'bash', args: {}, concurrencySafe: false, executeFn: slowFn });
 
-    const results: any[] = [];
+    const results: ToolExecutionResult[] = [];
     for await (const r of executor.getRemainingResults()) results.push(r);
 
     const failResult = results.find(r => r.toolUseId === 'fail');
@@ -152,7 +258,7 @@ describe('StreamingToolExecutor', () => {
       }),
     });
 
-    const results: any[] = [];
+    const results: ToolExecutionResult[] = [];
     for await (const r of executor.getRemainingResults()) results.push(r);
 
     expect(results[0].toolUseId).toBe('a');
@@ -170,7 +276,7 @@ describe('StreamingToolExecutor', () => {
 
     executor.discard();
 
-    const results: any[] = [];
+    const results: ToolExecutionResult[] = [];
     for await (const r of executor.getRemainingResults()) results.push(r);
 
     expect(results).toHaveLength(1);
@@ -191,7 +297,7 @@ describe('StreamingToolExecutor', () => {
       executeFn: vi.fn(async () => ({ ok: true as const, output: largeOutput })),
     });
 
-    const results: any[] = [];
+    const results: ToolExecutionResult[] = [];
     for await (const r of executor.getRemainingResults()) results.push(r);
 
     expect(results).toHaveLength(1);

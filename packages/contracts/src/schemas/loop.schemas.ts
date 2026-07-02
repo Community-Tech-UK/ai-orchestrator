@@ -7,10 +7,11 @@ import {
   LoopPreflightResultSchema,
   LoopRepoBaselineSnapshotSchema,
 } from './loop-audit.schemas';
+import { LoopPhase4ConfigSchema } from './loop-phase4.schemas';
 export * from './loop-audit.schemas';
+export * from './loop-phase4.schemas';
 
 const LOOP_MAX_WALL_TIME_MS_SCHEMA_CAP = 7 * 24 * 60 * 60 * 1000;
-// ============ Enums ============
 export const LoopStageSchema = z.enum(['PLAN', 'REVIEW', 'IMPLEMENT']);
 export const LoopGoalIntentSchema = z.enum(['implementation', 'investigation']);
 export const LoopStatusSchema = z.enum([
@@ -24,11 +25,9 @@ export const LoopStatusSchema = z.enum([
   'error',
   'no-progress',
   'cap-reached',
-  // Usage-aware throttling. With endedAt=null this is parked/resumable;
-  // with endedAt set it is terminal because no resume window was available.
+  // Usage-aware throttling; endedAt=null is resumable, endedAt set is terminal.
   'provider-limit',
-  // Ping-pong terminal states (bigchange_pingpong_review §4.11). Each surfaces a
-  // distinct deadlock/unreliability instead of silently passing or spinning.
+  // Ping-pong terminals surface deadlock/unreliability instead of spinning.
   'cost-exceeded',
   'needs-human-arbitration',
   'reviewer-unreliable',
@@ -66,8 +65,6 @@ export const CompletionSignalIdSchema = z.enum([
   // LF-4: every LOOP_TASKS.md item resolved (done/deferred).
   'ledger-complete',
 ]);
-
-// ============ Config ============
 
 export const LoopHardCapsSchema = z.object({
   maxIterations: z.number().int().positive().max(1000).nullable(),
@@ -311,6 +308,7 @@ export const LoopConfigSchema = z.object({
   context: LoopContextConfigSchema.optional(),
   exploration: LoopExplorationConfigSchema.optional(),
   plan: LoopPlanConfigSchema.optional(),
+  phase4: LoopPhase4ConfigSchema.optional(),
   audit: LoopAuditConfigSchema.default({
     finalAuditMode: 'observe',
     preflightMode: 'off',
@@ -360,6 +358,7 @@ export const LoopConfigInputSchema = LoopConfigSchema.omit({ audit: true }).part
   allowDestructiveOps: true,
   initialStage: true,
   planFile: true,
+  phase4: true,
 }).extend({
   audit: LoopAuditConfigInputSchema.optional(),
 });

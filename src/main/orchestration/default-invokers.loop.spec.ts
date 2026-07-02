@@ -737,6 +737,42 @@ describe('Loop Mode invoker plumbing', () => {
     expect(result.toolCalls.find((call) => call.toolName === 'Bash')).not.toHaveProperty('resultHash');
   });
 
+  it('records Phase 4 tool rw-lock conflicts from overlapping live write tool events', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockImplementation(async () => {
+      hoisted.adapterRef.current.emit('tool_use', {
+        id: 'edit-1',
+        name: 'Edit',
+        arguments: { file_path: 'src' },
+      });
+      hoisted.adapterRef.current.emit('tool_use', {
+        id: 'write-1',
+        name: 'Write',
+        arguments: { file_path: 'src/app.ts' },
+      });
+      return { content: 'ok', usage: { totalTokens: 1 } };
+    });
+
+    const callbackResult = await emitIteration({
+      workspaceCwd: '/Users/test/project',
+      config: {
+        contextStrategy: 'fresh-child',
+        phase4: { toolRwLocks: { enabled: true } },
+      },
+    });
+
+    expect((callbackResult as LoopChildResult).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bucket: 'tool-rw-lock-conflict',
+          excerpt: expect.stringContaining('Overlapping write tools'),
+        }),
+      ]),
+    );
+    expect((callbackResult as LoopChildResult).exitedCleanly).toBe(false);
+    expect((callbackResult as LoopChildResult).output).toContain('Safety violation');
+  });
+
   it('captures file changes from non-git loop workspaces', async () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-invoker-'));
     try {
@@ -1558,6 +1594,29 @@ describe('Loop Mode invoker plumbing', () => {
       // Each iteration spawns + tears down its own adapter.
       expect(hoisted.createAdapter).toHaveBeenCalledTimes(2);
       expect(hoisted.terminate).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not borrow the parent live adapter when contextStrategy is fresh-child', async () => {
+      const instanceManager = {
+        getInstance: vi.fn(() => ({
+          id: 'chat-live',
+          provider: 'claude',
+          workingDirectory: '/tmp/ws',
+        })),
+        getAdapter: vi.fn(() => hoisted.adapterRef.current),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
+
+      const result = await emitIteration({
+        chatId: 'chat-live',
+        workspaceCwd: '/tmp/ws',
+        config: { contextStrategy: 'fresh-child' },
+      });
+
+      expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+      expect(hoisted.terminate).toHaveBeenCalledTimes(1);
+      expect((result as LoopChildResult).transcriptBound).toBe(false);
     });
   });
 });

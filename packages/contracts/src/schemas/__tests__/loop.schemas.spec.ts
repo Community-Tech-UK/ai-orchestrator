@@ -12,6 +12,7 @@ import {
   LoopReviewSeveritySchema,
   LoopStartPayloadSchema,
   LoopStateSchema,
+  LoopPhase4ConfigSchema,
 } from '../loop.schemas';
 
 /**
@@ -842,6 +843,60 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
 
       expect(parsed.nextObjectivePlanning).toEqual({ enabled: true, cadence: 2 });
+    });
+
+    it('accepts conservative Phase 4 opt-in gates', () => {
+      const parsed = LoopConfigSchema.parse({
+        ...baseConfig,
+        phase4: {
+          commitRatchet: {
+            enabled: true,
+            worktreeOnly: true,
+            keepPolicy: 'score-improvement',
+            resetOnRegression: true,
+          },
+          freshSessionPerIteration: { enabled: true },
+          subagentContracts: {
+            enabled: true,
+            maxDepth: 1,
+            requireNonOverlappingWriteScopes: true,
+          },
+          toolRwLocks: { enabled: true },
+        },
+      });
+
+      expect(parsed.phase4?.commitRatchet.enabled).toBe(true);
+      expect(parsed.phase4?.freshSessionPerIteration.enabled).toBe(true);
+      expect(parsed.phase4?.subagentContracts.requireNonOverlappingWriteScopes).toBe(true);
+      expect(parsed.phase4?.toolRwLocks.enabled).toBe(true);
+    });
+
+    it('defaults each Phase 4 gate off unless explicitly enabled', () => {
+      const parsed = LoopPhase4ConfigSchema.parse({});
+
+      expect(parsed.commitRatchet.enabled).toBe(false);
+      expect(parsed.freshSessionPerIteration.enabled).toBe(false);
+      expect(parsed.subagentContracts.enabled).toBe(false);
+      expect(parsed.toolRwLocks.enabled).toBe(false);
+    });
+
+    it('accepts partial nested Phase 4 gate objects and fills safe defaults', () => {
+      const parsed = LoopPhase4ConfigSchema.parse({
+        commitRatchet: { enabled: true },
+        subagentContracts: { enabled: true },
+      });
+
+      expect(parsed.commitRatchet).toEqual({
+        enabled: true,
+        worktreeOnly: true,
+        keepPolicy: 'score-improvement',
+        resetOnRegression: true,
+      });
+      expect(parsed.subagentContracts).toEqual({
+        enabled: true,
+        maxDepth: 1,
+        requireNonOverlappingWriteScopes: true,
+      });
     });
 
     it('accepts audit config modes and rejects invalid mode strings', () => {

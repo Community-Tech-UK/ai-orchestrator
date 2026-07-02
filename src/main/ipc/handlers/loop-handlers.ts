@@ -33,6 +33,7 @@ import type { LoopState } from '../../../shared/types/loop.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getChatService } from '../../chats';
 import { buildExistingSessionContext } from '../../orchestration/loop-existing-session-context';
+import { loopCommitRatchetHook } from '../../orchestration/loop-commit-ratchet';
 
 const logger = getLogger('LoopHandlers');
 
@@ -103,6 +104,20 @@ export function registerLoopHandlers(deps: {
         seq: iteration.seq,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+    try {
+      await loopCommitRatchetHook({ state, iteration });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('Loop commit ratchet hook failed for iteration', {
+        loopRunId: state.id,
+        seq: iteration.seq,
+        error: message,
+      });
+      const failLoop = (coordinator as { failLoop?: (loopRunId: string, reason?: string) => boolean }).failLoop;
+      if (typeof failLoop === 'function') {
+        failLoop.call(coordinator, state.id, `Loop commit ratchet failed: ${message}`);
+      }
     }
   });
 

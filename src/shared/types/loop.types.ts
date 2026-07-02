@@ -14,6 +14,7 @@ import type {
 import type {
   LoopAuditConfig,
 } from './loop-audit.types';
+import type { LoopPhase4Config } from './loop-phase4.types';
 import { defaultLoopAuditConfig } from './loop-audit.types';
 export type {
   LoopAuditConfig,
@@ -517,6 +518,8 @@ export interface LoopConfig {
   exploration?: LoopExplorationConfig;
   /** LF-4 disposable-plan behaviour (regenerate on stall). Optional; default off. */
   plan?: LoopPlanConfig;
+  /** Phase 4 architectural gates. All behavior-changing gates default off. */
+  phase4?: LoopPhase4Config;
   /** Supergoal-inspired planning, preflight, and final-audit controls. */
   audit: LoopAuditConfig;
   /** Sanity gate: before honoring a toolchain/environment-class block intent or
@@ -611,6 +614,7 @@ export interface LoopConfig {
 // Fix 6 (audit-fixes plan): `defaultLoopConfig` moved to its own module for
 // LOC-ratchet headroom; re-exported here so import sites are unchanged.
 export { defaultLoopConfig } from './loop-config-defaults';
+export type { LoopPhase4Config } from './loop-phase4.types';
 
 export type LoopStage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
 

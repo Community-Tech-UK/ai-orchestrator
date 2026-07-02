@@ -1182,6 +1182,21 @@ export class LoopCoordinator extends EventEmitter {
     return true;
   }
 
+  /** Fail the loop immediately through the normal terminal cleanup path. */
+  failLoop(loopRunId: string, reason = 'failed'): boolean {
+    const state = this.active.get(loopRunId);
+    if (!state) return false;
+    if (isTerminalLoopRuntimeState(state)) return false;
+    this.cancelFlags.set(loopRunId, true);
+    const gate = this.pauseGates.get(loopRunId);
+    if (gate) {
+      gate.resolve();
+      this.pauseGates.delete(loopRunId);
+    }
+    this.terminate(state, 'failed', reason);
+    return true;
+  }
+
   /**
    * Operator control (bigchange_pingpong_review §4.12): skip the NEXT ping-pong
    * reviewer round. The next builder done-declaration won't spawn a reviewer —
@@ -2592,6 +2607,13 @@ export class LoopCoordinator extends EventEmitter {
         logger.warn('NOTES.md curation failed', { loopRunId: state.id, error: String(err) });
       }
 
+      if (hasToolRwLockConflict(iteration)) {
+        const reason = 'phase4.toolRwLocks safety violation: overlapping write tool calls observed';
+        logger.warn('Loop failed closed for tool rw-lock conflict', { loopRunId: state.id, seq });
+        this.terminate(state, 'failed', reason);
+        return;
+      }
+
       // Pi Task 18: follow-up drain. A `follow-up` intervention is one the
       // operator queued to run "after an iteration would otherwise stop but
       // before terminal completion is accepted." When THIS iteration would
@@ -2709,6 +2731,14 @@ export class LoopCoordinator extends EventEmitter {
         try { await hook({ state, iteration }); } catch (err) {
           logger.warn('Iteration hook threw', { error: String(err) });
         }
+      }
+      if (isTerminalLoopRuntimeState(state) || this.cancelFlags.get(state.id)) {
+        logger.info('Loop terminated by iteration hook; stopping post-iteration flow', {
+          loopRunId: state.id,
+          seq,
+          status: state.status,
+        });
+        return;
       }
 
       this.emit('loop:iteration-complete', { loopRunId: state.id, seq, verdict: iteration.progressVerdict });
@@ -3020,6 +3050,7 @@ export class LoopCoordinator extends EventEmitter {
             verifyCommand: state.config.completion.verifyCommand,
             verifyTimeoutMs: state.config.completion.verifyTimeoutMs,
             iterationTimeoutMs: state.config.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+            phase4: state.config.phase4,
           }).catch((err) => {
             logger.warn('Branch-select threw; falling back to pause', {
               loopRunId: state.id,
@@ -3525,6 +3556,10 @@ export class LoopCoordinator extends EventEmitter {
   private cloneStateForBroadcast(s: LoopState): LoopState {
     return cloneLoopStateForBroadcast(s);
   }
+}
+
+function hasToolRwLockConflict(iteration: LoopIteration): boolean {
+  return iteration.errors.some((error) => error.bucket === 'tool-rw-lock-conflict');
 }
 
 export function getLoopCoordinator(): LoopCoordinator {

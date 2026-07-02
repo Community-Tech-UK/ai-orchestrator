@@ -21,6 +21,7 @@ const hoisted = vi.hoisted(() => ({
     restoreLoopFromCheckpoint: vi.fn(),
     intervene: vi.fn(),
     cancelLoop: vi.fn(),
+    failLoop: vi.fn(),
     getLoop: vi.fn(),
   },
   store: {
@@ -44,6 +45,7 @@ const hoisted = vi.hoisted(() => ({
     tryGetChat: vi.fn(),
     bumpLineageEpoch: vi.fn(),
   },
+  loopCommitRatchetHook: vi.fn(),
 }));
 
 let tempWorkspace: string | null = null;
@@ -75,6 +77,10 @@ vi.mock('../../../chats', () => ({
   getChatService: () => hoisted.chatService,
 }));
 
+vi.mock('../../../orchestration/loop-commit-ratchet', () => ({
+  loopCommitRatchetHook: hoisted.loopCommitRatchetHook,
+}));
+
 function makeConfig(initialPrompt = 'Please continue the current implementation.'): LoopConfigInput {
   return {
     initialPrompt,
@@ -104,6 +110,8 @@ beforeEach(() => {
   }
   vi.clearAllMocks();
   hoisted.coordinator.getLoop.mockReturnValue(undefined);
+  hoisted.coordinator.failLoop.mockReturnValue(true);
+  hoisted.loopCommitRatchetHook.mockResolvedValue(undefined);
   hoisted.store.getCheckpoint.mockReturnValue(null);
   hoisted.store.getRunConfig.mockReturnValue(null);
   hoisted.store.listOutstandingItems.mockReturnValue([]);
@@ -411,6 +419,27 @@ describe('registerLoopHandlers terminal summaries', () => {
     stateHandler?.({ loopRunId: state.id, state });
 
     expect(hoisted.store.insertIteration).toHaveBeenCalledWith(iteration);
+  });
+
+  it('fails closed when the commit ratchet hook fails', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    hoisted.loopCommitRatchetHook.mockRejectedValueOnce(new Error('git reset failed'));
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const iterationHook = hoisted.coordinator.registerIterationHook.mock.calls[0]?.[0] as
+      ((payload: { state: LoopState; iteration: LoopIteration }) => Promise<void>) | undefined;
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    const iteration = makeLoopIteration({ loopRunId: state.id, seq: 2 });
+
+    await iterationHook?.({ state, iteration });
+
+    expect(hoisted.coordinator.failLoop).toHaveBeenCalledWith(
+      state.id,
+      expect.stringContaining('Loop commit ratchet failed: git reset failed'),
+    );
   });
 
   it('appends a durable chat summary when a loop enters a terminal state', () => {

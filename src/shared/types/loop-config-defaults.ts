@@ -22,6 +22,7 @@ import {
   defaultSemanticProgressConfig,
 } from './loop.types';
 import { defaultLoopAuditConfig } from './loop-audit.types';
+import { defaultLoopPhase4Config } from './loop-phase4.types';
 
 /** Default config factory. */
 export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): LoopConfig {
@@ -77,6 +78,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     context: defaultLoopContextConfig(),
     exploration: defaultLoopExplorationConfig(),
     plan: defaultLoopPlanConfig(),
+    phase4: defaultLoopPhase4Config(),
     audit: defaultLoopAuditConfig(),
     nextObjectivePlanning: defaultNextObjectivePlanningConfig(),
     blockSanityProbe: { enabled: true, timeoutMs: 5000 },

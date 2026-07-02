@@ -759,6 +759,7 @@ import {
 import { collectWorkspaceDiff } from './loop-diff';
 import { DurableLoopMemoryStore } from './loop-memory';
 import { maybeExternalizeLoopOutput } from './loop-output-externalize';
+import { formatBranchCandidateTaskPacket } from './loop-branch-task-prompt';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import {
   classifyIterationErrors,
@@ -916,6 +917,7 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
         }
         let response = '';
         try {
+          const taskPacketPrompt = formatBranchCandidateTaskPacket(input.taskPackets?.[i]);
           const result = await invokeCliTextResponse({
             instanceManager,
             workingDirectory: session.worktreePath,
@@ -924,7 +926,8 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
               `${input.prompt}\n\n## Branch-and-Select Candidate\nThe serial loop STALLED here. You are ` +
               `candidate ${i + 1} of ${input.exploration.fanout} exploring in an isolated worktree. Take a ` +
               `DIFFERENT approach to the stuck part than the obvious one, make the change, and ensure the ` +
-              `project's verify command passes.`,
+              `project's verify command passes.` +
+              (taskPacketPrompt ? `\n\n${taskPacketPrompt}` : ''),
             breakerKey: `loop-branch:${provider}`,
             correlationId: `${input.loopRunId}::branch::${i}`,
             timeoutMs: input.iterationTimeoutMs,
@@ -1244,6 +1247,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         context?: { compaction?: { enabled: boolean; resetAtUtilization: number; clearToolResults: boolean } };
         // LF-5 branch-and-select enables B7's delegated retrieval hint for offloaded output.
         exploration?: { enabled?: boolean };
+        phase4?: { toolRwLocks?: { enabled?: boolean } };
         // Agentic-turn backstop per iteration; null disables, undefined → default.
         maxTurnsPerIteration?: number | null;
       };
@@ -1265,7 +1269,10 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       return;
     }
     const workspaceDir = p.executionCwd ?? p.workspaceCwd;
-    const capture = createLoopInvocationCapture({ workspaceDir });
+    const capture = createLoopInvocationCapture({
+      workspaceDir,
+      rwLocksEnabled: p.config?.phase4?.toolRwLocks?.enabled === true,
+    });
     const loopIterationTimeoutMs = p.iterationTimeoutMs ?? 30 * 60 * 1000;
     const loopActiveTimeoutMs = p.streamIdleTimeoutMs ?? LOOP_DEFAULT_ACTIVE_TIMEOUT_MS;
     // FU-1: when we see meaningful activity from the adapter's event
@@ -1341,14 +1348,16 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     //      invokeCliTextResponse).
     let reusedAdapter: unknown | undefined;
     let borrowedFromInstance = false;
+    const contextStrategy = p.config?.contextStrategy ?? 'same-session';
+    const sameSession = contextStrategy === 'same-session';
 
     // Defensive `?.` access — tests pass a stub `instanceManager` without
     // these methods. Production InstanceManager always has them.
     const liveInstance = instanceManager.getInstance?.(p.chatId);
     const liveAdapter = liveInstance ? instanceManager.getAdapter?.(p.chatId) : undefined;
-    // Borrow the chat's live adapter so loop turns land in its CLI session for
-    // follow-up continuity; skip when worktree-isolated. Control via CLI shim.
+    // Borrow same-session loops into the chat's live adapter; skip worktree isolation.
     if (
+      sameSession &&
       !(p.executionCwd && p.executionCwd !== p.workspaceCwd) &&
       liveAdapter &&
       canBorrowParentLoopAdapter(p.provider, liveInstance?.provider) &&
@@ -1359,8 +1368,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       borrowedFromInstance = true;
     }
 
-    const contextStrategy = p.config?.contextStrategy ?? 'same-session';
-    const sameSession = contextStrategy === 'same-session';
     // LF-4 RPI: a PLAN→IMPLEMENT context reset recycles the persistent adapter
     // first, so the IMPLEMENT iteration starts from a fresh session anchored on
     // the finalized plan (durable disk state) rather than the planning chatter.
@@ -1513,7 +1520,12 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       // Parse structured signals from the FULL response first (so test-count /
       // error detection never miss content elided by externalization below).
       const { pass: testPassCount, fail: testFailCount } = parseTestCounts(result.response);
-      const errors: LoopErrorRecord[] = classifyIterationErrors(result.response);
+      const captureSnapshot = capture.finalize({ finishReason: result.finishReason });
+      const toolRwLockConflicts = captureSnapshot.toolRwLockConflicts;
+      const errors: LoopErrorRecord[] = [
+        ...classifyIterationErrors(result.response),
+        ...toolRwLockConflicts,
+      ];
       // LF-1: when `clearToolResults` is enabled, offload an oversized full
       // response to the output cache (retrievable) and keep a compact
       // head+tail preview as the retained output — bounds peak memory + what
@@ -1529,10 +1541,17 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         ctxCompaction.clearToolResults,
         externalizeOptions,
       );
-      const captureSnapshot = capture.finalize({ finishReason: result.finishReason });
+      const outputWithSafetyFailure = toolRwLockConflicts.length > 0
+        ? [
+            retainedOutput,
+            '',
+            '[phase4.toolRwLocks] Safety violation: overlapping write tool calls were observed. ' +
+              'This iteration is failed closed to prevent silently accepting concurrent writes.',
+          ].join('\n').trim()
+        : retainedOutput;
       const childResult: LoopChildResult = {
         childInstanceId: null,
-        output: retainedOutput,
+        output: outputWithSafetyFailure,
         tokens: result.tokens,
         ...(result.costKnown ? { costUsd: result.cost } : {}),
         filesChanged,
@@ -1543,7 +1562,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         testFailCount,
         ...(captureSnapshot.finishReason ? { finishReason: captureSnapshot.finishReason } : {}),
         unresolvedToolCalls: captureSnapshot.unresolvedToolCalls,
-        exitedCleanly: true,
+        exitedCleanly: toolRwLockConflicts.length === 0,
         ...(result.degradedReason ? { degradedReason: result.degradedReason } : {}),
         // When the chat's live adapter is borrowed, the iteration's assistant
         // stream already flowed into the instance transcript as a normal turn,

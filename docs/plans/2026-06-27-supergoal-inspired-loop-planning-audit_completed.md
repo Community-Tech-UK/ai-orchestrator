@@ -1167,7 +1167,7 @@ Do not use a workspace containing secrets for this smoke check.
   - Mitigation: `record` mode records red baseline and continues; only `block` pauses.
 
 - **Risk: active loop-engine overhaul work collides with this plan.**
-  - Mitigation: re-read `docs/plans/2026-06-26-loop-engine-overhaul-spec.md` before implementation. Coordinate any shared edits to `LoopCoordinator`, `EvidenceResolver`, and `loop-start-config.ts`.
+  - Mitigation: re-read `docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md` before implementation. Coordinate any shared edits to `LoopCoordinator`, `EvidenceResolver`, and `loop-start-config.ts`.
 
 ## Out Of Scope
 
