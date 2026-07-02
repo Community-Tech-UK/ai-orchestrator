@@ -72,9 +72,11 @@ describe('CliDetectionService — cursor existsSync fallback', () => {
 
     // /opt/homebrew/bin/cursor-agent absent, /usr/local/bin/cursor-agent absent,
     // ~/.local/bin/cursor-agent present, ~/.cursor/bin/cursor-agent absent.
+    // Home resolves from HOME, falling back to USERPROFILE (Windows hosts).
+    const home = process.env['HOME'] || process.env['USERPROFILE'] || '';
     existsSyncMock.mockImplementation((p: unknown) => {
       const str = String(p);
-      return str.endsWith(`${process.env['HOME']}/.local/bin/cursor-agent`);
+      return str.endsWith(`${home}/.local/bin/cursor-agent`);
     });
 
     const { CliDetectionService } = await import('../cli-detection');
@@ -82,7 +84,7 @@ describe('CliDetectionService — cursor existsSync fallback', () => {
 
     const info = await service.detectOne('cursor');
     expect(info.installed).toBe(true);
-    expect(info.path).toBe(`${process.env['HOME']}/.local/bin/cursor-agent`);
+    expect(info.path).toBe(`${home}/.local/bin/cursor-agent`);
     // version is undefined because the spawn never produced a match
     expect(info.version).toBeUndefined();
   });

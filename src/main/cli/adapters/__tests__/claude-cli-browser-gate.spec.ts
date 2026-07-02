@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({
@@ -24,6 +24,14 @@ function buildArgs(adapter: ClaudeCliAdapter): string[] {
 }
 
 describe('Claude CLI browser gate', () => {
+  // These assertions inspect the canonical (POSIX) MCP-config form: inline JSON
+  // for `--mcp-config` and an unwrapped `npx` command. On Windows the inline
+  // JSON is materialized to a temp file and `npx` is wrapped as `cmd /c npx`
+  // (covered by the win32-specific materialization tests), so pin POSIX here.
+  const originalPlatform = process.platform;
+  beforeEach(() => Object.defineProperty(process, 'platform', { value: 'linux', configurable: true }));
+  afterEach(() => Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true }));
+
   it('does not pass --chrome by default', () => {
     const adapter = new ClaudeCliAdapter({});
 

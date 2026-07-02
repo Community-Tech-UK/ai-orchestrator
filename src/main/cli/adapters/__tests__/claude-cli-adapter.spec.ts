@@ -134,6 +134,23 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...mocked, default: mocked };
 });
 
+// Test double for the platform-specific process-group kill. The real
+// implementation uses `taskkill` on Windows and `process.kill(-pid, …)` on
+// POSIX (covered by base-cli-process-utils.spec.ts). Here we always take the
+// POSIX path so the `process.kill` spy observes the `(-pid, signal)` call
+// regardless of the host the suite runs on.
+vi.mock('../base-cli-process-utils', () => ({
+  killProcessGroup: (pid: number | undefined, signal: NodeJS.Signals) => {
+    if (pid === undefined) return false;
+    try {
+      process.kill(-pid, signal);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+}));
+
 import { ClaudeCliAdapter, DEFER_MIN_VERSION } from '../claude-cli-adapter';
 import { InputFormatter } from '../../input-formatter';
 import { NdjsonParser } from '../../ndjson-parser';
@@ -317,38 +334,47 @@ describe('ClaudeCliAdapter', () => {
     });
 
     it('merges ultracode workflow with defer hook settings', () => {
-      const adapter = new ClaudeCliAdapter({
-        reasoningEffort: 'workflow',
-        permissionHookPath: '/tmp/defer-permission-hook.mjs',
-      });
-      (
-        adapter as unknown as {
-          cachedCliStatus: { available: boolean; version: string };
-        }
-      ).cachedCliStatus = { available: true, version: '2.1.98' };
+      // Pin POSIX so `--settings` stays inline JSON (Windows materializes it to
+      // a temp file) and the hook command uses POSIX single-quote escaping. The
+      // win32 materialization path is covered by the test above.
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      try {
+        const adapter = new ClaudeCliAdapter({
+          reasoningEffort: 'workflow',
+          permissionHookPath: '/tmp/defer-permission-hook.mjs',
+        });
+        (
+          adapter as unknown as {
+            cachedCliStatus: { available: boolean; version: string };
+          }
+        ).cachedCliStatus = { available: true, version: '2.1.98' };
 
-      const args = (
-        adapter as unknown as {
-          buildArgs(message: { role: 'user'; content: string }): string[];
-        }
-      ).buildArgs({ role: 'user', content: 'hello' });
+        const args = (
+          adapter as unknown as {
+            buildArgs(message: { role: 'user'; content: string }): string[];
+          }
+        ).buildArgs({ role: 'user', content: 'hello' });
 
-      expect(args).not.toContain('--effort');
-      const settingsIndex = args.indexOf('--settings');
-      expect(settingsIndex).toBeGreaterThan(-1);
-      const settings = JSON.parse(args[settingsIndex + 1] ?? '{}') as {
-        ultracode?: boolean;
-        hooks?: {
-          PreToolUse?: {
-            hooks?: { command?: string }[];
-          }[];
+        expect(args).not.toContain('--effort');
+        const settingsIndex = args.indexOf('--settings');
+        expect(settingsIndex).toBeGreaterThan(-1);
+        const settings = JSON.parse(args[settingsIndex + 1] ?? '{}') as {
+          ultracode?: boolean;
+          hooks?: {
+            PreToolUse?: {
+              hooks?: { command?: string }[];
+            }[];
+          };
         };
-      };
 
-      expect(settings.ultracode).toBe(true);
-      expect(settings.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command).toBe(
-        "node '/tmp/defer-permission-hook.mjs'",
-      );
+        expect(settings.ultracode).toBe(true);
+        expect(settings.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command).toBe(
+          "node '/tmp/defer-permission-hook.mjs'",
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform });
+      }
     });
   });
 });
@@ -481,20 +507,30 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
 
   describe('spawnProcess (via checkStatus)', () => {
     it('invokes child_process.spawn with the configured command', async () => {
-      const adapter = new ClaudeCliAdapter({});
-      // checkStatus calls spawnProcess(['--version']); we drive close immediately
-      // so the promise settles without timing out.
-      const statusPromise = adapter.checkStatus();
-      // Microtask flush so the spawn factory runs before we read its results.
-      await Promise.resolve();
-      expect(spawnMock).toHaveBeenCalled();
-      const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
-      proc.stdout.emit('data', Buffer.from('claude 2.5.0\n'));
-      proc.emit('close', 0);
-      await statusPromise;
+      // Pin POSIX: on Windows the command is resolved to an absolute launcher
+      // path (e.g. claude.exe) when the binary is actually installed on the host
+      // — that routing is covered by base-cli-adapter-spawn-target.spec.ts. Here
+      // we assert the configured command passes through unchanged.
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      try {
+        const adapter = new ClaudeCliAdapter({});
+        // checkStatus calls spawnProcess(['--version']); we drive close immediately
+        // so the promise settles without timing out.
+        const statusPromise = adapter.checkStatus();
+        // Microtask flush so the spawn factory runs before we read its results.
+        await Promise.resolve();
+        expect(spawnMock).toHaveBeenCalled();
+        const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
+        proc.stdout.emit('data', Buffer.from('claude 2.5.0\n'));
+        proc.emit('close', 0);
+        await statusPromise;
 
-      expect(lastSpawnState.lastSpawnArgs?.command).toBe('claude');
-      expect(lastSpawnState.lastSpawnArgs?.args).toContain('--version');
+        expect(lastSpawnState.lastSpawnArgs?.command).toBe('claude');
+        expect(lastSpawnState.lastSpawnArgs?.args).toContain('--version');
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform });
+      }
     });
 
     it('removes the CLAUDECODE env var from the spawned process', async () => {

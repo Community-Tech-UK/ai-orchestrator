@@ -212,22 +212,30 @@ describe('adapter factory — copilot', () => {
       },
     });
     expect((adapter as unknown as {
-      acpConfig: { mcpServers?: Array<{ name: string }> };
+      acpConfig: { mcpServers?: { name: string }[] };
     }).acpConfig.mcpServers).toEqual([]);
   });
 
   it('passes chrome-devtools attach config to Copilot through --additional-mcp-config', () => {
-    const adapter = createCliAdapter('copilot', {
-      workingDirectory: '/tmp',
-      instanceId: 'instance-browser',
-      chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
-    });
+    // chrome-devtools' command is `npx` on POSIX and `cmd /c npx` on Windows;
+    // pin POSIX so the canonical command is asserted regardless of host.
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    try {
+      const adapter = createCliAdapter('copilot', {
+        workingDirectory: '/tmp',
+        instanceId: 'instance-browser',
+        chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
+      });
 
-    const config = readAdditionalMcpConfig(adapter);
-    expect(config.mcpServers['chrome-devtools']).toMatchObject({
-      command: 'npx',
-      args: ['-y', CHROME_DEVTOOLS_MCP_PACKAGE, '--browserUrl', 'http://127.0.0.1:31234'],
-    });
+      const config = readAdditionalMcpConfig(adapter);
+      expect(config.mcpServers['chrome-devtools']).toMatchObject({
+        command: 'npx',
+        args: ['-y', CHROME_DEVTOOLS_MCP_PACKAGE, '--browserUrl', 'http://127.0.0.1:31234'],
+      });
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    }
   });
 
   it('adds the chrome-devtools attach workflow guidance to the system prompt when attach is set', () => {
@@ -333,7 +341,7 @@ describe('adapter factory — copilot', () => {
     });
 
     const mcpServers = (adapter as unknown as {
-      acpConfig: { mcpServers?: Array<{ name: string; env?: Array<{ name: string; value: string }> }> };
+      acpConfig: { mcpServers?: { name: string; env?: { name: string; value: string }[] }[] };
     }).acpConfig.mcpServers ?? [];
 
     const browserGateway = mcpServers.find((server) => server.name === 'browser-gateway');

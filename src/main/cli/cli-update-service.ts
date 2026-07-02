@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { existsSync, realpathSync } from 'fs';
-import { dirname, isAbsolute, join } from 'path';
+import { posix as pathPosix, win32 as pathWin32 } from 'path';
 import { getLogger } from '../logging/logger';
 import { buildCliSpawnOptions } from './cli-environment';
 import {
@@ -218,6 +218,17 @@ export class CliUpdateService {
   private readonly resolveCopilotLaunch: NonNullable<CliUpdateServiceDeps['resolveCopilotLaunch']>;
   /** Per-lockKey promise chain so same-key updates never run concurrently. */
   private readonly locks = new Map<string, Promise<unknown>>();
+
+  /**
+   * Path helpers bound to the *target* platform (`this.platform`), not the host
+   * running the process. Install paths are classified for the machine the CLI
+   * lives on, so `join`/`dirname`/`isAbsolute` must use win32 vs posix semantics
+   * to match — otherwise a posix path on a Windows host (or vice-versa) is split
+   * on the wrong separator and sibling-executable probes miss.
+   */
+  private get path(): typeof pathPosix {
+    return this.platform === 'win32' ? pathWin32 : pathPosix;
+  }
 
   constructor(deps: CliUpdateServiceDeps = {}) {
     this.detection = deps.detection ?? CliDetectionService.getInstance();
@@ -483,18 +494,18 @@ export class CliUpdateService {
   }
 
   private resolveRunnableCommand(activePath: string | undefined, fallbackCommand: string): string {
-    if (activePath && isAbsolute(activePath) && this.exists(activePath)) {
+    if (activePath && this.path.isAbsolute(activePath) && this.exists(activePath)) {
       return activePath;
     }
     return fallbackCommand;
   }
 
   private resolveSiblingNpm(activePath: string | undefined): string {
-    if (activePath && isAbsolute(activePath)) {
-      const dir = dirname(activePath);
+    if (activePath && this.path.isAbsolute(activePath)) {
+      const dir = this.path.dirname(activePath);
       const candidates = this.platform === 'win32'
-        ? [join(dir, 'npm.cmd'), join(dir, 'npm'), 'npm.cmd', 'npm']
-        : [join(dir, 'npm'), 'npm'];
+        ? [this.path.join(dir, 'npm.cmd'), this.path.join(dir, 'npm'), 'npm.cmd', 'npm']
+        : [this.path.join(dir, 'npm'), 'npm'];
       const found = candidates.find((candidate) => candidate === 'npm' || candidate === 'npm.cmd' || this.exists(candidate));
       if (found) {
         return found;
@@ -533,7 +544,7 @@ export class CliUpdateService {
 
   /** Resolve symlinks for an absolute path; returns the input on any failure. */
   private resolveRealPath(activePath: string): string {
-    if (!isAbsolute(activePath)) {
+    if (!this.path.isAbsolute(activePath)) {
       return activePath;
     }
     try {
@@ -553,7 +564,7 @@ export class CliUpdateService {
     const bunInstall = this.env['BUN_INSTALL'];
     if (bunInstall) roots.push(bunInstall);
     const home = this.homeDir();
-    if (home) roots.push(join(home, '.bun'));
+    if (home) roots.push(this.path.join(home, '.bun'));
     return roots.some((root) => this.pathIsUnder(p, root));
   }
 
@@ -564,11 +575,11 @@ export class CliUpdateService {
     if (pnpmHome) roots.push(pnpmHome);
     const home = this.homeDir();
     if (home) {
-      roots.push(join(home, 'Library', 'pnpm')); // macOS default
-      roots.push(join(home, '.local', 'share', 'pnpm')); // Linux default
+      roots.push(this.path.join(home, 'Library', 'pnpm')); // macOS default
+      roots.push(this.path.join(home, '.local', 'share', 'pnpm')); // Linux default
     }
     const localAppData = this.env['LOCALAPPDATA'];
-    if (localAppData) roots.push(join(localAppData, 'pnpm')); // Windows default
+    if (localAppData) roots.push(this.path.join(localAppData, 'pnpm')); // Windows default
     return roots.some((root) => this.pathIsUnder(p, root));
   }
 
@@ -586,11 +597,11 @@ export class CliUpdateService {
    *  bun ships as `bun.exe` and pnpm as `pnpm.cmd`/`pnpm.exe`, so try both
    *  extensions there (mirrors `resolveSiblingNpm`'s multi-candidate probe). */
   private resolveGlobalManager(activePath: string | undefined, manager: 'bun' | 'pnpm'): string {
-    if (activePath && isAbsolute(activePath)) {
-      const dir = dirname(activePath);
+    if (activePath && this.path.isAbsolute(activePath)) {
+      const dir = this.path.dirname(activePath);
       const siblings = this.platform === 'win32'
-        ? [join(dir, `${manager}.cmd`), join(dir, `${manager}.exe`)]
-        : [join(dir, manager)];
+        ? [this.path.join(dir, `${manager}.cmd`), this.path.join(dir, `${manager}.exe`)]
+        : [this.path.join(dir, manager)];
       const found = siblings.find((candidate) => this.exists(candidate));
       if (found) {
         return found;

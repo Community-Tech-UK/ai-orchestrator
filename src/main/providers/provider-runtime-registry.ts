@@ -3,10 +3,10 @@ import type { PluginProviderName } from '@contracts/types/provider-runtime-event
 import type { CliShadowReport, CliType } from '../cli/cli-detection';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
-import type { HealthStatus } from '../core/system/health-checker';
 import type {
   DiagnosisResult,
   ProbeResult,
+  ProviderHealthStatus,
 } from './provider-doctor';
 
 export type ProviderRuntimeProvider = CliType | 'anthropic-api' | PluginProviderName;
@@ -44,7 +44,7 @@ export interface ProviderRuntimeErrorSnapshot {
 
 export interface ProviderRuntimeDiagnosisSnapshot {
   provider: string;
-  overall: HealthStatus;
+  overall: ProviderHealthStatus;
   failedProbeNames: string[];
   recommendations: string[];
   repairActionCount: number;
@@ -325,13 +325,17 @@ export function runtimeDescriptorForSpawn(
   };
 }
 
-function diagnosisToRuntimeStatus(overall: HealthStatus): ProviderRuntimeStatus {
+function diagnosisToRuntimeStatus(overall: ProviderHealthStatus): ProviderRuntimeStatus {
   switch (overall) {
     case 'healthy':
       return 'available';
     case 'degraded':
       return 'degraded';
     case 'unhealthy':
+    case 'not-installed':
+      // A not-installed provider can't be spawned, so it is runtime-unavailable.
+      // (This is distinct from the Doctor's neutral health label — it just
+      // means there is no binary to launch.)
       return 'unavailable';
     default:
       return 'degraded';

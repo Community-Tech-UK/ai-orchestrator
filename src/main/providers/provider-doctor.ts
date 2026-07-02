@@ -29,6 +29,14 @@ const logger = getLogger('ProviderDoctor');
 
 export type ProbeStatus = 'pass' | 'fail' | 'skip' | 'timeout';
 
+/**
+ * Provider-level health. Extends the generic {@link HealthStatus} with a
+ * neutral `not-installed` state: a provider whose CLI simply isn't on PATH is
+ * not a fault that needs resolving (the user may have no subscription for it,
+ * or may just not use it), so it must never be reported as `unhealthy`.
+ */
+export type ProviderHealthStatus = HealthStatus | 'not-installed';
+
 export interface ProbeResult {
   name: string;
   status: ProbeStatus;
@@ -50,7 +58,7 @@ export interface ProbeDefinition {
 export interface DiagnosisResult {
   provider: string;
   probes: ProbeResult[];
-  overall: HealthStatus;
+  overall: ProviderHealthStatus;
   recommendations: string[];
   /** Structured repair actions derived from failed probe error kinds. */
   repairActions: RepairAction[];
@@ -388,7 +396,21 @@ export class ProviderDoctor {
     return this.finalizeDiagnosis(provider, results);
   }
 
-  aggregateProbeResults(probes: ProbeResult[]): HealthStatus {
+  aggregateProbeResults(probes: ProbeResult[]): ProviderHealthStatus {
+    // A provider whose CLI simply isn't installed is not a failure that needs
+    // resolving — the user may have no subscription for it, or may not use it
+    // at all. Report it as a neutral "not installed" state rather than
+    // "unhealthy", but only when the *missing CLI* is the sole problem (any
+    // other failure, e.g. a shadow-install conflict, still warrants attention).
+    const cliNotInstalled = probes.some(
+      (p) => p.name === 'cli_installed' && p.status === 'fail' && p.errorKind === 'cli_not_found',
+    );
+    const hasOtherFailure = probes.some(
+      (p) => p.status === 'fail' && p.name !== 'cli_installed',
+    );
+    if (cliNotInstalled && !hasOtherFailure) {
+      return 'not-installed';
+    }
     if (probes.some(p => p.status === 'fail' && CRITICAL_PROBES.has(p.name))) {
       return 'unhealthy';
     }
@@ -412,7 +434,9 @@ export class ProviderDoctor {
             'copilot': 'Install GitHub CLI and run `gh copilot`, or install `npm install -g @github/copilot`',
             'cursor': 'Install Cursor and ensure `cursor-agent` is on PATH',
           };
-          recs.push(`CLI not found. To install: ${installCmds[provider] ?? 'Check docs'}`);
+          recs.push(
+            `Optional: the ${provider} CLI is not installed. The orchestrator works fine without it — install it only if you want to use this provider: ${installCmds[provider] ?? 'check the provider docs'}`,
+          );
           break;
         }
         case 'cli_shadow_check': {

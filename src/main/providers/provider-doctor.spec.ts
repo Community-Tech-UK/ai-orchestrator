@@ -200,7 +200,7 @@ describe('buildRepairActions', () => {
     expect(buildRepairActions(diagnosis)).toHaveLength(0);
   });
 
-  it('returns a critical install action for cli_not_found', () => {
+  it('returns an informational (non-critical) install action for cli_not_found', () => {
     const probe = makeProbe('cli_installed', 'fail', {
       errorKind: 'cli_not_found',
     });
@@ -208,7 +208,9 @@ describe('buildRepairActions', () => {
     const actions = buildRepairActions(diagnosis);
     expect(actions).toHaveLength(1);
     expect(actions[0].kind).toBe('cli_not_found');
-    expect(actions[0].severity).toBe('critical');
+    // A missing provider CLI is optional (no subscription / not used), so it is
+    // informational guidance — never a critical fault that demands resolution.
+    expect(actions[0].severity).toBe('info');
     expect(actions[0].command).toContain('npm install -g @anthropic-ai/claude-code');
     // Must not contain secrets
     expect(actions[0].command).not.toMatch(/\bsk-/);

@@ -75,7 +75,11 @@ describe('hook-path-resolver', () => {
     const resolved = ensureHookScript();
 
     expect(resolved).toBe(hookPath);
-    expect(statSync(hookPath).mode & 0o777).toBe(0o755);
+    // Unix permission bits are meaningless on Windows — chmod is a no-op there
+    // and the mode stays at the NTFS default (0o666), so only assert on POSIX.
+    if (process.platform !== 'win32') {
+      expect(statSync(hookPath).mode & 0o777).toBe(0o755);
+    }
   });
 
   it('throws when the hook file is missing', () => {

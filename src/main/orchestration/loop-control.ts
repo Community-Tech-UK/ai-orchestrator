@@ -561,14 +561,18 @@ async function writeJsonAtomic(filePath: string, value: unknown, mode: number): 
   const handle = await fs.open(tmp, 'w', mode);
   try {
     await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
-    await handle.sync();
+    // fsync is a durability optimization, not a correctness requirement — the
+    // bytes are already written. Some platforms reject it (Windows throws EPERM
+    // on file/dir handles), so treat a failed sync as best-effort, matching
+    // session-continuity.ts / last-stop-snapshot.ts.
+    try { await handle.sync(); } catch { /* fsync unsupported (e.g. Windows) */ }
   } finally {
     await handle.close();
   }
   await fs.rename(tmp, filePath);
   const dirHandle = await fs.open(dir, 'r').catch(() => null);
   if (dirHandle) {
-    try { await dirHandle.sync(); } finally { await dirHandle.close(); }
+    try { await dirHandle.sync(); } catch { /* dir fsync unsupported (e.g. Windows) */ } finally { await dirHandle.close(); }
   }
 }
 

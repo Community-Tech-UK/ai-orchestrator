@@ -116,7 +116,7 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                   @for (diagnosis of report.providerDiagnoses; track diagnosis.provider) {
                     <div class="diagnostic-row" [attr.data-status]="diagnosis.overall">
                       <strong>{{ diagnosis.provider }}</strong>
-                      <span>{{ diagnosis.overall }}</span>
+                      <span>{{ providerStatusLabel(diagnosis.overall) }}</span>
                       @if (diagnosis.error) {
                         <p>{{ diagnosis.error }}</p>
                       } @else {
@@ -379,6 +379,15 @@ export class DoctorSettingsTabComponent implements OnInit {
 
   formatTime(timestamp: number): string {
     return new Date(timestamp).toLocaleString();
+  }
+
+  /**
+   * Humanizes a provider's overall health for display. A `not-installed`
+   * provider is a neutral, optional state (no subscription / not used) — it is
+   * shown as "not installed" rather than an alarming raw status token.
+   */
+  providerStatusLabel(overall: string): string {
+    return overall === 'not-installed' ? 'not installed' : overall;
   }
 
   browserAutomationStatusLabel(snapshot: BrowserAutomationHealthSnapshot): string {

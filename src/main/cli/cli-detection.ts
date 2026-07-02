@@ -10,6 +10,18 @@ import { CliCapabilities } from './adapters/base-cli-adapter';
 import { getLogger } from '../logging/logger';
 import { buildCliSpawnOptions, getCliAdditionalPaths } from './cli-environment';
 import { resolveCopilotCliLaunch } from './copilot-cli-launch';
+import {
+  CLI_REGISTRY,
+  SUPPORTED_CLIS,
+  getCliCandidatePaths,
+  type CliRegistryEntry,
+  type CliType,
+} from './cli-registry';
+
+// Re-exported for back-compat: existing importers reference these from
+// './cli-detection'. The definitions now live in ./cli-registry.
+export { CLI_REGISTRY, SUPPORTED_CLIS };
+export type { CliType };
 
 const logger = getLogger('CliDetection');
 
@@ -59,164 +71,6 @@ export interface CliShadowReport {
   activePath?: string;
   activeVersion?: string;
 }
-
-/**
- * CLI type identifiers. `gemini` is a deprecated back-compat alias (persisted
- * data / older remote nodes); its live successor is `antigravity` (the `agy`
- * CLI). Legacy `gemini` is normalized to `antigravity` in mapSettingsToDetectionType.
- */
-export type CliType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'ollama' | 'cursor';
-
-/** CLIs surfaced in CLI Health. `gemini` is excluded — superseded by `antigravity`. */
-export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'ollama', 'cursor'];
-
-/**
- * Registry entry for a CLI tool
- */
-interface CliRegistryEntry {
-  name: string;
-  command: string;
-  displayName: string;
-  versionFlag: string;
-  versionPattern: RegExp;
-  authCheckFlag?: string;
-  authPattern?: RegExp;
-  capabilities: string[];
-  alternativePaths: string[];
-}
-
-/**
- * Registry of known CLI tools - only includes CLIs with provider implementations
- */
-export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
-  claude: {
-    name: 'claude',
-    command: 'claude',
-    displayName: 'Claude Code',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: [
-      'streaming',
-      'tool-use',
-      'file-access',
-      'shell',
-      'multi-turn',
-      'vision'
-    ],
-    alternativePaths: [
-      '/opt/homebrew/bin/claude',
-      '/usr/local/bin/claude',
-      '/usr/bin/claude',
-      `${process.env['HOME']}/.local/bin/claude`
-    ]
-  },
-  codex: {
-    name: 'codex',
-    command: 'codex',
-    displayName: 'OpenAI Codex CLI',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: [
-      'streaming',
-      'tool-use',
-      'file-access',
-      'shell',
-      'multi-turn',
-      'code-execution'
-    ],
-    alternativePaths: [
-      '/opt/homebrew/bin/codex',
-      '/usr/local/bin/codex',
-      `${process.env['HOME']}/.local/bin/codex`
-    ]
-  },
-  gemini: {
-    name: 'gemini',
-    command: 'gemini',
-    displayName: 'Google Gemini CLI',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: ['streaming', 'tool-use', 'file-access', 'shell', 'multi-turn', 'vision', 'large-context'],
-    alternativePaths: [
-      '/opt/homebrew/bin/gemini',
-      '/usr/local/bin/gemini',
-      `${process.env['HOME']}/.local/bin/gemini`
-    ]
-  },
-  antigravity: {
-    name: 'antigravity',
-    command: 'agy',
-    displayName: 'Antigravity',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: ['tool-use', 'file-access', 'shell', 'multi-turn', 'large-context'],
-    alternativePaths: [
-      `${process.env['HOME']}/.local/bin/agy`,
-      '/opt/homebrew/bin/agy',
-      '/usr/local/bin/agy'
-    ]
-  },
-  copilot: {
-    name: 'copilot',
-    command: 'copilot',
-    displayName: 'GitHub Copilot',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: [
-      'streaming',
-      'tool-use',
-      'file-access',
-      'shell',
-      'multi-turn',
-      'vision',
-      'mcp-servers'
-    ],
-    alternativePaths: [
-      '/opt/homebrew/bin/copilot',
-      '/usr/local/bin/copilot',
-      `${process.env['HOME']}/.local/bin/copilot`,
-      `${process.env['HOME']}/.npm-global/bin/copilot`
-    ]
-  },
-  cursor: {
-    name: 'cursor',
-    command: 'cursor-agent',
-    displayName: 'Cursor CLI',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: [
-      'streaming',
-      'tool-use',
-      'file-access',
-      'shell',
-      'multi-turn',
-      'vision'
-    ],
-    alternativePaths: [
-      '/opt/homebrew/bin/cursor-agent',
-      '/usr/local/bin/cursor-agent',
-      `${process.env['HOME']}/.local/bin/cursor-agent`,
-      `${process.env['HOME']}/.cursor/bin/cursor-agent`
-    ]
-  },
-  ollama: {
-    name: 'ollama',
-    command: 'ollama',
-    displayName: 'Ollama',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: ['streaming', 'multi-turn', 'local'],
-    alternativePaths: [
-      '/opt/homebrew/bin/ollama',
-      '/usr/local/bin/ollama',
-      `${process.env['HOME']}/.ollama/bin/ollama`,
-      '/Applications/Ollama.app/Contents/MacOS/ollama',
-      `${process.env['LOCALAPPDATA']}\\Programs\\Ollama\\ollama.exe`,
-      `${process.env['ProgramFiles']}\\Ollama\\ollama.exe`,
-      `${process.env['ProgramFiles(x86)']}\\Ollama\\ollama.exe`
-    ]
-  }
-};
 
 /**
  * CLI Detection Service - Singleton that detects and caches available CLI tools
@@ -420,11 +274,12 @@ export class CliDetectionService {
     // First try the main command
     let result = await this.checkCommand(config.command, config);
 
-    // If not found, try alternative paths
-    if (!result.installed && config.alternativePaths.length > 0) {
-      for (const altPath of config.alternativePaths) {
-        // Expand home directory
-        const expandedPath = altPath.replace('~', process.env['HOME'] || '');
+    // If not found, try alternative paths. On Windows this also covers npm
+    // shims (`<cmd>.cmd`) and native-installer binaries (`<cmd>.exe`) across
+    // every known install dir — see getCliCandidatePaths.
+    const candidatePaths = getCliCandidatePaths(config);
+    if (!result.installed && candidatePaths.length > 0) {
+      for (const expandedPath of candidatePaths) {
         if (existsSync(expandedPath)) {
           result = await this.checkCommand(expandedPath, config);
           if (result.installed) {
@@ -446,8 +301,7 @@ export class CliDetectionService {
     // entries where ProviderDoctor's lighter `which` probe reported the
     // same CLI as healthy in the same run.
     if (!result.installed) {
-      for (const altPath of config.alternativePaths) {
-        const expandedPath = altPath.replace('~', process.env['HOME'] || '');
+      for (const expandedPath of candidatePaths) {
         if (existsSync(expandedPath)) {
           logger.warn(
             'CLI version probe failed for every candidate, but binary exists on disk — marking installed by path',
@@ -599,11 +453,31 @@ export class CliDetectionService {
       ...(process.env['PATH'] || '').split(process.platform === 'win32' ? ';' : ':'),
     ].filter(Boolean);
 
+    // On Windows a CLI may exist only as `<cmd>.exe` — Claude Code's native
+    // installer drops `claude.exe` in `~/.local/bin` with NO extensionless
+    // shim, so probing the bare `<cmd>` alone (which works for npm CLIs like
+    // codex, whose `.cmd`/`.ps1` shims ship alongside an extensionless launcher)
+    // finds nothing and the CLI Health tab falsely reports "not installed".
+    // Probe the bare name first (preserves prior behaviour / npm-shim path
+    // display) then the executable extensions. Non-Windows uses the bare name.
+    const candidateNames = process.platform === 'win32'
+      ? [cmd, `${cmd}.exe`, `${cmd}.cmd`, `${cmd}.bat`, `${cmd}.ps1`]
+      : [cmd];
+
     const seenReal = new Set<string>();
     const candidates: string[] = [];
     for (const dir of searchDirs) {
-      const candidate = `${dir}/${cmd}`;
-      if (!existsSync(candidate)) continue;
+      // One install per directory: take the first matching name (the copy the
+      // OS would actually run), so an npm shim trio isn't reported as 3 installs.
+      let candidate: string | undefined;
+      for (const name of candidateNames) {
+        const probe = `${dir}/${name}`;
+        if (existsSync(probe)) {
+          candidate = probe;
+          break;
+        }
+      }
+      if (!candidate) continue;
       let real: string;
       try {
         real = realpathSync(candidate);

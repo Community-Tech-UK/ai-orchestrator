@@ -153,6 +153,13 @@
   color: var(--warning-color);
 }
 
+/* A provider with no CLI installed is an optional, neutral state — not a
+   fault. Render it muted so it never reads as an error needing resolution. */
+.diagnostic-row[data-status="not-installed"] span,
+.status-line[data-status="not-installed"] {
+  color: var(--text-muted);
+}
+
 .list {
   display: flex;
   flex-direction: column;

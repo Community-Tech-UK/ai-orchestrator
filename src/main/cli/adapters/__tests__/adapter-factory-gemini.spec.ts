@@ -1,5 +1,5 @@
 import { readFileSync, rmSync } from 'fs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createGeminiAdapter } from '../adapter-factory';
 import type { GeminiCliAdapter } from '../gemini-cli-adapter';
 import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
@@ -17,7 +17,13 @@ function settingsPathOf(adapter: GeminiCliAdapter): string {
 describe('adapter factory — gemini chrome-devtools attach', () => {
   const written: string[] = [];
 
+  // The chrome-devtools MCP command is `npx` on POSIX and `cmd /c npx` on
+  // Windows; pin POSIX so the canonical command is asserted regardless of host.
+  const originalPlatform = process.platform;
+  beforeEach(() => Object.defineProperty(process, 'platform', { value: 'linux', configurable: true }));
+
   afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
     for (const file of written.splice(0)) {
       try {
         rmSync(file, { force: true });

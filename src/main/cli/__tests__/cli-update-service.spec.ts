@@ -104,17 +104,18 @@ describe('CliUpdateService — install-method resolution (provider-model Phase 1
   });
 
   it('on win32, probes pnpm.cmd before pnpm.exe for the sibling executable', async () => {
-    // Posix-absolute path so `path.isAbsolute` is true on the test host; the
-    // platform flag drives the multi-extension probe under test.
+    // Windows-style paths: the service resolves install paths with win32
+    // semantics when platform === 'win32' (independent of the test host), so the
+    // sibling probe joins with backslashes — mirroring a real Windows install.
     const svc = makeService({
-      activePath: '/fake/pnpm/codex',
-      env: { PNPM_HOME: '/fake/pnpm' },
+      activePath: 'C:\\fake\\pnpm\\codex',
+      env: { PNPM_HOME: 'C:\\fake\\pnpm' },
       platform: 'win32',
-      existsPaths: ['/fake/pnpm/pnpm.cmd'], // .cmd present, .exe absent
+      existsPaths: ['C:\\fake\\pnpm\\pnpm.cmd'], // .cmd present, .exe absent
     });
     const plan = await svc.getUpdatePlan('codex');
     expect(plan.args).toEqual(['add', '-g', '@openai/codex@latest']);
-    expect(plan.command).toBe('/fake/pnpm/pnpm.cmd');
+    expect(plan.command).toBe('C:\\fake\\pnpm\\pnpm.cmd');
   });
 
   it('resolves symlinks before classifying (a /usr/local/bin shim into ~/.bun ⇒ bun)', async () => {

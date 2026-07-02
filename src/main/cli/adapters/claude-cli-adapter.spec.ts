@@ -261,15 +261,23 @@ describe('ClaudeCliAdapter reasoning effort', () => {
   });
 
   it('passes workflow as ultracode settings instead of an effort flag', () => {
-    const adapter = createClaudeAdapter({ reasoningEffort: 'workflow' });
-    const args = getBuildArgs(adapter);
+    // Pin POSIX so `--settings` stays inline JSON; on Windows it is materialized
+    // to a temp file (covered by the materialization describe block below).
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    try {
+      const adapter = createClaudeAdapter({ reasoningEffort: 'workflow' });
+      const args = getBuildArgs(adapter);
 
-    expect(args).not.toContain('--effort');
-    const settingsIndex = args.indexOf('--settings');
-    expect(settingsIndex).toBeGreaterThan(-1);
-    expect(JSON.parse(args[settingsIndex + 1] ?? '{}')).toMatchObject({
-      ultracode: true,
-    });
+      expect(args).not.toContain('--effort');
+      const settingsIndex = args.indexOf('--settings');
+      expect(settingsIndex).toBeGreaterThan(-1);
+      expect(JSON.parse(args[settingsIndex + 1] ?? '{}')).toMatchObject({
+        ultracode: true,
+      });
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    }
   });
 
   it('clamps unsupported lower effort levels to Claude low', () => {
@@ -627,7 +635,7 @@ describe('ClaudeCliAdapter B7 transcript-verified resume', () => {
 });
 
 describe('ClaudeCliAdapter rate_limit_event handling', () => {
-  type OutputEvent = { type: string; content: string; metadata?: Record<string, unknown> };
+  interface OutputEvent { type: string; content: string; metadata?: Record<string, unknown> }
 
   function makeAdapter() {
     const adapter = new ClaudeCliAdapter();

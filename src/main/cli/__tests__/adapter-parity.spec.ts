@@ -1,6 +1,15 @@
 import type { ChildProcess } from 'child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Stub the OS signal mechanics. `killProcessGroup` is platform-specific (POSIX
+// `process.kill(-pid, …)` vs Windows `taskkill`); its behaviour is covered by
+// base-cli-process-utils.spec.ts. These parity tests assert adapter *lifecycle*
+// logic (which signal, when), so they mock it to stay host-independent.
+const { killProcessGroupMock } = vi.hoisted(() => ({ killProcessGroupMock: vi.fn() }));
+vi.mock('../adapters/base-cli-process-utils', () => ({
+  killProcessGroup: killProcessGroupMock,
+}));
+
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({
     info: vi.fn(),
@@ -89,6 +98,8 @@ describe.each(FIXTURES)('$name lifecycle parity', ({ create, spawn }) => {
   beforeEach(() => {
     adapter = create();
     harness = new MockCliHarness();
+    killProcessGroupMock.mockReset();
+    killProcessGroupMock.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -109,31 +120,23 @@ describe.each(FIXTURES)('$name lifecycle parity', ({ create, spawn }) => {
     const proc = harness.createProcess();
     setRunningProcess(adapter, proc);
 
-    vi.spyOn(process, 'kill').mockImplementation(
-      ((pid: number) => {
-        expect(Math.abs(pid)).toBe(proc.pid);
-        harness.exit();
-        return true;
-      }) as typeof process.kill,
-    );
+    killProcessGroupMock.mockImplementation((pid: number, signal: NodeJS.Signals) => {
+      expect(pid).toBe(proc.pid);
+      expect(signal).toBe('SIGTERM');
+      harness.exit();
+      return true;
+    });
 
     await expect(adapter.terminate(true)).resolves.toBeUndefined();
+    expect(killProcessGroupMock).toHaveBeenCalledWith(proc.pid, 'SIGTERM');
   });
 
   it('force-kills an attached process', async () => {
     const proc = harness.createProcess();
     setRunningProcess(adapter, proc);
 
-    vi.spyOn(process, 'kill').mockImplementation(
-      ((pid: number, signal?: NodeJS.Signals | number) => {
-        expect(Math.abs(pid)).toBe(proc.pid);
-        expect(signal).toBe('SIGKILL');
-        harness.crash(137);
-        return true;
-      }) as typeof process.kill,
-    );
-
     await expect(adapter.terminate(false)).resolves.toBeUndefined();
+    expect(killProcessGroupMock).toHaveBeenCalledWith(proc.pid, 'SIGKILL');
   });
 
   it('rejects cleanly when the child exits non-zero during sendMessage()', async () => {
@@ -159,17 +162,19 @@ describe.each(FIXTURES)('$name lifecycle parity', ({ create, spawn }) => {
 
   it('returns accepted from interrupt() when a process is running', () => {
     const proc = harness.createProcess();
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(
-      ((pid: number | string, signal?: NodeJS.Signals | number) => {
-        expect(pid).toBe(-proc.pid);
-        expect(signal).toBe('SIGINT');
-        return true;
-      }) as typeof process.kill,
-    );
+    killProcessGroupMock.mockReturnValue(true);
     setRunningProcess(adapter, proc);
 
     expect(adapter.interrupt()).toEqual({ status: 'accepted' });
-    expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGINT');
+    expect(killProcessGroupMock).toHaveBeenCalledWith(proc.pid, 'SIGINT');
+  });
+
+  it('returns rejected from interrupt() when the signal is not delivered', () => {
+    const proc = harness.createProcess();
+    killProcessGroupMock.mockReturnValue(false);
+    setRunningProcess(adapter, proc);
+
+    expect(adapter.interrupt().status).toBe('rejected');
   });
 
   it('returns already-idle from interrupt() when no process is running', () => {

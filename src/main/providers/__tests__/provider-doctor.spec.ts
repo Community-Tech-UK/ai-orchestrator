@@ -109,6 +109,25 @@ describe('ProviderDoctor', () => {
     expect(overall).toBe('unhealthy');
   });
 
+  it('reports a missing CLI as the neutral "not-installed" state, not unhealthy', () => {
+    const doctor = ProviderDoctor.getInstance();
+    const overall = doctor.aggregateProbeResults([
+      { name: 'cli_installed', status: 'fail', message: 'gemini not found in PATH', latencyMs: 0, errorKind: 'cli_not_found' },
+      { name: 'cli_shadow_check', status: 'skip', message: 'Skipped (cli_installed failed)', latencyMs: 0 },
+      { name: 'authenticated', status: 'skip', message: 'Skipped (cli_installed failed)', latencyMs: 0 },
+    ]);
+    expect(overall).toBe('not-installed');
+  });
+
+  it('keeps overall unhealthy when a missing CLI coincides with another failure', () => {
+    const doctor = ProviderDoctor.getInstance();
+    const overall = doctor.aggregateProbeResults([
+      { name: 'cli_installed', status: 'fail', message: 'gemini not found in PATH', latencyMs: 0, errorKind: 'cli_not_found' },
+      { name: 'cli_shadow_check', status: 'fail', message: 'shadow conflict', latencyMs: 0, errorKind: 'cli_shadow_install' },
+    ]);
+    expect(overall).toBe('unhealthy');
+  });
+
   it('should generate recommendations from failed probes', () => {
     const doctor = ProviderDoctor.getInstance();
     const recs = doctor.generateRecommendations('claude-cli', [

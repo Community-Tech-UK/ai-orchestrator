@@ -5235,7 +5235,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 2236
+      "lines": 2244
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -5630,6 +5630,10 @@
       "lines": 1059
     },
     {
+      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
+      "lines": 1054
+    },
+    {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
       "lines": 1052
     },
@@ -5656,10 +5660,6 @@
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
       "lines": 1020
-    },
-    {
-      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
-      "lines": 1018
     },
     {
       "path": "src/main/ipc/handlers/session-handlers.ts",

@@ -24,6 +24,14 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
 import { CodexCliAdapter, CodexTimeoutError } from './codex-cli-adapter';
 import { isRecoverableThreadResumeError } from './codex/exec-error-classifier';
 
+// These tests drive the adapter through real PassThrough streams and real
+// `setTimeout`-scheduled process output rather than fake timers, so the default
+// 5s per-test timeout is borderline on slower/loaded hosts (notably Windows).
+// A modest bump gives the event-loop coordination headroom without dragging the
+// suite long enough to trip vitest's worker-RPC heartbeat — assertions are
+// unchanged, only the deadline is relaxed.
+vi.setConfig({ testTimeout: 15_000, hookTimeout: 15_000 });
+
 type MockChildProcess = Omit<ChildProcess, 'killed'> & EventEmitter & {
   emitClose: (code?: number | null, signal?: string | null) => void;
   killed: boolean;

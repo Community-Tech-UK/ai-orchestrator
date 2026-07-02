@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdtempSync,
@@ -111,11 +112,27 @@ export class CodexHomeManager {
 
       const source = join(codexDir, entry);
       const target = join(tempDir, entry);
+      let stat;
       try {
-        const stat = lstatSync(source);
+        stat = lstatSync(source);
         symlinkSync(source, target, stat.isDirectory() ? 'dir' : 'file');
       } catch {
-        logger.debug('Could not symlink codex entry', { entry });
+        // symlinkSync needs Developer Mode / elevation on Windows and throws
+        // EPERM otherwise, which would silently drop auth.json (breaking Codex
+        // auth). Fall back to copying — but ONLY for regular files (auth.json,
+        // version.json, …). Never recursively copy directories: ~/.codex holds
+        // multi-GB session/rollout trees that would balloon disk usage on every
+        // prepared home. A missing symlinked dir degrades gracefully; a filled
+        // disk does not.
+        if (stat?.isFile()) {
+          try {
+            copyFileSync(source, target);
+          } catch {
+            logger.debug('Could not symlink or copy codex entry', { entry });
+          }
+        } else {
+          logger.debug('Could not symlink codex entry (dir, not copied)', { entry });
+        }
       }
     }
   }

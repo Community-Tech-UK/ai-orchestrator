@@ -38,7 +38,8 @@ interface ProviderDiagnosisTarget {
 const PROVIDERS: ProviderDiagnosisTarget[] = [
   { id: 'claude', doctorKey: 'claude-cli', label: 'Claude Code' },
   { id: 'codex', doctorKey: 'codex-cli', label: 'OpenAI Codex' },
-  { id: 'gemini', doctorKey: 'gemini-cli', label: 'Google Gemini' },
+  // Gemini CLI is deprecated — superseded by Google Antigravity (`agy`).
+  { id: 'antigravity', doctorKey: 'antigravity', label: 'Google Antigravity' },
   { id: 'copilot', doctorKey: 'copilot', label: 'GitHub Copilot' },
   { id: 'cursor', doctorKey: 'cursor', label: 'Cursor' },
 ];

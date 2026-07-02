@@ -44,6 +44,19 @@ function makeStubRtk(
   return stubPath;
 }
 
+/**
+ * A child env with the RTK feature-flag vars stripped, so "flag off" tests are
+ * deterministic regardless of the host shell's ambient ORCHESTRATOR_RTK_* vars
+ * (a dev machine may export ORCHESTRATOR_RTK_ENABLED=1 globally).
+ */
+function envWithRtkDisabled(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env['ORCHESTRATOR_RTK_ENABLED'];
+  delete env['ORCHESTRATOR_RTK_PATH'];
+  delete env['ORCHESTRATOR_DECISION_DIR'];
+  return env;
+}
+
 describe('rtk-defer-hook', () => {
   let tempDir: string | null = null;
 
@@ -66,6 +79,7 @@ describe('rtk-defer-hook', () => {
         tool_input: { command: 'git status' },
       }),
       encoding: 'utf8',
+      env: envWithRtkDisabled(),
     });
 
     expect(result.status).toBe(0);
@@ -86,6 +100,7 @@ describe('rtk-defer-hook', () => {
         tool_input: { file_path: '/tmp/foo.txt' },
       }),
       encoding: 'utf8',
+      env: envWithRtkDisabled(),
     });
 
     expect(result.status).toBe(0);

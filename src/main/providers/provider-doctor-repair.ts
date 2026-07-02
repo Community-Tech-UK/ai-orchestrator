@@ -19,6 +19,7 @@ const INSTALL_COMMANDS: Record<string, string> = {
   'claude-cli': 'npm install -g @anthropic-ai/claude-code',
   'codex-cli': 'npm install -g @openai/codex',
   'gemini-cli': 'npm install -g @google/gemini-cli',
+  'antigravity': 'Install Antigravity from antigravity.google, then run `agy` once to sign in',
   'copilot': 'gh extension install github/gh-copilot  # or: npm install -g @github/copilot',
   'cursor': 'Install Cursor from https://cursor.sh and add cursor-agent to PATH',
   'anthropic-api': 'npm install -g @anthropic-ai/claude-code',
@@ -84,8 +85,11 @@ export function buildRepairActions(diagnosis: DiagnosisForRepair): RepairAction[
         actions.push({
           kind,
           command: cmd,
-          description: `Install the ${provider} CLI so the binary is accessible on PATH.`,
-          severity: 'critical',
+          // Not having a provider CLI is an optional, non-blocking state — the
+          // user may have no subscription for it. Surface it as informational
+          // guidance, not a critical fault that demands resolution.
+          description: `Optional — install the ${provider} CLI only if you want to use this provider. The orchestrator runs fine without it.`,
+          severity: 'info',
         });
         break;
       }
