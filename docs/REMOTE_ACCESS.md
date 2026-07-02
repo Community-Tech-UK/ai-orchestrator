@@ -109,6 +109,34 @@ internet IPs are rejected because Ollama has no authentication.
 See `docs/runbooks/AUXILIARY_LOCAL_MODELS.md` for full model setup, slot
 reference, and troubleshooting.
 
+### Voice STT Access (local transcription over worker RPC)
+
+Voice transcription follows the same worker-local topology as auxiliary local
+models, but uses the worker's `audio.transcribe` RPC method. The Mac app records
+microphone audio, creates short WAV segments, and sends those segments over the
+worker WebSocket. The worker then calls its own local OpenAI-compatible STT
+server, such as `speaches` at `http://127.0.0.1:8000/v1/audio/transcriptions`.
+
+Preferred setup:
+
+1. Enroll the GPU host as a worker node.
+2. Run `speaches` or `whisper-server` bound to `127.0.0.1` on that worker.
+3. Let the worker heartbeat advertise `localSttEndpoints`.
+4. In **Settings → Voice**, leave routing on `auto` or pin `worker-node` when
+   you want the remote GPU to handle transcription.
+
+Do not expose the STT server on the LAN just for AI Orchestrator. For a remote
+Windows GPU box or a second Mac, the worker-agent RPC proxy is the supported
+path; Tailscale only needs to carry the coordinator↔worker WebSocket. A
+this-device STT engine on the coordinator Mac is the exception and is configured
+as a direct localhost endpoint in Voice settings.
+
+For the Windows/RTX setup, use the current CUDA `speaches` image, the
+`distil-large-v3` English model, and pin the server to the 3080 Ti with
+`CUDA_VISIBLE_DEVICES=1` when the 5090 should remain available for LLM work.
+Blackwell GPUs require CUDA 12.8+ and recent CTranslate2/PyTorch builds; verify
+that the engine is using CUDA instead of silently falling back to CPU.
+
 ### SSH Tunnel (port forwarding)
 
 Forward the coordinator port through an SSH tunnel when Tailscale is unavailable:

@@ -5439,7 +5439,7 @@
     },
     {
       "path": "src/main/plugins/plugin-manager.ts",
-      "lines": 1312
+      "lines": 1304
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
@@ -5496,10 +5496,6 @@
     {
       "path": "docs/superpowers/plans/2026-03-14-session-recovery-features.md",
       "lines": 1231
-    },
-    {
-      "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
-      "lines": 1208
     },
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
@@ -5764,6 +5760,10 @@
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 930
+    },
+    {
+      "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
+      "lines": 929
     },
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",

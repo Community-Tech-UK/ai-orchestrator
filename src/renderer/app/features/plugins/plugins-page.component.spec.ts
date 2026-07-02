@@ -1,8 +1,26 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { Router } from '@angular/router';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PluginIpcService } from '../../core/services/ipc/plugin-ipc.service';
 import { PluginsPageComponent } from './plugins-page.component';
+import { InstanceStore } from '../../core/state/instance/instance.store';
+
+const specDirectory = dirname(fileURLToPath(import.meta.url));
+const styles = readFileSync(resolve(specDirectory, './plugins-page.component.scss'), 'utf8');
+
+await resolveComponentResources((url) => {
+  if (url.endsWith('plugins-page.component.scss')) {
+    return Promise.resolve(styles);
+  }
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
+  return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
 
 describe('PluginsPageComponent', () => {
   const pluginIpc = {
@@ -22,12 +40,16 @@ describe('PluginsPageComponent', () => {
     runtimePluginsUpdate: vi.fn(),
     runtimePluginsPrune: vi.fn(),
     runtimePluginsUninstall: vi.fn(),
+    projectPluginTrustQuery: vi.fn(),
+    projectPluginTrustGrant: vi.fn(),
+    projectPluginTrustRevoke: vi.fn(),
   };
+  const selectedInstance = signal<{ workingDirectory: string } | null>(null);
 
   let fixture: ComponentFixture<PluginsPageComponent>;
   let component: PluginsPageComponent;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     pluginIpc.pluginsGetLoaded.mockResolvedValue({ success: true, data: [] });
     pluginIpc.pluginsDiscover.mockResolvedValue({ success: true, data: [] });
@@ -46,14 +68,36 @@ describe('PluginsPageComponent', () => {
     });
     pluginIpc.runtimePluginsPrune.mockResolvedValue({ success: true, data: { removed: ['stale-plugin'] } });
     pluginIpc.runtimePluginsUninstall.mockResolvedValue({ success: true });
+    pluginIpc.projectPluginTrustQuery.mockResolvedValue({
+      success: true,
+      data: {
+        decisions: [
+          {
+            projectRoot: '/repo',
+            trust: 'ask',
+            reason: 'No trust decision recorded for project plugins at this root.',
+          },
+        ],
+      },
+    });
+    pluginIpc.projectPluginTrustGrant.mockResolvedValue({
+      success: true,
+      data: { projectRoot: '/repo', trust: 'trusted', reason: 'Project plugin root is trusted in settings.' },
+    });
+    pluginIpc.projectPluginTrustRevoke.mockResolvedValue({
+      success: true,
+      data: { projectRoot: '/repo', trust: 'untrusted', reason: 'Project plugin root is rejected in settings.' },
+    });
+    selectedInstance.set(null);
 
-    TestBed.configureTestingModule({
+    await TestBed.configureTestingModule({
       imports: [PluginsPageComponent],
       providers: [
         { provide: PluginIpcService, useValue: pluginIpc },
+        { provide: InstanceStore, useValue: { selectedInstance } },
         { provide: Router, useValue: { navigate: vi.fn() } },
       ],
-    });
+    }).compileComponents();
     fixture = TestBed.createComponent(PluginsPageComponent);
     component = fixture.componentInstance;
   });
@@ -133,5 +177,34 @@ describe('PluginsPageComponent', () => {
     expect(component.runtimePackageCount()).toBe(1);
     expect(component.errorMessage()).toBeTruthy();
     expect(component.loading()).toBe(false);
+  });
+
+  it('surfaces project plugin trust decisions for the selected workspace and can grant trust', async () => {
+    selectedInstance.set({ workingDirectory: '/repo' });
+
+    await component.refresh();
+    fixture.detectChanges();
+
+    expect(pluginIpc.projectPluginTrustQuery).toHaveBeenCalledWith('/repo');
+    expect(fixture.nativeElement.textContent).toContain('Project Plugin Trust');
+    expect(fixture.nativeElement.textContent).toContain('/repo');
+    expect(fixture.nativeElement.textContent).toContain('Grant trust');
+
+    pluginIpc.projectPluginTrustQuery.mockResolvedValueOnce({
+      success: true,
+      data: {
+        decisions: [
+          {
+            projectRoot: '/repo',
+            trust: 'trusted',
+            reason: 'Project plugin root is trusted in settings.',
+          },
+        ],
+      },
+    });
+    await component.grantProjectPluginTrust('/repo');
+
+    expect(pluginIpc.projectPluginTrustGrant).toHaveBeenCalledWith('/repo');
+    expect(component.projectPluginTrustDecisions()[0]?.trust).toBe('trusted');
   });
 });

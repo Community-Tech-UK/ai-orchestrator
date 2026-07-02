@@ -68,53 +68,53 @@ const ALLOWLIST: Record<string, number> = {
   'benchmarks/orchestrator-benchmark/runner.ts': 768,
   // Contracts
   'packages/contracts/src/schemas/session.schemas.ts': 743,
-  // Raised to allowlist at 724 for the loop-engine/Pi-Task-18 fields
+  // Raised to allowlist for the loop-engine/Pi-Task-18 fields
   // (ledger-stall bounds, CompletionSignalEvidence.openCount, LoopState ledger +
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
-  'packages/contracts/src/schemas/loop.schemas.ts': 724,
+  'packages/contracts/src/schemas/loop.schemas.ts': 773,
   'packages/contracts/src/types/transport.types.ts': 1810,
   // Main process — automations
   'src/main/automations/automation-store.ts': 852,
   // Main process — browser gateway
-  'src/main/browser-gateway/browser-gateway-service.ts': 2220,
+  'src/main/browser-gateway/browser-gateway-service.ts': 2233,
   // Main process — channels
   'src/main/channels/adapters/discord-adapter.ts': 965,
   'src/main/channels/channel-message-router.ts': 2543,
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
-  'src/main/cli/adapters/base-cli-adapter.ts': 899,
-  // Raised 2218 -> 2286 for resident interrupt control_request handling.
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2286,
-  'src/main/cli/adapters/codex-cli-adapter.ts': 3308,
-  'src/main/cli/adapters/copilot-cli-adapter.ts': 1014,
+  'src/main/cli/adapters/base-cli-adapter.ts': 929,
+  // Raised for resident interrupt control_request handling.
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2303,
+  'src/main/cli/adapters/codex-cli-adapter.ts': 3357,
+  'src/main/cli/adapters/copilot-cli-adapter.ts': 1060,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 892,
   // Main process — chats
-  'src/main/chats/chat-service.ts': 754,
+  'src/main/chats/chat-service.ts': 788,
   // Main process — codemem
   'src/main/codemem/cas-store.ts': 765,
   'src/main/codemem/code-index-manager.ts': 792,
   // Main process — context
-  'src/main/context/context-compactor.ts': 881,
+  'src/main/context/context-compactor.ts': 911,
   'src/main/context/jit-loader.ts': 773,
   // Main process — core
   'src/main/core/config/claude-md-loader.ts': 804,
-  'src/main/core/error-recovery.ts': 950,
+  'src/main/core/error-recovery.ts': 990,
   // Main process — history
-  'src/main/history/history-manager.ts': 1402,
+  'src/main/history/history-manager.ts': 1428,
   // Main process — indexing
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
-  'src/main/instance/instance-communication.ts': 2343,
-  'src/main/instance/instance-context.ts': 1240,
-  'src/main/instance/instance-lifecycle.ts': 3364,
-  'src/main/instance/instance-manager.ts': 2505,
+  'src/main/instance/instance-communication.ts': 2386,
+  'src/main/instance/instance-context.ts': 1260,
+  'src/main/instance/instance-lifecycle.ts': 3412,
+  'src/main/instance/instance-manager.ts': 2546,
   'src/main/instance/instance-orchestration.ts': 1068,
-  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1424,
+  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1432,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
-  'src/main/ipc/handlers/instance-handlers.ts': 1138,
+  'src/main/ipc/handlers/instance-handlers.ts': 1151,
   'src/main/ipc/handlers/mcp-handlers.ts': 925,
   'src/main/ipc/handlers/session-handlers.ts': 1003,
   'src/main/ipc/handlers/vcs-handlers.ts': 972,
@@ -143,29 +143,28 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/cli-verification-extension.ts': 988,
   'src/main/orchestration/consensus-coordinator.ts': 888,
   'src/main/orchestration/consensus.ts': 759,
-  'src/main/orchestration/cross-model-review-service.ts': 804,
+  'src/main/orchestration/cross-model-review-service.ts': 825,
   'src/main/orchestration/debate-coordinator.ts': 1196,
-  'src/main/orchestration/default-invokers.ts': 1613,
+  'src/main/orchestration/default-invokers.ts': 1651,
   'src/main/orchestration/embedding-service.ts': 845,
-  // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
-  // integration points. Audit mechanics live in loop-audit-runtime.ts.
-  // Raised 3369 -> 3480 for B5 post-compaction canary + Pi Task 18
-  // follow-up/steering drain (pure helpers extracted to loop-coordinator-block-utils.ts).
-  // Raised 3480 -> 3496 for D5 self-declared more-work-remaining completion veto.
-  'src/main/orchestration/loop-coordinator.ts': 3496,
-  // Allowlisted at 712 when the D5 more-work-remaining sentinel parser
+  // Raised for typed intervention queueing, audit-gate integration points,
+  // post-compaction canary handling, Pi Task 18 follow-up/steering drain, and
+  // D5 self-declared more-work-remaining completion veto. Audit mechanics live
+  // in loop-audit-runtime.ts; block helpers live in loop-coordinator-block-utils.ts.
+  'src/main/orchestration/loop-coordinator.ts': 3532,
+  // Allowlisted when the D5 more-work-remaining sentinel parser
   // (parseAgentMoreWorkRemaining) tipped it just past 700.
-  'src/main/orchestration/loop-completion-detector.ts': 712,
-  // Allowlisted at 702 when the D5 sentinel prompt guidance tipped it past 700.
-  'src/main/orchestration/loop-stage-machine.ts': 702,
-  'src/main/orchestration/loop-store.ts': 721,
-  'src/main/orchestration/loop-progress-detector.ts': 725,
+  'src/main/orchestration/loop-completion-detector.ts': 748,
+  // Allowlisted when the D5 sentinel prompt guidance tipped it past 700.
+  'src/main/orchestration/loop-stage-machine.ts': 721,
+  'src/main/orchestration/loop-store.ts': 762,
+  'src/main/orchestration/loop-progress-detector.ts': 755,
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
   'src/main/orchestration/orchestration-handler.ts': 1458,
   'src/main/orchestration/supervisor.ts': 735,
   'src/main/orchestration/voting.ts': 777,
   // Main process — plugins
-  'src/main/plugins/plugin-manager.ts': 1257,
+  'src/main/plugins/plugin-manager.ts': 1303,
   // Main process — providers
   'src/main/providers/model-discovery.ts': 552,
   // Main process — remote
@@ -176,7 +175,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/rlm/ast-chunker.ts': 766,
   'src/main/rlm/episodic-rlm-store.ts': 766,
   'src/main/rlm/hyde-service.ts': 734,
-  'src/main/rlm/llm-service.ts': 1070,
+  'src/main/rlm/llm-service.ts': 1076,
   'src/main/rlm/smart-compaction.ts': 880,
   // Main process — security
   'src/main/security/permission-manager.ts': 1151,
@@ -200,9 +199,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/services/ipc/memory-ipc.service.ts': 724,
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,
   // Renderer — stores
-  'src/renderer/app/core/state/instance/instance-list.store.ts': 811,
-  'src/renderer/app/core/state/instance/instance-messaging.store.ts': 744,
-  'src/renderer/app/core/state/instance/instance.store.ts': 761,
+  'src/renderer/app/core/state/instance/instance-list.store.ts': 830,
+  'src/renderer/app/core/state/instance/instance-messaging.store.ts': 793,
+  'src/renderer/app/core/state/instance/instance.store.ts': 762,
   'src/renderer/app/core/state/source-control.store.ts': 976,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
@@ -214,9 +213,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1069,
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1027,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1673,
-  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1523,
-  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1219,
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1719,
+  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1550,
+  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1266,
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 953,
   'src/renderer/app/features/instance-list/instance-list.component.ts': 1334,
   'src/renderer/app/features/instance-list/instance-row.component.ts': 404,

@@ -201,6 +201,48 @@ The coordinator picks these up automatically. No extra configuration is needed â
 
 The coordinator never connects to `127.0.0.1:11434` on the worker directly (that address is worker-local). All auxiliary generation calls are proxied through the existing encrypted worker-agent RPC channel, so Ollama never has to be exposed on the LAN. See [`runbooks/AUXILIARY_LOCAL_MODELS.md`](runbooks/AUXILIARY_LOCAL_MODELS.md) for the full Windows/RTX setup and model recommendations.
 
+## Local STT Discovery (Voice Transcription)
+
+Worker nodes can also advertise a local speech-to-text engine for Voice Mode.
+The coordinator captures microphone audio on the Mac, segments it, and sends
+small WAV chunks to the worker through the existing worker-agent RPC channel.
+The coordinator never dials the worker's `127.0.0.1` STT server directly.
+
+### Windows / NVIDIA: speaches on the 3080 Ti
+
+For the current local-first STT path, run `speaches` (faster-whisper server)
+on the Windows worker and bind it only to worker-local localhost:
+
+```powershell
+$env:CUDA_VISIBLE_DEVICES = "1"
+docker run --rm --gpus '"device=1"' `
+  -p 127.0.0.1:8000:8000 `
+  ghcr.io/speaches-ai/speaches:latest-cuda
+```
+
+Operational notes:
+
+- Use the `distil-large-v3` model for English v1 transcription.
+- Keep the server on `127.0.0.1:8000`; the worker-agent probes it locally and
+  reports `localSttEndpoints` in heartbeat capabilities.
+- `CUDA_VISIBLE_DEVICES=1` pins STT to the 3080 Ti on James's Windows box,
+  keeping the 5090 free for agents and LLM workloads. If GPU ordering differs
+  on another host, verify with `nvidia-smi`.
+- Blackwell cards such as the RTX 5090 require CUDA 12.8+ and recent
+  CTranslate2/PyTorch builds. A stale image may silently fall back to CPU; check
+  container logs and GPU utilization after startup.
+- The worker-agent uses OpenAI-compatible `POST /v1/audio/transcriptions` via
+  its `audio.transcribe` RPC handler, so no extra LAN firewall rule is needed
+  for port `8000`.
+
+### Apple Silicon Worker Or This Device
+
+On Apple Silicon, prefer `whisper.cpp` with Metal/Core ML through its
+OpenAI-compatible `whisper-server`. CTranslate2-based `speaches` is CPU-bound on
+macOS and is not the recommended engine there. A second Mac should be enrolled
+as a worker node and advertise `localSttEndpoints`; the coordinator's own Mac
+may instead use the direct this-device endpoint configured under Voice settings.
+
 ## Auto-Discovery via mDNS
 
 When `coordinatorUrl` is not set in the worker config, the worker automatically discovers the coordinator on the local network using mDNS (Bonjour/DNS-SD). The coordinator advertises itself as an `_ai-orchestrator._tcp` service. The worker finds it, checks that the `namespace` matches, and connects.

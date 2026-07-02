@@ -1,19 +1,11 @@
 /**
  * Orchestrator Plugin Manager
  *
- * Loads JS/TS plugins from well-known directories and dispatches events to them.
- * The goal is a stable event surface (similar to how modern coding agents expose hooks),
- * without depending on any external repo runtime code.
- *
  * Plugin locations (`.js`/`.mjs`/`.cjs` always; `.ts`/`.mts`/`.cts` only when
  * the manifest sets `"isolation": "worker"`, since TypeScript is loaded via
  * tsx in the worker — a TypeScript entrypoint is never imported in-process):
  * - `~/.orchestrator/plugins/**`
  * - `<project-scan-root>/.orchestrator/plugins/**`
- *
- * Project scan roots run from the repository root (when available) down to the
- * active working directory, so nested worktrees inherit plugin definitions from
- * their containing project.
  *
  * Plugin module contract (CommonJS recommended):
  * - Hook plugins: `module.exports = async (ctx) => ({ hooks... })`

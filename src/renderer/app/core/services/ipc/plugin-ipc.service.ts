@@ -112,6 +112,25 @@ export class PluginIpcService {
   }
 
   // ============================================
+  // Project Plugin Trust Operations
+  // ============================================
+
+  async projectPluginTrustQuery(workingDirectory: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.projectPluginTrustQuery(workingDirectory);
+  }
+
+  async projectPluginTrustGrant(projectRoot: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.projectPluginTrustGrant(projectRoot);
+  }
+
+  async projectPluginTrustRevoke(projectRoot: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.projectPluginTrustRevoke(projectRoot);
+  }
+
+  // ============================================
   // Plugin Events
   // ============================================
 

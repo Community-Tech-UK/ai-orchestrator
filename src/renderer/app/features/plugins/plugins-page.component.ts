@@ -15,6 +15,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { PluginIpcService } from '../../core/services/ipc/plugin-ipc.service';
+import { InstanceStore } from '../../core/state/instance/instance.store';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import type { PluginPackageSource } from '@contracts/schemas/plugin';
 
@@ -51,6 +52,14 @@ type RuntimeValidationResult =
     };
 
 type ActiveTab = 'installed' | 'discover';
+
+type ProjectPluginTrust = 'trusted' | 'untrusted' | 'ask';
+
+interface ProjectPluginTrustDecision {
+  projectRoot: string;
+  trust: ProjectPluginTrust;
+  reason: string;
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -211,6 +220,53 @@ type ActiveTab = 'installed' | 'discover';
               Hook/event plugins installed into <code>~/.orchestrator/plugins</code>.
               Active automatically while installed — no manual load step.
             </p>
+            <div class="project-trust-panel">
+              <div class="project-trust-heading">
+                <span class="section-title">Project Plugin Trust</span>
+                @if (projectTrustWorkingDirectory()) {
+                  <span class="project-trust-workspace">{{ projectTrustWorkingDirectory() }}</span>
+                }
+              </div>
+              @if (!projectTrustWorkingDirectory()) {
+                <p class="section-desc">
+                  Select a workspace-backed instance to review project-scoped plugin trust.
+                </p>
+              } @else if (projectPluginTrustDecisions().length === 0) {
+                <p class="section-desc">No project plugin roots were found for this workspace.</p>
+              } @else {
+                <div class="trust-list">
+                  @for (decision of projectPluginTrustDecisions(); track decision.projectRoot) {
+                    <div class="trust-row">
+                      <div class="trust-main">
+                        <span class="plugin-path">{{ decision.projectRoot }}</span>
+                        <span class="section-desc">{{ decision.reason }}</span>
+                      </div>
+                      <span class="status-badge" [class]="'status-' + decision.trust">
+                        {{ decision.trust }}
+                      </span>
+                      <div class="plugin-actions">
+                        @if (decision.trust !== 'trusted') {
+                          <button
+                            class="btn primary small"
+                            type="button"
+                            [disabled]="projectTrustWorking()"
+                            (click)="grantProjectPluginTrust(decision.projectRoot)"
+                          >Grant trust</button>
+                        }
+                        @if (decision.trust !== 'untrusted') {
+                          <button
+                            class="btn danger small"
+                            type="button"
+                            [disabled]="projectTrustWorking()"
+                            (click)="revokeProjectPluginTrust(decision.projectRoot)"
+                          >Reject</button>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
             @if (runtimePlugins().length === 0) {
               <div class="empty-state">No runtime plugin packages installed.</div>
             } @else {
@@ -396,425 +452,25 @@ type ActiveTab = 'installed' | 'discover';
 
     </div>
   `,
-  styles: [`
-    :host {
-      display: flex;
-      width: 100%;
-      height: 100%;
-    }
-
-    .page {
-      display: flex;
-      flex-direction: column;
-      width: 100%;
-      height: 100%;
-      gap: var(--spacing-md);
-      padding: var(--spacing-lg);
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      overflow-y: auto;
-    }
-
-    /* ── Header ── */
-
-    .page-header {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-md);
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    .header-title {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .title {
-      font-size: 18px;
-      font-weight: 700;
-    }
-
-    .subtitle {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    .header-actions {
-      display: flex;
-      gap: var(--spacing-sm);
-    }
-
-    /* ── Metrics ── */
-
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: var(--spacing-md);
-    }
-
-    .metric-card {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding: var(--spacing-md);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      background: var(--bg-secondary);
-    }
-
-    .metric-label {
-      font-size: 11px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .metric-value {
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--text-primary);
-    }
-
-    /* ── Error Banner ── */
-
-    .error-banner {
-      padding: var(--spacing-sm) var(--spacing-md);
-      border: 1px solid color-mix(in srgb, var(--error-color) 60%, transparent);
-      border-radius: var(--radius-sm);
-      background: color-mix(in srgb, var(--error-color) 14%, transparent);
-      color: var(--error-color);
-      font-size: 12px;
-    }
-
-    /* ── Panel / Tabs ── */
-
-    .panel {
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      background: var(--bg-secondary);
-      overflow: hidden;
-    }
-
-    /* ── Info / Explainer ── */
-
-    .info-panel {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: var(--spacing-lg);
-      padding: var(--spacing-md);
-    }
-
-    .info-block {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .info-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--text-primary);
-    }
-
-    .info-text {
-      margin: 0;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--text-muted);
-    }
-
-    .info-text strong {
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .tab-bar {
-      display: flex;
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    .tab {
-      padding: var(--spacing-sm) var(--spacing-md);
-      border: none;
-      background: transparent;
-      color: var(--text-muted);
-      cursor: pointer;
-      font-size: 13px;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-    }
-
-    .tab.active {
-      color: var(--text-primary);
-      border-bottom-color: var(--primary-color);
-      font-weight: 600;
-    }
-
-    .tab-content {
-      padding: var(--spacing-md);
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-md);
-    }
-
-    /* ── Plugin Grid ── */
-
-    .plugin-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: var(--spacing-md);
-    }
-
-    .plugin-card {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-xs);
-      padding: var(--spacing-md);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      background: var(--bg-tertiary);
-    }
-
-    .plugin-card-header {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-xs);
-      flex-wrap: wrap;
-    }
-
-    .plugin-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .plugin-version {
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    .status-badge {
-      margin-left: auto;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-
-    .status-loaded {
-      background: color-mix(in srgb, var(--success-color, #22c55e) 20%, transparent);
-      color: var(--success-color, #22c55e);
-    }
-
-    .status-unloaded {
-      background: color-mix(in srgb, var(--text-muted) 20%, transparent);
-      color: var(--text-muted);
-    }
-
-    .status-error {
-      background: color-mix(in srgb, var(--error-color) 20%, transparent);
-      color: var(--error-color);
-    }
-
-    .plugin-description {
-      margin: 0;
-      font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.4;
-    }
-
-    .plugin-path {
-      margin: 0;
-      font-size: 11px;
-      color: var(--text-muted);
-      font-family: var(--font-family-mono);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .plugin-actions {
-      display: flex;
-      gap: var(--spacing-xs);
-      margin-top: var(--spacing-xs);
-    }
-
-    /* ── Discover Actions ── */
-
-    .discover-actions {
-      display: flex;
-      gap: var(--spacing-sm);
-    }
-
-    /* ── Install from Path ── */
-
-    .install-from-path {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-sm);
-      padding-top: var(--spacing-md);
-      border-top: 1px solid var(--border-color);
-    }
-
-    .section-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .section-desc {
-      margin: 2px 0 0;
-      font-size: 12px;
-      line-height: 1.45;
-      color: var(--text-muted);
-    }
-
-    .section-desc code {
-      font-family: var(--font-family-mono);
-      font-size: 11px;
-    }
-
-    .install-row,
-    .create-row {
-      display: flex;
-      gap: var(--spacing-sm);
-    }
-
-    /* ── Create Template ── */
-
-    .create-template {
-      padding: var(--spacing-md);
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-sm);
-    }
-
-    .panel-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .template-result {
-      padding: var(--spacing-sm) var(--spacing-md);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      background: var(--bg-primary);
-      font-size: 12px;
-      color: var(--text-primary);
-      font-family: var(--font-family-mono);
-    }
-
-    .runtime-validation {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--spacing-sm);
-      padding: var(--spacing-sm) var(--spacing-md);
-      border: 1px solid color-mix(in srgb, var(--success-color, #22c55e) 50%, transparent);
-      border-radius: var(--radius-sm);
-      background: color-mix(in srgb, var(--success-color, #22c55e) 12%, transparent);
-      color: var(--text-primary);
-      font-size: 12px;
-    }
-
-    .runtime-validation.invalid {
-      border-color: color-mix(in srgb, var(--error-color) 60%, transparent);
-      background: color-mix(in srgb, var(--error-color) 14%, transparent);
-      color: var(--error-color);
-    }
-
-    /* ── Common ── */
-
-    .empty-state {
-      font-size: 13px;
-      color: var(--text-muted);
-      text-align: center;
-      padding: var(--spacing-lg);
-    }
-
-    .input {
-      flex: 1;
-      min-width: 0;
-      padding: var(--spacing-xs) var(--spacing-sm);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      font-size: 13px;
-    }
-
-    .btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
-      font-size: 13px;
-      white-space: nowrap;
-    }
-
-    .btn.primary {
-      background: var(--primary-color);
-      border-color: var(--primary-color);
-      color: #fff;
-    }
-
-    .btn.danger {
-      background: color-mix(in srgb, var(--error-color) 20%, transparent);
-      border-color: color-mix(in srgb, var(--error-color) 60%, transparent);
-      color: var(--error-color);
-    }
-
-    .btn.small {
-      padding: 2px var(--spacing-sm);
-      font-size: 12px;
-    }
-
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    @media (max-width: 640px) {
-      .metrics {
-        grid-template-columns: 1fr;
-      }
-
-      .info-panel {
-        grid-template-columns: 1fr;
-      }
-    }
-  `],
+  styleUrl: './plugins-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PluginsPageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly pluginIpc = inject(PluginIpcService);
+  private readonly instanceStore = inject(InstanceStore);
 
   // ── State signals ──────────────────────────────────────────────────────────
 
   readonly loadedPlugins = signal<PluginInfo[]>([]);
   readonly availablePlugins = signal<PluginInfo[]>([]);
   readonly runtimePlugins = signal<RuntimePluginInfo[]>([]);
+  readonly projectPluginTrustDecisions = signal<ProjectPluginTrustDecision[]>([]);
   readonly activeTab = signal<ActiveTab>('installed');
   readonly loading = signal(false);
   readonly working = signal(false);
   readonly runtimeWorking = signal(false);
+  readonly projectTrustWorking = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly installPath = signal('');
   readonly runtimeSourceInput = signal('');
@@ -836,6 +492,11 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
   readonly runtimePackageCount = computed(() =>
     this.runtimePlugins().filter((plugin) => plugin.status === 'installed').length
   );
+
+  readonly projectTrustWorkingDirectory = computed(() => {
+    const workingDirectory = this.instanceStore.selectedInstance()?.workingDirectory?.trim();
+    return workingDirectory && workingDirectory.length > 0 ? workingDirectory : null;
+  });
 
   // ── Event unsubscribers ────────────────────────────────────────────────────
 
@@ -882,6 +543,7 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
         this.refreshLoaded(),
         this.refreshAvailable(),
         this.refreshRuntimePlugins(),
+        this.refreshProjectPluginTrust(),
       ]);
     } finally {
       this.loading.set(false);
@@ -1087,6 +749,14 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  async grantProjectPluginTrust(projectRoot: string): Promise<void> {
+    await this.updateProjectPluginTrust(projectRoot, 'grant');
+  }
+
+  async revokeProjectPluginTrust(projectRoot: string): Promise<void> {
+    await this.updateProjectPluginTrust(projectRoot, 'revoke');
+  }
+
   async createTemplate(): Promise<void> {
     const name = this.templateName().trim();
     if (!name || this.working()) return;
@@ -1165,6 +835,57 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
       }
     } catch {
       // Runtime package listing is best-effort; keep the existing list.
+    }
+  }
+
+  private async refreshProjectPluginTrust(): Promise<void> {
+    const workingDirectory = this.projectTrustWorkingDirectory();
+    if (!workingDirectory) {
+      this.projectPluginTrustDecisions.set([]);
+      return;
+    }
+
+    try {
+      const response = await this.pluginIpc.projectPluginTrustQuery(workingDirectory);
+      if (response.success) {
+        const data = this.extractData<{ decisions: ProjectPluginTrustDecision[] }>(response);
+        this.projectPluginTrustDecisions.set(data?.decisions ?? []);
+      } else {
+        this.setError(response, 'Failed to query project plugin trust.');
+      }
+    } catch {
+      this.errorMessage.set('Failed to query project plugin trust.');
+    }
+  }
+
+  private async updateProjectPluginTrust(projectRoot: string, action: 'grant' | 'revoke'): Promise<void> {
+    if (this.projectTrustWorking()) return;
+
+    this.errorMessage.set(null);
+    this.projectTrustWorking.set(true);
+    try {
+      const response = action === 'grant'
+        ? await this.pluginIpc.projectPluginTrustGrant(projectRoot)
+        : await this.pluginIpc.projectPluginTrustRevoke(projectRoot);
+      if (!response.success) {
+        this.setError(
+          response,
+          action === 'grant'
+            ? `Failed to trust project plugins at "${projectRoot}".`
+            : `Failed to reject project plugins at "${projectRoot}".`,
+        );
+        return;
+      }
+      const decision = this.extractData<ProjectPluginTrustDecision>(response);
+      if (decision) {
+        this.projectPluginTrustDecisions.update((decisions) =>
+          decisions.map((item) => item.projectRoot === decision.projectRoot ? decision : item)
+        );
+      }
+      await this.refreshProjectPluginTrust();
+      await this.refreshRuntimePlugins();
+    } finally {
+      this.projectTrustWorking.set(false);
     }
   }
 
