@@ -14,6 +14,19 @@ export interface ChatOlderMessagesLoadResult {
   totalStored: number;
 }
 
+/**
+ * Result of an id-addressed store operation (used by surfaces that manage
+ * their own error presentation, e.g. the side-chat panel, instead of the
+ * store-global `error` signal consumed by the main chat view).
+ */
+export type ChatOperationResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export type ChatDetachedCreateResult =
+  | { ok: true; detail: ChatDetail }
+  | { ok: false; error: string };
+
 @Injectable({ providedIn: 'root' })
 export class ChatStore {
   private readonly ipc = inject(ChatIpcService);
@@ -29,6 +42,12 @@ export class ChatStore {
   private restoredUiState = false;
 
   readonly chats = this._chats.asReadonly();
+  /**
+   * Cached chat details keyed by chat id. Lets secondary surfaces (e.g. the
+   * side-chat panel) reactively read a chat that is NOT the globally selected
+   * one: `computed(() => chatStore.details().get(id) ?? null)`.
+   */
+  readonly details = this._details.asReadonly();
   readonly selectedChatId = this._selectedChatId.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly sending = this._sending.asReadonly();
@@ -117,6 +136,38 @@ export class ChatStore {
     }
   }
 
+  /**
+   * Create a chat WITHOUT selecting it or touching persisted UI state — the
+   * main workspace keeps whatever it is showing. Used by the side-chat panel,
+   * whose chat lives alongside the primary selection. Errors are returned to
+   * the caller instead of being written to the store-global `error` signal.
+   */
+  async createDetached(payload: ChatCreateInput): Promise<ChatDetachedCreateResult> {
+    try {
+      const response = await this.ipc.create(payload);
+      if (response.success && response.data) {
+        this.mergeDetail(response.data);
+        this.mergeChat(response.data.chat);
+        return { ok: true, detail: response.data };
+      }
+      return { ok: false, error: response.error?.message ?? 'Failed to create chat' };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Failed to create chat' };
+    }
+  }
+
+  /**
+   * Ensure a chat's detail is cached (loading it quietly if absent) without
+   * selecting the chat. Once cached, incremental `transcript-appended` events
+   * keep it fresh even while another chat/instance owns the main view.
+   */
+  async ensureDetailLoaded(chatId: string): Promise<void> {
+    await this.initialize();
+    if (!this._details().has(chatId)) {
+      await this.reloadDetailQuiet(chatId);
+    }
+  }
+
   async rename(chatId: string, name: string): Promise<void> {
     const response = await this.ipc.rename(chatId, name);
     if (response.success && response.data) {
@@ -180,22 +231,49 @@ export class ChatStore {
     this._sending.set(true);
     this._error.set(null);
     try {
-      const response = await this.ipc.sendMessage(chatId, trimmed, attachments);
-      if (response.success && response.data) {
-        this.mergeDetail(response.data);
-        this.mergeChat(response.data.chat);
-      } else {
-        this._error.set(response.error?.message ?? 'Failed to send message');
+      const result = await this.sendMessageTo(chatId, trimmed, attachments);
+      if (!result.ok) {
+        this._error.set(result.error);
       }
-    } catch (error) {
-      this._error.set(error instanceof Error ? error.message : 'Failed to send message');
     } finally {
       this._sending.set(false);
     }
   }
 
+  /**
+   * Send a message to an explicit chat, independent of the global selection
+   * and the global `sending` flag (so a busy side chat never disables the main
+   * composer, and vice versa). Errors are returned, not written to `error`.
+   */
+  async sendMessageTo(
+    chatId: string,
+    text: string,
+    attachments?: FileAttachment[],
+  ): Promise<ChatOperationResult> {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return { ok: false, error: 'Message is empty' };
+    }
+    try {
+      const response = await this.ipc.sendMessage(chatId, trimmed, attachments);
+      if (response.success && response.data) {
+        this.mergeDetail(response.data);
+        this.mergeChat(response.data.chat);
+        return { ok: true };
+      }
+      return { ok: false, error: response.error?.message ?? 'Failed to send message' };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Failed to send message' };
+    }
+  }
+
   async loadOlderMessages(limit = 200): Promise<ChatOlderMessagesLoadResult | null> {
-    const detail = this.selectedDetail();
+    const chatId = this._selectedChatId();
+    return chatId ? this.loadOlderMessagesFor(chatId, limit) : null;
+  }
+
+  async loadOlderMessagesFor(chatId: string, limit = 200): Promise<ChatOlderMessagesLoadResult | null> {
+    const detail = this._details().get(chatId) ?? null;
     const oldestSequence = detail?.conversation.window?.oldestSequence;
     if (!detail || !detail.conversation.window?.hasOlder || oldestSequence == null) {
       return null;
@@ -299,8 +377,29 @@ export class ChatStore {
       this.applyTranscriptAppend(event);
       this.mergeChat(event.chat);
     }
-    if (this._selectedChatId() === event.chatId && event.type !== 'transcript-appended') {
-      await this.loadDetail(event.chatId);
+    if (event.type !== 'transcript-appended') {
+      if (this._selectedChatId() === event.chatId) {
+        await this.loadDetail(event.chatId);
+      } else if (this._details().has(event.chatId)) {
+        // A cached-but-unselected chat (e.g. the side-chat panel's chat) still
+        // needs its detail refreshed on runtime-linked/cleared and chat-updated
+        // events, or its status pill / currentInstance binding goes stale.
+        // Quiet refresh: don't flip the store-global loading/error signals for
+        // a background chat.
+        await this.reloadDetailQuiet(event.chatId);
+      }
+    }
+  }
+
+  /** Refresh a cached detail without touching the global loading/error state. */
+  private async reloadDetailQuiet(chatId: string): Promise<void> {
+    try {
+      const response = await this.ipc.get(chatId);
+      if (response.success && response.data) {
+        this.mergeDetail(response.data);
+      }
+    } catch {
+      // Keep the stale cached detail; the next event or send will retry.
     }
   }
 

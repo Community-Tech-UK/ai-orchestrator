@@ -15,6 +15,8 @@ export interface WorkspacePanelVisibility {
   fileExplorer: boolean;
   sourceControl: boolean;
   controlPlane: boolean;
+  /** Side-chat panel (right rail). Optional — presets default to closed. */
+  sideChat?: boolean;
 }
 
 export interface WorkspacePreset {
@@ -61,6 +63,7 @@ export interface ViewLayout {
   fileExplorerWidth: number;
   historySidebarWidth: number;
   sourceControlWidth: number;
+  sideChatWidth: number;
   /** Last-applied workspace preset, or null when the layout is custom. */
   activePreset: WorkspacePresetId | null;
   /** Whether the control plane is docked into the layout vs floating (item 7). */
@@ -72,6 +75,7 @@ const DEFAULT_LAYOUT: ViewLayout = {
   fileExplorerWidth: 260,
   historySidebarWidth: 350,
   sourceControlWidth: 320,
+  sideChatWidth: 380,
   activePreset: null,
   controlPlanePinned: false,
 };
@@ -129,6 +133,11 @@ export class ViewLayoutService {
     return this.layout().sourceControlWidth;
   }
 
+  /** Get current side-chat panel width */
+  get sideChatWidth(): number {
+    return this.layout().sideChatWidth;
+  }
+
   /** Update sidebar width with debounced persistence */
   setSidebarWidth(width: number): void {
     const clamped = Math.max(250, Math.min(460, width));
@@ -154,6 +163,13 @@ export class ViewLayoutService {
   setSourceControlWidth(width: number): void {
     const clamped = Math.max(220, Math.min(500, width));
     this.layout.update(l => ({ ...l, sourceControlWidth: clamped }));
+    this.debounceSave();
+  }
+
+  /** Update side-chat panel width with debounced persistence */
+  setSideChatWidth(width: number): void {
+    const clamped = Math.max(280, Math.min(560, width));
+    this.layout.update(l => ({ ...l, sideChatWidth: clamped }));
     this.debounceSave();
   }
 

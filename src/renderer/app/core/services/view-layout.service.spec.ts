@@ -118,6 +118,49 @@ describe('ViewLayoutService control plane pinning', () => {
     expect(reloaded.sidebarWidth).toBe(300);
   });
 
+  it('defaults sideChatWidth for a stored payload that predates the field', () => {
+    localStorage.setItem(
+      'view-layout',
+      JSON.stringify({
+        __v: 2,
+        value: {
+          sidebarWidth: 300,
+          fileExplorerWidth: 260,
+          historySidebarWidth: 350,
+          sourceControlWidth: 320,
+          activePreset: null,
+          controlPlanePinned: false,
+        },
+      }),
+    );
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({});
+    const reloaded = TestBed.inject(ViewLayoutService);
+
+    expect(reloaded.sideChatWidth).toBe(380);
+  });
+
+  it('clamps and persists the side-chat width', () => {
+    vi.useFakeTimers();
+    try {
+      service.setSideChatWidth(100);
+      expect(service.sideChatWidth).toBe(280);
+      service.setSideChatWidth(9999);
+      expect(service.sideChatWidth).toBe(560);
+      service.setSideChatWidth(420);
+      vi.advanceTimersByTime(500);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({});
+    const reloaded = TestBed.inject(ViewLayoutService);
+
+    expect(reloaded.sideChatWidth).toBe(420);
+  });
+
   it('persists the pinned state so it survives a reload', () => {
     vi.useFakeTimers();
     try {

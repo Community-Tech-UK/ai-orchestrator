@@ -40,6 +40,7 @@ import { ModelPickerFocusService } from '../models/model-picker-focus.service';
 import { PromptHistorySearchHostComponent } from '../prompt-history/prompt-history-search-host.component';
 import { FileExplorerComponent } from '../file-explorer/file-explorer.component';
 import { SourceControlComponent } from '../source-control/source-control.component';
+import { SideChatPanelComponent } from '../side-chat/side-chat-panel.component';
 import { isSourceControlEligible } from '../source-control/source-control-eligibility';
 import { SourceControlStore } from '../../core/state/source-control.store';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
@@ -54,6 +55,7 @@ import {
   resolveDashboardProjectContext,
   type DashboardProjectContext,
 } from './dashboard-project-context';
+import { runCancelOperationCascade } from './dashboard-cancel-operation';
 
 @Component({
   selector: 'app-dashboard',
@@ -72,6 +74,7 @@ import {
     PromptHistorySearchHostComponent,
     FileExplorerComponent,
     SourceControlComponent,
+    SideChatPanelComponent,
     SidebarHeaderComponent,
     WorkspaceRailComponent,
     SidebarNavComponent,
@@ -111,6 +114,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   showSidebar = signal(true);
   showFileExplorer = signal(false);
   showSourceControl = signal(false);
+  showSideChat = signal(false);
 
   // Workspace layout presets (copilot_todo.md item 9).
   readonly workspacePresets = this.viewLayoutService.presets;
@@ -186,6 +190,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
       workingDirectory: this.activeWorkspaceWorkingDir(),
     });
   });
+
+  /**
+   * Working directory for lazily-created side chats. Prefers the active
+   * workspace (instance or draft), then the selected chat's project, then the
+   * scratch directory so the side chat works even with nothing selected.
+   */
+  sideChatWorkingDirectory = computed(() =>
+    this.activeWorkspaceWorkingDir()
+    ?? this.chatStore.selectedChat()?.currentCwd
+    ?? this.scratchDirectory.dir()
+    ?? null
+  );
 
   hasWorkspaceSelection = computed(() =>
     !!this.chatStore.selectedChatId()
@@ -356,6 +372,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
         },
       }),
       this.actionDispatch.register({
+        id: 'toggle-side-chat',
+        run: () => {
+          this.toggleSideChat();
+        },
+      }),
+      this.actionDispatch.register({
         id: 'new-instance',
         run: () => this.createInstance(),
       }),
@@ -410,41 +432,15 @@ export class DashboardComponent implements OnInit, OnDestroy {
         id: 'cancel-operation',
         when: ['command-palette-open', 'history-open', 'instance-running'],
         run: () => {
-          if (this.showCommandPalette()) {
-            this.showCommandPalette.set(false);
-            return;
-          }
-
-          if (this.showCommandHelp()) {
-            this.showCommandHelp.set(false);
-            return;
-          }
-
-          if (this.showSessionPicker()) {
-            this.showSessionPicker.set(false);
-            return;
-          }
-
-          if (this.showPromptHistorySearch()) {
-            this.showPromptHistorySearch.set(false);
-            return;
-          }
-
-          if (this.showHistory()) {
-            this.showHistory.set(false);
-            return;
-          }
-
-          const instance = this.store.selectedInstance();
-          if (instance && (
-            instance.status === 'busy'
-            || instance.status === 'respawning'
-            || instance.status === 'interrupting'
-            || instance.status === 'cancelling'
-            || instance.status === 'interrupt-escalating'
-          )) {
-            void this.store.interruptInstance(instance.id);
-          }
+          runCancelOperationCascade({
+            showCommandPalette: this.showCommandPalette,
+            showCommandHelp: this.showCommandHelp,
+            showSessionPicker: this.showSessionPicker,
+            showPromptHistorySearch: this.showPromptHistorySearch,
+            showHistory: this.showHistory,
+            selectedInstance: () => this.store.selectedInstance(),
+            interruptInstance: (instanceId) => this.store.interruptInstance(instanceId),
+          });
         },
       }),
       this.actionDispatch.register({
@@ -591,6 +587,26 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.showControlPlane.set(preset.panels.controlPlane);
     this.showFileExplorer.set(preset.panels.fileExplorer && this.canShowFileExplorer());
     this.showSourceControl.set(preset.panels.sourceControl && this.canShowSourceControl());
+    this.showSideChat.set(preset.panels.sideChat ?? false);
+  }
+
+  toggleSideChat(): void {
+    this.showSideChat.update((open) => !open);
+    this.viewLayoutService.setActivePreset(null);
+  }
+
+  /**
+   * Promote the side chat into the main workspace view (clears the instance /
+   * history selection first, mirroring `selectChats()`). Closes the panel so
+   * the same chat isn't rendered twice.
+   */
+  openSideChatInMain(chatId: string): void {
+    this.historyStore.clearSelection();
+    this.store.setSelectedInstance(null);
+    this.showFileExplorer.set(false);
+    this.showSourceControl.set(false);
+    this.showSideChat.set(false);
+    void this.chatStore.select(chatId);
   }
 
   toggleFileExplorer(): void {

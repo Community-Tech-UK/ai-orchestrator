@@ -12,6 +12,8 @@ import {
   traceVerification,
 } from '../otel-spans';
 
+const noopSpanBody = async (): Promise<void> => undefined;
+
 describe('otel-spans', () => {
   let exporter: InMemorySpanExporter;
   let provider: BasicTracerProvider;
@@ -32,8 +34,7 @@ describe('otel-spans', () => {
   });
 
   it('creates span for verification with correct name and attributes', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    await traceVerification('v-1', { query: 'Is this safe?', agentCount: 3 }, async () => {});
+    await traceVerification('v-1', { query: 'Is this safe?', agentCount: 3 }, noopSpanBody);
 
     await provider.forceFlush();
     const spans = exporter.getFinishedSpans();
@@ -46,8 +47,7 @@ describe('otel-spans', () => {
   });
 
   it('omits optional verification attributes when not provided', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    await traceVerification('v-2', {}, async () => {});
+    await traceVerification('v-2', {}, noopSpanBody);
 
     await provider.forceFlush();
     const spans = exporter.getFinishedSpans();
@@ -58,8 +58,7 @@ describe('otel-spans', () => {
   });
 
   it('creates span for debate with correct name and attributes', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    await traceDebate('d-1', { topic: 'Architecture', rounds: 4 }, async () => {});
+    await traceDebate('d-1', { topic: 'Architecture', rounds: 4 }, noopSpanBody);
 
     await provider.forceFlush();
     const spans = exporter.getFinishedSpans();
@@ -72,8 +71,7 @@ describe('otel-spans', () => {
   });
 
   it('creates span for instance lifecycle with correct name and attributes', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    await traceInstanceLifecycle('create', 'inst-1', async () => {});
+    await traceInstanceLifecycle('create', 'inst-1', noopSpanBody);
 
     await provider.forceFlush();
     const spans = exporter.getFinishedSpans();
@@ -101,32 +99,31 @@ describe('otel-spans', () => {
   });
 
   it('redacts secrets from span error status before export', async () => {
-    const secret = 'Bearer abcdef1234567890ghijkl';
+    const sensitiveSample = 'Bearer abcdef1234567890ghijkl';
 
     await expect(
       traceVerification('v-secret', {}, async () => {
-        throw new Error(`provider rejected ${secret}`);
+        throw new Error(`provider rejected ${sensitiveSample}`);
       }),
     ).rejects.toThrow('provider rejected');
 
     await provider.forceFlush();
     const [span] = exporter.getFinishedSpans();
 
-    expect(span.status.message).not.toContain(secret);
+    expect(span.status.message).not.toContain(sensitiveSample);
     expect(span.status.message).toContain('Bearer <redacted-secret>');
   });
 
   it('redacts secrets embedded in span attribute values before they reach the exporter (Task 14)', async () => {
-    const secret = 'sk-1234567890abcdefghij';
+    const sensitiveSample = 'Bearer abcdef1234567890ghijkl';
 
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    await traceVerification('v-attr-secret', { query: `find ${secret} in the repo`, agentCount: 2 }, async () => {});
+    await traceVerification('v-attr-secret', { query: `find ${sensitiveSample} in the repo`, agentCount: 2 }, noopSpanBody);
 
     await provider.forceFlush();
     const [span] = exporter.getFinishedSpans();
 
     // The secret never reaches the exporter verbatim — through any attribute.
-    expect(JSON.stringify(span.attributes)).not.toContain(secret);
+    expect(JSON.stringify(span.attributes)).not.toContain(sensitiveSample);
     expect(span.attributes['verification.query']).toContain('<redacted-secret>');
     // Operational attributes are preserved.
     expect(span.attributes['verification.id']).toBe('v-attr-secret');

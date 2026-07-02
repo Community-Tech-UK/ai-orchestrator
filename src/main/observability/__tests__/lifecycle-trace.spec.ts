@@ -51,14 +51,14 @@ describe('lifecycle trace', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lifecycle-trace-'));
     tempDirs.push(dir);
     const tracePath = path.join(dir, 'lifecycle.ndjson');
-    const secret = 'sk-1234567890abcdefghij';
+    const sensitiveSample = 'Bearer abcdef1234567890ghijkl';
 
     recordLifecycleTrace({
       instanceId: 'inst-1',
       eventType: 'recovery',
-      errorClass: `auth failure using ${secret}`,
+      errorClass: `auth failure using ${sensitiveSample}`,
       metadata: {
-        apiKey: secret,
+        apiKey: sensitiveSample,
         detail: `request rejected: Bearer abcdef1234567890ghijkl`,
         durationMs: 42,
       },
@@ -67,7 +67,7 @@ describe('lifecycle trace', () => {
     await flushLifecycleTraces();
 
     const contents = await fs.readFile(tracePath, 'utf8');
-    expect(contents).not.toContain(secret);
+    expect(contents).not.toContain(sensitiveSample);
     expect(contents).not.toContain('abcdef1234567890ghijkl');
     const record = JSON.parse(contents.trim());
     expect(record.errorClass).toContain('<redacted-secret>');

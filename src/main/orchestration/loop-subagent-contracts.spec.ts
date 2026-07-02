@@ -60,6 +60,15 @@ describe('loop subagent contracts', () => {
     expect(result.errors.join('\n')).toContain('packet must be an object');
   });
 
+  it('returns validation errors instead of throwing for non-array packet collections', () => {
+    expect(() => validateLoopTaskPackets(null)).not.toThrow();
+    expect(validateLoopTaskPackets(null)).toEqual({
+      ok: false,
+      errors: ['taskPackets must be an array'],
+    });
+    expect(validateLoopTaskPackets({ task: packet() }).ok).toBe(false);
+  });
+
   it('returns validation errors instead of throwing for non-string array entries', () => {
     const malformed = packet({
       id: 'task-arrays',

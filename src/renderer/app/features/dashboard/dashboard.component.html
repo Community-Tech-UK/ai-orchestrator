@@ -40,7 +40,9 @@
     <!-- Slim global-navigation rail -->
     <app-workspace-rail
       [controlPlaneOpen]="showControlPlane()"
+      [sideChatOpen]="showSideChat()"
       (toggleControlPlane)="toggleControlPlane()"
+      (toggleSideChat)="toggleSideChat()"
       (historyClicked)="showHistory.set(true)"
       (settingsClicked)="navigateToSettings()"
     />
@@ -152,6 +154,16 @@
         [executionNodeId]="activeWorkspaceExecutionNodeId()"
         (fileDragged)="onFileDragged($event)"
         (filesDragged)="onFilesDragged($event)"
+      />
+    }
+
+    <!-- Side chat (rightmost panel) — a secondary chat alongside whatever the
+         main workspace is showing. Toggled via ⌥⌘S or the rail button. -->
+    @if (showSideChat()) {
+      <app-side-chat-panel
+        [workingDirectory]="sideChatWorkingDirectory()"
+        (closeRequested)="showSideChat.set(false)"
+        (openInMainRequested)="openSideChatInMain($event)"
       />
     }
 

@@ -128,13 +128,17 @@ function writeScopeFor(packet: LoopTaskPacket): string[] {
 }
 
 export function validateLoopTaskPackets(
-  packets: readonly unknown[],
+  packets: unknown,
   options: TaskPacketValidationOptions = {},
 ): TaskPacketValidationResult {
   const errors: string[] = [];
   const validPackets: LoopTaskPacket[] = [];
   const maxDepth = options.maxDepth ?? 1;
   const requireNonOverlappingWriteScopes = options.requireNonOverlappingWriteScopes ?? true;
+
+  if (!Array.isArray(packets)) {
+    return { ok: false, errors: ['taskPackets must be an array'] };
+  }
 
   packets.forEach((packet, index) => {
     const validated = validatePacket(packet, index, maxDepth, errors);

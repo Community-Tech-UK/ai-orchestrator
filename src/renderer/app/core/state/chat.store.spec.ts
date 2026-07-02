@@ -205,6 +205,105 @@ describe('ChatStore', () => {
     expect(store.selectedDetail()?.chat.id).toBe('chat-2');
   });
 
+  it('creates a detached chat without selecting it or persisting UI state', async () => {
+    const store = TestBed.inject(ChatStore);
+    await store.initialize();
+    await store.select('chat-1');
+    ipc.setUiState.mockClear();
+
+    const created = chatDetail(chatRecord('chat-9'));
+    ipc.create.mockResolvedValueOnce({ success: true, data: created });
+
+    const result = await store.createDetached({
+      name: 'Side chat',
+      provider: 'claude',
+      currentCwd: '/work/chat-9',
+    });
+
+    expect(result).toEqual({ ok: true, detail: created });
+    expect(store.selectedChatId()).toBe('chat-1');
+    expect(ipc.setUiState).not.toHaveBeenCalled();
+    expect(store.details().get('chat-9')?.chat.id).toBe('chat-9');
+    expect(store.chats().some((chat) => chat.id === 'chat-9')).toBe(true);
+  });
+
+  it('sends to an explicit chat without touching global sending/error state', async () => {
+    const store = TestBed.inject(ChatStore);
+    await store.initialize();
+    await store.select('chat-1');
+
+    ipc.sendMessage.mockResolvedValueOnce({
+      success: false,
+      error: { message: 'provider offline' },
+    });
+
+    const result = await store.sendMessageTo('chat-2', 'hello');
+
+    expect(result).toEqual({ ok: false, error: 'provider offline' });
+    expect(ipc.sendMessage).toHaveBeenCalledWith('chat-2', 'hello', undefined);
+    // The failure belongs to the caller (side-chat panel), not the main view.
+    expect(store.error()).toBeNull();
+    expect(store.sending()).toBe(false);
+  });
+
+  it('quietly refreshes a cached background chat detail on runtime events', async () => {
+    const store = TestBed.inject(ChatStore);
+    await store.initialize();
+    await store.select('chat-1');
+    await store.ensureDetailLoaded('chat-2');
+    ipc.get.mockClear();
+
+    chatEventHandler?.({
+      type: 'runtime-linked',
+      chatId: 'chat-2',
+      instanceId: 'inst-1',
+      chat: chatRecord('chat-2'),
+    });
+    await vi.waitFor(() => {
+      expect(ipc.get).toHaveBeenCalledWith('chat-2');
+    });
+
+    // Global loading stayed off for the background refresh path.
+    expect(store.loading()).toBe(false);
+    expect(store.selectedChatId()).toBe('chat-1');
+  });
+
+  it('loads older messages for a non-selected chat', async () => {
+    const store = TestBed.inject(ChatStore);
+    const background = chatDetail(chatRecord('chat-2'));
+    background.conversation.messages = [messageRecord('m3', 3)];
+    background.conversation.window = {
+      totalMessages: 2,
+      hasOlder: true,
+      oldestSequence: 3,
+      newestSequence: 3,
+    };
+    ipc.get.mockImplementation(async (chatId: string) => ({
+      success: true,
+      data: chatId === 'chat-2' ? background : chatDetail(chatRecord(chatId)),
+    }));
+    ipc.loadOlderMessages.mockResolvedValueOnce({
+      success: true,
+      data: {
+        threadId: 'thread-chat-2',
+        messages: [messageRecord('m1', 1)],
+        totalMessages: 2,
+        hasMore: false,
+        nextBeforeSequence: 1,
+      },
+    });
+
+    await store.initialize();
+    await store.select('chat-1');
+    await store.ensureDetailLoaded('chat-2');
+
+    const result = await store.loadOlderMessagesFor('chat-2');
+
+    expect(result).toEqual({ prependedCount: 1, hasMore: false, totalStored: 2 });
+    expect(ipc.loadOlderMessages).toHaveBeenCalledWith('chat-2', 3, 200);
+    expect(store.details().get('chat-2')?.conversation.messages.map((m) => m.sequence)).toEqual([1, 3]);
+  });
+
   it('persists selected and deselected chat UI state through IPC', async () => {
     const store = TestBed.inject(ChatStore);
 

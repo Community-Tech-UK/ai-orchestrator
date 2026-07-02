@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { FormsModule } from '@angular/forms';
 import type { ChatProvider } from '../../../../shared/types/chat.types';
 import type { ConversationMessageRecord } from '../../../../shared/types/conversation-ledger.types';
-import type { FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } from '../../../../shared/types/instance.types';
+import type { FileAttachment, InstanceStatus, OutputMessage } from '../../../../shared/types/instance.types';
+import { ChatOutputMessageMapper } from './chat-output-message.mapper';
 import type { OperatorRunGraph, OperatorRunRecord } from '../../../../shared/types/operator.types';
 import { ChatStore } from '../../core/state/chat.store';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -402,85 +403,13 @@ export class ChatDetailComponent {
   }
 
   /**
-   * Memoizes the pure `ConversationMessageRecord` → `OutputMessage` mapping,
-   * keyed by record identity. The chat store preserves prior record identities
-   * across incremental transcript updates, so this cache returns stable
-   * `OutputMessage` references for unchanged messages. That keeps the output
-   * stream's incremental `DisplayItemProcessor` (which compares by reference)
-   * on its fast path: only the newly-appended message is reprocessed, rather
-   * than the entire transcript being rebuilt on every provider event and every
-   * streaming tick.
+   * Identity-memoized ledger→OutputMessage mapping (see the mapper's doc
+   * comment for why identity stability matters for incremental rendering).
    */
-  private readonly outputMessageCache = new WeakMap<ConversationMessageRecord, OutputMessage>();
+  private readonly outputMessageMapper = new ChatOutputMessageMapper();
 
   private toOutputMessage(message: ConversationMessageRecord): OutputMessage {
-    const cached = this.outputMessageCache.get(message);
-    if (cached) {
-      return cached;
-    }
-    const built = this.buildOutputMessage(message);
-    this.outputMessageCache.set(message, built);
-    return built;
-  }
-
-  private buildOutputMessage(message: ConversationMessageRecord): OutputMessage {
-    const rawJson = this.asRecord(message.rawJson);
-    const rawMetadata = this.asRecord(rawJson?.['metadata']);
-    const type = this.toOutputMessageType(message, rawMetadata);
-    const metadata = {
-      ...(rawMetadata ?? {}),
-      ledgerMessageId: message.id,
-      ledgerSequence: message.sequence,
-      nativeTurnId: message.nativeTurnId,
-      phase: message.phase,
-    };
-    return {
-      id: message.nativeMessageId ?? message.id,
-      timestamp: message.createdAt,
-      type,
-      content: message.content,
-      metadata,
-      attachments: this.asAttachments(rawJson?.['attachments']),
-      thinking: this.asThinking(rawJson?.['thinking']),
-      thinkingExtracted: typeof rawJson?.['thinkingExtracted'] === 'boolean'
-        ? rawJson['thinkingExtracted']
-        : undefined,
-    };
-  }
-
-  private toOutputMessageType(
-    message: ConversationMessageRecord,
-    metadata: Record<string, unknown> | null,
-  ): OutputMessage['type'] {
-    if (message.role === 'user') {
-      return 'user';
-    }
-    if (message.role === 'system' || message.role === 'event') {
-      return 'system';
-    }
-    if (message.phase === 'error' || metadata?.['kind'] === 'error') {
-      return 'error';
-    }
-    if (message.role === 'tool') {
-      return message.phase === 'tool_result' || metadata?.['kind'] === 'tool_result'
-        ? 'tool_result'
-        : 'tool_use';
-    }
-    return 'assistant';
-  }
-
-  private asRecord(value: unknown): Record<string, unknown> | null {
-    return value !== null && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : null;
-  }
-
-  private asAttachments(value: unknown): FileAttachment[] | undefined {
-    return Array.isArray(value) ? value as FileAttachment[] : undefined;
-  }
-
-  private asThinking(value: unknown): ThinkingContent[] | undefined {
-    return Array.isArray(value) ? value as ThinkingContent[] : undefined;
+    return this.outputMessageMapper.toOutputMessage(message);
   }
 
   async onLoopStartRequested(payload: {

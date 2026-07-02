@@ -1,0 +1,116 @@
+<div class="side-chat-wrapper" [class.resizing]="isResizing()">
+  <div
+    class="resize-handle"
+    (mousedown)="onResizeStart($event)"
+    [class.dragging]="isResizing()"
+  ></div>
+
+  <div class="side-chat" [style.width.px]="panelWidth()">
+    <div class="panel-header">
+      <span class="collapse-icon" aria-hidden="true">⁂</span>
+      <span class="header-title">Side chat</span>
+      @if (chat(); as chat) {
+        <button
+          type="button"
+          class="header-action"
+          (click)="openInMain()"
+          title="Open in main view"
+          aria-label="Open side chat in main view"
+        >⇱</button>
+        <button
+          type="button"
+          class="header-action"
+          (click)="startNewSideChat()"
+          title="New side chat"
+          aria-label="Start a new side chat"
+        >+</button>
+      }
+      <button
+        type="button"
+        class="header-close"
+        (click)="closeRequested.emit()"
+        title="Close side chat (⌥⌘S)"
+        aria-label="Close side chat"
+      >×</button>
+    </div>
+
+    @if (chat(); as chat) {
+      <div class="chat-meta">
+        <app-compact-model-picker
+          mode="live-instance"
+          [chat]="chat"
+          [hasMessages]="hasMessages()"
+        />
+        <span class="status-pill">{{ currentInstance()?.status ?? 'dormant' }}</span>
+      </div>
+    }
+
+    <div class="panel-body">
+      @if (chat()) {
+        <app-output-stream
+          [messages]="messages()"
+          [instanceId]="streamId()"
+          [provider]="providerForUi()"
+          [showThinking]="showThinking()"
+          [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
+          [showToolMessages]="showToolMessages()"
+          [isChild]="false"
+          [olderMessagesLoader]="loadOlderForOutput"
+          [olderMessagesProbe]="probeOlderForOutput"
+        />
+        @if (showActivity()) {
+          <app-activity-status
+            [status]="statusForUi()"
+            [activity]="activity()"
+          />
+        }
+      } @else {
+        <div class="empty-state">
+          <p class="empty-title">Ask on the side</p>
+          <p class="empty-copy">
+            A separate chat next to your workspace — ask questions or explore
+            ideas without steering the main session. Your first message starts
+            the chat.
+          </p>
+          @if (!workingDirectory()) {
+            <p class="empty-hint">Select a project or workspace to enable it.</p>
+          }
+        </div>
+      }
+    </div>
+
+    @if (error(); as error) {
+      <div class="error-banner">{{ error }}</div>
+    }
+
+    <div class="composer">
+      <textarea
+        class="composer-input"
+        rows="3"
+        placeholder="Ask a side question… (Enter to send)"
+        [value]="draft()"
+        (input)="onDraftInput($event)"
+        (keydown)="onComposerKeydown($event)"
+        aria-label="Side chat message"
+      ></textarea>
+      @if (isBusy()) {
+        <button
+          type="button"
+          class="composer-button stop"
+          (click)="interrupt()"
+          title="Stop the current turn"
+          aria-label="Stop side chat turn"
+        >■</button>
+      } @else {
+        <button
+          type="button"
+          class="composer-button send"
+          [disabled]="!canSend()"
+          (click)="send()"
+          title="Send"
+          aria-label="Send side chat message"
+        >➤</button>
+      }
+    </div>
+  </div>
+</div>

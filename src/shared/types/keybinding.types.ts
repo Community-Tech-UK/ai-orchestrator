@@ -64,6 +64,7 @@ export type KeybindingAction =
   | 'toggle-command-palette'
   | 'toggle-sidebar'
   | 'toggle-history'
+  | 'toggle-side-chat'
   | 'toggle-settings'
   | 'zoom-in'
   | 'zoom-out'
@@ -284,6 +285,16 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     description: 'Toggle the history sidebar',
     keys: { key: 'h', modifiers: ['meta'] },
     action: 'toggle-history',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+  {
+    id: 'toggle-side-chat',
+    name: 'Toggle Side Chat',
+    description: 'Toggle the side-chat panel (secondary chat next to the workspace)',
+    keys: { key: 's', modifiers: ['meta', 'alt'] },
+    action: 'toggle-side-chat',
     context: 'global',
     category: 'UI',
     customizable: true,
