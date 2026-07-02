@@ -93,7 +93,7 @@ function detachKeydownListenerIfIdle(): void {
 
 function onDocumentKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Tab') return;
-  const trap = activeTraps[activeTraps.length - 1];
+  const trap = getCurrentTrap();
   if (!trap) return;
 
   const focusables = getFocusableElements(trap.container);
@@ -112,6 +112,17 @@ function onDocumentKeydown(event: KeyboardEvent): void {
 
   event.preventDefault();
   focusables[nextIndex]?.focus();
+}
+
+function getCurrentTrap(): ActiveTrap | undefined {
+  for (let i = activeTraps.length - 1; i >= 0; i -= 1) {
+    const trap = activeTraps[i];
+    if (trap.container.isConnected) return trap;
+    cleanupTrap(trap);
+    activeTraps.splice(i, 1);
+  }
+  detachKeydownListenerIfIdle();
+  return undefined;
 }
 
 function focusInitialElement(trap: ActiveTrap, requested: HTMLElement | null): void {
@@ -134,6 +145,12 @@ function focusContainer(trap: ActiveTrap): void {
     trap.temporaryTabIndex = true;
   }
   trap.container.focus();
+}
+
+function cleanupTrap(trap: ActiveTrap): void {
+  if (!trap.temporaryTabIndex) return;
+  trap.container.removeAttribute('tabindex');
+  trap.temporaryTabIndex = false;
 }
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {

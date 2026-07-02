@@ -87,6 +87,28 @@ describe('createFocusTrap', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('ignores stale traps whose container was removed without cleanup', () => {
+    const staleRoot = document.createElement('div');
+    const staleButton = document.createElement('button');
+    staleButton.textContent = 'stale';
+    staleRoot.append(staleButton);
+    document.body.append(staleRoot);
+
+    const staleTrap = createFocusTrap(staleRoot);
+    staleTrap.activate();
+    staleRoot.remove();
+    outside.focus();
+
+    const trap = createFocusTrap(container);
+    trap.activate();
+    trap.restore();
+    expect(document.activeElement).toBe(outside);
+
+    first.focus();
+    const event = dispatchTab(first);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('does not restore focus to a disconnected element', () => {
     const trap = createFocusTrap(container);
     trap.activate();
