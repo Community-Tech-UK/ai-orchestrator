@@ -223,6 +223,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/instance-detail/input-panel.component.ts': 1673,
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1523,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1219,
+  // Allowlisted at 747 when the Outputs rows gained a right-click context menu
+  // (Open with preferred program / Open in editor / Open in Finder / Copy path),
+  // mirroring session-artifacts-strip. Inline template + styles push it past 700.
+  'src/renderer/app/features/instance-detail/session-progress-panel.component.ts': 747,
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 953,
   'src/renderer/app/features/instance-list/instance-list.component.ts': 1334,
   'src/renderer/app/features/instance-list/instance-row.component.ts': 404,

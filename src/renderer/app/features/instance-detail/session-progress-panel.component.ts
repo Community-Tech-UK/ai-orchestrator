@@ -26,6 +26,12 @@ import {
 const MAX_VISIBLE_TASKS = 5;
 const MAX_VISIBLE_OUTPUTS = 6;
 
+interface OutputContextMenuState {
+  readonly entry: ArtifactEntry;
+  readonly x: number;
+  readonly y: number;
+}
+
 /**
  * The user's minimise choice is sticky: persisted to localStorage so the
  * panel stays collapsed (or expanded) across session switches, instance
@@ -112,6 +118,7 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
                     [class.output-deleted]="entry.status === 'deleted'"
                     [title]="outputTooltip(entry)"
                     (click)="openOutput(entry)"
+                    (contextmenu)="onOutputContextMenu($event, entry)"
                   >
                     <span class="file-icon" aria-hidden="true">
                       <svg viewBox="0 0 24 24">
@@ -133,6 +140,50 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
             </section>
           }
         </aside>
+
+        @if (outputMenu(); as menu) {
+          <button
+            type="button"
+            class="ctx-menu-backdrop"
+            aria-label="Close menu"
+            (click)="outputMenu.set(null)"
+            (keydown.escape)="outputMenu.set(null)"
+            (contextmenu)="$event.preventDefault(); outputMenu.set(null)"
+          ></button>
+          <div class="ctx-menu" role="menu" [style.left.px]="menu.x" [style.top.px]="menu.y">
+            @if (menu.entry.status !== 'deleted') {
+              <button
+                type="button"
+                role="menuitem"
+                (click)="openWithDefault(menu.entry); outputMenu.set(null)"
+              >
+                Open with preferred program
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                (click)="openInEditor(menu.entry); outputMenu.set(null)"
+              >
+                Open in editor
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                (click)="revealInFinder(menu.entry); outputMenu.set(null)"
+              >
+                Open in Finder
+              </button>
+              <div class="ctx-divider"></div>
+            }
+            <button
+              type="button"
+              role="menuitem"
+              (click)="copyPath(menu.entry); outputMenu.set(null)"
+            >
+              Copy path
+            </button>
+          </div>
+        }
       } @else {
         <button
           type="button"
@@ -493,6 +544,53 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
       opacity: 0.55;
     }
 
+    .ctx-menu-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background: transparent;
+      border: 0;
+      padding: 0;
+      cursor: default;
+      pointer-events: auto;
+    }
+
+    .ctx-menu {
+      position: fixed;
+      z-index: 1000;
+      min-width: 208px;
+      padding: 4px;
+      border-radius: 8px;
+      background: var(--bg-secondary, #1a1a1f);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+      pointer-events: auto;
+    }
+
+    .ctx-menu button {
+      display: block;
+      width: 100%;
+      padding: 6px 10px;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      border-radius: 5px;
+      color: var(--text-primary);
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .ctx-menu button:hover {
+      background: rgba(var(--primary-rgb), 0.14);
+    }
+
+    .ctx-divider {
+      height: 1px;
+      margin: 4px 6px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
     @media (max-width: 840px) {
       :host {
         top: 116px;
@@ -516,6 +614,9 @@ export class SessionProgressPanelComponent {
 
   /** Sticky, persisted minimise state — see PANEL_COLLAPSED_FIELD. */
   readonly collapsed = signal<boolean>(readStorage(PANEL_COLLAPSED_FIELD));
+
+  /** Open right-click context menu for an output row (null = closed). */
+  readonly outputMenu = signal<OutputContextMenuState | null>(null);
 
   readonly outputs = computed(() =>
     buildArtifactEntries(this.diffStats(), this.workingDirectory())
@@ -602,6 +703,34 @@ export class SessionProgressPanelComponent {
       await this.fileIpc.openPath(entry.absPath);
     } else {
       await this.fileIpc.editorOpen(entry.absPath, { line: 1 });
+    }
+  }
+
+  onOutputContextMenu(event: MouseEvent, entry: ArtifactEntry): void {
+    event.preventDefault();
+    this.outputMenu.set({ entry, x: event.clientX, y: event.clientY });
+  }
+
+  /** Open with the OS's preferred program for the file type (Electron shell.openPath). */
+  async openWithDefault(entry: ArtifactEntry): Promise<void> {
+    await this.fileIpc.openPath(entry.absPath);
+  }
+
+  async openInEditor(entry: ArtifactEntry): Promise<void> {
+    await this.fileIpc.editorOpen(entry.absPath, { line: 1 });
+  }
+
+  /** Reveal the file in Finder / the system file manager. */
+  async revealInFinder(entry: ArtifactEntry): Promise<void> {
+    await this.fileIpc.revealFile(entry.absPath);
+  }
+
+  async copyPath(entry: ArtifactEntry): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(entry.absPath);
+    } catch {
+      // Fall back to file-clipboard IPC if the Clipboard API is blocked.
+      await this.fileIpc.copyFileToClipboard(entry.absPath);
     }
   }
 }
