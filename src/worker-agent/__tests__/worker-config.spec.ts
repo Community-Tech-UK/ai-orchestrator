@@ -27,6 +27,24 @@ describe('loadWorkerConfig', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it('strips a UTF-8 BOM from the config file (PowerShell 5 Set-Content / Notepad write one)', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      '\uFEFF' +
+        JSON.stringify({
+          name: 'bom-node',
+          authToken: 'tok',
+          coordinatorUrl: 'ws://100.68.10.5:4878',
+        }),
+    );
+
+    const config = loadWorkerConfig(configPath);
+
+    expect(config.name).toBe('bom-node');
+    expect(config.coordinatorUrl).toBe('ws://100.68.10.5:4878');
+  });
+
   it('accepts the UI-generated pairing config shape used by start-worker.bat', () => {
     const configPath = path.join(tempDir, 'worker-node.json');
     fs.writeFileSync(

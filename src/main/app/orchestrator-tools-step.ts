@@ -214,6 +214,79 @@ export function createOrchestratorToolsStep(
             status: instance.status,
           };
         },
+        // Backs the `terminate_node_instance` MCP tool: terminate one specific
+        // run_on_node-spawned instance, or sweep all finished ones (optionally
+        // scoped to a node). Only instances carrying the `spawnDepth` lineage
+        // marker are eligible — MCP callers can never terminate the user's own
+        // interactive sessions. Without this, idle one-shot agents accumulate
+        // and permanently exhaust a node's maxConcurrentInstances capacity.
+        terminateNodeInstances: async (args) => {
+          const isRemoteSpawn = (instance: Instance): boolean =>
+            typeof instance.metadata?.['spawnDepth'] === 'number';
+          const terminated: { instanceId: string }[] = [];
+          const skipped: { instanceId: string; reason: string }[] = [];
+
+          if (args.instanceId) {
+            const instance = instanceManager.getInstance(args.instanceId);
+            if (!instance) {
+              throw new Error(`Instance not found: ${args.instanceId}`);
+            }
+            if (!isRemoteSpawn(instance)) {
+              throw new Error(
+                `Refusing to terminate ${args.instanceId}: only run_on_node-spawned instances can be terminated via MCP`,
+              );
+            }
+            await instanceManager.terminateInstance(instance.id, true);
+            terminated.push({ instanceId: instance.id });
+            return { terminated, skipped };
+          }
+
+          // allIdle sweep — resolve the optional node filter first so a typo'd
+          // node name errors instead of silently sweeping nothing.
+          let nodeIdFilter: string | null = null;
+          if (args.node) {
+            const resolved = resolveWorkerNodeTarget(
+              args.node,
+              getWorkerNodeRegistry().getAllNodes(),
+            );
+            if ('error' in resolved) {
+              throw new Error(resolved.error);
+            }
+            nodeIdFilter = resolved.nodeId;
+          }
+          const candidates = instanceManager.getAllInstances().filter(
+            (instance) =>
+              isRemoteSpawn(instance) &&
+              instance.status !== 'terminated' &&
+              (!nodeIdFilter ||
+                (instance.executionLocation.type === 'remote' &&
+                  instance.executionLocation.nodeId === nodeIdFilter)),
+          );
+          for (const instance of candidates) {
+            if (WORKING_STATUSES.has(instance.status)) {
+              skipped.push({
+                instanceId: instance.id,
+                reason: `still working (${instance.status})`,
+              });
+              continue;
+            }
+            try {
+              await instanceManager.terminateInstance(instance.id, true);
+              terminated.push({ instanceId: instance.id });
+            } catch (error) {
+              skipped.push({
+                instanceId: instance.id,
+                reason: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+          logger.info('terminate_node_instance sweep completed', {
+            node: args.node ?? null,
+            terminated: terminated.length,
+            skipped: skipped.length,
+          });
+          return { terminated, skipped };
+        },
         // Backs the `read_node_output` MCP tool: serialize a remote-spawned
         // instance's output buffer + status so an external agent can read the
         // results back. Optionally polls until the turn completes.

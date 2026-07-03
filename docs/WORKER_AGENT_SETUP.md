@@ -174,18 +174,57 @@ CLI flag overrides are available if you don't want to edit the config file:
 node dist/worker-agent/index.js --coordinator ws://192.168.1.50:4878 --name windows-pc --token <token> --namespace default
 ```
 
-### Running as a Background Service (Optional)
+### File Logging
 
-To keep the agent running persistently on Windows, you can use PM2:
+In non-service mode the worker always writes a rotating log to
+`~/.orchestrator/logs/worker-agent.log` (size-capped at 5 MB, 4 files kept:
+`.log`, `.log.1` … `.log.4`). Every lifecycle edge is recorded — connect,
+registration, reconnect attempts + backoff, socket `error`/`close` with codes,
+heartbeat failures, uncaught exceptions, and supervisor restarts. This is
+critical when the worker is launched headless (e.g. a Windows Startup `.vbs`
+with `WScript.Shell.Run …, 0, False`, which discards stdout/stderr): if the
+process ever dies, the log is the forensic record of why.
+
+Service mode (`--service-run`, installed via WinSW/launchd/systemd) already
+redirects stdout to the service manager's `logpath`, so file logging is skipped
+there to avoid double-logging.
+
+### Self-Supervision (Recommended for Headless / Startup Launch)
+
+`--supervise` runs a thin parent process that forks the real worker and restarts
+it if it ever exits abnormally — capped exponential backoff + jitter, giving up
+only after several rapid-fire crashes (a genuinely broken install, not a
+transient fault). This is the recommended way to launch the worker from a
+Windows Startup folder, since nothing else will bring it back until the next
+logon:
 
 ```bash
-npm install -g pm2
-pm2 start dist/worker-agent/index.js --name orchestrator-worker
-pm2 save
-pm2 startup
+node dist/worker-agent/index.js --supervise
 ```
 
-Or create a Windows service with `node-windows`, or simply run it in a terminal that stays open.
+A clean exit (Ctrl-C / SIGTERM) stops the supervisor too; it only restarts on
+crashes. Restarts are logged to `worker-agent.log`.
+
+### Running as a Background Service (Optional)
+
+The worker also self-heals from most runtime faults now: unhandled exceptions
+and promise rejections are logged and recovered from (the socket is torn down
+and the reconnect loop takes over) rather than exiting. `--supervise` is the
+backstop for the rare case the process still dies. A dedicated service manager
+remains a good option for auto-start on boot and centralized log capture:
+
+- **Windows service (recommended):** `--install-service` installs a WinSW
+  service that runs `--service-run` and captures logs to its own `logpath`.
+- **PM2:**
+
+  ```bash
+  npm install -g pm2
+  pm2 start dist/worker-agent/index.js --name orchestrator-worker -- --supervise
+  pm2 save
+  pm2 startup
+  ```
+
+- Or `node-windows`, launchd, systemd, or simply a terminal that stays open.
 
 ## Step 6 — Verify the Connection
 

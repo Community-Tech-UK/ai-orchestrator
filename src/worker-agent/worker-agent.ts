@@ -137,6 +137,16 @@ export class WorkerAgent extends EventEmitter {
       sendError: (id, code, message) => this.notifier.sendError(id, code, message),
     });
     this.wireInstanceEvents();
+    // Safety net: WorkerAgent is an EventEmitter. A Node EventEmitter that emits
+    // 'error' with no listener THROWS synchronously and crashes the process. This
+    // no-op listener guarantees a stray 'error' emit (from anywhere) is never
+    // fatal — the worker must survive its own bugs and reconnect, not exit.
+    this.on('error', (err) => {
+      console.warn(
+        '[WorkerAgent] Non-fatal internal error event',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
   }
 
   async connect(): Promise<void> {
@@ -251,12 +261,17 @@ export class WorkerAgent extends EventEmitter {
         this.handleMessage(data.toString());
       });
 
-      ws.on('close', () => {
+      ws.on('close', (code?: number, reason?: Buffer) => {
         if (!opened) {
           clearTimeout(timer);
           resolve(false);
           return;
         }
+        console.warn('[WorkerAgent] Coordinator socket closed', {
+          url,
+          code,
+          reason: reason?.toString?.() || undefined,
+        });
         this.stopHeartbeat();
         this.ws = null;
         this.registrationAccepted = false;
@@ -276,7 +291,17 @@ export class WorkerAgent extends EventEmitter {
           resolve(false);
           return;
         }
-        this.emit('error', err);
+        // Post-open socket error. Under network saturation this fires when the
+        // link resets, and when the coordinator rejects an oversized frame with
+        // WS 1009 it fires here too. Previously this re-emitted 'error' on the
+        // WorkerAgent EventEmitter — with no 'error' listener that THREW and
+        // crashed the whole worker with nothing to restart it (the root cause of
+        // the 2026-07-03 "never re-registered" incident). Log it and tear the
+        // socket down; the paired 'close' event re-enters the reconnect loop.
+        console.warn(
+          `[WorkerAgent] Coordinator socket error after connect: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        this.forceCloseSocket(ws);
       });
     });
   }
@@ -384,8 +409,52 @@ export class WorkerAgent extends EventEmitter {
 
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
-      void this.sendHeartbeat();
+      // The heartbeat refreshes capabilities (memory/browser probes) which can
+      // reject. An unhandled rejection here would surface as a process-level
+      // `unhandledRejection` — fatal for a worker with no supervision. Swallow
+      // and log: a missed heartbeat is recoverable, a dead process is not.
+      this.sendHeartbeat().catch((err) => {
+        console.warn(
+          '[WorkerAgent] Heartbeat failed (non-fatal)',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
     }, this.config.heartbeatIntervalMs);
+  }
+
+  /**
+   * Terminate a coordinator socket without letting a throw escape. Used by the
+   * post-open error handler and by the process-level fatal-error handler. The
+   * socket's own 'close' event re-enters the reconnect loop.
+   */
+  private forceCloseSocket(ws: WebSocket | null): void {
+    if (!ws) return;
+    const closable = ws as unknown as { terminate?: () => void; close?: (code?: number, reason?: string) => void };
+    try {
+      if (typeof closable.terminate === 'function') {
+        closable.terminate();
+      } else if (typeof closable.close === 'function') {
+        closable.close();
+      }
+    } catch {
+      /* already closing */
+    }
+  }
+
+  /**
+   * Recover from a process-level `uncaughtException` / `unhandledRejection`
+   * instead of exiting. Tears down the current socket (its 'close' schedules a
+   * reconnect) and, if no socket is live, schedules a reconnect directly. The
+   * worker survives its own bugs; only unrecoverable config errors should exit.
+   */
+  handleFatalProcessError(): void {
+    if (this.isShuttingDown) return;
+    const ws = this.ws;
+    if (ws) {
+      this.forceCloseSocket(ws);
+    } else {
+      this.scheduleReconnect();
+    }
   }
 
   /** Refresh capabilities (memory/browser config change over time) and send. */
@@ -598,6 +667,11 @@ export class WorkerAgent extends EventEmitter {
         this.registrationAccepted = true;
         this.connectedAt = Date.now();
         this.reconnectAttempt = 0;
+        console.log('[WorkerAgent] Registration accepted', {
+          nodeId: this.config.nodeId,
+          coordinator: this.activeCoordinatorUrl ?? this.config.coordinatorUrl,
+          enrolled: changed,
+        });
         this.notifier.flushCriticalQueue(); // Deliver queued state changes only after registration is accepted.
         this.startHeartbeat();
       }

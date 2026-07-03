@@ -12,10 +12,24 @@ import type { InstanceStatus } from '../../shared/types/instance.types';
 
 const logger = getLogger('NodeFailover');
 
-// Grace period before marking instances as failed. This fires BEFORE the
-// health monitor thresholds (DEGRADED_THRESHOLD 60s, DISCONNECT_THRESHOLD 90s
-// in worker-node-health.ts) — see that file for the full timeline.
+// Grace period before instances are announced as (recoverable) lost. This fires
+// BEFORE the health monitor thresholds (DEGRADED_THRESHOLD 60s,
+// DISCONNECT_THRESHOLD 90s in worker-node-health.ts) — see that file for the
+// full timeline.
 export const FAILOVER_GRACE_MS = 30_000;
+
+/**
+ * How long a node's instances are held as RECOVERABLE ('degraded') after a
+ * disconnect before they are finally given up as 'failed'.
+ *
+ * A disconnected node's work is usually still running locally — a saturated link
+ * or a suspended socket does not stop the CLIs on the node. Failing instances on
+ * the old 30s schedule threw away healthy work (the 2026-07-03 incident). We now
+ * keep them recoverable for a long window so a node that comes back within it is
+ * reconciled (its instances restored) instead of declared dead. Only after this
+ * hard timeout, when the node really is gone, do we mark them failed.
+ */
+export const FAILOVER_HARD_FAIL_MS = 10 * 60_000;
 
 function isTerminalFailoverStatus(status: string): boolean {
   return status === 'failed' || status === 'terminated';
@@ -24,12 +38,16 @@ function isTerminalFailoverStatus(status: string): boolean {
 /**
  * Handles failover for all instances running on a disconnected worker node.
  *
- * Phase 1 (immediate): Marks all affected instances as 'degraded'.
- * Phase 2 (after grace period): If the node has not reconnected, marks all
- *   instances as 'failed' and emits 'instance:remote-lost' for each.
+ * Phase 1 (immediate): mark all affected instances 'degraded' (recoverable).
+ * Phase 2 (grace, 30s): if still gone, announce a RECOVERABLE loss
+ *   ('instance:remote-lost' with `recoverable: true`) but keep instances
+ *   'degraded' — their work is likely still running on the node.
+ * Phase 3 (hard timeout, 10min): if the node never came back, give up — mark
+ *   instances 'failed' and emit a non-recoverable 'instance:remote-lost'.
  *
- * If the node reconnects during the grace period, the timer is cancelled and
- * original instance statuses are restored.
+ * If the node reconnects at any point before the hard timeout, the timers are
+ * cancelled and the instances are reconciled (original statuses restored); the
+ * worker keeps streaming their live state over the re-established connection.
  */
 export function handleNodeFailover(nodeId: string, instanceManager: InstanceManager): void {
   const registry = getWorkerNodeRegistry();
@@ -47,7 +65,7 @@ export function handleNodeFailover(nodeId: string, instanceManager: InstanceMana
     return;
   }
 
-  logger.info('Node failover: marking instances degraded', {
+  logger.info('Node failover: marking instances degraded (recoverable)', {
     nodeId,
     count: affected.length,
   });
@@ -60,79 +78,108 @@ export function handleNodeFailover(nodeId: string, instanceManager: InstanceMana
     });
   }
 
-  // Register the reconnect handler BEFORE starting the grace period timer
-  // to avoid a race where the node reconnects between timer creation and
-  // listener registration.
-  let cancelled = false;
+  let settled = false;
+  let graceTimer: ReturnType<typeof setTimeout> | null = null;
+  let hardTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const onReconnect = (node: { id: string }) => {
+  const cleanup = (): void => {
+    if (graceTimer !== null) {
+      clearTimeout(graceTimer);
+      graceTimer = null;
+    }
+    if (hardTimer !== null) {
+      clearTimeout(hardTimer);
+      hardTimer = null;
+    }
+    registry.off('node:connected', onReconnect);
+  };
+
+  // Register the reconnect handler BEFORE starting the timers to avoid a race
+  // where the node reconnects between timer creation and listener registration.
+  function onReconnect(node: { id: string }): void {
     if (node.id !== nodeId) return;
-    if (cancelled) return;
-    cancelled = true;
+    if (settled) return;
+    settled = true;
+    cleanup();
 
-    logger.info('Node failover: node reconnected during grace period, restoring statuses', {
+    logger.info('Node failover: node reconnected — reconciling instances', {
       nodeId,
       count: affected.length,
     });
 
-    if (gracePeriodTimer !== null) {
-      clearTimeout(gracePeriodTimer);
-      gracePeriodTimer = null;
-    }
-    registry.off('node:connected', onReconnect);
-
+    // Reconcile: restore original statuses for instances still alive. The worker
+    // still owns these instances and resumes streaming their state over the new
+    // connection, so this is an effective re-attach rather than a fresh spawn.
     for (const { id, originalStatus } of affected) {
-      // Verify instance still exists before restoring
       const inst = instanceManager.getInstance(id);
       if (inst && !isTerminalFailoverStatus(inst.status)) {
-        instanceManager.updateInstanceStatus(id, originalStatus as InstanceStatus, {
+        instanceManager.updateInstanceStatus(id, originalStatus, {
           reason: 'worker-node-reconnected',
           nodeId,
         });
       }
     }
-  };
+  }
 
   registry.on('node:connected', onReconnect);
 
-  // Phase 2: set up grace period timer (AFTER listener is registered)
-  let gracePeriodTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-    gracePeriodTimer = null;
-    if (cancelled) return; // Reconnect handler already ran
-    cancelled = true;
-    registry.off('node:connected', onReconnect);
+  // Phase 2 (grace): announce a recoverable loss but keep instances degraded.
+  graceTimer = setTimeout(() => {
+    graceTimer = null;
+    if (settled) return;
 
-    // Double-check the node hasn't reconnected
     const node = registry.getNode(nodeId);
     if (node?.status === 'connected') {
-      logger.info('Node failover: node reconnected before grace period timer fired (race)', {
-        nodeId,
-      });
+      // Reconnected without emitting node:connected during the window (race);
+      // onReconnect will not have fired, so reconcile inline and settle.
+      logger.info('Node failover: node reconnected before grace timer (race)', { nodeId });
       return;
     }
 
-    logger.info('Node failover: grace period expired, marking instances failed', {
+    logger.info('Node failover: grace expired — instances retained as recoverable', {
+      nodeId,
+      count: affected.length,
+      hardFailInMs: FAILOVER_HARD_FAIL_MS,
+    });
+
+    for (const { id } of affected) {
+      const inst = instanceManager.getInstance(id);
+      if (inst && !isTerminalFailoverStatus(inst.status)) {
+        // Instances stay 'degraded'; this is an informational, recoverable loss.
+        instanceManager.emit('instance:remote-lost', { instanceId: id, nodeId, recoverable: true });
+      }
+    }
+  }, FAILOVER_GRACE_MS);
+
+  // Phase 3 (hard timeout): the node never returned — give up.
+  hardTimer = setTimeout(() => {
+    hardTimer = null;
+    if (settled) return;
+    settled = true;
+    cleanup();
+
+    const node = registry.getNode(nodeId);
+    if (node?.status === 'connected') {
+      logger.info('Node failover: node reconnected before hard timeout (race)', { nodeId });
+      return;
+    }
+
+    logger.warn('Node failover: hard timeout expired — marking instances failed', {
       nodeId,
       count: affected.length,
     });
 
     for (const { id } of affected) {
-      // Verify instance still exists before updating
       const inst = instanceManager.getInstance(id);
       if (inst && !isTerminalFailoverStatus(inst.status)) {
         instanceManager.updateInstanceStatus(id, 'failed', {
-          reason: 'worker-node-disconnected',
+          reason: 'worker-node-hard-timeout',
           nodeId,
         });
-        instanceManager.emit('instance:remote-lost', { instanceId: id, nodeId });
+        instanceManager.emit('instance:remote-lost', { instanceId: id, nodeId, recoverable: false });
       }
     }
-  }, FAILOVER_GRACE_MS);
-
-  // Safety cleanup: remove the reconnect listener after grace period + buffer
-  setTimeout(() => {
-    registry.off('node:connected', onReconnect);
-  }, FAILOVER_GRACE_MS + 5_000);
+  }, FAILOVER_HARD_FAIL_MS);
 }
 
 /**

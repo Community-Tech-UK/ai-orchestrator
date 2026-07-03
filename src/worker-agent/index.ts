@@ -2,6 +2,10 @@ import { WorkerAgent } from './worker-agent';
 import { DEFAULT_CONFIG_PATH, loadWorkerConfig, resolveConfigPath } from './worker-config';
 import { parseServiceArgs, runServiceCommand } from './cli/service-cli';
 import { runBrowserExtensionNativeHost } from '../main/browser-gateway/browser-extension-native-host';
+import { installWorkerFileLogging } from './worker-file-logger';
+import { runWorkerSupervisor } from './worker-supervisor';
+
+const SUPERVISE_FLAG = '--supervise';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -18,6 +22,23 @@ async function main(): Promise<void> {
   }
 
   const serviceMode = cmd?.kind === 'run';
+
+  // Supervisor mode: a thin parent that keeps the real worker alive across
+  // crashes. Only meaningful outside service mode — WinSW/launchd/systemd already
+  // supervise. The Windows Startup launcher runs `node index.js --supervise`.
+  if (!serviceMode && argv.includes(SUPERVISE_FLAG)) {
+    installWorkerFileLogging();
+    const childArgs = argv.filter((a) => a !== SUPERVISE_FLAG);
+    const code = await runWorkerSupervisor({ childArgs });
+    process.exit(code);
+  }
+
+  // Always-on file logging in non-service mode. Service mode redirects stdout to
+  // the WinSW/launchd logpath already, so installing here would double-log.
+  if (!serviceMode) {
+    installWorkerFileLogging();
+  }
+
   const configPath = serviceMode
     ? resolveConfigPath(true)
     : argv.includes('--config')
@@ -32,7 +53,10 @@ async function main(): Promise<void> {
 
   const agent = new WorkerAgent(config, activeConfigPath);
 
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log(`\n${signal} received — shutting down...`);
     await agent.disconnect();
     process.exit(0);
@@ -40,6 +64,24 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+  // Survive our own bugs. A worker with no supervision that hits an
+  // uncaughtException / unhandledRejection would exit and stay dead until the
+  // user logs in again. Log it (the file logger captures it for a post-mortem)
+  // and tear the socket down so the reconnect loop takes over, instead of dying.
+  // The `--supervise` parent is the backstop if the process still exits.
+  process.on('uncaughtException', (err) => {
+    console.error('[WorkerAgent] uncaughtException — recovering, not exiting:', err);
+    if (!shuttingDown) {
+      agent.handleFatalProcessError();
+    }
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('[WorkerAgent] unhandledRejection — recovering, not exiting:', reason);
+    if (!shuttingDown) {
+      agent.handleFatalProcessError();
+    }
+  });
 
   await agent.connect();
   console.log('Worker agent started. Listening for work.');

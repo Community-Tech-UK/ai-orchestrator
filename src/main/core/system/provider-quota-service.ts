@@ -42,6 +42,15 @@ export interface ProviderQuotaProbe {
   probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null>;
 }
 
+/**
+ * Reports whether the provider's CLI binary is installed on this machine.
+ * Injected at wiring time (see `registerDefaultQuotaProbes`) so the service
+ * itself stays free of a dependency on the CLI-detection subsystem — and so
+ * unit tests that construct the service directly keep the old behaviour
+ * (no check → every provider is probed).
+ */
+export type CliInstalledCheck = (provider: ProviderId) => Promise<boolean>;
+
 export class ProviderQuotaService extends EventEmitter {
   private snapshots = new Map<ProviderId, ProviderQuotaSnapshot | null>();
   private probes = new Map<ProviderId, ProviderQuotaProbe>();
@@ -54,6 +63,8 @@ export class ProviderQuotaService extends EventEmitter {
   private lastUsed = new Map<string, number>();
   private isPaused = getPauseCoordinator().isPaused();
   private activeAborters = new Set<AbortController>();
+  /** When set, refresh() skips probing providers whose CLI is not installed. */
+  private cliInstalledCheck: CliInstalledCheck | null = null;
   private readonly handlePause = (): void => {
     this.isPaused = true;
     for (const aborter of this.activeAborters) aborter.abort();
@@ -72,6 +83,11 @@ export class ProviderQuotaService extends EventEmitter {
 
   registerProbe(probe: ProviderQuotaProbe): void {
     this.probes.set(probe.provider, probe);
+  }
+
+  /** Install (or clear, with null) the CLI-installed gate used by refresh(). */
+  setCliInstalledCheck(check: CliInstalledCheck | null): void {
+    this.cliInstalledCheck = check;
   }
 
   getSnapshot(provider: ProviderId): ProviderQuotaSnapshot | null {
@@ -120,6 +136,36 @@ export class ProviderQuotaService extends EventEmitter {
       logger.debug(`No probe registered for ${provider}`);
       return null;
     }
+
+    // Don't surface quota for CLIs that aren't installed on this machine —
+    // credential files or a shared usage-monitor snapshot could still produce
+    // numbers, which is misleading. Store a marker snapshot (rather than
+    // clearing to null) so the renderer's push-event flow replaces any stale
+    // data and the UI can hide the provider. Fail open on check errors.
+    if (this.cliInstalledCheck) {
+      let installed = true;
+      try {
+        installed = await this.cliInstalledCheck(provider);
+      } catch (err) {
+        logger.debug(`CLI-installed check for ${provider} failed — probing anyway`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      if (!installed) {
+        const notInstalled: ProviderQuotaSnapshot = {
+          provider,
+          takenAt: Date.now(),
+          source: 'inferred',
+          ok: false,
+          error: 'CLI not installed',
+          cliNotInstalled: true,
+          windows: [],
+        };
+        this.storeSnapshot(provider, notInstalled);
+        return notInstalled;
+      }
+    }
+
     const ac = new AbortController();
     this.activeAborters.add(ac);
     try {
@@ -217,6 +263,7 @@ export class ProviderQuotaService extends EventEmitter {
     this.timers.clear();
     this.stopIdleRefresh();
     this.probes.clear();
+    this.cliInstalledCheck = null;
     this.alertedKeys.clear();
     this.lastUsed.clear();
     for (const aborter of this.activeAborters) aborter.abort();

@@ -38,7 +38,7 @@ vi.mock('../../instance/instance-manager', () => ({
 }));
 
 import { WorkerNodeRegistry } from '../worker-node-registry';
-import { handleNodeFailover, FAILOVER_GRACE_MS } from '../node-failover';
+import { handleNodeFailover, FAILOVER_GRACE_MS, FAILOVER_HARD_FAIL_MS } from '../node-failover';
 import type { WorkerNodeInfo, WorkerNodeCapabilities } from '../../../shared/types/worker-node.types';
 
 // ---------------------------------------------------------------------------
@@ -166,10 +166,11 @@ describe('handleNodeFailover', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 3: After grace period, marks instances as failed and emits events
+  // Test 3: After the grace period, instances are RETAINED as recoverable
+  // (degraded) — not failed — and a recoverable loss is announced.
   // -------------------------------------------------------------------------
 
-  it('marks instances as failed and emits instance:remote-lost after grace period', () => {
+  it('retains instances as recoverable after the grace period (does not fail them)', () => {
     // Node is not in the registry — simulates a node that has already been
     // deregistered by the health monitor before failover was triggered.
     mockInstances.push(
@@ -179,36 +180,102 @@ describe('handleNodeFailover', () => {
 
     handleNodeFailover('node-3', mockInstanceManager as never);
 
-    // Clear the degraded calls so we can check failed calls separately
+    // Clear the immediate degrade calls so we can check the grace-expiry effect.
     mockInstanceManager.updateInstanceStatus.mockClear();
     mockInstanceManager.emit.mockClear();
 
-    // Advance past the grace period (30s + 1s buffer)
+    // Advance past the grace period (30s + 1s buffer) but NOT the hard timeout.
     vi.advanceTimersByTime(FAILOVER_GRACE_MS + 1_000);
 
-    // Both instances should now be marked failed
-    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledTimes(2);
-    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledWith(
-      'inst-c',
-      'failed',
-      { reason: 'worker-node-disconnected', nodeId: 'node-3' },
-    );
-    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledWith(
-      'inst-d',
-      'failed',
-      { reason: 'worker-node-disconnected', nodeId: 'node-3' },
-    );
+    // Instances must NOT be failed — their work is likely still running locally.
+    expect(mockInstanceManager.updateInstanceStatus).not.toHaveBeenCalled();
 
-    // instance:remote-lost should be emitted for each instance
+    // A recoverable loss is announced for each instance.
     expect(mockInstanceManager.emit).toHaveBeenCalledTimes(2);
     expect(mockInstanceManager.emit).toHaveBeenCalledWith('instance:remote-lost', {
       instanceId: 'inst-c',
       nodeId: 'node-3',
+      recoverable: true,
     });
     expect(mockInstanceManager.emit).toHaveBeenCalledWith('instance:remote-lost', {
       instanceId: 'inst-d',
       nodeId: 'node-3',
+      recoverable: true,
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 3b: Only after the hard timeout are instances finally failed.
+  // -------------------------------------------------------------------------
+
+  it('marks instances failed only after the hard timeout expires', () => {
+    mockInstances.push(
+      { id: 'inst-h1', status: 'idle', nodeId: 'node-3h' },
+      { id: 'inst-h2', status: 'busy', nodeId: 'node-3h' },
+    );
+
+    handleNodeFailover('node-3h', mockInstanceManager as never);
+
+    // Move past grace (recoverable announced) but before hard timeout.
+    vi.advanceTimersByTime(FAILOVER_GRACE_MS + 1_000);
+    mockInstanceManager.updateInstanceStatus.mockClear();
+    mockInstanceManager.emit.mockClear();
+
+    // Still not failed midway through the recoverable window.
+    vi.advanceTimersByTime(FAILOVER_HARD_FAIL_MS / 2);
+    expect(mockInstanceManager.updateInstanceStatus).not.toHaveBeenCalled();
+
+    // Cross the hard timeout — now they are given up.
+    vi.advanceTimersByTime(FAILOVER_HARD_FAIL_MS);
+
+    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledTimes(2);
+    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledWith(
+      'inst-h1',
+      'failed',
+      { reason: 'worker-node-hard-timeout', nodeId: 'node-3h' },
+    );
+    expect(mockInstanceManager.emit).toHaveBeenCalledWith('instance:remote-lost', {
+      instanceId: 'inst-h1',
+      nodeId: 'node-3h',
+      recoverable: false,
+    });
+    expect(mockInstanceManager.emit).toHaveBeenCalledWith('instance:remote-lost', {
+      instanceId: 'inst-h2',
+      nodeId: 'node-3h',
+      recoverable: false,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 3c: Reconnect AFTER the grace period (but before hard timeout) still
+  // reconciles instances instead of failing them.
+  // -------------------------------------------------------------------------
+
+  it('reconciles instances when the node reconnects after grace but before hard timeout', () => {
+    mockInstances.push(
+      { id: 'inst-r1', status: 'busy', nodeId: 'node-3r' },
+    );
+
+    handleNodeFailover('node-3r', mockInstanceManager as never);
+    vi.advanceTimersByTime(FAILOVER_GRACE_MS + 1_000);
+    mockInstanceManager.updateInstanceStatus.mockClear();
+    mockInstanceManager.emit.mockClear();
+
+    // Node comes back within the recoverable window.
+    registry.registerNode(makeNode('node-3r', { status: 'connected' }));
+
+    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledWith(
+      'inst-r1',
+      'busy',
+      expect.any(Object),
+    );
+
+    // No later failure once reconciled.
+    mockInstanceManager.updateInstanceStatus.mockClear();
+    mockInstanceManager.emit.mockClear();
+    vi.advanceTimersByTime(FAILOVER_HARD_FAIL_MS + 5_000);
+    expect(mockInstanceManager.updateInstanceStatus).not.toHaveBeenCalled();
+    expect(mockInstanceManager.emit).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------

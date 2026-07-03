@@ -37,6 +37,10 @@ export function createWorkerNodeSubsystemStep(
 
       registry.on('node:disconnected', (node) => {
         const nodeId = typeof node === 'string' ? node : node.id;
+        // Pause the per-instance stuck watchdog first: a network-starved node's
+        // instances go silent on the coordinator but keep running locally, and
+        // the watchdog would otherwise respawn them out from under live work.
+        instanceManager.pauseStuckTrackingForNode(nodeId);
         handleNodeFailover(nodeId, instanceManager);
         context.syncRemoteNodeMetricsToLoadBalancer(nodeId);
       });
@@ -44,6 +48,7 @@ export function createWorkerNodeSubsystemStep(
       registry.on('node:connected', (node) => {
         windowManager.sendToRenderer('remote-node:event', { type: 'connected', node });
         const nodeId = typeof node === 'string' ? node : node.id;
+        instanceManager.resumeStuckTrackingForNode(nodeId);
         handleLateNodeReconnect(nodeId, instanceManager);
       });
       registry.on('node:disconnected', (node) => {

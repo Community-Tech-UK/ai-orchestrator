@@ -6,6 +6,7 @@
  * (codex, gemini, copilot) are added here as they're implemented.
  */
 
+import { getCliDetectionService } from '../../../cli/cli-detection';
 import { getProviderQuotaService } from '../provider-quota-service';
 import { ClaudeUsageEndpointProbe } from './claude-usage-endpoint-probe';
 import { CopilotQuotaProbe } from './copilot-quota-probe';
@@ -119,6 +120,18 @@ export function registerDefaultQuotaProbes(): void {
   // One shared reader for the optional standalone-monitor state.json so the
   // composite wrappers don't each stat/read the file independently.
   const usageMonitor = new UsageMonitorSource();
+
+  // Quota is only meaningful for CLIs that exist on this machine. Probes can
+  // still find data for absent CLIs (leftover credential files, the shared
+  // usage-monitor state.json), so refresh() gates on installation. Provider
+  // ids match `CLI_REGISTRY` names 1:1 (the `antigravity` probes report the
+  // shared ~/.gemini quota under the `antigravity` provider, whose CLI is
+  // `agy`). `detectAll()` caches for 60s, so a CLI installed mid-session is
+  // picked up on the next refresh.
+  service.setCliInstalledCheck(async (provider) => {
+    const detection = await getCliDetectionService().detectAll();
+    return detection.detected.some((cli) => cli.name === provider && cli.installed);
+  });
 
   // Claude: the OAuth usage endpoint is the source of truth for numerical
   // windows (5-hour / weekly / per-model / overage credits). The older

@@ -121,6 +121,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   private lastRateLimitInfo: CliRateLimitInfo | null = null;
   /**
+   * State of the most recently *emitted* rate-limit notice, used to suppress
+   * duplicates. Tracked against the last emitted notice (not the previous
+   * event's status) because the CLI interleaves `allowed` heartbeats between
+   * throttled events — a prevStatus compare re-fired on every flip and stacked
+   * copies. A new window (different, defined `resetsAt`) re-notifies.
+   */
+  private lastEmittedRateLimitStatus: string | null = null;
+  private lastEmittedRateLimitResetsAt: number | undefined = undefined;
+  /**
    * Resolver for the resident-interrupt completion promise.
    * Set when `interrupt()` sends a `control_request{request:{subtype:'interrupt'}}`
    * to stdin; resolved when the matching `control_response{response:{subtype:'success'}}`
@@ -1479,22 +1488,56 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     switch (message.type) {
       case 'assistant': {
         const assistantMsg = raw;
-        let assistantContent = '';
-        const thinkingBlocks: ThinkingContent[] = [];
         const assistantTimestamp = message.timestamp || Date.now();
+
+        // Emit each text block as its OWN assistant output in document order,
+        // interleaved with tool_use — never concatenated into one buffer flushed
+        // after the loop (which merged a [text, tool_use, text] message into a
+        // single string emitted after the tool, losing ordering and boundaries).
+        // Per-block commit makes assistant text impossible to drop or reorder
+        // across interleaved tool_use or non-content events. `precedingText` is
+        // the response so far in this message, fed to AskUserQuestion as its
+        // preamble; `pendingThinking` carries thinking to the next text block.
+        let precedingText = '';
+        let pendingThinking: ThinkingContent[] = [];
+
+        const emitAssistantTextBlock = (rawText: string): void => {
+          // headerStyle off: Claude emits reasoning as structured `thinking`
+          // blocks, so re-parsing text mis-classifies real answers as thinking.
+          const extracted = extractThinkingContent(rawText, { headerStyle: false });
+          const response = extracted.response;
+          const blockThinking = [
+            ...pendingThinking,
+            ...extracted.thinking.map(t => ({ ...t, timestamp: assistantTimestamp })),
+          ];
+          pendingThinking = [];
+          if (response.trim() || blockThinking.length > 0) {
+            this.emit('output', {
+              id: generateId(),
+              timestamp: assistantTimestamp,
+              type: 'assistant',
+              content: response,
+              thinking: blockThinking.length > 0 ? blockThinking : undefined,
+              thinkingExtracted: true,
+            });
+          }
+          if (response.trim()) {
+            precedingText = precedingText ? `${precedingText}\n${response}` : response;
+          }
+        };
 
         if (assistantMsg.message?.content) {
           for (const block of assistantMsg.message.content) {
             // Handle structured thinking blocks from Claude API (extended thinking)
             if (block.type === 'thinking' && block.thinking) {
-              thinkingBlocks.push({
+              pendingThinking.push({
                 id: generateId(),
                 content: block.thinking,
                 format: 'structured',
                 timestamp: assistantTimestamp
               });
             } else if (block.type === 'text' && block.text) {
-              assistantContent += block.text;
+              emitAssistantTextBlock(block.text);
             } else if (block.type === 'tool_use' && block.name) {
               const toolUseId = block.id || generateId();
               const toolInput = block.input || {};
@@ -1520,38 +1563,25 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                   toolUseId,
                   toolInput,
                   assistantTimestamp,
-                  assistantContent
+                  precedingText
                 );
               }
             }
           }
         } else if (typeof assistantMsg.content === 'string') {
-          assistantContent = assistantMsg.content;
+          emitAssistantTextBlock(assistantMsg.content);
         }
 
-        // Also extract any inline thinking from text content (explicit XML tags
-        // and [THINKING] brackets only). The header/meta-reasoning heuristic is
-        // disabled here: Claude already delivers genuine reasoning as structured
-        // `thinking` blocks above, so re-parsing its `text` blocks would
-        // mis-classify real answer content (bold headers, option lists,
-        // first-person phrasing) as thinking — which then vanishes when the user
-        // has thinking display turned off.
-        const extracted = extractThinkingContent(assistantContent, { headerStyle: false });
-        assistantContent = extracted.response;
-        thinkingBlocks.push(...extracted.thinking.map(t => ({
-          ...t,
-          timestamp: assistantTimestamp
-        })));
-
-        if (assistantContent.trim() || thinkingBlocks.length > 0) {
+        // Flush thinking that never found a following text block (thinking-only
+        // message), matching the prior behaviour of still surfacing an output.
+        if (pendingThinking.length > 0) {
           this.emit('output', {
             id: generateId(),
             timestamp: assistantTimestamp,
             type: 'assistant',
-            content: assistantContent,
-            // Include thinking blocks if any were found
-            thinking: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
-            thinkingExtracted: true
+            content: '',
+            thinking: pendingThinking,
+            thinkingExtracted: true,
           });
         }
 
@@ -2089,12 +2119,24 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // time the status flips into an actually-throttled state, so a stalled
         // session shows *why* instead of going silent.
         const info = (raw as { rate_limit_info?: CliRateLimitInfo }).rate_limit_info ?? null;
-        const prevStatus = this.lastRateLimitInfo?.status;
         this.lastRateLimitInfo = info;
         const status = info?.status;
         const throttled = Boolean(status && status !== 'allowed');
-        if (throttled && status !== prevStatus) {
-          const resetsAtMs = typeof info?.resetsAt === 'number' ? info.resetsAt * 1000 : undefined;
+        const resetsAtMs = typeof info?.resetsAt === 'number' ? info.resetsAt * 1000 : undefined;
+        // Dedupe against the last *emitted* notice: an unchanged throttle status
+        // emits once even across interleaved `allowed` heartbeats or bare
+        // repeats that omit window fields. Only a new window (explicitly
+        // different, defined `resetsAt`) re-notifies. We deliberately do NOT
+        // reset on `allowed` — that reset is what let duplicates stack.
+        const isNewWindow =
+          resetsAtMs !== undefined &&
+          this.lastEmittedRateLimitResetsAt !== undefined &&
+          resetsAtMs !== this.lastEmittedRateLimitResetsAt;
+        const alreadyNotified =
+          this.lastEmittedRateLimitStatus === status && !isNewWindow;
+        if (throttled && !alreadyNotified) {
+          this.lastEmittedRateLimitStatus = status ?? null;
+          this.lastEmittedRateLimitResetsAt = resetsAtMs;
           const resetText = resetsAtMs ? new Date(resetsAtMs).toLocaleTimeString() : 'unknown';
           logger.warn('Provider rate limit active', {
             status,

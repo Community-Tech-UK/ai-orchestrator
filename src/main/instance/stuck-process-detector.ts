@@ -110,6 +110,14 @@ const MAX_LOAD_MULTIPLIER = 8;
 interface ProcessTracker {
   lastOutputAt: number;
   instanceState: ProcessState;
+  /**
+   * While true, this tracker is skipped entirely — no soft/hard/interactive
+   * escalation. Set when the owning worker node is degraded/disconnected: a
+   * remote instance whose node is network-starved legitimately goes silent, and
+   * respawning it would abort work that is still running fine on the node.
+   * Resume resets the clock so a long pause never triggers an instant kill.
+   */
+  paused: boolean;
   softWarningEmitted: boolean;
   /** Whether stdout has gone silent while stderr/process is alive (interactive prompt indicator) */
   interactivePromptWarningEmitted: boolean;
@@ -163,6 +171,7 @@ export class StuckProcessDetector extends EventEmitter {
     this.trackers.set(instanceId, {
       lastOutputAt: Date.now(),
       instanceState: 'idle',
+      paused: false,
       softWarningEmitted: false,
       interactivePromptWarningEmitted: false,
       lastStderrAt: 0,
@@ -173,6 +182,35 @@ export class StuckProcessDetector extends EventEmitter {
 
   stopTracking(instanceId: string): void {
     this.trackers.delete(instanceId);
+  }
+
+  /**
+   * Suspend stuck escalation for an instance without forgetting it. Used when the
+   * owning worker node goes degraded/disconnected — the coordinator sees the
+   * remote instance fall silent, but the work is usually still running on the
+   * node. No-op if the instance is not tracked.
+   */
+  pauseTracking(instanceId: string): void {
+    const tracker = this.trackers.get(instanceId);
+    if (tracker) {
+      tracker.paused = true;
+    }
+  }
+
+  /**
+   * Resume stuck escalation after a pause, resetting the clock so the silence
+   * accumulated while paused does not trigger an immediate kill. No-op if the
+   * instance is not tracked.
+   */
+  resumeTracking(instanceId: string): void {
+    const tracker = this.trackers.get(instanceId);
+    if (tracker) {
+      tracker.paused = false;
+      tracker.lastOutputAt = Date.now();
+      tracker.softWarningEmitted = false;
+      tracker.interactivePromptWarningEmitted = false;
+      tracker.aliveDeferrals = 0;
+    }
   }
 
   /**
@@ -280,6 +318,7 @@ export class StuckProcessDetector extends EventEmitter {
     const loadMultiplier = this.safeLoadMultiplier();
 
     for (const [instanceId, tracker] of this.trackers) {
+      if (tracker.paused) continue;
       if (tracker.instanceState === 'idle') continue;
 
       const config = TIMEOUTS[tracker.instanceState];

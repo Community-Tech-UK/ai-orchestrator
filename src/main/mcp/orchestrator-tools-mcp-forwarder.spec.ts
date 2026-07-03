@@ -14,6 +14,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'list_remote_nodes',
       'run_on_node',
       'read_node_output',
+      'terminate_node_instance',
       'list_settings',
       'get_setting',
       'set_setting',
@@ -198,6 +199,25 @@ describe('createOrchestratorToolsForwarderTools', () => {
       prompt: 'run the tests',
     });
     expect(result).toEqual({ instanceId: 'inst-1', nodeId: 'node-1' });
+  });
+
+  it('forwards terminate_node_instance invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({
+      terminated: [{ instanceId: 'inst-1' }],
+      skipped: [],
+    }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'terminate_node_instance',
+    );
+
+    const result = await tool!.handler({ allIdle: true, node: 'noahlaptop' });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.terminate_node_instance', {
+      allIdle: true,
+      node: 'noahlaptop',
+    });
+    expect(result).toEqual({ terminated: [{ instanceId: 'inst-1' }], skipped: [] });
   });
 
   it('rejects malformed run_on_node args before contacting the parent', async () => {

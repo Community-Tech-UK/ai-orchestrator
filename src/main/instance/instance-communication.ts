@@ -2201,9 +2201,17 @@ export class InstanceCommunicationManager extends EventEmitter {
             newTail: accumulatedContent.slice(-120),
           });
         }
+        // Guard: a streaming update must never wipe already-committed text to
+        // empty. Providers stream monotonically; an empty accumulated payload
+        // landing over a non-empty bubble would erase visible assistant text.
+        // Keep the committed text in that case; metadata/thinking still update.
+        const nextContent =
+          accumulatedContent.trim().length === 0 && previousContent.trim().length > 0
+            ? previousContent
+            : accumulatedContent;
         instance.outputBuffer[existingIndex] = {
           ...instance.outputBuffer[existingIndex],
-          content: accumulatedContent,
+          content: nextContent,
           metadata: message.metadata,
           thinking: message.thinking
             ? stabilizeThinkingBlocks(

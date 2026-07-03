@@ -441,6 +441,72 @@ describe('orchestrator MCP tools', () => {
     await expect(readTool!.handler({ limit: 5 })).rejects.toThrow();
   });
 
+  it('terminate_node_instance forwards single-id args to the injected terminator', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      terminateNodeInstances: async (args) => {
+        calls.push(args);
+        return { terminated: [{ instanceId: args.instanceId! }], skipped: [] };
+      },
+    });
+    const tool = tools.find((t) => t.name === 'terminate_node_instance');
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({ instanceId: 'inst-9' });
+
+    expect(calls).toEqual([{ instanceId: 'inst-9' }]);
+    expect(result).toEqual({ terminated: [{ instanceId: 'inst-9' }], skipped: [] });
+  });
+
+  it('terminate_node_instance forwards allIdle sweep args with a node filter', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      terminateNodeInstances: async (args) => {
+        calls.push(args);
+        return {
+          terminated: [{ instanceId: 'a' }, { instanceId: 'b' }],
+          skipped: [{ instanceId: 'c', reason: 'still working (busy)' }],
+        };
+      },
+    });
+    const tool = tools.find((t) => t.name === 'terminate_node_instance');
+
+    const result = await tool!.handler({ allIdle: true, node: 'noahlaptop' });
+
+    expect(calls).toEqual([{ allIdle: true, node: 'noahlaptop' }]);
+    expect(result).toMatchObject({ terminated: [{ instanceId: 'a' }, { instanceId: 'b' }] });
+  });
+
+  it('terminate_node_instance rejects when both instanceId and allIdle are given', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      terminateNodeInstances: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const tool = tools.find((t) => t.name === 'terminate_node_instance');
+
+    await expect(tool!.handler({ instanceId: 'inst-9', allIdle: true })).rejects.toThrow();
+    await expect(tool!.handler({})).rejects.toThrow();
+    await expect(tool!.handler({ instanceId: 'inst-9', node: 'noahlaptop' })).rejects.toThrow();
+  });
+
+  it('terminate_node_instance rejects when no terminator is wired', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const tool = tools.find((t) => t.name === 'terminate_node_instance');
+
+    await expect(tool!.handler({ instanceId: 'inst-9' })).rejects.toThrow(/unavailable/);
+  });
+
   it('create_automation forwards parsed args + caller id to the injected creator', async () => {
     const db = createDb();
     const calls: { args: unknown; meta: unknown }[] = [];

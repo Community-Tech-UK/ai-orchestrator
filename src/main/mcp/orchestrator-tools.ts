@@ -94,7 +94,7 @@ export interface ListRemoteNodesResult {
 export type ListRemoteNodesFn = () => Promise<ListRemoteNodesResult>;
 
 export const REMOTE_NODE_DISCOVERY_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, and read_node_output. Call list_remote_nodes first when reachability matters.';
+  'Harness can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. Call list_remote_nodes first when reachability matters. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
 
 export const RunOnNodeArgsSchema = z.object({
   /**
@@ -153,6 +153,55 @@ export type SpawnRemoteInstanceFn = (
   meta?: SpawnRemoteInstanceMeta,
 ) => Promise<RunOnNodeResult>;
 
+export const TerminateNodeInstanceArgsSchema = z
+  .object({
+    /** Instance id returned by `run_on_node`. Mutually exclusive with allIdle. */
+    instanceId: z.string().min(1).optional(),
+    /** Optional node filter (name or id) for the allIdle sweep. */
+    node: z.string().min(1).optional(),
+    /**
+     * Terminate every run_on_node-spawned instance that has finished its turn
+     * (optionally scoped to `node`). Mutually exclusive with instanceId.
+     */
+    allIdle: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const single = typeof value.instanceId === 'string';
+    const sweep = value.allIdle === true;
+    if (single === sweep) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Provide either instanceId or allIdle: true (not both, not neither)',
+      });
+    }
+    if (single && value.node) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'node can only be combined with allIdle: true',
+      });
+    }
+  });
+
+export type TerminateNodeInstanceArgs = z.infer<typeof TerminateNodeInstanceArgsSchema>;
+
+export interface TerminateNodeInstanceResult {
+  /** Instances that were terminated by this call. */
+  terminated: { instanceId: string }[];
+  /** Instances considered but left alone, with the reason. */
+  skipped: { instanceId: string; reason: string }[];
+}
+
+/**
+ * Injected by the parent process (see orchestrator-tools-step.ts). Terminates
+ * run_on_node-spawned instances only — implementations must refuse instances
+ * that lack the `spawnDepth` lineage marker so MCP callers can never kill the
+ * user's own interactive sessions.
+ */
+export type TerminateNodeInstancesFn = (
+  args: TerminateNodeInstanceArgs,
+) => Promise<TerminateNodeInstanceResult>;
+
 export const ReadNodeOutputArgsSchema = z.object({
   /** Instance id returned by `run_on_node`. */
   instanceId: z.string().min(1),
@@ -204,6 +253,7 @@ export interface OrchestratorToolRuntimeContext {
   listRemoteNodes?: ListRemoteNodesFn | null;
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
   readInstanceOutput?: ReadInstanceOutputFn | null;
+  terminateNodeInstances?: TerminateNodeInstancesFn | null;
   settingsManager?: SettingsManagerForTools | null;
   broadcastSettingsChange?: SettingsChangeBroadcaster | null;
   updateNodeConfig?: UpdateNodeConfigFn | null;
@@ -506,6 +556,42 @@ export function createOrchestratorToolDefinitions(
           throw new Error(`Instance not found: ${parsed.instanceId}`);
         }
         return result;
+      },
+    },
+    {
+      name: 'terminate_node_instance',
+      description:
+        'Terminate agent instances previously spawned with run_on_node, freeing the worker node\'s capacity. Two modes: pass instanceId to terminate one specific instance (even if still working), or pass allIdle: true (optionally with node) to clean up every finished run_on_node instance. Idle one-shot agents otherwise stay alive and count against the node\'s maxConcurrentInstances until terminated. Only run_on_node-spawned instances can be terminated; interactive user sessions are never touched.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          instanceId: {
+            type: 'string',
+            description:
+              'Instance id returned by run_on_node. Mutually exclusive with allIdle.',
+          },
+          node: {
+            type: 'string',
+            description:
+              'Optional node name or id to scope the allIdle sweep to one worker node.',
+          },
+          allIdle: {
+            type: 'boolean',
+            description:
+              'Terminate every finished run_on_node instance (optionally scoped to node). Mutually exclusive with instanceId.',
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        const parsed = TerminateNodeInstanceArgsSchema.parse(args);
+        if (!context.terminateNodeInstances) {
+          throw new Error(
+            'terminate_node_instance is unavailable: remote instance termination is not wired in this process',
+          );
+        }
+        return context.terminateNodeInstances(parsed);
       },
     },
     ...createSettingsToolDefinitions(context),

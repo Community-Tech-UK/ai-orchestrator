@@ -2,6 +2,7 @@ import { WebSocket } from 'ws';
 import {
   NODE_TO_COORDINATOR,
 } from '../main/remote-node/worker-node-rpc';
+import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from '../main/remote-node/rpc-schemas';
 import type { RpcMessage } from './worker-rpc-types';
 
 interface WorkerInstanceNotifierOptions {
@@ -23,7 +24,101 @@ export class WorkerInstanceNotifier {
   private static readonly OUTPUT_BATCH_MAX_SIZE = 10;
   private static readonly CRITICAL_QUEUE_MAX_SIZE = 100;
 
+  /**
+   * Hard ceiling on a single outbound frame. The coordinator's receive socket
+   * uses `WORKER_NODE_WS_MAX_PAYLOAD_BYTES` as its `maxPayload`, so a frame at or
+   * above that size is rejected with WS close code 1009 ("message too big") —
+   * which drops the whole worker connection. A frame that big must never reach
+   * `ws.send`; we drop it and keep the socket alive instead.
+   */
+  private static readonly MAX_OUTBOUND_FRAME_BYTES = WORKER_NODE_WS_MAX_PAYLOAD_BYTES;
+
+  /**
+   * Per-message cap for `instance.output`. A single tool result (e.g. an agent
+   * reading a multi-hundred-MB rclone log — the real incident that crashed a
+   * node) can serialize to tens of MB. Truncate it to a small marker so the
+   * frame stays well under the payload ceiling and the connection survives.
+   */
+  private static readonly MAX_INSTANCE_OUTPUT_BYTES = 8 * 1024 * 1024;
+
   constructor(private readonly options: WorkerInstanceNotifierOptions) {}
+
+  /**
+   * Serialize an outbound frame, guarding the two ways serialization can take
+   * the process down or drop the connection: a `JSON.stringify` throw (circular
+   * refs, or a string exceeding V8's ~512 MB limit) and an over-ceiling frame
+   * that the coordinator would reject with 1009. Returns `null` when the frame
+   * must be dropped.
+   */
+  private serializeFrame(msg: RpcMessage): string | null {
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(msg);
+    } catch (err) {
+      console.error('[WorkerAgent] Failed to serialize outbound frame — dropping', {
+        method: msg.method,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+    if (serialized === undefined) {
+      return null;
+    }
+    if (Buffer.byteLength(serialized, 'utf-8') > WorkerInstanceNotifier.MAX_OUTBOUND_FRAME_BYTES) {
+      console.warn('[WorkerAgent] Dropping oversized outbound frame to protect the connection', {
+        method: msg.method,
+        bytes: Buffer.byteLength(serialized, 'utf-8'),
+        capBytes: WorkerInstanceNotifier.MAX_OUTBOUND_FRAME_BYTES,
+      });
+      return null;
+    }
+    return serialized;
+  }
+
+  /**
+   * Cap a single `instance.output` message payload. If serializing the message
+   * exceeds the per-message ceiling, replace it with a small truncation marker
+   * so the batch/single frame never balloons past the socket payload limit.
+   */
+  private capOutputMessage(instanceId: string, message: unknown): unknown {
+    let bytes: number;
+    try {
+      const serialized = JSON.stringify(message);
+      if (serialized === undefined) {
+        return message;
+      }
+      bytes = Buffer.byteLength(serialized, 'utf-8');
+    } catch (err) {
+      console.warn('[WorkerAgent] Dropping unserializable instance-output message', {
+        instanceId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return {
+        type: 'system',
+        truncated: true,
+        content: '⚠️ Output dropped — a message could not be serialized.',
+      };
+    }
+    if (bytes <= WorkerInstanceNotifier.MAX_INSTANCE_OUTPUT_BYTES) {
+      return message;
+    }
+    const mb = (n: number): number => Math.round((n / (1024 * 1024)) * 10) / 10;
+    console.warn('[WorkerAgent] Truncating oversized instance-output message', {
+      instanceId,
+      bytes,
+      capBytes: WorkerInstanceNotifier.MAX_INSTANCE_OUTPUT_BYTES,
+    });
+    return {
+      type: 'system',
+      truncated: true,
+      originalBytes: bytes,
+      content:
+        `⚠️ Output omitted — a single message was ${mb(bytes)} MB, over the ` +
+        `${mb(WorkerInstanceNotifier.MAX_INSTANCE_OUTPUT_BYTES)} MB per-message cap. ` +
+        'This usually means a tool returned an enormous payload (e.g. reading a huge ' +
+        'log file). The content was dropped to keep the worker connection alive.',
+    };
+  }
 
   send(msg: RpcMessage, options: WorkerInstanceNotifierSendOptions = {}): boolean {
     const ws = this.options.getSocket();
@@ -47,18 +142,28 @@ export class WorkerInstanceNotifier {
       return false;
     }
 
+    const serialized = this.serializeFrame(msg);
+    if (serialized === null) {
+      return false;
+    }
     this.flushCriticalQueue();
-    ws.send(JSON.stringify(msg), (err) => {
+    ws.send(serialized, (err) => {
       if (err) console.error('Send error:', err.message);
     });
     return true;
   }
 
   sendCritical(msg: RpcMessage): void {
+    const serialized = this.serializeFrame(msg);
+    if (serialized === null) {
+      // Unserializable/oversized critical frame — dropping is safer than
+      // crashing. Do not enqueue: it would fail identically on every retry.
+      return;
+    }
     const ws = this.options.getSocket();
     if (ws?.readyState === WebSocket.OPEN) {
       this.flushCriticalQueue();
-      ws.send(JSON.stringify(msg), (err) => {
+      ws.send(serialized, (err) => {
         if (err) {
           console.warn(
             '[WorkerAgent] Critical send failed, queueing for retry',
@@ -84,7 +189,7 @@ export class WorkerInstanceNotifier {
   }
 
   sendOutputNotification(instanceId: string, message: unknown): void {
-    this.outputBuffer.push({ instanceId, message });
+    this.outputBuffer.push({ instanceId, message: this.capOutputMessage(instanceId, message) });
 
     if (this.outputBuffer.length >= WorkerInstanceNotifier.OUTPUT_BATCH_MAX_SIZE) {
       this.flushOutputBuffer();
@@ -222,7 +327,11 @@ export class WorkerInstanceNotifier {
     const queued = this.criticalMessageQueue;
     this.criticalMessageQueue = [];
     for (const msg of queued) {
-      ws.send(JSON.stringify(msg), (err) => {
+      const serialized = this.serializeFrame(msg);
+      if (serialized === null) {
+        continue;
+      }
+      ws.send(serialized, (err) => {
         if (err) {
           console.warn(
             '[WorkerAgent] Failed to flush critical message, re-queuing',

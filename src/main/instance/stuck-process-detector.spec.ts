@@ -55,6 +55,30 @@ describe('StuckProcessDetector', () => {
     );
   });
 
+  it('does not escalate a paused instance, and resumes with a fresh clock', () => {
+    const handler = vi.fn();
+    detector.on('process:suspect-stuck', handler);
+    detector.on('process:stuck', handler);
+    detector.startTracking('inst-1');
+    detector.updateState('inst-1', 'generating');
+
+    // Pause (owning node went degraded) — no escalation despite long silence.
+    detector.pauseTracking('inst-1');
+    vi.advanceTimersByTime(600_000);
+    expect(handler).not.toHaveBeenCalled();
+
+    // Resume (node reconnected) — the clock resets, so no immediate kill.
+    detector.resumeTracking('inst-1');
+    vi.advanceTimersByTime(30_000);
+    expect(handler).not.toHaveBeenCalled();
+
+    // Fresh silence past the soft threshold still escalates normally.
+    vi.advanceTimersByTime(40_000);
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceId: 'inst-1', state: 'generating' })
+    );
+  });
+
   it('uses longer timeouts for tool_executing state', () => {
     const softHandler = vi.fn();
     detector.on('process:suspect-stuck', softHandler);

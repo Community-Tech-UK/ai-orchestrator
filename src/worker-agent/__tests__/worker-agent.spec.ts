@@ -147,6 +147,7 @@ vi.mock('../provider-runtime-diagnostics', () => ({
 }));
 
 import { WorkerAgent, buildCoordinatorCandidates } from '../worker-agent';
+import { reportCapabilities } from '../capability-reporter';
 import { NO_THINK_DIRECTIVE } from '../../shared/utils/openai-response';
 
 const mockConfig: WorkerConfig = {
@@ -231,6 +232,55 @@ describe('WorkerAgent', () => {
     const secondSocket = await waitForSocket(1);
 
     expect(secondSocket.url).toBe('ws://192.168.1.99:4878');
+  });
+
+  it('recovers via reconnect (does not crash) when an established coordinator socket errors', async () => {
+    const config: WorkerConfig = { ...mockConfig, reconnectIntervalMs: 1000 };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+
+    // Post-open socket error. Previously this re-emitted 'error' on the
+    // WorkerAgent EventEmitter with no listener, which threw and crashed the
+    // whole process. It must now be swallowed.
+    expect(() => socket.emit('error', new Error('ECONNRESET'))).not.toThrow();
+
+    // The paired close event drives a reconnect rather than an exit.
+    socket.emit('close');
+    await vi.advanceTimersByTimeAsync(1000);
+    const secondSocket = await waitForSocket(1);
+    expect(secondSocket).toBeDefined();
+  });
+
+  it('survives a heartbeat capability-refresh rejection without crashing', async () => {
+    const config: WorkerConfig = { ...mockConfig, heartbeatIntervalMs: 5000 };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+
+    // Accept registration so the heartbeat interval starts.
+    const registration = JSON.parse(socket.send.mock.calls[0][0] as string) as { id: string };
+    socket.emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: registration.id,
+      result: { nodeId: 'test-node-1', token: 'accepted' },
+    }));
+
+    // The next capability probe (inside the heartbeat) rejects. The interval
+    // callback must swallow it — an unhandled rejection would kill the worker.
+    vi.mocked(reportCapabilities).mockRejectedValueOnce(new Error('probe failed'));
+
+    await vi.advanceTimersByTimeAsync(5000 + 10);
+
+    expect(vi.mocked(reportCapabilities)).toHaveBeenCalled();
+    // Process is still alive and the agent still usable.
+    expect(agent).toBeDefined();
   });
 
   it('sets an explicit large CDP payload ceiling on coordinator WebSocket clients', async () => {

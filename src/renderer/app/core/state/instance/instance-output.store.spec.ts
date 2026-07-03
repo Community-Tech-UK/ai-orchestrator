@@ -63,6 +63,37 @@ describe('InstanceOutputStore', () => {
     );
   });
 
+  it('does not let an empty streaming update wipe already-committed assistant text', () => {
+    // Seed a streaming assistant bubble with real content.
+    store.queueOutput('inst-1', {
+      id: 'stream-1',
+      timestamp: 2,
+      type: 'assistant',
+      content: 'first segment of the deliverable',
+      metadata: { streaming: true },
+    });
+    store.flushInstanceOutput('inst-1');
+
+    // A later streaming update for the SAME id arrives with empty content but
+    // carries a thinking block (so it clears the empty-message gate and reaches
+    // the streaming-replace path). It must not erase the visible text; thinking
+    // still updates.
+    store.queueOutput('inst-1', {
+      id: 'stream-1',
+      timestamp: 3,
+      type: 'assistant',
+      content: '',
+      metadata: { streaming: true, accumulatedContent: '' },
+      thinking: [{ id: 't1', content: 'reasoning', format: 'structured', timestamp: 3 }],
+    });
+    store.flushInstanceOutput('inst-1');
+
+    const buffer = stateService.getInstance('inst-1')?.outputBuffer ?? [];
+    const bubble = buffer.find((m) => m.id === 'stream-1');
+    expect(bubble?.content).toBe('first segment of the deliverable');
+    expect(bubble?.thinking?.[0]?.content).toBe('reasoning');
+  });
+
   it('appends attachments and failure cards without duplicating them', () => {
     store.appendAttachmentsToMessage(
       'inst-1',

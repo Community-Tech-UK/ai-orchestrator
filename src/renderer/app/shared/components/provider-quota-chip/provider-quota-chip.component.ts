@@ -265,7 +265,9 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     const entries: { provider: ProviderId; code: string; value: string; percent: number; fg: string }[] = [];
     for (const provider of PROVIDER_ORDER) {
       const snap = snaps[provider];
-      if (!snap) continue;
+      // A missing CLI means "this provider doesn't exist here" — hide it
+      // rather than rendering an error/plan row.
+      if (!snap || snap.cliNotInstalled) continue;
       const code = PROVIDER_CODES[provider];
       const window = snap.ok ? this.summaryWindow(snap) : null;
       if (window) {
@@ -301,7 +303,9 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     return PROVIDER_ORDER
       .map((provider) => {
         const snap = snaps[provider];
-        if (!snap) return null;
+        // Providers whose CLI isn't installed are hidden from the popover —
+        // there is no quota to manage for a CLI that doesn't exist here.
+        if (!snap || snap.cliNotInstalled) return null;
         const needsReauth = snap.needsReauth === true;
         return {
           provider,

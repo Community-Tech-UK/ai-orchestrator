@@ -391,6 +391,33 @@ describe('ProviderQuotaChipComponent', () => {
       expect(host.querySelector('[data-testid="quota-reauth-cursor"]')).toBeTruthy();
     });
 
+    it('hides providers whose CLI is not installed from the strip and popover', () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(95, 100)]));
+      store.setSnapshot('cursor', {
+        provider: 'cursor',
+        takenAt: Date.now(),
+        source: 'inferred',
+        ok: false,
+        error: 'CLI not installed',
+        cliNotInstalled: true,
+        windows: [],
+      });
+      store.setWorst({ provider: 'claude', window: makeWindow(95, 100) });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+      expect(stripText).toContain('CC');
+      expect(stripText).not.toContain('CU');
+
+      const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
+      button.click();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="quota-provider-claude"]')).toBeTruthy();
+      expect(host.querySelector('[data-testid="quota-provider-cursor"]')).toBeFalsy();
+    });
+
     it('keeps the detail popover open for inside clicks and closes it for outside clicks', () => {
       store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
         { ...makeWindow(4, 100), id: 'codex.weekly', label: 'Codex weekly' },

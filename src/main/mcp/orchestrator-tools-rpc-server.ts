@@ -37,6 +37,7 @@ import {
   ListRemoteNodesArgsSchema,
   PostponeAutomationArgsSchema,
   ReadNodeOutputArgsSchema,
+  TerminateNodeInstanceArgsSchema,
   RunOnNodeArgsSchema,
   UpdateAutomationArgsSchema,
   type CreateAutomationFn,
@@ -45,6 +46,7 @@ import {
   type ListRemoteNodesFn,
   type PostponeAutomationFn,
   type ReadInstanceOutputFn,
+  type TerminateNodeInstancesFn,
   type SpawnRemoteInstanceFn,
   type UpdateAutomationFn,
 } from './orchestrator-tools';
@@ -121,6 +123,12 @@ export interface OrchestratorToolsRpcServerOptions {
    * `read_node_output` rejects with an "unavailable" error.
    */
   readInstanceOutput?: ReadInstanceOutputFn | null;
+  /**
+   * Terminates run_on_node-spawned instances (backs the
+   * `terminate_node_instance` tool). Injected from main-process startup. When
+   * omitted, `terminate_node_instance` rejects with an "unavailable" error.
+   */
+  terminateNodeInstances?: TerminateNodeInstancesFn | null;
   /** SettingsManager used by settings_* MCP tools. */
   settingsManager?: SettingsManagerForTools | null;
   /** Renderer broadcast hook used after tool-initiated settings writes. */
@@ -173,6 +181,7 @@ export interface OrchestratorToolsRpcServerOptions {
     listRemoteNodes: ListRemoteNodesFn | null;
     spawnRemoteInstance: SpawnRemoteInstanceFn | null;
     readInstanceOutput: ReadInstanceOutputFn | null;
+    terminateNodeInstances: TerminateNodeInstancesFn | null;
     settingsManager: SettingsManagerForTools | null;
     broadcastSettingsChange: SettingsChangeBroadcaster | null;
     updateNodeConfig: UpdateNodeConfigFn | null;
@@ -193,6 +202,7 @@ export class OrchestratorToolsRpcServer {
   private readonly listRemoteNodes: ListRemoteNodesFn | null;
   private readonly spawnRemoteInstance: SpawnRemoteInstanceFn | null;
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
+  private readonly terminateNodeInstances: TerminateNodeInstancesFn | null;
   private readonly settingsManager: SettingsManagerForTools | null;
   private readonly broadcastSettingsChange: SettingsChangeBroadcaster | null;
   private readonly updateNodeConfig: UpdateNodeConfigFn | null;
@@ -222,6 +232,7 @@ export class OrchestratorToolsRpcServer {
     this.listRemoteNodes = options.listRemoteNodes ?? null;
     this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;
     this.readInstanceOutput = options.readInstanceOutput ?? null;
+    this.terminateNodeInstances = options.terminateNodeInstances ?? null;
     this.settingsManager = options.settingsManager ?? null;
     this.broadcastSettingsChange = options.broadcastSettingsChange ?? null;
     this.updateNodeConfig = options.updateNodeConfig ?? null;
@@ -322,6 +333,15 @@ export class OrchestratorToolsRpcServer {
         const tool = tools.find((t) => t.name === 'read_node_output');
         if (!tool) {
           throw new Error('read_node_output tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.terminate_node_instance': {
+        const validated = TerminateNodeInstanceArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'terminate_node_instance');
+        if (!tool) {
+          throw new Error('terminate_node_instance tool unavailable');
         }
         return tool.handler(validated);
       }
@@ -527,6 +547,7 @@ export class OrchestratorToolsRpcServer {
         listRemoteNodes: this.listRemoteNodes,
         spawnRemoteInstance: this.spawnRemoteInstance,
         readInstanceOutput: this.readInstanceOutput,
+        terminateNodeInstances: this.terminateNodeInstances,
         settingsManager: this.settingsManager,
         broadcastSettingsChange: this.broadcastSettingsChange,
         updateNodeConfig: this.updateNodeConfig,
@@ -548,6 +569,7 @@ export class OrchestratorToolsRpcServer {
       listRemoteNodes: this.listRemoteNodes,
       spawnRemoteInstance: this.spawnRemoteInstance,
       readInstanceOutput: this.readInstanceOutput,
+      terminateNodeInstances: this.terminateNodeInstances,
       settingsManager: this.settingsManager,
       broadcastSettingsChange: this.broadcastSettingsChange,
       updateNodeConfig: this.updateNodeConfig,

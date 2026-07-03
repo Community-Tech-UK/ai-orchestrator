@@ -25,7 +25,7 @@ import {
 const logger = getLogger('OrchestratorToolsMcpForwarder');
 
 const REMOTE_NODE_DISCOVERY_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, and read_node_output. Call list_remote_nodes first when reachability matters.';
+  'Harness can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. Call list_remote_nodes first when reachability matters. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
 
 interface JsonRpcRequest {
   jsonrpc?: '2.0';
@@ -168,6 +168,37 @@ export function createOrchestratorToolsForwarderTools(
           throw new Error('read_node_output args must be an object');
         }
         return client.call('orchestrator_tools.read_node_output', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'terminate_node_instance',
+      description:
+        'Terminate agent instances previously spawned with run_on_node, freeing the worker node\'s capacity. Two modes: pass instanceId to terminate one specific instance (even if still working), or pass allIdle: true (optionally with node) to clean up every finished run_on_node instance. Idle one-shot agents otherwise stay alive and count against the node\'s maxConcurrentInstances until terminated. Only run_on_node-spawned instances can be terminated; interactive user sessions are never touched.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          instanceId: {
+            type: 'string',
+            description: 'Instance id returned by run_on_node. Mutually exclusive with allIdle.',
+          },
+          node: {
+            type: 'string',
+            description: 'Optional node name or id to scope the allIdle sweep to one worker node.',
+          },
+          allIdle: {
+            type: 'boolean',
+            description:
+              'Terminate every finished run_on_node instance (optionally scoped to node). Mutually exclusive with instanceId.',
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('terminate_node_instance args must be an object');
+        }
+        return client.call('orchestrator_tools.terminate_node_instance', args as Record<string, unknown>);
       },
     },
     {

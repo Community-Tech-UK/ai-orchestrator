@@ -1118,6 +1118,26 @@ export class InstanceManager extends EventEmitter {
     );
   }
 
+  /**
+   * Suspend the stuck-process watchdog for every instance on a worker node.
+   * Called when the node goes degraded/disconnected: the coordinator sees those
+   * remote instances fall silent, but their work is usually still running on the
+   * node, so respawning them would abort healthy work. Mirrors the
+   * SystemLoadMonitor timeout scaling, but keyed on node connection state.
+   */
+  pauseStuckTrackingForNode(nodeId: string): void {
+    for (const inst of this.getInstancesByNode(nodeId)) {
+      this.stuckDetector.pauseTracking(inst.id);
+    }
+  }
+
+  /** Resume the stuck-process watchdog for a node's instances on reconnect. */
+  resumeStuckTrackingForNode(nodeId: string): void {
+    for (const inst of this.getInstancesByNode(nodeId)) {
+      this.stuckDetector.resumeTracking(inst.id);
+    }
+  }
+
   getIdleInstances(thresholdMs: number): { id: string; lastActivity: number }[] {
     const now = Date.now();
     return this.state.getAllInstances()

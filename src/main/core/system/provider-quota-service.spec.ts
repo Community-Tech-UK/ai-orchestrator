@@ -145,6 +145,73 @@ describe('ProviderQuotaService', () => {
     });
   });
 
+  describe('CLI-installed gating', () => {
+    it('skips the probe and stores a cliNotInstalled snapshot when the CLI is missing', async () => {
+      const probe = new FakeProbe('cursor', makeSnapshot('cursor', 50, 100));
+      svc.registerProbe(probe);
+      svc.setCliInstalledCheck(async () => false);
+
+      const handler = vi.fn();
+      svc.on('quota-updated', handler);
+
+      const out = await svc.refresh('cursor');
+      expect(probe.calls).toBe(0);
+      expect(out).not.toBeNull();
+      expect(out!.ok).toBe(false);
+      expect(out!.cliNotInstalled).toBe(true);
+      expect(out!.windows).toEqual([]);
+      expect(svc.getSnapshot('cursor')!.cliNotInstalled).toBe(true);
+      // The marker snapshot is pushed so the renderer replaces stale data.
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces a previously stored snapshot when the CLI disappears', async () => {
+      const probe = new FakeProbe('cursor', makeSnapshot('cursor', 50, 100));
+      svc.registerProbe(probe);
+      svc.ingestFromAdapter('cursor', makeIngest('cursor', 50, 100));
+      expect(svc.getSnapshot('cursor')!.ok).toBe(true);
+
+      svc.setCliInstalledCheck(async () => false);
+      await svc.refresh('cursor');
+      expect(svc.getSnapshot('cursor')!.cliNotInstalled).toBe(true);
+    });
+
+    it('probes normally when the CLI is installed', async () => {
+      const probe = new FakeProbe('claude', makeSnapshot('claude', 50, 100));
+      svc.registerProbe(probe);
+      svc.setCliInstalledCheck(async () => true);
+      const out = await svc.refresh('claude');
+      expect(probe.calls).toBe(1);
+      expect(out!.ok).toBe(true);
+      expect(out!.cliNotInstalled).toBeUndefined();
+    });
+
+    it('fails open (probes anyway) when the check throws', async () => {
+      const probe = new FakeProbe('claude', makeSnapshot('claude', 50, 100));
+      svc.registerProbe(probe);
+      svc.setCliInstalledCheck(async () => {
+        throw new Error('detection exploded');
+      });
+      const out = await svc.refresh('claude');
+      expect(probe.calls).toBe(1);
+      expect(out!.ok).toBe(true);
+    });
+
+    it('gates per provider on refreshAll()', async () => {
+      const claudeProbe = new FakeProbe('claude', makeSnapshot('claude', 1, 100));
+      const cursorProbe = new FakeProbe('cursor', makeSnapshot('cursor', 2, 100));
+      svc.registerProbe(claudeProbe);
+      svc.registerProbe(cursorProbe);
+      svc.setCliInstalledCheck(async (provider) => provider === 'claude');
+
+      const out = await svc.refreshAll();
+      expect(claudeProbe.calls).toBe(1);
+      expect(cursorProbe.calls).toBe(0);
+      expect(out.find((s) => s.provider === 'claude')!.ok).toBe(true);
+      expect(out.find((s) => s.provider === 'cursor')!.cliNotInstalled).toBe(true);
+    });
+  });
+
   describe('refreshAll()', () => {
     it('returns [] when no probes registered', async () => {
       const out = await svc.refreshAll();

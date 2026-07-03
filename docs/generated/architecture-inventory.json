@@ -5211,7 +5211,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2547
+      "lines": 2567
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5223,15 +5223,15 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2387
+      "lines": 2395
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2346
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
-    },
-    {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2304
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
@@ -5710,6 +5710,10 @@
       "lines": 975
     },
     {
+      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
+      "lines": 974
+    },
+    {
       "path": "src/main/ipc/handlers/vcs-handlers.ts",
       "lines": 972
     },
@@ -5746,6 +5750,10 @@
       "lines": 949
     },
     {
+      "path": "src/worker-agent/worker-agent.ts",
+      "lines": 946
+    },
+    {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
       "lines": 945
     },
@@ -5775,10 +5783,6 @@
     },
     {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
-      "lines": 924
-    },
-    {
-      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
       "lines": 924
     },
     {
@@ -5842,10 +5846,6 @@
       "lines": 872
     },
     {
-      "path": "src/worker-agent/worker-agent.ts",
-      "lines": 872
-    },
-    {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
       "lines": 868
     },
@@ -5867,6 +5867,10 @@
     },
     {
       "path": "docs/superpowers/plans/2026-05-10-main-process-multicore-offload_completed.md",
+      "lines": 858
+    },
+    {
+      "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
       "lines": 858
     },
     {

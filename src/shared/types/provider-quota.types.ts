@@ -91,6 +91,13 @@ export interface ProviderQuotaSnapshot {
    * error, and it survives even when last-known windows are still shown.
    */
   needsReauth?: boolean;
+  /**
+   * True when the provider's CLI is not installed on this machine. Quota for
+   * such providers is deliberately not probed (credential files or a shared
+   * usage-monitor snapshot could still produce numbers), and the UI hides the
+   * provider from the quota strip/popover entirely.
+   */
+  cliNotInstalled?: boolean;
   /** May be empty if the probe ran but found no useful windows. */
   windows: ProviderQuotaWindow[];
   /**

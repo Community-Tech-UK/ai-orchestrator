@@ -98,11 +98,22 @@ export class InstanceOutputStore implements ImageAttachmentSink {
             // For streaming messages, update existing or add new
             const existingIdx = outputBuffer.findIndex((m) => m.id === msg.id);
             if (existingIdx >= 0) {
-              // Update existing message with accumulated content
+              // Update existing message with accumulated content.
+              // Guard: a streaming update must never wipe already-committed
+              // text to empty. Providers stream monotonically; an empty
+              // accumulated payload arriving over a non-empty bubble (e.g. a
+              // per-segment accumulator that reset mid-turn) would otherwise
+              // erase visible assistant text. Keep the committed text in that
+              // case while still letting metadata/thinking update.
               const accumulatedContent = getAccumulatedStreamingContent(msg);
+              const previousContent = outputBuffer[existingIdx].content ?? '';
+              const nextContent =
+                accumulatedContent.trim().length === 0 && previousContent.trim().length > 0
+                  ? previousContent
+                  : accumulatedContent;
               outputBuffer[existingIdx] = {
                 ...outputBuffer[existingIdx],
-                content: accumulatedContent,
+                content: nextContent,
                 metadata: msg.metadata,
                 thinking: msg.thinking
                   ? stabilizeThinkingBlocks(outputBuffer[existingIdx].thinking, msg.thinking)

@@ -84,7 +84,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
   'src/main/cli/adapters/base-cli-adapter.ts': 899,
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2286,
+  // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2345,
   'src/main/cli/adapters/codex-cli-adapter.ts': 3308,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 1014,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
@@ -106,10 +107,11 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
-  'src/main/instance/instance-communication.ts': 2343,
+  // Raised 2343 -> 2394 for the non-destructive streaming-replace guard.
+  'src/main/instance/instance-communication.ts': 2394,
   'src/main/instance/instance-context.ts': 1240,
   'src/main/instance/instance-lifecycle.ts': 3364,
-  'src/main/instance/instance-manager.ts': 2505,
+  'src/main/instance/instance-manager.ts': 2566,
   'src/main/instance/instance-orchestration.ts': 1068,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1424,
   // Main process — IPC handlers
@@ -268,7 +270,7 @@ const ALLOWLIST: Record<string, number> = {
   // entry, and PROVIDER_MODEL_LIST row) tipped it just past 700.
   'src/shared/types/provider.types.ts': 702,
   // Worker agent
-  'src/worker-agent/worker-agent.ts': 872,
+  'src/worker-agent/worker-agent.ts': 945,
 };
 
 function countLines(filePath: string): number {

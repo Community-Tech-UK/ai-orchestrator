@@ -134,7 +134,9 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   let fileConfig: Partial<WorkerConfig> = {};
 
   if (fs.existsSync(configPath)) {
-    const raw = fs.readFileSync(configPath, 'utf-8');
+    // Strip a UTF-8 BOM if present — Windows tools (PowerShell 5's
+    // `Set-Content -Encoding UTF8`, Notepad) write one, and JSON.parse rejects it.
+    const raw = fs.readFileSync(configPath, 'utf-8').replace(/^\uFEFF/, '');
     fileConfig = normalizeFileConfig(JSON.parse(raw) as Partial<WorkerConfig> & PairingConfigFile);
   }
 
