@@ -5,7 +5,7 @@
 
 import { spawn } from 'child_process';
 import { existsSync, realpathSync } from 'fs';
-import { isAbsolute } from 'path';
+import { win32 as pathWin32, posix as pathPosix } from 'path';
 import { CliCapabilities } from './adapters/base-cli-adapter';
 import { getLogger } from '../logging/logger';
 import { buildCliSpawnOptions, getCliAdditionalPaths } from './cli-environment';
@@ -348,8 +348,14 @@ export class CliDetectionService {
       };
 
       // Allow alternative paths (absolute paths starting with / or expanded ~)
-      // The guard only rejects if someone passes a different command name
-      const isAbsolutePath = isAbsolute(command);
+      // The guard only rejects if someone passes a different command name.
+      // Use platform-appropriate absolute-path semantics: on Windows a native
+      // path like `C:\Users\...\claude.exe` must be recognised as absolute even
+      // though Node's default `isAbsolute` follows the host OS (which breaks the
+      // win32 detection path when running on posix hosts / under test).
+      const isAbsolutePath = process.platform === 'win32'
+        ? pathWin32.isAbsolute(command)
+        : pathPosix.isAbsolute(command);
       if (!isAbsolutePath && command !== config.command) {
         result.error = 'Invalid CLI command';
         resolve(result);
