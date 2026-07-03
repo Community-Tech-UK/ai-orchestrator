@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as path from 'node:path';
 import {
   GeminiUsageEndpointProbe,
   discoverGeminiOAuthClient,
@@ -257,19 +258,19 @@ describe('discoverGeminiOAuthClient', () => {
   // Models the real machine: `agy` is a compiled binary in ~/.local/bin (no JS
   // in its dir), while `gemini` resolves into a JS bundle that carries the
   // client. The loop must skip past `agy` and keep going to `gemini`.
-  const AGY_DIR = '/home/u/.local/bin';
-  const GEMINI_BIN_DIR = '/home/u/.nvm/versions/node/v24/bin';
-  const GEMINI_BUNDLE_DIR = '/home/u/.nvm/versions/node/v24/lib/node_modules/@google/gemini-cli/bundle';
+  const AGY_DIR = path.resolve('/home/u/.local/bin');
+  const GEMINI_BIN_DIR = path.resolve('/home/u/.nvm/versions/node/v24/bin');
+  const GEMINI_BUNDLE_DIR = path.resolve('/home/u/.nvm/versions/node/v24/lib/node_modules/@google/gemini-cli/bundle');
 
   function fakeFs(): GeminiOAuthDiscoveryDeps {
     return {
       searchDirs: [AGY_DIR, GEMINI_BIN_DIR],
       access: async (p: string) => {
-        if (p === `${AGY_DIR}/agy` || p === `${GEMINI_BIN_DIR}/gemini`) return;
+        if (p === path.join(AGY_DIR, 'agy') || p === path.join(GEMINI_BIN_DIR, 'gemini')) return;
         throw new Error('ENOENT');
       },
       realpath: async (p: string) => {
-        if (p === `${GEMINI_BIN_DIR}/gemini`) return `${GEMINI_BUNDLE_DIR}/gemini.js`;
+        if (p === path.join(GEMINI_BIN_DIR, 'gemini')) return path.join(GEMINI_BUNDLE_DIR, 'gemini.js');
         return p; // agy is its own realpath
       },
       readdir: async (p: string) => {
@@ -278,7 +279,7 @@ describe('discoverGeminiOAuthClient', () => {
         return [];
       },
       readFile: async (p: string) => {
-        if (p === `${GEMINI_BUNDLE_DIR}/chunk-AAA.js`) {
+        if (p === path.join(GEMINI_BUNDLE_DIR, 'chunk-AAA.js')) {
           return 'const OAUTH_CLIENT_ID = "the-id";\nconst OAUTH_CLIENT_SECRET = "the-secret";';
         }
         return 'no client here';

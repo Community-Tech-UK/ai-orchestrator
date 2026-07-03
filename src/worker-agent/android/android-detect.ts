@@ -45,10 +45,10 @@ export async function detectAndroidAutomation(
   });
 
   const adbPath = sdkPath
-    ? resolveAndroidTool(sdkPath, ['platform-tools', executableName('adb', platform)], exists) ?? 'adb'
+    ? resolveAndroidTool(sdkPath, ['platform-tools', executableName('adb', platform)], exists, platform) ?? 'adb'
     : 'adb';
   const emulatorPath = sdkPath
-    ? resolveAndroidTool(sdkPath, ['emulator', executableName('emulator', platform)], exists) ?? 'emulator'
+    ? resolveAndroidTool(sdkPath, ['emulator', executableName('emulator', platform)], exists, platform) ?? 'emulator'
     : 'emulator';
 
   const [adbVersionRaw, devicesRaw, avdsRaw, maestroRaw] = await Promise.all([
@@ -139,20 +139,22 @@ function defaultSdkRoots(
 ): string[] {
   if (platform === 'win32') {
     const localAppData = env['LOCALAPPDATA'];
-    return localAppData ? [path.join(localAppData, 'Android', 'Sdk')] : [];
+    return localAppData ? [path.win32.join(localAppData, 'Android', 'Sdk')] : [];
   }
   if (platform === 'darwin') {
-    return [path.join(homedir(), 'Library', 'Android', 'sdk')];
+    return [path.posix.join(homedir(), 'Library', 'Android', 'sdk')];
   }
-  return [path.join(homedir(), 'Android', 'Sdk')];
+  return [path.posix.join(homedir(), 'Android', 'Sdk')];
 }
 
 function resolveAndroidTool(
   sdkPath: string,
   segments: string[],
   exists: (candidatePath: string) => boolean,
+  platform: NodePlatform,
 ): string | undefined {
-  const candidate = path.join(sdkPath, ...segments);
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
+  const candidate = pathApi.join(sdkPath, ...segments);
   return exists(candidate) ? candidate : undefined;
 }
 

@@ -4,7 +4,7 @@ import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { mkdtemp, readFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { posix } from 'path';
 import {
   VoiceServiceError,
   type VoiceTtsInput,
@@ -95,9 +95,9 @@ export class MacosSayTtsProvider implements VoiceTtsProvider {
       );
     }
 
-    const dir = await this.makeTempDir(join(this.tempRoot(), 'ai-orchestrator-voice-'));
-    const aiffPath = join(dir, `${input.requestId}.aiff`);
-    const wavPath = join(dir, `${input.requestId}.wav`);
+    const dir = await this.makeTempDir(posix.join(this.tempRoot(), 'ai-orchestrator-voice-'));
+    const aiffPath = posix.join(dir, `${input.requestId}.aiff`);
+    const wavPath = posix.join(dir, `${input.requestId}.wav`);
     try {
       await this.runProcess(this.sayPath, this.sayArgs(input, aiffPath), input.requestId);
       await this.runProcess(

@@ -28,7 +28,11 @@ describe('browser extension native runtime', () => {
         extensionToken: 'native-token',
         updatedAt: 1234,
       });
-      expect(fs.statSync(result.wrapperPath).mode & 0o111).not.toBe(0);
+      if (process.platform !== 'win32') {
+        expect(fs.statSync(result.wrapperPath).mode & 0o111).not.toBe(0);
+      } else {
+        expect(path.extname(result.wrapperPath).toLowerCase()).toBe('.cmd');
+      }
 
       const wrapper = fs.readFileSync(result.wrapperPath, 'utf-8');
       // The wrapper should invoke the configured host command — no

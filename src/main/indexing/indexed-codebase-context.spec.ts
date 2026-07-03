@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as path from 'node:path';
 import type { ContextStore } from '../../shared/types/rlm.types';
 import type { CodeRetrievalResult } from '../codemem/code-retrieval-service';
 import { IndexedCodebaseContextService } from './indexed-codebase-context';
+
+const REPO_PATH = path.resolve('/repo');
 
 function makeStore(overrides: Partial<ContextStore> = {}): ContextStore {
   return {
@@ -15,7 +18,7 @@ function makeStore(overrides: Partial<ContextStore> = {}): ContextStore {
     accessCount: 0,
     config: {
       kind: 'codebase-auto',
-      rootPath: '/repo',
+      rootPath: REPO_PATH,
     },
     ...overrides,
   };
@@ -23,9 +26,9 @@ function makeStore(overrides: Partial<ContextStore> = {}): ContextStore {
 
 function makeResult(overrides: Partial<CodeRetrievalResult> = {}): CodeRetrievalResult {
   return {
-    workspacePath: '/repo',
+    workspacePath: REPO_PATH,
     relativePath: 'src/auth.ts',
-    absolutePath: '/repo/src/auth.ts',
+    absolutePath: path.join(REPO_PATH, 'src', 'auth.ts'),
     content: 'export function requireAuth() {\n  return true;\n}',
     startLine: 10,
     endLine: 12,
@@ -61,7 +64,7 @@ describe('IndexedCodebaseContextService', () => {
     });
 
     expect(search.search).toHaveBeenCalledWith(expect.objectContaining({
-      workspacePath: '/repo',
+      workspacePath: REPO_PATH,
       query: 'where is auth middleware handled?',
       limit: 3,
     }));
@@ -97,7 +100,7 @@ describe('IndexedCodebaseContextService', () => {
 
     expect(context?.storeId).toBe('ctx-from-config');
     expect(search.search).toHaveBeenCalledWith(expect.objectContaining({
-      workspacePath: '/repo',
+      workspacePath: REPO_PATH,
     }));
   });
 

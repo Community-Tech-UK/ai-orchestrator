@@ -39,6 +39,18 @@ const READ_ONLY_TOOLS = new Set([
   'searchFiles',
 ]);
 
+const WINDOWS_ABSOLUTE_PATH_RE = /^[A-Za-z]:[\\/]|^\\\\/;
+
+function pathApiFor(workingDirectory: string, filePath?: string): path.PlatformPath {
+  if (WINDOWS_ABSOLUTE_PATH_RE.test(workingDirectory) || (filePath && WINDOWS_ABSOLUTE_PATH_RE.test(filePath))) {
+    return path.win32;
+  }
+  if (workingDirectory.startsWith('/') || filePath?.startsWith('/')) {
+    return path.posix;
+  }
+  return path;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -52,11 +64,12 @@ const READ_ONLY_TOOLS = new Set([
 function resolveWithinDir(p: unknown, workingDirectory: string): string | null {
   if (typeof p !== 'string' || p.trim() === '') return null;
 
-  const abs = path.isAbsolute(p) ? p : path.resolve(workingDirectory, p);
-  const normalised = path.normalize(abs);
-  const base = path.normalize(workingDirectory);
+  const pathApi = pathApiFor(workingDirectory, p);
+  const abs = pathApi.isAbsolute(p) ? p : pathApi.resolve(workingDirectory, p);
+  const normalised = pathApi.normalize(abs);
+  const base = pathApi.normalize(workingDirectory);
 
-  if (normalised === base || normalised.startsWith(base + path.sep)) {
+  if (normalised === base || normalised.startsWith(base + pathApi.sep)) {
     return normalised;
   }
   if (isArtifactPath(normalised)) {

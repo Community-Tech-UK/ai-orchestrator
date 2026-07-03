@@ -26,6 +26,7 @@ import {
   type FreshEyesReviewerResult,
   type LoopChildResult,
 } from './loop-coordinator';
+import { bugFreeVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
 /** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
@@ -39,7 +40,7 @@ function writeRunState(payload: unknown, name: string, content: string): void {
 let workspace: string;
 let coordinator: LoopCoordinator;
 
-const VERIFY_CMD = 'if grep -q BUG app.js; then exit 1; else exit 0; fi';
+const VERIFY_CMD = bugFreeVerifyCommand('app.js', 'BUG');
 
 function git(args: string[]): void {
   execFileSync('git', args, {

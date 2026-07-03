@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
 let workspace: string;
@@ -49,7 +50,7 @@ function startConfig(enabled: boolean) {
   return {
     initialPrompt: 'do the thing',
     workspaceCwd: workspace,
-    completion: { ...base.completion, verifyCommand: 'true' },
+    completion: { ...base.completion, verifyCommand: passingVerifyCommand() },
     caps: { ...base.caps, maxCostCents: 1000, maxWallTimeMs: 60_000 },
     exploration: { enabled, fanout: 3, crossModel: false, selector: 'verify+listwise' as const },
     progressThresholds: {

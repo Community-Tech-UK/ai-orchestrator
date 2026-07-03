@@ -6,11 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const repoRoot = process.cwd();
 const scriptPath = join(repoRoot, 'scripts/check-ts-max-loc.ts');
-const tsxBin = join(
-  repoRoot,
-  'node_modules/.bin',
-  process.platform === 'win32' ? 'tsx.cmd' : 'tsx',
-);
+const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.cjs');
 
 interface CheckResult {
   exitCode: number;
@@ -51,7 +47,7 @@ function runLocCheck(
   const { args = [], env = {} } = options;
   // spawnSync (rather than execFileSync) so stdout AND stderr are captured
   // regardless of exit code — warnings/notices go to stderr, the pass line to stdout.
-  const result = spawnSync(tsxBin, [scriptPath, ...args], {
+  const result = spawnSync(process.execPath, [tsxCli, scriptPath, ...args], {
     cwd,
     encoding: 'utf8',
     env: { ...process.env, ...env },

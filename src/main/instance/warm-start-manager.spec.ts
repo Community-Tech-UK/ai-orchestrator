@@ -228,8 +228,7 @@ describe('WarmStartManager', () => {
 
       // Advance past 5 minutes — killAdapter should NOT be called because
       // the warm process was already consumed (timer cancelled).
-      vi.advanceTimersByTime(6 * 60 * 1000);
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
 
       expect(deps.killAdapter).not.toHaveBeenCalled();
     });
@@ -312,7 +311,7 @@ describe('WarmStartManager', () => {
 
       manager.setEnabled(false);
       // Allow the fire-and-forget kill to settle
-      await vi.runAllTimersAsync();
+      await Promise.resolve();
 
       expect(deps.killAdapter).toHaveBeenCalledOnce();
       expect(deps.killAdapter).toHaveBeenCalledWith(fakeAdapter);
@@ -350,8 +349,7 @@ describe('WarmStartManager', () => {
       await manager.preWarm('claude', '/project');
 
       // Advance exactly 5 minutes
-      vi.advanceTimersByTime(5 * 60 * 1000);
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 
       expect(deps.killAdapter).toHaveBeenCalledOnce();
       expect(deps.killAdapter).toHaveBeenCalledWith(fakeAdapter);

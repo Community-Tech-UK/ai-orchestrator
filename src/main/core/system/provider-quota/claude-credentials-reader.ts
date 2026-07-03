@@ -154,7 +154,8 @@ export class ClaudeCredentialsReader {
   }
 
   private credentialsFilePath(): string {
-    return path.join(this.homeDir, '.claude', '.credentials.json');
+    const pathApi = this.platform === 'win32' ? path.win32 : path.posix;
+    return pathApi.join(this.homeDir, '.claude', '.credentials.json');
   }
 
   private parse(raw: string): CredentialResult {

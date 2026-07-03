@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 
 function parseNodeVersionParts(value: string): [number, number, number] | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value.trim());
@@ -63,15 +63,25 @@ function getNvmVersionBinPaths(homeDir: string): string[] {
  * version dir (newest first) as a fallback so `node`/`npm`/`npx` resolve even
  * if the symlink is unset. Non-existent dirs are harmless on PATH.
  */
-function getNvmWindowsNodePaths(env: NodeJS.ProcessEnv): string[] {
+function getNvmWindowsNodePaths(
+  env: NodeJS.ProcessEnv,
+  appData = '',
+  activeSymlinkFallback = '',
+): string[] {
   const paths: string[] = [];
+  const nvmHome = env['NVM_HOME'] || (appData ? `${appData}\\nvm` : '');
 
-  const symlink = env['NVM_SYMLINK'] || '';
-  if (symlink) {
-    paths.push(symlink);
+  const symlinkCandidates = [
+    env['NVM_SYMLINK'] || '',
+    getNvmWindowsSettingsSymlink(nvmHome),
+    activeSymlinkFallback,
+  ];
+  for (const symlink of symlinkCandidates) {
+    if (symlink) {
+      paths.push(symlink);
+    }
   }
 
-  const nvmHome = env['NVM_HOME'] || '';
   if (nvmHome && existsSync(nvmHome)) {
     try {
       readdirSync(nvmHome, { withFileTypes: true })
@@ -84,7 +94,28 @@ function getNvmWindowsNodePaths(env: NodeJS.ProcessEnv): string[] {
     }
   }
 
-  return paths;
+  return [...new Set(paths)];
+}
+
+function getNvmWindowsSettingsSymlink(nvmHome: string): string {
+  if (!nvmHome) {
+    return '';
+  }
+
+  const settingsPath = `${nvmHome}\\settings.txt`;
+  if (!existsSync(settingsPath)) {
+    return '';
+  }
+
+  try {
+    const settings = readFileSync(settingsPath, 'utf8');
+    const pathLine = settings
+      .split(/\r?\n/)
+      .find((line) => /^path\s*:/i.test(line));
+    return pathLine?.replace(/^path\s*:\s*/i, '').trim() ?? '';
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -133,13 +164,16 @@ export function getCliAdditionalPaths(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): string[] {
-  const homeDir = env['HOME'] || env['USERPROFILE'] || '';
-  const appData = env['APPDATA'] || '';
-  const localAppData = env['LOCALAPPDATA'] || '';
-  const programFiles = env['ProgramFiles'] || '';
-  const programFilesX86 = env['ProgramFiles(x86)'] || '';
+  const isWindows = platform === 'win32';
+  const userProfile = env['USERPROFILE'] || '';
+  const homeDir = env['HOME'] || userProfile || '';
+  const appData = env['APPDATA'] || (isWindows && userProfile ? `${userProfile}\\AppData\\Roaming` : '');
+  const localAppData = env['LOCALAPPDATA'] || (isWindows && userProfile ? `${userProfile}\\AppData\\Local` : '');
+  const programFiles = env['ProgramFiles'] || (isWindows ? 'C:\\Program Files' : '');
+  const programFilesX86 = env['ProgramFiles(x86)'] || (isWindows ? 'C:\\Program Files (x86)' : '');
   const systemRoot = env['SystemRoot'] || env['windir'] || 'C:\\Windows';
   const nvmVersionBinPaths = getNvmVersionBinPaths(homeDir);
+  const nvmWindowsActiveSymlink = programFiles ? `${programFiles}\\nodejs` : '';
 
   // Order matters: the first directory containing a given CLI wins.
   // User-managed installs (nvm, ~/.local/bin, ~/.npm-global/bin) come before
@@ -171,10 +205,15 @@ export function getCliAdditionalPaths(
     `${appData}\\npm`,
     // nvm-windows: active-version symlink first, then all installed versions.
     // node.exe lives at the version-dir root here (not in a `bin` subdir).
-    ...getNvmWindowsNodePaths(env),
+    ...getNvmWindowsNodePaths(env, appData, nvmWindowsActiveSymlink),
     `${localAppData}\\Programs\\nodejs`,
     `${programFiles}\\nodejs`,
     `${programFilesX86}\\nodejs`,
+    // The official Codex desktop installer writes codex.exe here without
+    // necessarily persisting this directory on the machine/user PATH. Keep it
+    // after normal Node locations because the same directory also contains a
+    // bundled node.exe used internally by Codex.
+    `${localAppData}\\OpenAI\\Codex\\bin`,
     // Per-user python.org installs (real interpreter + pip), ahead of the
     // WindowsApps Store alias stub below.
     ...getWindowsPythonPaths(env),

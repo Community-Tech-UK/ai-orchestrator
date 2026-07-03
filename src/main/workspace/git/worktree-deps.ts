@@ -59,6 +59,73 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
+function workspaceLinkName(relativePath: string): (typeof WORKSPACE_SYMLINKS)[number] | null {
+  const normalized = relativePath.split(path.sep).join('/');
+  return WORKSPACE_SYMLINKS.find((name) => name === normalized) ?? null;
+}
+
+function workspacePackageTarget(worktreePath: string, name: (typeof WORKSPACE_SYMLINKS)[number]): string {
+  return path.join(worktreePath, 'packages', name.split('/').at(-1)!);
+}
+
+async function createWorkspaceLink(worktreePath: string, linkPath: string, name: (typeof WORKSPACE_SYMLINKS)[number]) {
+  const target = workspacePackageTarget(worktreePath, name);
+  await fs.mkdir(path.dirname(linkPath), { recursive: true });
+  await fs.rm(linkPath, { recursive: true, force: true });
+
+  if (process.platform === 'win32') {
+    await fs.symlink(target, linkPath, 'junction');
+    return;
+  }
+
+  const relativeTarget = path.relative(path.dirname(linkPath), target);
+  await fs.symlink(relativeTarget, linkPath);
+}
+
+export async function repairWorkspaceLinks(worktreePath: string): Promise<void> {
+  for (const name of WORKSPACE_SYMLINKS) {
+    const linkPath = path.join(worktreePath, 'node_modules', name);
+    await createWorkspaceLink(worktreePath, linkPath, name);
+  }
+}
+
+async function copyNodeModulesWithNode(src: string, dest: string, worktreePath: string): Promise<void> {
+  async function copyEntry(srcPath: string, destPath: string, relativePath: string): Promise<void> {
+    const workspaceName = workspaceLinkName(relativePath);
+    if (workspaceName) {
+      await createWorkspaceLink(worktreePath, destPath, workspaceName);
+      return;
+    }
+
+    const stat = await fs.lstat(srcPath);
+    if (stat.isSymbolicLink()) {
+      await fs.mkdir(path.dirname(destPath), { recursive: true });
+      const target = await fs.readlink(srcPath);
+      const resolved = path.resolve(path.dirname(srcPath), target);
+      const targetStat = await fs.stat(resolved).catch(() => null);
+      const type = process.platform === 'win32' && targetStat?.isDirectory() ? 'junction' : undefined;
+      await fs.symlink(type === 'junction' ? resolved : target, destPath, type);
+      return;
+    }
+
+    if (stat.isDirectory()) {
+      await fs.mkdir(destPath, { recursive: true });
+      const entries = await fs.readdir(srcPath);
+      await Promise.all(
+        entries.map((entry) => copyEntry(path.join(srcPath, entry), path.join(destPath, entry), path.join(relativePath, entry))),
+      );
+      return;
+    }
+
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
+    await fs.copyFile(srcPath, destPath);
+  }
+
+  await fs.mkdir(dest, { recursive: true });
+  const entries = await fs.readdir(src);
+  await Promise.all(entries.map((entry) => copyEntry(path.join(src, entry), path.join(dest, entry), entry)));
+}
+
 /**
  * Populate `<worktreePath>/node_modules`. Prefers an APFS clonefile copy of the
  * root `node_modules`; falls back to a plain recursive copy, then to the
@@ -90,6 +157,7 @@ export async function provisionNodeModules(
         : ['-R', '--reflink=auto', rootModules, destModules];
     try {
       await execFileAsync('cp', cloneArgs, { timeout: 120_000 });
+      await repairWorkspaceLinks(worktreePath);
       logger.info('WorktreeDeps: cloned node_modules (copy-on-write)', {
         worktreePath,
         platform: process.platform,
@@ -105,12 +173,26 @@ export async function provisionNodeModules(
     // 2) Plain recursive copy (no reflink; symlinks still preserved by `-R`).
     try {
       await execFileAsync('cp', ['-R', rootModules, destModules], { timeout: 300_000 });
+      await repairWorkspaceLinks(worktreePath);
       logger.info('WorktreeDeps: copied node_modules (no clone)', { worktreePath });
       return 'copied';
     } catch (copyErr) {
       logger.warn('WorktreeDeps: plain copy failed, falling back to install', {
         worktreePath,
         message: copyErr instanceof Error ? copyErr.message : String(copyErr),
+      });
+    }
+
+    try {
+      await copyNodeModulesWithNode(rootModules, destModules, worktreePath);
+      await repairWorkspaceLinks(worktreePath);
+      logger.info('WorktreeDeps: copied node_modules with Node fallback', { worktreePath });
+      return 'copied';
+    } catch (nodeCopyErr) {
+      await fs.rm(destModules, { recursive: true, force: true });
+      logger.warn('WorktreeDeps: Node copy failed, falling back to install', {
+        worktreePath,
+        message: nodeCopyErr instanceof Error ? nodeCopyErr.message : String(nodeCopyErr),
       });
     }
   }
@@ -150,13 +232,10 @@ export async function assertWorkspaceSymlinks(worktreePath: string): Promise<Sym
         continue;
       }
       const target = await fs.readlink(linkPath);
-      if (path.isAbsolute(target)) {
-        results.push({ name, ok: false, reason: `absolute target ${target} (escapes the worktree)` });
-        continue;
-      }
-      const resolved = path.resolve(path.dirname(linkPath), target);
+      const resolved = path.isAbsolute(target) ? path.resolve(target) : path.resolve(path.dirname(linkPath), target);
       if (resolved !== worktreeReal && !resolved.startsWith(worktreeReal + path.sep)) {
-        results.push({ name, ok: false, reason: `resolves outside worktree: ${resolved}` });
+        const prefix = path.isAbsolute(target) ? `absolute target ${target} ` : '';
+        results.push({ name, ok: false, reason: `${prefix}resolves outside worktree: ${resolved}` });
         continue;
       }
       results.push({ name, ok: true });

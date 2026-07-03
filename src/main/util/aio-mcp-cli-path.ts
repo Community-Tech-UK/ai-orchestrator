@@ -29,14 +29,15 @@ export function resolveAioMcpCliPath(options: ResolveAioMcpCliPathOptions = {}):
   const exists = options.exists ?? existsSync;
   const suffix = platform === 'win32' ? '.exe' : '';
   const binaryName = `aio-mcp${suffix}`;
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
 
   const candidates: string[] = [];
   if (options.resourcesPath) {
-    candidates.push(path.join(options.resourcesPath, 'aio-mcp-cli', binaryName));
+    candidates.push(pathApi.join(options.resourcesPath, 'aio-mcp-cli', binaryName));
   } else if (typeof process.resourcesPath === 'string') {
-    candidates.push(path.join(process.resourcesPath, 'aio-mcp-cli', binaryName));
+    candidates.push(pathApi.join(process.resourcesPath, 'aio-mcp-cli', binaryName));
   }
-  candidates.push(path.resolve(options.cwd ?? process.cwd(), 'dist/aio-mcp-cli-sea', binaryName));
+  candidates.push(pathApi.resolve(options.cwd ?? process.cwd(), 'dist/aio-mcp-cli-sea', binaryName));
 
   for (const candidate of candidates) {
     if (exists(candidate)) return candidate;

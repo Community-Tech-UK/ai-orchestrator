@@ -13,6 +13,7 @@ import { resolveCopilotCliLaunch } from './copilot-cli-launch';
 import {
   CLI_REGISTRY,
   SUPPORTED_CLIS,
+  WINDOWS_EXECUTABLE_EXTENSIONS,
   getCliCandidatePaths,
   type CliRegistryEntry,
   type CliType,
@@ -24,6 +25,10 @@ export { CLI_REGISTRY, SUPPORTED_CLIS };
 export type { CliType };
 
 const logger = getLogger('CliDetection');
+
+function quoteWindowsShellCommand(command: string): string {
+  return `"${command.replace(/"/g, '""')}"`;
+}
 
 /**
  * Information about a detected CLI tool
@@ -368,6 +373,9 @@ export class CliDetectionService {
         // Extend PATH to include common CLI installation directories
         // This is needed for packaged Electron apps where PATH may be limited
         const spawnOptions = buildCliSpawnOptions(process.env);
+        const commandForSpawn = process.platform === 'win32' && isAbsolutePath && spawnOptions.shell
+          ? quoteWindowsShellCommand(command)
+          : command;
 
         logger.debug('Checking command', {
           command,
@@ -375,7 +383,7 @@ export class CliDetectionService {
           shell: spawnOptions.shell,
         });
 
-        const proc = spawn(command, args, {
+        const proc = spawn(commandForSpawn, args, {
           timeout: 5000,
           ...spawnOptions,
         });
@@ -464,10 +472,12 @@ export class CliDetectionService {
     // shim, so probing the bare `<cmd>` alone (which works for npm CLIs like
     // codex, whose `.cmd`/`.ps1` shims ship alongside an extensionless launcher)
     // finds nothing and the CLI Health tab falsely reports "not installed".
-    // Probe the bare name first (preserves prior behaviour / npm-shim path
-    // display) then the executable extensions. Non-Windows uses the bare name.
+    // Probe in the same executable-extension priority Windows uses. npm global
+    // bins often include an extensionless POSIX shell stub beside the real
+    // `.cmd`; picking the stub first makes health/updater prefer stale NVM
+    // copies that happen not to live under "Program Files".
     const candidateNames = process.platform === 'win32'
-      ? [cmd, `${cmd}.exe`, `${cmd}.cmd`, `${cmd}.bat`, `${cmd}.ps1`]
+      ? WINDOWS_EXECUTABLE_EXTENSIONS.map((ext) => `${cmd}${ext}`)
       : [cmd];
 
     const seenReal = new Set<string>();
@@ -498,6 +508,18 @@ export class CliDetectionService {
     const results = await Promise.all(
       candidates.map(async (path): Promise<CliInstall> => {
         const info = await this.checkCommand(path, config);
+        if (!info.installed && existsSync(path)) {
+          logger.warn('CLI scan version probe failed, but binary exists on disk — preserving install order', {
+            cli: type,
+            path,
+            error: info.error,
+          });
+          return {
+            path,
+            installed: true,
+            error: info.error,
+          };
+        }
         return {
           path,
           version: info.version,

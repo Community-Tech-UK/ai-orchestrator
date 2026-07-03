@@ -224,15 +224,14 @@ export function defaultCursorVscdbPath(
   env: NodeJS.ProcessEnv,
 ): string {
   const home = env['HOME'] || os.homedir();
-  const tail = path.join('User', 'globalStorage', 'state.vscdb');
   if (platform === 'darwin') {
-    return path.join(home, 'Library', 'Application Support', 'Cursor', tail);
+    return path.posix.join(home, 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'state.vscdb');
   }
   if (platform === 'win32') {
-    const appData = env['APPDATA'] || path.join(home, 'AppData', 'Roaming');
-    return path.join(appData, 'Cursor', tail);
+    const appData = env['APPDATA'] || path.win32.join(home, 'AppData', 'Roaming');
+    return path.win32.join(appData, 'Cursor', 'User', 'globalStorage', 'state.vscdb');
   }
-  return path.join(home, '.config', 'Cursor', tail);
+  return path.posix.join(home, '.config', 'Cursor', 'User', 'globalStorage', 'state.vscdb');
 }
 
 /** Coerce a state.vscdb `ItemTable.value` (TEXT or BLOB) to a trimmed string. */

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WarmWorkspaceResult } from '../index-worker-protocol';
 
@@ -129,11 +130,11 @@ describe('codemem index worker main', () => {
     });
     await flushMicrotasks();
 
-    expect(indexManager.coldIndex).toHaveBeenCalledWith('/repo');
+    expect(indexManager.coldIndex).toHaveBeenCalledWith(path.resolve('/repo'));
     expect(indexManager.start).not.toHaveBeenCalled();
     expect(rpcResult(1)).toEqual({
       indexed: false,
-      absPath: '/repo',
+      absPath: path.resolve('/repo'),
       primaryLanguage: 'typescript',
     });
   });
@@ -143,11 +144,13 @@ describe('codemem index worker main', () => {
     indexManager.coldIndex
       .mockImplementationOnce(() => firstColdIndex.promise)
       .mockResolvedValueOnce(undefined);
+    const repoA = path.resolve('/repo-a');
+    const repoB = path.resolve('/repo-b');
     store.getWorkspaceRootByPath
       .mockReturnValueOnce(null)
-      .mockReturnValueOnce({ absPath: '/repo-a', primaryLanguage: 'typescript' })
+      .mockReturnValueOnce({ absPath: repoA, primaryLanguage: 'typescript' })
       .mockReturnValueOnce(null)
-      .mockReturnValueOnce({ absPath: '/repo-b', primaryLanguage: 'typescript' });
+      .mockReturnValueOnce({ absPath: repoB, primaryLanguage: 'typescript' });
 
     await importWorker();
     parentPort.emit('message', {
@@ -171,15 +174,15 @@ describe('codemem index worker main', () => {
     });
     await flushMicrotasks();
 
-    expect(store.requestCancel).toHaveBeenCalledWith('hash:/repo-a');
+    expect(store.requestCancel).toHaveBeenCalledWith(`hash:${repoA}`);
     expect(indexManager.coldIndex).toHaveBeenCalledTimes(1);
 
     firstColdIndex.resolve(undefined);
     await flushMicrotasks();
 
     expect(indexManager.coldIndex).toHaveBeenCalledTimes(2);
-    expect(rpcResult(1)).toEqual(expect.objectContaining({ indexed: true, absPath: '/repo-a' }));
-    expect(rpcResult(2)).toEqual(expect.objectContaining({ indexed: true, absPath: '/repo-b' }));
+    expect(rpcResult(1)).toEqual(expect.objectContaining({ indexed: true, absPath: repoA }));
+    expect(rpcResult(2)).toEqual(expect.objectContaining({ indexed: true, absPath: repoB }));
   });
 
   it('accepts child-process IPC when launched outside worker_threads', async () => {
@@ -211,9 +214,10 @@ describe('codemem index worker main', () => {
       return originalOn(eventName, listener);
     });
     process.env.AIO_USER_DATA_PATH = '/tmp/aio-index-child-test';
+    const repo = path.resolve('/repo');
     store.getIndexStatus.mockReturnValue({
-      workspaceHash: 'hash:/repo',
-      absPath: '/repo',
+      workspaceHash: `hash:${repo}`,
+      absPath: repo,
       state: 'complete',
       phase: 'watching',
       totalFiles: 2,
@@ -244,7 +248,7 @@ describe('codemem index worker main', () => {
         type: 'rpc-response',
         id: 99,
         result: expect.objectContaining({
-          workspacePath: '/repo',
+          workspacePath: repo,
           state: 'complete',
         }),
       }));

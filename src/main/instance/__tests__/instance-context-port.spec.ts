@@ -89,6 +89,144 @@ vi.mock('../../cli/cli-detection', () => ({ detectAllClis: vi.fn().mockResolvedV
 vi.mock('../../process/load-balancer', () => ({ getLoadBalancer: vi.fn(() => ({ updateMetrics: vi.fn(), removeMetrics: vi.fn() })) }));
 vi.mock('../../state', () => ({ getAppStore: vi.fn(), addInstance: vi.fn(), removeInstance: vi.fn(), updateInstance: vi.fn(), setGlobalState: vi.fn() }));
 vi.mock('../../util/slow-operations', () => ({ measureAsync: vi.fn((_n: string, fn: () => unknown) => fn()), SlowOperationMonitor: vi.fn().mockImplementation(() => ({ record: vi.fn() })) }));
+vi.mock('../../orchestration/task-manager', () => ({ getTaskManager: vi.fn(() => ({ startTimeoutChecker: vi.fn(), stopTimeoutChecker: vi.fn() })) }));
+vi.mock('../../pause/pause-coordinator', async () => {
+  const { EventEmitter } = await import('node:events');
+  const coordinator = new EventEmitter();
+  return { getPauseCoordinator: vi.fn(() => coordinator) };
+});
+vi.mock('../../cli/adapters/adapter-factory', () => ({
+  resolveCliType: vi.fn().mockResolvedValue('claude'),
+  getCliDisplayName: vi.fn((cliType: string) => cliType),
+  createCliAdapter: vi.fn(),
+}));
+vi.mock('../../cli/adapters/base-cli-adapter', () => ({ BaseCliAdapter: class {} }));
+vi.mock('../../context/compaction-coordinator.js', () => ({
+  getCompactionCoordinator: vi.fn(() => ({ getBudgetTracker: vi.fn(), resetBudgetTracker: vi.fn() })),
+}));
+vi.mock('../../context/context-engine.js', () => ({
+  getContextEngine: vi.fn(() => ({ ingest: vi.fn() })),
+}));
+vi.mock('../../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
+vi.mock('../../history/history-restore-coordinator', () => ({ getHistoryRestoreCoordinator: vi.fn(() => ({})) }));
+vi.mock('../../prompt-history/prompt-history-service', () => ({ getPromptHistoryService: vi.fn(() => ({})) }));
+vi.mock('../../indexing/indexed-codebase-context', () => ({
+  getIndexedCodebaseContextService: vi.fn(() => ({ buildContext: vi.fn(), buildFastPathResult: vi.fn() })),
+}));
+vi.mock('../../commands/command-manager', () => ({ getCommandManager: vi.fn(() => ({})) }));
+vi.mock('../../commands/goal-command', () => ({ appendActiveGoalContext: vi.fn((input: string) => input) }));
+vi.mock('../../commands/goal-loop-command', () => ({ executeGoalLoopCommandForInstanceInput: vi.fn() }));
+vi.mock('../../session/session-reference-resolver', () => ({ resolveSessionReferences: vi.fn() }));
+vi.mock('../../security/action-circuit-breaker', () => ({ getActionCircuitBreaker: vi.fn(() => ({})) }));
+vi.mock('../../codemem/lsp-feedback-registration', () => ({ forgetLspFeedbackInstance: vi.fn() }));
+vi.mock('../../security/permission-enforcer', () => ({ getPermissionEnforcer: vi.fn(() => ({})) }));
+vi.mock('../../security/permission-manager', () => ({ getPermissionManager: vi.fn(() => ({})) }));
+vi.mock('../../security/tool-execution-gate', () => ({ getToolExecutionGate: vi.fn(() => ({})) }));
+vi.mock('../../remote-node/worker-node-registry', () => ({
+  getWorkerNodeRegistry: vi.fn(() => ({ getHealthyNodes: vi.fn(() => []) })),
+  resolveWorkerNodeTarget: vi.fn(() => ({ error: 'not found' })),
+}));
+vi.mock('../../providers/provider-output-event', () => ({ toProviderOutputEvent: vi.fn() }));
+vi.mock('../instance-state', async () => {
+  const { EventEmitter } = await import('node:events');
+  class MockInstanceStateManager extends EventEmitter {
+    private instances = new Map<string, unknown>();
+    private adapters = new Map<string, unknown>();
+    private diffTrackers = new Map<string, unknown>();
+    private stateMachines = new Map<string, unknown>();
+
+    getInstance(id: string): unknown { return this.instances.get(id); }
+    hasInstance(id: string): boolean { return this.instances.has(id); }
+    getAllInstances(): unknown[] { return Array.from(this.instances.values()); }
+    getAllInstancesForIpc(): unknown[] { return this.getAllInstances(); }
+    getInstanceCount(): number { return this.instances.size; }
+    setInstance(instance: { id: string }): void { this.instances.set(instance.id, instance); }
+    deleteInstance(id: string): boolean { return this.instances.delete(id); }
+    forEachInstance(callback: (instance: unknown, id: string) => void): void { this.instances.forEach(callback); }
+    getAdapter(id: string): unknown { return this.adapters.get(id); }
+    setAdapter(id: string, adapter: unknown): void { this.adapters.set(id, adapter); }
+    deleteAdapter(id: string): boolean { return this.adapters.delete(id); }
+    getAdapterEntries(): IterableIterator<[string, unknown]> { return this.adapters.entries(); }
+    getDiffTracker(id: string): unknown { return this.diffTrackers.get(id); }
+    setDiffTracker(id: string, tracker: unknown): void { this.diffTrackers.set(id, tracker); }
+    deleteDiffTracker(id: string): void { this.diffTrackers.delete(id); }
+    getStateMachine(id: string): unknown { return this.stateMachines.get(id); }
+    setStateMachine(id: string, machine: unknown): void { this.stateMachines.set(id, machine); }
+    deleteStateMachine(id: string): void { this.stateMachines.delete(id); }
+    queueUpdate(): void {}
+    serializeForIpc(instance: unknown): unknown { return instance; }
+    destroy(): void {}
+  }
+  return { InstanceStateManager: MockInstanceStateManager };
+});
+vi.mock('../instance-lifecycle', async () => {
+  const { EventEmitter } = await import('node:events');
+  class MockInstanceLifecycleManager extends EventEmitter {
+    transitionStatePublic(instance: { status?: string }, status: string): void { instance.status = status; }
+    respawnAfterInterrupt = vi.fn().mockResolvedValue(undefined);
+    respawnAfterUnexpectedExit = vi.fn().mockResolvedValue(undefined);
+    noteInterruptSettled = vi.fn();
+    refreshAdapterRuntimeConfig = vi.fn();
+    terminateInstance = vi.fn().mockResolvedValue(undefined);
+    restartInstance = vi.fn().mockResolvedValue(undefined);
+    getMemoryStats = vi.fn(() => ({}));
+    destroy = vi.fn();
+  }
+  return { InstanceLifecycleManager: MockInstanceLifecycleManager };
+});
+vi.mock('../instance-communication', async () => {
+  const { EventEmitter } = await import('node:events');
+  class MockInstanceCommunicationManager extends EventEmitter {
+    addToOutputBuffer = vi.fn();
+    setupAdapterEvents = vi.fn();
+    markInterrupted = vi.fn();
+    clearInterrupted = vi.fn();
+    queueContinuityPreamble = vi.fn();
+    sendInputResponse = vi.fn().mockResolvedValue(undefined);
+    forceCleanupAdapter = vi.fn().mockResolvedValue(undefined);
+    isInterrupted = vi.fn(() => false);
+  }
+  return { InstanceCommunicationManager: MockInstanceCommunicationManager };
+});
+vi.mock('../instance-orchestration', () => ({
+  InstanceOrchestrationManager: vi.fn().mockImplementation(() => ({
+    getOrchestrationHandler: vi.fn(() => ({
+      hasActiveWork: vi.fn(() => false),
+      getPendingUserActionsForInstance: vi.fn(() => []),
+      respondToUserAction: vi.fn(),
+      notifyError: vi.fn(),
+    })),
+    hasActiveWork: vi.fn(() => false),
+    setupOrchestrationHandlers: vi.fn(),
+    processOrchestrationOutput: vi.fn(),
+    registerInstance: vi.fn(),
+    unregisterInstance: vi.fn(),
+    getSchedulingReminderIfRelevant: vi.fn(() => null),
+  })),
+}));
+vi.mock('../instance-persistence', () => ({
+  InstancePersistenceManager: vi.fn().mockImplementation(() => ({
+    forkInstance: vi.fn(),
+    exportSession: vi.fn(),
+    exportSessionMarkdown: vi.fn(),
+    importSession: vi.fn(),
+    loadHistoricalOutput: vi.fn(),
+    getInstanceStorageStats: vi.fn(),
+  })),
+}));
+vi.mock('../instance-settled-tracker', () => ({
+  InstanceSettledTracker: vi.fn().mockImplementation(() => ({
+    clear: vi.fn(),
+    recordActivity: vi.fn(),
+    waitForSettled: vi.fn(),
+  })),
+}));
+vi.mock('../instance-child-completion-handler', () => ({
+  InstanceChildCompletionHandler: vi.fn().mockImplementation(() => ({ handleChildExit: vi.fn().mockResolvedValue(undefined) })),
+}));
+vi.mock('../stale-runtime-reconciler', () => ({
+  StaleRuntimeReconciler: { getInstance: vi.fn(() => ({ reconcile: vi.fn(), shutdown: vi.fn() })), _resetForTesting: vi.fn() },
+}));
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

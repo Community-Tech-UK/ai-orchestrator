@@ -6,6 +6,7 @@ import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import type { LoopContextSurvivalManager } from './loop-context-survival';
 import { loopStateFile, resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { passingVerifyCommand } from './loop-test-commands';
 
 function childResult(seq: number): LoopChildResult {
   return {
@@ -129,7 +130,7 @@ describe('LoopCoordinator context survival manager', () => {
     config.caps.maxIterations = 3;
     config.caps.maxWallTimeMs = 60_000;
     config.caps.maxCostCents = 100;
-    config.completion.verifyCommand = 'true';
+    config.completion.verifyCommand = passingVerifyCommand();
     config.completion.runVerifyTwice = false;
 
     const state = await coordinator.startLoop('chat-context-survival-terminal', config);

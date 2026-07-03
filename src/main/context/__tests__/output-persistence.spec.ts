@@ -1,5 +1,6 @@
 // src/main/context/__tests__/output-persistence.spec.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as path from 'node:path';
 
 vi.mock('../../logging/logger', () => ({
   getLogger: vi.fn(() => ({
@@ -132,7 +133,7 @@ describe('OutputPersistenceManager', () => {
       await manager.maybeExternalize('default', large);
 
       const writePath = mockWriteFile.mock.calls[0][0] as string;
-      const filename = writePath.split('/').pop()!;
+      const filename = path.basename(writePath);
       expect(filename).toMatch(/^[0-9a-f]{64}\.txt$/);
     });
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as path from 'node:path';
 
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }),
@@ -58,7 +59,7 @@ describe('interpolateConfigString', () => {
     const r = await interpolateConfigString('doc:\n{file:notes.md}', { cwd: '/proj', readFile: read });
     expect(r.content).toBe('doc:\nFILE CONTENTS');
     // path is resolved against cwd
-    expect(read.mock.calls[0][0]).toBe('/proj/notes.md');
+    expect(read.mock.calls[0][0]).toBe(path.join(path.resolve('/proj'), 'notes.md'));
   });
 
   it('handles multiple distinct file tokens in order', async () => {
@@ -126,9 +127,11 @@ describe('interpolateConfigString', () => {
 
   it('blocks a symlink that resolves outside the project root', async () => {
     const read = vi.fn(async () => 'symlinked secret');
+    const root = path.resolve('/proj');
+    const link = path.join(root, 'link.txt');
     // realpath maps the in-tree path to an out-of-tree real location.
     const realpath = vi.fn(async (p: string) =>
-      p === '/proj/link.txt' ? '/etc/shadow' : p,
+      p === link ? path.resolve('/etc/shadow') : p,
     );
     const r = await interpolateConfigString('{file:link.txt}', { cwd: '/proj', readFile: read, realpath });
     expect(r.content).toBe('');
@@ -141,7 +144,7 @@ describe('interpolateConfigString', () => {
     const realpath = vi.fn(async (p: string) => p); // identity: stays in-root
     const r = await interpolateConfigString('{file:notes.md}', { cwd: '/proj', readFile: read, realpath });
     expect(r.content).toBe('ok');
-    expect(read).toHaveBeenCalledWith('/proj/notes.md', expect.any(Number));
+    expect(read).toHaveBeenCalledWith(path.join(path.resolve('/proj'), 'notes.md'), expect.any(Number));
   });
 
   it('resolves env before files and both together', async () => {

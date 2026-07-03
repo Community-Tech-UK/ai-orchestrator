@@ -9,7 +9,7 @@ import {
 
 describe('resolveLoopArtifactPaths', () => {
   it('scopes every state file under <workspace>/.aio-loop-state/<runId>/', () => {
-    const ws = '/tmp/ws';
+    const ws = path.resolve('/tmp/ws');
     const p = resolveLoopArtifactPaths(ws, 'loop-123-abcd');
     const dir = path.join(ws, LOOP_STATE_DIR_NAME, 'loop-123-abcd');
     expect(p.dir).toBe(dir);
@@ -60,8 +60,8 @@ describe('resolveLoopArtifactPaths', () => {
   // active the agent's cwd is the worktree, so relative or executionCwd-anchored
   // paths would resolve to the wrong directory.
   it('all paths anchor at workspaceCwd — not at a hypothetical executionCwd (P1 isolation)', () => {
-    const workspaceCwd = '/real/repo/root';
-    const executionCwd = '/real/repo/root/.worktrees/task-abc-1n5w3f';
+    const workspaceCwd = path.resolve('/real/repo/root');
+    const executionCwd = path.resolve('/real/repo/root/.worktrees/task-abc-1n5w3f');
     const p = resolveLoopArtifactPaths(workspaceCwd, 'loop-isolation-test');
     // dir must be inside workspaceCwd
     expect(p.dir.startsWith(workspaceCwd)).toBe(true);
@@ -75,7 +75,7 @@ describe('resolveLoopArtifactPaths', () => {
   });
 
   it('keeps audit/planning artifact paths scoped out of the workspace root', () => {
-    const workspaceCwd = '/repo';
+    const workspaceCwd = path.resolve('/repo');
     const p = resolveLoopArtifactPaths(workspaceCwd, 'loop-audit');
     for (const key of ['roadmap', 'audit', 'preflight', 'repoBaseline', 'phasesDir'] as const) {
       expect(p[key]).toContain(`${LOOP_STATE_DIR_NAME}${path.sep}loop-audit`);

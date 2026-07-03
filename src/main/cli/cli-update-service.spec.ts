@@ -58,6 +58,33 @@ describe('CliUpdateService', () => {
     });
   });
 
+  it('does not reuse a stale detectOne version for a different scanned active path', async () => {
+    const detection = makeDetection({
+      one: {
+        claude: makeInfo('claude', 'C:\\Users\\test\\AppData\\Roaming\\nvm\\v22.10.0\\claude.cmd', '2.1.100'),
+      },
+      installs: {
+        claude: [
+          { path: 'C:\\Program Files\\nodejs\\claude.cmd' },
+          { path: 'C:\\Users\\test\\AppData\\Roaming\\nvm\\v22.10.0\\claude.cmd', version: '2.1.100' },
+        ],
+      },
+    });
+
+    const service = new CliUpdateService({
+      detection,
+      exists: (path) => path === 'C:\\Program Files\\nodejs\\claude.cmd',
+      platform: 'win32',
+    });
+
+    await expect(service.getUpdatePlan('claude')).resolves.toMatchObject({
+      cli: 'claude',
+      activePath: 'C:\\Program Files\\nodejs\\claude.cmd',
+      currentVersion: undefined,
+      command: 'C:\\Program Files\\nodejs\\claude.cmd',
+    });
+  });
+
   it('uses Cursor Agent native updater', async () => {
     const detection = makeDetection({
       one: {

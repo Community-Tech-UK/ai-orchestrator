@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as path from 'node:path';
 import { CopilotQuotaProbe, type CopilotConfigReader } from './copilot-quota-probe';
 
 /** Build a fake reader that returns content / errors deterministically. */
@@ -127,7 +128,7 @@ ${LOGGED_IN_CONFIG}`;
       });
       await probe.probe({ signal: new AbortController().signal });
       expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatch(/\.copilot\/config\.json$/);
+      expect(calls[0]).toContain(path.join('.copilot', 'config.json'));
     });
 
     it('honours a configDir override', async () => {
@@ -140,7 +141,7 @@ ${LOGGED_IN_CONFIG}`;
         },
       });
       await probe.probe({ signal: new AbortController().signal });
-      expect(calls[0]).toBe('/tmp/custom-copilot/config.json');
+      expect(calls[0]).toBe(path.join('/tmp/custom-copilot', 'config.json'));
     });
 
     it('returns the provider id "copilot"', () => {

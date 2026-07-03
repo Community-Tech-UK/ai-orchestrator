@@ -201,7 +201,7 @@ function redactString(
   env: NodeJS.ProcessEnv,
 ): string {
   let output = homeDir && input.includes(homeDir)
-    ? input.split(homeDir).join('~')
+    ? input.split(homeDir).join('~').replace(/~\\/g, '~/')
     : input;
 
   for (const secret of secretValues) {

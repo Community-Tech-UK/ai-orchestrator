@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
+import { flakyOnceVerifyCommand, passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
 let workspace: string;
@@ -342,8 +343,7 @@ describe('LoopCoordinator completion classification hardening', () => {
       });
     });
 
-    const verifyCommand =
-      'if [ -f verify-first-failed ]; then exit 0; else touch verify-first-failed; exit 1; fi';
+    const verifyCommand = flakyOnceVerifyCommand();
     const state = await coordinator.startLoop('chat-anti-flake-fail', {
       initialPrompt: 'finish the task',
       workspaceCwd: workspace,
@@ -435,7 +435,7 @@ describe('LoopCoordinator completion classification hardening', () => {
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         crossModelReview: {
           enabled: false,

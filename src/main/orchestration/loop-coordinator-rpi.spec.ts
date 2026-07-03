@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
+import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, LOOP_MAX_PLAN_REGENERATIONS } from '../../shared/types/loop.types';
 
 /** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
@@ -59,7 +60,7 @@ describe('LF-4 RPI — PLAN→IMPLEMENT context reset', () => {
       workspaceCwd: workspace,
       contextStrategy: 'same-session',
       initialStage: 'PLAN',
-      completion: { ...base.completion, verifyCommand: 'true' },
+      completion: { ...base.completion, verifyCommand: passingVerifyCommand() },
       caps: { ...base.caps, maxCostCents: 100, maxWallTimeMs: 60_000 },
       // context discipline on (default) gates the reset
     });
@@ -90,7 +91,7 @@ describe('LF-4 RPI — disposable plan regenerate-on-stall', () => {
     const state = await coordinator.startLoop('chat-rpi-regen', {
       initialPrompt: 'do the thing',
       workspaceCwd: workspace,
-      completion: { ...base.completion, verifyCommand: 'true' },
+      completion: { ...base.completion, verifyCommand: passingVerifyCommand() },
       caps: { ...base.caps, maxCostCents: 100, maxWallTimeMs: 60_000 },
       plan: { regenerateOnStall: true },
       progressThresholds: { ...base.progressThresholds, identicalHashWarnConsecutive: 2, identicalHashCriticalConsecutive: 2 },
@@ -122,7 +123,7 @@ describe('LF-4 RPI — disposable plan regenerate-on-stall', () => {
     const state = await coordinator.startLoop('chat-rpi-noregen', {
       initialPrompt: 'do the thing',
       workspaceCwd: workspace,
-      completion: { ...base.completion, verifyCommand: 'true' },
+      completion: { ...base.completion, verifyCommand: passingVerifyCommand() },
       caps: { ...base.caps, maxCostCents: 100, maxWallTimeMs: 60_000 },
       plan: { regenerateOnStall: false },
       progressThresholds: { ...base.progressThresholds, identicalHashWarnConsecutive: 2, identicalHashCriticalConsecutive: 2 },

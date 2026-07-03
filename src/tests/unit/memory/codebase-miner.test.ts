@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import * as fs from 'fs/promises';
+import * as path from 'node:path';
 
 let _testDb: InstanceType<typeof Database> | undefined;
 
@@ -274,7 +275,7 @@ describe('CodebaseMiner', () => {
       expect(listProjectKnowledgeSources(db, '/fake/provenance')).toMatchObject([
         {
           sourceKind: 'manifest',
-          sourceUri: '/fake/provenance/package.json',
+          sourceUri: path.resolve('/fake/provenance', 'package.json'),
           contentFingerprint: expect.any(String),
         },
       ]);
@@ -298,7 +299,7 @@ describe('CodebaseMiner', () => {
       expect(listProjectKnowledgeSources(db, '/fake/readme-provenance')).toMatchObject([
         {
           sourceKind: 'readme',
-          sourceUri: '/fake/readme-provenance/README.md',
+          sourceUri: path.resolve('/fake/readme-provenance', 'README.md'),
         },
       ]);
       expect(listProjectKnowledgeLinks(db, '/fake/readme-provenance').some((link) => link.targetKind === 'wake_hint')).toBe(true);

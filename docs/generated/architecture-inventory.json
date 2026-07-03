@@ -5235,7 +5235,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 2244
+      "lines": 2277
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -5642,6 +5642,10 @@
       "lines": 1044
     },
     {
+      "path": "src/main/workspace/git/worktree-manager.ts",
+      "lines": 1041
+    },
+    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
     },
@@ -5664,10 +5668,6 @@
     {
       "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 1003
-    },
-    {
-      "path": "src/main/workspace/git/worktree-manager.ts",
-      "lines": 1001
     },
     {
       "path": "src/main/memory/project-memory-brief.ts",
@@ -5747,7 +5747,7 @@
     },
     {
       "path": "src/main/plugins/plugin-manager.spec.ts",
-      "lines": 949
+      "lines": 950
     },
     {
       "path": "src/worker-agent/worker-agent.ts",

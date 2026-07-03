@@ -63,12 +63,13 @@ describe('OperatorProjectStore', () => {
     const db = openDb(dbPath);
 
     const firstStore = new OperatorProjectStore(db);
+    const scanRoot = path.resolve('/Users/suas/work');
     firstStore.upsertScanRoot('/Users/suas/work', { source: 'manual' });
 
     const secondStore = new OperatorProjectStore(db);
     expect(secondStore.listScanRoots()).toEqual([
       expect.objectContaining({
-        rootPath: '/Users/suas/work',
+        rootPath: scanRoot,
         metadata: { source: 'manual' },
       }),
     ]);

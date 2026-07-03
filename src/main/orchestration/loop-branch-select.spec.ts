@@ -16,6 +16,7 @@ import {
   type BranchSelectDeps,
   type BranchSelectInput,
 } from './loop-branch-select';
+import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, defaultLoopExplorationConfig } from '../../shared/types/loop.types';
 
 function baseInput(over: Partial<BranchSelectInput> = {}): BranchSelectInput {
@@ -30,7 +31,7 @@ function baseInput(over: Partial<BranchSelectInput> = {}): BranchSelectInput {
     spentCents: 0,
     prompt: 'do the iteration',
     provider: 'claude',
-    verifyCommand: 'true',
+    verifyCommand: passingVerifyCommand(),
     verifyTimeoutMs: 60_000,
     iterationTimeoutMs: 60_000,
     ...over,
@@ -176,7 +177,7 @@ describe('runBranchSelect orchestration (LF-5)', () => {
       taskPackets: expect.arrayContaining([
         expect.objectContaining({
           id: 'branch-candidate-1',
-          verificationPlan: ['true'],
+          verificationPlan: [passingVerifyCommand()],
         }),
       ]),
     }));

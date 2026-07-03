@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import type { LoopMemoryStore } from './loop-memory';
 
@@ -50,7 +51,7 @@ describe('LoopCoordinator cross-loop memory wiring (LF-6)', () => {
     const state = await coordinator.startLoop('chat-memory', {
       initialPrompt: 'do the thing',
       workspaceCwd: workspace,
-      completion: { ...defaultLoopConfig(workspace, 'x').completion, verifyCommand: 'true' },
+      completion: { ...defaultLoopConfig(workspace, 'x').completion, verifyCommand: passingVerifyCommand() },
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxCostCents: 100, maxWallTimeMs: 60_000 },
     });
 

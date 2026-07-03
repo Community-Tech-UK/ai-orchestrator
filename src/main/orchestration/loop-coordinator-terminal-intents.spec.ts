@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { failingVerifyCommand, passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, type LoopTerminalIntent } from '../../shared/types/loop.types';
 import { runLoopControlCli } from './loop-control-cli';
 
@@ -159,7 +160,7 @@ describe('LoopCoordinator terminal intents', () => {
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         requireCompletedFileRename: false,
         crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
@@ -191,7 +192,7 @@ describe('LoopCoordinator terminal intents', () => {
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'false',
+        verifyCommand: failingVerifyCommand(),
         runVerifyTwice: false,
       },
     });
@@ -339,7 +340,7 @@ describe('LoopCoordinator terminal intents', () => {
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 2 },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         requireCompletedFileRename: false,
         crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
@@ -490,7 +491,7 @@ describe('LoopCoordinator terminal intents', () => {
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         requireCompletedFileRename: true,
         crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
@@ -641,7 +642,7 @@ describe('LoopCoordinator terminal intents', () => {
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
       },
     });
@@ -671,7 +672,7 @@ describe('LoopCoordinator terminal intents', () => {
       iterationTimeoutMs: 60_000,
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
       },
     });

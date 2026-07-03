@@ -327,7 +327,7 @@ describe('ErrorRecoveryManager', () => {
       });
 
       // Advance timers to flush the backoff delay
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(200);
 
       const result = await promise;
       expect(result).toBe('success after retry');
@@ -335,44 +335,36 @@ describe('ErrorRecoveryManager', () => {
     });
 
     it('applies exponential backoff between retries', async () => {
-      const delays: number[] = [];
-      const originalSetTimeout = globalThis.setTimeout;
-
-      // Spy on setTimeout to capture delays used
-      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(
-        ((fn: (...args: unknown[]) => void, delay?: number) => {
-          delays.push(delay ?? 0);
-          return originalSetTimeout(fn, 0);
-        }) as typeof setTimeout
-      );
-
-      const fn = vi.fn()
-        .mockRejectedValueOnce(makeError('ETIMEDOUT attempt 1'))
-        .mockRejectedValueOnce(makeError('ETIMEDOUT attempt 2'))
-        .mockResolvedValue('done');
-
-      const promise = retryWithBackoff(fn, {
-        maxRetries: 3,
-        initialDelayMs: 1000,
-        backoffMultiplier: 2,
-        maxDelayMs: 30000,
+      const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const attempts: number[] = [];
+      const failures = [
+        makeError('ETIMEDOUT attempt 1'),
+        makeError('ETIMEDOUT attempt 2'),
+      ];
+      const fn = vi.fn(async () => {
+        attempts.push(Date.now());
+        const failure = failures.shift();
+        if (failure) throw failure;
+        return 'done';
       });
 
-      await vi.runAllTimersAsync();
-      await promise;
+      try {
+        const promise = retryWithBackoff(fn, {
+          maxRetries: 3,
+          initialDelayMs: 1000,
+          backoffMultiplier: 2,
+          maxDelayMs: 30000,
+        });
 
-      setTimeoutSpy.mockRestore();
+        await vi.advanceTimersByTimeAsync(3_000);
+        await promise;
+      } finally {
+        randomSpy.mockRestore();
+      }
 
-      // Two delays should have been recorded (after attempt 0 and attempt 1)
-      expect(delays).toHaveLength(2);
-
-      // Second delay should be approximately double the first (ignoring jitter)
-      // With initialDelayMs=1000, multiplier=2: delay0≈1000, delay1≈2000
-      // Allow for ±20% jitter
-      expect(delays[0]).toBeGreaterThan(800);
-      expect(delays[0]).toBeLessThan(1200);
-      expect(delays[1]).toBeGreaterThan(1600);
-      expect(delays[1]).toBeLessThan(2400);
+      expect(attempts).toHaveLength(3);
+      expect(attempts[1]! - attempts[0]!).toBe(1000);
+      expect(attempts[2]! - attempts[1]!).toBe(2000);
     });
 
     it('stops after max retries and throws the last error', async () => {
@@ -384,7 +376,7 @@ describe('ErrorRecoveryManager', () => {
         retryWithBackoff(fn, { maxRetries: 2, initialDelayMs: 10 })
       ).rejects.toThrow('ECONNREFUSED persistent failure');
 
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(100);
       await assertion;
 
       // 1 initial attempt + 2 retries = 3 total calls
@@ -430,7 +422,7 @@ describe('ErrorRecoveryManager', () => {
         retryCondition: () => true,
       });
 
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(50);
 
       const result = await promise;
       expect(result).toBe('ok');

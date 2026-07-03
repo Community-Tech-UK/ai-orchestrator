@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
+import { passingVerifyCommand } from './loop-test-commands';
 
 function childResult(seq: number): LoopChildResult {
   return {
@@ -101,7 +102,7 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     config.caps.maxIterations = 8;
     config.caps.maxWallTimeMs = 60_000;
     config.caps.maxCostCents = 1000;
-    config.completion.verifyCommand = 'true';
+    config.completion.verifyCommand = passingVerifyCommand();
     config.completion.runVerifyTwice = false;
     config.completion.requireCompletedFileRename = false;
 
@@ -228,7 +229,7 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     config.caps.maxIterations = 5;
     config.caps.maxWallTimeMs = 60_000;
     config.caps.maxCostCents = 1000;
-    config.completion.verifyCommand = 'true';
+    config.completion.verifyCommand = passingVerifyCommand();
     config.completion.runVerifyTwice = false;
     config.completion.requireCompletedFileRename = false;
 
@@ -270,7 +271,7 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     config.caps.maxIterations = 5;
     config.caps.maxWallTimeMs = 60_000;
     config.caps.maxCostCents = 1000;
-    config.completion.verifyCommand = 'true';
+    config.completion.verifyCommand = passingVerifyCommand();
     config.completion.runVerifyTwice = false;
     config.completion.requireCompletedFileRename = false;
 

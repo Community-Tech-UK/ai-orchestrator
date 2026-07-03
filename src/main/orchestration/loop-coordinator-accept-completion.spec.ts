@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
+import { failingVerifyCommand, passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 
 /**
@@ -159,7 +160,7 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
 
     const state = await startManualReviewLoop();
     // Operator configured a verify command after the fact; accept now runs it.
-    liveState(state.id)!.config.completion.verifyCommand = 'true';
+    liveState(state.id)!.config.completion.verifyCommand = passingVerifyCommand();
 
     const ok = await coordinator.acceptCompletion(state.id);
 
@@ -171,7 +172,7 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
 
   it('rejects accept and stays paused when verify fails', async () => {
     const state = await startManualReviewLoop();
-    liveState(state.id)!.config.completion.verifyCommand = 'false'; // exits non-zero
+    liveState(state.id)!.config.completion.verifyCommand = failingVerifyCommand();
 
     const ok = await coordinator.acceptCompletion(state.id);
 
@@ -185,7 +186,7 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     const live = liveState(state.id)!;
     const paths = resolveLoopArtifactPaths(workspace, state.id);
     writeFileSync(paths.tasks, '# Loop Tasks\n\n- [ ] finish the actual work\n');
-    live.config.completion.verifyCommand = 'true';
+    live.config.completion.verifyCommand = passingVerifyCommand();
     live.config.audit.finalAuditMode = 'gate';
 
     const ok = await coordinator.acceptCompletion(state.id);

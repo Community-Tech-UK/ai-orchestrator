@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { ProjectPluginTrust } from '../../../shared/types/settings.types';
 import { registerProjectPluginTrustHandlers } from './project-plugin-trust-handlers';
+import { canonicalizeProjectPluginRoot } from '../../plugins/project-plugin-trust';
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
 const handlers = new Map<string, IpcHandler>();
@@ -72,7 +73,7 @@ describe('registerProjectPluginTrustHandlers', () => {
       decisions: { projectRoot: string; trust: ProjectPluginTrust }[];
     };
     expect(decisions).toContainEqual(expect.objectContaining({
-      projectRoot: path.resolve(workingDirectory),
+      projectRoot: canonicalizeProjectPluginRoot(workingDirectory),
       trust: 'ask',
     }));
 
@@ -81,7 +82,7 @@ describe('registerProjectPluginTrustHandlers', () => {
 
   it('grants trust by persisting to the user-scoped map before clearing the plugin cache', async () => {
     const projectRoot = path.join(path.sep, 'repo', 'nested', '..');
-    const canonical = path.resolve(projectRoot);
+    const canonical = canonicalizeProjectPluginRoot(projectRoot);
 
     const response = await invoke(IPC_CHANNELS.PROJECT_PLUGIN_TRUST_GRANT, { projectRoot });
 
@@ -96,26 +97,29 @@ describe('registerProjectPluginTrustHandlers', () => {
 
   it('revokes trust by persisting an explicit untrusted decision', async () => {
     const projectRoot = path.join(path.sep, 'repo');
-    trustMap = { [projectRoot]: 'trusted' };
+    const canonical = canonicalizeProjectPluginRoot(projectRoot);
+    trustMap = { [canonical]: 'trusted' };
 
     const response = await invoke(IPC_CHANNELS.PROJECT_PLUGIN_TRUST_REVOKE, { projectRoot });
 
     expect(response.success).toBe(true);
-    expect(response.data).toMatchObject({ projectRoot, trust: 'untrusted' });
-    expect(trustMap[projectRoot]).toBe('untrusted');
+    expect(response.data).toMatchObject({ projectRoot: canonical, trust: 'untrusted' });
+    expect(trustMap[canonical]).toBe('untrusted');
     expect(clearPluginCache).toHaveBeenCalledOnce();
   });
 
   it('preserves existing decisions for other roots when granting', async () => {
     const otherRoot = path.join(path.sep, 'other-repo');
-    trustMap = { [otherRoot]: 'untrusted' };
+    const canonicalOtherRoot = canonicalizeProjectPluginRoot(otherRoot);
+    trustMap = { [canonicalOtherRoot]: 'untrusted' };
     const projectRoot = path.join(path.sep, 'repo');
+    const canonicalProjectRoot = canonicalizeProjectPluginRoot(projectRoot);
 
     await invoke(IPC_CHANNELS.PROJECT_PLUGIN_TRUST_GRANT, { projectRoot });
 
     expect(trustMap).toEqual({
-      [otherRoot]: 'untrusted',
-      [projectRoot]: 'trusted',
+      [canonicalOtherRoot]: 'untrusted',
+      [canonicalProjectRoot]: 'trusted',
     });
   });
 

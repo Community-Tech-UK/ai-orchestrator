@@ -123,7 +123,7 @@ describe('HistoryManager.getEntries advanced options', () => {
     const realProject = path.join(userDataDir, 'real-project');
     const linkedProject = path.join(userDataDir, 'linked-project');
     fs.mkdirSync(realProject);
-    fs.symlinkSync(realProject, linkedProject);
+    fs.symlinkSync(realProject, linkedProject, process.platform === 'win32' ? 'junction' : 'dir');
     seedIndex(userDataDir, [
       entry({ id: 'same-project', workingDirectory: realProject }),
       entry({ id: 'other-project', workingDirectory: path.join(userDataDir, 'other-project') }),

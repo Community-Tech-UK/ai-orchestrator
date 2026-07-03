@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as crypto from 'crypto';
+import * as path from 'node:path';
 
 vi.mock('../../logging/logger', () => ({
   getLogger: vi.fn(() => ({
@@ -109,7 +110,7 @@ describe('ContentStore', () => {
       if (!ref.inline) {
         const expectedShard = ref.hash.slice(0, 2);
         const writtenPath = mockWriteFile.mock.calls[0][0] as string;
-        expect(writtenPath).toContain(`/${expectedShard}/`);
+        expect(writtenPath).toContain(`${path.sep}${expectedShard}${path.sep}`);
         expect(writtenPath).toContain(ref.hash);
       }
     });

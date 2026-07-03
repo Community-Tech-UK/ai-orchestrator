@@ -7,17 +7,18 @@ import {
 
 describe('resolveProjectPluginTrust', () => {
   it('defaults project plugin roots to ask when no trust decision exists', () => {
-    const projectRoot = path.join(path.sep, 'repo');
+    const projectRoot = path.resolve(path.join(path.sep, 'repo'));
+    const canonical = canonicalizeProjectPluginRoot(projectRoot);
 
     expect(resolveProjectPluginTrust(projectRoot, {})).toEqual({
-      projectRoot,
+      projectRoot: canonical,
       trust: 'ask',
       reason: 'No trust decision recorded for project plugins at this root.',
     });
   });
 
   it('returns trusted only for a matching canonical project root', () => {
-    const projectRoot = path.join(path.sep, 'repo', 'nested', '..');
+    const projectRoot = path.resolve(path.join(path.sep, 'repo', 'nested', '..'));
     const canonical = canonicalizeProjectPluginRoot(projectRoot);
 
     expect(resolveProjectPluginTrust(projectRoot, {
@@ -32,28 +33,30 @@ describe('resolveProjectPluginTrust', () => {
   });
 
   it('returns untrusted for an explicit reject decision', () => {
-    const projectRoot = path.join(path.sep, 'repo');
+    const projectRoot = path.resolve(path.join(path.sep, 'repo'));
+    const canonical = canonicalizeProjectPluginRoot(projectRoot);
 
     expect(resolveProjectPluginTrust(projectRoot, {
       projectPluginTrust: {
         [projectRoot]: 'untrusted',
       },
     })).toMatchObject({
-      projectRoot,
+      projectRoot: canonical,
       trust: 'untrusted',
       reason: 'Project plugin root is rejected in settings.',
     });
   });
 
   it('ignores malformed trust maps and falls back to ask', () => {
-    const projectRoot = path.join(path.sep, 'repo');
+    const projectRoot = path.resolve(path.join(path.sep, 'repo'));
+    const canonical = canonicalizeProjectPluginRoot(projectRoot);
 
     expect(resolveProjectPluginTrust(projectRoot, {
       projectPluginTrust: {
         [projectRoot]: 'yes-please',
       },
     })).toMatchObject({
-      projectRoot,
+      projectRoot: canonical,
       trust: 'ask',
     });
   });

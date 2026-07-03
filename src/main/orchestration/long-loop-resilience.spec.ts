@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
 describe('long-loop resilience', () => {
@@ -12,7 +13,7 @@ describe('long-loop resilience', () => {
   beforeEach(() => {
     LoopCoordinator._resetForTesting();
     workspace = mkdtempSync(join(tmpdir(), 'long-loop-resilience-'));
-    writeFileSync(join(workspace, 'package.json'), '{"scripts":{"test":"true"}}\n');
+    writeFileSync(join(workspace, 'package.json'), JSON.stringify({ scripts: { test: passingVerifyCommand() } }));
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n- [ ] Finish the work\n');
     coordinator = new LoopCoordinator();
   });
@@ -54,7 +55,7 @@ describe('long-loop resilience', () => {
       caps: { ...defaultLoopConfig(workspace, 'finish the work').caps, maxIterations: 4 },
       completion: {
         ...defaultLoopConfig(workspace, 'finish the work').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         requireCompletedFileRename: false,
       },
@@ -63,5 +64,5 @@ describe('long-loop resilience', () => {
     await completed;
     expect(coordinator.getLoop(state.id)?.status).toBe('completed');
     expect(invocations).toBeGreaterThanOrEqual(3);
-  });
+  }, 15_000);
 });

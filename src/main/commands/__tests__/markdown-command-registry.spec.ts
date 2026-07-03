@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as path from 'node:path';
 
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp/test-home') },
@@ -48,8 +49,12 @@ function makeDirent(name: string, isDir = false): import('fs').Dirent {
   } as unknown as import('fs').Dirent;
 }
 
-const HOME_COMMANDS = '/tmp/test-home/.orchestrator/commands';
-const PROJECT_COMMANDS = '/tmp/test-project/.orchestrator/commands';
+const HOME_COMMANDS = path.join('/tmp/test-home', '.orchestrator', 'commands');
+const PROJECT_COMMANDS = path.join(path.resolve('/tmp/test-project'), '.orchestrator', 'commands');
+
+function commandFile(commandsDir: string, fileName: string): string {
+  return path.join(commandsDir, fileName);
+}
 
 beforeEach(() => {
   _resetMarkdownCommandRegistryForTesting();
@@ -68,10 +73,10 @@ describe('priority field on loaded commands', () => {
     const reg = MarkdownCommandRegistry.getInstance();
 
     readdirResults.set(HOME_COMMANDS, [makeDirent('foo.md')]);
-    fileContents.set(`${HOME_COMMANDS}/foo.md`, '# Foo\nGlobal version');
+    fileContents.set(commandFile(HOME_COMMANDS, 'foo.md'), '# Foo\nGlobal version');
 
     readdirResults.set(PROJECT_COMMANDS, [makeDirent('foo.md')]);
-    fileContents.set(`${PROJECT_COMMANDS}/foo.md`, '# Foo\nProject version');
+    fileContents.set(commandFile(PROJECT_COMMANDS, 'foo.md'), '# Foo\nProject version');
 
     const result = await reg.listCommands('/tmp/test-project');
     const fooCommand = result.commands.find(c => c.name === 'foo');
@@ -89,7 +94,7 @@ describe('priority field on loaded commands', () => {
 
   it('commands with no override still have a priority field', async () => {
     readdirResults.set(HOME_COMMANDS, [makeDirent('bar.md')]);
-    fileContents.set(`${HOME_COMMANDS}/bar.md`, '# Bar\nOnly global');
+    fileContents.set(commandFile(HOME_COMMANDS, 'bar.md'), '# Bar\nOnly global');
 
     const reg = MarkdownCommandRegistry.getInstance();
     const result = await reg.listCommands('/tmp/test-project');
@@ -102,7 +107,7 @@ describe('priority field on loaded commands', () => {
 describe('mtime skip — per-directory optimisation', () => {
   it('skips re-walking a directory whose mtime is unchanged within TTL', async () => {
     readdirResults.set(HOME_COMMANDS, [makeDirent('hello.md')]);
-    fileContents.set(`${HOME_COMMANDS}/hello.md`, '# Hello\nworld');
+    fileContents.set(commandFile(HOME_COMMANDS, 'hello.md'), '# Hello\nworld');
 
     const reg = MarkdownCommandRegistry.getInstance();
 
@@ -120,7 +125,7 @@ describe('mtime skip — per-directory optimisation', () => {
 
   it('re-walks a directory after TTL expires', async () => {
     readdirResults.set(HOME_COMMANDS, [makeDirent('hello.md')]);
-    fileContents.set(`${HOME_COMMANDS}/hello.md`, '# Hello\nworld');
+    fileContents.set(commandFile(HOME_COMMANDS, 'hello.md'), '# Hello\nworld');
 
     const reg = MarkdownCommandRegistry.getInstance();
     await reg.listCommands('/tmp/test-project');
@@ -144,7 +149,7 @@ describe('mtime skip — per-directory optimisation', () => {
     });
 
     readdirResults.set(HOME_COMMANDS, [makeDirent('hello.md')]);
-    fileContents.set(`${HOME_COMMANDS}/hello.md`, '# Hello\nworld');
+    fileContents.set(commandFile(HOME_COMMANDS, 'hello.md'), '# Hello\nworld');
 
     const reg = MarkdownCommandRegistry.getInstance();
     await reg.listCommands('/tmp/test-project');
@@ -164,7 +169,7 @@ describe('frontmatter parsing', () => {
   it('falls back to the derived command name when frontmatter name is not a string', async () => {
     readdirResults.set(PROJECT_COMMANDS, [makeDirent('typed-name.md')]);
     fileContents.set(
-      `${PROJECT_COMMANDS}/typed-name.md`,
+      commandFile(PROJECT_COMMANDS, 'typed-name.md'),
       [
         '---',
         'name: 123',
@@ -186,7 +191,7 @@ describe('frontmatter parsing', () => {
   it('parses aliases, category, usage, examples, applicability, and rank hints', async () => {
     readdirResults.set(PROJECT_COMMANDS, [makeDirent('review.md')]);
     fileContents.set(
-      `${PROJECT_COMMANDS}/review.md`,
+      commandFile(PROJECT_COMMANDS, 'review.md'),
       [
         '---',
         'aliases: ["r", "rv"]',
@@ -220,11 +225,11 @@ describe('frontmatter parsing', () => {
   it('emits diagnostics for invalid metadata and alias collisions', async () => {
     readdirResults.set(PROJECT_COMMANDS, [makeDirent('one.md'), makeDirent('two.md')]);
     fileContents.set(
-      `${PROJECT_COMMANDS}/one.md`,
+      commandFile(PROJECT_COMMANDS, 'one.md'),
       ['---', 'aliases: ["same"]', 'category: nope', '---', '# One', 'Body'].join('\n')
     );
     fileContents.set(
-      `${PROJECT_COMMANDS}/two.md`,
+      commandFile(PROJECT_COMMANDS, 'two.md'),
       ['---', 'aliases: ["same"]', '---', '# Two', 'Body'].join('\n')
     );
 

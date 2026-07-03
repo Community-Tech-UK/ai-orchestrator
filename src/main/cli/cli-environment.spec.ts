@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import {
   buildCliEnv,
@@ -107,6 +110,74 @@ describe('cli-environment', () => {
     expect(symlinkIdx).toBeGreaterThanOrEqual(0);
     expect(windowsAppsIdx).toBeGreaterThanOrEqual(0);
     expect(symlinkIdx).toBeLessThan(windowsAppsIdx);
+  });
+
+  it('reads the nvm-windows settings path when NVM_SYMLINK is missing', () => {
+    const nvmHome = mkdtempSync(join(tmpdir(), 'aio-nvm-settings-'));
+    try {
+      writeFileSync(
+        join(nvmHome, 'settings.txt'),
+        'root: C:\\Users\\User\\AppData\\Roaming\\nvm\r\npath: D:\\Tools\\nodejs\r\n',
+      );
+      const env = {
+        APPDATA: 'C:\\Users\\User\\AppData\\Roaming',
+        LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+        NVM_HOME: nvmHome,
+        ProgramFiles: 'C:\\Program Files',
+        USERPROFILE: 'C:\\Users\\User',
+      } as NodeJS.ProcessEnv;
+
+      const paths = getCliAdditionalPaths(env, 'win32');
+      const settingsSymlinkIdx = paths.indexOf('D:\\Tools\\nodejs');
+      const defaultSymlinkIdx = paths.indexOf('C:\\Program Files\\nodejs');
+
+      expect(settingsSymlinkIdx).toBeGreaterThanOrEqual(0);
+      expect(defaultSymlinkIdx).toBeGreaterThanOrEqual(0);
+      expect(settingsSymlinkIdx).toBeLessThan(defaultSymlinkIdx);
+    } finally {
+      rmSync(nvmHome, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to Program Files nodejs before inherited stale nvm-windows version PATH entries', () => {
+    // Packaged GUI launches can have a stripped environment where ProgramFiles
+    // and NVM_SYMLINK are absent, but PATH still contains raw nvm version dirs.
+    // The active nvm-windows symlink normally lives at C:\Program Files\nodejs;
+    // it must be prepended ahead of inherited PATH entries so stale version
+    // folders like v22 do not win over the active Node install.
+    const env = {
+      APPDATA: 'C:\\Users\\User\\AppData\\Roaming',
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      PATH: 'C:\\Users\\User\\AppData\\Roaming\\nvm\\v22.10.0;C:\\Users\\User\\AppData\\Roaming\\nvm\\v24.17.0',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    const pathEntries = buildCliPath(env, 'win32').split(';');
+    const activeSymlinkIdx = pathEntries.indexOf('C:\\Program Files\\nodejs');
+    const staleVersionIdx = pathEntries.indexOf('C:\\Users\\User\\AppData\\Roaming\\nvm\\v22.10.0');
+
+    expect(activeSymlinkIdx).toBeGreaterThanOrEqual(0);
+    expect(staleVersionIdx).toBeGreaterThanOrEqual(0);
+    expect(activeSymlinkIdx).toBeLessThan(staleVersionIdx);
+  });
+
+  it('includes the OpenAI Codex desktop bin without shadowing normal Node installs', () => {
+    const env = {
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      ProgramFiles: 'C:\\Program Files',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    const paths = getCliAdditionalPaths(env, 'win32');
+    const nodeIdx = paths.indexOf('C:\\Program Files\\nodejs');
+    const codexDesktopIdx = paths.indexOf('C:\\Users\\User\\AppData\\Local\\OpenAI\\Codex\\bin');
+    const windowsAppsIdx = paths.indexOf('C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps');
+
+    expect(nodeIdx).toBeGreaterThanOrEqual(0);
+    expect(codexDesktopIdx).toBeGreaterThanOrEqual(0);
+    expect(windowsAppsIdx).toBeGreaterThanOrEqual(0);
+    expect(nodeIdx).toBeLessThan(codexDesktopIdx);
+    expect(codexDesktopIdx).toBeLessThan(windowsAppsIdx);
   });
 
   it('includes core Windows system dirs so a minimal-PATH worker can resolve system tools', () => {

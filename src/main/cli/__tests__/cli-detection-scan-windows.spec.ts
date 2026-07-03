@@ -3,10 +3,11 @@ import { EventEmitter } from 'node:events';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { spawnMock, existsSyncMock, realpathSyncMock } = vi.hoisted(() => ({
+const { spawnMock, existsSyncMock, realpathSyncMock, additionalPathsMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   existsSyncMock: vi.fn(),
   realpathSyncMock: vi.fn(),
+  additionalPathsMock: vi.fn<() => string[]>(() => ['C:\\Users\\User/.local/bin']),
 }));
 
 vi.mock('child_process', () => ({
@@ -21,8 +22,8 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('../cli-environment', () => ({
-  buildCliSpawnOptions: vi.fn(() => ({ env: {} })),
-  getCliAdditionalPaths: vi.fn(() => ['C:\\Users\\User/.local/bin']),
+  buildCliSpawnOptions: vi.fn(() => ({ env: {}, shell: true })),
+  getCliAdditionalPaths: additionalPathsMock,
 }));
 
 vi.mock('../copilot-cli-launch', () => ({
@@ -56,6 +57,19 @@ function makeVersionProc(version: string) {
   return proc;
 }
 
+function makeFailingProc() {
+  const proc = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: ReturnType<typeof vi.fn>;
+  };
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.kill = vi.fn();
+  setTimeout(() => proc.emit('close', 143), 0);
+  return proc;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('CliDetectionService.scanAllCliInstalls — Windows .exe-only install', () => {
@@ -63,6 +77,7 @@ describe('CliDetectionService.scanAllCliInstalls — Windows .exe-only install',
 
   beforeEach(async () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    additionalPathsMock.mockReturnValue(['C:\\Users\\User/.local/bin']);
     const { CliDetectionService } = await import('../cli-detection');
     CliDetectionService._resetForTesting();
   });
@@ -104,8 +119,74 @@ describe('CliDetectionService.scanAllCliInstalls — Windows .exe-only install',
     const service = CliDetectionService.getInstance();
 
     const installs = await service.scanAllCliInstalls('claude');
-    // Bare name wins (probed first) → exactly one entry, not three.
+    // The Windows executable wins over the POSIX shell stub → exactly one entry, not three.
     expect(installs).toHaveLength(1);
-    expect(installs[0]?.path).toBe('C:\\Users\\User/.local/bin/claude');
+    expect(installs[0]?.path).toBe('C:\\Users\\User/.local/bin/claude.exe');
+  });
+
+  it('quotes active Program Files shims and ranks them before stale nvm version dirs', async () => {
+    additionalPathsMock.mockReturnValue([
+      'C:\\Program Files\\nodejs',
+      'C:\\Users\\User\\AppData\\Roaming\\nvm\\v22.10.0',
+    ]);
+    existsSyncMock.mockImplementation((p: unknown) => {
+      const s = String(p);
+      return s === 'C:\\Program Files\\nodejs/claude.cmd'
+        || s === 'C:\\Users\\User\\AppData\\Roaming\\nvm\\v22.10.0/claude.cmd';
+    });
+    realpathSyncMock.mockImplementation((p: unknown) => String(p));
+    spawnMock.mockImplementation((command: string) => {
+      const version = command.includes('Program Files') ? '2.1.183' : '2.1.100';
+      return makeVersionProc(version);
+    });
+
+    const { CliDetectionService } = await import('../cli-detection');
+    const service = CliDetectionService.getInstance();
+
+    const installs = await service.scanAllCliInstalls('claude');
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      '"C:\\Program Files\\nodejs/claude.cmd"',
+      ['--version'],
+      expect.objectContaining({ shell: true }),
+    );
+    expect(installs.map((install) => install.path)).toEqual([
+      'C:\\Program Files\\nodejs/claude.cmd',
+      'C:\\Users\\User\\AppData\\Roaming\\nvm\\v22.10.0/claude.cmd',
+    ]);
+    expect(installs.map((install) => install.version)).toEqual(['2.1.183', '2.1.100']);
+  });
+
+  it('keeps an existing active Program Files shim first even when its version probe fails', async () => {
+    additionalPathsMock.mockReturnValue([
+      'C:\\Program Files\\nodejs',
+      'C:\\Users\\User\\AppData\\Roaming\\nvm\\v22.10.0',
+    ]);
+    existsSyncMock.mockImplementation((p: unknown) => {
+      const s = String(p);
+      return s === 'C:\\Program Files\\nodejs/claude.cmd'
+        || s === 'C:\\Users\\User\\AppData\\Roaming\\nvm\\v22.10.0/claude.cmd';
+    });
+    realpathSyncMock.mockImplementation((p: unknown) => String(p));
+    spawnMock.mockImplementation((command: string) =>
+      command.includes('Program Files') ? makeFailingProc() : makeVersionProc('2.1.100'),
+    );
+
+    const { CliDetectionService } = await import('../cli-detection');
+    const service = CliDetectionService.getInstance();
+
+    const installs = await service.scanAllCliInstalls('claude');
+
+    expect(installs).toHaveLength(2);
+    expect(installs[0]).toMatchObject({
+      path: 'C:\\Program Files\\nodejs/claude.cmd',
+      installed: true,
+    });
+    expect(installs[0]?.version).toBeUndefined();
+    expect(installs[1]).toMatchObject({
+      path: 'C:\\Users\\User\\AppData\\Roaming\\nvm\\v22.10.0/claude.cmd',
+      installed: true,
+      version: '2.1.100',
+    });
   });
 });

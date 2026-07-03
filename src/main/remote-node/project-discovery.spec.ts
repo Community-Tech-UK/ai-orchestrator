@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import * as path from 'node:path';
 
 // `vi.hoisted` so the mock factory (hoisted above declarations) can reference it.
 const mockLogger = vi.hoisted(() => ({
@@ -55,23 +56,25 @@ describe('ProjectDiscovery', () => {
   // -------------------------------------------------------------------------
 
   it('discovers projects with .git marker', async () => {
+    const home = path.resolve('/home');
+    const app = path.join(home, 'my-app');
     // Root: /home returns one directory 'my-app'
     // /home/my-app: contains '.git' and 'package.json'
     mockReaddir.mockImplementation(async (dirPath: unknown) => {
-      if (dirPath === '/home') {
+      if (dirPath === home) {
         return [makeDir('my-app')] as never;
       }
-      if (dirPath === '/home/my-app') {
+      if (dirPath === app) {
         return [makeFile('.git'), makeFile('package.json')] as never;
       }
       return [] as never;
     });
 
-    const results = await discovery.scan(['/home']);
+    const results = await discovery.scan([home]);
 
     expect(results).toHaveLength(1);
     expect(results[0].name).toBe('my-app');
-    expect(results[0].path).toBe('/home/my-app');
+    expect(results[0].path).toBe(app);
     expect(results[0].markers).toContain('.git');
     expect(results[0].markers).toContain('package.json');
   });
@@ -81,14 +84,15 @@ describe('ProjectDiscovery', () => {
   // -------------------------------------------------------------------------
 
   it('skips node_modules and .git directories', async () => {
+    const home = path.resolve('/home');
     mockReaddir.mockImplementation(async (dirPath: unknown) => {
-      if (dirPath === '/home') {
+      if (dirPath === home) {
         return [makeDir('node_modules'), makeDir('.git')] as never;
       }
       return [] as never;
     });
 
-    const results = await discovery.scan(['/home']);
+    const results = await discovery.scan([home]);
 
     expect(results).toHaveLength(0);
   });

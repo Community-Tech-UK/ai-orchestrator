@@ -7,10 +7,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync, lstatSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { isAbsolute } from 'node:path';
 import {
   provisionNodeModules,
+  repairWorkspaceLinks,
   assertWorkspaceSymlinks,
   verifyAndRepairNativeAbi,
   provisionWorktreeDependencies,
@@ -23,13 +24,36 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 let root: string;
 let worktree: string;
 
+function createWorkspacePackageLink(repoRoot: string, packageName: string): void {
+  const link = join(repoRoot, 'node_modules', '@ai-orchestrator', packageName);
+  const relativeTarget = `../../packages/${packageName}`;
+  try {
+    symlinkSync(relativeTarget, link, 'dir');
+  } catch (err) {
+    if (process.platform !== 'win32' || (err as NodeJS.ErrnoException).code !== 'EPERM') {
+      throw err;
+    }
+    symlinkSync(join(repoRoot, 'packages', packageName), link, 'junction');
+  }
+}
+
+function replaceRootWorkspaceLinkWithRealDirectory(packageName: string): void {
+  const link = join(root, 'node_modules', '@ai-orchestrator', packageName);
+  rmSync(link, { recursive: true, force: true });
+  mkdirSync(link, { recursive: true });
+  writeFileSync(join(link, 'index.js'), 'module.exports = {};\n');
+}
+
 /** Build a synthetic repo `node_modules` mirroring the real workspace layout. */
 function seedRootNodeModules(repoRoot: string): void {
   const nm = join(repoRoot, 'node_modules');
   mkdirSync(join(nm, '@ai-orchestrator'), { recursive: true });
+  // The packages the links point at must exist before Windows junctions can be created.
+  mkdirSync(join(repoRoot, 'packages', 'contracts'), { recursive: true });
+  mkdirSync(join(repoRoot, 'packages', 'sdk'), { recursive: true });
   // Relative workspace symlinks, exactly like the real repo (../../packages/*).
-  symlinkSync('../../packages/contracts', join(nm, '@ai-orchestrator', 'contracts'));
-  symlinkSync('../../packages/sdk', join(nm, '@ai-orchestrator', 'sdk'));
+  createWorkspacePackageLink(repoRoot, 'contracts');
+  createWorkspacePackageLink(repoRoot, 'sdk');
   // A regular dependency file.
   mkdirSync(join(nm, 'left-pad'), { recursive: true });
   writeFileSync(join(nm, 'left-pad', 'index.js'), 'module.exports = () => {};\n');
@@ -37,9 +61,6 @@ function seedRootNodeModules(repoRoot: string): void {
   const release = join(nm, 'better-sqlite3', 'build', 'Release');
   mkdirSync(release, { recursive: true });
   writeFileSync(join(release, 'better_sqlite3.node'), 'FAKE_ELECTRON_ABI_BINARY_CONTENT');
-  // The packages the symlinks point at must exist in the checked-out tree.
-  mkdirSync(join(repoRoot, 'packages', 'contracts'), { recursive: true });
-  mkdirSync(join(repoRoot, 'packages', 'sdk'), { recursive: true });
 }
 
 beforeEach(() => {
@@ -74,8 +95,25 @@ describe('provisionNodeModules', () => {
     const link = join(worktree, 'node_modules', '@ai-orchestrator', 'contracts');
     expect(lstatSync(link).isSymbolicLink()).toBe(true);
     const target = readlinkSync(link);
-    expect(isAbsolute(target)).toBe(false);
-    expect(target).toBe('../../packages/contracts');
+    if (process.platform === 'win32') {
+      expect(isAbsolute(target)).toBe(true);
+      expect(resolve(target)).toBe(join(worktree, 'packages', 'contracts'));
+    } else {
+      expect(isAbsolute(target)).toBe(false);
+      expect(target).toBe('../../packages/contracts');
+    }
+  });
+
+  it('repairs workspace links when a copy dereferences them into real directories', async () => {
+    replaceRootWorkspaceLinkWithRealDirectory('contracts');
+    replaceRootWorkspaceLinkWithRealDirectory('sdk');
+
+    const method = await provisionNodeModules(root, worktree);
+    expect(['cloned', 'copied']).toContain(method);
+
+    const checks = await assertWorkspaceSymlinks(worktree);
+    expect(checks).toHaveLength(2);
+    expect(checks.every((c) => c.ok)).toBe(true);
   });
 
   it('skips when the worktree already has node_modules (adopted worktree)', async () => {
@@ -86,6 +124,21 @@ describe('provisionNodeModules', () => {
 });
 
 describe('assertWorkspaceSymlinks', () => {
+  it('repairs workspace entries that were copied as real directories', async () => {
+    const scopedDir = join(worktree, 'node_modules', '@ai-orchestrator');
+    mkdirSync(join(scopedDir, 'contracts'), { recursive: true });
+    mkdirSync(join(scopedDir, 'sdk'), { recursive: true });
+
+    const before = await assertWorkspaceSymlinks(worktree);
+    expect(before.every((c) => c.ok)).toBe(false);
+
+    await repairWorkspaceLinks(worktree);
+
+    const after = await assertWorkspaceSymlinks(worktree);
+    expect(after).toHaveLength(2);
+    expect(after.every((c) => c.ok)).toBe(true);
+  });
+
   it('passes for relative symlinks resolving inside the worktree', async () => {
     await provisionNodeModules(root, worktree);
     const checks = await assertWorkspaceSymlinks(worktree);
@@ -109,7 +162,7 @@ describe('assertWorkspaceSymlinks', () => {
     await provisionNodeModules(root, worktree);
     const link = join(worktree, 'node_modules', '@ai-orchestrator', 'sdk');
     rmSync(link, { force: true });
-    symlinkSync(join(root, 'packages', 'sdk'), link); // absolute → escapes worktree
+    symlinkSync(join(root, 'packages', 'sdk'), link, process.platform === 'win32' ? 'junction' : 'dir'); // absolute → escapes worktree
     const checks = await assertWorkspaceSymlinks(worktree);
     const sdk = checks.find((c) => c.name === '@ai-orchestrator/sdk');
     expect(sdk?.ok).toBe(false);

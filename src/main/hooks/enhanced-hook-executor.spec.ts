@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { basename } from 'node:path';
 import {
   EnhancedHookExecutor,
   type EnhancedHookConfig
@@ -55,7 +56,7 @@ describe('EnhancedHookExecutor security', () => {
       blocking: true,
       handler: {
         type: 'command',
-        command: '/bin/echo hello',
+        command: `${basename(process.execPath)} --version`,
         allowedExecutables: ['printf']
       }
     };

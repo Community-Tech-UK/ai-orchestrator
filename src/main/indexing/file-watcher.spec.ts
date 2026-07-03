@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import * as path from 'node:path';
 import { CodebaseFileWatcher, resetCodebaseFileWatcher } from './file-watcher';
 
 // Mock chokidar
@@ -28,6 +29,7 @@ import { watch } from 'chokidar';
 
 describe('CodebaseFileWatcher', () => {
   let watcher: CodebaseFileWatcher;
+  const fakePath = path.resolve('/fake/path');
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -44,7 +46,7 @@ describe('CodebaseFileWatcher', () => {
       await watcher.startWatching('test-store', '/fake/path');
 
       expect(watch).toHaveBeenCalledWith(
-        expect.stringContaining('/fake/path'),
+        expect.stringContaining(fakePath),
         expect.objectContaining({
           persistent: true,
         })
@@ -99,7 +101,7 @@ describe('CodebaseFileWatcher', () => {
 
       expect(nativeWatcher.close).toHaveBeenCalled();
       expect(watch).toHaveBeenLastCalledWith(
-        expect.stringContaining('/fake/path'),
+        expect.stringContaining(fakePath),
         expect.objectContaining({
           usePolling: true,
           interval: expect.any(Number),
@@ -210,7 +212,7 @@ describe('CodebaseFileWatcher', () => {
 
       expect(status).toEqual(expect.objectContaining({
         storeId: 'test-store',
-        rootPath: expect.stringContaining('/fake/path'),
+        rootPath: expect.stringContaining(fakePath),
         isWatching: true,
         pendingChanges: 0,
       }));

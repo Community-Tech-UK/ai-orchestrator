@@ -74,6 +74,10 @@ class MockWorkTreeWatcher {
 
 const createdWorkTreeWatchers: MockWorkTreeWatcher[] = [];
 
+function workPath(...segments: string[]): string {
+  return path.resolve(path.join(path.sep, 'work', ...segments));
+}
+
 function createMockWorkTreeWatcher(
   repoPath: string,
   onChange: (changedPath: string) => void,
@@ -117,10 +121,11 @@ describe('resolveGitDirs', () => {
       },
     );
 
-    const result = await resolveGitDirs('/work/normal-repo', fakeExec as never);
+    const repoPath = workPath('normal-repo');
+    const result = await resolveGitDirs(repoPath, fakeExec as never);
     expect(result).toEqual({
-      gitDir: '/work/normal-repo/.git',
-      commonDir: '/work/normal-repo/.git',
+      gitDir: path.join(repoPath, '.git'),
+      commonDir: path.join(repoPath, '.git'),
     });
   });
 
@@ -132,25 +137,25 @@ describe('resolveGitDirs', () => {
       async (_cmd: string, args: string[]) => {
         const which = args[1];
         if (which === '--git-dir') {
-          return { stdout: '/work/main/.git/worktrees/feature/\n' };
+          return { stdout: path.join(workPath('main'), '.git', 'worktrees', 'feature') + '\n' };
         }
         if (which === '--git-common-dir') {
-          return { stdout: '/work/main/.git/\n' };
+          return { stdout: path.join(workPath('main'), '.git') + '\n' };
         }
         throw new Error('unexpected args');
       },
     );
 
-    const result = await resolveGitDirs('/work/worktree-feature', fakeExec as never);
+    const result = await resolveGitDirs(workPath('worktree-feature'), fakeExec as never);
     expect(result).not.toBeNull();
-    expect(result!.gitDir).toBe('/work/main/.git/worktrees/feature');
-    expect(result!.commonDir).toBe('/work/main/.git');
+    expect(result!.gitDir).toBe(path.join(workPath('main'), '.git', 'worktrees', 'feature'));
+    expect(result!.commonDir).toBe(path.join(workPath('main'), '.git'));
     expect(result!.gitDir).not.toBe(result!.commonDir);
   });
 
   it('returns null when git fails (e.g. path is not a repo)', async () => {
     const fakeExec = vi.fn().mockRejectedValue(new Error('not a git repository'));
-    const result = await resolveGitDirs('/tmp/not-a-repo', fakeExec as never);
+    const result = await resolveGitDirs(path.join(path.sep, 'tmp', 'not-a-repo'), fakeExec as never);
     expect(result).toBeNull();
   });
 
@@ -169,11 +174,12 @@ describe('resolveGitDirs', () => {
         throw new Error('unexpected args');
       },
     );
-    const result = await resolveGitDirs('/work/sub/repo', fakeExec as never);
+    const repoPath = workPath('sub', 'repo');
+    const result = await resolveGitDirs(repoPath, fakeExec as never);
     expect(result).not.toBeNull();
     // Both must be absolute paths anchored at the repo cwd.
-    expect(result!.gitDir).toBe('/work/sub/repo/.git');
-    expect(result!.commonDir).toBe('/work/sub/repo/.git');
+    expect(result!.gitDir).toBe(path.join(repoPath, '.git'));
+    expect(result!.commonDir).toBe(path.join(repoPath, '.git'));
   });
 });
 
@@ -262,7 +268,7 @@ describe('GitStatusWatcher', () => {
 
     // Find the gitdir watcher — first chokidar watcher created.
     const gitDirWatcher = createdWatchers[0];
-    const indexPath = gitDirWatcher.watchedPaths.find(p => p.endsWith('/index'));
+    const indexPath = gitDirWatcher.watchedPaths.find(p => path.basename(p) === 'index');
     expect(indexPath).toBeDefined();
 
     gitDirWatcher.emit('change', indexPath!);
@@ -280,7 +286,7 @@ describe('GitStatusWatcher', () => {
 
     const gitDirWatcher = createdWatchers[0];
     const headPath = gitDirWatcher.watchedPaths.find(
-      p => p.endsWith('/HEAD') && !p.includes('logs'),
+      p => path.basename(p) === 'HEAD' && !p.split(path.sep).includes('logs'),
     );
     expect(headPath).toBeDefined();
 
@@ -316,13 +322,15 @@ describe('GitStatusWatcher', () => {
         resolveCount++;
         // Yield so stop() can be called mid-setRepos.
         await new Promise(r => setTimeout(r, 10));
-        return { gitDir: `${repoPath}/.git`, commonDir: `${repoPath}/.git` };
+        return { gitDir: path.join(repoPath, '.git'), commonDir: path.join(repoPath, '.git') };
       },
     });
 
     // Fire a setRepos and stop() back-to-back; both must settle without
     // leaving the watcher in a half-state.
-    const inflight = watcher.setRepos(['/work/A', '/work/B']);
+    const repoA = workPath('A');
+    const repoB = workPath('B');
+    const inflight = watcher.setRepos([repoA, repoB]);
     await watcher.stop();
     await inflight;
 
@@ -352,22 +360,25 @@ describe('GitStatusWatcher', () => {
         // Yield to let the second setRepos enter doSetRepos before
         // this one resolves — exercises the race.
         await new Promise(r => setTimeout(r, 10));
-        return { gitDir: `${repoPath}/.git`, commonDir: `${repoPath}/.git` };
+        return { gitDir: path.join(repoPath, '.git'), commonDir: path.join(repoPath, '.git') };
       },
     });
     events = [];
     watcher.on('status-changed', e => events.push(e));
 
     // Fire two calls without awaiting the first.
-    const firstCall = watcher.setRepos(['/work/A', '/work/B']);
-    const secondCall = watcher.setRepos(['/work/C']);
+    const repoA = workPath('A');
+    const repoB = workPath('B');
+    const repoC = workPath('C');
+    const firstCall = watcher.setRepos([repoA, repoB]);
+    const secondCall = watcher.setRepos([repoC]);
 
     await Promise.all([firstCall, secondCall]);
 
     // Final state: only C watched. A and B's watchers must be cleaned up
     // (or never created, depending on timing) — but A and B must NOT
     // appear in `watchedRepos()`.
-    expect(watcher.watchedRepos()).toEqual(['/work/C']);
+    expect(watcher.watchedRepos()).toEqual([repoC]);
     expect(resolveCount).toBeGreaterThanOrEqual(1);
   });
 
@@ -376,33 +387,35 @@ describe('GitStatusWatcher', () => {
     // the main repo's .git/worktrees/<name>, NOT under the worktree
     // path itself. A naive `<repoPath>/.git/index` watcher would
     // silently never fire for this layout.
+    const mainGitDir = path.join(workPath('main'), '.git');
+    const worktreePath = workPath('worktree-feature');
     watcher = new GitStatusWatcher({
       debounceMs: 0,
       createWorkTreeWatcher: createMockWorkTreeWatcher,
       resolveGitDirs: async () => ({
-        gitDir: '/work/main/.git/worktrees/feature',
-        commonDir: '/work/main/.git',
+        gitDir: path.join(mainGitDir, 'worktrees', 'feature'),
+        commonDir: mainGitDir,
       }),
     });
     events = [];
     watcher.on('status-changed', e => events.push(e));
 
-    await watcher.setRepos(['/work/worktree-feature']);
+    await watcher.setRepos([worktreePath]);
 
     // The chokidar gitdir watcher (first created) should target the
     // worktree's actual gitdir, not /work/worktree-feature/.git/...
     const gitDirWatcher = createdWatchers[0];
-    expect(gitDirWatcher.watchedPaths).toContain('/work/main/.git/worktrees/feature/index');
-    expect(gitDirWatcher.watchedPaths).toContain('/work/main/.git/worktrees/feature/HEAD');
+    expect(gitDirWatcher.watchedPaths).toContain(path.join(mainGitDir, 'worktrees', 'feature', 'index'));
+    expect(gitDirWatcher.watchedPaths).toContain(path.join(mainGitDir, 'worktrees', 'feature', 'HEAD'));
     // None of the watched paths should fall under the worktree's own .git
     expect(gitDirWatcher.watchedPaths.some(p =>
-      p.startsWith('/work/worktree-feature/.git/'),
+      p.startsWith(path.join(worktreePath, '.git') + path.sep),
     )).toBe(false);
 
     // The common-dir watcher (second) should target the SHARED .git
     const commonDirWatcher = createdWatchers[1];
-    expect(commonDirWatcher.watchedPaths).toContain('/work/main/.git/refs');
-    expect(commonDirWatcher.watchedPaths).toContain('/work/main/.git/packed-refs');
+    expect(commonDirWatcher.watchedPaths).toContain(path.join(mainGitDir, 'refs'));
+    expect(commonDirWatcher.watchedPaths).toContain(path.join(mainGitDir, 'packed-refs'));
   });
 
   it('routes native worktree events to the correct repo', async () => {
@@ -410,25 +423,27 @@ describe('GitStatusWatcher', () => {
       debounceMs: 0,
       createWorkTreeWatcher: createMockWorkTreeWatcher,
       resolveGitDirs: async (repoPath) => ({
-        gitDir: `${repoPath}/.git`,
-        commonDir: `${repoPath}/.git`,
+        gitDir: path.join(repoPath, '.git'),
+        commonDir: path.join(repoPath, '.git'),
       }),
     });
     events = [];
     watcher.on('status-changed', e => events.push(e));
 
-    await watcher.setRepos(['/work/A', '/work/B']);
+    const repoA = workPath('A');
+    const repoB = workPath('B');
+    await watcher.setRepos([repoA, repoB]);
 
-    const repoAWatcher = createdWorkTreeWatchers.find(w => w.repoPath === '/work/A');
-    const repoBWatcher = createdWorkTreeWatchers.find(w => w.repoPath === '/work/B');
+    const repoAWatcher = createdWorkTreeWatchers.find(w => w.repoPath === repoA);
+    const repoBWatcher = createdWorkTreeWatchers.find(w => w.repoPath === repoB);
     expect(repoAWatcher).toBeDefined();
     expect(repoBWatcher).toBeDefined();
 
-    repoBWatcher!.fireChange('/work/B/src/file.ts');
+    repoBWatcher!.fireChange(path.join(repoB, 'src', 'file.ts'));
     await new Promise(r => setTimeout(r, 5));
 
-    expect(events.filter(e => e.reason === 'worktree' && e.repoPath === '/work/B').length).toBe(1);
-    expect(events.filter(e => e.repoPath === '/work/A').length).toBe(0);
+    expect(events.filter(e => e.reason === 'worktree' && e.repoPath === repoB).length).toBe(1);
+    expect(events.filter(e => e.repoPath === repoA).length).toBe(0);
   });
 
   it('ignores pruned generated/dependency paths from worktree events', async () => {

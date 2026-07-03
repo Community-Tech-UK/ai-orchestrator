@@ -31,6 +31,7 @@ import { getGitWriteQueue } from './git-write-queue';
 import { gitExec, gitExecSafe } from './git-exec';
 import { provisionWorktreeDependencies } from './worktree-deps';
 import { assignWorktreeRendererPort } from './worktree-port';
+import { pathCompareKey, removeManagedWorktreeDirectory } from './worktree-cleanup';
 import {
   integrateViaWorktree,
   integrateIntoSharedBranch,
@@ -708,8 +709,7 @@ export class WorktreeManager extends EventEmitter {
     const session = this.sessions.get(worktreeId);
     if (!session) return;
 
-    const repoRoot = await gitExecSafe(['rev-parse', '--show-toplevel'], session.worktreePath)
-      || await gitExec(['rev-parse', '--show-toplevel'], process.cwd());
+    const repoRoot = await this.getWorktreeAdminRoot(session);
 
     // Guard: refuse to silently discard uncommitted work unless caller opts in.
     if (!options?.force && session.status !== 'abandoned') {
@@ -723,9 +723,11 @@ export class WorktreeManager extends EventEmitter {
     }
 
     try {
-      await getGitWriteQueue().enqueue('worktree-remove', () =>
-        gitExec(['worktree', 'remove', '--force', session.worktreePath], repoRoot)
-      );
+      await removeManagedWorktreeDirectory({
+        repoRoot,
+        worktreePath: session.worktreePath,
+        baseDir: this.config.baseDir,
+      });
 
       if (session.status === 'merged') {
         // Only delete the branch after it has been fully merged.
@@ -742,7 +744,45 @@ export class WorktreeManager extends EventEmitter {
       this.emit('worktree:cleaned', session);
     } catch (error) {
       logger.error('Failed to cleanup worktree', error instanceof Error ? error : undefined, { worktreeId });
+      throw error;
     }
+  }
+
+  private async getWorktreeAdminRoot(session: WorktreeSession): Promise<string> {
+    const inferred = this.inferRepoRootFromManagedWorktreePath(session.worktreePath);
+    if (inferred) return inferred;
+
+    const listed = await gitExecSafe(['worktree', 'list', '--porcelain'], session.worktreePath);
+    const listedWorktrees = listed
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length).trim())
+      .filter(Boolean);
+    const adminRoot = listedWorktrees.find(
+      (listedPath) => pathCompareKey(listedPath) !== pathCompareKey(session.worktreePath),
+    ) ?? listedWorktrees[0];
+    if (adminRoot) {
+      return adminRoot;
+    }
+
+    return gitExec(['rev-parse', '--show-toplevel'], process.cwd());
+  }
+
+  private inferRepoRootFromManagedWorktreePath(worktreePath: string): string | null {
+    const baseSegments = path
+      .normalize(this.config.baseDir)
+      .split(/[\\/]+/)
+      .filter(Boolean);
+    if (baseSegments.length === 0 || path.isAbsolute(this.config.baseDir)) return null;
+
+    let candidate = path.dirname(path.resolve(worktreePath));
+    for (let i = baseSegments.length - 1; i >= 0; i--) {
+      if (pathCompareKey(path.basename(candidate)) !== pathCompareKey(baseSegments[i])) {
+        return null;
+      }
+      candidate = path.dirname(candidate);
+    }
+    return candidate;
   }
 
   // ============ Health Monitoring ============

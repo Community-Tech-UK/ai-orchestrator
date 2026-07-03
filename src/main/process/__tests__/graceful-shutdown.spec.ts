@@ -27,6 +27,7 @@ describe('GracefulShutdownManager', () => {
 
   afterEach(() => {
     GracefulShutdownManager._resetForTesting();
+    vi.useRealTimers();
   });
 
   describe('singleton', () => {
@@ -115,22 +116,25 @@ describe('GracefulShutdownManager', () => {
 
     it('marks timed-out phases as timeout', async () => {
       vi.useFakeTimers();
-      const mgr = GracefulShutdownManager.getInstance();
+      try {
+        const mgr = GracefulShutdownManager.getInstance();
 
-      mgr.register({
-        name: 'slow',
-        priority: 10,
-        budgetMs: 100,
-        handler: () => new Promise<void>(resolve => setTimeout(resolve, 5000)),
-      });
+        mgr.register({
+          name: 'slow',
+          priority: 10,
+          budgetMs: 100,
+          handler: () => new Promise<void>(resolve => setTimeout(resolve, 5000)),
+        });
 
-      const executePromise = mgr.execute();
-      await vi.runAllTimersAsync();
-      const report = await executePromise;
+        const executePromise = mgr.execute();
+        await vi.advanceTimersByTimeAsync(100);
+        const report = await executePromise;
 
-      const phase = report.phases.find(p => p.name === 'slow');
-      expect(phase?.status).toBe('timeout');
-      vi.useRealTimers();
+        const phase = report.phases.find(p => p.name === 'slow');
+        expect(phase?.status).toBe('timeout');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('marks erroring phases as error and includes the error', async () => {

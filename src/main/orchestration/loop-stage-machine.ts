@@ -47,6 +47,10 @@ const VALID_STAGES = new Set<LoopStage>(['PLAN', 'REVIEW', 'IMPLEMENT']);
 const LOOP_ARTIFACT_HEAD_BYTES = LOOP_TEXT_FILE_MAX_BYTES;
 const LOOP_NOTES_TAIL_BYTES = 64 * 1024;
 
+function promptPath(value: string): string {
+  return value.replace(/\\/g, '/');
+}
+
 /**
  * Workspace snapshot captured by `LoopStageMachine.captureStartupSnapshot`
  * and stored on `LoopState`. Each flag answers "was this artefact already in
@@ -405,7 +409,7 @@ export class LoopStageMachine {
     // absolute path (this.paths.dir) so the agent can locate state files
     // regardless of its working directory — critical when executionCwd (the
     // agent's spawn cwd) differs from workspaceCwd (where state lives).
-    const sd = this.paths.dir;
+    const sd = promptPath(this.paths.dir);
     const stageRel = `${sd}/STAGE.md`;
     const notesRel = `${sd}/NOTES.md`;
     const logRel = `${sd}/ITERATION_LOG.md`;
@@ -582,7 +586,7 @@ Begin.`;
       existingSessionContext,
       priorObservations = [],
     } = args;
-    const sd = this.paths.dir;
+    const sd = promptPath(this.paths.dir);
     const notesRel = `${sd}/NOTES.md`;
     const outstandingRel = `${sd}/OUTSTANDING.md`;
     const blockedRel = `${sd}/BLOCKED.md`;

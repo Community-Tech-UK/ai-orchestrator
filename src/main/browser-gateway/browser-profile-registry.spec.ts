@@ -38,20 +38,22 @@ class MemoryProfileStore {
 
 describe('BrowserProfileRegistry', () => {
   it('resolves managed profile directories under userData/browser-profiles', () => {
+    const userDataPath = path.resolve('/tmp/orchestrator-user-data');
     const registry = new BrowserProfileRegistry({
       store: new MemoryProfileStore(),
-      userDataPath: '/tmp/orchestrator-user-data',
+      userDataPath,
     });
 
     expect(registry.resolveProfileDir('profile-1')).toBe(
-      path.join('/tmp/orchestrator-user-data', 'browser-profiles', 'profile-1'),
+      path.join(userDataPath, 'browser-profiles', 'profile-1'),
     );
   });
 
   it('rejects path traversal and absolute profile directories outside the managed root', () => {
+    const userDataPath = path.resolve('/tmp/orchestrator-user-data');
     const registry = new BrowserProfileRegistry({
       store: new MemoryProfileStore(),
-      userDataPath: '/tmp/orchestrator-user-data',
+      userDataPath,
     });
 
     expect(() => registry.resolveProfileDir('../escape')).toThrow(/outside managed browser profile root/);
@@ -60,9 +62,10 @@ describe('BrowserProfileRegistry', () => {
 
   it('rejects empty and duplicate labels case-insensitively', () => {
     const store = new MemoryProfileStore();
+    const userDataPath = path.resolve('/tmp/orchestrator-user-data');
     const registry = new BrowserProfileRegistry({
       store,
-      userDataPath: '/tmp/orchestrator-user-data',
+      userDataPath,
     });
 
     expect(() =>
@@ -80,8 +83,8 @@ describe('BrowserProfileRegistry', () => {
       browser: 'chrome',
       allowedOrigins: [],
     });
-    expect(store.listProfiles()[0]?.userDataDir).toMatch(
-      /\/tmp\/orchestrator-user-data\/browser-profiles\//,
+    expect(store.listProfiles()[0]?.userDataDir).toContain(
+      path.join(userDataPath, 'browser-profiles') + path.sep,
     );
 
     expect(() =>

@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
+import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
 /** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
@@ -86,7 +87,7 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true', // verify always passes
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         requireCompletedFileRename: true,
       },
@@ -139,7 +140,7 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         requireCompletedFileRename: true,
       },

@@ -152,7 +152,7 @@ describe('PromptHistoryService', () => {
     const realProject = path.join(root, 'real');
     const linkedProject = path.join(root, 'linked');
     fs.mkdirSync(realProject);
-    fs.symlinkSync(realProject, linkedProject);
+    fs.symlinkSync(realProject, linkedProject, process.platform === 'win32' ? 'junction' : 'dir');
 
     const svc = new PromptHistoryService(new MemoryPromptHistoryStore());
     svc.record({

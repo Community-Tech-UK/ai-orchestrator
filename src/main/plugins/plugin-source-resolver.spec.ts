@@ -1,13 +1,10 @@
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { execFile } from 'child_process';
 import { createServer, Server } from 'http';
-import { promisify } from 'util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { zipSync } from 'fflate';
 import { PluginSourceResolver } from './plugin-source-resolver';
-
-const execFileAsync = promisify(execFile);
 
 async function createPluginFixture(root: string, name = 'sample-plugin'): Promise<string> {
   const dir = path.join(root, name);
@@ -21,7 +18,26 @@ async function createPluginFixture(root: string, name = 'sample-plugin'): Promis
 }
 
 async function createZip(sourceDir: string, zipPath: string): Promise<void> {
-  await execFileAsync('zip', ['-qr', zipPath, '.'], { cwd: sourceDir });
+  const entries: Record<string, Uint8Array> = {};
+
+  async function walk(dir: string): Promise<void> {
+    const dirents = await fs.readdir(dir, { withFileTypes: true });
+    for (const dirent of dirents) {
+      const absolutePath = path.join(dir, dirent.name);
+      if (dirent.isDirectory()) {
+        await walk(absolutePath);
+        continue;
+      }
+      if (!dirent.isFile()) {
+        continue;
+      }
+      const relativePath = path.relative(sourceDir, absolutePath).split(path.sep).join('/');
+      entries[relativePath] = new Uint8Array(await fs.readFile(absolutePath));
+    }
+  }
+
+  await walk(sourceDir);
+  await fs.writeFile(zipPath, Buffer.from(zipSync(entries)));
 }
 
 describe('PluginSourceResolver', () => {

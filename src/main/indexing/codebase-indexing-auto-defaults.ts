@@ -145,7 +145,7 @@ export async function defaultPreflight(
       } catch {
         continue;
       }
-      if (!shouldIncludeFile(absolutePath, DEFAULT_INDEXING_CONFIG, stat.size)) {
+      if (!shouldIncludeFile(relativePath, DEFAULT_INDEXING_CONFIG, stat.size)) {
         continue;
       }
 

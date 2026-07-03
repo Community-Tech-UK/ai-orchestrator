@@ -184,6 +184,10 @@ function formatDisplayCommand(command: string, args: string[]): string {
     .join(' ');
 }
 
+function quoteWindowsShellCommand(command: string): string {
+  return `"${command.replace(/"/g, '""')}"`;
+}
+
 function defaultExecFileAsync(
   file: string,
   args: string[],
@@ -192,10 +196,14 @@ function defaultExecFileAsync(
   platform: NodeJS.Platform,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, {
+    const spawnOptions = buildCliSpawnOptions(env, platform);
+    const fileForExec = platform === 'win32' && spawnOptions.shell && pathWin32.isAbsolute(file)
+      ? quoteWindowsShellCommand(file)
+      : file;
+    execFile(fileForExec, args, {
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
-      ...buildCliSpawnOptions(env, platform),
+      ...spawnOptions,
     }, (error, stdout, stderr) => {
       if (error) {
         reject(Object.assign(error, { stdout, stderr }));
@@ -361,8 +369,11 @@ export class CliUpdateService {
   private async buildPlan(type: CliType, info: CliInfo): Promise<CliUpdatePlan> {
     const displayName = CLI_REGISTRY[type]?.displayName ?? type;
     const installs = await this.detection.scanAllCliInstalls(type).catch(() => []);
-    const activePath = installs[0]?.path ?? info.path;
-    const currentVersion = installs[0]?.version ?? info.version;
+    const activeInstall = installs[0];
+    const activePath = activeInstall?.path ?? info.path;
+    const currentVersion = activeInstall
+      ? activeInstall.version ?? (this.pathEquals(activeInstall.path, info.path) ? info.version : undefined)
+      : info.version;
     const base: CliUpdatePlan = {
       cli: type,
       displayName,
@@ -590,6 +601,15 @@ export class CliUpdateService {
     const c = norm(candidate);
     const r = norm(root);
     return c === r || c.startsWith(`${r}/`);
+  }
+
+  private pathEquals(left: string | undefined, right: string | undefined): boolean {
+    if (!left || !right) return false;
+    const norm = (s: string) => {
+      const normalized = s.split('\\').join('/').replace(/\/+$/, '');
+      return this.platform === 'win32' ? normalized.toLowerCase() : normalized;
+    };
+    return norm(left) === norm(right);
   }
 
   /** Locate the bun/pnpm executable — a sibling of the CLI binary if present,

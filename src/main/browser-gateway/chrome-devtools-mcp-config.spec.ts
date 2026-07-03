@@ -9,9 +9,19 @@ import {
 
 const BROWSER_URL = 'http://127.0.0.1:31234';
 const options = { browserUrl: BROWSER_URL };
+const originalPlatform = process.platform;
+
+function mockPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+}
 
 describe('chrome-devtools-mcp-config', () => {
+  afterEach(() => {
+    mockPlatform(originalPlatform);
+  });
+
   it('builds a bridge that injects --browserUrl after the package spec', () => {
+    mockPlatform('linux');
     expect(resolveChromeDevtoolsBridgeSpec(options)).toEqual({
       command: 'npx',
       args: ['-y', 'chrome-devtools-mcp@1.2.0', '--browserUrl', BROWSER_URL],
@@ -19,13 +29,8 @@ describe('chrome-devtools-mcp-config', () => {
   });
 
   describe('on Windows', () => {
-    const originalPlatform = process.platform;
-    afterEach(() => {
-      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
-    });
-
     it('wraps npx as `cmd /c npx …` (npx has no .exe; Node refuses bare .cmd)', () => {
-      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      mockPlatform('win32');
       expect(resolveChromeDevtoolsBridgeSpec(options)).toEqual({
         command: 'cmd',
         args: ['/c', 'npx', '-y', 'chrome-devtools-mcp@1.2.0', '--browserUrl', BROWSER_URL],
@@ -33,7 +38,7 @@ describe('chrome-devtools-mcp-config', () => {
     });
 
     it('does not double-wrap a command that is already cmd or a concrete .exe', () => {
-      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      mockPlatform('win32');
       expect(resolveChromeDevtoolsBridgeSpec({ browserUrl: BROWSER_URL, command: 'cmd' })!.command).toBe('cmd');
       expect(
         resolveChromeDevtoolsBridgeSpec({ browserUrl: BROWSER_URL, command: 'C:\\tools\\cdp.exe' })!.command,
@@ -41,7 +46,7 @@ describe('chrome-devtools-mcp-config', () => {
     });
 
     it('the Claude --mcp-config JSON uses cmd /c so the server actually spawns', () => {
-      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      mockPlatform('win32');
       const config = JSON.parse(buildChromeDevtoolsMcpConfigJson(options)!);
       const server = config.mcpServers['chrome-devtools'];
       expect(server.command).toBe('cmd');
@@ -52,7 +57,7 @@ describe('chrome-devtools-mcp-config', () => {
     });
 
     it('the Codex TOML uses cmd /c as well', () => {
-      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      mockPlatform('win32');
       const toml = buildChromeDevtoolsCodexConfigToml(options)!;
       expect(toml).toContain('command = "cmd"');
       expect(toml).toContain('"/c"');
@@ -69,6 +74,7 @@ describe('chrome-devtools-mcp-config', () => {
   });
 
   it('builds Claude inline JSON under the chrome-devtools server key', () => {
+    mockPlatform('linux');
     const config = JSON.parse(buildChromeDevtoolsMcpConfigJson(options)!);
     expect(config.mcpServers['chrome-devtools']).toEqual({
       command: 'npx',
@@ -77,6 +83,7 @@ describe('chrome-devtools-mcp-config', () => {
   });
 
   it('builds Codex TOML with quoted server name and the attach args', () => {
+    mockPlatform('linux');
     const toml = buildChromeDevtoolsCodexConfigToml(options)!;
     expect(toml).toContain('[mcp_servers."chrome-devtools"]');
     expect(toml).toContain('command = "npx"');
@@ -85,6 +92,7 @@ describe('chrome-devtools-mcp-config', () => {
   });
 
   it('builds Gemini settings JSON with a millisecond timeout', () => {
+    mockPlatform('linux');
     const config = JSON.parse(buildChromeDevtoolsGeminiSettingsJson(options)!);
     const server = config.mcpServers['chrome-devtools'];
     expect(server.command).toBe('npx');
@@ -94,6 +102,7 @@ describe('chrome-devtools-mcp-config', () => {
   });
 
   it('builds ACP config with an empty env array', () => {
+    mockPlatform('linux');
     const [server] = buildChromeDevtoolsAcpMcpServers(options);
     expect(server.name).toBe('chrome-devtools');
     expect(server.command).toBe('npx');
@@ -102,6 +111,7 @@ describe('chrome-devtools-mcp-config', () => {
   });
 
   it('honors command/baseArgs/serverName overrides', () => {
+    mockPlatform('linux');
     const bridge = resolveChromeDevtoolsBridgeSpec({
       browserUrl: BROWSER_URL,
       command: '/usr/local/bin/chrome-devtools-mcp',

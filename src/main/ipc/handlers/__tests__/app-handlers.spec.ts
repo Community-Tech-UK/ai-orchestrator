@@ -474,6 +474,7 @@ describe('app-handlers (file IO security surface)', () => {
   // ----------------------------------------------------------
   describe('FILE_COPY_TO_CLIPBOARD', () => {
     it('copies an existing file reference to the OS clipboard', async () => {
+      const filePath = path.resolve('/tmp/test/file.txt');
       fsStat.mockResolvedValue({
         isDirectory: () => false,
       });
@@ -483,9 +484,9 @@ describe('app-handlers (file IO security surface)', () => {
       });
 
       expect(res.success).toBe(true);
-      expect(fsStat).toHaveBeenCalledWith('/tmp/test/file.txt');
+      expect(fsStat).toHaveBeenCalledWith(filePath);
       expect(res.data).toMatchObject({
-        path: '/tmp/test/file.txt',
+        path: filePath,
         isDirectory: false,
       });
 

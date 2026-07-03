@@ -109,7 +109,8 @@ function trustProjectRoot(projectRoot: string): void {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await fsPromises.rm(path.resolve('/tmp/test-home'), { recursive: true, force: true });
   _resetOrchestratorPluginManagerForTesting();
   _resetPluginRegistryForTesting();
   settingsMock.value = {
@@ -602,7 +603,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('loads user-installed home plugins without a project trust decision', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
-    const pluginDir = path.join('/tmp/test-home', '.orchestrator', 'plugins', `home-plugin-${Date.now()}`);
+    const pluginDir = path.join(path.resolve('/tmp/test-home'), '.orchestrator', 'plugins', `home-plugin-${Date.now()}`);
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
     const pluginFile = path.join(pluginDir, 'index.js');

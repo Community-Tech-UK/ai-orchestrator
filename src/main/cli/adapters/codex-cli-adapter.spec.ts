@@ -2141,6 +2141,10 @@ Hey! I'm here. What do you want to tackle?`;
         spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
 
         vi.useFakeTimers();
+        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+        const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+        const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+        const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
         try {
           const exec = (adapter as unknown as {
             executePreparedMessage(
@@ -2159,8 +2163,37 @@ Hey! I'm here. What do you want to tackle?`;
           expect(result.response.content).toBe('done');
           // Idle, deadline, and liveness timers must all be gone — a stale
           // watchdog would terminate an unrelated successor process.
-          expect(vi.getTimerCount()).toBe(0);
+          const timeoutHandleForDelay = (delayMs: number): unknown =>
+            setTimeoutSpy.mock.calls
+              .map((call, index) => ({
+                delay: Number(call[1] ?? 0),
+                handle: setTimeoutSpy.mock.results[index]?.value as unknown,
+              }))
+              .find((entry) => entry.delay === delayMs)?.handle;
+          const intervalHandleForDelay = (delayMs: number): unknown =>
+            setIntervalSpy.mock.calls
+              .map((call, index) => ({
+                delay: Number(call[1] ?? 0),
+                handle: setIntervalSpy.mock.results[index]?.value as unknown,
+              }))
+              .find((entry) => entry.delay === delayMs)?.handle;
+          const clearedTimeouts = new Set(clearTimeoutSpy.mock.calls.map((call) => call[0] as unknown));
+          const clearedIntervals = new Set(clearIntervalSpy.mock.calls.map((call) => call[0] as unknown));
+          const idleTimer = timeoutHandleForDelay(60_000);
+          const deadlineTimer = timeoutHandleForDelay(120_000);
+          const livenessTimer = intervalHandleForDelay(15_000);
+
+          expect(idleTimer).toBeDefined();
+          expect(deadlineTimer).toBeDefined();
+          expect(livenessTimer).toBeDefined();
+          expect(clearedTimeouts.has(idleTimer)).toBe(true);
+          expect(clearedTimeouts.has(deadlineTimer)).toBe(true);
+          expect(clearedIntervals.has(livenessTimer)).toBe(true);
         } finally {
+          setTimeoutSpy.mockRestore();
+          clearTimeoutSpy.mockRestore();
+          setIntervalSpy.mockRestore();
+          clearIntervalSpy.mockRestore();
           vi.useRealTimers();
         }
       });

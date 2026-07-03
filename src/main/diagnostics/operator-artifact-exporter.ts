@@ -261,7 +261,9 @@ function stringify(value: unknown): string {
 
 function homeRelative(value: string): string {
   const home = os.homedir();
-  return home && value.startsWith(home) ? `~${value.slice(home.length)}` : value;
+  if (!home || !value.startsWith(home)) return value;
+  const suffix = value.slice(home.length).replace(/\\/g, '/');
+  return suffix.startsWith('/') ? `~${suffix}` : `~/${suffix}`;
 }
 
 export function getOperatorArtifactExporter(): OperatorArtifactExporter {

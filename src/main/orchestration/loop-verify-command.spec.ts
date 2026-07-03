@@ -12,6 +12,10 @@ afterEach(() => {
   workspace = null;
 });
 
+function quotedShellArg(value: string): string {
+  return `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
+}
+
 describe('inferLoopVerifyCommand', () => {
   it('prefers an explicit package verify script', async () => {
     workspace = mkdtempSync(join(tmpdir(), 'loop-verify-infer-'));
@@ -36,7 +40,7 @@ describe('inferLoopVerifyCommand', () => {
     mkdirSync(nestedWorkspace, { recursive: true });
 
     await expect(inferLoopVerifyCommand(nestedWorkspace)).resolves.toEqual({
-      command: `npm --prefix "${workspace}" run verify`,
+      command: `npm --prefix ${quotedShellArg(workspace)} run verify`,
       source: 'package.json script "verify"',
     });
   });
@@ -57,7 +61,7 @@ describe('inferLoopVerifyCommand', () => {
     );
 
     await expect(inferLoopVerifyCommand(workspace)).resolves.toEqual({
-      command: `npm --prefix "${packageWorkspace}" run verify`,
+      command: `npm --prefix ${quotedShellArg(packageWorkspace)} run verify`,
       source: 'package.json script "verify"',
     });
   });

@@ -25,9 +25,10 @@ describe('browser-upload-policy', () => {
 
   it('allows workspace files after symlink resolution and detects magic-byte file type', () => {
     const realFile = path.join(workspaceRoot, 'image.png');
-    const symlink = path.join(tempDir, 'linked.png');
+    const linkedDir = path.join(tempDir, 'linked-workspace');
+    const symlink = path.join(linkedDir, 'image.png');
     fs.writeFileSync(realFile, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d]));
-    fs.symlinkSync(realFile, symlink);
+    fs.symlinkSync(workspaceRoot, linkedDir, process.platform === 'win32' ? 'junction' : 'dir');
 
     expect(
       validateBrowserUploadPath({

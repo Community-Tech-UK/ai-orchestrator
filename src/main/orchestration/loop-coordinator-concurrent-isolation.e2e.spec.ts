@@ -28,6 +28,10 @@ async function git(args: string[], cwd: string): Promise<string> {
   return stdout.trim();
 }
 
+function slashPath(value: string): string {
+  return value.replace(/\\/g, '/');
+}
+
 let repo: string;
 let coordinator: LoopCoordinator;
 
@@ -136,8 +140,9 @@ describe('E2E: N concurrent isolated loops yield N distinct worktrees (real git)
 
     // git agrees there are two linked worktrees + the root.
     const worktreeList = await git(['worktree', 'list', '--porcelain'], repo);
-    expect(worktreeList).toContain(alpha.config.executionCwd!);
-    expect(worktreeList).toContain(beta.config.executionCwd!);
+    const normalizedWorktreeList = slashPath(worktreeList);
+    expect(normalizedWorktreeList).toContain(slashPath(alpha.config.executionCwd!));
+    expect(normalizedWorktreeList).toContain(slashPath(beta.config.executionCwd!));
 
     // Both loops reach paused (manual-review) with each agent's file in its own
     // worktree — proving the two sessions did not collide on a shared tree.

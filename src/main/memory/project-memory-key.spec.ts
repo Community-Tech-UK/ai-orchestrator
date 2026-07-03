@@ -28,7 +28,7 @@ describe('project-memory-key', () => {
     const realProject = path.join(root, 'real-project');
     const linkedProject = path.join(root, 'linked-project');
     fs.mkdirSync(realProject);
-    fs.symlinkSync(realProject, linkedProject);
+    fs.symlinkSync(realProject, linkedProject, process.platform === 'win32' ? 'junction' : 'dir');
 
     expect(normalizeProjectMemoryKey(linkedProject)).toBe(normalizeProjectMemoryKey(realProject));
     expect(projectMemoryKeysEqual(linkedProject, realProject)).toBe(true);

@@ -28,6 +28,18 @@ const baseConfig: WorkerAndroidAutomationConfig = {
   appiumMcp: false,
 };
 
+function sdkToolPath(...segments: string[]): string {
+  return path.join(baseConfig.sdkPath!, ...segments);
+}
+
+function adbPath(): string {
+  return sdkToolPath('platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb');
+}
+
+function emulatorPath(): string {
+  return sdkToolPath('emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator');
+}
+
 function makeManager(config: WorkerAndroidAutomationConfig = baseConfig): {
   manager: WorkerEmulatorManager;
   children: FakeChild[];
@@ -71,7 +83,7 @@ describe('WorkerEmulatorManager', () => {
     expect(first.serial).toMatch(/^emulator-\d+$/);
     expect(spawnProcess).toHaveBeenCalledTimes(1);
     const [command, args] = spawnProcess.mock.calls[0] as [string, string[]];
-    expect(command).toBe('/android/sdk/emulator/emulator');
+    expect(command).toBe(emulatorPath());
     expect(args).toEqual(expect.arrayContaining([
       '-avd',
       'aio-pixel7-api35',
@@ -80,7 +92,7 @@ describe('WorkerEmulatorManager', () => {
       '-no-boot-anim',
     ]));
     expect(execFileProcess).toHaveBeenCalledWith(
-      '/android/sdk/platform-tools/adb',
+      adbPath(),
       expect.arrayContaining(['wait-for-device']),
       expect.any(Object),
       expect.any(Function),
@@ -142,7 +154,7 @@ describe('WorkerEmulatorManager', () => {
     await manager.ensureRunning();
 
     expect(execFileProcess).toHaveBeenCalledWith(
-      '/android/sdk/platform-tools/adb',
+      adbPath(),
       expect.arrayContaining(['wait-for-device']),
       expect.objectContaining({ timeout: 25_000 }),
       expect.any(Function),

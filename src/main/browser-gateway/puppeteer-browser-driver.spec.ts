@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as path from 'node:path';
 import type { BrowserProfile } from '@contracts/types/browser';
 import { BrowserTargetRegistry } from './browser-target-registry';
 import { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
@@ -643,14 +644,14 @@ describe('PuppeteerBrowserDriver', () => {
 
     expect(result).toMatchObject({
       url: 'http://localhost:4567/report.csv',
-      filename: '/tmp/browser-profile/Downloads/report.csv',
+      filename: path.join('/tmp/browser-profile', 'Downloads', 'report.csv'),
       state: 'complete',
       bytesReceived: 42,
     });
     expect(cdpSession.send).toHaveBeenCalledWith('Page.enable');
     expect(cdpSession.send).toHaveBeenCalledWith('Page.setDownloadBehavior', {
       behavior: 'allow',
-      downloadPath: '/tmp/browser-profile/Downloads',
+      downloadPath: path.join('/tmp/browser-profile', 'Downloads'),
     });
     expect(page.click).toHaveBeenCalledWith('a.download');
   });

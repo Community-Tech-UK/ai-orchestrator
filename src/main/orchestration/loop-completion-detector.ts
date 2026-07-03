@@ -676,7 +676,8 @@ export class LoopCompletionDetector {
           continue;
         }
         const actualPath = await resolveActualPathCase(candidate);
-        return path.relative(workspace, actualPath) || path.basename(actualPath);
+        const relative = path.relative(workspace, actualPath) || path.basename(actualPath);
+        return relative.replace(/\\/g, '/');
       } catch {
         // candidate absent — try the next casing
       }

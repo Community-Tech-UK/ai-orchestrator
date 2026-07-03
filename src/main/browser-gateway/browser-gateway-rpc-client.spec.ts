@@ -7,6 +7,14 @@ import { BrowserGatewayRpcClient } from './browser-gateway-rpc-client';
 describe('BrowserGatewayRpcClient', () => {
   const servers: net.Server[] = [];
 
+  function socketPath(name: string): string {
+    const suffix = `${name}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    if (process.platform === 'win32') {
+      return `\\\\.\\pipe\\${suffix}`;
+    }
+    return path.join(os.tmpdir(), `${suffix}.sock`);
+  }
+
   afterEach(async () => {
     await Promise.all(
       servers.map(
@@ -28,7 +36,7 @@ describe('BrowserGatewayRpcClient', () => {
   });
 
   it('sends JSON-RPC requests with the injected instance id', async () => {
-    const socketPath = path.join(os.tmpdir(), `browser-gateway-${process.pid}.sock`);
+    const address = socketPath('browser-gateway');
     const server = net.createServer((socket) => {
       socket.on('data', (chunk) => {
         const request = JSON.parse(chunk.toString('utf-8'));
@@ -45,11 +53,11 @@ describe('BrowserGatewayRpcClient', () => {
       });
     });
     servers.push(server);
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    await new Promise<void>((resolve) => server.listen(address, resolve));
 
     const client = new BrowserGatewayRpcClient({
       env: {
-        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
         AI_ORCHESTRATOR_BROWSER_PROVIDER: 'copilot',
       },
@@ -72,7 +80,7 @@ describe('BrowserGatewayRpcClient', () => {
     // timeout, a normal call must give up, but wait_for must extend its budget
     // (payload.timeoutMs + buffer) and succeed — guarding the timeout-cascade
     // fix where a flat 15s client timeout cut off slow-but-valid operations.
-    const socketPath = path.join(os.tmpdir(), `browser-gateway-slow-${process.pid}.sock`);
+    const address = socketPath('browser-gateway-slow');
     const server = net.createServer((socket) => {
       socket.on('data', (chunk) => {
         const request = JSON.parse(chunk.toString('utf-8'));
@@ -88,11 +96,11 @@ describe('BrowserGatewayRpcClient', () => {
       });
     });
     servers.push(server);
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    await new Promise<void>((resolve) => server.listen(address, resolve));
 
     const client = new BrowserGatewayRpcClient({
       env: {
-        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
       },
       timeoutMs: 50,
@@ -114,7 +122,7 @@ describe('BrowserGatewayRpcClient', () => {
   });
 
   it('reports a timed-out read as retry-safe rather than maybe-applied', async () => {
-    const socketPath = path.join(os.tmpdir(), `browser-gateway-read-${process.pid}.sock`);
+    const address = socketPath('browser-gateway-read');
     const server = net.createServer((socket) => {
       socket.on('data', (chunk) => {
         const request = JSON.parse(chunk.toString('utf-8'));
@@ -126,11 +134,11 @@ describe('BrowserGatewayRpcClient', () => {
       });
     });
     servers.push(server);
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    await new Promise<void>((resolve) => server.listen(address, resolve));
 
     const client = new BrowserGatewayRpcClient({
       env: {
-        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
       },
       timeoutMs: 50,
@@ -164,7 +172,7 @@ describe('BrowserGatewayRpcClient', () => {
     // Heavy reads (query_elements/snapshot/...) grow with DOM size. With a tiny
     // base timeout a flat budget would falsely time out, but the heavy-DOM budget
     // keeps a 150ms reply well within range.
-    const socketPath = path.join(os.tmpdir(), `browser-gateway-heavy-${process.pid}.sock`);
+    const address = socketPath('browser-gateway-heavy');
     const server = net.createServer((socket) => {
       socket.on('data', (chunk) => {
         const request = JSON.parse(chunk.toString('utf-8'));
@@ -180,11 +188,11 @@ describe('BrowserGatewayRpcClient', () => {
       });
     });
     servers.push(server);
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    await new Promise<void>((resolve) => server.listen(address, resolve));
 
     const client = new BrowserGatewayRpcClient({
       env: {
-        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
       },
       timeoutMs: 50,
@@ -196,7 +204,7 @@ describe('BrowserGatewayRpcClient', () => {
   });
 
   it('returns parent-side RPC errors without masking them as unavailable', async () => {
-    const socketPath = path.join(os.tmpdir(), `browser-gateway-error-${process.pid}.sock`);
+    const address = socketPath('browser-gateway-error');
     const server = net.createServer((socket) => {
       socket.on('data', (chunk) => {
         const request = JSON.parse(chunk.toString('utf-8'));
@@ -213,11 +221,11 @@ describe('BrowserGatewayRpcClient', () => {
       });
     });
     servers.push(server);
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    await new Promise<void>((resolve) => server.listen(address, resolve));
 
     const client = new BrowserGatewayRpcClient({
       env: {
-        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
       },
     });

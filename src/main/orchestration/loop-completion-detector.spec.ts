@@ -12,6 +12,7 @@ import {
 } from './loop-completion-detector';
 import { findSelfAssignedCaveat } from './loop-anti-self-grading';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
+import { failingVerifyCommand, passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 import type { LoopTerminalIntentEvidence } from '../../shared/types/loop-state.types';
 
@@ -29,6 +30,15 @@ function writeDoneSentinel(content: string): void {
   const p = resolveLoopArtifactPaths(tmpDir, 'loop-1');
   fs.mkdirSync(p.dir, { recursive: true });
   fs.writeFileSync(loopStateFile(p, 'DONE.txt'), content);
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  expect(predicate()).toBe(true);
 }
 
 afterEach(() => {
@@ -500,8 +510,7 @@ describe('FU-9: CompletedFileWatcher.onUndone', () => {
     fs.writeFileSync(path.join(tmpDir, 'phase_completed.md'), '# Done\n');
     // Wait for the add to register; we don't assert here — the next step
     // unlinks the file.
-    await new Promise((r) => setTimeout(r, 350));
-    expect(watcher.isObserved()).toBe(true);
+    await waitFor(() => watcher.isObserved());
     fs.unlinkSync(path.join(tmpDir, 'phase_completed.md'));
 
     try {
@@ -521,8 +530,7 @@ describe('FU-9: CompletedFileWatcher.onUndone', () => {
     await new Promise((r) => setTimeout(r, 100));
     fs.writeFileSync(path.join(tmpDir, 'phase_completed.md'), '# Done\n');
     fs.writeFileSync(path.join(tmpDir, 'extra_completed.md'), '# Done\n');
-    await new Promise((r) => setTimeout(r, 350));
-    expect(watcher.isObserved()).toBe(true);
+    await waitFor(() => watcher.isObserved());
     // Delete only one; another completed file still exists → undo should NOT fire.
     fs.unlinkSync(path.join(tmpDir, 'phase_completed.md'));
     await new Promise((r) => setTimeout(r, 350));
@@ -540,7 +548,7 @@ describe('FU-6: LoopCompletionDetector.runQuickVerify', () => {
   it('reports passed when the configured quick command exits zero', async () => {
     const det = new LoopCompletionDetector();
     const cfg = defaultLoopConfig(tmpDir, 'do thing');
-    cfg.completion.quickVerifyCommand = 'true';
+    cfg.completion.quickVerifyCommand = passingVerifyCommand();
     cfg.completion.quickVerifyTimeoutMs = 5_000;
     const outcome = await det.runQuickVerify(cfg);
     expect(outcome.status).toBe('passed');
@@ -549,7 +557,7 @@ describe('FU-6: LoopCompletionDetector.runQuickVerify', () => {
   it('reports failed when the configured quick command exits non-zero', async () => {
     const det = new LoopCompletionDetector();
     const cfg = defaultLoopConfig(tmpDir, 'do thing');
-    cfg.completion.quickVerifyCommand = 'false';
+    cfg.completion.quickVerifyCommand = failingVerifyCommand();
     cfg.completion.quickVerifyTimeoutMs = 5_000;
     const outcome = await det.runQuickVerify(cfg);
     expect(outcome.status).toBe('failed');
@@ -620,7 +628,7 @@ describe('LoopCompletionDetector.runVerify', () => {
   it('passes when command exits 0', async () => {
     const det = new LoopCompletionDetector();
     const cfg = defaultLoopConfig(tmpDir, 'x');
-    cfg.completion.verifyCommand = 'true';
+    cfg.completion.verifyCommand = passingVerifyCommand();
     cfg.completion.verifyTimeoutMs = 5000;
     const r = await det.runVerify(cfg);
     expect(r.status).toBe('passed');
@@ -629,7 +637,7 @@ describe('LoopCompletionDetector.runVerify', () => {
   it('fails when command exits non-zero', async () => {
     const det = new LoopCompletionDetector();
     const cfg = defaultLoopConfig(tmpDir, 'x');
-    cfg.completion.verifyCommand = 'false';
+    cfg.completion.verifyCommand = failingVerifyCommand();
     cfg.completion.verifyTimeoutMs = 5000;
     const r = await det.runVerify(cfg);
     expect(r.status).toBe('failed');
@@ -656,7 +664,7 @@ describe('LoopCompletionDetector.runVerify', () => {
     const previousShell = process.env['SHELL'];
     process.env['SHELL'] = path.join(tmpDir, 'missing-shell');
     try {
-      cfg.completion.verifyCommand = 'true';
+      cfg.completion.verifyCommand = passingVerifyCommand();
       cfg.completion.verifyTimeoutMs = 5000;
       const r = await det.runVerify(cfg);
       expect(r.status).toBe('failed');

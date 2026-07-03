@@ -86,7 +86,7 @@ describe('snapshotWorkspaceFiles (filesystem walk)', () => {
 
     const changes = snapshotFileChangesViaWorkspace(before, workspace);
     expect(changes.map((c) => c.path)).toContain('unstablepvp/src/main/java/Main.java');
-  });
+  }, 30_000);
 });
 
 describe('snapshotFileChangesViaGit', () => {

@@ -26,7 +26,7 @@ export function normalizeProjectMemoryKey(projectPath: string | null | undefined
     return '';
   }
 
-  if (looksLikeWindowsPath(raw)) {
+  if (looksLikeWindowsPath(raw) && process.platform !== 'win32') {
     return normalizeCrossPlatformPath(raw);
   }
 

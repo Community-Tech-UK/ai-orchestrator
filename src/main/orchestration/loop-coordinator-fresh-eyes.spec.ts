@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult, type FreshEyesReviewerResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
+import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, type LoopPendingInput } from '../../shared/types/loop.types';
 
 /** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
@@ -57,6 +58,14 @@ function makeChildResultThatClaimsDone(): LoopChildResult {
     testFailCount: null,
     exitedCleanly: true,
   };
+}
+
+async function waitForCondition(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 describe('LoopCoordinator fresh-eyes review gate', () => {
@@ -162,7 +171,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
       // Always set verifyCommand to a no-op success so verify-before-stop passes.
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         crossModelReview: {
           enabled: true,
@@ -312,7 +321,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
   });
 
   it('PAUSES when the reviewer is unavailable even if a verify command passed', async () => {
-    // runOneIterationAttempt always configures verifyCommand: 'true' (passing).
+    // runOneIterationAttempt always configures a passing verify command.
     // A configured review gate that returns zero reviewers is an infrastructure
     // failure, not a clean review. It must not be silently bypassed.
     const r = await runOneIterationAttempt({
@@ -384,10 +393,11 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
       },
     });
 
-    await new Promise((r) => setTimeout(r, 200));
-    const live = (coordinator as unknown as {
+    const active = (coordinator as unknown as {
       active: Map<string, { status: string }>;
-    }).active.get(state.id);
+    }).active;
+    await waitForCondition(() => claimedDoneButFailed || completed || active.get(state.id)?.status === 'paused');
+    const live = active.get(state.id);
     if (live?.status === 'running') {
       coordinator.cancelLoop(state.id);
     }
@@ -441,7 +451,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         crossModelReview: {
           enabled: true,
@@ -452,13 +462,14 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
       },
     });
 
-    await new Promise((r) => setTimeout(r, 200));
-    if ((coordinator as unknown as { active: Map<string, { status: string }> }).active.get(state.id)?.status === 'running') {
+    const active = (coordinator as unknown as {
+      active: Map<string, { status: string; endReason?: string }>;
+    }).active;
+    await waitForCondition(() => claimedDoneButFailed || ended || active.get(state.id)?.status === 'paused');
+    if (active.get(state.id)?.status === 'running') {
       coordinator.cancelLoop(state.id);
     }
-    const live = (coordinator as unknown as {
-      active: Map<string, { status: string; endReason?: string }>;
-    }).active.get(state.id);
+    const live = active.get(state.id);
     expect(ended).toBe(false);
     expect(claimedDoneButFailed).toBe(true);
     expect(claimedFailure).toContain('fresh-eyes review');
@@ -492,7 +503,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'true',
+        verifyCommand: passingVerifyCommand(),
         runVerifyTwice: false,
         crossModelReview: {
           enabled: false,

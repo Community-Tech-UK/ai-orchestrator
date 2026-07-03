@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   MOBILE_MCP_VERSION,
   buildMobileMcpAcpMcpServers,
@@ -7,13 +7,24 @@ import {
   buildMobileMcpConfigJson,
 } from './mobile-mcp-config';
 
+const originalPlatform = process.platform;
+
+function mockPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+}
+
 describe('mobile-mcp config builders', () => {
   const options = {
     serial: 'emulator-5554',
     sdkPath: '/android/sdk',
   };
 
+  afterEach(() => {
+    mockPlatform(originalPlatform);
+  });
+
   it('builds Claude/Copilot JSON with telemetry disabled and a pinned mobile-mcp version', () => {
+    mockPlatform('linux');
     const json = JSON.parse(buildMobileMcpConfigJson(options)!);
     expect(json.mcpServers['mobile-mcp']).toEqual({
       command: 'npx',
@@ -28,6 +39,7 @@ describe('mobile-mcp config builders', () => {
   });
 
   it('builds Codex TOML including environment variables', () => {
+    mockPlatform('linux');
     const toml = buildMobileMcpCodexConfigToml(options)!;
     expect(toml).toContain('[mcp_servers."mobile-mcp"]');
     expect(toml).toContain('command = "npx"');
@@ -37,6 +49,7 @@ describe('mobile-mcp config builders', () => {
   });
 
   it('builds Gemini settings and ACP server arrays', () => {
+    mockPlatform('linux');
     const gemini = JSON.parse(buildMobileMcpGeminiSettingsJson(options)!);
     expect(gemini.mcpServers['mobile-mcp'].env.ANDROID_SERIAL).toBe('emulator-5554');
 
@@ -46,6 +59,7 @@ describe('mobile-mcp config builders', () => {
   });
 
   it('adds an optional Maestro MCP server when requested', () => {
+    mockPlatform('linux');
     const json = JSON.parse(buildMobileMcpConfigJson({ ...options, maestro: true })!);
     expect(json.mcpServers.maestro).toEqual({
       command: 'maestro',
@@ -67,6 +81,7 @@ describe('mobile-mcp config builders', () => {
   });
 
   it('keeps the mobile and Maestro servers distinct when serverName is maestro', () => {
+    mockPlatform('linux');
     const collisionOptions = { ...options, serverName: 'maestro', maestro: true };
     const json = JSON.parse(buildMobileMcpConfigJson(collisionOptions)!);
 

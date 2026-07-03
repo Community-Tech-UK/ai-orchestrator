@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as path from 'node:path';
 import { GeminiQuotaProbe, type GeminiFileReader } from './gemini-quota-probe';
 
 /**
@@ -167,7 +168,7 @@ describe('GeminiQuotaProbe', () => {
         },
       });
       await probe.probe({ signal: new AbortController().signal });
-      expect(calls.some((p) => p.endsWith('.gemini/google_accounts.json'))).toBe(true);
+      expect(calls.some((p) => p.includes(path.join('.gemini', 'google_accounts.json')))).toBe(true);
     });
 
     it('honours a configDir override', async () => {
@@ -182,7 +183,7 @@ describe('GeminiQuotaProbe', () => {
         },
       });
       await probe.probe({ signal: new AbortController().signal });
-      expect(calls.some((p) => p === '/tmp/custom-gemini/google_accounts.json')).toBe(true);
+      expect(calls.some((p) => p === path.join('/tmp/custom-gemini', 'google_accounts.json'))).toBe(true);
     });
 
     it('returns provider id "antigravity"', () => {
