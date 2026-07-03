@@ -396,7 +396,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     const active = (coordinator as unknown as {
       active: Map<string, { status: string }>;
     }).active;
-    await waitForCondition(() => claimedDoneButFailed || completed || active.get(state.id)?.status === 'paused');
+    await waitForCondition(() => completed || active.get(state.id)?.status === 'paused');
     const live = active.get(state.id);
     if (live?.status === 'running') {
       coordinator.cancelLoop(state.id);
@@ -465,7 +465,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     const active = (coordinator as unknown as {
       active: Map<string, { status: string; endReason?: string }>;
     }).active;
-    await waitForCondition(() => claimedDoneButFailed || ended || active.get(state.id)?.status === 'paused');
+    await waitForCondition(() => ended || active.get(state.id)?.status === 'paused');
     if (active.get(state.id)?.status === 'running') {
       coordinator.cancelLoop(state.id);
     }

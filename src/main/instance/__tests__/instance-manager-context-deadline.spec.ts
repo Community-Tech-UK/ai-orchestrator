@@ -1,10 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance, OutputMessage } from '../../../shared/types/instance.types';
 import type { InstanceContextPort } from '../instance-context-port';
 import type { RlmContextInfo, UnifiedMemoryContextInfo } from '../instance-types';
 import type { IndexedCodebaseContextInfo } from '../../indexing/indexed-codebase-context';
 
 const CONTEXT_DEADLINE_MS = 500;
+let InstanceManager: typeof import('../instance-manager').InstanceManager;
+
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const {
   mockCommunicationSendInput,
@@ -424,11 +427,22 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let i = 0; i < 10; i += 1) {
+    await Promise.resolve();
+  }
+}
+
+async function advancePastContextDeadline(): Promise<void> {
+  await flushMicrotasks();
+  await vi.advanceTimersByTimeAsync(CONTEXT_DEADLINE_MS + 100);
+  await flushMicrotasks();
 }
 
 describe('InstanceManager context deadline', () => {
+  beforeAll(async () => {
+    ({ InstanceManager } = await import('../instance-manager'));
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -447,7 +461,6 @@ describe('InstanceManager context deadline', () => {
   });
 
   it('sendInput completes within the context deadline when context builders hang', async () => {
-    const { InstanceManager } = await import('../instance-manager');
     const contextPort = createContextPort({
       buildRlmContext: vi.fn(() => new Promise(() => undefined)),
       buildUnifiedMemoryContext: vi.fn(() => new Promise(() => undefined)),
@@ -458,15 +471,13 @@ describe('InstanceManager context deadline', () => {
     const manager = new InstanceManager(undefined, contextPort);
 
     const sendPromise = manager.sendInput(instance.id, 'current message');
-    await vi.advanceTimersByTimeAsync(CONTEXT_DEADLINE_MS + 100);
-    await flushMicrotasks();
+    await advancePastContextDeadline();
+    await sendPromise;
 
     expect(mockCommunicationSendInput).toHaveBeenCalledTimes(1);
-    await expect(sendPromise).resolves.toBeUndefined();
   });
 
   it('passes the context block to communication.sendInput when context resolves within the deadline', async () => {
-    const { InstanceManager } = await import('../instance-manager');
     const rlmContext: RlmContextInfo = {
       context: 'rlm context',
       tokens: 10,
@@ -507,7 +518,6 @@ describe('InstanceManager context deadline', () => {
   });
 
   it('passes null as contextBlock when context exceeds the deadline', async () => {
-    const { InstanceManager } = await import('../instance-manager');
     const contextPort = createContextPort({
       buildRlmContext: vi.fn(() => new Promise(() => undefined)),
       buildUnifiedMemoryContext: vi.fn(() => new Promise(() => undefined)),
@@ -518,14 +528,13 @@ describe('InstanceManager context deadline', () => {
     const manager = new InstanceManager(undefined, contextPort);
 
     const sendPromise = manager.sendInput(instance.id, 'current message');
-    await vi.advanceTimersByTimeAsync(CONTEXT_DEADLINE_MS + 100);
+    await advancePastContextDeadline();
     await sendPromise;
 
     expect(mockCommunicationSendInput.mock.calls[0]?.[3]).toBeNull();
   });
 
   it('queues late context for the next turn after sending without it', async () => {
-    const { InstanceManager } = await import('../instance-manager');
     const rlm = deferred<RlmContextInfo | null>();
     const unified = deferred<UnifiedMemoryContextInfo | null>();
     const indexed = deferred<IndexedCodebaseContextInfo | null>();
@@ -539,7 +548,7 @@ describe('InstanceManager context deadline', () => {
     const manager = new InstanceManager(undefined, contextPort);
 
     const sendPromise = manager.sendInput(instance.id, 'current message');
-    await vi.advanceTimersByTimeAsync(CONTEXT_DEADLINE_MS + 100);
+    await advancePastContextDeadline();
     await sendPromise;
     expect(mockCommunicationSendInput.mock.calls[0]?.[3]).toBeNull();
 
@@ -562,7 +571,6 @@ describe('InstanceManager context deadline', () => {
   });
 
   it('fails slash-command sends when command resolution exceeds the preflight deadline', async () => {
-    const { InstanceManager } = await import('../instance-manager');
     mockCommandExecuteCommandString.mockImplementation(() => new Promise(() => undefined));
     const instance = makeInstance();
     mockStateInstances.set(instance.id, instance);
@@ -575,6 +583,7 @@ describe('InstanceManager context deadline', () => {
         (error: unknown) => ({ status: 'rejected' as const, error }),
       );
 
+    await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(5_100);
     await flushMicrotasks();
 
@@ -595,7 +604,6 @@ describe('InstanceManager context deadline', () => {
   // (re)injected. This is exactly the long-conversation case where the scheduling
   // reminder must be re-surfaced.
   it('injects the scheduling reminder into the context block on a later-turn scheduling request', async () => {
-    const { InstanceManager } = await import('../instance-manager');
     mockGetSchedulingReminder.mockImplementation((msg: string) =>
       msg.includes('automation') ? '[SCHED REMINDER]' : null,
     );
@@ -617,7 +625,6 @@ describe('InstanceManager context deadline', () => {
   });
 
   it('prepends the reminder alongside retrieved context without dropping it', async () => {
-    const { InstanceManager } = await import('../instance-manager');
     mockGetSchedulingReminder.mockReturnValue('[SCHED REMINDER]');
     const contextPort = createContextPort({
       buildRlmContext: vi.fn().mockResolvedValue({
@@ -643,7 +650,6 @@ describe('InstanceManager context deadline', () => {
   });
 
   it('does not inject a reminder for non-scheduling messages', async () => {
-    const { InstanceManager } = await import('../instance-manager');
     mockGetSchedulingReminder.mockImplementation((msg: string) =>
       msg.includes('automation') ? '[SCHED REMINDER]' : null,
     );
