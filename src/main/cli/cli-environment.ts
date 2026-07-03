@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 
 function parseNodeVersionParts(value: string): [number, number, number] | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value.trim());
@@ -102,7 +103,12 @@ function getNvmWindowsSettingsSymlink(nvmHome: string): string {
     return '';
   }
 
-  const settingsPath = `${nvmHome}\\settings.txt`;
+  // Build the on-disk path with the OS-native separator: settings.txt is read
+  // from the *real* filesystem, so the separator must match the host (the
+  // simulated `platform` arg does not change how `existsSync`/`readFileSync`
+  // resolve). Hardcoding `\\` broke lookups on non-Windows hosts running the
+  // win32-path tests (the temp dir is created with the native separator).
+  const settingsPath = join(nvmHome, 'settings.txt');
   if (!existsSync(settingsPath)) {
     return '';
   }
