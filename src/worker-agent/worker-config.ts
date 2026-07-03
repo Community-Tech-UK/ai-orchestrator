@@ -113,6 +113,58 @@ interface PairingConfigFile {
 
 export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
+/**
+ * Expand a leading `~` (bare, `~/…`, or `~\…`) to the OS home directory. Node
+ * does NOT do this itself — `~` is a shell convention — so a config value like
+ * `~` or `~/code` is otherwise used verbatim and, on Windows especially, walks a
+ * bogus literal `~\…` path (the 2026-07-03 `~\AppData\Local\…` scan warnings).
+ * Anything without a `~` prefix is returned unchanged.
+ */
+export function expandHomePath(p: string, homedir: string = os.homedir()): string {
+  if (typeof p !== 'string' || p.length === 0) {
+    return p;
+  }
+  if (p === '~') {
+    return homedir;
+  }
+  if (p.startsWith('~/') || p.startsWith('~\\')) {
+    return path.join(homedir, p.slice(2));
+  }
+  return p;
+}
+
+/**
+ * Normalize the configured working directories for runtime use: expand `~`,
+ * drop empty/whitespace-only entries, and de-duplicate. The persisted config
+ * file keeps the user's original (portable) `~` form — this expansion is applied
+ * only to the in-memory config the worker actually scans/serves.
+ */
+export function normalizeWorkingDirectories(
+  dirs: string[] | undefined,
+  homedir: string = os.homedir(),
+): string[] {
+  if (!Array.isArray(dirs)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const dir of dirs) {
+    if (typeof dir !== 'string') {
+      continue;
+    }
+    const trimmed = dir.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const expanded = expandHomePath(trimmed, homedir);
+    if (!seen.has(expanded)) {
+      seen.add(expanded);
+      out.push(expanded);
+    }
+  }
+  return out;
+}
+
 const DEFAULTS: WorkerConfig = {
   nodeId: '',
   name: os.hostname(),
@@ -171,8 +223,16 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
     persistableConfig.authToken = args['token'];
   }
 
-  // Persist generated values back
+  // Persist generated values back. Do this BEFORE expanding `~` so the saved
+  // config keeps the user's portable home-relative form rather than a
+  // machine-specific absolute path.
   persistConfig(configPath, persistableConfig);
+
+  // Expand `~` and de-duplicate working directories for runtime use. Every
+  // consumer (capability scan, instance manager, filesystem handler, sync,
+  // terminal) reads this in-memory value, so a single normalization here fixes
+  // them all. Reassign to a NEW array so `persistableConfig` keeps the original.
+  merged.workingDirectories = normalizeWorkingDirectories(merged.workingDirectories);
 
   return merged;
 }

@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// `vi.hoisted` so the mock factory (hoisted above declarations) can reference it.
+const mockLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+}));
+
 // Mock the logger to avoid electron / filesystem dependencies
 vi.mock('../logging/logger', () => ({
-  getLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
-  }),
+  getLogger: () => mockLogger,
 }));
 
 // Mock fs/promises before importing the module under test
@@ -105,5 +108,45 @@ describe('ProjectDiscovery', () => {
     await discovery.scan(['/root']);
 
     expect(mockReaddir).toHaveBeenCalledTimes(5);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 4: Permission-denied dirs are logged at debug, not warn
+  // -------------------------------------------------------------------------
+
+  it('logs expected permission/missing errors at debug, not warn', async () => {
+    for (const code of ['EPERM', 'EACCES', 'ENOENT', 'ENOTDIR', 'ELOOP']) {
+      mockReaddir.mockImplementationOnce(async () => {
+        const err = new Error(`${code}: nope`) as NodeJS.ErrnoException;
+        err.code = code;
+        throw err;
+      });
+      await discovery.scan([`/locked-${code}`]);
+    }
+
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      'Skipping unreadable directory during scan',
+      expect.objectContaining({ code: 'EPERM' }),
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5: Unexpected read errors still warn
+  // -------------------------------------------------------------------------
+
+  it('still warns on unexpected read errors', async () => {
+    mockReaddir.mockImplementationOnce(async () => {
+      const err = new Error('EIO: disk exploded') as NodeJS.ErrnoException;
+      err.code = 'EIO';
+      throw err;
+    });
+
+    await discovery.scan(['/flaky']);
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Failed to read directory',
+      expect.objectContaining({ dirPath: '/flaky' }),
+    );
   });
 });

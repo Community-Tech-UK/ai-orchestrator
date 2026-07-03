@@ -68,7 +68,17 @@ export class ProjectDiscovery {
     try {
       entries = await fs.readdir(dirPath, { withFileTypes: true, encoding: 'utf8' });
     } catch (err) {
-      logger.warn('Failed to read directory', { dirPath, err: String(err) });
+      const code = (err as NodeJS.ErrnoException | null)?.code;
+      // A broad root (e.g. the home directory) inevitably descends into
+      // OS-locked system folders — Windows `AppData\Local\ElevatedDiagnostics`,
+      // macOS protected `Library` subdirs. Permission-denied / missing / not-a-dir
+      // results are expected there and must NOT masquerade as failures; log them
+      // at debug. Reserve warn for genuinely unexpected read errors.
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') {
+        logger.debug('Skipping unreadable directory during scan', { dirPath, code });
+      } else {
+        logger.warn('Failed to read directory', { dirPath, err: String(err) });
+      }
       return;
     }
 
