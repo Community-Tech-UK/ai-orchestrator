@@ -306,6 +306,23 @@ describe('InstanceListStore', () => {
     }));
   });
 
+  it('forwards yolo mode when creating an instance with an initial message', async () => {
+    const id = await store.createInstanceWithMessageAndReturnId({
+      workingDirectory: '/tmp/project',
+      message: 'delete the stale copy',
+      provider: 'codex',
+      yoloMode: true,
+    });
+
+    expect(id).toBe('created-message-instance');
+    expect(ipc.createInstanceWithMessage).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: '/tmp/project',
+      message: 'delete the stale copy',
+      provider: 'codex',
+      yoloMode: true,
+    }));
+  });
+
   it('returns the created instance id from state when the create invoke does not resolve', async () => {
     ipc.createInstance.mockReturnValue(new Promise(() => undefined));
 

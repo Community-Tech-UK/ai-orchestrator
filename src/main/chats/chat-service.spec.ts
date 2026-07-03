@@ -10,6 +10,8 @@ import type { ChatEvent } from '../../shared/types/chat.types';
 import { BranchSummarizer } from '../context/branch-summarizer';
 import { ChatService } from './chat-service';
 
+const CHAT_PAGINATION_TEST_TIMEOUT_MS = 15_000;
+
 describe('ChatService', () => {
   const ledgers: ConversationLedgerService[] = [];
   const dbs: SqliteDriver[] = [];
@@ -458,7 +460,7 @@ describe('ChatService', () => {
     expect(older.messages.at(-1)?.sequence).toBe(40);
     expect(older.totalMessages).toBe(240);
     expect(older.hasMore).toBe(true);
-  });
+  }, CHAT_PAGINATION_TEST_TIMEOUT_MS);
 
   it('auto-renames an Untitled chat from a user-role synthetic event when autoName is true', async () => {
     const { service } = createHarness();

@@ -30,6 +30,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     provider: ReturnType<typeof signal<'claude' | null>>;
     model: ReturnType<typeof signal<string | null>>;
     agentId: ReturnType<typeof signal<string>>;
+    yoloMode: ReturnType<typeof signal<boolean | null>>;
     launchMode: ReturnType<typeof signal<'orchestrated' | 'interactive' | null>>;
     nodeId: ReturnType<typeof signal<string | null>>;
     updatedAt: ReturnType<typeof signal<number>>;
@@ -66,6 +67,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       provider: signal<'claude' | null>('claude'),
       model: signal<string | null>(null),
       agentId: signal('build'),
+      yoloMode: signal<boolean | null>(null),
       launchMode: signal<'orchestrated' | 'interactive' | null>('orchestrated'),
       nodeId: signal<string | null>(null),
       updatedAt: signal(1),
@@ -205,6 +207,22 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       launchMode: 'interactive',
       forceNodeId: undefined,
     });
+  });
+
+  it('passes the explicit draft yolo override through normal welcome session creation', async () => {
+    newSessionDraft.yoloMode.set(true);
+
+    const launched = await service.onWelcomeSendMessage(
+      'Delete the stale copy',
+      vi.fn(),
+    );
+
+    expect(launched).toBe(true);
+    expect(store.createInstanceWithMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Folders:\nplans\n\nDelete the stale copy',
+      workingDirectory: '/repo',
+      yoloMode: true,
+    }));
   });
 
   it('syncs welcome node selection from the active draft node', async () => {

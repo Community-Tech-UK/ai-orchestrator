@@ -31,6 +31,7 @@ export interface CreateInstanceWithMessageOptions {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  yoloMode?: boolean;
   bareMode?: boolean;
   fastMode?: boolean;
   launchMode?: Instance['launchMode'];
@@ -202,17 +203,18 @@ export class InstanceListStore {
   async createInstanceWithMessageAndReturnId(
     options: CreateInstanceWithMessageOptions,
   ): Promise<string | null> {
-    const { message, files, workingDirectory, agentId, provider, model, bareMode, fastMode, forceNodeId } = options;
+    const { message, files, workingDirectory, agentId, provider, model, yoloMode, bareMode, fastMode, forceNodeId } = options;
 
     console.log('InstanceListStore: createInstanceWithMessage called with:', {
       message,
       filesCount: files?.length,
       workingDirectory,
       agentId,
-        provider,
-        model,
-        bareMode,
-      });
+      provider,
+      model,
+      yoloMode,
+      bareMode,
+    });
 
     if (files && files.length > 0) {
       const validationErrors = this.validateFiles(files);
@@ -240,6 +242,7 @@ export class InstanceListStore {
         agentId,
         provider: provider === 'auto' ? undefined : provider,
         model,
+        ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         bareMode,
         fastMode: this.resolveFastModeForCreate(fastMode, provider),
         forceNodeId,

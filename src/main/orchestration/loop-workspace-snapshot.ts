@@ -8,6 +8,10 @@ interface WorkspaceSnapshotEntry {
   contentHash: string;
 }
 
+interface WorkspaceSnapshotOptions {
+  maxFiles?: number;
+}
+
 export type WorkspaceSnapshot = Map<string, WorkspaceSnapshotEntry>;
 export type WorkspaceGitRunner = (args: string[], cwd: string) => { status: number | null; stdout: string };
 
@@ -197,9 +201,10 @@ function workspaceSnapshotEntryPriority(parentDir: string, entry: fs.Dirent): nu
   return 5;
 }
 
-export function snapshotWorkspaceFiles(cwd: string): WorkspaceSnapshot {
+export function snapshotWorkspaceFiles(cwd: string, options: WorkspaceSnapshotOptions = {}): WorkspaceSnapshot {
   const root = path.resolve(cwd);
   const snapshot: WorkspaceSnapshot = new Map();
+  const maxFiles = options.maxFiles ?? WORKSPACE_SNAPSHOT_MAX_FILES;
   let limitReached = false;
 
   const visit = (dir: string, relDir: string): void => {
@@ -232,7 +237,7 @@ export function snapshotWorkspaceFiles(cwd: string): WorkspaceSnapshot {
       }
 
       if (!entry.isFile()) continue;
-      if (snapshot.size >= WORKSPACE_SNAPSHOT_MAX_FILES) {
+      if (snapshot.size >= maxFiles) {
         limitReached = true;
         return;
       }
@@ -256,8 +261,9 @@ export function snapshotWorkspaceFiles(cwd: string): WorkspaceSnapshot {
 export function snapshotFileChangesViaWorkspace(
   before: WorkspaceSnapshot,
   cwd: string,
+  options: WorkspaceSnapshotOptions = {},
 ): LoopFileChange[] {
-  const after = snapshotWorkspaceFiles(cwd);
+  const after = snapshotWorkspaceFiles(cwd, options);
   const paths = new Set<string>([...before.keys(), ...after.keys()]);
   const changes: LoopFileChange[] = [];
 

@@ -330,6 +330,24 @@ describe('instance-handlers', () => {
         expect.objectContaining({ bareMode: true }),
       );
     });
+
+    it('forwards yolo mode from create-with-message payloads', async () => {
+      const fakeInstance = { id: 'inst-with-message-yolo', communicationTokens: undefined };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE, {
+        workingDirectory: '/projects/my-app',
+        message: 'Delete the stale copy',
+        provider: 'codex',
+        yoloMode: true,
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ yoloMode: true }),
+      );
+    });
   });
 
   // ----------------------------------------------------------

@@ -33,6 +33,7 @@ export interface CreateInstanceWithMessageConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  yoloMode?: boolean;
   bareMode?: boolean;
   fastMode?: boolean;
   forceNodeId?: string;

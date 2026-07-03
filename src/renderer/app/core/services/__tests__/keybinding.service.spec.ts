@@ -70,4 +70,31 @@ describe('KeybindingService input-context gate', () => {
 
     expect(dispatch.dispatch).toHaveBeenCalledWith('select-orchestrator');
   });
+
+  it('removes the document listener when the test injector is destroyed', () => {
+    const button = document.createElement('button');
+    document.body.append(button);
+    dispatch.dispatch.mockClear();
+
+    button.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    }));
+    expect(dispatch.dispatch).toHaveBeenCalledWith('toggle-agent');
+
+    dispatch.dispatch.mockClear();
+    TestBed.resetTestingModule();
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    button.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(dispatch.dispatch).not.toHaveBeenCalled();
+    button.remove();
+  });
 });

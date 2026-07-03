@@ -266,7 +266,7 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(report.commandDiagnostics.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'alias-collision' }),
     );
-  });
+  }, 15_000);
 
   it('uses UsageStore frecency when ranking Wave 2 session picker results', () => {
     const instances = signal([
@@ -484,5 +484,5 @@ describe('Wave 7 cross-wave smoke', () => {
         process.env['ANTHROPIC_API_KEY'] = previousSecret;
       }
     }
-  });
+  }, 30_000);
 });

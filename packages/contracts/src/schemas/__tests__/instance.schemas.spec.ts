@@ -42,4 +42,13 @@ describe('instance.schemas', () => {
       bareMode: true,
     }).bareMode).toBe(true);
   });
+
+  it('accepts yolo mode on create-with-message payloads', () => {
+    expect(InstanceCreateWithMessagePayloadSchema.parse({
+      workingDirectory: '/repo',
+      message: 'delete the stale copy',
+      provider: 'codex',
+      yoloMode: true,
+    }).yoloMode).toBe(true);
+  });
 });

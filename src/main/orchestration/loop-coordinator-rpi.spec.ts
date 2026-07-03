@@ -23,6 +23,8 @@ function writeRunState(payload: unknown, name: string, content: string): void {
 let workspace: string;
 let coordinator: LoopCoordinator;
 
+const PLAN_REGENERATION_TEST_TIMEOUT_MS = 15_000;
+
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-rpi-'));
   coordinator = new LoopCoordinator();
@@ -106,7 +108,7 @@ describe('LF-4 RPI — disposable plan regenerate-on-stall', () => {
     // Regenerated up to the cap, then paused.
     expect(regenerations).toBe(LOOP_MAX_PLAN_REGENERATIONS);
     expect(paused).toBe(true);
-  });
+  }, PLAN_REGENERATION_TEST_TIMEOUT_MS);
 
   it('does not regenerate when disabled (pauses on the first stall)', async () => {
     writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');

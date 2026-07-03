@@ -74,17 +74,18 @@ describe('snapshotWorkspaceFiles (filesystem walk)', () => {
 
   it('prioritizes nested source repos over large archive directories before the snapshot cap', () => {
     workspace = mkdtempSync(join(tmpdir(), 'loop-snap-'));
-    for (let i = 0; i < 5_010; i++) {
+    const testSnapshotCap = 10;
+    for (let i = 0; i < 12; i++) {
       write(workspace, `aaa-archive/live-${i}.log`, `log ${i}`);
     }
     write(workspace, 'unstablepvp/.git/HEAD', 'ref: refs/heads/main');
     write(workspace, 'unstablepvp/pom.xml', '<project />');
     write(workspace, 'unstablepvp/src/main/java/Main.java', 'class Main {}');
 
-    const before = snapshotWorkspaceFiles(workspace);
+    const before = snapshotWorkspaceFiles(workspace, { maxFiles: testSnapshotCap });
     write(workspace, 'unstablepvp/src/main/java/Main.java', 'class Main { void run() {} }');
 
-    const changes = snapshotFileChangesViaWorkspace(before, workspace);
+    const changes = snapshotFileChangesViaWorkspace(before, workspace, { maxFiles: testSnapshotCap });
     expect(changes.map((c) => c.path)).toContain('unstablepvp/src/main/java/Main.java');
   }, 30_000);
 });

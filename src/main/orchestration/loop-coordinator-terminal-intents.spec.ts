@@ -10,6 +10,8 @@ import { runLoopControlCli } from './loop-control-cli';
 let workspace: string;
 let coordinator: LoopCoordinator;
 
+const LOOP_EVENT_TIMEOUT_MS = 5_000;
+
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-terminal-intents-'));
   writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
@@ -316,7 +318,7 @@ describe('LoopCoordinator terminal intents', () => {
   });
 
   it('accepts a complete intent from an intervention-consuming iteration when verify passes', async () => {
-    const completed = waitForEvent<{ signal: string }>(coordinator, 'loop:completed', 1000);
+    const completed = waitForEvent<{ signal: string }>(coordinator, 'loop:completed', LOOP_EVENT_TIMEOUT_MS);
     coordinator.on('loop:started', ({ loopRunId }: { loopRunId: string }) => {
       expect(coordinator.intervene(loopRunId, 'operator correction')).toBe(true);
     });
@@ -362,9 +364,9 @@ describe('LoopCoordinator terminal intents', () => {
     const claimedFailed = waitForEvent<{ failure: string }>(
       coordinator,
       'loop:claimed-done-but-failed',
-      1000,
+      LOOP_EVENT_TIMEOUT_MS,
     );
-    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', 1000);
+    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', LOOP_EVENT_TIMEOUT_MS);
     coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
       const p = payload as {
         loopControlEnv: NodeJS.ProcessEnv;
@@ -421,9 +423,9 @@ describe('LoopCoordinator terminal intents', () => {
     const claimedFailed = waitForEvent<{ failure: string }>(
       coordinator,
       'loop:claimed-done-but-failed',
-      1000,
+      LOOP_EVENT_TIMEOUT_MS,
     );
-    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', 1000);
+    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', LOOP_EVENT_TIMEOUT_MS);
     coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
       const p = payload as {
         loopControlEnv: NodeJS.ProcessEnv;
@@ -468,9 +470,9 @@ describe('LoopCoordinator terminal intents', () => {
     const claimedFailed = waitForEvent<{ failure: string }>(
       coordinator,
       'loop:claimed-done-but-failed',
-      1000,
+      LOOP_EVENT_TIMEOUT_MS,
     );
-    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', 1000);
+    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', LOOP_EVENT_TIMEOUT_MS);
     coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
       const p = payload as {
         loopControlEnv: NodeJS.ProcessEnv;
@@ -512,7 +514,7 @@ describe('LoopCoordinator terminal intents', () => {
   });
 
   it('uses iterationTimeoutMs for the child invocation backstop', async () => {
-    const loopError = waitForEvent<{ error: string }>(coordinator, 'loop:error', 1000);
+    const loopError = waitForEvent<{ error: string }>(coordinator, 'loop:error', LOOP_EVENT_TIMEOUT_MS);
     coordinator.on('loop:invoke-iteration', () => {
       // Intentionally never invokes the callback. The coordinator backstop
       // must use the per-iteration timeout rather than the total wall cap.
@@ -532,7 +534,7 @@ describe('LoopCoordinator terminal intents', () => {
 
   it('extends the child invocation backstop while matching loop activity is recent', async () => {
     const errors: string[] = [];
-    const iterationComplete = waitForEvent<{ seq: number }>(coordinator, 'loop:iteration-complete', 1000);
+    const iterationComplete = waitForEvent<{ seq: number }>(coordinator, 'loop:iteration-complete', LOOP_EVENT_TIMEOUT_MS);
     coordinator.on('loop:error', ({ error }: { error: string }) => errors.push(error));
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as {

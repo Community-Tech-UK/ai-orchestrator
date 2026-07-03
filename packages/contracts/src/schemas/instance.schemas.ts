@@ -50,6 +50,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   agentId: z.string().max(100).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
+  yoloMode: z.boolean().optional(),
   bareMode: z.boolean().optional(),
   fastMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),

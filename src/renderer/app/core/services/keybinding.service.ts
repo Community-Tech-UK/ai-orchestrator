@@ -8,7 +8,7 @@
  * - Platform-aware modifier handling
  */
 
-import { Injectable, NgZone, signal, computed, inject } from '@angular/core';
+import { Injectable, NgZone, OnDestroy, signal, computed, inject } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import {
   KeyBinding,
@@ -46,7 +46,7 @@ type KeybindingHandler = (event: KeybindingEvent) => void;
 @Injectable({
   providedIn: 'root',
 })
-export class KeybindingService {
+export class KeybindingService implements OnDestroy {
   private document = inject(DOCUMENT);
   private zone = inject(NgZone);
   private actionDispatch = inject(ActionDispatchService);
@@ -63,6 +63,10 @@ export class KeybindingService {
   private leaderSequence = signal<KeyCombo[]>([]);
   private leaderTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly LEADER_TIMEOUT_MS = 1000;
+  private readonly keydownListener = (event: KeyboardEvent): void => {
+    if (!this.enabled()) return;
+    this.handleKeyDown(event);
+  };
 
   // Platform detection
   readonly isMac = this.document.defaultView?.navigator.platform.includes('Mac') ?? false;
@@ -105,16 +109,18 @@ export class KeybindingService {
     this.setupGlobalListener();
   }
 
+  ngOnDestroy(): void {
+    this.document.removeEventListener('keydown', this.keydownListener);
+    this.resetLeaderSequence();
+  }
+
   /**
    * Setup the global keyboard event listener
    */
   private setupGlobalListener(): void {
     // Run outside Angular zone for performance
     this.zone.runOutsideAngular(() => {
-      this.document.addEventListener('keydown', (event) => {
-        if (!this.enabled()) return;
-        this.handleKeyDown(event);
-      });
+      this.document.addEventListener('keydown', this.keydownListener);
     });
   }
 

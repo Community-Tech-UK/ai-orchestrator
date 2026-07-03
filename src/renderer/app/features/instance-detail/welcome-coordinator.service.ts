@@ -30,6 +30,7 @@ interface WelcomeLaunchConfig {
   agentId: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
   forceNodeId?: string;
 }
@@ -208,6 +209,7 @@ export class WelcomeCoordinatorService {
       agentId: plan.config.agentId,
       provider: plan.config.provider,
       model: plan.config.model,
+      ...(typeof plan.config.yoloMode === 'boolean' ? { yoloMode: plan.config.yoloMode } : {}),
       launchMode: plan.config.launchMode,
       forceNodeId: plan.forceNodeId,
     });
@@ -296,6 +298,7 @@ export class WelcomeCoordinatorService {
     const launchMode = provider === 'claude'
       ? (this.newSessionDraft.launchMode() ?? this.providerState.getLaunchModeForProvider('claude'))
       : undefined;
+    const yoloMode = this.newSessionDraft.yoloMode();
     const pendingFolders = this.pendingFolders();
     const finalMessage = this.fileAttachment.prependPendingFolders(
       message,
@@ -340,6 +343,7 @@ export class WelcomeCoordinatorService {
         agentId: this.newSessionDraft.agentId(),
         provider,
         model,
+        ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         launchMode,
         forceNodeId,
       },

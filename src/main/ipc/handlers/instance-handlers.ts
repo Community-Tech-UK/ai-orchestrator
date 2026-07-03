@@ -149,6 +149,7 @@ export function registerInstanceHandlers(deps: {
           agentId: validated.agentId,
           provider: validated.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validated.model,
+          yoloMode: validated.yoloMode,
           bareMode: validated.bareMode,
           fastModeOverride: validated.fastMode,
           forceNodeId: validated.forceNodeId,
