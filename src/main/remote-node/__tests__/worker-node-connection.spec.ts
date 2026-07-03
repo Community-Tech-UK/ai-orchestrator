@@ -121,10 +121,20 @@ describe('WorkerNodeConnectionServer — socket replacement race', () => {
     expect(disconnected).toEqual([]);
     expect(internals.nodeToSocket.get(NODE_ID)).toBe(wsB);
 
-    // A genuine close of the active socket B does emit a disconnect.
-    wsB.emit('close');
-    expect(disconnected).toEqual([NODE_ID]);
-    expect(internals.nodeToSocket.has(NODE_ID)).toBe(false);
+    // A genuine close of the active socket B enters the disconnect grace window:
+    // the node is NOT deregistered immediately (a flapping worker frequently
+    // re-registers within a couple seconds). Only after the window elapses with
+    // no re-registration is it treated as a true disconnect.
+    vi.useFakeTimers();
+    try {
+      wsB.emit('close');
+      expect(disconnected).toEqual([]);
+      vi.advanceTimersByTime(3_000);
+      expect(disconnected).toEqual([NODE_ID]);
+      expect(internals.nodeToSocket.has(NODE_ID)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('records rejected registration context for repair diagnostics', () => {
@@ -228,7 +238,8 @@ describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
     expect(internals.pending.size).toBe(0);
   });
 
-  it('rejects pending RPCs when the node disconnects', async () => {
+  it('rejects pending RPCs when the node disconnects (after the grace window)', async () => {
+    vi.useFakeTimers();
     const { server, internals, ws } = connectNode();
 
     const rejection = server
@@ -237,9 +248,13 @@ describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
 
     expect(internals.pending.size).toBe(1);
 
-    // The node's active socket closes — in-flight RPCs must reject immediately
-    // rather than hang (the timeout is disabled for this request).
+    // The active socket closes. The disconnect grace window briefly preserves the
+    // in-flight RPC (a flapping worker may re-register and keep the turn alive)…
     ws.emit('close');
+    expect(internals.pending.size).toBe(1);
+
+    // …and only fails it once the grace window elapses with no re-registration.
+    await vi.advanceTimersByTimeAsync(3_000);
 
     const message = await rejection;
     expect(message).toContain('Node disconnected');

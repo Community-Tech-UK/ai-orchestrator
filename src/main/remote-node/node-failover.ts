@@ -36,6 +36,26 @@ function isTerminalFailoverStatus(status: string): boolean {
 }
 
 /**
+ * How long the same failed-instance recovery offer is suppressed for a node.
+ * A flapping node fires `node:connected` on every reconnect; without this the
+ * identical "recovery available" set is re-broadcast on every flap cycle.
+ */
+export const RECOVERY_OFFER_DEBOUNCE_MS = 30_000;
+
+interface RecoveryOfferRecord {
+  key: string;
+  at: number;
+}
+
+// Module-level dedupe state: last recovery offer signature + time per node.
+const recentRecoveryOffers = new Map<string, RecoveryOfferRecord>();
+
+/** Test hook: clear the late-reconnect recovery-offer debounce state. */
+export function _resetRecoveryOfferDebounceForTesting(): void {
+  recentRecoveryOffers.clear();
+}
+
+/**
  * Handles failover for all instances running on a disconnected worker node.
  *
  * Phase 1 (immediate): mark all affected instances 'degraded' (recoverable).
@@ -193,13 +213,43 @@ export function handleNodeFailover(nodeId: string, instanceManager: InstanceMana
  *
  * Call this from the global `node:connected` listener in index.ts.
  */
-export function handleLateNodeReconnect(nodeId: string, instanceManager: InstanceManager): void {
+export function handleLateNodeReconnect(
+  nodeId: string,
+  instanceManager: InstanceManager,
+  now: () => number = Date.now,
+): void {
 
   const failedOnNode = instanceManager
     .getInstancesByNode(nodeId)
     .filter((inst) => inst.status === 'failed');
 
-  if (failedOnNode.length === 0) return;
+  if (failedOnNode.length === 0) {
+    // Nothing to recover — forget any prior offer so a future failure is not
+    // wrongly suppressed by a stale signature.
+    recentRecoveryOffers.delete(nodeId);
+    return;
+  }
+
+  // Debounce: suppress an identical recovery offer re-fired by a flapping node
+  // within the debounce window. A changed failed-instance set always re-offers.
+  const signature = failedOnNode
+    .map((inst) => inst.id)
+    .sort()
+    .join(',');
+  const nowMs = now();
+  const previous = recentRecoveryOffers.get(nodeId);
+  if (
+    previous &&
+    previous.key === signature &&
+    nowMs - previous.at < RECOVERY_OFFER_DEBOUNCE_MS
+  ) {
+    logger.debug('Late node reconnect: duplicate recovery offer suppressed (flap debounce)', {
+      nodeId,
+      count: failedOnNode.length,
+    });
+    return;
+  }
+  recentRecoveryOffers.set(nodeId, { key: signature, at: nowMs });
 
   logger.info('Late node reconnect: found failed instances, signalling recovery available', {
     nodeId,

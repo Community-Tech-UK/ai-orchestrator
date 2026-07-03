@@ -11,84 +11,42 @@ import {
   isRpcResponse,
   isRpcNotification,
   RPC_ERROR_CODES,
-  COORDINATOR_TO_NODE,
 } from './worker-node-rpc';
 import type { RpcRequest, RpcResponse, RpcNotification, RpcScope } from './worker-node-rpc';
 import { getRemoteNodeConfig } from './remote-node-config';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
-import type { NodePlatform, WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { getWorkerNodeRegistry } from './worker-node-registry';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from './rpc-schemas';
 import { getRemoteWorkerRepairTracker } from './remote-worker-repair-tracker';
+import { ConnectionFlapDetector } from './connection-flap-detector';
+import {
+  WORK_DISPATCH_METHODS,
+  isWorkerNodeWorkDispatchMethod,
+  trustedPlatformFromParams,
+  summarizeRpcParams,
+} from './worker-node-connection-helpers';
+
+// Re-exported for existing importers (tests, dispatch classification callers).
+export { isWorkerNodeWorkDispatchMethod };
 
 const logger = getLogger('WorkerNodeConnection');
 
 const RPC_TIMEOUT_MS = 30_000;
 
 /**
- * RPC methods that represent the coordinator actually *using* a remote node
- * (the "slave machine") to do real work — spawning/driving agents, offloading
- * auxiliary-LLM generation to the node's local model server, or opening a
- * remote terminal. These are logged at `info` so it's visible at a glance
- * whether offload is genuinely happening. Everything else (health pings,
- * filesystem reads, sync, terminal keystrokes) is routine and logged at
- * `debug` to keep the signal clean.
+ * How long a node's registry entry and in-flight RPCs are held after the active
+ * socket closes, waiting for a re-registration. A flapping link (or a worker
+ * doing a fast reconnect) that re-registers within this window is treated as a
+ * single continuous session: the node is NOT deregistered and in-flight work is
+ * NOT failed. Kept short so a genuine disconnect is still noticed promptly.
  */
-const WORK_DISPATCH_METHODS = new Set<string>([
-  COORDINATOR_TO_NODE.INSTANCE_SPAWN,
-  COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT,
-  COORDINATOR_TO_NODE.INSTANCE_INTERRUPT,
-  COORDINATOR_TO_NODE.INSTANCE_TERMINATE,
-  COORDINATOR_TO_NODE.INSTANCE_HIBERNATE,
-  COORDINATOR_TO_NODE.INSTANCE_WAKE,
-  COORDINATOR_TO_NODE.AUXILIARY_MODEL_GENERATE,
-  COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST,
-  COORDINATOR_TO_NODE.AUDIO_TRANSCRIBE,
-  COORDINATOR_TO_NODE.TERMINAL_CREATE,
-]);
+const DISCONNECT_GRACE_MS = 2_500;
 
-export function isWorkerNodeWorkDispatchMethod(method: string): boolean {
-  return WORK_DISPATCH_METHODS.has(method);
-}
-
-function trustedPlatformFromParams(params: Record<string, unknown> | undefined): NodePlatform | undefined {
-  const capabilities = params?.['capabilities'];
-  if (!capabilities || typeof capabilities !== 'object') {
-    return undefined;
-  }
-  const platform = (capabilities as Record<string, unknown>)['platform'];
-  return platform === 'darwin' || platform === 'win32' || platform === 'linux'
-    ? platform
-    : undefined;
-}
-
-/**
- * Extract only safe, non-sensitive scalar fields from RPC params for logging.
- * Deliberately omits prompt/input/content/token fields so agent prompts and
- * secrets never reach the logs.
- */
-function summarizeRpcParams(params: unknown): Record<string, unknown> | undefined {
-  if (!params || typeof params !== 'object') return undefined;
-  const p = params as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const key of [
-    'instanceId',
-    'provider',
-    'model',
-    'slot',
-    'cliType',
-    'cwd',
-    'workingDirectory',
-    'terminalId',
-  ]) {
-    const value = p[key];
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      out[key] = value;
-    }
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
+/** Sliding window + threshold for flap-storm detection (replaces per node). */
+const FLAP_WINDOW_MS = 60_000;
+const FLAP_THRESHOLD = 10;
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -107,6 +65,10 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   private readonly nodeToSocket = new Map<string, WebSocket>();
   private readonly socketToNode = new Map<WebSocket, string>();
   private readonly pending = new Map<string | number, PendingRpc>();
+  // Grace timers keyed by nodeId: a scheduled "true disconnect" that fires only
+  // if the node does not re-register within DISCONNECT_GRACE_MS.
+  private readonly disconnectGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly flapDetector = new ConnectionFlapDetector(FLAP_WINDOW_MS, FLAP_THRESHOLD);
   private requestCounter = 0;
   private broadcastAll: (() => void) | null = null;
 
@@ -207,6 +169,13 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       pending.reject(new Error('Server shutting down'));
       this.pending.delete(id);
     }
+
+    // Cancel any in-flight disconnect grace timers and clear flap state.
+    for (const timer of this.disconnectGraceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.disconnectGraceTimers.clear();
+    this.flapDetector.clear();
 
     // Close all WebSocket connections
     for (const ws of this.nodeToSocket.values()) {
@@ -460,17 +429,85 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       }
       this.nodeToSocket.delete(nodeId);
       this.socketToNode.delete(ws);
-      // Fail any in-flight RPCs to this node now, rather than letting them hang
-      // until their timeout (or forever, for timeout-disabled requests such as
-      // instance.sendInput).
-      this.rejectPendingForNode(nodeId, `Node disconnected: ${nodeId}`);
-      logger.info('Node WebSocket disconnected', { nodeId });
-      this.emit('node:ws-disconnected', nodeId);
+      // Defensive depth against a flap storm: do NOT immediately deregister the
+      // node or fail its in-flight RPCs. A flapping link (or a fast worker
+      // reconnect) frequently re-registers within a couple seconds; the node's
+      // CLIs keep running locally the whole time. Start a short grace window and
+      // only treat this as a true disconnect if no re-registration arrives.
+      this.beginDisconnectGrace(nodeId);
     });
 
     ws.on('error', (err) => {
       logger.error('WebSocket error', err, { nodeId: nodeId ?? 'unregistered' });
     });
+  }
+
+  /**
+   * Schedule a "true disconnect" for a node whose active socket just closed. If
+   * the node re-registers within DISCONNECT_GRACE_MS, {@link cancelDisconnectGrace}
+   * clears this timer and the session is treated as continuous (no deregister,
+   * in-flight RPCs preserved). Otherwise the node is deregistered and its
+   * in-flight RPCs are failed.
+   */
+  private beginDisconnectGrace(nodeId: string): void {
+    const existing = this.disconnectGraceTimers.get(nodeId);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    const timer = setTimeout(() => {
+      this.disconnectGraceTimers.delete(nodeId);
+      // Re-registered during the window? A live socket means the session is
+      // continuous — nothing to do.
+      if (this.isNodeConnected(nodeId)) {
+        return;
+      }
+      // Grace elapsed with no re-registration — this is a real disconnect.
+      this.rejectPendingForNode(nodeId, `Node disconnected: ${nodeId}`);
+      logger.info('Node WebSocket disconnected', { nodeId });
+      this.emit('node:ws-disconnected', nodeId);
+    }, DISCONNECT_GRACE_MS);
+    // Don't keep the event loop alive purely for this timer.
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    this.disconnectGraceTimers.set(nodeId, timer);
+  }
+
+  /**
+   * Record a socket-replace/reconnect event for flap-storm detection. Emits a
+   * single WARN (and a `node:flap-storm` event for the UI) on the rising edge of
+   * a storm — never one line per cycle.
+   */
+  private recordFlap(nodeId: string, nodeName: string): void {
+    const result = this.flapDetector.record(nodeId, Date.now());
+    if (result.stormStarted) {
+      logger.warn('Worker node connection flap storm detected', {
+        node: nodeName,
+        nodeId,
+        replacesInWindow: result.countInWindow,
+        windowMs: FLAP_WINDOW_MS,
+      });
+      this.emit('node:flap-storm', {
+        nodeId,
+        nodeName,
+        replacesInWindow: result.countInWindow,
+        windowMs: FLAP_WINDOW_MS,
+      });
+    }
+  }
+
+  /**
+   * Cancel a pending disconnect grace timer because the node re-registered.
+   * Returns true if a grace window was actually in progress.
+   */
+  private cancelDisconnectGrace(nodeId: string): boolean {
+    const timer = this.disconnectGraceTimers.get(nodeId);
+    if (!timer) {
+      return false;
+    }
+    clearTimeout(timer);
+    this.disconnectGraceTimers.delete(nodeId);
+    return true;
   }
 
   private handleRegistration(
@@ -538,12 +575,29 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
     getRemoteWorkerRepairTracker().clear(newNodeId);
 
+    // Re-registered within the disconnect grace window → continuous session.
+    // Cancelling the grace timer keeps the node in the registry and preserves
+    // its in-flight RPCs (they were never rejected), effectively re-binding them
+    // to this new socket.
+    const withinGrace = this.cancelDisconnectGrace(newNodeId);
+    if (withinGrace) {
+      logger.info('Node re-registered within disconnect grace — treating as continuous session', {
+        nodeId: newNodeId,
+      });
+    }
+
     // Replace any existing socket for this nodeId
     const existing = this.nodeToSocket.get(newNodeId);
     if (existing && existing !== ws) {
       logger.warn('Replacing existing socket for nodeId', { nodeId: newNodeId });
       this.socketToNode.delete(existing);
       existing.close(1001, 'Replaced by new connection');
+      this.recordFlap(newNodeId, name);
+    } else if (withinGrace) {
+      // A re-register after the previous socket already closed is still a flap
+      // cycle even though there was no live socket to replace — count it so a
+      // fast register/close/register storm is detected.
+      this.recordFlap(newNodeId, name);
     }
 
     this.nodeToSocket.set(newNodeId, ws);

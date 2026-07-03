@@ -51,9 +51,15 @@ export interface AndroidAutomationConfigInput {
 }
 
 export interface RemoteNodeEvent {
-  type: 'connected' | 'disconnected' | 'degraded' | 'metrics' | 'updated';
+  type: 'connected' | 'disconnected' | 'degraded' | 'metrics' | 'updated' | 'flap-storm';
   nodeId: string;
   node?: WorkerNodeInfo;
+  /** Present on 'flap-storm' events: human-readable node name. */
+  nodeName?: string;
+  /** Present on 'flap-storm' events: replace count within the detection window. */
+  replacesInWindow?: number;
+  /** Present on 'flap-storm' events: detection window in ms. */
+  windowMs?: number;
 }
 
 export interface RemoteNodeServerStatus {

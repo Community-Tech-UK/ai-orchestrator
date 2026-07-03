@@ -35,6 +35,23 @@ export function createWorkerNodeSubsystemStep(
       const rpcRouter = new RpcEventRouter(connection, registry);
       rpcRouter.start();
 
+      // Surface connection flap storms to the renderer so a flapping node is
+      // visible to the operator instead of silently churning through work.
+      connection.on('node:flap-storm', (info: {
+        nodeId: string;
+        nodeName?: string;
+        replacesInWindow?: number;
+        windowMs?: number;
+      }) => {
+        windowManager.sendToRenderer('remote-node:event', {
+          type: 'flap-storm',
+          nodeId: info.nodeId,
+          nodeName: info.nodeName,
+          replacesInWindow: info.replacesInWindow,
+          windowMs: info.windowMs,
+        });
+      });
+
       registry.on('node:disconnected', (node) => {
         const nodeId = typeof node === 'string' ? node : node.id;
         // Pause the per-instance stuck watchdog first: a network-starved node's

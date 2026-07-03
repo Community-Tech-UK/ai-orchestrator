@@ -5751,7 +5751,7 @@
     },
     {
       "path": "src/worker-agent/worker-agent.ts",
-      "lines": 946
+      "lines": 948
     },
     {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",

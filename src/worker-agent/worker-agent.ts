@@ -5,7 +5,7 @@ import * as path from 'path';
 import { reportCapabilities } from './capability-reporter';
 import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager } from './local-instance-manager';
-import { nextReconnectDelayMs, RECONNECT_CONFIG } from './reconnect-backoff';
+import { nextReconnectDelayMs, shouldResetReconnectAttempt } from './reconnect-backoff';
 import type {
   WorkerAndroidAutomationConfig,
   WorkerBrowserAutomationConfig,
@@ -551,10 +551,7 @@ export class WorkerAgent extends EventEmitter {
     // Don't stack multiple reconnect timers
     if (this.reconnectTimer) return;
 
-    if (
-      this.connectedAt > 0 &&
-      Date.now() - this.connectedAt > RECONNECT_CONFIG.stableConnectionResetMs
-    ) {
+    if (shouldResetReconnectAttempt(this.connectedAt, Date.now())) {
       this.reconnectAttempt = 0;
     }
     this.connectedAt = 0;
@@ -665,8 +662,13 @@ export class WorkerAgent extends EventEmitter {
         this.retryRegistrationWithRecovery = false;
         this.pendingRegistrationId = null;
         this.registrationAccepted = true;
+        // Record when this connection became stable. Do NOT reset
+        // `reconnectAttempt` here: that would defeat the stable-connection gate
+        // in scheduleReconnect() and let a flapping link (drops seconds after
+        // registering) hammer the coordinator instead of backing off. The
+        // counter is reset in exactly one place — scheduleReconnect(), and only
+        // after ≥stableConnectionResetMs of continuous uptime.
         this.connectedAt = Date.now();
-        this.reconnectAttempt = 0;
         console.log('[WorkerAgent] Registration accepted', {
           nodeId: this.config.nodeId,
           coordinator: this.activeCoordinatorUrl ?? this.config.coordinatorUrl,

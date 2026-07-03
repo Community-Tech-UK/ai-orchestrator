@@ -4,6 +4,7 @@ import { parseServiceArgs, runServiceCommand } from './cli/service-cli';
 import { runBrowserExtensionNativeHost } from '../main/browser-gateway/browser-extension-native-host';
 import { installWorkerFileLogging } from './worker-file-logger';
 import { runWorkerSupervisor } from './worker-supervisor';
+import { acquireSingleInstanceLock } from './single-instance-lock';
 
 const SUPERVISE_FLAG = '--supervise';
 
@@ -51,6 +52,20 @@ async function main(): Promise<void> {
   console.log(`Worker node "${config.name}" (${config.nodeId})`);
   console.log(`Connecting to coordinator at ${config.coordinatorUrl}...`);
 
+  // Single-instance guard: a second worker for the same node id would register
+  // under the same identity and evict the primary's coordinator socket in a
+  // flap storm that fails in-flight work. Detect the live primary and exit
+  // cleanly instead of connecting.
+  const lock = acquireSingleInstanceLock({ key: `${config.namespace}:${config.nodeId}` });
+  if (!lock) {
+    console.warn(
+      `[WorkerAgent] Another worker is already running for node "${config.nodeId}" — exiting`,
+    );
+    process.exit(0);
+  }
+  // Release the lock on a hard exit too (crash/exit paths that skip shutdown()).
+  process.on('exit', () => lock.release());
+
   const agent = new WorkerAgent(config, activeConfigPath);
 
   let shuttingDown = false;
@@ -59,6 +74,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     console.log(`\n${signal} received — shutting down...`);
     await agent.disconnect();
+    lock.release();
     process.exit(0);
   };
 
