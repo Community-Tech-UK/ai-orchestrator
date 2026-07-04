@@ -13,6 +13,7 @@ import { BrowserAttachExistingTabRequestSchema } from '@contracts/schemas/browse
 export const BROWSER_CDP_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 export const WORKER_NODE_WS_MAX_PAYLOAD_BYTES = BROWSER_CDP_MAX_FRAME_BYTES + 16 * 1024 * 1024;
 export const WORKER_NODE_WS_BACKPRESSURE_BYTES = 32 * 1024 * 1024;
+const ProviderModelIdSchema = z.string().max(512);
 
 // -- Shared sub-schemas -------------------------------------------------------
 
@@ -140,7 +141,7 @@ export const InstanceSpawnParamsSchema = z.object({
   cliType: z.string().min(1),
   workingDirectory: z.string().min(1),
   systemPrompt: z.string().optional(),
-  model: z.string().optional(),
+  model: ProviderModelIdSchema.optional(),
   yoloMode: z.boolean().optional(),
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),

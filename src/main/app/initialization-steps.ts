@@ -68,8 +68,6 @@ import { LongRunResourceGovernor } from '../runtime/long-run-resource-governor';
 import { getEventLoopLagMonitor } from '../runtime/event-loop-lag-monitor';
 import { getContextWorkerClient } from '../instance/context-worker-client';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
-import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
-import { getModelsDevService } from '../providers/models-dev-service';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
@@ -85,6 +83,7 @@ import {
 } from './remote-gateway-initialization-steps';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
 
 const logger = getLogger('AppInitialization');
 
@@ -152,21 +151,16 @@ export function createInitializationSteps(
     },
     {
       // Initialise the unified model catalog and kick off a background models.dev
-      // sync.  The catalog is populated from static data immediately (constructor)
-      // so this step is fail-soft: a network failure just leaves the static snapshot
-      // in place.  models.dev's doRefresh() calls onModelsDevRefreshed() on the
-      // catalog when it succeeds, so no further wiring is needed here.
+      // sync.  The runtime helper awaits local/remote override source startup
+      // before attaching those entries to the catalog, so cold-start launches
+      // validate against configured override-only models instead of racing the
+      // async source loaders. The catalog is still fail-soft: a source failure
+      // leaves the static snapshot in place.
       name: 'Unified model catalog',
-      fn: () => {
+      fn: async () => {
         try {
-          // Seed the committed offline snapshot BEFORE the catalog is built, so
-          // the catalog's initial rebuild picks up models.dev pricing + context
-          // windows for the supported providers even fully offline. Idempotent.
-          getModelsDevService().loadOfflineSnapshot();
-          getUnifiedModelCatalog(); // ensure singleton is constructed
-          // Fire-and-forget — never throws (fail-soft by design).
-          getModelsDevService().refresh().catch(() => {
-            // Suppressed; failure is already logged inside ModelsDevService.
+          await initializeUnifiedModelCatalogRuntime({
+            userDataPath: app.getPath('userData'),
           });
         } catch (error) {
           logger.warn('Unified model catalog initialization failed; catalog will use static fallback', {

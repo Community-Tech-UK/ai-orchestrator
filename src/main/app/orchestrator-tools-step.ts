@@ -1,7 +1,12 @@
 import { getSettingsManager } from '../core/config/settings-manager';
+import { detectAndroidIntent } from '../channels/android-intent';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
 import { defaultOperatorDbPath } from '../operator/operator-database';
-import { getWorkerNodeConnectionServer, getWorkerNodeRegistry } from '../remote-node';
+import {
+  getWorkerNodeConnectionServer,
+  getWorkerNodeRegistry,
+  isAndroidAutomationReady,
+} from '../remote-node';
 import { COORDINATOR_TO_NODE } from '../remote-node/worker-node-rpc';
 import { ConfigUpdateParamsSchema } from '../remote-node/rpc-schemas';
 import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
@@ -19,6 +24,7 @@ import {
 import { getAutomationEvents } from '../automations/automation-events';
 import { createAutomationToolImplementations } from '../automations/automation-tool-impl';
 import type { Instance } from '../../shared/types/instance.types';
+import type { NodePlacementPrefs, WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import { getLogger } from '../logging/logger';
@@ -41,6 +47,57 @@ export function effectiveSpawnDepth(instance: Instance | undefined): number {
   const fromMeta = typeof metaDepth === 'number' && Number.isFinite(metaDepth) ? metaDepth : 0;
   const fromField = typeof instance.depth === 'number' && Number.isFinite(instance.depth) ? instance.depth : 0;
   return Math.max(fromMeta, fromField, 0);
+}
+
+interface RunOnNodePlacementArgs {
+  prompt: string;
+  requiresBrowser?: boolean;
+  requiresAndroid?: boolean;
+  androidDeviceKind?: 'emulator' | 'physical' | 'any';
+}
+
+function buildRunOnNodePlacement(args: RunOnNodePlacementArgs): NodePlacementPrefs | undefined {
+  const requiresAndroid = args.requiresAndroid ?? detectAndroidIntent(args.prompt);
+  const placement: NodePlacementPrefs = {
+    ...(args.requiresBrowser === true ? { requiresBrowser: true } : {}),
+    ...(requiresAndroid
+      ? {
+          requiresAndroid: true,
+          androidDeviceKind: args.androidDeviceKind ?? 'any',
+        }
+      : {}),
+  };
+  return Object.keys(placement).length > 0 ? placement : undefined;
+}
+
+function assertNodeSatisfiesPlacement(
+  node: WorkerNodeInfo,
+  placement: NodePlacementPrefs | undefined,
+): void {
+  if (!placement) {
+    return;
+  }
+  if (placement.requiresBrowser && !node.capabilities.hasBrowserMcp) {
+    throw new Error(
+      `Worker node "${node.name}" is not browser-automation ready. Enable browser automation or choose a node with hasBrowserMcp=true.`,
+    );
+  }
+  if (placement.requiresAndroid && !isAndroidAutomationReady(node.capabilities)) {
+    throw new Error(
+      `Worker node "${node.name}" is not Android-automation ready. Enable Android automation and verify adb/AVD/device readiness before running this test.`,
+    );
+  }
+  if (
+    placement.requiresAndroid &&
+    placement.androidDeviceKind === 'physical' &&
+    !node.capabilities.androidAutomation?.connectedDevices.some((device) =>
+      (device.kind === 'usb' || device.kind === 'wifi') && device.state === 'device'
+    )
+  ) {
+    throw new Error(
+      `Worker node "${node.name}" does not report an online physical Android device.`,
+    );
+  }
 }
 
 /**
@@ -110,6 +167,13 @@ export function createOrchestratorToolsStep(
               supportedClis: [...node.capabilities.supportedClis],
               hasBrowserRuntime: node.capabilities.hasBrowserRuntime,
               hasBrowserMcp: node.capabilities.hasBrowserMcp,
+              ...(node.capabilities.browserAutomation
+                ? { browserAutomation: node.capabilities.browserAutomation }
+                : {}),
+              hasAndroidMcp: node.capabilities.hasAndroidMcp,
+              ...(node.capabilities.androidAutomation
+                ? { androidAutomation: node.capabilities.androidAutomation }
+                : {}),
               hasDocker: node.capabilities.hasDocker,
               ...(node.capabilities.gpuName ? { gpuName: node.capabilities.gpuName } : {}),
               ...(node.capabilities.gpuMemoryMB ? { gpuMemoryMB: node.capabilities.gpuMemoryMB } : {}),
@@ -165,18 +229,28 @@ export function createOrchestratorToolsStep(
           const connected = allNodes.filter(
             (n) => n.status === 'connected' || n.status === 'degraded',
           );
-          let node;
+          const nodePlacement = buildRunOnNodePlacement(args);
+          let node: WorkerNodeInfo;
           if (args.node) {
             const resolved = resolveWorkerNodeTarget(args.node, connected);
             if ('error' in resolved) {
               throw new Error(resolved.error);
             }
-            node = connected.find((n) => n.id === resolved.nodeId);
-            if (!node) {
+            const exactNode = connected.find((n) => n.id === resolved.nodeId);
+            if (!exactNode) {
               throw new Error(`Worker node not found: ${args.node}`);
             }
+            node = exactNode;
           } else if (connected.length === 1) {
             node = connected[0];
+          } else if (nodePlacement) {
+            const selectedNode = registry.selectNode(nodePlacement);
+            if (!selectedNode) {
+              throw new Error(
+                'No connected worker node satisfies the requested remote testing capabilities.',
+              );
+            }
+            node = selectedNode;
           } else if (connected.length === 0) {
             throw new Error('No worker nodes are connected');
           } else {
@@ -186,6 +260,7 @@ export function createOrchestratorToolsStep(
                 .join(', ')}); specify one via "node"`,
             );
           }
+          assertNodeSatisfiesPlacement(node, nodePlacement);
           const allowedDirs = node.capabilities?.workingDirectories ?? [];
           const workingDirectory = args.workingDirectory || allowedDirs[0] || process.cwd();
           const instance = await instanceManager.createInstance({
@@ -196,6 +271,7 @@ export function createOrchestratorToolsStep(
             forceNodeId: node.id,
             provider: args.provider,
             modelOverride: args.model,
+            ...(nodePlacement ? { nodePlacement } : {}),
             // Record spawn lineage for the recursion guard so a child that
             // itself calls run_on_node is seen at the next depth.
             metadata: {

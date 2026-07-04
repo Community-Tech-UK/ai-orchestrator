@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { ModelsDevService } from './models-dev-service';
 import { clearModelRateOverlay } from '../../shared/data/model-pricing';
+import { MAX_MODEL_ID_LENGTH } from '../../shared/types/provider.types';
 
 describe('ModelsDevService.parseRegistry', () => {
   const service = new ModelsDevService();
@@ -62,6 +63,29 @@ describe('ModelsDevService.parseRegistry', () => {
     });
     const parsed = service.parseRegistry(raw);
     expect(Object.keys(parsed!.rates)).toEqual(['ok']);
+  });
+
+  it('skips models beyond the dynamic catalog id length limit', () => {
+    const tooLongCatalogModelId = `${'m'.repeat(MAX_MODEL_ID_LENGTH - 2)}-v1`;
+    expect(tooLongCatalogModelId).toHaveLength(MAX_MODEL_ID_LENGTH + 1);
+    const raw = JSON.stringify({
+      prov: {
+        models: {
+          ok: { id: 'ok', cost: { input: 1, output: 2 } },
+          tooLong: {
+            id: tooLongCatalogModelId,
+            cost: { input: 3, output: 4 },
+            limit: { context: 1234 },
+          },
+        },
+      },
+    });
+
+    const parsed = service.parseRegistry(raw);
+
+    expect(Object.keys(parsed!.rates)).toEqual(['ok']);
+    expect(parsed!.contextWindows.has(tooLongCatalogModelId)).toBe(false);
+    expect(parsed!.entries.map((entry) => entry.id)).toEqual(['ok']);
   });
 
   it('returns null for malformed JSON and non-object roots', () => {

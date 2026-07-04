@@ -69,14 +69,23 @@ const auxiliaryProviderSchema = z.enum([
   'auto',
 ] satisfies (AuxiliaryLlmProvider | 'auto')[]);
 const modelIdSchema = z.string().max(512);
+const customModelIdSchema = z.string().trim().min(1).max(512);
 const shortStringSchema = z.string().min(1).max(128);
 const settingStringSchema = z.string().max(4096);
 const optionalUrlSchema = z.union([z.literal(''), z.string().url().max(4096)]);
+const optionalHttpUrlSchema = z.union([
+  z.literal(''),
+  z.string().url().max(4096).regex(/^https?:\/\//i, 'Must be an HTTP(S) URL'),
+]);
 const optionalEnvNameSchema = z.union([
   z.literal(''),
   z.string().max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
 ]);
 const modelByProviderSchema = z.record(shortStringSchema, modelIdSchema);
+const customModelsByProviderSchema = z.record(
+  shortStringSchema,
+  z.array(customModelIdSchema).max(200),
+);
 const fastModeByProviderSchema = z.record(shortStringSchema, z.boolean());
 const auxiliarySlotSchema = z.object({
   enabled: z.boolean(),
@@ -159,6 +168,8 @@ export const SETTINGS_TOOL_POLICY = {
   showCost: open(z.boolean()),
   maxRecentDirectories: open(numberSettingSchema('maxRecentDirectories')),
   customModelOverride: open(modelIdSchema),
+  customModelsByProvider: open(customModelsByProviderSchema),
+  modelCatalogRemoteOverrideUrl: open(optionalHttpUrlSchema),
   parserBufferMaxKB: open(numberSettingSchema('parserBufferMaxKB')),
   codememEnabled: open(z.boolean()),
   codememIndexingEnabled: open(z.boolean()),
@@ -172,6 +183,7 @@ export const SETTINGS_TOOL_POLICY = {
   chromeDevtoolsAttachEnabled: readOnly(true),
   chromeDevtoolsAttachProfileId: readOnly(true),
   codebaseAutoIndexEnabled: open(z.boolean()),
+  instanceProviderLimitResumeEnabled: open(z.boolean()),
   codebaseAutoIndexMaxFiles: open(numberSettingSchema('codebaseAutoIndexMaxFiles')),
   codebaseAutoIndexMaxBytes: open(numberSettingSchema('codebaseAutoIndexMaxBytes')),
   codebaseAutoIndexConcurrent: open(numberSettingSchema('codebaseAutoIndexConcurrent')),

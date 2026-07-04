@@ -1,7 +1,9 @@
 import type {
   BrowserActionClass,
   BrowserAllowedOrigin,
+  BrowserApprovalRequest,
   BrowserGatewayResult,
+  BrowserPermissionGrant,
   BrowserTarget,
 } from '@contracts/types/browser';
 import type { BrowserApprovalStore } from './browser-approval-store';
@@ -17,8 +19,9 @@ export class BrowserManualHandoffOperations {
   constructor(private readonly deps: {
     approvalStore: Pick<BrowserApprovalStore, 'createRequest'>;
     extensionTabStore: Pick<BrowserExtensionTabStore, 'getTab'>;
-    profileStore: Pick<BrowserProfileStore, 'getProfile'>;
+    profileStore: Pick<BrowserProfileStore, 'getProfile' | 'setRuntimeState'>;
     getLiveTarget: (profileId: string, targetId: string) => Promise<{ target: BrowserTarget | null; error?: string }>;
+    autoApproveApproval?: (approval: BrowserApprovalRequest) => BrowserPermissionGrant | null;
     result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
   }) {}
 
@@ -76,6 +79,37 @@ export class BrowserManualHandoffOperations {
       },
       expiresAt: Date.now() + 30 * 60 * 1000,
     });
+    const autoGrant = this.deps.autoApproveApproval?.(approval);
+    if (autoGrant && params.toolName === 'browser.request_user_login') {
+      try {
+        if (this.deps.profileStore.getProfile(params.request.profileId)) {
+          this.deps.profileStore.setRuntimeState(params.request.profileId, {
+            lastLoginCheckAt: Date.now(),
+          });
+        }
+      } catch {
+        // Existing-tab login handoffs do not have managed profile runtime state.
+      }
+    }
+    if (autoGrant) {
+      return this.deps.result({
+        context: params.request,
+        profileId: params.request.profileId,
+        targetId: params.request.targetId,
+        action: params.action,
+        toolName: params.toolName,
+        actionClass: params.actionClass,
+        decision: 'allowed',
+        outcome: 'succeeded',
+        grantId: autoGrant.id,
+        autonomous: autoGrant.autonomous,
+        reason: 'auto_approved_by_yolo_mode',
+        summary: `${params.toolName} was auto-approved by YOLO mode; re-check the browser state before continuing`,
+        origin: scope.origin,
+        url: scope.url,
+        data: null,
+      });
+    }
 
     return this.deps.result({
       context: params.request,

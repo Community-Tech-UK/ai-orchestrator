@@ -361,7 +361,7 @@ export function registerCliVerificationHandlers(
   // ============================================
 
   // List available models for any provider
-  // Dynamically queries CLI when supported (Copilot), falls back to static lists
+  // Dynamically queries CLI when supported (Copilot/Cursor), falls back to static lists
   ipcMain.handle(
     'provider:list-models',
     async (

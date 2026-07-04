@@ -25,6 +25,7 @@ import { HookStore } from '../../core/state/hook.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
+import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import type { ContextUsage, Instance } from '../../core/state/instance.store';
 import { getModelShortName } from '../../../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
@@ -48,6 +49,7 @@ export class InstanceHeaderComponent implements OnInit {
   private hookStore = inject(HookStore);
   private fileIpc = inject(FileIpcService);
   private electronIpc = inject(ElectronIpcService);
+  private instanceIpc = inject(InstanceIpcService);
   private readonly remoteNodeStore = inject(RemoteNodeStore);
 
   private nameInput = viewChild<ElementRef<HTMLInputElement>>('nameInput');
@@ -95,6 +97,19 @@ export class InstanceHeaderComponent implements OnInit {
       || status === 'cancelling'
       || status === 'interrupt-escalating';
   });
+
+  /** True while the session is parked awaiting a provider quota-window reset. */
+  readonly isQuotaParked = computed(() => this.instance().waitReason?.kind === 'quota-park');
+
+  /** Resume a provider-limit-parked session immediately (skip the wait). */
+  resumeFromProviderLimit(): void {
+    void this.instanceIpc.providerLimitResumeNow(this.instance().id);
+  }
+
+  /** Cancel the provider-limit park so the session will not auto-resume. */
+  cancelProviderLimitPark(): void {
+    void this.instanceIpc.providerLimitCancel(this.instance().id);
+  }
 
   readonly waitReasonLabel = computed(() => {
     const wr = this.instance().waitReason;

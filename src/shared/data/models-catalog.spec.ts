@@ -6,8 +6,24 @@ import {
   getModelsWithInputModality,
   estimatePromptCost,
 } from './models-catalog';
+import { PROVIDER_MODEL_LIST } from '../types/provider.types';
+
+const CATALOG_PROVIDER_BY_STATIC_PROVIDER = {
+  claude: 'anthropic',
+  codex: 'openai',
+  gemini: 'google',
+} as const;
 
 describe('models-catalog', () => {
+  it('keeps active first-party catalog IDs in sync with PROVIDER_MODEL_LIST', () => {
+    for (const [staticProvider, catalogProvider] of Object.entries(CATALOG_PROVIDER_BY_STATIC_PROVIDER)) {
+      const expected = (PROVIDER_MODEL_LIST[staticProvider] ?? []).map((model) => model.id);
+      const active = getModelsForProvider(catalogProvider).map((model) => model.id);
+
+      expect(active, `${catalogProvider} active catalog ids`).toEqual(expected);
+    }
+  });
+
   it('catalog has at least one active model per major provider', () => {
     for (const provider of ['anthropic', 'google', 'openai'] as const) {
       expect(getModelsForProvider(provider).length).toBeGreaterThan(0);
@@ -29,7 +45,7 @@ describe('models-catalog', () => {
   });
 
   it('getModelCatalogEntry returns entry for known IDs', () => {
-    const entry = getModelCatalogEntry('claude-sonnet-4-6');
+    const entry = getModelCatalogEntry('claude-sonnet-4-6-20260401');
     expect(entry).toBeDefined();
     expect(entry?.provider).toBe('anthropic');
   });
@@ -43,7 +59,7 @@ describe('models-catalog', () => {
   });
 
   it('estimatePromptCost returns a number for known models with pricing', () => {
-    const cost = estimatePromptCost('claude-sonnet-4-6', 1_000_000, 500_000);
+    const cost = estimatePromptCost('claude-sonnet-4-6-20260401', 1_000_000, 500_000);
     expect(typeof cost).toBe('number');
     expect(cost).toBeGreaterThan(0);
   });
@@ -52,16 +68,16 @@ describe('models-catalog', () => {
     expect(estimatePromptCost('unknown-model', 1000, 500)).toBeUndefined();
   });
 
-  it('claude-sonnet-4-6 has correct context window and pricing', () => {
-    const m = getModelCatalogEntry('claude-sonnet-4-6')!;
-    expect(m.contextWindow).toBe(200_000);
+  it('claude-sonnet-4-6-20260401 has current generated metadata and pricing', () => {
+    const m = getModelCatalogEntry('claude-sonnet-4-6-20260401')!;
+    expect(m.contextWindow).toBe(1_000_000);
     expect(m.capabilities.promptCaching).toBe(true);
     expect(m.pricing?.inputPer1mTokens).toBe(3.0);
   });
 
   it('claude-opus-4-8 is active with 1M context and current pricing', () => {
     const m = getModelCatalogEntry('claude-opus-4-8')!;
-    expect(m.name).toBe('Claude Opus 4.8');
+    expect(m.name).toBe('Opus 4.8');
     expect(m.contextWindow).toBe(1_000_000);
     expect(m.maxOutputTokens).toBe(128_000);
     expect(m.capabilities.promptCaching).toBe(true);
@@ -72,7 +88,7 @@ describe('models-catalog', () => {
 
   it('claude-fable-5 is active with documented limits and pricing', () => {
     const m = getModelCatalogEntry('claude-fable-5')!;
-    expect(m.name).toBe('Claude Fable 5');
+    expect(m.name).toBe('Fable 5');
     expect(m.contextWindow).toBe(1_000_000);
     expect(m.maxOutputTokens).toBe(128_000);
     expect(m.capabilities.promptCaching).toBe(true);

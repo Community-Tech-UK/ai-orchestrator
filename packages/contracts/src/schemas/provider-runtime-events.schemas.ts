@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RequiredModelIdSchema } from './common.schemas';
 
 export const BuiltInProviderNameSchema = z.enum([
   'claude',
@@ -163,7 +164,7 @@ export const ProviderRuntimeEventEnvelopeSchema = z.object({
   provider: ProviderNameSchema,
   instanceId: z.string().min(1),
   sessionId: z.string().optional(),
-  model: z.string().min(1).max(300).optional(),
+  model: RequiredModelIdSchema.optional(),
   adapterGeneration: z.number().int().nonnegative().optional(),
   turnId: z.string().optional(),
   event: ProviderRuntimeEventSchema,

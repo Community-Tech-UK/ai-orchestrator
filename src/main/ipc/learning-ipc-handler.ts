@@ -54,6 +54,7 @@ import {
   serializeContextSectionForIpc,
   serializeContextStoreForIpc,
 } from './rlm-ipc-serialization';
+import { registerModelDiscoveryHandlers } from './model-discovery-ipc-handlers';
 
 /**
  * Register all learning-related IPC handlers
@@ -411,94 +412,6 @@ function registerSelfImprovementHandlers(): void {
   // Configure learning
   ipcMain.handle(IPC_CHANNELS.LEARNING_CONFIGURE, (_event, config: Partial<SelfImprovementConfig>): void => {
     tracker.configure(config);
-  });
-}
-
-// ============ Model Discovery Handlers ============
-
-function registerModelDiscoveryHandlers(): void {
-  // Note: The model discovery service exists at src/main/providers/model-discovery.ts
-  // These handlers integrate with the existing ModelDiscoveryService
-
-  // Import the existing service
-  const { getModelDiscoveryService } = require('../providers/model-discovery');
-  const discoveryService = getModelDiscoveryService();
-
-  // Discover models
-  ipcMain.handle(
-    IPC_CHANNELS.MODEL_DISCOVER,
-    async (_event, config: { type: string; apiKey?: string; baseUrl?: string }) => {
-      return discoveryService.discoverModels(config);
-    }
-  );
-
-  // Get all models for a provider
-  ipcMain.handle(IPC_CHANNELS.MODEL_GET_ALL, async (_event, config: { type: string; apiKey?: string }) => {
-    return discoveryService.discoverModels(config);
-  });
-
-  // Get specific model
-  ipcMain.handle(
-    IPC_CHANNELS.MODEL_GET,
-    async (_event, payload: { config: { type: string; apiKey?: string }; modelId: string }) => {
-      return discoveryService.getModelDetails(payload.config, payload.modelId);
-    }
-  );
-
-  // Select best model (simple implementation - returns first available)
-  ipcMain.handle(
-    IPC_CHANNELS.MODEL_SELECT,
-    async (
-      _event,
-      payload: { config: { type: string; apiKey?: string }; criteria: { capabilities?: string[] } }
-    ) => {
-      const models = await discoveryService.discoverModels(payload.config);
-      return models.length > 0 ? models[0] : null;
-    }
-  );
-
-  // Configure provider - not directly supported by existing service, return success
-  ipcMain.handle(IPC_CHANNELS.MODEL_CONFIGURE_PROVIDER, async () => {
-    return { success: true };
-  });
-
-  // Get provider status
-  ipcMain.handle(IPC_CHANNELS.MODEL_GET_PROVIDER_STATUS, async (_event, config: { type: string }) => {
-    return {
-      provider: config.type,
-      enabled: true,
-      configured: true,
-      connected: true,
-    };
-  });
-
-  // Get stats
-  ipcMain.handle(IPC_CHANNELS.MODEL_GET_STATS, async () => {
-    return {
-      totalProviders: 6,
-      enabledProviders: 1,
-      connectedProviders: 1,
-      totalModels: 0,
-      availableModels: 0,
-    };
-  });
-
-  // Verify model
-  ipcMain.handle(
-    IPC_CHANNELS.MODEL_VERIFY,
-    async (_event, payload: { config: { type: string; apiKey?: string }; modelId: string }) => {
-      return discoveryService.isModelAvailable(payload.config, payload.modelId);
-    }
-  );
-
-  // Set override - store locally (placeholder)
-  ipcMain.handle(IPC_CHANNELS.MODEL_SET_OVERRIDE, async () => {
-    return { success: true };
-  });
-
-  // Remove override - placeholder
-  ipcMain.handle(IPC_CHANNELS.MODEL_REMOVE_OVERRIDE, async () => {
-    return { success: true };
   });
 }
 

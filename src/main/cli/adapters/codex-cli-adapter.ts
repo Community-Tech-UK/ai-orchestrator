@@ -11,17 +11,6 @@
  *
  * The adapter auto-detects which mode to use at spawn time.
  *
- * Improvements derived from the codex-plugin-cc reference implementation:
- *   - JSON-RPC app-server protocol for persistent connections
- *   - Broker pattern for multi-instance process sharing
- *   - Real-time notification streaming (not batch-after-exit)
- *   - Native thread management (replaces conversation replay)
- *   - Graceful turn interruption via turn/interrupt RPC
- *   - Native context compaction via thread/compact/start
- *   - Structured output schemas for verification/debate
- *   - Reasoning effort control (none → xhigh)
- *   - Cross-platform process tree termination
- *   - Enhanced availability detection
  */
 
 import {
@@ -41,6 +30,7 @@ import {
   type AdapterCapabilities,
 } from './base-cli-adapter';
 import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } from '../../../shared/types/instance.types';
+import { PROVIDER_MODEL_LIST, type ModelDisplayInfo } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent, type ThinkingBlock } from '../../../shared/utils/thinking-extractor';
@@ -93,9 +83,9 @@ import { extractReasoningSections, mergeReasoningSections, shorten } from './cod
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
+import { discoverCodexModels } from './codex/model-list';
 
 const logger = getLogger('CodexCliAdapter');
-
 // ─── Local Types ────────────────────────────────────────────────────────────
 
 type CodexApprovalMode = 'suggest' | 'auto-edit' | 'full-auto';
@@ -192,10 +182,6 @@ const INFERRED_COMPLETION_MS = 250;
 /** Regex to detect verification commands for progress phase reporting. */
 const VERIFICATION_CMD_PATTERN = /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i;
 
-// ─── Error types ────────────────────────────────────────────────────────────
-
-// Defined in ./codex/exec-timeout (kept out of this file for size); re-exported
-// here because callers historically import them from the adapter module.
 export { CodexTimeoutError };
 export type { CodexExecPhase, CodexTimeoutKind };
 
@@ -448,6 +434,21 @@ export class CodexCliAdapter extends BaseCliAdapter {
         });
       }, 5000);
     });
+  }
+
+  async listAvailableModels(options: { fallbackToStatic?: boolean } = {}): Promise<ModelDisplayInfo[]> {
+    try {
+      return await discoverCodexModels({
+        cwd: this.cliConfig.workingDir || process.cwd(),
+        env: { ...getSafeEnvForTrustedProcess(), ...this.config.env },
+      });
+    } catch (error) {
+      if (options.fallbackToStatic === false) throw error;
+      logger.warn('Falling back to static Codex model list', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [...(PROVIDER_MODEL_LIST['codex'] ?? [])];
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════

@@ -22,6 +22,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import z from 'zod';
 import type { AgentMode, AgentProfile, AgentToolPermissions, ToolPermission } from '../../shared/types/agent.types';
+import { MAX_MODEL_ID_LENGTH } from '../../shared/types/provider.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../shared/types/agent.types';
 import { parseMarkdownFrontmatter } from '../../shared/utils/markdown-frontmatter';
 import { resolveProjectScanRoots } from '../util/project-scan-roots';
@@ -35,6 +36,7 @@ const PermissionsSchema = z.object({
   web: ToolPermissionSchema.optional(),
   task: ToolPermissionSchema.optional(),
 });
+const AgentModelHintSchema = z.string().trim().min(1).max(MAX_MODEL_ID_LENGTH).optional().catch(undefined);
 
 const AgentFrontmatterSchema = z.object({
   name: z.string().optional(),
@@ -43,7 +45,7 @@ const AgentFrontmatterSchema = z.object({
   color: z.string().optional(),
   icon: z.string().optional(),
   shortcutHint: z.string().optional(),
-  model: z.string().optional(),
+  model: AgentModelHintSchema,
   permissions: PermissionsSchema.optional(),
 });
 

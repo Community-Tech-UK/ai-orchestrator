@@ -11,10 +11,16 @@ import { Router } from '@angular/router';
     <header class="page-header">
       <div class="header-left">
         @if (backRoute()) {
-          <button class="back-btn" (click)="goBack()">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button
+            class="back-btn"
+            type="button"
+            (click)="goBack()"
+            aria-label="Back to dashboard"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M19 12H5M12 19l-7-7 7-7"/>
             </svg>
+            <span>Back</span>
           </button>
         }
         <div class="header-titles">
@@ -39,9 +45,9 @@ import { Router } from '@angular/router';
     }
     .header-left { display: flex; align-items: center; gap: var(--spacing-md, 16px); }
     .back-btn {
-      padding: var(--spacing-xs, 4px); background: none; border: none;
+      padding: var(--spacing-xs, 4px) var(--spacing-sm, 8px); background: none; border: none;
       color: var(--text-muted, #9a9aa0); cursor: pointer; border-radius: var(--radius-sm, 4px);
-      display: flex; align-items: center; justify-content: center;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       transition: all var(--transition-fast, 0.1s);
       &:hover { color: var(--primary-color, #f59e0b); background: rgba(245,158,11,0.08); }
     }

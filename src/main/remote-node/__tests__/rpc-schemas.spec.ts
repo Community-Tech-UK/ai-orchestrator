@@ -23,6 +23,9 @@ import {
 } from '../rpc-schemas';
 
 describe('rpc-schemas', () => {
+  const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+  const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
+
   describe('NodeRegisterParamsSchema', () => {
     it('accepts valid registration', () => {
       const result = NodeRegisterParamsSchema.safeParse({
@@ -143,6 +146,28 @@ describe('rpc-schemas', () => {
         },
       });
       expect(result.success).toBe(false);
+    });
+
+    it('accepts model ids up to the dynamic catalog limit', () => {
+      expect(maxCatalogModelId).toHaveLength(512);
+
+      expect(InstanceSpawnParamsSchema.safeParse({
+        instanceId: 'inst-1',
+        cliType: 'claude',
+        workingDirectory: '/workspace',
+        model: maxCatalogModelId,
+      }).success).toBe(true);
+    });
+
+    it('rejects model ids beyond the dynamic catalog limit', () => {
+      expect(tooLongCatalogModelId).toHaveLength(513);
+
+      expect(InstanceSpawnParamsSchema.safeParse({
+        instanceId: 'inst-1',
+        cliType: 'claude',
+        workingDirectory: '/workspace',
+        model: tooLongCatalogModelId,
+      }).success).toBe(false);
     });
   });
 

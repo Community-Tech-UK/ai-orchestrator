@@ -1,6 +1,7 @@
 import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import type {
   CampaignEdge,
   CampaignNodeRunDto,
@@ -109,6 +110,7 @@ export class CampaignPageComponent implements OnInit {
   protected readonly terminalStatuses = TERMINAL_STATUSES;
   protected readonly providers = PROVIDERS;
   protected readonly stages = STAGES;
+  private readonly router = inject(Router);
   store = inject(CampaignStore);
 
   title = signal('New campaign');
@@ -136,6 +138,10 @@ export class CampaignPageComponent implements OnInit {
   ngOnInit(): void {
     this.store.ensureWired();
     void this.store.load();
+  }
+
+  goBack(): void {
+    void this.router.navigate(['/']);
   }
 
   resetEditor(): void {

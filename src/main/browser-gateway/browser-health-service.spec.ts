@@ -72,16 +72,16 @@ describe('BrowserHealthService', () => {
     expect(report.providerCapabilities).toEqual({
       claude: 'legacy_chrome_disabled',
       copilot: 'unconfigured',
-      codex: 'unavailable_exec_mode',
+      codex: 'unconfigured',
       gemini: 'unconfigured_adapter_injection_missing',
     });
     expect(report.rawLegacyAutomation.status).toBe('ready');
     expect(report.rawLegacyAutomation.surface).toBe('legacy_raw_browser_automation');
     expect(report.providerCapabilityDetails).toMatchObject({
       codex: {
-        status: 'unavailable_exec_mode',
+        status: 'unconfigured',
         available: false,
-        message: expect.stringContaining('exec-mode'),
+        message: expect.stringContaining('MCP bridge is unavailable'),
       },
       gemini: {
         status: 'unconfigured_adapter_injection_missing',
@@ -128,7 +128,7 @@ describe('BrowserHealthService', () => {
     expect(report.providerCapabilities).toMatchObject({
       claude: 'available_via_mcp',
       copilot: 'available_via_acp_mcp',
-      codex: 'unavailable_exec_mode',
+      codex: 'available_via_mcp',
       gemini: 'unconfigured_adapter_injection_missing',
     });
     expect(report.providerCapabilityDetails).toMatchObject({
@@ -139,6 +139,11 @@ describe('BrowserHealthService', () => {
       copilot: {
         available: true,
         message: expect.stringContaining('ACP MCP'),
+      },
+      codex: {
+        status: 'available_via_mcp',
+        available: true,
+        message: expect.stringContaining('injected MCP config'),
       },
     });
   });

@@ -11,7 +11,11 @@ import {
   SearchSemanticPayloadSchema,
   SearchBuildIndexPayloadSchema,
   SearchConfigureExaPayloadSchema,
+  SessionRecallSearchPayloadSchema,
 } from '../observability.schemas';
+
+const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
 
 describe('observability.schemas', () => {
   it('SearchSemanticPayloadSchema requires query', () => {
@@ -25,10 +29,30 @@ describe('observability.schemas', () => {
       DebugAgentPayloadSchema, DebugConfigPayloadSchema, DebugFilePayloadSchema,
       DebugAllPayloadSchema,
       SearchSemanticPayloadSchema, SearchBuildIndexPayloadSchema,
-      SearchConfigureExaPayloadSchema,
+      SearchConfigureExaPayloadSchema, SessionRecallSearchPayloadSchema,
     ];
     for (const schema of schemas) {
       expect(typeof schema.parse).toBe('function');
     }
+  });
+
+  it('accepts session recall model filters up to the dynamic catalog limit', () => {
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    const parsed = SessionRecallSearchPayloadSchema.parse({
+      query: 'prior failures',
+      model: maxCatalogModelId,
+    });
+
+    expect(parsed.model).toBe(maxCatalogModelId);
+  });
+
+  it('rejects session recall model filters beyond the dynamic catalog limit', () => {
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    expect(SessionRecallSearchPayloadSchema.safeParse({
+      query: 'prior failures',
+      model: tooLongCatalogModelId,
+    }).success).toBe(false);
   });
 });

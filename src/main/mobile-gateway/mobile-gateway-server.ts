@@ -31,10 +31,7 @@ import type {
 } from '../../shared/types/mobile-gateway.types';
 import {
   buildProjects,
-  serializeHistoryMessage,
-  serializeHistorySession,
   serializeInstance,
-  serializeInstanceHistorySession,
   serializeMessage,
   WAITING_STATUSES,
   WORKING_STATUSES,
@@ -51,7 +48,12 @@ import {
   sendJsonResponse,
 } from './mobile-gateway-http-utils';
 import { handleMobileHistory, handleMobileHistoryMessages } from './mobile-gateway-history-handlers';
-import { handleMobileModelRoutes, type MobileModelLister } from './mobile-gateway-model-handlers';
+import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
+import {
+  handleMobileModelRoutes,
+  type MobileModelCatalogSource,
+  type MobileModelLister,
+} from './mobile-gateway-model-handlers';
 import { sendMobileCompletionPush, sendMobilePromptPush } from './mobile-gateway-push';
 
 export {
@@ -139,6 +141,7 @@ export interface MobileGatewayDeps {
   /** Persistent archive of closed instance sessions. Defaults to the HistoryManager. */
   instanceHistory?: GatewayInstanceHistorySource;
   apnsSender?: MobileApnsSender;
+  modelCatalog?: MobileModelCatalogSource;
   listDynamicModels?: MobileModelLister;
   /**
    * Resolves a worker-node name or id to a node id for remote-targeted
@@ -1041,7 +1044,12 @@ export class MobileGatewayServer {
   }
 
   private modelDeps() {
-    return { instanceManager: this.source(), listDynamicModels: this.deps?.listDynamicModels, logger };
+    return {
+      instanceManager: this.source(),
+      modelCatalog: this.deps?.modelCatalog ?? getUnifiedModelCatalog(),
+      listDynamicModels: this.deps?.listDynamicModels,
+      logger,
+    };
   }
 
   private handleMessages(res: ServerResponse, instanceId: string, url: URL): void {

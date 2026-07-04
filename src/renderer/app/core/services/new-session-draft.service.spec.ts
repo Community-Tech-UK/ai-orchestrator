@@ -4,6 +4,7 @@ import { NewSessionDraftService } from './new-session-draft.service';
 import { ProviderStateService } from './provider-state.service';
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
 import { ScratchDirectoryService } from './scratch-directory.service';
+import { clearKnownModelCatalogSnapshotForTesting } from '../../../../shared/types/provider.types';
 
 /**
  * Lightweight stub of ProviderStateService so we don't have to spin up
@@ -42,6 +43,7 @@ describe('NewSessionDraftService', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    clearKnownModelCatalogSnapshotForTesting();
     workspaceIpc = {
       hintActive: vi.fn().mockResolvedValue(true),
     };
@@ -254,6 +256,41 @@ describe('NewSessionDraftService', () => {
     });
     const reloaded = createService();
     expect(reloaded.agentId()).toBe('build');
+  });
+
+  it('preserves a persisted strict-provider draft model before the unified catalog has loaded', () => {
+    window.localStorage.setItem(
+      'new-session-drafts:v1',
+      JSON.stringify({
+        version: 1,
+        activeKey: 'project:/repo',
+        drafts: {
+          'project:/repo': {
+            workingDirectory: '/repo',
+            prompt: 'Use the override model',
+            provider: 'claude',
+            model: 'claude-local-opus',
+            agentId: 'build',
+            pendingFolders: [],
+            updatedAt: 0,
+          },
+        },
+      }),
+    );
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        NewSessionDraftService,
+        { provide: ProviderStateService, useClass: StubProviderStateService },
+        { provide: WorkspaceIpcService, useValue: workspaceIpc },
+        { provide: ScratchDirectoryService, useValue: scratchDirectory },
+      ],
+    });
+
+    const reloaded = createService();
+    expect(reloaded.provider()).toBe('claude');
+    expect(reloaded.model()).toBe('claude-local-opus');
   });
 
   it('persists reasoningEffort via setReasoningEffort', () => {

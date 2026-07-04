@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   FilePathSchema,
   DirectoryPathSchema,
+  ModelIdSchema,
   WorkingDirectorySchema,
 } from './common.schemas';
 
@@ -83,7 +84,7 @@ export const SessionRecallSearchPayloadSchema = z.object({
   parentId: z.string().max(200).optional(),
   automationId: z.string().max(200).optional(),
   provider: z.string().max(100).optional(),
-  model: z.string().max(200).optional(),
+  model: ModelIdSchema.optional(),
   repositoryPath: z.string().max(2000).optional(),
   sources: z.array(z.enum([
     'child_result',

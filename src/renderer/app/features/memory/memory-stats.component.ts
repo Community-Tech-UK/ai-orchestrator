@@ -13,8 +13,10 @@ import {
   Component,
   input,
   computed,
+  inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { Router } from '@angular/router';
 
 interface MemoryStats {
   totalEntries: number;
@@ -49,6 +51,7 @@ interface MemoryStats {
     <div class="stats-container">
       <!-- Header -->
       <div class="stats-header">
+        <button class="stats-back" type="button" (click)="goBack()" aria-label="Back to dashboard">&larr; Back</button>
         <span class="stats-icon">📊</span>
         <span class="stats-title">Memory Statistics</span>
       </div>
@@ -255,6 +258,19 @@ interface MemoryStats {
       gap: var(--spacing-sm);
       padding: var(--spacing-md);
       border-bottom: 1px solid var(--border-color);
+    }
+
+    .stats-back {
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      padding: 5px 9px;
+
+      &:hover { background: var(--bg-hover); }
     }
 
     .stats-icon {
@@ -604,6 +620,8 @@ interface MemoryStats {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MemoryStatsComponent {
+  private readonly router = inject(Router);
+
   /** Memory statistics */
   stats = input<MemoryStats | null>(null);
 
@@ -616,6 +634,8 @@ export class MemoryStatsComponent {
     if (!s) return 0;
     return s.operations.adds + s.operations.updates + s.operations.deletes + s.operations.noops;
   });
+
+  goBack(): void { void this.router.navigate(['/']); }
 
   getTypeIcon(type: string): string {
     switch (type) {

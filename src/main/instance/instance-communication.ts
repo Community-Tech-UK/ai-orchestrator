@@ -46,6 +46,7 @@ import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
+import { detectErrorProviderLimit, detectCompletionProviderLimit } from './instance-provider-limit-detection';
 import {
   getAdapterRuntimeCapabilities,
   isContextOverflowMessage,
@@ -1574,6 +1575,22 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.recordEstimationTelemetry(completedInstance, response);
       }
       this.deps.onToolStateChange?.(instanceId, 'idle');
+
+      // Regular-session provider-limit auto-resume (opt-in). A throttled CLI
+      // often exits 0 with the limit *notice as the assistant content*
+      // ("You've hit your session limit · resets 6:30pm") rather than throwing.
+      // Park + schedule a resume so the turn is re-sent after the window resets.
+      if (this.deps.onProviderLimitTurn) {
+        const signal = detectCompletionProviderLimit(response);
+        if (signal) {
+          this.deps.onProviderLimitTurn({
+            instanceId,
+            resetAtHint: signal.resetAtHint,
+            reason: signal.reason,
+            resumePrompt: this.lastSentMessages.get(instanceId)?.message ?? null,
+          });
+        }
+      }
     });
 
     adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number; metadata?: Record<string, unknown> }) => {
@@ -1808,6 +1825,37 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         } else {
           logger.warn('No compactContext handler available', { instanceId });
+        }
+      }
+
+      // Regular-session provider-limit auto-resume (opt-in). If this turn
+      // stopped on a rate/session limit, park the instance and schedule a
+      // resume after the quota window resets instead of marking it errored.
+      if (this.deps.onProviderLimitTurn && !recoverableTurnError) {
+        const signal = detectErrorProviderLimit(error, errorMessage);
+        if (signal) {
+          const outcome = this.deps.onProviderLimitTurn({
+            instanceId,
+            resetAtHint: signal.resetAtHint,
+            reason: signal.reason,
+            resumePrompt: this.lastSentMessages.get(instanceId)?.message ?? null,
+          });
+          if (outcome === 'parked') {
+            const parkMessage: OutputMessage = {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'system',
+              content: 'Provider limit reached. This session is parked and will resume automatically when the quota window resets.',
+              metadata: { providerLimitParked: true },
+            };
+            this.addToOutputBuffer(instance, parkMessage);
+            this.emit('output', { instanceId, message: parkMessage });
+            if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
+              this.transitionInstanceStatus(instance, 'idle');
+              this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+            }
+            return;
+          }
         }
       }
 

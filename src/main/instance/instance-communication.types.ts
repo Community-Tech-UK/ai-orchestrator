@@ -68,6 +68,20 @@ export interface CommunicationDependencies {
   refreshAdapterRuntimeConfig?: (instanceId: string) => Promise<void>;
   onOutput?: (instanceId: string, content?: string) => void;
   onToolStateChange?: (instanceId: string, state: 'generating' | 'tool_executing' | 'idle') => void;
+  /**
+   * Invoked when a turn stops on a provider rate/session limit. Lets the
+   * (opt-in) regular-session auto-resume machinery park the instance and
+   * schedule a resume after the quota window resets. Returns `'parked'` when it
+   * took ownership of the stopped turn (the caller should leave the instance
+   * idle instead of marking it errored), or `'skipped'` to fall through to
+   * normal handling.
+   */
+  onProviderLimitTurn?: (params: {
+    instanceId: string;
+    resetAtHint: number | null;
+    reason: string;
+    resumePrompt: string | null;
+  }) => 'parked' | 'skipped';
   createSnapshot?: (instanceId: string, name: string, description: string | undefined, trigger: 'checkpoint' | 'auto') => void;
   getBudgetTracker?: (instanceId: string) => TokenBudgetTracker | undefined;
   getContextUsage?: (instanceId: string) => ContextUsage | undefined;

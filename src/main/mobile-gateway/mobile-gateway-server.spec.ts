@@ -1100,18 +1100,32 @@ describe('MobileGatewayServer', () => {
 
   // ---- Model catalog + mid-session model change ----
 
-  it('serves a model catalog with static providers, dynamic metadata overlay, and static fallback', async () => {
-    const listDynamicModels = vi.fn(async (provider: string) => {
-      if (provider === 'copilot') {
-        return [{ id: 'gpt-5.5', name: 'Live GPT 5.5', tier: 'fast' as const }];
-      }
-      throw new Error('cursor unavailable');
+  it('serves a model catalog from the unified catalog with static fallback', async () => {
+    const listDynamicModels = vi.fn(async () => {
+      throw new Error('legacy dynamic lister should not be used when unified catalog is present');
     });
+    const modelCatalog = {
+      getModelsByProvider: vi.fn((provider: string) => {
+        if (provider !== 'copilot') {
+          return [];
+        }
+        return [{
+          id: 'gpt-5.5',
+          provider: 'copilot',
+          name: 'Live GPT 5.5',
+          tier: 'fast' as const,
+          family: 'GPT',
+          source: 'cli-discovered' as const,
+          discoveredAt: 123,
+        }];
+      }),
+    };
     server.initialize({
       instanceManager: source,
       registry,
       pauseCoordinator: pause,
       recentDirs: fakeRecentDirs,
+      modelCatalog,
       listDynamicModels,
     } as unknown as Parameters<MobileGatewayServer['initialize']>[0]);
 
@@ -1123,11 +1137,12 @@ describe('MobileGatewayServer', () => {
     expect(catalog['auto']).toBeUndefined();
     expect(catalog['claude']?.[0]?.id).toBeTruthy();
     expect(catalog['copilot']).toEqual([
-      { id: 'gpt-5.5', name: 'Live GPT 5.5', tier: 'balanced', pinned: true, family: 'GPT' },
+      { id: 'gpt-5.5', name: 'Live GPT 5.5', tier: 'fast', pinned: true, family: 'GPT' },
     ]);
     expect(catalog['cursor']?.some((model) => model.id === 'auto')).toBe(true);
-    expect(listDynamicModels).toHaveBeenCalledWith('copilot');
-    expect(listDynamicModels).toHaveBeenCalledWith('cursor');
+    expect(modelCatalog.getModelsByProvider).toHaveBeenCalledWith('copilot');
+    expect(modelCatalog.getModelsByProvider).toHaveBeenCalledWith('cursor');
+    expect(listDynamicModels).not.toHaveBeenCalled();
   });
 
   it('changes the current model and returns the updated instance', async () => {

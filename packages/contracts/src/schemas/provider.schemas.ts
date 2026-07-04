@@ -2,6 +2,8 @@ import { z } from 'zod';
 import {
   DirectoryPathSchema,
   FilePathSchema,
+  ModelIdSchema,
+  RequiredModelIdSchema,
   WorkingDirectorySchema,
 } from './common.schemas';
 
@@ -113,19 +115,19 @@ export const LLMCancelStreamPayloadSchema = z.object({
 
 export const LLMCountTokensPayloadSchema = z.object({
   text: z.string().max(10000000),
-  model: z.string().max(200).optional(),
+  model: ModelIdSchema.optional(),
 });
 
 export const LLMTruncateTokensPayloadSchema = z.object({
   text: z.string().max(10000000),
   maxTokens: z.number().int().min(1).max(1000000),
-  model: z.string().max(200).optional(),
+  model: ModelIdSchema.optional(),
 });
 
 export const LLMSetConfigPayloadSchema = z.object({
   anthropicApiKey: z.string().max(500).optional(),
   openaiApiKey: z.string().max(500).optional(),
-  model: z.string().max(200).optional(),
+  model: ModelIdSchema.optional(),
   maxTokens: z.number().int().min(1).max(1000000).optional(),
   temperature: z.number().min(0).max(2).optional(),
 }).passthrough();
@@ -237,8 +239,8 @@ export const ModelsCLIPushPayloadSchema = z.object({
   provider: z.string().min(1).max(100),
   /** Discovered model list. */
   models: z.array(z.object({
-    id: z.string().min(1).max(200),
-    name: z.string().min(1).max(200),
+    id: RequiredModelIdSchema,
+    name: z.string().min(1).max(512),
     tier: z.enum(['fast', 'balanced', 'powerful']),
     pinned: z.boolean().optional(),
     family: z.string().max(100).optional(),

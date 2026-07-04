@@ -7,15 +7,17 @@
  */
 
 /** Which data source contributed an entry to the unified catalog. */
-export type CatalogSource = 'cli-discovered' | 'models-dev' | 'static';
+export type CatalogSource = 'cli-discovered' | 'models-dev' | 'user-custom' | 'catalog-override' | 'static';
 
 /**
  * A single provider-neutral model entry in the unified catalog.
  *
  * Precedence when merging:
- *   1. CLI-discovered (live, highest) — from Copilot/Cursor `--list-models`
- *   2. models.dev — live fetch from the public registry
- *   3. static — curated `PROVIDER_MODEL_LIST` / `MODEL_PRICING` snapshot
+ *   1. CLI-discovered (live, highest) — from provider CLI model-list probes
+ *   2. user-custom — provider-specific ids from settings
+ *   3. catalog-override — user-data / remote JSON override
+ *   4. models.dev — live fetch from the public registry
+ *   5. static — curated `PROVIDER_MODEL_LIST` / `MODEL_PRICING` snapshot
  *
  * Where a higher-precedence source is present its fields win, except that
  * `tier` and `family` from the static catalog are always overlaid when the
@@ -25,6 +27,8 @@ export type CatalogSource = 'cli-discovered' | 'models-dev' | 'static';
 export interface UnifiedModelEntry {
   /** Canonical model id as used by the provider's CLI / API. */
   id: string;
+  /** Optional display label supplied by a live CLI source or catalog override. */
+  name?: string;
   /** Normalised provider namespace (e.g. `claude`, `copilot`, `gemini`, `codex`). */
   provider: string;
   /**
@@ -71,6 +75,8 @@ export interface UnifiedModelEntry {
   maxOutputTokens?: number;
   /** Highest-precedence source that contributed this entry. */
   source: CatalogSource;
+  /** True when the entry came from the user's provider-specific custom list. */
+  isCustom?: boolean;
   /**
    * Wall-clock timestamp (ms since epoch) when this entry was last refreshed
    * from its primary source.
@@ -93,6 +99,6 @@ export interface CatalogStatus {
    * Keys are provider names (e.g. `copilot`, `cursor`).
    */
   cliDiscoveryLastRefreshedAt: Record<string, number>;
-  /** ISO timestamp of when the catalog was last rebuilt from any source. */
+  /** Milliseconds since epoch when the catalog was last rebuilt from any source. */
   catalogLastBuiltAt: number | null;
 }

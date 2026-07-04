@@ -235,9 +235,9 @@ describe('BrowserPageComponent', () => {
             message: 'Copilot can use Browser Gateway through ACP MCP config.',
           },
           codex: {
-            available: false,
-            status: 'unavailable_exec_mode',
-            message: 'Codex exec-mode Browser Gateway is unavailable.',
+            available: true,
+            status: 'available_via_mcp',
+            message: 'Codex can use Browser Gateway through injected MCP config in local AIO sessions.',
           },
           gemini: {
             available: false,
@@ -409,7 +409,7 @@ describe('BrowserPageComponent', () => {
     const text = fixture.nativeElement.textContent;
 
     expect(text).toContain('Claude can use Browser Gateway MCP tools.');
-    expect(text).toContain('Codex exec-mode Browser Gateway is unavailable.');
+    expect(text).toContain('Codex can use Browser Gateway through injected MCP config in local AIO sessions.');
     expect(text).toContain('Gemini Browser Gateway is unavailable until adapter MCP injection is implemented.');
   });
 

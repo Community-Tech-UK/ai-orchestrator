@@ -32,7 +32,10 @@ interface RepoInfo {
   template: `
     <div class="tasks-page">
       <header class="hero">
-        <div>
+        <div class="hero-copy">
+          <button class="ghost back-button" type="button" (click)="goBack()" aria-label="Back to dashboard">
+            &larr; Back
+          </button>
           <p class="eyebrow">Local Background Jobs</p>
           <h1>Repo Jobs</h1>
           <p class="subtitle">
@@ -353,6 +356,13 @@ interface RepoInfo {
       align-items: flex-end;
     }
 
+    .hero-copy {
+      display: grid;
+      gap: 0.45rem;
+      justify-items: start;
+      min-width: 0;
+    }
+
     .eyebrow {
       margin: 0 0 0.35rem;
       text-transform: uppercase;
@@ -485,6 +495,10 @@ interface RepoInfo {
     .ghost {
       background: rgba(148, 163, 184, 0.14);
       color: #f8fafc;
+    }
+
+    .back-button {
+      padding: 0.5rem 0.8rem;
     }
 
     .ghost.danger {
@@ -732,6 +746,10 @@ export class TasksPageComponent {
         this.loading.set(false);
       }
     }
+  }
+
+  goBack(): void {
+    void this.router.navigate(['/']);
   }
 
   async submit(): Promise<void> {

@@ -135,7 +135,7 @@ interface ToolIndex {
 const MAX_TOOL_DESCRIPTION_LENGTH = 2048;
 const DEFAULT_SERVER_SEARCH_HINT = 'Use MCP tool search for detailed tool descriptions when needed.';
 const ORCHESTRATOR_REMOTE_TOOLS_SEARCH_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs and other machines, through list_remote_nodes, run_on_node, and read_node_output. Inspect nodes before claiming reachability.';
+  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, and other machines, through list_remote_nodes, run_on_node, and read_node_output. If the user names a machine, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For remote browser or Android testing, pass requiresBrowser or requiresAndroid to run_on_node.';
 
 /**
  * Truncate a tool description to the maximum allowed length.

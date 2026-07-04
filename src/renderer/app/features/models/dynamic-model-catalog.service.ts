@@ -6,10 +6,9 @@ import {
 } from '../../../../shared/types/provider.types';
 
 /**
- * Providers whose model list is discovered from the installed CLI at runtime.
- * For everything else the curated static catalog (`getModelsForProvider`) is the
- * source of truth, so we don't waste an IPC round-trip re-fetching an identical
- * list.
+ * Providers whose model list is still discovered from the renderer as a
+ * producer into the main unified catalog. Other runtime sources, including
+ * Codex model/list, are owned by the main process.
  */
 const DYNAMIC_PROVIDERS = new Set<string>(['copilot', 'cursor']);
 

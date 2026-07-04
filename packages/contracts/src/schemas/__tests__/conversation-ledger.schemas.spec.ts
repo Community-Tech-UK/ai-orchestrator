@@ -8,6 +8,9 @@ import {
 } from '../conversation-ledger.schemas';
 
 describe('conversation ledger IPC schemas', () => {
+  const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+  const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
+
   it('validates narrow list and thread payloads', () => {
     expect(ConversationLedgerListPayloadSchema.parse({ provider: 'codex', limit: 25 })).toMatchObject({
       provider: 'codex',
@@ -46,5 +49,35 @@ describe('conversation ledger IPC schemas', () => {
       text: 'Continue',
       inputItems: [{ type: 'text', text: 'Continue' }],
     }).inputItems).toHaveLength(1);
+  });
+
+  it('accepts conversation model ids up to the dynamic catalog limit', () => {
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    expect(ConversationLedgerStartPayloadSchema.safeParse({
+      provider: 'codex',
+      workspacePath: '/tmp/project',
+      model: maxCatalogModelId,
+    }).success).toBe(true);
+    expect(ConversationLedgerSendTurnPayloadSchema.safeParse({
+      threadId: 'thread_1',
+      text: 'Continue',
+      model: maxCatalogModelId,
+    }).success).toBe(true);
+  });
+
+  it('rejects conversation model ids beyond the dynamic catalog limit', () => {
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    expect(ConversationLedgerStartPayloadSchema.safeParse({
+      provider: 'codex',
+      workspacePath: '/tmp/project',
+      model: tooLongCatalogModelId,
+    }).success).toBe(false);
+    expect(ConversationLedgerSendTurnPayloadSchema.safeParse({
+      threadId: 'thread_1',
+      text: 'Continue',
+      model: tooLongCatalogModelId,
+    }).success).toBe(false);
   });
 });

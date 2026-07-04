@@ -297,12 +297,22 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
       method: 'orchestrator_tools.run_on_node',
       params: {
         instanceId: KNOWN_INSTANCE,
-        payload: { node: 'windows-pc', prompt: 'run the tests' },
+        payload: {
+          node: 'windows-pc',
+          prompt: 'run the tests',
+          requiresAndroid: true,
+          androidDeviceKind: 'emulator',
+        },
       },
     });
 
     expect(runHandler).toHaveBeenCalledOnce();
-    expect(runHandler.mock.calls[0]?.[0]).toEqual({ node: 'windows-pc', prompt: 'run the tests' });
+    expect(runHandler.mock.calls[0]?.[0]).toEqual({
+      node: 'windows-pc',
+      prompt: 'run the tests',
+      requiresAndroid: true,
+      androidDeviceKind: 'emulator',
+    });
     expect(result).toMatchObject({ instanceId: 'inst-1' });
   });
 

@@ -1,11 +1,13 @@
 /**
  * UnifiedModelCatalogService
  *
- * Merges all three model-metadata sources into one provider-neutral catalog:
+ * Merges every model-metadata source layer into one provider-neutral catalog:
  *
- *   Priority 1 (highest): CLI-discovered models  — live Copilot/Cursor lists
- *   Priority 2:           models.dev registry   — fetched + cached every 6 h
- *   Priority 3 (lowest):  static curated data   — PROVIDER_MODEL_LIST / MODEL_PRICING
+ *   Priority 1 (highest): CLI-discovered models  — live provider CLI lists
+ *   Priority 2:           user-custom models    — provider-specific settings
+ *   Priority 3:           catalog overrides     — user-data / remote JSON entries
+ *   Priority 4:           models.dev registry   — fetched + cached every 6 h
+ *   Priority 5 (lowest):  static curated data   — PROVIDER_MODEL_LIST / MODEL_PRICING
  *
  * Static `tier` and `family` are always overlaid on live entries when the live
  * source does not supply them (mirrors the renderer's `mergeStaticMetadata`).
@@ -21,15 +23,20 @@ import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import {
   PROVIDER_MODEL_LIST,
+  MAX_MODEL_ID_LENGTH,
+  clearKnownModelCatalogSnapshotForTesting,
+  replaceKnownModelCatalogSnapshot,
   type ModelDisplayInfo,
 } from '../../shared/types/provider.types';
 import { getModelsDevService, type ModelsDevService } from './models-dev-service';
 import { getModelRate, DEFAULT_MODEL_RATE, hasOverlayRate } from '../../shared/data/model-pricing';
+import type { CatalogOverrideEntry } from './catalog-override-source';
 import type {
   UnifiedModelEntry,
   CatalogStatus,
   CatalogSource,
 } from '../../shared/types/unified-model-catalog.types';
+import type { AppSettings } from '../../shared/types/settings.types';
 
 export type { UnifiedModelEntry, CatalogStatus, CatalogSource };
 
@@ -46,11 +53,33 @@ function catalogKey(provider: string, id: string): string {
 /** Event name emitted when the catalog content changes. */
 export const CATALOG_UPDATED_EVENT = 'catalog-updated' as const;
 
+const CATALOG_SOURCE_PRIORITY: Record<CatalogSource, number> = {
+  'static': 1,
+  'models-dev': 2,
+  'catalog-override': 3,
+  'user-custom': 4,
+  'cli-discovered': 5,
+};
+
 export interface CatalogUpdatedPayload {
   /** Number of entries in the rebuilt catalog. */
   totalEntries: number;
   /** Sources that triggered this rebuild. */
   sources: CatalogSource[];
+}
+
+interface CatalogSettingsManager {
+  get<K extends keyof AppSettings>(key: K): AppSettings[K];
+  on(event: 'setting-changed', listener: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void): unknown;
+  off?(event: 'setting-changed', listener: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void): unknown;
+  removeListener?(event: 'setting-changed', listener: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void): unknown;
+}
+
+interface CatalogOverrideEventSource {
+  getEntries(): CatalogOverrideEntry[];
+  on(event: 'updated', listener: () => void): unknown;
+  off?(event: 'updated', listener: () => void): unknown;
+  removeListener?(event: 'updated', listener: () => void): unknown;
 }
 
 export class UnifiedModelCatalogService extends EventEmitter {
@@ -63,16 +92,26 @@ export class UnifiedModelCatalogService extends EventEmitter {
 
   /** CLI-discovered models keyed by provider namespace. */
   private cliModels = new Map<string, ModelDisplayInfo[]>();
+  /** User-entered model ids keyed by provider namespace. */
+  private customModelsByProvider: Record<string, string[]> = {};
+  /** User-data / remote catalog override entries. */
+  private catalogOverrideEntries: CatalogOverrideEntry[] = [];
 
   /** Timestamps tracking per-source refresh. */
   private modelsDevLastRefreshedAt: number | null = null;
   private cliDiscoveryLastRefreshedAt: Record<string, number> = {};
+  private customModelsLastRefreshedAt: number | null = null;
+  private catalogOverrideLastRefreshedAt: number | null = null;
   private catalogLastBuiltAt: number | null = null;
 
   /** Pending debounce timer handle. */
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Sources queued for the next debounced catalog-updated event. */
   private pendingSources = new Set<CatalogSource>();
+  /** Detaches the active settings listener, if app bootstrap has attached one. */
+  private detachSettingsListener: (() => void) | null = null;
+  /** Detaches the active catalog override listener, if app bootstrap has attached one. */
+  private detachCatalogOverrideListener: (() => void) | null = null;
 
   private constructor(modelsDevSvc: ModelsDevService) {
     super();
@@ -96,8 +135,11 @@ export class UnifiedModelCatalogService extends EventEmitter {
       if (UnifiedModelCatalogService.instance.debounceTimer !== null) {
         clearTimeout(UnifiedModelCatalogService.instance.debounceTimer);
       }
+      UnifiedModelCatalogService.instance.detachSettingsListener?.();
+      UnifiedModelCatalogService.instance.detachCatalogOverrideListener?.();
       UnifiedModelCatalogService.instance = null;
     }
+    clearKnownModelCatalogSnapshotForTesting();
   }
 
   // ============================================================
@@ -125,10 +167,14 @@ export class UnifiedModelCatalogService extends EventEmitter {
   getModel(id: string): UnifiedModelEntry | undefined {
     // Direct map lookup by composite key isn't possible without knowing the
     // provider; scan is O(n) but catalog sizes are small (< 200 entries).
+    let best: UnifiedModelEntry | undefined;
     for (const entry of this.catalog.values()) {
-      if (entry.id === id) return entry;
+      if (entry.id !== id) continue;
+      if (!best || CATALOG_SOURCE_PRIORITY[entry.source] > CATALOG_SOURCE_PRIORITY[best.source]) {
+        best = entry;
+      }
     }
-    return undefined;
+    return best;
   }
 
   /** Per-source last-refresh timestamps (for a future live-refresh status pill). */
@@ -161,10 +207,97 @@ export class UnifiedModelCatalogService extends EventEmitter {
    */
   onCliDiscoveryRefreshed(provider: string, models: ModelDisplayInfo[]): void {
     const norm = provider.trim().toLowerCase();
+    if (models.length === 0) {
+      logger.debug('CLI discovery returned no models; keeping existing catalog state', {
+        provider: norm,
+      });
+      return;
+    }
     this.cliModels.set(norm, models);
     this.cliDiscoveryLastRefreshedAt[norm] = Date.now();
     logger.debug('CLI discovery notified', { provider: norm, count: models.length });
     this.scheduleRebuild('cli-discovered');
+  }
+
+  /**
+   * Attach the catalog to settings changes. App bootstrap owns this wiring so
+   * constructing the catalog in tests does not implicitly construct Electron
+   * settings. The current settings snapshot is consumed immediately.
+   */
+  attachSettingsManager(settingsManager: CatalogSettingsManager): void {
+    this.detachSettingsListener?.();
+
+    this.onCustomModelsChanged(settingsManager.get('customModelsByProvider'), { immediate: true });
+
+    const listener = (
+      key: keyof AppSettings,
+      value: AppSettings[keyof AppSettings],
+    ) => {
+      if (key === 'customModelsByProvider') {
+        this.onCustomModelsChanged(value);
+      }
+    };
+    settingsManager.on('setting-changed', listener);
+    this.detachSettingsListener = () => {
+      if (typeof settingsManager.off === 'function') {
+        settingsManager.off('setting-changed', listener);
+      } else {
+        settingsManager.removeListener?.('setting-changed', listener);
+      }
+    };
+  }
+
+  /** Update the provider-specific custom-model source and schedule a rebuild. */
+  onCustomModelsChanged(
+    customModelsByProvider: unknown,
+    options: { immediate?: boolean } = {},
+  ): void {
+    this.customModelsByProvider = normalizeCustomModelsByProvider(customModelsByProvider);
+    this.customModelsLastRefreshedAt = Date.now();
+    logger.debug('Custom model settings notified', {
+      providers: Object.keys(this.customModelsByProvider).length,
+    });
+    if (options.immediate) {
+      this.rebuildImmediately('user-custom');
+      return;
+    }
+    this.scheduleRebuild('user-custom');
+  }
+
+  /** Attach the optional user-data / remote catalog override source. */
+  attachCatalogOverrideSource(source: CatalogOverrideEventSource): void {
+    this.detachCatalogOverrideListener?.();
+
+    this.onCatalogOverrideChanged(source.getEntries(), { immediate: true });
+
+    const listener = () => {
+      this.onCatalogOverrideChanged(source.getEntries());
+    };
+    source.on('updated', listener);
+    this.detachCatalogOverrideListener = () => {
+      if (typeof source.off === 'function') {
+        source.off('updated', listener);
+      } else {
+        source.removeListener?.('updated', listener);
+      }
+    };
+  }
+
+  /** Update catalog override entries and schedule a rebuild. */
+  onCatalogOverrideChanged(
+    entries: CatalogOverrideEntry[],
+    options: { immediate?: boolean } = {},
+  ): void {
+    this.catalogOverrideEntries = normalizeCatalogOverrideEntries(entries);
+    this.catalogOverrideLastRefreshedAt = Date.now();
+    logger.debug('Catalog override source notified', {
+      entries: this.catalogOverrideEntries.length,
+    });
+    if (options.immediate) {
+      this.rebuildImmediately('catalog-override');
+      return;
+    }
+    this.scheduleRebuild('catalog-override');
   }
 
   // ============================================================
@@ -191,10 +324,22 @@ export class UnifiedModelCatalogService extends EventEmitter {
     }
   }
 
+  private rebuildImmediately(source: CatalogSource): void {
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+
+    const sources = Array.from(new Set([...this.pendingSources, source])) as CatalogSource[];
+    this.pendingSources.clear();
+    this.rebuildCatalog(sources);
+  }
+
   /**
-   * Rebuild the in-memory catalog from all three sources.
+   * Rebuild the in-memory catalog from all sources.
    * Static data is the base; models.dev context-window/pricing overlays on top;
-   * CLI-discovered models take highest precedence, with static tier/family backfilled.
+   * user-custom adds provider-specific ids; CLI-discovered models take highest
+   * precedence, with static tier/family backfilled.
    */
   private rebuildCatalog(triggerSources: CatalogSource[]): void {
     const next = new Map<string, UnifiedModelEntry>();
@@ -233,11 +378,14 @@ export class UnifiedModelCatalogService extends EventEmitter {
     }
 
     // Second, add models.dev-only entries (those absent from the static catalog).
-    // models.dev uses its own provider namespace (e.g. `anthropic`, `openai`);
-    // we store them under that namespace verbatim so they are discoverable.
+    // models.dev uses external provider namespaces (e.g. `anthropic`, `google`);
+    // map supported namespaces to the app's provider ids so newly published
+    // upstream models can appear in the same picker/catalog bucket as the
+    // provider runtime. Unknown namespaces are kept verbatim for discovery.
     const modelsDevEntries = this.modelsDevSvc.listEntries();
     for (const devEntry of modelsDevEntries) {
-      const key = catalogKey(devEntry.provider, devEntry.id);
+      const provider = normalizeModelsDevProviderNamespace(devEntry.provider);
+      const key = catalogKey(provider, devEntry.id);
       if (next.has(key)) {
         // Already exists from static — skip; it was enriched in the loop above.
         continue;
@@ -256,7 +404,7 @@ export class UnifiedModelCatalogService extends EventEmitter {
       };
       const entry: UnifiedModelEntry = {
         id: devEntry.id,
-        provider: devEntry.provider,
+        provider,
         tier: 'balanced', // no tier info from models.dev; consumer may override
         pricing,
         pricingSource: 'models-dev',
@@ -268,8 +416,66 @@ export class UnifiedModelCatalogService extends EventEmitter {
       next.set(key, entry);
     }
 
-    // ---- Layer 3: CLI-discovered models (highest precedence) ----
+    // ---- Layer 3: catalog overrides ----
+    const staticModelCache = new Map<string, Map<string, ModelDisplayInfo>>();
+    for (const override of this.catalogOverrideEntries) {
+      const provider = override.provider;
+      const id = override.id;
+      const key = catalogKey(provider, id);
+      const existing = next.get(key);
+      const staticById = getStaticModelsById(provider, staticModelCache);
+      const known = staticById.get(id);
+      const { pricing, pricingSource } = this.getEnrichedPricingWithSource(id);
+      const overridePricing = override.pricing;
+      const entry: UnifiedModelEntry = {
+        id,
+        provider,
+        ...(override.name ? { name: override.name } : existing?.name ? { name: existing.name } : {}),
+        tier: override.tier ?? known?.tier ?? existing?.tier ?? 'balanced',
+        family: override.family ?? known?.family ?? existing?.family,
+        pricing: overridePricing ?? pricing ?? existing?.pricing,
+        pricingSource: overridePricing ? 'catalog-override' : (pricingSource ?? existing?.pricingSource),
+        contextWindow: override.contextWindow ?? this.modelsDevSvc.getContextWindow(id) ?? existing?.contextWindow,
+        maxOutputTokens: override.maxOutputTokens ?? existing?.maxOutputTokens,
+        source: 'catalog-override',
+        discoveredAt: override.discoveredAt || this.catalogOverrideLastRefreshedAt || now,
+      };
+      next.set(key, entry);
+    }
+
+    // ---- Layer 4: user custom models ----
+    for (const [provider, modelIds] of Object.entries(this.customModelsByProvider)) {
+      const staticById = new Map(
+        (PROVIDER_MODEL_LIST[provider] ?? []).map((m) => [m.id, m]),
+      );
+      const discoveredAt = this.customModelsLastRefreshedAt ?? now;
+
+      for (const id of modelIds) {
+        const key = catalogKey(provider, id);
+        const existing = next.get(key);
+        const known = staticById.get(id);
+        const { pricing, pricingSource } = this.getEnrichedPricingWithSource(id);
+        const entry: UnifiedModelEntry = {
+          id,
+          provider,
+          ...(existing?.name ? { name: existing.name } : {}),
+          tier: known?.tier ?? existing?.tier ?? 'balanced',
+          family: known?.family ?? existing?.family,
+          pricing: pricing ?? existing?.pricing,
+          pricingSource: pricingSource ?? existing?.pricingSource,
+          contextWindow: this.modelsDevSvc.getContextWindow(id) ?? existing?.contextWindow,
+          maxOutputTokens: existing?.maxOutputTokens,
+          source: 'user-custom',
+          isCustom: true,
+          discoveredAt,
+        };
+        next.set(key, entry);
+      }
+    }
+
+    // ---- Layer 5: CLI-discovered models (highest precedence) ----
     for (const [provider, models] of this.cliModels) {
+      this.removeProviderFallbackEntries(next, provider);
       const staticById = new Map(
         (PROVIDER_MODEL_LIST[provider] ?? []).map((m) => [m.id, m]),
       );
@@ -285,6 +491,7 @@ export class UnifiedModelCatalogService extends EventEmitter {
 
         const entry: UnifiedModelEntry = {
           id: m.id,
+          name: m.name,
           provider,
           tier,
           family,
@@ -299,6 +506,7 @@ export class UnifiedModelCatalogService extends EventEmitter {
     }
 
     this.catalog = next;
+    replaceKnownModelCatalogSnapshot(next.values());
     this.catalogLastBuiltAt = Date.now();
 
     logger.info('Unified model catalog rebuilt', {
@@ -373,6 +581,20 @@ export class UnifiedModelCatalogService extends EventEmitter {
     }
     return { pricing: undefined, fromLiveOverlay: false, pricingSource: undefined };
   }
+
+  private removeProviderFallbackEntries(
+    catalog: Map<string, UnifiedModelEntry>,
+    provider: string,
+  ): void {
+    for (const [key, entry] of catalog) {
+      if (
+        entry.provider === provider
+        && (entry.source === 'static' || entry.source === 'models-dev')
+      ) {
+        catalog.delete(key);
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -381,4 +603,85 @@ export class UnifiedModelCatalogService extends EventEmitter {
 
 export function getUnifiedModelCatalog(): UnifiedModelCatalogService {
   return UnifiedModelCatalogService.getInstance();
+}
+
+function normalizeCustomModelsByProvider(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const result: Record<string, string[]> = {};
+  for (const [rawProvider, rawModels] of Object.entries(value)) {
+    const provider = rawProvider.trim().toLowerCase();
+    if (!provider || !Array.isArray(rawModels)) {
+      continue;
+    }
+
+    const seen = new Set<string>();
+    const models: string[] = [];
+    for (const rawModel of rawModels) {
+      if (typeof rawModel !== 'string') {
+        continue;
+      }
+      const model = rawModel.trim();
+      if (!model || model.length > MAX_MODEL_ID_LENGTH || seen.has(model)) {
+        continue;
+      }
+      seen.add(model);
+      models.push(model);
+    }
+    if (models.length > 0) {
+      result[provider] = models;
+    }
+  }
+  return result;
+}
+
+function normalizeCatalogOverrideEntries(entries: CatalogOverrideEntry[]): CatalogOverrideEntry[] {
+  const result = new Map<string, CatalogOverrideEntry>();
+  for (const entry of entries) {
+    const provider = entry.provider.trim().toLowerCase();
+    const id = entry.id.trim();
+    if (!provider || !id || entry.source !== 'catalog-override') {
+      continue;
+    }
+    result.set(catalogKey(provider, id), {
+      ...entry,
+      provider,
+      id,
+      ...(entry.name ? { name: entry.name.trim() } : {}),
+      ...(entry.family ? { family: entry.family.trim() } : {}),
+    });
+  }
+  return Array.from(result.values());
+}
+
+function getStaticModelsById(
+  provider: string,
+  cache: Map<string, Map<string, ModelDisplayInfo>>,
+): Map<string, ModelDisplayInfo> {
+  const cached = cache.get(provider);
+  if (cached) {
+    return cached;
+  }
+  const byId = new Map((PROVIDER_MODEL_LIST[provider] ?? []).map((model) => [model.id, model]));
+  cache.set(provider, byId);
+  return byId;
+}
+
+function normalizeModelsDevProviderNamespace(provider: string): string {
+  const normalized = provider.trim().toLowerCase();
+
+  switch (normalized) {
+    case 'anthropic':
+      return 'claude';
+    case 'google':
+      return 'gemini';
+    case 'openai':
+      return 'codex';
+    case 'github-copilot':
+      return 'copilot';
+    default:
+      return normalized;
+  }
 }

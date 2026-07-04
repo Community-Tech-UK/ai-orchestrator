@@ -14,12 +14,35 @@
       align-items: center;
       padding: 20px 24px;
       border-bottom: 1px solid var(--border-color);
+      gap: 16px;
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
     }
 
     .panel-header h1 {
       margin: 0;
       font-size: 20px;
       font-weight: 600;
+    }
+
+    .back-btn {
+      padding: 6px 10px;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .back-btn:hover {
+      background: var(--bg-hover);
     }
 
     .close-btn {

@@ -7,10 +7,19 @@
  *      (no TestBed — avoids the full component bootstrap chain).
  */
 
-import { describe, it, expect } from 'vitest';
 import { signal, computed } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, it, expect } from 'vitest';
 import { pickPaneDefaults } from './split-session-compare.component';
 import type { Instance } from '../../core/state/instance/instance.types';
+
+const specDirectory = dirname(fileURLToPath(import.meta.url));
+const splitCompareTemplate = readFileSync(
+  resolve(specDirectory, './split-session-compare.component.html'),
+  'utf8',
+);
 
 // ────────────────────────────────────────────────────────────────
 // Helpers
@@ -56,6 +65,13 @@ function makeStoreMock(initialInstances: Instance[] = []) {
 // ────────────────────────────────────────────────────────────────
 // 1. pickPaneDefaults()
 // ────────────────────────────────────────────────────────────────
+
+describe('Split compare route navigation', () => {
+  it('keeps a visible dashboard Back control in the split compare window', () => {
+    expect(splitCompareTemplate).toContain('aria-label="Back to dashboard"');
+    expect(splitCompareTemplate).toContain('&larr; Back');
+  });
+});
 
 describe('pickPaneDefaults()', () => {
   it('returns [null, null] for an empty list', () => {

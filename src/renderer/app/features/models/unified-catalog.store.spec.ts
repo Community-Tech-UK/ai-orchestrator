@@ -14,6 +14,10 @@ vi.mock('../../../../shared/types/provider.types', async (importOriginal) => ({
 import { UnifiedCatalogStore } from './unified-catalog.store';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import type { UnifiedModelEntry } from '../../../../shared/types/unified-model-catalog.types';
+import {
+  clearKnownModelCatalogSnapshotForTesting,
+  normalizeModelForProvider,
+} from '../../../../shared/types/provider.types';
 
 function entry(partial: Partial<UnifiedModelEntry> & Pick<UnifiedModelEntry, 'id' | 'provider'>): UnifiedModelEntry {
   return {
@@ -70,6 +74,7 @@ describe('UnifiedCatalogStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     TestBed.resetTestingModule();
+    clearKnownModelCatalogSnapshotForTesting();
     ipc = makeIpc(SAMPLE);
   });
 
@@ -116,6 +121,25 @@ describe('UnifiedCatalogStore', () => {
     ]);
   });
 
+  it('uses catalog override display names when no curated static name exists', async () => {
+    ipc = makeIpc([
+      entry({
+        id: 'claude-override-opus',
+        provider: 'claude',
+        name: 'Override Opus',
+        source: 'catalog-override',
+        tier: 'powerful',
+      }),
+    ]);
+    const store = setup();
+
+    await store.refresh();
+
+    expect(store.displayModelsForProvider('claude')).toEqual([
+      { id: 'claude-override-opus', name: 'Override Opus', tier: 'powerful' },
+    ]);
+  });
+
   it('live-refreshes when the main process pushes catalog-updated', async () => {
     const store = setup();
     await store.refresh();
@@ -124,5 +148,16 @@ describe('UnifiedCatalogStore', () => {
     ipc.firePush();
     await flush();
     expect(ipc.getUnifiedModelCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it('refresh populates the renderer-side normalization snapshot', async () => {
+    ipc = makeIpc([
+      entry({ id: 'claude-future-opus', provider: 'claude', tier: 'powerful' }),
+    ]);
+    const store = setup();
+
+    await store.refresh();
+
+    expect(normalizeModelForProvider('claude', 'claude-future-opus')).toBe('claude-future-opus');
   });
 });

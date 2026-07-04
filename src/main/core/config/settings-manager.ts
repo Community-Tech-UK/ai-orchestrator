@@ -19,9 +19,9 @@ import {
   mergeDirtyPaths,
   type SettingsWriteContext,
 } from './settings-dirty-merge';
+import { migrateLegacyCustomModelOverride } from './settings-custom-models';
 
 export type { SettingsConflict, SettingsWriteContext } from './settings-dirty-merge';
-
 const logger = getLogger('SettingsManager');
 const SETTINGS_LOCK_TIMEOUT_MS = 5000;
 const SETTINGS_LOCK_RETRY_INTERVAL_MS = 50;
@@ -229,10 +229,14 @@ export class SettingsManager extends EventEmitter {
     // Slot additions should appear in existing installs without a one-shot key;
     // this key-based merge self-heals future slot additions without churn.
     this.migrateAuxiliaryMissingSlots();
-    // Seed per-provider model memory from existing defaultModel/defaultCli on
-    // first launch after this feature lands. This avoids an empty map showing
-    // 'opus' for Claude and nothing else.
+    // Seed per-provider model memory from existing defaultModel/defaultCli.
     this.seedDefaultModelByProvider();
+    migrateLegacyCustomModelOverride({
+      get: (key) => this.store.get(key),
+      persist: (key, value) => this.persistSetting(key, value),
+      logMigrated: (provider, modelId) =>
+        logger.info('Migrating customModelOverride into customModelsByProvider', { provider, modelId }),
+    });
 
     // Baseline snapshot for field-level dirty diffing and conflict detection.
     // Captured after migrations so migration writes stay wholesale.

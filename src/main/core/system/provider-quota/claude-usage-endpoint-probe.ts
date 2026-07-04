@@ -14,6 +14,8 @@
  *     "seven_day":        { "utilization": 14.0, "resets_at": "…" } | null,
  *     "seven_day_sonnet": { "utilization": 39.0, "resets_at": "…" } | null,
  *     "seven_day_opus":   { … } | null,
+ *     "limits":           [{ "kind": "weekly_scoped", "percent": 10.0,
+ *                            "scope": { "model": { "display_name": "Fable" }}}],
  *     "extra_usage":      { "is_enabled": true, "monthly_limit": 100000,
  *                           "used_credits": 0.0, "utilization": 11.18,
  *                           "currency": "EUR" } | null,
@@ -34,6 +36,10 @@ import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
 } from '../../../../shared/types/provider-quota.types';
+import {
+  clampQuotaPercent,
+  quotaRemaining,
+} from '../../../../shared/util/provider-quota-format';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
 import {
   ClaudeCredentialsReader,
@@ -80,11 +86,24 @@ interface ExtraUsageBucket {
   currency?: string;
 }
 
+interface UsageLimit {
+  kind?: string | null;
+  percent?: number | null;
+  resets_at?: string | null;
+  scope?: {
+    model?: {
+      display_name?: string | null;
+      id?: string | null;
+    } | null;
+  } | null;
+}
+
 interface UsagePayload {
   five_hour?: UsageBucket | null;
   seven_day?: UsageBucket | null;
   seven_day_sonnet?: UsageBucket | null;
   seven_day_opus?: UsageBucket | null;
+  limits?: UsageLimit[] | null;
   extra_usage?: ExtraUsageBucket | null;
 }
 
@@ -167,7 +186,7 @@ export function parseUsagePayload(payload: UsagePayload): ProviderQuotaWindow[] 
   for (const bucket of TIME_BUCKETS) {
     const raw = payload[bucket.key] as UsageBucket | null | undefined;
     if (!raw || typeof raw.utilization !== 'number') continue;
-    const used = clampPct(raw.utilization);
+    const used = clampQuotaPercent(raw.utilization);
     windows.push({
       kind: 'rolling-window',
       id: bucket.id,
@@ -175,10 +194,12 @@ export function parseUsagePayload(payload: UsagePayload): ProviderQuotaWindow[] 
       unit: 'messages',
       used,
       limit: 100,
-      remaining: 100 - used,
+      remaining: quotaRemaining(100, used),
       resetsAt: parseResetsAt(raw.resets_at),
     });
   }
+
+  appendScopedLimitWindows(windows, payload.limits);
 
   const extra = payload.extra_usage;
   if (extra && extra.is_enabled) {
@@ -193,7 +214,7 @@ export function parseUsagePayload(payload: UsagePayload): ProviderQuotaWindow[] 
       unit: 'usd',
       used,
       limit,
-      remaining: limit > 0 ? limit - used : Number.NaN,
+      remaining: limit > 0 ? quotaRemaining(limit, used) : Number.NaN,
       resetsAt: null,
     });
   }
@@ -201,11 +222,31 @@ export function parseUsagePayload(payload: UsagePayload): ProviderQuotaWindow[] 
   return windows;
 }
 
-function clampPct(n: number): number {
-  if (!Number.isFinite(n)) return 0;
-  if (n < 0) return 0;
-  if (n > 100) return 100;
-  return n;
+function appendScopedLimitWindows(windows: ProviderQuotaWindow[], limits: UsageLimit[] | null | undefined): void {
+  if (!Array.isArray(limits)) return;
+
+  const seenIds = new Set(windows.map((w) => w.id));
+  for (const limit of limits) {
+    if (limit.kind !== 'weekly_scoped' || typeof limit.percent !== 'number') continue;
+    const modelName = limit.scope?.model?.display_name?.trim();
+    if (!modelName) continue;
+
+    const id = `claude.weekly-${slug(modelName)}`;
+    if (seenIds.has(id)) continue;
+
+    const used = clampQuotaPercent(limit.percent);
+    windows.push({
+      kind: 'rolling-window',
+      id,
+      label: `Weekly (${modelName})`,
+      unit: 'messages',
+      used,
+      limit: 100,
+      remaining: quotaRemaining(100, used),
+      resetsAt: parseResetsAt(limit.resets_at),
+    });
+    seenIds.add(id);
+  }
 }
 
 function numberOr(n: number | null | undefined, fallback: number): number {
@@ -217,6 +258,10 @@ function parseResetsAt(value: string | null | undefined): number | null {
   if (typeof value !== 'string' || value.length === 0) return null;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
+}
+
+function slug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'model';
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────

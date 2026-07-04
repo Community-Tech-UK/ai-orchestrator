@@ -31,6 +31,11 @@ import type {
   QuotaKind,
   QuotaUnit,
 } from '../../../../shared/types/provider-quota.types';
+import {
+  clampQuotaPercent,
+  normalizeQuotaAmount,
+  quotaRemaining,
+} from '../../../../shared/util/provider-quota-format';
 import { getLogger } from '../../../logging/logger';
 
 const logger = getLogger('UsageMonitorSource');
@@ -222,13 +227,13 @@ function normalizeWindow(provider: ProviderId, w: RawWindow): ProviderQuotaWindo
   const hasNumericWindow = typeof w.used === 'number' && typeof w.limit === 'number';
   if (!hasNumericWindow && typeof percent !== 'number') return null;
 
-  const used = hasNumericWindow ? w.used! : clampPct(percent!);
-  const limit = hasNumericWindow ? w.limit! : 100;
+  const used = hasNumericWindow ? normalizeQuotaAmount(w.used!) : clampQuotaPercent(percent!);
+  const limit = hasNumericWindow ? normalizeQuotaAmount(w.limit!) : 100;
   const remaining =
     typeof w.remaining === 'number'
-      ? w.remaining
+      ? normalizeQuotaAmount(w.remaining)
       : limit > 0
-        ? limit - used
+        ? quotaRemaining(limit, used)
         : Number.NaN;
   return {
     kind: coerceKind(w.kind),
@@ -240,13 +245,6 @@ function normalizeWindow(provider: ProviderId, w: RawWindow): ProviderQuotaWindo
     remaining,
     resetsAt: coerceEpochMs(w.reset_at ?? w.resets_at ?? w.resetsAt),
   };
-}
-
-function clampPct(n: number): number {
-  if (!Number.isFinite(n)) return 0;
-  if (n < 0) return 0;
-  if (n > 100) return 100;
-  return n;
 }
 
 function coerceKind(value: unknown): QuotaKind {

@@ -1,10 +1,10 @@
     <div class="page">
-      <header class="toolbar">
-        <div class="toolbar-title">
-          <button class="icon-btn" type="button" (click)="goBack()" aria-label="Back">←</button>
-          <h1>Automations</h1>
-        </div>
-        <div class="create" (mouseleave)="menuOpen.set(false)">
+      <app-page-header
+        title="Automations"
+        subtitle="Scheduled work and reusable agent actions"
+        backRoute="/"
+      >
+        <div actions class="create" (mouseleave)="menuOpen.set(false)">
           <button class="btn btn--primary create-main" type="button" (click)="startChat()">
             Create via chat
           </button>
@@ -17,7 +17,7 @@
             </div>
           }
         </div>
-      </header>
+      </app-page-header>
 
       @if (store.error()) {
         <div class="error">{{ store.error() }}</div>

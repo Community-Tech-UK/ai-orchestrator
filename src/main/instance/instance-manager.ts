@@ -81,6 +81,8 @@ import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
 import { getContextEngine } from '../context/context-engine.js';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
+import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
@@ -317,6 +319,17 @@ export class InstanceManager extends EventEmitter {
       onChildExit: (childId, child, exitCode) => this.handleChildExit(childId, child, exitCode),
       onOutput: (id, content) => this.stuckDetector.recordOutput(id, content),
       onToolStateChange: (id, state) => this.stuckDetector.updateState(id, state),
+      onProviderLimitTurn: (params) => {
+        const instance = this.state.getInstance(params.instanceId);
+        if (!instance) return 'skipped';
+        return getInstanceProviderLimitHandler().maybePark({
+          instanceId: params.instanceId,
+          provider: instance.provider,
+          resetAtHint: params.resetAtHint,
+          reason: params.reason,
+          resumePrompt: params.resumePrompt,
+        });
+      },
       createSnapshot: (id, name, desc, trigger) => {
         try {
           getSessionContinuityManager().createSnapshot(id, name, desc, trigger);
@@ -337,6 +350,34 @@ export class InstanceManager extends EventEmitter {
       },
       emitProviderRuntimeEvent: (instanceId, event, options) =>
         this.emitProviderRuntimeEvent(instanceId, event, options),
+    });
+
+    // Wire the (opt-in) regular-session provider-limit auto-resume handler so
+    // it can park an instance, drive the quota-park countdown chip, and re-send
+    // the throttled turn once the window resets. Mirrors the loop path.
+    getInstanceProviderLimitHandler().configure({
+      isEnabled: () => this.settings.get('instanceProviderLimitResumeEnabled') === true,
+      setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
+      resendInput: (id, prompt) => {
+        void this.sendInput(id, prompt).catch((err) =>
+          logger.warn('Provider-limit resume re-send failed', {
+            instanceId: id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      },
+      getQuotaSnapshot: (provider) => {
+        try {
+          return getProviderQuotaService().getSnapshot(provider);
+        } catch {
+          return null;
+        }
+      },
+      getWorkspaceCwd: (id) => this.state.getInstance(id)?.workingDirectory,
+      isResumable: (id) => {
+        const inst = this.state.getInstance(id);
+        return !!inst && inst.status !== 'terminated' && inst.status !== 'failed';
+      },
     });
 
     // Lifecycle manager needs dependencies
