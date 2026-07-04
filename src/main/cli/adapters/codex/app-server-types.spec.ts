@@ -67,4 +67,36 @@ describe('app-server-types constants', () => {
     expect(readParams.includeTurns).toBe(true);
     expect(turnsParams.limit).toBe(50);
   });
+
+  it('types paginated model/list requests and responses', () => {
+    const params: AppServerRequestParams<'model/list'> = {
+      cursor: 'cursor-2',
+      includeHidden: false,
+      limit: 100,
+    };
+    const response: AppServerResponseResult<'model/list'> = {
+      data: [
+        {
+          id: 'codex-gpt-5-5',
+          model: 'gpt-5.5',
+          displayName: 'gpt-5.5',
+          description: 'Most capable Codex model',
+          hidden: false,
+          isDefault: true,
+          defaultReasoningEffort: 'xhigh',
+          supportedReasoningEfforts: [
+            { reasoningEffort: 'xhigh', description: 'Extra high' },
+          ],
+          inputModalities: ['text', 'image'],
+          serviceTiers: [
+            { id: 'priority', name: 'Fast', description: 'Priority routing' },
+          ],
+        },
+      ],
+      nextCursor: null,
+    };
+
+    expect(params.cursor).toBe('cursor-2');
+    expect(response.data[0]?.model).toBe('gpt-5.5');
+  });
 });

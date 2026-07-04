@@ -233,12 +233,14 @@ export class BrowserGatewayService {
       extensionTabStore: this.extensionTabStore,
       profileStore: this.profileStore,
       getLiveTarget: (profileId, targetId) => this.getLiveTarget(profileId, targetId),
+      autoApproveApproval: (approval) => this.autoApproveApproval(approval),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.approvalOperations = new BrowserGatewayApprovalOperations({
       approvalStore: this.approvalStore,
       grantStore: this.grantStore,
       profileStore: this.profileStore,
+      autoApproveApproval: (approval) => this.autoApproveApproval(approval),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.actionGuard = new BrowserGatewayActionGuard({

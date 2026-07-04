@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RequiredModelIdSchema } from './common.schemas';
 
 export const ConversationProviderSchema = z.enum([
   'orchestrator',
@@ -51,7 +52,7 @@ const CodexConversationLedgerStartPayloadSchema = z.object({
   provider: z.literal('codex'),
   workspacePath: z.string().min(1),
   parentConversationId: z.string().min(1).max(200).nullable().optional(),
-  model: z.string().min(1).nullable().optional(),
+  model: RequiredModelIdSchema.nullable().optional(),
   title: z.string().min(1).nullable().optional(),
   ephemeral: z.boolean().optional(),
   approvalPolicy: z.string().min(1).nullable().optional(),
@@ -83,7 +84,7 @@ export const ConversationLedgerSendTurnPayloadSchema = z.object({
   threadId: z.string().min(1),
   text: z.string().min(1),
   inputItems: z.array(ConversationInputItemSchema).optional(),
-  model: z.string().min(1).nullable().optional(),
+  model: RequiredModelIdSchema.nullable().optional(),
   approvalPolicy: z.string().min(1).nullable().optional(),
   sandbox: z.string().min(1).nullable().optional(),
   reasoningEffort: z.string().min(1).nullable().optional(),

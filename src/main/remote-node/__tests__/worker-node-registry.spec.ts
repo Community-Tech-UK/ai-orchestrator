@@ -537,6 +537,13 @@ describe('WorkerNodeRegistry', () => {
       expect(resolveWorkerNodeTarget('windows-pc', nodes)).toEqual({ nodeId: 'n1' });
     });
 
+    it('resolves possessive human machine phrases to compact node names', () => {
+      const nodes = [makeNode('n1', { name: 'noahlaptop' })];
+
+      expect(resolveWorkerNodeTarget("Noah's laptop", nodes)).toEqual({ nodeId: 'n1' });
+      expect(resolveWorkerNodeTarget('Noah laptop', nodes)).toEqual({ nodeId: 'n1' });
+    });
+
     it('trims whitespace around the requested value', () => {
       const nodes = [makeNode('n1', { name: 'windows-pc' })];
       expect(resolveWorkerNodeTarget('  windows-pc  ', nodes)).toEqual({ nodeId: 'n1' });

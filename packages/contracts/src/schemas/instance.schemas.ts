@@ -5,6 +5,8 @@ import {
   DisplayNameSchema,
   WorkingDirectorySchema,
   FileAttachmentSchema,
+  ModelIdSchema,
+  RequiredModelIdSchema,
 } from './common.schemas';
 
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
@@ -33,7 +35,7 @@ export const InstanceCreatePayloadSchema = z.object({
   launchMode: InstanceLaunchModeSchema.optional(),
   agentId: z.string().max(100).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
-  model: z.string().max(100).optional(),
+  model: ModelIdSchema.optional(),
   bareMode: z.boolean().optional(),
   fastMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),
@@ -49,7 +51,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   launchMode: InstanceLaunchModeSchema.optional(),
   agentId: z.string().max(100).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
-  model: z.string().max(100).optional(),
+  model: ModelIdSchema.optional(),
   yoloMode: z.boolean().optional(),
   bareMode: z.boolean().optional(),
   fastMode: z.boolean().optional(),
@@ -130,7 +132,7 @@ export type InstanceChangeAgentPayload = z.infer<typeof InstanceChangeAgentPaylo
 
 export const InstanceChangeModelPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
-  model: z.string().min(1).max(100),
+  model: RequiredModelIdSchema,
   reasoningEffort: ReasoningEffortSchema.nullable().optional(),
 });
 
@@ -193,6 +195,14 @@ export type InputRequiredResponsePayload = z.infer<typeof InputRequiredResponseP
 // ============ Instance Additional Payloads ============
 
 export const InstanceInterruptPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+export const InstanceProviderLimitResumeNowPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+export const InstanceProviderLimitCancelPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
 });
 

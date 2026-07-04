@@ -38,7 +38,10 @@ interface ReplayTimelineEntry {
   template: `
     <div class="page">
       <header class="hero">
-        <div>
+        <div class="hero-copy">
+          <button class="ghost back-button" type="button" (click)="goBack()" aria-label="Back to dashboard">
+            &larr; Back
+          </button>
           <p class="eyebrow">Read-only Observer</p>
           <h1>Replay & Share</h1>
           <p class="subtitle">
@@ -346,6 +349,13 @@ interface ReplayTimelineEntry {
       align-items: flex-end;
     }
 
+    .hero-copy {
+      display: grid;
+      gap: 0.45rem;
+      justify-items: start;
+      min-width: 0;
+    }
+
     h1,
     h2,
     h3,
@@ -577,6 +587,10 @@ interface ReplayTimelineEntry {
       color: #f8fafc;
     }
 
+    .back-button {
+      padding: 0.5rem 0.8rem;
+    }
+
     @media (max-width: 960px) {
       .hero,
       .content-grid,
@@ -691,6 +705,10 @@ export class SessionReplayPageComponent {
         this.loadedBundlePath.set(bundlePath);
         void this.loadSource(entryId, instanceId, bundlePath);
       });
+  }
+
+  goBack(): void {
+    void this.router.navigate(['/']);
   }
 
   async loadBundleFromDisk(): Promise<void> {

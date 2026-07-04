@@ -30,6 +30,13 @@ const {
   mockPrepareLoopStartConfig,
   mockAppendLoopStartPrompt,
   mockChatService,
+  mockGetModelsForProvider,
+  mockGetKnownCatalogModelIdsForProvider,
+  mockGetDefaultModelForCli,
+  mockGetProviderModelContextWindow,
+  mockIsModelTier,
+  mockLooksLikeCodexModelId,
+  mockResolveModelForTier,
 } = vi.hoisted(() => ({
   mockCreateCliAdapter: vi.fn(),
   mockCommandExecuteCommandString: vi.fn().mockResolvedValue(null),
@@ -76,6 +83,13 @@ const {
   mockChatService: {
     tryGetChat: vi.fn(),
   },
+  mockGetModelsForProvider: vi.fn(),
+  mockGetKnownCatalogModelIdsForProvider: vi.fn(),
+  mockGetDefaultModelForCli: vi.fn(),
+  mockGetProviderModelContextWindow: vi.fn(),
+  mockIsModelTier: vi.fn(),
+  mockLooksLikeCodexModelId: vi.fn(),
+  mockResolveModelForTier: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -635,21 +649,19 @@ vi.mock('../../../shared/types/provider.types', () => ({
     SONNET_3: 'claude-3-sonnet',
     HAIKU_3: 'claude-3-haiku',
   },
-  getModelsForProvider: vi.fn().mockReturnValue([]),
+  MAX_MODEL_ID_LENGTH: 512,
+  getModelsForProvider: mockGetModelsForProvider,
+  getKnownCatalogModelIdsForProvider: mockGetKnownCatalogModelIdsForProvider,
+  getDefaultModelForCli: mockGetDefaultModelForCli,
   // Read at module-load time by cursor-cli-adapter.models.ts
   // (`PROVIDER_MODEL_LIST['cursor'] ?? []`), which is now pulled in via
   // create-validation-helpers' dynamic Cursor model lookup. Empty is fine —
   // this spec doesn't exercise the Cursor model catalog.
   PROVIDER_MODEL_LIST: {},
-  getProviderModelContextWindow: vi.fn((provider: string, model?: string) => {
-    if (provider === 'claude' && model?.endsWith('[1m]')) return 1000000;
-    if (provider === 'claude' && model?.includes('opus')) return 1000000;
-    if (provider === 'claude') return 1000000;
-    return 200000;
-  }),
-  isModelTier: vi.fn().mockReturnValue(false),
-  looksLikeCodexModelId: vi.fn().mockReturnValue(false),
-  resolveModelForTier: vi.fn().mockReturnValue(undefined),
+  getProviderModelContextWindow: mockGetProviderModelContextWindow,
+  isModelTier: mockIsModelTier,
+  looksLikeCodexModelId: mockLooksLikeCodexModelId,
+  resolveModelForTier: mockResolveModelForTier,
   // Consumed at module load time by src/main/rlm/token-counter.ts via Object.entries().
   // This spec does not exercise cost/pricing paths, so an empty table is sufficient.
   MODEL_PRICING: {},
@@ -937,6 +949,30 @@ describe('InstanceManager', () => {
 
     mockTaskManager.startTimeoutChecker.mockImplementation(() => undefined);
     mockSettingsGetAll.mockReturnValue({ ...mockSettingsData });
+    mockGetModelsForProvider.mockReset();
+    mockGetModelsForProvider.mockReturnValue([]);
+    mockGetKnownCatalogModelIdsForProvider.mockReset();
+    mockGetKnownCatalogModelIdsForProvider.mockReturnValue([]);
+    mockGetDefaultModelForCli.mockReset();
+    mockGetDefaultModelForCli.mockImplementation((provider: string) => {
+      if (provider === 'claude') return 'opus';
+      if (provider === 'codex') return 'gpt-5.3-codex';
+      if (provider === 'gemini') return 'gemini-3.1-pro-preview';
+      return 'auto';
+    });
+    mockGetProviderModelContextWindow.mockReset();
+    mockGetProviderModelContextWindow.mockImplementation((provider: string, model?: string) => {
+      if (provider === 'claude' && model?.endsWith('[1m]')) return 1000000;
+      if (provider === 'claude' && model?.includes('opus')) return 1000000;
+      if (provider === 'claude') return 1000000;
+      return 200000;
+    });
+    mockIsModelTier.mockReset();
+    mockIsModelTier.mockReturnValue(false);
+    mockLooksLikeCodexModelId.mockReset();
+    mockLooksLikeCodexModelId.mockReturnValue(false);
+    mockResolveModelForTier.mockReset();
+    mockResolveModelForTier.mockReturnValue(undefined);
     mockResourceGovernorGetCreationBlockReason.mockReturnValue(null);
     WorkerNodeRegistry._resetForTesting();
 
@@ -1156,6 +1192,40 @@ describe('InstanceManager', () => {
 
       expect(instance.currentModel).toBe('sonnet[1m]');
       expect(instance.contextUsage.total).toBe(1000000);
+    });
+
+    it('degrades a stale remembered model to the provider default and surfaces a note', async () => {
+      mockSettingsGetAll.mockReturnValue({
+        ...mockSettingsData,
+        defaultModelByProvider: { claude: 'claude-retired-model' },
+      });
+      mockGetModelsForProvider.mockReturnValue([
+        { id: 'opus', name: 'Opus', tier: 'powerful' },
+      ]);
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        provider: 'claude',
+      });
+      await instance.readyPromise;
+
+      expect(instance.currentModel).toBe('opus');
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'claude',
+        expect.objectContaining({ model: 'opus' }),
+        expect.anything(),
+      );
+      expect(instance.outputBuffer).toContainEqual(expect.objectContaining({
+        type: 'system',
+        content: expect.stringContaining('claude-retired-model'),
+        metadata: expect.objectContaining({
+          kind: 'model-selection-degraded',
+          provider: 'claude',
+          requestedModel: 'claude-retired-model',
+          fallbackModel: 'opus',
+          reason: 'model-unavailable',
+        }),
+      }));
     });
 
     it('triggers auto-title for the initial prompt before Codex sendInput resolves', async () => {

@@ -191,14 +191,31 @@ describe('createOrchestratorToolsForwarderTools', () => {
       (t) => t.name === 'run_on_node',
     );
 
-    const result = await runTool!.handler({ node: 'windows-pc', prompt: 'run the tests' });
+    const result = await runTool!.handler({
+      node: 'windows-pc',
+      prompt: 'run the tests',
+      requiresAndroid: true,
+      androidDeviceKind: 'emulator',
+    });
 
     expect(call).toHaveBeenCalledOnce();
     expect(call).toHaveBeenCalledWith('orchestrator_tools.run_on_node', {
       node: 'windows-pc',
       prompt: 'run the tests',
+      requiresAndroid: true,
+      androidDeviceKind: 'emulator',
     });
     expect(result).toEqual({ instanceId: 'inst-1', nodeId: 'node-1' });
+  });
+
+  it('describes machine-targeted requests as remote-node work', () => {
+    const runTool = createOrchestratorToolsForwarderTools(stubClient(async () => null)).find(
+      (t) => t.name === 'run_on_node',
+    );
+
+    expect(runTool?.description).toMatch(/Noah's laptop/i);
+    expect(runTool?.description).toMatch(/before local filesystem/i);
+    expect(runTool?.description).toMatch(/list_remote_nodes/i);
   });
 
   it('forwards terminate_node_instance invocations with the canonical method name', async () => {

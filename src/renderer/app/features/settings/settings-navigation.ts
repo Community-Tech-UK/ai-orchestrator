@@ -137,7 +137,6 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     label: 'Models',
     summary: 'Choose provider models and per-model overrides.',
     group: 'Workspace tools',
-    recommended: true,
     keywords: 'model opus sonnet gpt gemini haiku',
   },
   {

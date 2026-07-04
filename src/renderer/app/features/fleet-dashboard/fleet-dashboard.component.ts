@@ -6,6 +6,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import type { Instance, InstanceStatus } from '../../core/state/instance/instance.types';
 
@@ -93,8 +94,13 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
       <!-- Header -->
       <div class="fleet-header">
         <div class="fleet-header-left">
-          <span class="fleet-eyebrow">Fleet</span>
-          <h1 class="fleet-title">Attention Zones</h1>
+          <button class="fleet-back" type="button" (click)="goBack()" aria-label="Back to dashboard">
+            &larr; Back
+          </button>
+          <div class="fleet-heading">
+            <span class="fleet-eyebrow">Fleet</span>
+            <h1 class="fleet-title">Attention Zones</h1>
+          </div>
         </div>
         <span class="fleet-total-badge">{{ store.instanceCount() }} total</span>
       </div>
@@ -236,8 +242,33 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
 
     .fleet-header-left {
       display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
+    .fleet-back {
+      padding: 5px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-primary);
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      flex: 0 0 auto;
+    }
+
+    .fleet-back:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .fleet-heading {
+      display: flex;
       flex-direction: column;
       gap: 2px;
+      min-width: 0;
     }
 
     .fleet-eyebrow {
@@ -541,6 +572,7 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
 })
 export class FleetDashboardComponent {
   protected readonly store = inject(InstanceStore);
+  private readonly router = inject(Router);
 
   // Idle/Done zone is collapsed by default; the other two are expanded.
   protected readonly expandedZones = signal<Set<string>>(new Set(['needs-you', 'working']));
@@ -576,6 +608,10 @@ export class FleetDashboardComponent {
       }
       return next;
     });
+  }
+
+  goBack(): void {
+    void this.router.navigate(['/']);
   }
 
   // ---------------------------------------------------------------------------

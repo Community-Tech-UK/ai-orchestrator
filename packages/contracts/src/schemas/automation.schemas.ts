@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   FileAttachmentSchema,
+  ModelIdSchema,
   WorkingDirectorySchema,
 } from './common.schemas';
 
@@ -61,16 +62,23 @@ export const AutomationActionSchema = z.object({
   prompt: z.string().min(1).max(500000),
   workingDirectory: WorkingDirectorySchema,
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
-  model: z.string().max(100).optional(),
+  model: ModelIdSchema.optional(),
   agentId: z.string().max(100).optional(),
   yoloMode: z.boolean().optional(),
   reasoningEffort: AutomationReasoningEffortSchema.optional(),
   forceNodeId: z.string().uuid().optional(),
   attachments: z.array(AutomationFileAttachmentSchema).max(10).optional(),
-  systemAction: z.object({
-    type: z.literal('loopProviderLimitResume'),
-    loopRunId: z.string().min(1).max(200),
-  }).optional(),
+  systemAction: z.discriminatedUnion('type', [
+    z.object({
+      type: z.literal('loopProviderLimitResume'),
+      loopRunId: z.string().min(1).max(200),
+    }),
+    z.object({
+      type: z.literal('instanceProviderLimitResume'),
+      instanceId: z.string().min(1).max(200),
+      resumePrompt: z.string().max(500000).optional(),
+    }),
+  ]).optional(),
 });
 
 export const AutomationDestinationSchema = z.discriminatedUnion('kind', [
@@ -147,7 +155,7 @@ export const AutomationPreflightPayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
   prompt: z.string().min(1).max(500000),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
-  model: z.string().max(100).optional(),
+  model: ModelIdSchema.optional(),
   yoloMode: z.boolean().optional(),
   expectedUnattended: z.boolean().optional(),
 });

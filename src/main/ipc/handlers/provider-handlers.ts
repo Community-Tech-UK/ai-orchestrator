@@ -430,7 +430,7 @@ export function registerProviderHandlers(
   // Unified Model Catalog
   // ============================================
 
-  // Read the full unified catalog (static + models.dev + any CLI-pushed models).
+  // Read the full unified catalog (static, models.dev, overrides, custom, CLI).
   ipcMain.handle(
     IPC_CHANNELS.MODELS_UNIFIED_CATALOG,
     (): IpcResponse => {

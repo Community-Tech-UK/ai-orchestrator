@@ -14,6 +14,9 @@ import {
 } from '../chat.schemas';
 
 describe('chat schemas', () => {
+  const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+  const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
+
   it('allows only provider-backed chat providers for v1', () => {
     expect(ChatProviderSchema.options).toEqual(['claude', 'codex', 'gemini', 'antigravity', 'copilot']);
     expect(ChatProviderSchema.safeParse('auto').success).toBe(false);
@@ -50,6 +53,34 @@ describe('chat schemas', () => {
     expect(ChatSetReasoningPayloadSchema.safeParse({ chatId: 'chat-1', reasoningEffort: null }).success).toBe(true);
     expect(ChatSetReasoningPayloadSchema.safeParse({ chatId: 'chat-1', reasoningEffort: 'wat' }).success).toBe(false);
     expect(ChatSetYoloPayloadSchema.safeParse({ chatId: 'chat-1', yolo: false }).success).toBe(true);
+  });
+
+  it('accepts chat model ids up to the dynamic catalog limit', () => {
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    expect(ChatCreatePayloadSchema.safeParse({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      model: maxCatalogModelId,
+    }).success).toBe(true);
+    expect(ChatSetModelPayloadSchema.safeParse({
+      chatId: 'chat-1',
+      model: maxCatalogModelId,
+    }).success).toBe(true);
+  });
+
+  it('rejects chat model ids beyond the dynamic catalog limit', () => {
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    expect(ChatCreatePayloadSchema.safeParse({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      model: tooLongCatalogModelId,
+    }).success).toBe(false);
+    expect(ChatSetModelPayloadSchema.safeParse({
+      chatId: 'chat-1',
+      model: tooLongCatalogModelId,
+    }).success).toBe(false);
   });
 
   it('exposes the reasoning-effort enum for UI consumers', () => {

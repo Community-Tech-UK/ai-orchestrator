@@ -198,7 +198,16 @@ export function makeService(overrides: {
       ) ?? null,
     ),
     listRequests: vi.fn(() => approvalRequests),
-    resolveRequest: vi.fn(),
+    resolveRequest: vi.fn((requestId: string, resolution: { status: BrowserApprovalRequest['status']; grantId?: string }) => {
+      const request = approvalRequests.find((item) => item.requestId === requestId);
+      if (!request) {
+        return null;
+      }
+      request.status = resolution.status;
+      request.grantId = resolution.grantId ?? request.grantId;
+      request.decidedAt = Date.now();
+      return request;
+    }),
   };
   const profileRegistry = {
     createProfile: vi.fn((input) => ({ ...(profile ?? makeProfile()), ...input })),
@@ -301,7 +310,7 @@ export function makeService(overrides: {
         providerCapabilities: {
           claude: 'available_via_mcp',
           copilot: 'available_via_acp_mcp',
-          codex: 'available_app_server',
+          codex: 'available_via_mcp',
           gemini: 'unconfigured_adapter_injection_missing',
         },
         providerCapabilityDetails: {
@@ -317,7 +326,7 @@ export function makeService(overrides: {
           },
           codex: {
             available: true,
-            status: 'available_app_server',
+            status: 'available_via_mcp',
             message: 'Available',
           },
           gemini: {

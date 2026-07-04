@@ -11,6 +11,7 @@ import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.
 import { ProviderStateService, type ProviderType } from './provider-state.service';
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
 import { ScratchDirectoryService } from './scratch-directory.service';
+import { seedProviderModelIntoKnownCatalog } from './provider-model-snapshot-seeding';
 import type {
   NewSessionDraftState,
   NewSessionDraftStoreState,
@@ -469,6 +470,9 @@ export class NewSessionDraftService {
 
   private hydrateDraft(draft: PersistedNewSessionDraft | undefined): NewSessionDraftState {
     const provider = this.isProviderType(draft?.provider) ? draft.provider : null;
+    const rawModel = typeof draft?.model === 'string' ? draft.model.trim() : '';
+    const persistedModel = rawModel.length > 0 ? rawModel : null;
+    seedProviderModelIntoKnownCatalog(provider, persistedModel);
     const persistedAgentId = typeof draft?.agentId === 'string' ? draft.agentId.trim() : '';
     const isKnownAgent = persistedAgentId.length > 0
       && BUILTIN_AGENTS.some((a) => a.id === persistedAgentId);
@@ -478,7 +482,7 @@ export class NewSessionDraftService {
       provider,
       model: this.normalizeDraftModel(
         provider,
-        typeof draft?.model === 'string' && draft.model.trim().length > 0 ? draft.model : null,
+        persistedModel,
       ),
       reasoningEffort: this.isReasoningEffort(draft?.reasoningEffort) ? draft.reasoningEffort : null,
       nodeId: typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0 ? draft.nodeId : null,
@@ -578,10 +582,7 @@ export class NewSessionDraftService {
     };
   }
 
-  private normalizeDraftModel(
-    provider: ProviderType | null,
-    model?: string | null,
-  ): string | null {
+  private normalizeDraftModel(provider: ProviderType | null, model?: string | null): string | null {
     if (!provider || provider === 'auto') {
       return null;
     }

@@ -25,7 +25,7 @@ export interface BrowserChromeRuntimeHealth {
 export interface BrowserGatewayProviderCapabilities {
   claude: 'available_via_mcp' | 'legacy_chrome_disabled' | 'unconfigured';
   copilot: 'available_via_acp_mcp' | 'unconfigured';
-  codex: 'unavailable_exec_mode' | 'available_app_server' | 'unconfigured';
+  codex: 'available_via_mcp' | 'unconfigured';
   gemini: 'unconfigured_adapter_injection_missing';
 }
 
@@ -225,7 +225,7 @@ export class BrowserHealthService {
       providerCapabilities: {
         claude: bridgeAvailable ? 'available_via_mcp' : 'legacy_chrome_disabled',
         copilot: bridgeAvailable ? 'available_via_acp_mcp' : 'unconfigured',
-        codex: 'unavailable_exec_mode',
+        codex: bridgeAvailable ? 'available_via_mcp' : 'unconfigured',
         gemini: 'unconfigured_adapter_injection_missing',
       },
       providerCapabilityDetails: {
@@ -244,9 +244,11 @@ export class BrowserHealthService {
             : 'Copilot Browser Gateway access is unconfigured because the MCP bridge is unavailable.',
         },
         codex: {
-          available: false,
-          status: 'unavailable_exec_mode',
-          message: 'Codex exec-mode Browser Gateway is unavailable until app-server MCP injection is supported.',
+          available: bridgeAvailable,
+          status: bridgeAvailable ? 'available_via_mcp' : 'unconfigured',
+          message: bridgeAvailable
+            ? 'Codex can use Browser Gateway through injected MCP config in local AIO sessions.'
+            : 'Codex Browser Gateway access is unavailable because the Browser Gateway MCP bridge is unavailable.',
         },
         gemini: {
           available: false,

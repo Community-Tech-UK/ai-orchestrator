@@ -6,6 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getLogger } from '../../logging/logger';
 import { getIdempotencyStore, IdempotencyStore } from '../../transport/idempotency-store';
+import { registerInstanceProviderLimitHandlers } from './instance-provider-limit-ipc';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { FileAttachment } from '../../../shared/types/instance.types';
@@ -334,6 +335,9 @@ export function registerInstanceHandlers(deps: {
       }
     }
   );
+
+  // Provider-limit park: resume-now / cancel (extracted to keep this file lean)
+  registerInstanceProviderLimitHandlers();
 
   // Restart instance
   ipcMain.handle(

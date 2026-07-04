@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RequiredModelIdSchema } from './common.schemas';
 
 export const VerdictStatusSchema = z.enum([
   'pass',
@@ -38,7 +39,7 @@ export const VerdictEvidenceSchema = z.object({
 const AgentResponseSchema = z.object({
   agentId: z.string().min(1).max(500),
   agentIndex: z.number().int().min(0),
-  model: z.string().min(1).max(500),
+  model: RequiredModelIdSchema,
   response: z.string(),
   keyPoints: z.array(z.unknown()),
   confidence: z.number().min(0).max(1),

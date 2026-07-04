@@ -15,6 +15,10 @@ import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
 } from '../../../../shared/types/provider-quota.types';
+import {
+  clampQuotaPercent,
+  quotaRemaining,
+} from '../../../../shared/util/provider-quota-format';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
 import { getLogger } from '../../../logging/logger';
 
@@ -160,7 +164,7 @@ function percentWindow(
   source: CodexUsageWindowSource | null | undefined,
 ): ProviderQuotaWindow | null {
   if (!source || typeof source.used_percent !== 'number') return null;
-  const used = clampPct(source.used_percent);
+  const used = clampQuotaPercent(source.used_percent);
   return {
     kind: 'rolling-window',
     id,
@@ -168,7 +172,7 @@ function percentWindow(
     unit: 'requests',
     used,
     limit: 100,
-    remaining: 100 - used,
+    remaining: quotaRemaining(100, used),
     resetsAt: parseResetAt(source.reset_at),
   };
 }
@@ -184,13 +188,6 @@ function parseResetAt(value: number | string | null | undefined): number | null 
     return Number.isNaN(ms) ? null : ms;
   }
   return null;
-}
-
-function clampPct(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 100) return 100;
-  return value;
 }
 
 function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {

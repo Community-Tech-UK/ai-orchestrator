@@ -556,6 +556,25 @@
         cursor: help;
       }
 
+      .provider-limit-action {
+        font-size: 11px;
+        margin-left: 6px;
+        padding: 1px 8px;
+        border-radius: 4px;
+        border: 1px solid var(--border-color, #3a3a4a);
+        background: transparent;
+        color: var(--accent-color, #7c8cf8);
+        cursor: pointer;
+
+        &:hover {
+          background: var(--hover-bg, rgba(124, 140, 248, 0.12));
+        }
+
+        &.provider-limit-action--cancel {
+          color: var(--text-muted, #9aa0ab);
+        }
+      }
+
       @keyframes pulse {
         0%, 100% { opacity: 0.5; }
         50% { opacity: 1; }

@@ -57,6 +57,22 @@
   white-space: nowrap;
 }
 
+.back-button {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.back-button:hover {
+  background: var(--bg-hover);
+}
+
 .pane-picker {
   flex: 1;
   min-width: 0;

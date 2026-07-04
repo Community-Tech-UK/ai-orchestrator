@@ -41,10 +41,23 @@ export interface AutomationAction {
   reasoningEffort?: AutomationReasoningEffort;
   forceNodeId?: string;
   attachments?: FileAttachment[];
-  systemAction?: {
-    type: 'loopProviderLimitResume';
-    loopRunId: string;
-  };
+  systemAction?:
+    | {
+        type: 'loopProviderLimitResume';
+        loopRunId: string;
+      }
+    | {
+        /**
+         * Resume a paused *regular* (non-loop) interactive instance after a
+         * provider quota/rate-limit reset. Mirrors `loopProviderLimitResume`
+         * but re-sends the throttled user turn to the instance instead of
+         * resuming a loop run. `resumePrompt` is the text to re-send; when
+         * absent the handler falls back to the instance's last-sent message.
+         */
+        type: 'instanceProviderLimitResume';
+        instanceId: string;
+        resumePrompt?: string;
+      };
 }
 
 export type AutomationDestination =

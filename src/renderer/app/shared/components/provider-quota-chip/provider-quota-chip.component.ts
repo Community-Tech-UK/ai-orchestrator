@@ -33,6 +33,7 @@ import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
 } from '../../../../../shared/types/provider-quota.types';
+import { formatQuotaAmount } from '../../../../../shared/util/provider-quota-format';
 
 export type QuotaChipVariant = 'window' | 'plan' | 'empty';
 export type QuotaChipBand = 'green' | 'yellow' | 'orange' | 'red';
@@ -230,7 +231,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   readonly primaryText = computed<string>(() => {
     const w = this.store.mostConstrainedWindow();
     if (w) {
-      return `${PROVIDER_LABELS[w.provider]} · ${w.window.used}/${w.window.limit}`;
+      return `${PROVIDER_LABELS[w.provider]} · ${formatQuotaAmount(w.window.used)}/${formatQuotaAmount(w.window.limit)}`;
     }
     const ok = this.firstOkSnapshot();
     if (ok) {
@@ -253,7 +254,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     if (v === 'empty') return 'No quota data yet';
     const w = this.store.mostConstrainedWindow();
     if (w) {
-      return `${PROVIDER_LABELS[w.provider]} ${w.window.label}: ${w.window.used} of ${w.window.limit} ${w.window.unit}`;
+      return `${PROVIDER_LABELS[w.provider]} ${w.window.label}: ${formatQuotaAmount(w.window.used)} of ${formatQuotaAmount(w.window.limit)} ${w.window.unit}`;
     }
     const ok = this.firstOkSnapshot();
     if (ok) return `${PROVIDER_LABELS[ok.provider]} signed in (plan: ${ok.plan ?? 'unknown'})`;

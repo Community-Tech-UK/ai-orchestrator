@@ -16,6 +16,7 @@
 import * as https from 'https';
 import { getLogger } from '../logging/logger';
 import { registerModelRates, modelRateOverlaySize, type ModelRate } from '../../shared/data/model-pricing';
+import { MAX_MODEL_ID_LENGTH } from '../../shared/types/provider.types';
 import { MODELS_DEV_SNAPSHOT, MODELS_DEV_SNAPSHOT_META } from './models-dev-snapshot.generated';
 
 const logger = getLogger('ModelsDev');
@@ -234,8 +235,8 @@ export class ModelsDevService {
     if (!model || typeof model !== 'object') return null;
     const record = model as Record<string, unknown>;
 
-    const id = typeof record['id'] === 'string' ? record['id'] : undefined;
-    if (!id) return null;
+    const id = typeof record['id'] === 'string' ? record['id'].trim() : undefined;
+    if (!id || id.length > MAX_MODEL_ID_LENGTH) return null;
 
     const cost = record['cost'];
     if (!cost || typeof cost !== 'object') return null;

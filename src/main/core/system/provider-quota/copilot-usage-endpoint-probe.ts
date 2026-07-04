@@ -14,6 +14,10 @@ import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
 } from '../../../../shared/types/provider-quota.types';
+import {
+  clampQuotaPercent,
+  quotaRemaining,
+} from '../../../../shared/util/provider-quota-format';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
 import { getLogger } from '../../../logging/logger';
 
@@ -157,7 +161,7 @@ export function parseCopilotInternalUserPayload(
     if (!bucket || bucket.unlimited) continue;
     const remaining = numeric(bucket.percent_remaining);
     if (remaining === null) continue;
-    const used = clampPct(100 - remaining);
+    const used = clampQuotaPercent(100 - remaining);
     windows.push({
       kind: 'calendar-period',
       id: `copilot.${key.replace(/_/g, '-')}`,
@@ -165,7 +169,7 @@ export function parseCopilotInternalUserPayload(
       unit: 'requests',
       used,
       limit: 100,
-      remaining: 100 - used,
+      remaining: quotaRemaining(100, used),
       resetsAt: resetAt,
     });
   }
@@ -186,13 +190,6 @@ function parseResetAt(value: string | null | undefined): number | null {
   if (typeof value !== 'string' || value.length === 0) return null;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
-}
-
-function clampPct(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 100) return 100;
-  return value;
 }
 
 function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {

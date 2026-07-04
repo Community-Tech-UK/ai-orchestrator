@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   EventEmitter,
   Input,
@@ -28,6 +29,7 @@ import { DynamicModelCatalogService } from './dynamic-model-catalog.service';
 import { UnifiedCatalogStore } from './unified-catalog.store';
 import {
   getDefaultReasoningEffort,
+  getModelsForProvider,
   getPrimaryModelForProvider,
   type ModelDisplayInfo,
   type ReasoningEffort,
@@ -252,7 +254,9 @@ export class CompactModelPickerComponent {
 
   protected readonly menuOpen = signal(false);
   protected readonly statusPill = signal<string | null>(null);
+  private readonly catalogFreshnessTick = signal(0);
   private statusTimer: ReturnType<typeof setTimeout> | null = null;
+  private catalogFreshnessTimer: ReturnType<typeof setInterval> | null = null;
   private lastFocusRequest = 0;
 
   protected readonly overlayPositions: ConnectedPosition[] = [
@@ -263,18 +267,17 @@ export class CompactModelPickerComponent {
   protected readonly providerLabels = PROVIDER_MENU_LABELS;
 
   /**
-   * Bound `[modelsForProvider]` callback for the selection panel. Prefers the
-   * live CLI-discovered list (Copilot, Cursor) when available, falling back to
-   * the curated static catalog. Reads `DynamicModelCatalogService`'s internal
-   * signal, so the panel re-renders automatically once a refresh resolves.
+   * Bound `[modelsForProvider]` callback for the selection panel. The unified
+   * catalog is authoritative for every provider once loaded. Before that first
+   * IPC snapshot arrives, use the curated static list only as an immediate
+   * fallback; renderer-side dynamic discovery is just a producer that pushes
+   * Copilot/Cursor results into the unified catalog.
    */
   protected readonly modelsForProviderFn = (provider: PickerProvider): ModelDisplayInfo[] => {
-    // Prefer the unified catalog (static + models.dev pricing/context + live
-    // CLI-discovered, provider-namespaced so no cross-provider bleed). Fall back
-    // to the dynamic/static catalog when the unified one hasn't loaded yet, so
-    // worst case is identical to the previous behaviour.
+    // Prefer the unified catalog (static, models.dev, override, custom, and
+    // CLI-discovered rows). Fall back to static data only until it has loaded.
     const unified = this.unifiedCatalog.displayModelsForProvider(provider);
-    return unified.length > 0 ? unified : this.dynamicCatalog.modelsFor(provider);
+    return unified.length > 0 ? unified : getModelsForProvider(provider);
   };
 
   /** Bound `[reasoningOptionsForProvider]` callback for the selection panel. */
@@ -287,6 +290,8 @@ export class CompactModelPickerComponent {
   };
 
   constructor() {
+    const destroyRef = inject(DestroyRef);
+
     // Forward pending-create commits as `selectionChange` events.
     this.controller.setSelectionChangeCallback((sel) => {
       this.selectionChange.emit(sel);
@@ -296,8 +301,8 @@ export class CompactModelPickerComponent {
     // (Copilot, Cursor). Static providers are a no-op inside the service.
     effect(() => {
       if (!this.menuOpen()) return;
-      // Pull the unified catalog (static + models.dev + CLI) once, and refresh
-      // the per-provider live lists for dynamic providers (Copilot, Cursor).
+      // Pull the unified catalog once, and refresh the renderer-side live lists
+      // for dynamic providers that still produce catalog updates here.
       this.unifiedCatalog.ensureLoaded();
       for (const provider of this.providerList()) {
         this.dynamicCatalog.ensureLoaded(provider);
@@ -313,6 +318,28 @@ export class CompactModelPickerComponent {
       // auto-open at mount time.
       if (n === 0) return;
       this.openModelMenu();
+    });
+
+    this.catalogFreshnessTimer = setInterval(() => {
+      this.catalogFreshnessTick.update((value) => value + 1);
+    }, 60_000);
+    if (
+      this.catalogFreshnessTimer
+      && typeof this.catalogFreshnessTimer === 'object'
+      && 'unref' in this.catalogFreshnessTimer
+    ) {
+      this.catalogFreshnessTimer.unref();
+    }
+
+    destroyRef.onDestroy(() => {
+      if (this.statusTimer) {
+        clearTimeout(this.statusTimer);
+        this.statusTimer = null;
+      }
+      if (this.catalogFreshnessTimer) {
+        clearInterval(this.catalogFreshnessTimer);
+        this.catalogFreshnessTimer = null;
+      }
     });
   }
 
@@ -365,6 +392,7 @@ export class CompactModelPickerComponent {
    * Recomputes whenever the catalog pushes an update (lastBuiltAt changes).
    */
   protected readonly catalogFreshness = computed<string | null>(() => {
+    this.catalogFreshnessTick();
     const at = this.unifiedCatalog.lastBuiltAt();
     return at ? formatAgo(at) : null;
   });
@@ -404,7 +432,10 @@ export class CompactModelPickerComponent {
       // default and the provider's app-level reasoning default. Without the
       // model reset, the chat would keep the OLD provider's model id, which is
       // invalid for the new provider's runtime.
-      const newDefaultModel = getPrimaryModelForProvider(selection.provider) ?? null;
+      const newDefaultModel =
+        this.modelsForProviderFn(selection.provider)[0]?.id
+        ?? getPrimaryModelForProvider(selection.provider)
+        ?? null;
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: newDefaultModel,

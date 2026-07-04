@@ -86,7 +86,7 @@ export function createProviderDomain(
 
     /**
      * List available models for any provider
-     * Dynamically queries CLI when supported (Copilot), falls back to static lists
+     * Dynamically queries CLI when supported (Copilot/Cursor), falls back to static lists
      */
     listModelsForProvider: (provider: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.PROVIDER_LIST_MODELS, { provider });
@@ -257,10 +257,10 @@ export function createProviderDomain(
     modelVerify: (payload: { modelId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.MODEL_VERIFY, payload),
 
-    modelSetOverride: (payload: { modelId: string; config: Record<string, unknown> }): Promise<IpcResponse> =>
+    modelSetOverride: (payload: { provider: string; modelId: string; config: Record<string, unknown> }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.MODEL_SET_OVERRIDE, payload),
 
-    modelRemoveOverride: (payload: { modelId: string }): Promise<IpcResponse> =>
+    modelRemoveOverride: (payload: { provider?: string; modelId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.MODEL_REMOVE_OVERRIDE, payload),
 
     // ============================================
@@ -301,7 +301,7 @@ export function createProviderDomain(
 
     /**
      * Read the full unified model catalog from the main process.
-     * Returns static + models.dev-enriched entries (and any CLI-pushed models).
+     * Returns static, models.dev, override, custom, and CLI-discovered entries.
      * Does not require authentication — catalog data is not sensitive.
      */
     getUnifiedModelCatalog: (): Promise<IpcResponse> =>
@@ -320,7 +320,7 @@ export function createProviderDomain(
 
     /**
      * Subscribe to unified-catalog refreshes (main -> renderer). Fires whenever
-     * models.dev or CLI discovery rebuilds the catalog. Returns an unsubscribe.
+     * any model catalog source rebuilds the catalog. Returns an unsubscribe.
      */
     onModelsCatalogUpdated: (
       callback: (payload: { totalEntries: number; sources: string[] }) => void

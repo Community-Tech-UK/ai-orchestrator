@@ -63,6 +63,7 @@ import { createSpawnTransaction, type SpawnTransaction } from './lifecycle/spawn
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import { buildInstanceRecord } from './lifecycle/instance-create-builder';
 import { resolveInitialModel } from './lifecycle/resolve-initial-model';
+import { createModelSelectionDegradationNotice, resolveAvailableModelSelection, type ModelSelectionDegradation } from './lifecycle/model-selection-degradation';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import {
   applyOutputStyle,
@@ -591,6 +592,12 @@ export class InstanceLifecycleManager extends EventEmitter {
         queuedInitialPrompt: true,
       },
     };
+    this.deps.addToOutputBuffer(instance, notice);
+    this.emit('output', { instanceId: instance.id, message: notice });
+  }
+
+  private emitModelSelectionDegradation(instance: Instance, degradation: ModelSelectionDegradation): void {
+    const notice = createModelSelectionDegradationNotice(degradation);
     this.deps.addToOutputBuffer(instance, notice);
     this.emit('output', { instanceId: instance.id, message: notice });
   }
@@ -1354,12 +1361,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           defaultModel: settingsModel,
         });
 
-        // Validate model against the target provider's supported models.
-        // If the model is a tier name (fast/balanced/powerful), resolve it to a concrete ID.
-        // If the model isn't recognized (e.g., a model from another provider), drop it
-        // so the provider uses its own default rather than failing with ModelNotFound.
-        if (resolvedModel && resolvedCliType !== 'claude') {
-          // First: resolve tier names to concrete model IDs
+        if (resolvedModel) {
           if (isModelTier(resolvedModel)) {
             const tierResolved = resolveModelForTier(resolvedModel, resolvedCliType);
             logger.info('Resolved model tier to provider-specific model', {
@@ -1370,23 +1372,26 @@ export class InstanceLifecycleManager extends EventEmitter {
             resolvedModel = tierResolved;
           }
 
-          // Then: validate concrete model IDs against the provider's model list
           if (resolvedModel) {
             const providerModels = await getKnownModelsForCli(resolvedCliType);
-            if (providerModels.length > 0) {
-              const isValid = providerModels.includes(resolvedModel);
-              const allowCodexDynamicModel = resolvedCliType === 'codex' && looksLikeCodexModelId(resolvedModel);
-              if (!isValid && !allowCodexDynamicModel) {
-                const providerDefault = getDefaultModelForCli(resolvedCliType);
-                logger.warn('Model not valid for target provider, falling back to provider default', {
-                  model: resolvedModel,
-                  provider: resolvedCliType,
-                  validModels: providerModels,
-                  fallbackModel: providerDefault ?? 'none',
-                });
-                resolvedModel = providerDefault;
-              }
+            const selection = resolveAvailableModelSelection({
+              provider: resolvedCliType,
+              requestedModel: resolvedModel,
+              knownModelIds: providerModels,
+              fallbackModel: getDefaultModelForCli(resolvedCliType),
+              allowDynamicCodexModel:
+                resolvedCliType === 'codex' && looksLikeCodexModelId(resolvedModel),
+            });
+            if (selection.degradation) {
+              logger.warn('Model not valid for target provider, falling back to provider default', {
+                model: selection.degradation.requestedModel,
+                provider: resolvedCliType,
+                validModelCount: providerModels.length,
+                fallbackModel: selection.degradation.fallbackModel ?? 'provider-default',
+              });
+              this.emitModelSelectionDegradation(instance, selection.degradation);
             }
+            resolvedModel = selection.model;
           }
         }
 
@@ -3054,35 +3059,32 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
       // Validate model against provider before passing it
       let validatedModel: string | undefined = newModel;
-      if (cliType !== 'claude') {
-        if (isModelTier(newModel)) {
-          validatedModel = resolveModelForTier(newModel, cliType);
-        }
+      if (isModelTier(newModel)) {
+        validatedModel = resolveModelForTier(newModel, cliType);
+      }
 
-        // Use the CLI-dynamic list (Copilot/Cursor query the binary; others
-        // fall back to the static catalog) so a valid live model that isn't in
-        // the small curated static subset — e.g. a Cursor `composer-2.5-fast` —
-        // is not wrongly reset to the provider default. Mirrors the spawn-time
-        // validation in createInstance.
-        const knownModelIds = await getKnownModelsForCli(cliType);
-        const modelToValidate = validatedModel;
-        const allowCodexDynamicModel =
-          modelToValidate !== undefined &&
-          cliType === 'codex' &&
-          looksLikeCodexModelId(modelToValidate);
-        if (
-          modelToValidate !== undefined &&
-          knownModelIds.length > 0 &&
-          !knownModelIds.includes(modelToValidate) &&
-          !allowCodexDynamicModel
-        ) {
+      // Mirrors spawn-time validation against CLI discovery + unified catalog snapshot.
+      const knownModelIds = await getKnownModelsForCli(cliType);
+      const modelToValidate = validatedModel;
+      if (modelToValidate !== undefined) {
+        const selection = resolveAvailableModelSelection({
+          provider: cliType,
+          requestedModel: modelToValidate,
+          knownModelIds,
+          fallbackModel: getDefaultModelForCli(cliType),
+          allowDynamicCodexModel:
+            cliType === 'codex' && looksLikeCodexModelId(modelToValidate),
+        });
+        if (selection.degradation) {
           logger.warn('Model not valid for target provider during changeModel, using provider default', {
-            model: modelToValidate,
+            model: selection.degradation.requestedModel,
             provider: cliType,
-            fallbackModel: 'provider-default',
+            validModelCount: knownModelIds.length,
+            fallbackModel: selection.degradation.fallbackModel ?? 'provider-default',
           });
-          validatedModel = undefined;
+          this.emitModelSelectionDegradation(instance, selection.degradation);
         }
+        validatedModel = selection.model;
       }
 
       const newSessionId = shouldResume && shouldForkSession
@@ -3189,7 +3191,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
         // Notify the instance about the model change
         await adapter.sendInput(
-          `[System: Model changed from ${oldModel} to ${validatedModel || newModel}. Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been preserved.]`
+          `[System: Model changed from ${oldModel} to ${validatedModel || 'provider default'}. Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been preserved.]`
         );
       } catch (error) {
         this.transitionState(instance, 'error');

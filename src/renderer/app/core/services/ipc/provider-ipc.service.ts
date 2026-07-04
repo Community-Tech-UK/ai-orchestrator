@@ -111,7 +111,7 @@ export class ProviderIpcService {
 
   /**
    * List available models for any provider
-   * Dynamically queries CLI when supported (Copilot), falls back to static lists
+   * Dynamically queries CLI when supported (Copilot/Cursor), falls back to static lists
    */
   async listModelsForProvider(provider: string): Promise<{ success: boolean; data?: ModelDisplayInfo[]; error?: { message: string } }> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
@@ -136,8 +136,8 @@ export class ProviderIpcService {
   }
 
   /**
-   * Read the full unified model catalog (static + models.dev + CLI-discovered)
-   * from the main process.
+   * Read the full unified model catalog from the main process.
+   * Includes static, models.dev, override, custom, and CLI-discovered entries.
    */
   async getUnifiedModelCatalog(): Promise<{
     success: boolean;

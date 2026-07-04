@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CostRecordUsagePayloadSchema,
   HistoryExpandSnippetsPayloadSchema,
   HistorySearchAdvancedPayloadSchema,
   ResumeForkNewPayloadSchema,
 } from '../session.schemas';
+
+const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
 
 describe('Wave 3 session IPC schemas', () => {
   it('accepts advanced history search payloads', () => {
@@ -35,5 +39,33 @@ describe('Wave 3 session IPC schemas', () => {
       query: 'auth',
     }).success).toBe(true);
     expect(ResumeForkNewPayloadSchema.safeParse({ entryId: 'entry-1' }).success).toBe(true);
+  });
+
+  it('accepts usage cost model ids up to the dynamic catalog limit', () => {
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    const result = CostRecordUsagePayloadSchema.safeParse({
+      instanceId: 'inst-1',
+      sessionId: 'session-1',
+      model: maxCatalogModelId,
+      inputTokens: 1,
+      outputTokens: 2,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects usage cost model ids beyond the dynamic catalog limit', () => {
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    const result = CostRecordUsagePayloadSchema.safeParse({
+      instanceId: 'inst-1',
+      sessionId: 'session-1',
+      model: tooLongCatalogModelId,
+      inputTokens: 1,
+      outputTokens: 2,
+    });
+
+    expect(result.success).toBe(false);
   });
 });

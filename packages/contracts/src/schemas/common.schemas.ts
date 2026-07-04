@@ -8,6 +8,8 @@ export const FilePathSchema = z.string().min(1).max(2000);
 export const DirectoryPathSchema = z.string().min(1).max(2000);
 export const SnapshotIdSchema = z.string().min(1).max(100);
 export const StoreIdSchema = z.string().min(1).max(200);
+export const ModelIdSchema = z.string().max(512);
+export const RequiredModelIdSchema = z.string().min(1).max(512);
 
 export const FileAttachmentSchema = z.object({
   name: z.string().max(500),

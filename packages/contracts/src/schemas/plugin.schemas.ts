@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod';
+import { ModelIdSchema } from './common.schemas';
 
 // ============================================
 // Plugin Manifest Schema
@@ -204,7 +205,7 @@ export const SkillFrontmatterSchema = z.object({
   category: z.string().max(100).optional(),
   icon: z.string().max(50).optional(),
   effort: z.enum(['low', 'medium', 'high']).optional(),
-  preferredModel: z.string().max(100).optional(),
+  preferredModel: ModelIdSchema.optional(),
   triggers: z.array(z.string().max(200)).max(50).optional(),
 });
 
@@ -229,9 +230,9 @@ export const HookInstanceRemovedSchema = InstanceIdPayload;
 
 const HookRoutingAuditSchema = z.object({
   requestedProvider: z.string().max(100).optional(),
-  requestedModel: z.string().max(200).optional(),
+  requestedModel: ModelIdSchema.optional(),
   actualProvider: z.string().max(100).optional(),
-  actualModel: z.string().max(200).optional(),
+  actualModel: ModelIdSchema.optional(),
   routingSource: z.enum(['explicit', 'parent', 'agent', 'settings', 'auto']),
   reason: z.string().max(2000).optional(),
 });
@@ -242,7 +243,7 @@ export const HookInstanceSpawnBeforeSchema = z.object({
   displayName: z.string().max(200).optional(),
   workingDirectory: z.string().max(2000),
   requestedProvider: z.string().max(100).optional(),
-  requestedModel: z.string().max(200).optional(),
+  requestedModel: ModelIdSchema.optional(),
   agentId: z.string().max(200).optional(),
   config: z.record(z.string(), z.unknown()),
   timestamp: z.number(),
@@ -253,9 +254,9 @@ export const HookInstanceSpawnAfterSchema = InstanceIdPayload.extend({
   displayName: z.string().max(200),
   workingDirectory: z.string().max(2000),
   requestedProvider: z.string().max(100).optional(),
-  requestedModel: z.string().max(200).optional(),
+  requestedModel: ModelIdSchema.optional(),
   actualProvider: z.string().max(100).optional(),
-  actualModel: z.string().max(200).optional(),
+  actualModel: ModelIdSchema.optional(),
   agentId: z.string().max(200).optional(),
   success: z.boolean(),
   error: z.string().max(5000).optional(),

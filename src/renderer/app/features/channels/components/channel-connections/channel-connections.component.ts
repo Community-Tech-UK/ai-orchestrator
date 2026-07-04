@@ -18,12 +18,12 @@ import { ChannelIpcService } from '../../../../core/services/ipc/channel-ipc.ser
   template: `
     <div class="channels-page">
       <div class="page-header">
-        <button class="back-btn" type="button" (click)="router.navigate(['/'])">
+        <button class="back-btn" type="button" (click)="router.navigate(['/'])" aria-label="Back to dashboard">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
           </svg>
-          Back to Projects
+          Back to Dashboard
         </button>
         <h2>Channels</h2>
         <p class="subtitle">Connect Discord and WhatsApp to control the Orchestrator from your phone</p>

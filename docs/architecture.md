@@ -107,6 +107,7 @@ Located in `src/main/providers/`:
 - **ProviderRegistry** — registers all available providers
 - **FailoverManager** — automatic failover between providers on error
 - **ModelDiscovery** — detects available models across providers
+- **UnifiedModelCatalogService** — the authoritative available-model surface for desktop and mobile pickers. It merges static provider defaults, models.dev enrichment, local/remote catalog overrides, user custom models, and CLI-discovered models; stale stored selections are resolved lazily to provider defaults with a visible session note. `npm run sync:model-catalog` only refreshes the committed models.dev offline snapshot for pricing/context metadata and offline safety. It is no longer required for a newly available model to appear when the CLI, custom-model, or override sources report it.
 - Providers: Anthropic API (direct), Claude CLI, Codex CLI, Gemini CLI
 
 ## CLI Adapters

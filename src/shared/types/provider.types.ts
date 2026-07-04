@@ -4,8 +4,18 @@
 
 import type { PluginProviderName } from '@contracts/types/provider-runtime-events';
 import { getProviderModelContextWindow } from './provider-context-window';
+import { isKnownCatalogModelForProvider } from './provider-model-catalog-snapshot';
 
 export { getProviderModelContextWindow };
+export {
+  clearKnownModelCatalogSnapshotForTesting,
+  getKnownCatalogModelIdsForProvider,
+  mergeKnownModelCatalogSnapshot,
+  replaceKnownModelCatalogSnapshot,
+  type KnownProviderModelId,
+} from './provider-model-catalog-snapshot';
+
+export const MAX_MODEL_ID_LENGTH = 512;
 
 /**
  * Supported provider types
@@ -512,7 +522,8 @@ export function getModelsForProvider(provider: string): ModelDisplayInfo[] {
 export function isAntigravityModelId(modelId?: string | null): boolean {
   const trimmed = modelId?.trim();
   if (!trimmed) return false;
-  return (PROVIDER_MODEL_LIST['antigravity'] ?? []).some((model) => model.id === trimmed);
+  return (PROVIDER_MODEL_LIST['antigravity'] ?? []).some((model) => model.id === trimmed)
+    || isKnownCatalogModelForProvider('antigravity', trimmed);
 }
 
 function normalizeProviderModelNamespace(provider: string): string {
@@ -588,7 +599,8 @@ export function getPrimaryModelForProvider(provider: string): string | undefined
  * Normalize a model selection so stale cross-provider values do not leak into
  * a different CLI.
  *
- * Static providers (Claude, Gemini) only accept known model ids.
+ * Strict providers (Claude, Gemini, Antigravity) accept static or live-catalog
+ * model ids.
  * Codex accepts any OpenAI/Codex-style model id because its list evolves
  * faster than our static allowlist.
  * Dynamic providers (Copilot, Cursor, Auto) preserve explicit non-empty ids.
@@ -600,14 +612,20 @@ export function normalizeModelForProvider(
 ): string | undefined {
   const normalizedProvider = normalizeProviderModelNamespace(provider);
   const normalizedModel = normalizeModelAliasForProvider(normalizedProvider, modelId);
-  const fallback = fallbackModel ?? getPrimaryModelForProvider(normalizedProvider);
+  const fallback = fallbackModel && fallbackModel.length <= MAX_MODEL_ID_LENGTH
+    ? fallbackModel
+    : getPrimaryModelForProvider(normalizedProvider);
 
   if (!normalizedModel) {
     return fallback;
   }
+  if (normalizedModel.length > MAX_MODEL_ID_LENGTH) {
+    return fallback;
+  }
 
-  if (isModelTier(normalizedModel)) {
-    return resolveModelForTier(normalizedModel, normalizedProvider) ?? fallback;
+  const tierCandidate = normalizedModel.toLowerCase();
+  if (isModelTier(tierCandidate)) {
+    return resolveModelForTier(tierCandidate, normalizedProvider) ?? fallback;
   }
 
   switch (normalizedProvider) {
@@ -621,11 +639,15 @@ export function normalizeModelForProvider(
       // default rather than be forwarded as a bogus --model value.
       const providerModels = getModelsForProvider(normalizedProvider);
       return providerModels.some((model) => model.id === normalizedModel)
+        || isKnownCatalogModelForProvider(normalizedProvider, normalizedModel)
         ? normalizedModel
         : fallback;
     }
     case 'codex':
-      return looksLikeCodexModelId(normalizedModel) ? normalizedModel : fallback;
+      return looksLikeCodexModelId(normalizedModel)
+        || isKnownCatalogModelForProvider(normalizedProvider, normalizedModel)
+        ? normalizedModel
+        : fallback;
     default:
       return normalizedModel;
   }

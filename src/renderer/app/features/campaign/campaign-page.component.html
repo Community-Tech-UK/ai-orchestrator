@@ -1,8 +1,11 @@
 <div class="campaign-page">
   <header class="cp-header">
-    <div>
-      <h1>Campaigns</h1>
-      <span class="cp-subtitle">Multi-loop DAG orchestration</span>
+    <div class="cp-title-block">
+      <button type="button" class="cp-back" (click)="goBack()" aria-label="Back to dashboard">&larr; Back</button>
+      <div>
+        <h1>Campaigns</h1>
+        <span class="cp-subtitle">Multi-loop DAG orchestration</span>
+      </div>
     </div>
     <div class="cp-header-actions">
       <button type="button" [class.active]="mode() === 'select'" (click)="mode.set('select')" title="Select and move nodes">Select</button>

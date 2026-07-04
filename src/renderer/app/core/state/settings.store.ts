@@ -83,31 +83,31 @@ export class SettingsStore {
 
   // Group settings by category
   readonly generalSettings = computed(() =>
-    SETTINGS_METADATA.filter(m => m.category === 'general')
+    SETTINGS_METADATA.filter(m => m.category === 'general' && !m.hidden)
   );
   readonly orchestrationSettings = computed(() =>
-    SETTINGS_METADATA.filter(m => m.category === 'orchestration')
+    SETTINGS_METADATA.filter(m => m.category === 'orchestration' && !m.hidden)
   );
   readonly memorySettings = computed(() =>
-    SETTINGS_METADATA.filter(m => m.category === 'memory')
+    SETTINGS_METADATA.filter(m => m.category === 'memory' && !m.hidden)
   );
   readonly displaySettings = computed(() =>
-    SETTINGS_METADATA.filter(m => m.category === 'display')
+    SETTINGS_METADATA.filter(m => m.category === 'display' && !m.hidden)
   );
   readonly advancedSettings = computed(() =>
-    SETTINGS_METADATA.filter(m => m.category === 'advanced')
+    SETTINGS_METADATA.filter(m => m.category === 'advanced' && !m.hidden)
   );
   readonly reviewSettings = computed(() =>
-    SETTINGS_METADATA.filter(s => s.category === 'review')
+    SETTINGS_METADATA.filter(s => s.category === 'review' && !s.hidden)
   );
   readonly networkSettings = computed(() =>
-    SETTINGS_METADATA.filter(s => s.category === 'network')
+    SETTINGS_METADATA.filter(s => s.category === 'network' && !s.hidden)
   );
   readonly mcpSettings = computed(() =>
-    SETTINGS_METADATA.filter(s => s.category === 'mcp')
+    SETTINGS_METADATA.filter(s => s.category === 'mcp' && !s.hidden)
   );
   readonly rtkSettings = computed(() =>
-    SETTINGS_METADATA.filter(s => s.category === 'rtk')
+    SETTINGS_METADATA.filter(s => s.category === 'rtk' && !s.hidden)
   );
 
   // Remote Nodes

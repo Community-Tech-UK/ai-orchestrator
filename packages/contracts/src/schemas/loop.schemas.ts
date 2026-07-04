@@ -8,6 +8,7 @@ import {
   LoopRepoBaselineSnapshotSchema,
 } from './loop-audit.schemas';
 import { LoopPhase4ConfigSchema } from './loop-phase4.schemas';
+import { RequiredModelIdSchema } from './common.schemas';
 export * from './loop-audit.schemas';
 export * from './loop-phase4.schemas';
 
@@ -490,7 +491,7 @@ export const LoopInFlightIterationSchema = z.object({
 
 export const LoopContextWindowCalibrationSchema = z.object({
   provider: LoopProviderSchema,
-  model: z.string().min(1).optional(),
+  model: RequiredModelIdSchema.optional(),
   windowTokens: z.number().int().positive(),
   calibratedAt: z.number().int().nonnegative(),
   source: z.literal('provider-error'),

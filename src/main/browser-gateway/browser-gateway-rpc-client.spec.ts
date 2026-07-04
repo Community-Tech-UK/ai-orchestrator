@@ -6,9 +6,11 @@ import { BrowserGatewayRpcClient } from './browser-gateway-rpc-client';
 
 describe('BrowserGatewayRpcClient', () => {
   const servers: net.Server[] = [];
+  let socketSequence = 0;
 
   function socketPath(name: string): string {
-    const suffix = `${name}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const label = name.replace(/[^a-z0-9]/gi, '').slice(0, 4) || 'bg';
+    const suffix = `${label}-${process.pid}-${Date.now().toString(36)}-${socketSequence++}`;
     if (process.platform === 'win32') {
       return `\\\\.\\pipe\\${suffix}`;
     }

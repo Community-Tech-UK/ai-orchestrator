@@ -25,7 +25,7 @@ import {
 const logger = getLogger('OrchestratorToolsMcpForwarder');
 
 const REMOTE_NODE_DISCOVERY_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. Call list_remote_nodes first when reachability matters. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
+  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
 
 interface JsonRpcRequest {
   jsonrpc?: '2.0';
@@ -123,6 +123,22 @@ export function createOrchestratorToolsForwarderTools(
           model: {
             type: 'string',
             description: 'Optional model override.',
+          },
+          requiresBrowser: {
+            type: 'boolean',
+            description:
+              'Require browser automation on the worker and inject chrome-devtools tools. Use for remote browser evidence, screenshots, viewport sweeps, or UI audits.',
+          },
+          requiresAndroid: {
+            type: 'boolean',
+            description:
+              'Require Android automation on the worker and inject mobile-mcp tools. Use for emulator, physical device, adb, APK, phone, or native app testing. If omitted, clearly Android-focused prompts may be inferred.',
+          },
+          androidDeviceKind: {
+            type: 'string',
+            enum: ['emulator', 'physical', 'any'],
+            description:
+              'Android device preference when requiresAndroid is true. Defaults to any.',
           },
         },
         required: ['prompt'],

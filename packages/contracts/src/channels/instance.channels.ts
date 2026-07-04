@@ -19,6 +19,10 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_SEND_INPUT: 'instance:send-input',
   INSTANCE_STEER_INPUT: 'instance:steer-input',
   INSTANCE_INTERRUPT: 'instance:interrupt',
+  /** Resume a session parked on a provider limit immediately (skip the wait). */
+  INSTANCE_PROVIDER_LIMIT_RESUME_NOW: 'instance:provider-limit-resume-now',
+  /** Cancel a provider-limit park so the session won't auto-resume. */
+  INSTANCE_PROVIDER_LIMIT_CANCEL: 'instance:provider-limit-cancel',
   INSTANCE_STATE_UPDATE: 'instance:state-update',
   INSTANCE_BATCH_UPDATE: 'instance:batch-update',
   INSTANCE_CREATED: 'instance:created',

@@ -16,6 +16,8 @@ const baseCreatePayload = {
   concurrencyPolicy: 'skip',
   action: baseAction,
 };
+const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
 
 describe('AutomationCreatePayloadSchema destination', () => {
   it('defaults missing destinations to a new instance', () => {
@@ -72,6 +74,32 @@ describe('AutomationCreatePayloadSchema destination', () => {
       type: 'loopProviderLimitResume',
       loopRunId: 'loop-1',
     });
+  });
+
+  it('accepts model ids up to the dynamic catalog limit', () => {
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    const parsed = AutomationCreatePayloadSchema.parse({
+      ...baseCreatePayload,
+      action: {
+        ...baseAction,
+        model: maxCatalogModelId,
+      },
+    });
+
+    expect(parsed.action.model).toBe(maxCatalogModelId);
+  });
+
+  it('rejects model ids beyond the dynamic catalog limit', () => {
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    expect(AutomationCreatePayloadSchema.safeParse({
+      ...baseCreatePayload,
+      action: {
+        ...baseAction,
+        model: tooLongCatalogModelId,
+      },
+    }).success).toBe(false);
   });
 });
 

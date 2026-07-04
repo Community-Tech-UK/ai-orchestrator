@@ -14,7 +14,13 @@
  */
 
 import { Injectable, signal, computed, inject, effect, untracked } from '@angular/core';
-import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
+import {
+  getPrimaryModelForProvider,
+  MAX_MODEL_ID_LENGTH,
+  mergeKnownModelCatalogSnapshot,
+  normalizeModelForProvider,
+  type KnownProviderModelId,
+} from '../../../../shared/types/provider.types';
 import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
 import { SettingsStore } from '../state/settings.store';
 import { SettingsIpcService } from './ipc/settings-ipc.service';
@@ -93,6 +99,8 @@ export class ProviderStateService {
     // signal that disk values are available).
     effect(() => {
       const settings = this.settingsStore.settings();
+      this.seedCustomModelsIntoKnownCatalog(settings.customModelsByProvider);
+      this.seedRememberedModelsIntoKnownCatalog(settings.defaultModelByProvider);
       if (this.initialized) return;
 
       const providerByProvider = isStringRecord(settings.defaultModelByProvider)
@@ -150,11 +158,13 @@ export class ProviderStateService {
       } else if (change.key === 'defaultModel' && change.value) {
         this.applySelection(this.selectedProvider(), change.value as string);
       } else if (change.key === 'defaultModelByProvider' && isStringRecord(change.value)) {
+        this.seedRememberedModelsIntoKnownCatalog(change.value);
         this._lastModelByProvider.set({ ...change.value });
       } else if (change.key === 'defaultFastModeByProvider' && isBooleanRecord(change.value)) {
         this._fastModeByProvider.set({ ...change.value });
       } else if (change.settings) {
         if (isStringRecord(change.settings['defaultModelByProvider'])) {
+          this.seedRememberedModelsIntoKnownCatalog(change.settings['defaultModelByProvider']);
           this._lastModelByProvider.set({ ...change.settings['defaultModelByProvider'] });
         }
         if (isBooleanRecord(change.settings['defaultFastModeByProvider'])) {
@@ -386,6 +396,44 @@ export class ProviderStateService {
       window.localStorage.setItem(this.launchModeStorageKey, JSON.stringify(map));
     } catch {
       // Keep in-memory launch-mode selection if localStorage is unavailable.
+    }
+  }
+
+  private seedCustomModelsIntoKnownCatalog(customModelsByProvider: unknown): void {
+    if (!customModelsByProvider || typeof customModelsByProvider !== 'object' || Array.isArray(customModelsByProvider)) {
+      return;
+    }
+
+    const entries: KnownProviderModelId[] = [];
+    for (const [provider, models] of Object.entries(customModelsByProvider)) {
+      if (!Array.isArray(models)) continue;
+      for (const model of models) {
+        if (typeof model !== 'string') continue;
+        const id = model.trim();
+        if (!id || id.length > MAX_MODEL_ID_LENGTH) continue;
+        entries.push({ provider, id });
+      }
+    }
+
+    if (entries.length > 0) {
+      mergeKnownModelCatalogSnapshot(entries);
+    }
+  }
+
+  private seedRememberedModelsIntoKnownCatalog(defaultModelByProvider: unknown): void {
+    if (!isStringRecord(defaultModelByProvider)) {
+      return;
+    }
+
+    const entries: KnownProviderModelId[] = [];
+    for (const [provider, model] of Object.entries(defaultModelByProvider)) {
+      const id = model.trim();
+      if (!id || id.length > MAX_MODEL_ID_LENGTH) continue;
+      entries.push({ provider, id });
+    }
+
+    if (entries.length > 0) {
+      mergeKnownModelCatalogSnapshot(entries);
     }
   }
 }

@@ -12,6 +12,7 @@
  *  - getAllModels returns all entries
  */
 
+import { EventEmitter } from 'events';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   UnifiedModelCatalogService,
@@ -20,7 +21,10 @@ import {
   type CatalogUpdatedPayload,
 } from '../unified-model-catalog-service';
 import { clearModelRateOverlay, registerModelRates } from '../../../shared/data/model-pricing';
-import type { ModelDisplayInfo } from '../../../shared/types/provider.types';
+import {
+  normalizeModelForProvider,
+  type ModelDisplayInfo,
+} from '../../../shared/types/provider.types';
 import type { ModelsDevEntry } from '../models-dev-service';
 
 // ---------------------------------------------------------------------------
@@ -238,10 +242,11 @@ describe('UnifiedModelCatalogService — precedence: CLI-discovered (highest)', 
     expect(liveEntry).toBeDefined();
     expect(liveEntry!.source).toBe('cli-discovered');
     expect(liveEntry!.provider).toBe('claude');
+    expect(liveEntry!.name).toBe('Brand New');
 
     const sonnetEntry = svc.getModel('sonnet');
     expect(sonnetEntry!.source).toBe('cli-discovered');
-    expect(sonnetEntry!.name).toBeUndefined(); // UnifiedModelEntry has no `name` field
+    expect(sonnetEntry!.name).toBe('Sonnet (live)');
   });
 
   it('overlays static tier when CLI entry has no tier', () => {
@@ -301,6 +306,270 @@ describe('UnifiedModelCatalogService — precedence: CLI-discovered (highest)', 
 
     const entry = svc.getModel('live-model');
     expect(entry!.contextWindow).toBe(300_000);
+  });
+
+  it('getModel returns the highest-priority source when an id appears under multiple providers', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCatalogOverrideChanged([{
+      id: 'shared-model-id',
+      provider: 'gemini',
+      tier: 'balanced',
+      origin: 'local',
+      discoveredAt: 100,
+      source: 'catalog-override',
+    }]);
+    svc.onCliDiscoveryRefreshed('claude', [
+      { id: 'shared-model-id', name: 'Shared Live Model', tier: 'powerful' },
+    ]);
+    vi.runAllTimers();
+
+    expect(svc.getModel('shared-model-id')).toMatchObject({
+      provider: 'claude',
+      source: 'cli-discovered',
+      name: 'Shared Live Model',
+    });
+  });
+});
+
+describe('UnifiedModelCatalogService — precedence: user custom models', () => {
+  const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
+
+  it('adds custom model ids as user-custom entries with custom provenance', () => {
+    const svc = makeServiceWithMock({ 'claude-future-opus': 250_000 });
+
+    svc.onCustomModelsChanged({
+      claude: ['claude-future-opus'],
+    });
+    vi.runAllTimers();
+
+    const entry = svc.getModel('claude-future-opus');
+    expect(entry).toMatchObject({
+      id: 'claude-future-opus',
+      provider: 'claude',
+      source: 'user-custom',
+      isCustom: true,
+      tier: 'balanced',
+      contextWindow: 250_000,
+    });
+  });
+
+  it('dedupes and trims custom ids, ignoring empty values', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCustomModelsChanged({
+      gemini: ['  gemini-future-pro  ', '', 'gemini-future-pro'],
+    });
+    vi.runAllTimers();
+
+    const matches = svc
+      .getModelsByProvider('gemini')
+      .filter((entry) => entry.id === 'gemini-future-pro');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].source).toBe('user-custom');
+    expect(matches[0].isCustom).toBe(true);
+  });
+
+  it('ignores custom ids beyond the dynamic catalog limit from corrupted settings', () => {
+    const svc = makeServiceWithMock();
+
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    svc.onCustomModelsChanged({
+      claude: [tooLongCatalogModelId],
+    });
+    vi.runAllTimers();
+
+    expect(svc.getModel(tooLongCatalogModelId)).toBeUndefined();
+    expect(normalizeModelForProvider('claude', tooLongCatalogModelId)).not.toBe(tooLongCatalogModelId);
+  });
+
+  it('keeps CLI-discovered models above custom models for the same provider/id', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCustomModelsChanged({
+      claude: ['claude-future-opus'],
+    });
+    svc.onCliDiscoveryRefreshed('claude', [
+      { id: 'claude-future-opus', name: 'Live Future Opus', tier: 'powerful' },
+    ]);
+    vi.runAllTimers();
+
+    const entry = svc.getModel('claude-future-opus');
+    expect(entry).toMatchObject({
+      source: 'cli-discovered',
+      tier: 'powerful',
+    });
+    expect(entry!.isCustom).toBeUndefined();
+  });
+
+  it('emits catalog-updated when attached settings change customModelsByProvider', () => {
+    const svc = makeServiceWithMock();
+    const listener = vi.fn();
+    const settings = new EventEmitter() as EventEmitter & {
+      get: (key: string) => unknown;
+    };
+    settings.get = vi.fn(() => ({}));
+    svc.attachSettingsManager(settings);
+    vi.runAllTimers();
+    listener.mockClear();
+    svc.on(CATALOG_UPDATED_EVENT, listener);
+
+    settings.emit('setting-changed', 'customModelsByProvider', {
+      codex: ['gpt-future-codex'],
+    });
+    vi.runAllTimers();
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.calls[0][0]).toMatchObject({
+      sources: ['user-custom'],
+    });
+    expect(svc.getModel('gpt-future-codex')).toMatchObject({
+      provider: 'codex',
+      source: 'user-custom',
+      isCustom: true,
+    });
+  });
+
+  it('seeds attached custom settings into normalization before the debounce timer fires', () => {
+    const svc = makeServiceWithMock();
+    const settings = new EventEmitter() as EventEmitter & {
+      get: (key: string) => unknown;
+    };
+    settings.get = vi.fn(() => ({
+      claude: ['claude-custom-startup-opus'],
+    }));
+
+    svc.attachSettingsManager(settings);
+
+    expect(normalizeModelForProvider('claude', 'claude-custom-startup-opus')).toBe(
+      'claude-custom-startup-opus',
+    );
+  });
+
+  it('refreshes the shared normalization snapshot after custom models change', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCustomModelsChanged({
+      claude: ['claude-future-opus'],
+    });
+    vi.runAllTimers();
+
+    expect(normalizeModelForProvider('claude', 'claude-future-opus')).toBe('claude-future-opus');
+  });
+});
+
+describe('UnifiedModelCatalogService — precedence: catalog overrides', () => {
+  it('adds local override entries with catalog-override provenance and display names', () => {
+    const svc = makeServiceWithMock({ 'claude-override-opus': 1_000_000 });
+
+    svc.onCatalogOverrideChanged([{
+      id: 'claude-override-opus',
+      provider: 'claude',
+      name: 'Override Opus',
+      tier: 'powerful',
+      family: 'Opus',
+      pricing: { inputPerMillion: 12, outputPerMillion: 60 },
+      contextWindow: 2_000_000,
+      origin: 'local',
+      discoveredAt: 123,
+      source: 'catalog-override',
+    }]);
+    vi.runAllTimers();
+
+    expect(svc.getModel('claude-override-opus')).toMatchObject({
+      id: 'claude-override-opus',
+      provider: 'claude',
+      name: 'Override Opus',
+      source: 'catalog-override',
+      tier: 'powerful',
+      family: 'Opus',
+      pricing: { inputPerMillion: 12, outputPerMillion: 60 },
+      pricingSource: 'catalog-override',
+      contextWindow: 2_000_000,
+      discoveredAt: 123,
+    });
+    expect(normalizeModelForProvider('claude', 'claude-override-opus')).toBe('claude-override-opus');
+  });
+
+  it('keeps custom models and CLI-discovered models above catalog overrides', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCatalogOverrideChanged([{
+      id: 'claude-future-opus',
+      provider: 'claude',
+      tier: 'balanced',
+      origin: 'remote',
+      discoveredAt: 100,
+      source: 'catalog-override',
+    }]);
+    svc.onCustomModelsChanged({
+      claude: ['claude-future-opus'],
+    });
+    vi.runAllTimers();
+    expect(svc.getModel('claude-future-opus')).toMatchObject({
+      source: 'user-custom',
+      isCustom: true,
+    });
+
+    svc.onCliDiscoveryRefreshed('claude', [
+      { id: 'claude-future-opus', name: 'CLI Future Opus', tier: 'powerful' },
+    ]);
+    vi.runAllTimers();
+
+    expect(svc.getModel('claude-future-opus')).toMatchObject({
+      source: 'cli-discovered',
+      tier: 'powerful',
+    });
+  });
+
+  it('emits catalog-updated when an attached override source refreshes', () => {
+    const svc = makeServiceWithMock();
+    const source = new EventEmitter() as EventEmitter & {
+      getEntries: () => unknown[];
+    };
+    source.getEntries = vi.fn(() => []);
+    svc.attachCatalogOverrideSource(source);
+    vi.runAllTimers();
+    const listener = vi.fn();
+    svc.on(CATALOG_UPDATED_EVENT, listener);
+
+    source.getEntries = vi.fn(() => [{
+      id: 'remote-gemini-pro',
+      provider: 'gemini',
+      origin: 'remote',
+      discoveredAt: 999,
+      source: 'catalog-override',
+    }]);
+    source.emit('updated');
+    vi.runAllTimers();
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.calls[0][0]).toMatchObject({
+      sources: ['catalog-override'],
+    });
+    expect(svc.getModel('remote-gemini-pro')).toMatchObject({
+      provider: 'gemini',
+      source: 'catalog-override',
+    });
+  });
+
+  it('seeds attached override entries into normalization before the debounce timer fires', () => {
+    const svc = makeServiceWithMock();
+    const source = new EventEmitter() as EventEmitter & {
+      getEntries: () => unknown[];
+    };
+    source.getEntries = vi.fn(() => [{
+      id: 'claude-local-opus',
+      provider: 'claude',
+      origin: 'local',
+      discoveredAt: 999,
+      source: 'catalog-override',
+    }]);
+
+    svc.attachCatalogOverrideSource(source);
+
+    expect(normalizeModelForProvider('claude', 'claude-local-opus')).toBe('claude-local-opus');
   });
 });
 
@@ -398,6 +667,38 @@ describe('UnifiedModelCatalogService — getAllModels after CLI refresh', () => 
     const geminiModels = svc.getModelsByProvider('gemini');
     expect(geminiModels.length).toBeGreaterThan(0);
   });
+
+  it('treats same-provider static rows as fallback only after live CLI discovery succeeds', () => {
+    const svc = makeServiceWithMock();
+    expect(svc.getModel('opus[1m]')).toBeDefined();
+
+    svc.onCliDiscoveryRefreshed('claude', [
+      { id: 'claude-live-opus', name: 'Live Opus', tier: 'powerful', family: 'Opus' },
+    ]);
+    vi.runAllTimers();
+
+    const claudeIds = svc.getModelsByProvider('claude').map((model) => model.id);
+    expect(claudeIds).toEqual(['claude-live-opus']);
+    expect(svc.getModel('opus[1m]')).toBeUndefined();
+
+    const geminiModels = svc.getModelsByProvider('gemini');
+    expect(geminiModels.length).toBeGreaterThan(0);
+  });
+
+  it('keeps static fallback rows when CLI discovery returns no models', () => {
+    const svc = makeServiceWithMock();
+    const listener = vi.fn();
+    svc.on(CATALOG_UPDATED_EVENT, listener);
+    const staticClaudeIds = svc.getModelsByProvider('claude').map((model) => model.id);
+    expect(staticClaudeIds.length).toBeGreaterThan(0);
+
+    svc.onCliDiscoveryRefreshed('claude', []);
+    vi.runAllTimers();
+
+    expect(svc.getModelsByProvider('claude').map((model) => model.id)).toEqual(staticClaudeIds);
+    expect(svc.getCatalogStatus().cliDiscoveryLastRefreshedAt['claude']).toBeUndefined();
+    expect(listener).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -424,6 +725,29 @@ describe('UnifiedModelCatalogService — FIX 1: models.dev-only entries included
     expect(entry!.pricing?.outputPerMillion).toBe(8);
     expect(entry!.contextWindow).toBe(128_000);
     expect(entry!.pricingSource).toBe('models-dev');
+  });
+
+  it('maps supported models.dev provider namespaces into app provider buckets', () => {
+    const devEntries: ModelsDevEntry[] = [
+      {
+        id: 'claude-upstream-only-opus',
+        provider: 'anthropic',
+        rate: { input: 5, output: 25 },
+        contextWindow: 1_000_000,
+      },
+    ];
+    const svc = makeServiceWithMock({}, devEntries);
+
+    const entry = svc.getModel('claude-upstream-only-opus');
+    expect(entry).toBeDefined();
+    expect(entry!.provider).toBe('claude');
+    expect(entry!.source).toBe('models-dev');
+    expect(svc.getModelsByProvider('claude').map((model) => model.id)).toContain(
+      'claude-upstream-only-opus',
+    );
+    expect(normalizeModelForProvider('claude', 'claude-upstream-only-opus')).toBe(
+      'claude-upstream-only-opus',
+    );
   });
 
   it('does NOT add a models.dev entry whose id already exists in the static catalog', () => {

@@ -20,11 +20,13 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { ProviderIpcService } from '../../../core/services/ipc/provider-ipc.service';
 import { ApiKeyManagerComponent } from './api-key-manager.component';
 import { VerificationPreferencesComponent } from './verification-preferences.component';
 import { getModelsForProvider } from '../../../../../shared/types/provider.types';
+import { UnifiedCatalogStore } from '../../models/unified-catalog.store';
 
 interface CliSettingsEntry {
   command: string;
@@ -53,6 +55,8 @@ interface CliSettingsEntry {
 export class CliSettingsPanelComponent implements OnInit {
   private store = inject(VerificationStore);
   private providerIpc = inject(ProviderIpcService);
+  private router = inject(Router);
+  private unifiedCatalog = inject(UnifiedCatalogStore);
 
   // Tabs
   tabs = [
@@ -110,6 +114,7 @@ export class CliSettingsPanelComponent implements OnInit {
       error: cli.error,
     }));
     this.cliSettings.set(settings);
+    this.unifiedCatalog.ensureLoaded();
     void this.refreshAvailableModels(settings);
   }
 
@@ -308,6 +313,10 @@ export class CliSettingsPanelComponent implements OnInit {
     history.back();
   }
 
+  goBack(): void {
+    void this.router.navigate(['/']);
+  }
+
   private getFallbackModels(command: string): string[] {
     return [...(this.fallbackModelOptions[command] || [])];
   }
@@ -349,19 +358,37 @@ export class CliSettingsPanelComponent implements OnInit {
         .map((cli) => cli.command)
     )];
 
+    await this.unifiedCatalog.refresh();
+    this.applyUnifiedCatalogOptions(commands);
+
     await Promise.all(commands.map(async (command) => {
+      if (command !== 'copilot' && command !== 'cursor') {
+        return;
+      }
+
       try {
         const response = await this.providerIpc.listModelsForProvider(command);
-        const discoveredModels = response.success
-          ? this.normalizeModelOptions(command, (response.data ?? []).map((model) => model.id))
-          : [];
-        if (discoveredModels.length === 0) {
-          return;
+        if (response.success && response.data && response.data.length > 0) {
+          await this.providerIpc.pushCliDiscoveredModels(command, response.data);
         }
-        this.updateCliSetting(command, { availableModels: discoveredModels });
       } catch {
-        // Keep fallback models when dynamic discovery fails.
+        // Keep static/catalog fallback when renderer-side discovery fails.
       }
     }));
+
+    await this.unifiedCatalog.refresh();
+    this.applyUnifiedCatalogOptions(commands);
+  }
+
+  private applyUnifiedCatalogOptions(commands: string[]): void {
+    for (const command of commands) {
+      const catalogModels = this.normalizeModelOptions(
+        command,
+        this.unifiedCatalog.displayModelsForProvider(command).map((model) => model.id),
+      );
+      if (catalogModels.length > 0) {
+        this.updateCliSetting(command, { availableModels: catalogModels });
+      }
+    }
   }
 }

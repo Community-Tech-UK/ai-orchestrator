@@ -9,10 +9,32 @@ const baseEnv = {
   instanceId: 'inst-1',
   event: { kind: 'status', status: 'busy' },
 };
+const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
 
 describe('ProviderRuntimeEventEnvelopeSchema', () => {
   it('parses a valid envelope', () => {
     expect(() => ProviderRuntimeEventEnvelopeSchema.parse(baseEnv)).not.toThrow();
+  });
+
+  it('accepts envelope model ids up to the dynamic catalog limit', () => {
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    const parsed = ProviderRuntimeEventEnvelopeSchema.parse({
+      ...baseEnv,
+      model: maxCatalogModelId,
+    });
+
+    expect(parsed.model).toBe(maxCatalogModelId);
+  });
+
+  it('rejects envelope model ids beyond the dynamic catalog limit', () => {
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    expect(ProviderRuntimeEventEnvelopeSchema.safeParse({
+      ...baseEnv,
+      model: tooLongCatalogModelId,
+    }).success).toBe(false);
   });
 
   it('parses a rich output event with attachments and thinking', () => {

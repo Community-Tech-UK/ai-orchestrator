@@ -24,6 +24,7 @@ import type {
   ProviderId,
   ProviderQuotaSnapshot,
 } from '../../../../shared/types/provider-quota.types';
+import { formatQuotaWindowValue } from '../../../../shared/util/provider-quota-format';
 
 interface IntervalOption {
   label: string;
@@ -180,7 +181,7 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
       .filter((window) => window.limit > 0)
       .map((window) => ({
         label: window.label,
-        value: `${window.used}/${window.limit} ${window.unit}`,
+        value: formatQuotaWindowValue(window.used, window.limit, window.unit),
         reset: window.resetsAt ? `resets ${this.formatReset(window.resetsAt)}` : null,
       }));
   }
