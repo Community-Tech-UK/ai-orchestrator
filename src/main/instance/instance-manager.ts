@@ -1284,8 +1284,9 @@ export class InstanceManager extends EventEmitter {
     instanceId: string,
     approved: boolean,
     updatedInput?: Record<string, unknown>,
+    options?: { yoloMode?: boolean },
   ): Promise<void> {
-    return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved, updatedInput);
+    return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved, updatedInput, options);
   }
 
   async changeModel(

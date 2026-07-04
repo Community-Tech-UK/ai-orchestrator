@@ -235,6 +235,9 @@
               {{ getApproveLabel(request) }}
             </button>
           </div>
+          @if (getResponseError(request.id)) {
+            <p class="request-error">{{ getResponseError(request.id) }}</p>
+          }
         }
       </div>
     }

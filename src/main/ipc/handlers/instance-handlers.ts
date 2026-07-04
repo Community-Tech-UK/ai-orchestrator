@@ -964,11 +964,21 @@ export function registerInstanceHandlers(deps: {
 
           const approved = action !== 'deny';
           const updatedInput = action === 'modify' ? validatedPayload.updatedInput : undefined;
-          await instanceManager.resumeAfterDeferredPermission(
-            validatedPayload.instanceId,
-            approved,
-            updatedInput,
-          );
+          const enableYolo = approved && validatedPayload.metadata?.['enableYolo'] === true;
+          if (enableYolo) {
+            await instanceManager.resumeAfterDeferredPermission(
+              validatedPayload.instanceId,
+              approved,
+              updatedInput,
+              { yoloMode: true },
+            );
+          } else {
+            await instanceManager.resumeAfterDeferredPermission(
+              validatedPayload.instanceId,
+              approved,
+              updatedInput,
+            );
+          }
 
           if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
             // Map 'modify' to 'allow' for PermissionManager — it only knows allow/deny.
@@ -990,7 +1000,12 @@ export function registerInstanceHandlers(deps: {
 
           return {
             success: true,
-            data: { requestId: validatedPayload.requestId, responded: true, resumed: true }
+            data: {
+              requestId: validatedPayload.requestId,
+              responded: true,
+              resumed: true,
+              ...(enableYolo ? { yoloMode: true } : {}),
+            }
           };
         }
 

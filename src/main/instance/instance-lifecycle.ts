@@ -2969,11 +2969,12 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   // ============================================
 
   async resumeAfterDeferredPermission(
-    instanceId: string,
-    approved: boolean,
-    updatedInput?: Record<string, unknown>,
+    instanceId: string, approved: boolean, updatedInput?: Record<string, unknown>, options?: { yoloMode?: boolean },
   ): Promise<void> {
-    return this.deferredPermission.resumeAfterDeferredPermission(instanceId, approved, updatedInput);
+    await this.deferredPermission.resumeAfterDeferredPermission(instanceId, approved, updatedInput, options);
+    if (options?.yoloMode !== undefined) {
+      this.emit('yolo-toggled', { instanceId, yoloMode: options.yoloMode });
+    }
   }
 
   // ============================================

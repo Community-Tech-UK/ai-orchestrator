@@ -759,4 +759,11 @@ export class InstanceStore implements OnDestroy {
       });
     }
   }
+
+  setLocalYoloMode(instanceId: string, yoloMode: boolean): void {
+    const inst = this.stateService.getInstance(instanceId);
+    if (inst && inst.yoloMode !== yoloMode) {
+      this.stateService.updateInstance(instanceId, { yoloMode });
+    }
+  }
 }

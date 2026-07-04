@@ -24,6 +24,13 @@ import {
 } from './user-action-request.rules';
 import type { UserActionRequest } from './user-action-request.types';
 import type { AskUserQuestionEntry } from '../../../../shared/types/ask-user-question.types';
+import {
+  clearResponseError,
+  errorMessage,
+  responseErrorMessage,
+  setResponseError,
+  shouldClearInputRequiredForStatus
+} from './user-action-request.response-utils';
 
 export type { UserActionRequest } from './user-action-request.types';
 
@@ -43,16 +50,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   pendingRequests = signal<UserActionRequest[]>([]);
   isResponding = signal(false);
+  responseErrors = signal<Map<string, string>>(new Map());
 
   private inputRequiredScopes = new Map<string, InputRequiredScope>();
   private inputRequiredTexts = new Map<string, string>();
   private pendingInputRequiredById = new Map<string, UserActionRequest>();
 
-  /** Tracks whether the "Edit input" section is expanded per requestId */
   private modifyPanelOpen = new Map<string, boolean>();
-  /** Tracks the raw textarea text for modified tool_input per requestId */
   private modifyInputTexts = new Map<string, string>();
-  /** Tracks JSON parse/validation errors for modify per requestId */
   modifyInputErrors = signal<Map<string, string>>(new Map());
 
   /** Tracks user answers for ask_questions requests: requestId → Map<questionIndex, answer> */
@@ -84,6 +89,18 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         this.loadPendingRequests();
       } else {
         this.pendingRequests.set([]);
+      }
+    });
+
+    effect(() => {
+      const id = this.instanceId();
+      const status = id ? this.instanceStore.getInstance(id)?.status : undefined;
+      if (id && shouldClearInputRequiredForStatus(status)) {
+        this.clearCachedInputRequiredForInstance(id);
+        this.pendingRequests.update((requests) =>
+          requests.filter((r) => r.requestType !== 'input_required' || !this.isRequestForInstance(r, id))
+        );
+        this.instanceStore.clearPendingApprovals(id);
       }
     });
 
@@ -137,12 +154,6 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
       const currentInstanceId = this.instanceId();
 
-      // YOLO-mode suppression — don't short-circuit for `permission_denial`.
-      // Claude CLI has an internal guard for its own settings files that
-      // `--dangerously-skip-permissions` does NOT bypass, so the CLI itself
-      // denies the tool_use and the user must still decide whether to add a
-      // rule to ~/.claude/settings.json. Suppressing the prompt here would
-      // leave the user with no visible path to fix the denial.
       if (metadata?.type !== 'permission_denial') {
         const instance = this.instanceStore.getInstance(payload.instanceId);
         if (instance?.yoloMode) {
@@ -175,6 +186,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         permissionMetadata: metadata, // Store permission details for retry message
         askQuestions
       };
+      clearResponseError(this.responseErrors, req.id);
       this.pendingInputRequiredById.set(req.id, req);
       if (!this.inputRequiredScopes.has(req.id)) {
         this.inputRequiredScopes.set(req.id, defaultInputRequiredScope(metadata));
@@ -336,6 +348,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     const target = event.target as HTMLSelectElement;
     const val = (target.value as InputRequiredScope) || 'once';
     this.inputRequiredScopes.set(requestId, val);
+    clearResponseError(this.responseErrors, requestId);
+  }
+
+  getResponseError(requestId: string): string {
+    return this.responseErrors().get(requestId) ?? '';
   }
 
   isPermissionRequest(request: UserActionRequest): boolean {
@@ -344,18 +361,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
        request.permissionMetadata?.type === 'deferred_permission');
   }
 
-  /** Returns true if this is a deferred permission request (defer-based flow). */
   isDeferredPermission(request: UserActionRequest): boolean {
     return request.permissionMetadata?.type === 'deferred_permission';
   }
 
-  /**
-   * Returns true if this is a post-denial permission prompt surfaced because
-   * Claude CLI denied a tool use (e.g. self-editing `~/.claude/settings.json`
-   * under `--dangerously-skip-permissions`). When scope='always' is chosen for
-   * these prompts, the main process writes a rule to ~/.claude/settings.json
-   * and respawns the session so the CLI picks up the new allow-list entry.
-   */
   isPermissionDenial(request: UserActionRequest): boolean {
     return request.permissionMetadata?.type === 'permission_denial';
   }
@@ -686,6 +695,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   async onEnableYolo(request: UserActionRequest): Promise<void> {
+    if (this.isDeferredPermission(request)) {
+      await this.respond(request, true, undefined, { enableYolo: true });
+      return;
+    }
+
     this.isResponding.set(true);
     try {
       // Toggle YOLO mode for this instance
@@ -700,9 +714,12 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           requests.filter((r) => !shouldClearRequestAfterYoloEnabled(r, request.instanceId))
         );
         this.instanceStore.clearPendingApprovals(request.instanceId);
+      } else {
+        setResponseError(this.responseErrors, request.id, responseErrorMessage(result, 'Failed to enable YOLO mode.'));
       }
     } catch (error) {
       console.error('Failed to enable YOLO mode:', error);
+      setResponseError(this.responseErrors, request.id, errorMessage(error, 'Failed to enable YOLO mode.'));
     } finally {
       this.isResponding.set(false);
     }
@@ -792,9 +809,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   private async respond(
     request: UserActionRequest,
     approved: boolean,
-    selectedOption?: string
+    selectedOption?: string,
+    metadataExtras?: Record<string, unknown>,
   ): Promise<void> {
     this.isResponding.set(true);
+    clearResponseError(this.responseErrors, request.id);
 
     try {
       // Handle input_required differently - send retry message or denial to CLI
@@ -830,6 +849,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
               requests.filter((r) => r.id !== request.id)
             );
             this.instanceStore.decrementPendingApproval(request.instanceId);
+          } else {
+            setResponseError(this.responseErrors, request.id, responseErrorMessage(result, 'Failed to submit your response.'));
           }
           return;
         }
@@ -880,7 +901,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         // pattern; `path` is the display-friendly version that may have been
         // truncated for the user-visible prompt message.
         const ipcMetadata = this.isDeferredPermission(request)
-          ? { type: 'deferred_permission', tool_use_id: meta?.tool_use_id }
+          ? { type: 'deferred_permission', tool_use_id: meta?.tool_use_id, ...metadataExtras }
           : this.isPermissionDenial(request)
             ? {
                 type: 'permission_denial',
@@ -902,6 +923,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         );
 
         if (result.success) {
+          const resultData = result.data as { yoloMode?: boolean } | undefined;
           console.log('[APPROVAL_TRACE][renderer:user-action] submit_permission_decision_success', {
             approvalTraceId,
             requestId: request.id,
@@ -911,11 +933,25 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             isDeferred: this.isDeferredPermission(request),
           });
           this.inputRequiredScopes.delete(request.id);
-          this.pendingInputRequiredById.delete(request.id);
-          this.pendingRequests.update((requests) =>
-            requests.filter((r) => r.id !== request.id)
-          );
-          this.instanceStore.decrementPendingApproval(request.instanceId);
+          if (resultData?.yoloMode === true) {
+            this.instanceStore.setLocalYoloMode(request.instanceId, true);
+            this.clearCachedInputRequiredForInstance(
+              request.instanceId,
+              (cachedRequest) => shouldClearRequestAfterYoloEnabled(cachedRequest, request.instanceId)
+            );
+            this.pendingRequests.update((requests) =>
+              requests.filter((r) => !shouldClearRequestAfterYoloEnabled(r, request.instanceId))
+            );
+            this.instanceStore.clearPendingApprovals(request.instanceId);
+          } else {
+            this.pendingInputRequiredById.delete(request.id);
+            this.pendingRequests.update((requests) =>
+              requests.filter((r) => r.id !== request.id)
+            );
+            this.instanceStore.decrementPendingApproval(request.instanceId);
+          }
+        } else {
+          setResponseError(this.responseErrors, request.id, responseErrorMessage(result, 'Failed to submit your decision.'));
         }
         return;
       }
@@ -942,9 +978,12 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         this.pendingRequests.update((requests) =>
           requests.filter((r) => r.id !== request.id)
         );
+      } else {
+        setResponseError(this.responseErrors, request.id, responseErrorMessage(response, 'Failed to submit your decision.'));
       }
     } catch (error) {
       console.error('Failed to respond to user action request:', error);
+      setResponseError(this.responseErrors, request.id, errorMessage(error, 'Failed to submit your decision.'));
     } finally {
       this.isResponding.set(false);
     }

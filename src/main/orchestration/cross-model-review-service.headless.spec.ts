@@ -58,6 +58,7 @@ function reviewerJson(issue: string): string {
 // An existing directory — the headless path validates cwd before dispatch,
 // so fake paths like '/repo' would silently fall back to process.cwd().
 const REPO_CWD = process.cwd();
+const MISSING_REMOTE_WINDOWS_CWD = 'C:\\__aio_missing_remote_node_workspace__\\repo';
 
 describe('CrossModelReviewService headless review', () => {
   beforeEach(() => {
@@ -172,7 +173,7 @@ describe('CrossModelReviewService headless review', () => {
       target: 'HEAD',
       // A remote-node Windows path — does not exist on this machine. Spawning
       // a reviewer CLI with it would fail with `spawn <cli> ENOENT`.
-      cwd: 'C:\\Users\\shutu\\Documents\\Work',
+      cwd: MISSING_REMOTE_WINDOWS_CWD,
       content: 'diff',
       taskDescription: 'Review',
       reviewers: ['gemini'],
