@@ -15,8 +15,8 @@ import {
 import type { RpcRequest, RpcResponse, RpcNotification, RpcScope } from './worker-node-rpc';
 import { getRemoteNodeConfig } from './remote-node-config';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
-import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { getWorkerNodeRegistry } from './worker-node-registry';
+import { getRemoteNodeRosterService } from './remote-node-roster-service';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from './rpc-schemas';
 import { getRemoteWorkerRepairTracker } from './remote-worker-repair-tracker';
@@ -26,6 +26,7 @@ import {
   isWorkerNodeWorkDispatchMethod,
   trustedPlatformFromParams,
   summarizeRpcParams,
+  withConnectionAddress,
 } from './worker-node-connection-helpers';
 
 // Re-exported for existing importers (tests, dispatch classification callers).
@@ -140,13 +141,13 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         });
       }
 
-      wss.on('connection', (ws) => {
-        this.handleConnection(ws);
+      wss.on('connection', (ws, request) => {
+        this.handleConnection(ws, request.socket.remoteAddress);
       });
     });
 
     const registry = getWorkerNodeRegistry();
-    this.broadcastAll = () => this.broadcastNodesToRenderer(registry.getAllNodes());
+    this.broadcastAll = () => this.broadcastNodesToRenderer();
     registry.on('node:connected', this.broadcastAll);
     registry.on('node:disconnected', this.broadcastAll);
     registry.on('node:updated', this.broadcastAll);
@@ -199,10 +200,11 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     return this.wss !== null;
   }
 
-  broadcastNodesToRenderer(nodes: WorkerNodeInfo[]): void {
+  broadcastNodesToRenderer(): void {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { BrowserWindow } = require('electron');
+      const nodes = getRemoteNodeRosterService().list();
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send(IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, nodes);
       }
@@ -308,7 +310,9 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       if (pending.timer) clearTimeout(pending.timer);
       this.pending.delete(id);
       if (pending.isWork) {
+        const nodeName = getWorkerNodeRegistry().getNode(nodeId)?.name ?? nodeId;
         logger.warn('Remote node: work aborted — node disconnected', {
+          node: nodeName,
           nodeId,
           method: pending.method,
           requestId: id,
@@ -380,7 +384,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     const ws = this.nodeToSocket.get(nodeId);
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.close(1008, reason);
-      logger.info('Disconnected node', { nodeId, reason });
+      const nodeName = getWorkerNodeRegistry().getNode(nodeId)?.name ?? nodeId;
+      logger.info('Disconnected node', { node: nodeName, nodeId, reason });
     }
   }
 
@@ -388,7 +393,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   // Internal — WebSocket event handling
   // ---------------------------------------------------------------------------
 
-  private handleConnection(ws: WebSocket): void {
+  private handleConnection(ws: WebSocket, remoteAddress?: string): void {
     let nodeId: string | null = null;
 
     ws.on('message', (data) => {
@@ -402,7 +407,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
       if (nodeId === null) {
         // First message must be node.register
-        this.handleRegistration(ws, msg, (registeredId) => {
+        this.handleRegistration(ws, msg, remoteAddress, (registeredId) => {
           nodeId = registeredId;
         });
         return;
@@ -463,7 +468,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       }
       // Grace elapsed with no re-registration — this is a real disconnect.
       this.rejectPendingForNode(nodeId, `Node disconnected: ${nodeId}`);
-      logger.info('Node WebSocket disconnected', { nodeId });
+      const node = getWorkerNodeRegistry().getNode(nodeId);
+      logger.info('Node WebSocket disconnected', { node: node?.name ?? nodeId, nodeId });
       this.emit('node:ws-disconnected', nodeId);
     }, DISCONNECT_GRACE_MS);
     // Don't keep the event loop alive purely for this timer.
@@ -513,6 +519,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   private handleRegistration(
     ws: WebSocket,
     msg: unknown,
+    remoteAddress: string | undefined,
     onRegistered: (nodeId: string) => void,
   ): void {
     if (!isRpcRequest(msg) || msg.method !== 'node.register') {
@@ -569,7 +576,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       );
       ws.send(JSON.stringify(errorResponse));
       ws.close(4001, 'Unauthorized');
-      logger.warn('Node registration rejected', { nodeId: newNodeId, reason: auth.reason });
+      logger.warn('Node registration rejected', { node: name, nodeId: newNodeId, reason: auth.reason });
       return;
     }
 
@@ -582,6 +589,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     const withinGrace = this.cancelDisconnectGrace(newNodeId);
     if (withinGrace) {
       logger.info('Node re-registered within disconnect grace — treating as continuous session', {
+        node: name,
         nodeId: newNodeId,
       });
     }
@@ -589,7 +597,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     // Replace any existing socket for this nodeId
     const existing = this.nodeToSocket.get(newNodeId);
     if (existing && existing !== ws) {
-      logger.warn('Replacing existing socket for nodeId', { nodeId: newNodeId });
+      logger.warn('Replacing existing socket for nodeId', { node: name, nodeId: newNodeId });
       this.socketToNode.delete(existing);
       existing.close(1001, 'Replaced by new connection');
       this.recordFlap(newNodeId, name);
@@ -604,12 +612,13 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     this.socketToNode.set(ws, newNodeId);
     onRegistered(newNodeId);
 
-    logger.info('Node registered via WebSocket', { nodeId: newNodeId });
+    logger.info('Node registered via WebSocket', { node: name, nodeId: newNodeId });
     this.emit('node:ws-connected', newNodeId);
 
     // Forward the registration to the RPC router so it registers the node
     // in the registry and starts health monitoring.
-    this.emit('rpc:request', newNodeId, msg as RpcRequest);
+    const request = withConnectionAddress(msg as RpcRequest, remoteAddress);
+    this.emit('rpc:request', newNodeId, request);
     this.sendResponse(newNodeId, {
       jsonrpc: '2.0',
       id: msg.id,

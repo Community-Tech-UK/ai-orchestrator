@@ -16,6 +16,13 @@ import type {
   BrowserExtCommandResultParamsSchema,
   BrowserExtPollCommandParamsSchema,
 } from '../remote-node/rpc-schemas';
+import {
+  describeBrowserExtensionContact,
+  getBrowserExtensionContactState,
+  isBrowserExtensionContactFresh,
+  type BrowserExtensionContactSnapshot,
+  type BrowserExtensionContactState,
+} from './browser-extension-contact-state';
 
 type BrowserExtAttachTabParams = z.infer<typeof BrowserExtAttachTabParamsSchema>;
 type BrowserExtPollCommandParams = z.infer<typeof BrowserExtPollCommandParamsSchema>;
@@ -45,6 +52,8 @@ export interface RemoteBrowserExtensionBridgeOptions {
   commandStore?: RemoteExtensionCommandStore;
   tabStore?: RemoteExtensionTabStore;
   registry?: Pick<WorkerNodeRegistry, 'getNode'>;
+  contactState?: BrowserExtensionContactState;
+  logger?: Pick<Console, 'info' | 'warn'>;
   now?: () => number;
   maxRequestsPerWindow?: number;
   rateLimitWindowMs?: number;
@@ -55,22 +64,29 @@ interface RateBucket {
   count: number;
 }
 
+type ContactTransitionState = 'never' | 'active' | 'lost';
+
 export class RemoteBrowserExtensionBridge {
   private static instance: RemoteBrowserExtensionBridge | null = null;
   private readonly service: RemoteExtensionBridgeService;
   private readonly commandStore: RemoteExtensionCommandStore;
   private readonly tabStore: RemoteExtensionTabStore;
   private readonly registry: Pick<WorkerNodeRegistry, 'getNode'>;
+  private readonly contactState: BrowserExtensionContactState;
+  private readonly logger: Pick<Console, 'info' | 'warn'>;
   private readonly now: () => number;
   private readonly maxRequestsPerWindow: number;
   private readonly rateLimitWindowMs: number;
   private readonly rateBuckets = new Map<string, RateBucket>();
+  private readonly contactTransitions = new Map<string, ContactTransitionState>();
 
   constructor(options: RemoteBrowserExtensionBridgeOptions = {}) {
     this.service = options.service ?? getBrowserGatewayService();
     this.commandStore = options.commandStore ?? getBrowserExtensionCommandStore();
     this.tabStore = options.tabStore ?? getBrowserExtensionTabStore();
     this.registry = options.registry ?? getWorkerNodeRegistry();
+    this.contactState = options.contactState ?? getBrowserExtensionContactState();
+    this.logger = options.logger ?? console;
     this.now = options.now ?? Date.now;
     this.maxRequestsPerWindow = options.maxRequestsPerWindow ?? 120;
     this.rateLimitWindowMs = options.rateLimitWindowMs ?? 1_000;
@@ -96,6 +112,7 @@ export class RemoteBrowserExtensionBridge {
     if (!node) {
       throw new Error(`unknown_remote_browser_node:${nodeId}`);
     }
+    this.recordExtensionContact(nodeId);
 
     const {
       allowedOrigins: _allowedOrigins,
@@ -117,6 +134,7 @@ export class RemoteBrowserExtensionBridge {
     params: BrowserExtPollCommandParams,
   ): ReturnType<RemoteExtensionCommandStore['pollCommand']> {
     this.consumeRateLimit(nodeId);
+    this.recordExtensionContact(nodeId);
     return this.commandStore.pollCommand(
       browserExtensionQueueKeyForNode(nodeId),
       { timeoutMs: params.timeoutMs },
@@ -125,6 +143,7 @@ export class RemoteBrowserExtensionBridge {
 
   commandResult(nodeId: string, params: BrowserExtCommandResultParams): { ok: true } {
     this.consumeRateLimit(nodeId);
+    this.recordExtensionContact(nodeId);
     this.commandStore.resolveCommand({
       queueKey: browserExtensionQueueKeyForNode(nodeId),
       commandId: params.commandId,
@@ -137,6 +156,8 @@ export class RemoteBrowserExtensionBridge {
 
   expireNode(nodeId: string): void {
     this.rateBuckets.delete(nodeId);
+    this.contactTransitions.delete(nodeId);
+    this.contactState.forgetNode(nodeId);
     this.tabStore.expireNode(nodeId);
     this.commandStore.rejectQueue(
       browserExtensionQueueKeyForNode(nodeId),
@@ -155,6 +176,53 @@ export class RemoteBrowserExtensionBridge {
     if (bucket.count > this.maxRequestsPerWindow) {
       throw new Error(`browser_extension_relay_rate_limited:${nodeId}`);
     }
+  }
+
+  getLastExtensionContactAt(nodeId: string): number | undefined {
+    return this.contactState.getLastExtensionContactAt(nodeId);
+  }
+
+  isExtensionContactFresh(nodeId: string): boolean {
+    return !this.observeExtensionContact(nodeId).silent;
+  }
+
+  describeExtensionContact(nodeId: string): BrowserExtensionContactSnapshot {
+    return this.observeExtensionContact(nodeId);
+  }
+
+  private recordExtensionContact(nodeId: string): void {
+    const contactedAt = this.now();
+    this.observeExtensionContact(nodeId, contactedAt);
+    const previousState = this.contactTransitions.get(nodeId) ?? 'never';
+    this.contactState.markExtensionContact(nodeId, contactedAt);
+    if (previousState === 'lost') {
+      this.logger.info('Remote browser extension poll resumed', {
+        nodeId,
+        lastContactAt: contactedAt,
+      });
+    }
+    this.contactTransitions.set(nodeId, 'active');
+  }
+
+  private observeExtensionContact(
+    nodeId: string,
+    now = this.now(),
+  ): BrowserExtensionContactSnapshot {
+    const snapshot = describeBrowserExtensionContact(
+      nodeId,
+      this.getLastExtensionContactAt(nodeId),
+      now,
+    );
+    const previousState = this.contactTransitions.get(nodeId) ?? 'never';
+    if (snapshot.silent && snapshot.lastContactAt !== undefined && previousState === 'active') {
+      this.contactTransitions.set(nodeId, 'lost');
+      this.logger.warn('Remote browser extension poll lost', {
+        nodeId,
+        lastContactAt: snapshot.lastContactAt,
+        staleForMs: snapshot.staleForMs ?? 0,
+      });
+    }
+    return snapshot;
   }
 }
 

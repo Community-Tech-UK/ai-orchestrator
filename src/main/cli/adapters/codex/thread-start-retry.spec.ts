@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   startThreadWithRetry,
   isTransientThreadStartError,
+  isTransientRpcTimeoutError,
   type ThreadStartClient,
 } from './thread-start-retry';
 
@@ -41,6 +42,11 @@ describe('isTransientThreadStartError', () => {
     expect(isTransientThreadStartError(new Error('RPC timeout: whatever'))).toBe(false);
     expect(isTransientThreadStartError('RPC timeout')).toBe(false);
     expect(isTransientThreadStartError(undefined)).toBe(false);
+  });
+
+  it('is an alias of the shared isTransientRpcTimeoutError', () => {
+    expect(isTransientRpcTimeoutError(rpcTimeoutError())).toBe(true);
+    expect(isTransientRpcTimeoutError(closedError())).toBe(false);
   });
 });
 

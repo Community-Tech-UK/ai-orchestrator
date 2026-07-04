@@ -1,7 +1,11 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
-import { getWorkerNodeRegistry, getWorkerNodeConnectionServer } from '../../remote-node';
+import {
+  getWorkerNodeRegistry,
+  getWorkerNodeConnectionServer,
+  getRemoteNodeRosterService,
+} from '../../remote-node';
 import { COORDINATOR_TO_NODE } from '../../remote-node/worker-node-rpc';
 import { sendServiceRpc } from '../../remote-node/service-rpc-client';
 import { getRemoteNodeConfig } from '../../remote-node/remote-node-config';
@@ -42,7 +46,7 @@ export function registerRemoteNodeHandlers(): void {
       try {
         return {
           success: true,
-          data: getWorkerNodeRegistry().getAllNodes(),
+          data: getRemoteNodeRosterService().list(),
         };
       } catch (error) {
         return {
@@ -62,7 +66,7 @@ export function registerRemoteNodeHandlers(): void {
     async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
         const validated = RemoteNodeGetPayloadSchema.parse(payload);
-        const node = getWorkerNodeRegistry().getNode(validated.nodeId);
+        const node = getRemoteNodeRosterService().get(validated.nodeId);
         return {
           success: true,
           data: node ?? null,

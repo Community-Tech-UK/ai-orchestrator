@@ -40,6 +40,11 @@ const WorkerNodeCapabilitiesSchema = z.object({
     enabled: z.boolean(),
     running: z.boolean(),
     socketPath: z.string().optional(),
+    registration: z.enum(['ok', 'repaired', 'contested', 'error']).optional(),
+    lastRegistrationCheckAt: z.number().int().nonnegative().optional(),
+    manifestPath: z.string().optional(),
+    registrationError: z.string().optional(),
+    lastExtensionContactAt: z.number().int().nonnegative().optional(),
   }).optional(),
   hasAndroidMcp: z.boolean().optional().default(false),
   androidAutomation: z.object({
@@ -95,6 +100,7 @@ export const NodeRegisterParamsSchema = z.object({
   name: z.string().min(1).max(100),
   capabilities: WorkerNodeCapabilitiesSchema,
   token: z.string().optional(),
+  address: z.string().optional(),
 });
 
 export const NodeHeartbeatParamsSchema = z.object({

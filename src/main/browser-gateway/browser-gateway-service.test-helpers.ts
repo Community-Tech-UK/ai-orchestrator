@@ -92,6 +92,7 @@ export function makeService(overrides: {
     allowedOrigins: BrowserProfile['allowedOrigins'];
   };
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  extensionContactState?: BrowserGatewayServiceOptions['extensionContactState'];
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
   stageUploadFileOnNode?: (nodeId: string, localPath: string) => Promise<string>;
   useSingleton?: boolean;
@@ -280,6 +281,15 @@ export function makeService(overrides: {
     driver,
     extensionTabStore,
     extensionCommandStore: overrides.extensionCommandStore,
+    extensionContactState: overrides.extensionContactState ?? {
+      getLastExtensionContactAt: () => Date.now(),
+      isExtensionContactFresh: () => true,
+      describeExtensionContact: (nodeId: string) => ({
+        nodeId,
+        lastContactAt: Date.now(),
+        silent: false,
+      }),
+    },
     auditStore,
     grantStore,
     approvalStore,
@@ -305,6 +315,7 @@ export function makeService(overrides: {
         remoteExtensions: {
           total: 0,
           ready: 0,
+          silent: 0,
           nodes: [],
         },
         providerCapabilities: {

@@ -73,11 +73,9 @@ export const ListRemoteNodesArgsSchema = z.object({}).strict();
 export type ListRemoteNodesArgs = z.infer<typeof ListRemoteNodesArgsSchema>;
 
 export interface RemoteNodeToolInfo {
-  id: string;
-  name: string;
-  status: 'connecting' | 'connected' | 'degraded' | 'disconnected';
-  platform: string;
-  arch: string;
+  id: string; name: string;
+  status: 'connecting' | 'connected' | 'degraded' | 'disconnected'; connected?: boolean;
+  platform: string; arch: string; address?: string;
   supportedClis: string[];
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
@@ -90,8 +88,8 @@ export interface RemoteNodeToolInfo {
   activeInstances: number;
   maxConcurrentInstances: number;
   workingDirectories: string[];
-  lastHeartbeat?: number;
-  latencyMs?: number;
+  connectedAt?: number; lastHeartbeat?: number; lastAuthenticatedAt?: number;
+  pairingLabel?: string; authMethod?: 'pairing_credential' | 'manual_pairing'; latencyMs?: number;
 }
 
 export interface ListRemoteNodesResult {

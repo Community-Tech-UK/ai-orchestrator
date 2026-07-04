@@ -86,7 +86,15 @@ describe('RemoteNodesSettingsTabComponent', () => {
       }
     ).buildPairingLink('pair-token');
 
-    expect(connectionConfig['host']).toBe('100.101.102.103');
+    expect(connectionConfig).toMatchObject({
+      authToken: 'pair-token',
+      coordinatorUrl: 'ws://100.101.102.103:4878',
+      namespace: 'default',
+      maxConcurrentInstances: 10,
+      workingDirectories: [],
+    });
+    expect(connectionConfig).not.toHaveProperty('token');
+    expect(connectionConfig).not.toHaveProperty('host');
     expect(new URL(pairingLink).searchParams.get('host')).toBe('100.101.102.103');
   });
 
@@ -116,7 +124,31 @@ describe('RemoteNodesSettingsTabComponent', () => {
       }
     ).buildPairingLink('pair-token');
 
-    expect(connectionConfig['host']).toBe('studio-mac.tailnet-abcd.ts.net');
+    expect(connectionConfig['coordinatorUrl']).toBe('ws://studio-mac.tailnet-abcd.ts.net:4878');
     expect(new URL(pairingLink).searchParams.get('host')).toBe('studio-mac.tailnet-abcd.ts.net');
+  });
+
+  it('builds the recommended aio-worker pair command from the pairing link', () => {
+    (
+      component as unknown as {
+        serverStatus: WritableSignal<RemoteNodeServerStatus>;
+      }
+    ).serverStatus.set({
+      running: true,
+      host: '0.0.0.0',
+      port: 4878,
+      tailscaleDnsName: 'studio-mac.tailnet-abcd.ts.net',
+      requireTls: false,
+    });
+
+    const command = (
+      component as unknown as {
+        buildPairingCommand: (token: string) => string;
+      }
+    ).buildPairingCommand('pair-token');
+
+    expect(command).toBe(
+      'aio-worker pair "ai-orchestrator://remote-node/pair?host=studio-mac.tailnet-abcd.ts.net&port=4878&namespace=default&token=pair-token&requireTls=false"',
+    );
   });
 });

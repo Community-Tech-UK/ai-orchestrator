@@ -94,6 +94,8 @@ export function safeTargetFromExistingTab(
     pageId: String(attachment.tabId),
     driverTargetId: `chrome-tab:${attachment.windowId}:${attachment.tabId}`,
     mode: 'existing-tab',
+    ...(attachment.nodeId ? { nodeId: attachment.nodeId } : {}),
+    ...(attachment.nodeName ? { nodeName: attachment.nodeName } : {}),
     title: attachment.title,
     url: attachment.url,
     origin: attachment.origin,

@@ -60,6 +60,7 @@ import type {
 } from './codex/app-server-types';
 import { SERVICE_NAME } from './codex/app-server-types';
 import { startThreadWithRetry } from './codex/thread-start-retry';
+import { resumeThreadWithRetry } from './codex/thread-resume-retry';
 import {
   getCommandAggregatedOutput,
   getCommandExitCode,
@@ -76,7 +77,7 @@ import { extractCodexAppServerError, formatCodexAppServerError } from './codex/a
 import { CodexHomeManager } from './codex/codex-home-manager';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './codex/exec-diagnostics';
 import { parseCodexExecTranscript } from './codex/exec-transcript-parser';
-import { isBenignCodexStdinNotice, isCodexModelUnavailableError, isFatalSpawnError, isRecoverableThreadResumeError } from './codex/exec-error-classifier';
+import { isBenignCodexStdinNotice, isCodexInputTooLargeError, isCodexModelUnavailableError, isFatalSpawnError, isRecoverableThreadResumeError } from './codex/exec-error-classifier';
 import { CodexTimeoutError, type CodexExecPhase, type CodexTimeoutKind } from './codex/exec-timeout';
 import { enrichSpawnError } from './base-cli-adapter-utils';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
@@ -588,6 +589,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (/unauthorized|authentication|forbidden|login required/i.test(message)) return false;
     if (isSessionNotFoundText(message)) return false;
     if (/unknown model|model not found|invalid model/i.test(message)) return false;
+    // Per-turn input size cap: the thread is still alive on the app-server side.
+    // Keep the session usable (idle, queue intact) so the user can trim context
+    // (e.g. /compact or a fresh thread) and retry rather than being forced to
+    // restart the instance.
+    if (isCodexInputTooLargeError(message) || /per-turn size limit/i.test(message)) return true;
     if (/responseStreamDisconnected|stream disconnected before completion|incomplete response returned|content_filter/i.test(message)) return true;
     return /http 5\d\d|network error|connection (refused|reset|timed out|closed)|dns|tls|handshake|rate limit|timeout|socket hang up|econnreset/i.test(message);
   }
@@ -766,7 +772,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
       if (this.shouldResumeNextTurn && requestedResumeSessionId) {
         try {
           const requestedSessionId = requestedResumeSessionId;
-          const resumeResult = await client.request('thread/resume', {
+          // Retried with backoff on transient RPC timeouts only: under host
+          // overload a healthy app-server can miss the (load-scaled) control-RPC
+          // deadline. Without this, one timeout drops a large-context session
+          // straight to a full transcript replay. Deterministic "no rollout
+          // found" rejections are NOT retried — they fall through to the
+          // recoverable handling below unchanged.
+          const resumeResult = await resumeThreadWithRetry(client, {
             threadId: requestedSessionId,
             cwd,
             model: this.cliConfig.model || null,
@@ -1095,6 +1107,34 @@ export class CodexCliAdapter extends BaseCliAdapter {
     try {
       await this.appServerSendMessageInner(message, attachments);
     } catch (err) {
+      // Codex per-turn input character cap (distinct from token overflow): the
+      // assembled request body (thread history + tool outputs + file contents)
+      // exceeded ~1 MiB. A native compaction shrinks the thread so the retry
+      // can fit. Try exactly once — if it still overflows (e.g. a single
+      // oversized file dump), surface a clear message rather than looping.
+      if (isCodexInputTooLargeError(err)) {
+        logger.warn('Codex app-server turn exceeded per-turn input char cap, compacting and retrying once', {
+          threadId: this.appServerThreadId,
+          cause: err instanceof Error ? err.message : String(err),
+        });
+        const compacted = await this.compactContext();
+        if (!compacted) {
+          throw new Error(
+            'Codex rejected the turn: input exceeds its per-turn size limit and automatic compaction was unavailable. Trim the conversation (e.g. start a fresh thread) and retry.',
+          );
+        }
+        try {
+          await this.appServerSendMessageInner(message, attachments);
+          return;
+        } catch (retryErr) {
+          if (isCodexInputTooLargeError(retryErr)) {
+            throw new Error(
+              'Codex rejected the turn: input still exceeds its per-turn size limit after compaction. A single large input (e.g. a big file) likely overflows on its own — reduce the context and retry.',
+            );
+          }
+          throw retryErr;
+        }
+      }
       if (!isRecoverableThreadResumeError(err)) throw err;
       logger.warn('Codex app-server turn failed recoverably, reopening thread and retrying', {
         previousThreadId: this.appServerThreadId,

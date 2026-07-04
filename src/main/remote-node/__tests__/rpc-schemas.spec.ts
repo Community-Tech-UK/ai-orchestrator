@@ -46,6 +46,7 @@ describe('rpc-schemas', () => {
           workingDirectories: ['/tmp'],
         },
         token: 'secret-token',
+        address: '100.106.40.97',
       });
       expect(result.success).toBe(true);
     });

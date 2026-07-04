@@ -1,9 +1,13 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import {
+  createWindowsNativeMessagingRegistry,
+  type WindowsNativeMessagingRegistry,
+} from './windows-native-messaging-registry';
 
 export const BROWSER_EXTENSION_NATIVE_HOST_NAME = 'com.ai_orchestrator.browser_gateway';
+export const BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME = 'com.ai_orchestrator.browser_gateway_relay';
 export const BROWSER_EXTENSION_ID = 'jbkobgefdoglecnehdhfpgjamiginjfo';
 export const BROWSER_EXTENSION_PUBLIC_KEY =
   'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo+StOfam7CfQRsUs+A72AlgFLUnfSQXxJefJ1HHVEl5bxwoN4RA+TkUwflMu6BUHp0ZdtYg/g02sn8SB0og2RDLPKYoVfKGFXl07TOPjidiA/F2MxZe3Ck9icG7oSCIl8eff2BaMSUsuZ3YB+Wo712uVS2Rg0gcq5YIpiBWMpYRARG9w0gN+Hvdug7QsSGYfwZ0upyJAZj/wottlOeSD5u0uKfpXCo4esfyZeKAtIOXpNkNE04Fd821WZjOHZj1f9wdHqXFtESrffFEO6x6IMz3/gwnLNm0NDBX3jBh27+v+OapdPVAAmK9ROtTAGkXlH41PCCuntrtcktpimbYuhwIDAQAB';
@@ -24,11 +28,15 @@ export interface BrowserExtensionNativeRuntimeOptions {
   socketPath: string;
   extensionToken: string;
   hostCommand: BrowserExtensionNativeHostCommand;
+  hostName?: string;
   chromeNativeMessagingDir?: string;
+  registerInOS?: boolean;
+  windowsRegistry?: WindowsNativeMessagingRegistry;
   now?: () => number;
 }
 
 export interface BrowserExtensionNativeRuntimeInstallResult {
+  nativeDir: string;
   runtimeConfigPath: string;
   wrapperPath: string;
   manifestPath: string;
@@ -42,11 +50,16 @@ export interface BrowserExtensionNativeRuntimeRemoveResult {
 export function prepareBrowserExtensionNativeHostRuntime(
   options: BrowserExtensionNativeRuntimeOptions,
 ): BrowserExtensionNativeRuntimeInstallResult {
-  const nativeDir = path.join(options.userDataPath, 'browser-gateway', 'native-host');
+  const hostName = options.hostName ?? BROWSER_EXTENSION_NATIVE_HOST_NAME;
+  const paths = browserExtensionNativeHostPaths({
+    userDataPath: options.userDataPath,
+    chromeNativeMessagingDir: options.chromeNativeMessagingDir,
+    hostName,
+  });
+  const { nativeDir, runtimeConfigPath, wrapperPath, manifestPath } = paths;
   fs.mkdirSync(nativeDir, { recursive: true, mode: 0o700 });
   chmodIfSupported(nativeDir, 0o700);
 
-  const runtimeConfigPath = path.join(nativeDir, 'runtime.json');
   const runtimeConfig: BrowserExtensionNativeRuntimeConfig = {
     socketPath: options.socketPath,
     extensionToken: options.extensionToken,
@@ -57,33 +70,35 @@ export function prepareBrowserExtensionNativeHostRuntime(
   });
   chmodIfSupported(runtimeConfigPath, 0o600);
 
-  const wrapperPath = path.join(
-    nativeDir,
-    process.platform === 'win32' ? 'ai-orchestrator-browser-host.cmd' : 'ai-orchestrator-browser-host',
-  );
   writeNativeHostWrapper({
     wrapperPath,
     runtimeConfigPath,
     hostCommand: options.hostCommand,
   });
 
-  const chromeNativeMessagingDir =
-    options.chromeNativeMessagingDir ?? defaultChromeNativeMessagingDir();
-  fs.mkdirSync(chromeNativeMessagingDir, { recursive: true });
-  const manifestPath = browserExtensionNativeHostManifestPath(chromeNativeMessagingDir);
+  const chromeNativeMessagingDirWasDefaulted = options.chromeNativeMessagingDir === undefined;
+  fs.mkdirSync(paths.chromeNativeMessagingDir, { recursive: true });
   fs.writeFileSync(
     manifestPath,
     `${JSON.stringify({
-      name: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+      name: hostName,
       description: 'Harness Browser Gateway native host',
       path: wrapperPath,
       type: 'stdio',
       allowed_origins: [`chrome-extension://${BROWSER_EXTENSION_ID}/`],
     }, null, 2)}\n`,
   );
-  registerWindowsNativeMessagingHost(manifestPath);
+  if (options.registerInOS ?? chromeNativeMessagingDirWasDefaulted) {
+    assertWindowsRegistrationPathIsSafe(manifestPath);
+    const registered = (options.windowsRegistry ?? createWindowsNativeMessagingRegistry())
+      .registerHost(hostName, manifestPath);
+    if (!registered) {
+      throw new Error(`windows_native_messaging_registration_failed:${hostName}`);
+    }
+  }
 
   return {
+    nativeDir,
     runtimeConfigPath,
     wrapperPath,
     manifestPath,
@@ -92,63 +107,121 @@ export function prepareBrowserExtensionNativeHostRuntime(
 
 export function removeBrowserExtensionNativeHostRuntime(options: {
   userDataPath: string;
+  hostName?: string;
   chromeNativeMessagingDir?: string;
+  registerInOS?: boolean;
+  windowsRegistry?: WindowsNativeMessagingRegistry;
 }): BrowserExtensionNativeRuntimeRemoveResult {
-  const nativeDir = path.join(options.userDataPath, 'browser-gateway', 'native-host');
-  const chromeNativeMessagingDir =
-    options.chromeNativeMessagingDir ?? defaultChromeNativeMessagingDir();
-  const manifestPath = browserExtensionNativeHostManifestPath(chromeNativeMessagingDir);
+  const hostName = options.hostName ?? BROWSER_EXTENSION_NATIVE_HOST_NAME;
+  const paths = browserExtensionNativeHostPaths({
+    userDataPath: options.userDataPath,
+    chromeNativeMessagingDir: options.chromeNativeMessagingDir,
+    hostName,
+  });
+  const { nativeDir, manifestPath } = paths;
+  const chromeNativeMessagingDirWasDefaulted = options.chromeNativeMessagingDir === undefined;
   try {
-    fs.rmSync(nativeDir, { recursive: true, force: true });
+    fs.rmSync(paths.runtimeConfigPath, { force: true });
+    fs.rmSync(paths.wrapperPath, { force: true });
   } catch {
-    // Best-effort cleanup; a stale wrapper is harmless once the manifest is gone.
+    // Best-effort cleanup; stale files are harmless once the manifest is gone.
   }
   try {
     fs.unlinkSync(manifestPath);
   } catch {
     // Already removed.
   }
-  unregisterWindowsNativeMessagingHost();
+  if (options.registerInOS ?? chromeNativeMessagingDirWasDefaulted) {
+    assertWindowsRegistrationPathIsSafe(manifestPath);
+    (options.windowsRegistry ?? createWindowsNativeMessagingRegistry())
+      .unregisterHost(hostName);
+  }
   return { nativeDir, manifestPath };
 }
 
-export function browserExtensionNativeHostManifestPath(chromeNativeMessagingDir = defaultChromeNativeMessagingDir()): string {
-  return path.join(chromeNativeMessagingDir, `${BROWSER_EXTENSION_NATIVE_HOST_NAME}.json`);
+export interface BrowserExtensionNativeHostPaths {
+  nativeDir: string;
+  chromeNativeMessagingDir: string;
+  runtimeConfigPath: string;
+  wrapperPath: string;
+  manifestPath: string;
 }
 
-function registerWindowsNativeMessagingHost(manifestPath: string): void {
+export function browserExtensionNativeHostPaths(options: {
+  userDataPath: string;
+  chromeNativeMessagingDir?: string;
+  hostName?: string;
+}): BrowserExtensionNativeHostPaths {
+  const hostName = options.hostName ?? BROWSER_EXTENSION_NATIVE_HOST_NAME;
+  const nativeDir = path.join(options.userDataPath, 'browser-gateway', 'native-host');
+  const chromeNativeMessagingDir =
+    options.chromeNativeMessagingDir ?? defaultChromeNativeMessagingDir();
+  const suffix = browserExtensionNativeHostFileSuffix(hostName);
+  const wrapperBaseName = suffix
+    ? `ai-orchestrator-browser-host-${suffix}`
+    : 'ai-orchestrator-browser-host';
+  const wrapperFileName = process.platform === 'win32'
+    ? `${wrapperBaseName}.cmd`
+    : wrapperBaseName;
+  return {
+    nativeDir,
+    chromeNativeMessagingDir,
+    runtimeConfigPath: path.join(nativeDir, suffix ? `runtime-${suffix}.json` : 'runtime.json'),
+    wrapperPath: path.join(nativeDir, wrapperFileName),
+    manifestPath: browserExtensionNativeHostManifestPath(chromeNativeMessagingDir, hostName),
+  };
+}
+
+export function browserExtensionNativeHostManifestPath(
+  chromeNativeMessagingDir = defaultChromeNativeMessagingDir(),
+  hostName = BROWSER_EXTENSION_NATIVE_HOST_NAME,
+): string {
+  return path.join(chromeNativeMessagingDir, `${hostName}.json`);
+}
+
+export function assertBrowserExtensionNativeHostManifestWritable(input: {
+  manifestPath: string;
+  nativeDir: string;
+  force: boolean;
+}): void {
+  if (input.force || !fs.existsSync(input.manifestPath)) {
+    return;
+  }
+  if (isBrowserExtensionNativeHostManifestOwned(input)) {
+    return;
+  }
+  throw new Error(
+    `Refusing to overwrite existing Chrome native host manifest at ${input.manifestPath}; use --force if this machine should use the worker extension relay.`,
+  );
+}
+
+export function isBrowserExtensionNativeHostManifestOwned(input: {
+  manifestPath: string;
+  nativeDir: string;
+}): boolean {
+  if (!fs.existsSync(input.manifestPath)) {
+    return false;
+  }
+  try {
+    const raw = fs.readFileSync(input.manifestPath, 'utf-8');
+    const manifest = JSON.parse(raw) as { path?: unknown };
+    const existingPath = typeof manifest.path === 'string' ? manifest.path : '';
+    return existingPath.length > 0 && isPathInsideOrSame(input.nativeDir, existingPath);
+  } catch {
+    return false;
+  }
+}
+
+function assertWindowsRegistrationPathIsSafe(manifestPath: string): void {
   if (process.platform !== 'win32') {
     return;
   }
-  try {
-    execFileSync('reg', [
-      'ADD',
-      `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${BROWSER_EXTENSION_NATIVE_HOST_NAME}`,
-      '/ve',
-      '/t',
-      'REG_SZ',
-      '/d',
-      manifestPath,
-      '/f',
-    ], { stdio: 'ignore' });
-  } catch {
-    // Health/UI can surface setup gaps; runtime startup should not fail on registry writes.
-  }
-}
-
-function unregisterWindowsNativeMessagingHost(): void {
-  if (process.platform !== 'win32') {
+  if (!isPathInsideOrSame(os.tmpdir(), manifestPath)) {
     return;
   }
-  try {
-    execFileSync('reg', [
-      'DELETE',
-      `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${BROWSER_EXTENSION_NATIVE_HOST_NAME}`,
-      '/f',
-    ], { stdio: 'ignore' });
-  } catch {
-    // Best-effort cleanup.
-  }
+  throw new Error(
+    `Refusing to touch Windows native host registration under temp directory: ${manifestPath}`,
+  );
 }
 
 function writeNativeHostWrapper(options: {
@@ -221,6 +294,47 @@ function chmodIfSupported(targetPath: string, mode: number): void {
     return;
   }
   fs.chmodSync(targetPath, mode);
+}
+
+function browserExtensionNativeHostFileSuffix(hostName: string): string {
+  if (hostName === BROWSER_EXTENSION_NATIVE_HOST_NAME) {
+    return '';
+  }
+  const prefix = `${BROWSER_EXTENSION_NATIVE_HOST_NAME}_`;
+  const rawSuffix = hostName.startsWith(prefix)
+    ? hostName.slice(prefix.length)
+    : hostName;
+  const suffix = rawSuffix
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+  return suffix || 'custom';
+}
+
+function isPathInsideOrSame(parent: string, child: string): boolean {
+  const relative = path.relative(resolveNativePath(parent), resolveNativePath(child));
+  return (
+    relative === ''
+    || (relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative))
+  );
+}
+
+function resolveNativePath(targetPath: string): string {
+  const resolvedPath = path.resolve(targetPath);
+  const missingSegments: string[] = [];
+  let candidate = resolvedPath;
+  while (true) {
+    try {
+      return path.join(fs.realpathSync.native(candidate), ...missingSegments.reverse());
+    } catch {
+      const parent = path.dirname(candidate);
+      if (parent === candidate) {
+        return resolvedPath;
+      }
+      missingSegments.push(path.basename(candidate));
+      candidate = parent;
+    }
+  }
 }
 
 function quoteSh(value: string): string {

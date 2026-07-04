@@ -149,6 +149,7 @@ export const BrowserTargetSchema = z
     driver: BrowserTargetDriverSchema,
     status: BrowserTargetStatusSchema,
     lastSeenAt: z.number().int().nonnegative(),
+    stale: z.boolean().optional(),
   })
   .strict();
 export type BrowserTarget = z.infer<typeof BrowserTargetSchema>;
@@ -390,6 +391,7 @@ export const BrowserListTargetsRequestSchema = z
   .object({
     profileId: idSchema.optional(),
     nodeId: idSchema.optional(),
+    refresh: z.boolean().optional(),
   })
   .strict();
 export type BrowserListTargetsRequest = z.infer<

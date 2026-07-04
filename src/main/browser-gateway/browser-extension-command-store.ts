@@ -14,6 +14,7 @@ export type BrowserExtensionCommandName =
   | 'screenshot'
   | 'wait_for'
   | 'query_elements'
+  | 'report_inventory'
   | 'evaluate';
 
 export interface BrowserExtensionCommandTarget {

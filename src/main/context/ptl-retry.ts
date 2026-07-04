@@ -88,6 +88,7 @@ const PROVIDER_OVERFLOW_PATTERNS = [
   /exceeds the maximum number of tokens/i,
   /max_tokens.*exceeded/i,
   /ran out of room in.*context window/i,    // Codex CLI error message
+  /input exceeds the maximum length of\s*[\d,]+\s*characters/i, // Codex per-turn char cap (1 MiB)
 ] as const;
 
 const NON_CONTEXT_OVERFLOW_PATTERNS = [

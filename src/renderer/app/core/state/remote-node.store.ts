@@ -1,11 +1,11 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import { RemoteNodeIpcService } from '../services/ipc/remote-node-ipc.service';
 
 @Injectable({ providedIn: 'root' })
 export class RemoteNodeStore {
   private readonly ipc = inject(RemoteNodeIpcService);
-  private readonly _nodes = signal<WorkerNodeInfo[]>([]);
+  private readonly _nodes = signal<RemoteNodeRosterEntry[]>([]);
   private cleanupFns: (() => void)[] = [];
   private initialized = false;
 
@@ -21,7 +21,7 @@ export class RemoteNodeStore {
   readonly hasNodes = computed(() => this._nodes().length > 0);
 
   /** Look up a node by ID. Returns undefined if not found. */
-  nodeById(id: string): WorkerNodeInfo | undefined {
+  nodeById(id: string): RemoteNodeRosterEntry | undefined {
     return this._nodes().find(n => n.id === id);
   }
 

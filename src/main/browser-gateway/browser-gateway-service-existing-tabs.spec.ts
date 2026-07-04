@@ -520,6 +520,92 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('fails find_or_open fast when the requested remote extension node is silent', async () => {
+    const sendCommand = vi.fn();
+    const { service } = makeService({
+      profile: null,
+      profiles: [],
+      extensionCommandStore: { sendCommand },
+      extensionContactState: {
+        getLastExtensionContactAt: () => 1_000,
+        isExtensionContactFresh: () => false,
+        describeExtensionContact: (nodeId) => ({
+          nodeId,
+          lastContactAt: 1_000,
+          silent: true,
+          staleForMs: 120_000,
+        }),
+      },
+    });
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      url: 'https://example.com',
+      nodeId: 'node-1',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_unreachable',
+    });
+    expect(result.data).toBeNull();
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('does not select a stale cached remote tab as a live find_or_open result', async () => {
+    const sendCommand = vi.fn();
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example',
+      url: 'https://example.com/page',
+      origin: 'https://example.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      extensionContactState: {
+        getLastExtensionContactAt: () => 1_000,
+        isExtensionContactFresh: () => false,
+        describeExtensionContact: (nodeId) => ({
+          nodeId,
+          lastContactAt: 1_000,
+          silent: true,
+          staleForMs: 120_000,
+        }),
+      },
+    });
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      url: 'https://example.com',
+      nodeId: 'node-1',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_unreachable',
+    });
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
   it('routes commands for an attached remote existing tab to its node queue', async () => {
     const sendCommand = vi.fn(async () => ({
       tab: {
@@ -568,6 +654,56 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       queueKey: 'node:node-1',
       command: 'snapshot',
     }));
+  });
+
+  it('fails remote existing-tab commands fast when extension contact is stale', async () => {
+    const sendCommand = vi.fn();
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example',
+      url: 'https://example.com/page',
+      origin: 'https://example.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      extensionContactState: {
+        getLastExtensionContactAt: () => 1_000,
+        isExtensionContactFresh: () => false,
+        describeExtensionContact: (nodeId) => ({
+          nodeId,
+          lastContactAt: 1_000,
+          silent: true,
+          staleForMs: 120_000,
+        }),
+      },
+    });
+
+    const result = await service.snapshot({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_unreachable',
+    });
+    expect(sendCommand).not.toHaveBeenCalled();
   });
 
   it('surfaces a browser approval request instead of denying cross-origin existing-tab navigation', async () => {

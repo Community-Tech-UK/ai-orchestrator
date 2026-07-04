@@ -2,7 +2,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadWorkerConfig } from '../worker-config';
+import {
+  assertWorkerConfigHasCoordinator,
+  getConfiguredCoordinatorUrl,
+  loadWorkerConfig,
+} from '../worker-config';
 
 describe('loadWorkerConfig', () => {
   let tempDir: string;
@@ -181,7 +185,27 @@ describe('loadWorkerConfig', () => {
     expect(config.extensionRelay?.enabled).toBe(true);
     expect(config.extensionRelay?.socketPath).toBeTruthy();
     expect(config.extensionRelay?.extensionToken).toHaveLength(64);
+    expect(config.extensionRelay?.legacyNameRegistration).toBe(true);
     expect(persisted.extensionRelay?.extensionToken).toBe(config.extensionRelay?.extensionToken);
+  });
+
+  it('preserves an explicit disabled legacy extension relay registration flag', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        token: 't',
+        extensionRelay: {
+          enabled: true,
+          legacyNameRegistration: false,
+        },
+      }),
+    );
+
+    const config = loadWorkerConfig(configPath);
+
+    expect(config.extensionRelay?.enabled).toBe(true);
+    expect(config.extensionRelay?.legacyNameRegistration).toBe(false);
   });
 
   it('parses an enabled androidAutomation block with safe defaults', () => {
@@ -275,5 +299,64 @@ describe('loadWorkerConfig', () => {
     const config = loadWorkerConfig(configPath);
 
     expect(config.coordinatorUrl).toBe('ws://macbook-pro.tail4fc107.ts.net:4878');
+  });
+
+  it('strips query and fragment data from persisted coordinator URLs', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        authToken: 'pair-token',
+        coordinatorUrl: 'wss://macbook-pro.tail4fc107.ts.net:4878/worker?token=secret#pairing',
+        coordinatorUrls: [
+          'ws://fallback.tail4fc107.ts.net:4878/?token=secret#pairing',
+          'wss://backup.tail4fc107.ts.net:4879/path?authToken=secret#fragment',
+        ],
+      }),
+    );
+
+    const config = loadWorkerConfig(configPath);
+    const persisted = fs.readFileSync(configPath, 'utf-8');
+
+    expect(config.coordinatorUrl).toBe('wss://macbook-pro.tail4fc107.ts.net:4878/worker');
+    expect(config.coordinatorUrls).toEqual([
+      'ws://fallback.tail4fc107.ts.net:4878',
+      'wss://backup.tail4fc107.ts.net:4879/path',
+    ]);
+    expect(persisted).not.toContain('secret');
+    expect(persisted).not.toContain('pairing');
+    expect(persisted).not.toContain('fragment');
+  });
+
+  it('reports a clear startup error when no coordinator URL can be derived', () => {
+    expect(() => assertWorkerConfigHasCoordinator({
+      nodeId: 'node-1',
+      name: 'worker',
+      authToken: 'pair-token',
+      namespace: 'default',
+      maxConcurrentInstances: 10,
+      workingDirectories: [],
+      reconnectIntervalMs: 5000,
+      heartbeatIntervalMs: 10000,
+    })).toThrow(
+      'Worker config is missing coordinatorUrl. Paste the full Connection Config or run:\n  aio-worker pair <pairing-link>',
+    );
+  });
+
+  it('uses the first fallback coordinator URL when no primary is configured', () => {
+    const config = {
+      nodeId: 'node-1',
+      name: 'worker',
+      authToken: 'pair-token',
+      coordinatorUrls: ['', ' ws://fallback:4878 '],
+      namespace: 'default',
+      maxConcurrentInstances: 10,
+      workingDirectories: [],
+      reconnectIntervalMs: 5000,
+      heartbeatIntervalMs: 10000,
+    };
+
+    expect(() => assertWorkerConfigHasCoordinator(config)).not.toThrow();
+    expect(getConfiguredCoordinatorUrl(config)).toBe('ws://fallback:4878');
   });
 });

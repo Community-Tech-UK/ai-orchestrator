@@ -76,7 +76,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — automations
   'src/main/automations/automation-store.ts': 852,
   // Main process — browser gateway
-  'src/main/browser-gateway/browser-gateway-service.ts': 2220,
+  'src/main/browser-gateway/browser-gateway-service.ts': 2235,
   // Main process — channels
   'src/main/channels/adapters/discord-adapter.ts': 965,
   'src/main/channels/channel-message-router.ts': 2543,
@@ -86,7 +86,8 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.
   'src/main/cli/adapters/claude-cli-adapter.ts': 2345,
-  'src/main/cli/adapters/codex-cli-adapter.ts': 3308,
+  // Raised 3308 -> 3365 for thread/resume transient-timeout retry wrapper.
+  'src/main/cli/adapters/codex-cli-adapter.ts': 3365,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 1014,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 892,
@@ -111,7 +112,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/instance/instance-communication.ts': 2394,
   'src/main/instance/instance-context.ts': 1240,
   'src/main/instance/instance-lifecycle.ts': 3364,
-  'src/main/instance/instance-manager.ts': 2566,
+  // Raised 2566 -> 2634 for context/load-scaled sendInput init-wait budget + timer-leak fix.
+  'src/main/instance/instance-manager.ts': 2634,
   'src/main/instance/instance-orchestration.ts': 1068,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1424,
   // Main process — IPC handlers

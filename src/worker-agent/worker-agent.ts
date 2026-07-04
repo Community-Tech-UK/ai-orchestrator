@@ -38,7 +38,10 @@ import { WorkerBrowserManager } from './worker-browser-manager';
 import { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import { WorkerAndroidManager } from './android/worker-android-manager';
 import { WorkerExtensionRelay } from './worker-extension-relay';
-import { prepareBrowserExtensionNativeHostRuntime } from '../main/browser-gateway/browser-extension-native-runtime';
+import {
+  ExtensionRelayNativeRegistration,
+  prepareLegacyExtensionRelayNativeHostRuntime,
+} from './extension-relay-native-registration';
 import type { RpcMessage } from './worker-rpc-types';
 import type { DiscoveredCoordinator } from './discovery-client';
 
@@ -46,6 +49,7 @@ const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-nod
 
 const CONNECT_TIMEOUT_MS = 8_000;
 const REDISCOVERY_TIMEOUT_MS = 4_000;
+const EXTENSION_RELAY_REGISTRATION_CHECK_INTERVAL_MS = 60_000;
 
 type PendingCoordinatorRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout>; method: string };
 
@@ -91,6 +95,8 @@ export class WorkerAgent extends EventEmitter {
   private readonly androidManager: WorkerAndroidManager;
   private readonly cdpTunnel: WorkerCdpTunnel;
   private readonly extensionRelay: WorkerExtensionRelay;
+  private readonly extensionRelayRegistration: ExtensionRelayNativeRegistration;
+  private lastExtensionRelayRegistrationCheckAt: number | null = null;
   private activeCoordinatorUrl: string | null = null;
   private retryRegistrationWithRecovery = false;
 
@@ -112,6 +118,10 @@ export class WorkerAgent extends EventEmitter {
     this.extensionRelay = new WorkerExtensionRelay({
       config: config.extensionRelay ?? { enabled: false },
       sendRequest: (method, params, timeoutMs) => this.sendRequest(method, params, timeoutMs),
+    });
+    this.extensionRelayRegistration = new ExtensionRelayNativeRegistration({
+      userDataPath: path.dirname(this.configPath),
+      hostCommand: this.currentWorkerNativeHostCommand(),
     });
     this.wireCdpTunnelEvents();
     this.instanceManager = new LocalInstanceManager(
@@ -156,6 +166,7 @@ export class WorkerAgent extends EventEmitter {
 
     try {
       await this.runExtensionRelayStep('startup', () => this.extensionRelay.start());
+      this.checkExtensionRelayRegistration({ force: true });
       this.capabilities = await reportCapabilities(
         this.config.workingDirectories,
         this.config.maxConcurrentInstances,
@@ -459,6 +470,7 @@ export class WorkerAgent extends EventEmitter {
 
   /** Refresh capabilities (memory/browser config change over time) and send. */
   private async sendHeartbeat(): Promise<void> {
+    this.checkExtensionRelayRegistration();
     this.capabilities = await reportCapabilities(
       this.config.workingDirectories,
       this.config.maxConcurrentInstances,
@@ -525,6 +537,7 @@ export class WorkerAgent extends EventEmitter {
       this.config.extensionRelay = merged;
       persistConfig(this.configPath, this.config);
       await this.runExtensionRelayStep('reconfigure', () => this.extensionRelay.reconfigure(merged));
+      this.checkExtensionRelayRegistration({ force: true });
     }
     // Only push a heartbeat when connected; otherwise the next reconnect reports
     // the updated capabilities.
@@ -720,9 +733,10 @@ export class WorkerAgent extends EventEmitter {
 
     if (this.config.nodeToken && this.config.authToken) {
       console.warn(
-        `Registration rejected (${message}); clearing persisted node token and retrying with pairing token`
+        `Registration rejected (${message}); clearing persisted node credentials and retrying with pairing token`
       );
-      this.config.nodeToken = undefined;
+      delete this.config.nodeToken;
+      delete this.config.recoveryToken;
       persistConfig(this.configPath, this.config);
       this.ws?.close(4001, 'Retry registration with pairing token');
       return;
@@ -768,30 +782,46 @@ export class WorkerAgent extends EventEmitter {
   private async runExtensionRelayStep(label: string, action: () => Promise<void>): Promise<void> {
     try {
       await action();
-      this.prepareExtensionNativeHostRuntime();
     } catch (error) {
       console.warn(`[WorkerAgent] Browser extension relay ${label} failed`, error instanceof Error ? error.message : String(error));
     }
   }
 
-  private prepareExtensionNativeHostRuntime(): void {
-    const token = this.extensionRelay.getExtensionToken();
-    if (!this.extensionRelay.isEnabled() || !token) {
+  private checkExtensionRelayRegistration(options: { force?: boolean } = {}): void {
+    if (!this.config.extensionRelay?.enabled) {
+      this.lastExtensionRelayRegistrationCheckAt = null;
+      this.extensionRelay.setRegistrationSummary(undefined);
       return;
     }
-    try {
-      prepareBrowserExtensionNativeHostRuntime({
-        userDataPath: path.dirname(this.configPath),
-        socketPath: this.extensionRelay.getSocketPath(),
-        extensionToken: token,
-        hostCommand: this.currentWorkerNativeHostCommand(),
-      });
-    } catch (error) {
-      console.warn(
-        '[WorkerAgent] Failed to install browser extension native host runtime',
-        error instanceof Error ? error.message : String(error),
-      );
+    const now = Date.now();
+    if (
+      options.force !== true
+      && this.lastExtensionRelayRegistrationCheckAt !== null
+      && now - this.lastExtensionRelayRegistrationCheckAt < EXTENSION_RELAY_REGISTRATION_CHECK_INTERVAL_MS
+    ) {
+      return;
     }
+    this.lastExtensionRelayRegistrationCheckAt = now;
+    const summary = this.extensionRelayRegistration.checkAndRepair(this.config.extensionRelay);
+    this.extensionRelay.setRegistrationSummary(summary);
+    this.prepareLegacyExtensionNativeHostRuntime();
+  }
+
+  private prepareLegacyExtensionNativeHostRuntime(): void {
+    const token = this.extensionRelay.getExtensionToken();
+    if (
+      !this.extensionRelay.isEnabled()
+      || !token
+      || this.config.extensionRelay?.legacyNameRegistration === false
+    ) {
+      return;
+    }
+    prepareLegacyExtensionRelayNativeHostRuntime({
+      userDataPath: path.dirname(this.configPath),
+      socketPath: this.extensionRelay.getSocketPath(),
+      extensionToken: token,
+      hostCommand: this.currentWorkerNativeHostCommand(),
+    });
   }
 
   private currentWorkerNativeHostCommand(): { exe: string; args: string[] } {

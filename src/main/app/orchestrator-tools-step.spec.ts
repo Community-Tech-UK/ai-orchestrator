@@ -19,6 +19,9 @@ const captured = vi.hoisted(() => ({
     getNode: vi.fn(),
     selectNode: vi.fn(),
   },
+  roster: {
+    list: vi.fn(),
+  },
   connectionServer: {
     getConnectedNodeIds: vi.fn(),
     isNodeConnected: vi.fn(),
@@ -49,6 +52,7 @@ vi.mock('../operator/operator-database', () => ({
 
 vi.mock('../remote-node', () => ({
   getWorkerNodeConnectionServer: () => captured.connectionServer,
+  getRemoteNodeRosterService: () => captured.roster,
   getWorkerNodeRegistry: () => captured.registry,
   isAndroidAutomationReady: (caps: { hasAndroidMcp?: boolean }) => Boolean(caps.hasAndroidMcp),
 }));
@@ -93,6 +97,7 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     captured.initializeOptions = null;
+    captured.roster.list.mockImplementation(() => captured.registry.getAllNodes());
   });
 
   it('rejects update_node_config for a disconnected node before sending service RPC', async () => {
@@ -159,6 +164,49 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
             enabled: true,
             avds: ['Pixel_8'],
           }),
+        }),
+      ],
+    });
+  });
+
+  it('does not infer platform from fallback capabilities in list_remote_nodes', async () => {
+    captured.roster.list.mockReturnValue([
+      {
+        id: 'node-unknown',
+        name: 'paired-worker',
+        status: 'disconnected',
+        connected: false,
+        address: '',
+        supportedClis: [],
+        hasBrowserRuntime: false,
+        hasBrowserMcp: false,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        activeInstances: 0,
+        maxConcurrentInstances: 0,
+        workingDirectories: [],
+        capabilities: {
+          platform: 'linux',
+          arch: '',
+          supportedClis: [],
+          hasBrowserRuntime: false,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 0,
+          workingDirectories: [],
+        },
+      },
+    ]);
+    await startStep();
+
+    const result = await captured.initializeOptions?.listRemoteNodes?.();
+
+    expect(result).toMatchObject({
+      nodes: [
+        expect.objectContaining({
+          id: 'node-unknown',
+          platform: 'unknown',
         }),
       ],
     });

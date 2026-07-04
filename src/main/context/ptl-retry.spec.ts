@@ -14,6 +14,7 @@ describe('context overflow classification', () => {
     'The input token count (1,048,577) exceeds the maximum number of tokens allowed (1,048,576).',
     'ran out of room in the context window',
     'Request exceeds context window size for this model.',
+    'Input exceeds the maximum length of 1048576 characters.',
   ])('matches explicit provider overflow message: %s', message => {
     const evidence = classifyContextOverflow({ errorText: message });
 

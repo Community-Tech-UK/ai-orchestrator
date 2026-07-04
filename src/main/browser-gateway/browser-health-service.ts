@@ -14,6 +14,12 @@ import {
   getWorkerNodeRegistry,
   type WorkerNodeRegistry,
 } from '../remote-node/worker-node-registry';
+import {
+  BROWSER_EXTENSION_CONTACT_FRESH_MS,
+  describeBrowserExtensionContact,
+  getBrowserExtensionContactState,
+  type BrowserExtensionContactStateReader,
+} from './browser-extension-contact-state';
 
 export type BrowserGatewayHealthStatus = 'ready' | 'partial' | 'missing';
 
@@ -68,11 +74,16 @@ export interface BrowserGatewayHealthReport {
   remoteExtensions: {
     total: number;
     ready: number;
+    silent: number;
     nodes: Array<{
       nodeId: string;
       nodeName: string;
       enabled: boolean;
       running: boolean;
+      silent: boolean;
+      lastContactAt?: number;
+      registration?: 'ok' | 'repaired' | 'contested' | 'error';
+      lastRegistrationCheckAt?: number;
     }>;
   };
   providerCapabilities: BrowserGatewayProviderCapabilities;
@@ -85,6 +96,7 @@ export interface BrowserHealthServiceOptions {
   profileStore?: Pick<BrowserProfileStore, 'listProfiles'>;
   rawAutomationHealthService?: Pick<BrowserAutomationHealthService, 'diagnose'>;
   workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getAllNodes'>;
+  extensionContactState?: BrowserExtensionContactStateReader;
   mcpBridgeAvailable?: () => boolean;
   chromeRuntimeDetector?: () => Promise<BrowserChromeRuntimeHealth>;
   now?: () => number;
@@ -152,6 +164,7 @@ export class BrowserHealthService {
   private readonly profileStore: Pick<BrowserProfileStore, 'listProfiles'>;
   private readonly rawAutomationHealthService: Pick<BrowserAutomationHealthService, 'diagnose'>;
   private readonly workerNodeRegistry: Pick<WorkerNodeRegistry, 'getAllNodes'>;
+  private readonly extensionContactState: BrowserExtensionContactStateReader;
   private readonly mcpBridgeAvailable: () => boolean;
   private readonly chromeRuntimeDetector: () => Promise<BrowserChromeRuntimeHealth>;
   private readonly now: () => number;
@@ -161,6 +174,7 @@ export class BrowserHealthService {
     this.rawAutomationHealthService =
       options.rawAutomationHealthService ?? getBrowserAutomationHealthService();
     this.workerNodeRegistry = options.workerNodeRegistry ?? getWorkerNodeRegistry();
+    this.extensionContactState = options.extensionContactState ?? getBrowserExtensionContactState();
     this.mcpBridgeAvailable =
       options.mcpBridgeAvailable ?? (() => defaultMcpBridgeAvailableProvider());
     this.chromeRuntimeDetector = options.chromeRuntimeDetector ?? detectChromeRuntime;
@@ -271,18 +285,43 @@ export class BrowserHealthService {
         node.capabilities.extensionRelay?.enabled === true ||
         node.capabilities.hasExtensionRelay === true,
       )
-      .map((node) => ({
-        nodeId: node.id,
-        nodeName: node.name,
-        enabled: node.capabilities.extensionRelay?.enabled ?? Boolean(node.capabilities.hasExtensionRelay),
-        running: node.capabilities.extensionRelay?.running ?? Boolean(node.capabilities.hasExtensionRelay),
-      }));
+      .map((node) => {
+        const relay = node.capabilities.extensionRelay;
+        const stateLastContactAt = this.extensionContactState.getLastExtensionContactAt(node.id);
+        const relayLastContactAt = relay?.lastExtensionContactAt;
+        const lastContactAt = latestTimestamp(stateLastContactAt, relayLastContactAt);
+        const enabled = relay?.enabled ?? Boolean(node.capabilities.hasExtensionRelay);
+        const running = relay?.running ?? Boolean(node.capabilities.hasExtensionRelay);
+        const contact = describeBrowserExtensionContact(
+          node.id,
+          lastContactAt,
+          this.now(),
+          BROWSER_EXTENSION_CONTACT_FRESH_MS,
+        );
+        const silent = enabled && running ? contact.silent : false;
+        return {
+          nodeId: node.id,
+          nodeName: node.name,
+          enabled,
+          running,
+          silent,
+          lastContactAt,
+          registration: relay?.registration,
+          lastRegistrationCheckAt: relay?.lastRegistrationCheckAt,
+        };
+      });
     return {
       total: nodes.length,
-      ready: nodes.filter((node) => node.enabled && node.running).length,
+      ready: nodes.filter((node) => node.enabled && node.running && !node.silent).length,
+      silent: nodes.filter((node) => node.silent).length,
       nodes,
     };
   }
+}
+
+function latestTimestamp(...values: Array<number | undefined>): number | undefined {
+  const timestamps = values.filter((value): value is number => typeof value === 'number');
+  return timestamps.length > 0 ? Math.max(...timestamps) : undefined;
 }
 
 export function getBrowserHealthService(): BrowserHealthService {

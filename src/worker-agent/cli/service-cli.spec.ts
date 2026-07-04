@@ -14,6 +14,11 @@ const mockIsInstalled = vi.fn();
 const extensionRelayCliMocks = vi.hoisted(() => ({
   manifestPath: 'C:\\manifest.json',
   persistConfig: vi.fn(),
+  assertManifestWritable: vi.fn(),
+  isManifestOwned: vi.fn(() => true),
+  nativeHostPaths: vi.fn(() => ({
+    nativeDir: 'C:\\Users\\James\\.orchestrator\\browser-gateway\\native-host',
+  })),
   prepareNativeHost: vi.fn(() => ({ manifestPath: 'C:\\manifest.json' })),
   removeNativeHost: vi.fn(() => ({ manifestPath: 'C:\\manifest.json' })),
 }));
@@ -65,6 +70,15 @@ vi.mock('../worker-config', () => ({
     socketPath: config?.socketPath ?? defaultSocketPath(),
     extensionToken: config?.extensionToken ?? 'generated-extension-token',
   })),
+  normalizeCoordinatorUrl: vi.fn((value: unknown) => {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      return undefined;
+    }
+    const url = new URL(value.trim());
+    url.search = '';
+    url.hash = '';
+    return url.pathname === '/' ? `${url.protocol}//${url.host}` : url.toString();
+  }),
   loadWorkerConfig: vi.fn(() => ({
     nodeId: 'node-1',
     name: 'windows-pc',
@@ -79,12 +93,18 @@ vi.mock('../worker-config', () => ({
 }));
 
 vi.mock('../../main/browser-gateway/browser-extension-native-runtime', () => ({
+  BROWSER_EXTENSION_NATIVE_HOST_NAME: 'com.ai_orchestrator.browser_gateway',
+  BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME: 'com.ai_orchestrator.browser_gateway_relay',
+  assertBrowserExtensionNativeHostManifestWritable: extensionRelayCliMocks.assertManifestWritable,
+  isBrowserExtensionNativeHostManifestOwned: extensionRelayCliMocks.isManifestOwned,
+  browserExtensionNativeHostPaths: extensionRelayCliMocks.nativeHostPaths,
   browserExtensionNativeHostManifestPath: vi.fn(() => extensionRelayCliMocks.manifestPath),
   prepareBrowserExtensionNativeHostRuntime: extensionRelayCliMocks.prepareNativeHost,
   removeBrowserExtensionNativeHostRuntime: extensionRelayCliMocks.removeNativeHost,
 }));
 
 import { parseServiceArgs, runServiceCommand } from './service-cli';
+import { loadWorkerConfig } from '../worker-config';
 
 describe('service-cli', () => {
   const tempDirs: string[] = [];
@@ -92,6 +112,10 @@ describe('service-cli', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     extensionRelayCliMocks.manifestPath = 'C:\\manifest.json';
+    extensionRelayCliMocks.nativeHostPaths.mockReturnValue({
+      nativeDir: 'C:\\Users\\James\\.orchestrator\\browser-gateway\\native-host',
+    });
+    extensionRelayCliMocks.isManifestOwned.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -116,16 +140,16 @@ describe('service-cli', () => {
       '--service-account',
       '.\\James',
       '--service-env',
-      'COPILOT_GITHUB_TOKEN=github_pat_x',
+      'COPILOT_GITHUB_TOKEN=copilot-token-placeholder',
       '--service-env',
-      'GH_TOKEN=gho_y',
+      'GH_TOKEN=gh-token-placeholder',
     ])).toMatchObject({
       kind: 'install',
       coordinatorUrl: 'ws://mac:4878',
       serviceAccount: '.\\James',
       serviceEnv: {
-        COPILOT_GITHUB_TOKEN: 'github_pat_x',
-        GH_TOKEN: 'gho_y',
+        COPILOT_GITHUB_TOKEN: 'copilot-token-placeholder',
+        GH_TOKEN: 'gh-token-placeholder',
       },
     });
   });
@@ -140,7 +164,7 @@ describe('service-cli', () => {
       '--service-account',
       '.\\James',
       '--service-env',
-      'COPILOT_GITHUB_TOKEN=github_pat_x',
+      'COPILOT_GITHUB_TOKEN=copilot-token-placeholder',
     ]);
 
     await runServiceCommand(command!);
@@ -148,8 +172,54 @@ describe('service-cli', () => {
     expect(mockInstall).toHaveBeenCalledWith(expect.objectContaining({
       serviceAccount: '.\\James',
       environment: {
-        COPILOT_GITHUB_TOKEN: 'github_pat_x',
+        COPILOT_GITHUB_TOKEN: 'copilot-token-placeholder',
       },
+    }));
+  });
+
+  it('clears stale node credentials when installing with a new pairing token', async () => {
+    vi.mocked(loadWorkerConfig).mockReturnValueOnce({
+      nodeId: 'node-1',
+      name: 'windows-pc',
+      authToken: 'old-token',
+      nodeToken: 'old-node-token',
+      recoveryToken: 'old-recovery-token',
+      namespace: 'default',
+      maxConcurrentInstances: 10,
+      workingDirectories: ['C:\\Users\\James\\Work'],
+      reconnectIntervalMs: 5000,
+      heartbeatIntervalMs: 10000,
+    });
+    const command = parseServiceArgs([
+      '--install-service',
+      '--coordinator-url',
+      'ws://mac:4878',
+    ]);
+
+    await runServiceCommand(command!);
+
+    const persisted = extensionRelayCliMocks.persistConfig.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(persisted).toMatchObject({
+      authToken: 'pairing-token',
+      coordinatorUrl: 'ws://mac:4878',
+    });
+    expect(persisted).not.toHaveProperty('nodeToken');
+    expect(persisted).not.toHaveProperty('recoveryToken');
+  });
+
+  it('strips query and fragment data from service install coordinator URLs', async () => {
+    const command = parseServiceArgs([
+      '--install-service',
+      '--coordinator-url',
+      'wss://mac.tail4fc107.ts.net:4878/worker?token=secret#pairing',
+    ]);
+
+    await runServiceCommand(command!);
+
+    const persisted = extensionRelayCliMocks.persistConfig.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(persisted.coordinatorUrl).toBe('wss://mac.tail4fc107.ts.net:4878/worker');
+    expect(mockInstall).toHaveBeenCalledWith(expect.objectContaining({
+      coordinatorUrl: 'wss://mac.tail4fc107.ts.net:4878/worker',
     }));
   });
 
@@ -198,6 +268,7 @@ describe('service-cli', () => {
         }),
       );
       expect(extensionRelayCliMocks.prepareNativeHost).toHaveBeenCalledWith(expect.objectContaining({
+        hostName: 'com.ai_orchestrator.browser_gateway_relay',
         userDataPath: expect.any(String),
         socketPath: '\\\\.\\pipe\\ai-orchestrator-browser-gateway',
         extensionToken: 'generated-extension-token',
@@ -217,6 +288,9 @@ describe('service-cli', () => {
       JSON.stringify({ path: path.join(dir, 'coordinator-native-host') }),
       'utf-8',
     );
+    extensionRelayCliMocks.assertManifestWritable.mockImplementationOnce(() => {
+      throw new Error('Refusing to overwrite existing Chrome native host manifest');
+    });
 
     await expect(runServiceCommand({
       kind: 'install-extension-relay',
@@ -261,7 +335,28 @@ describe('service-cli', () => {
       }),
     );
     expect(extensionRelayCliMocks.removeNativeHost).toHaveBeenCalledWith(expect.objectContaining({
+      hostName: 'com.ai_orchestrator.browser_gateway_relay',
       userDataPath: expect.any(String),
+    }));
+    expect(extensionRelayCliMocks.removeNativeHost).toHaveBeenCalledWith(expect.objectContaining({
+      hostName: 'com.ai_orchestrator.browser_gateway',
+      userDataPath: expect.any(String),
+    }));
+  });
+
+  it('does not uninstall a legacy native host manifest owned by another runtime', async () => {
+    extensionRelayCliMocks.isManifestOwned.mockReturnValue(false);
+
+    await runServiceCommand({
+      kind: 'uninstall-extension-relay',
+      configPath: 'C:\\worker.json',
+    });
+
+    expect(extensionRelayCliMocks.removeNativeHost).toHaveBeenCalledWith(expect.objectContaining({
+      hostName: 'com.ai_orchestrator.browser_gateway_relay',
+    }));
+    expect(extensionRelayCliMocks.removeNativeHost).not.toHaveBeenCalledWith(expect.objectContaining({
+      hostName: 'com.ai_orchestrator.browser_gateway',
     }));
   });
 });

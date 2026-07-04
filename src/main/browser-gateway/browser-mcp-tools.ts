@@ -137,7 +137,14 @@ const grantProposalSchema = objectSchema({
 ]);
 
 const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
-  'browser.list_targets': objectSchema({ profileId: profileIdProp, nodeId: nodeIdProp }),
+  'browser.list_targets': objectSchema({
+    profileId: profileIdProp,
+    nodeId: nodeIdProp,
+    refresh: {
+      ...booleanProp,
+      description: 'Ask connected Browser Gateway extensions to re-send tab inventory before returning cached targets. Bounded to a short wait.',
+    },
+  }),
   'browser.find_or_open': objectSchema({
     url: {
       ...stringProp,

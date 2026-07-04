@@ -1,43 +1,70 @@
-const HOST_NAME = 'com.ai_orchestrator.browser_gateway';
+const LEGACY_HOST_NAME = 'com.ai_orchestrator.browser_gateway';
+const RELAY_HOST_NAME = 'com.ai_orchestrator.browser_gateway_relay';
+const BRIDGE_DEFINITIONS = [
+  { hostName: LEGACY_HOST_NAME, kind: 'local' },
+  { hostName: RELAY_HOST_NAME, kind: 'relay' },
+];
 const INVENTORY_ALARM = 'browser-gateway-inventory';
 const POLL_TIMEOUT_MS = 10000;
+const POLL_WATCHDOG_GRACE_MS = 5000;
+const POLL_WATCHDOG_MS = POLL_TIMEOUT_MS + POLL_WATCHDOG_GRACE_MS;
 const POLL_IDLE_DELAY_MS = 250;
+const BADGE_UNHEALTHY_GRACE_MS = 60000;
+const BADGE_RED = '#dc2626';
+const BADGE_AMBER = '#f59e0b';
+const ICON_BLUE = [37, 99, 235, 255];
+const ICON_GREY = [156, 163, 175, 255];
+const ICON_WHITE = [255, 255, 255, 255];
+const ICON_SIZES = [16, 32];
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const MAX_OUTBOX = 50;
 const MAX_INVENTORY_TABS = 40;
+const MAX_SHARED_TABS = 12;
 const CONTROL_GROUP_TITLE = 'Harness';
 const DEFAULT_COMMAND_TIMEOUT_MS = 30000;
 const MAX_COMMAND_TIMEOUT_MS = 120000;
+const POLL_TIMEOUT_REASON = 'browser_extension_poll_timeout';
+const GATEWAY_ENABLED_STORAGE_KEY = 'browserGatewayEnabled';
+const SAFE_MODE_ERROR = 'browser_safe_mode_enabled';
 
-let nativePort = null;
-let pollInFlight = false;
 let inventoryInFlight = false;
-let reconnectAttempts = 0;
-let reconnectTimer = null;
-// Buffer for non-poll messages (command results, tab attachments) so a brief
-// native-host disconnect does not silently drop them — they flush on reconnect.
-const outbox = [];
+let gatewayEnabled = false;
+let gatewayStateLoaded = false;
+let gatewayStatePromise = null;
+const sharedTabs = [];
+const bridges = BRIDGE_DEFINITIONS.map(createBridge);
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(INVENTORY_ALARM, { periodInMinutes: 1 });
-  void startBridge();
+  void initializeGateway();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create(INVENTORY_ALARM, { periodInMinutes: 1 });
-  void startBridge();
+  void initializeGateway();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== INVENTORY_ALARM) {
     return;
   }
+  if (!gatewayEnabled) {
+    persistBridgeStatus();
+    return;
+  }
+  for (const bridge of bridges) {
+    if (!recycleStalePoll(bridge)) {
+      pollForCommand(bridge, { retryAbsent: true });
+    }
+  }
   void reportTabInventory();
-  pollForCommand();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!gatewayEnabled) {
+    return;
+  }
   if (!isWebTab(tab) || (!changeInfo.url && !changeInfo.title && changeInfo.status !== 'complete')) {
     return;
   }
@@ -45,115 +72,644 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener(() => {
+  if (!gatewayEnabled) {
+    return;
+  }
   void reportTabInventory();
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== 'share_active_tab') {
+  if (!message || typeof message.type !== 'string') {
     return false;
   }
 
-  shareActiveTab()
-    .then((result) => sendResponse(result))
-    .catch((error) => sendResponse({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-  return true;
+  switch (message.type) {
+    case 'getStatus':
+      sendResponse(getStatusPayload());
+      return false;
+    case 'reconnect_bridges':
+      reconnectAllBridges()
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      return true;
+    case 'share_active_tab':
+      shareActiveTab()
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      return true;
+    case 'set_gateway_enabled':
+      setGatewayEnabled(message.enabled === true)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      return true;
+    default:
+      return false;
+  }
 });
 
-void startBridge();
+void initializeGateway();
 
-async function startBridge() {
-  connectNativePort();
-  await reportTabInventory().catch(() => undefined);
-  pollForCommand();
+function createBridge(definition) {
+  const now = Date.now();
+  return {
+    hostName: definition.hostName,
+    kind: definition.kind,
+    nativePort: null,
+    pollInFlight: false,
+    pollStartedAt: null,
+    pollWatchdogTimer: null,
+    reconnectAttempts: 0,
+    reconnectTimer: null,
+    forcedDisconnectPort: null,
+    forcedDisconnectReason: null,
+    silentPollCount: 0,
+    // Buffer for non-poll messages (command results, tab attachments) so a
+    // brief native-host disconnect does not silently drop them.
+    outbox: [],
+    state: 'disconnected',
+    stateChangedAt: now,
+    unhealthySince: now,
+    lastPollAckAt: null,
+    lastError: null,
+  };
 }
 
-function reconnectDelayMs() {
-  const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempts);
+function setBridgeState(bridge, state) {
+  if (bridge.state === state) {
+    return;
+  }
+  bridge.state = state;
+  bridge.stateChangedAt = Date.now();
+  if (state === 'connected') {
+    bridge.unhealthySince = null;
+  } else if (bridge.unhealthySince === null) {
+    bridge.unhealthySince = bridge.stateChangedAt;
+  }
+}
+
+async function initializeGateway() {
+  await loadGatewayEnabled();
+  if (!gatewayEnabled) {
+    stopAllBridges();
+    persistBridgeStatus();
+    return;
+  }
+  await startAllBridges();
+}
+
+async function loadGatewayEnabled() {
+  if (gatewayStateLoaded) {
+    return gatewayEnabled;
+  }
+  if (gatewayStatePromise) {
+    return gatewayStatePromise;
+  }
+  gatewayStatePromise = (async () => {
+    try {
+      const values = await chrome.storage?.local?.get?.(GATEWAY_ENABLED_STORAGE_KEY);
+      gatewayEnabled = values?.[GATEWAY_ENABLED_STORAGE_KEY] !== false;
+    } catch {
+      gatewayEnabled = true;
+    }
+    gatewayStateLoaded = true;
+    gatewayStatePromise = null;
+    return gatewayEnabled;
+  })();
+  return gatewayStatePromise;
+}
+
+async function setGatewayEnabled(enabled) {
+  gatewayStateLoaded = true;
+  gatewayEnabled = enabled === true;
+  try {
+    await chrome.storage?.local?.set?.({ [GATEWAY_ENABLED_STORAGE_KEY]: gatewayEnabled });
+  } catch {
+    // Storage failures should not leave the current runtime in the wrong mode.
+  }
+  if (gatewayEnabled) {
+    await startAllBridges();
+  } else {
+    stopAllBridges();
+  }
+  persistBridgeStatus();
+  return getStatusPayload();
+}
+
+function assertGatewayEnabled() {
+  if (!gatewayEnabled) {
+    throw new Error(SAFE_MODE_ERROR);
+  }
+}
+
+function stopAllBridges() {
+  for (const bridge of bridges) {
+    clearReconnectTimer(bridge);
+    clearPollInFlight(bridge);
+    bridge.forcedDisconnectPort = null;
+    bridge.forcedDisconnectReason = null;
+    bridge.outbox.splice(0, bridge.outbox.length);
+    const port = bridge.nativePort;
+    bridge.nativePort = null;
+    setBridgeState(bridge, 'disconnected');
+    if (port) {
+      try {
+        port.disconnect?.();
+      } catch {
+        // The bridge is intentionally off; stale native ports can be ignored.
+      }
+    }
+  }
+}
+
+async function startAllBridges() {
+  if (!gatewayEnabled) {
+    persistBridgeStatus();
+    return;
+  }
+  for (const bridge of bridges) {
+    startBridge(bridge);
+  }
+  await reportTabInventory().catch(() => undefined);
+  for (const bridge of bridges) {
+    pollForCommand(bridge);
+  }
+}
+
+function startBridge(bridge) {
+  if (!gatewayEnabled) {
+    return;
+  }
+  connectNativePort(bridge, { retryAbsent: true });
+  persistBridgeStatus();
+}
+
+function reconnectDelayMs(bridge) {
+  const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** bridge.reconnectAttempts);
   // ±20% jitter so many extensions/tabs don't reconnect in lockstep.
   const jitter = base * 0.2 * (Math.random() * 2 - 1);
   return Math.max(RECONNECT_BASE_MS, Math.round(base + jitter));
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) {
+function scheduleReconnect(bridge) {
+  if (!gatewayEnabled) {
     return;
   }
-  const wait = reconnectDelayMs();
-  reconnectAttempts += 1;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    void startBridge().catch(() => undefined);
+  if (bridge.reconnectTimer) {
+    return;
+  }
+  const wait = reconnectDelayMs(bridge);
+  bridge.reconnectAttempts += 1;
+  setBridgeState(bridge, 'reconnecting');
+  persistBridgeStatus();
+  bridge.reconnectTimer = setTimeout(() => {
+    bridge.reconnectTimer = null;
+    startBridge(bridge);
+    pollForCommand(bridge);
   }, wait);
 }
 
-function enqueueOutbox(message) {
-  outbox.push(message);
-  // Drop the oldest buffered messages if the host stays down for a long time.
-  while (outbox.length > MAX_OUTBOX) {
-    outbox.shift();
+function clearPollWatchdog(bridge) {
+  if (bridge.pollWatchdogTimer !== null) {
+    clearTimeout(bridge.pollWatchdogTimer);
+    bridge.pollWatchdogTimer = null;
   }
 }
 
-function flushOutbox() {
-  if (!nativePort || outbox.length === 0) {
+function clearReconnectTimer(bridge) {
+  if (bridge.reconnectTimer !== null) {
+    clearTimeout(bridge.reconnectTimer);
+    bridge.reconnectTimer = null;
+  }
+}
+
+function clearPollInFlight(bridge) {
+  bridge.pollInFlight = false;
+  bridge.pollStartedAt = null;
+  clearPollWatchdog(bridge);
+}
+
+function armPollWatchdog(bridge) {
+  clearPollWatchdog(bridge);
+  bridge.pollWatchdogTimer = setTimeout(() => {
+    bridge.pollWatchdogTimer = null;
+    recycleStalePoll(bridge);
+  }, POLL_WATCHDOG_MS);
+}
+
+function recordPollAck(bridge) {
+  bridge.lastPollAckAt = Date.now();
+  bridge.pollStartedAt = null;
+  clearPollWatchdog(bridge);
+}
+
+function isPollStale(bridge) {
+  return bridge.pollInFlight
+    && typeof bridge.pollStartedAt === 'number'
+    && Date.now() - bridge.pollStartedAt >= POLL_WATCHDOG_MS;
+}
+
+function recycleStalePoll(bridge) {
+  if (!isPollStale(bridge)) {
+    return false;
+  }
+  const port = bridge.nativePort;
+  clearPollInFlight(bridge);
+  bridge.silentPollCount += 1;
+  bridge.lastError = POLL_TIMEOUT_REASON;
+  if (port) {
+    bridge.forcedDisconnectPort = port;
+    bridge.forcedDisconnectReason = POLL_TIMEOUT_REASON;
+    try {
+      port.disconnect?.();
+    } catch {
+      // The channel is already unusable from the extension's perspective.
+    }
+  }
+  bridge.nativePort = null;
+  scheduleReconnect(bridge);
+  persistBridgeStatus();
+  return true;
+}
+
+function enqueueOutbox(bridge, message) {
+  bridge.outbox.push(message);
+  // Drop the oldest buffered messages if the host stays down for a long time.
+  while (bridge.outbox.length > MAX_OUTBOX) {
+    bridge.outbox.shift();
+  }
+}
+
+function flushOutbox(bridge) {
+  if (!bridge.nativePort || bridge.outbox.length === 0) {
     return;
   }
-  const pending = outbox.splice(0, outbox.length);
+  const pending = bridge.outbox.splice(0, bridge.outbox.length);
   for (let index = 0; index < pending.length; index++) {
     try {
-      nativePort.postMessage(pending[index]);
+      bridge.nativePort.postMessage(pending[index]);
     } catch {
       // Re-buffer this and the remaining messages; the disconnect handler will
       // schedule another reconnect+flush.
       for (let rest = pending.length - 1; rest >= index; rest--) {
-        outbox.unshift(pending[rest]);
+        bridge.outbox.unshift(pending[rest]);
       }
-      nativePort = null;
-      pollInFlight = false;
-      scheduleReconnect();
+      bridge.nativePort = null;
+      clearPollInFlight(bridge);
+      scheduleReconnect(bridge);
       return;
     }
   }
 }
 
-function connectNativePort() {
-  if (nativePort) {
-    return nativePort;
+function connectNativePort(bridge, options = {}) {
+  if (!gatewayEnabled) {
+    return null;
   }
-  nativePort = chrome.runtime.connectNative(HOST_NAME);
-  nativePort.onMessage.addListener((message) => {
-    // Inbound traffic means the channel is healthy again.
-    reconnectAttempts = 0;
-    void handleNativeMessage(message);
-  });
-  nativePort.onDisconnect.addListener(() => {
-    // Read lastError so handled native-host disconnects do not surface as extension errors.
-    void chrome.runtime.lastError?.message;
-    nativePort = null;
-    pollInFlight = false;
-    scheduleReconnect();
-  });
-  flushOutbox();
-  return nativePort;
+  if (bridge.nativePort) {
+    return bridge.nativePort;
+  }
+  if (bridge.state === 'absent' && options.retryAbsent !== true) {
+    return null;
+  }
+  try {
+    const port = chrome.runtime.connectNative(bridge.hostName);
+    bridge.nativePort = port;
+    setBridgeState(bridge, 'connected');
+    bridge.lastError = null;
+    persistBridgeStatus();
+    port.onMessage.addListener((message) => {
+      // Inbound traffic means the channel is healthy again.
+      bridge.reconnectAttempts = 0;
+      setBridgeState(bridge, 'connected');
+      bridge.lastError = null;
+      void handleNativeMessage(message, bridge);
+      persistBridgeStatus();
+    });
+    port.onDisconnect.addListener(() => {
+      const message = chrome.runtime.lastError?.message;
+      const forcedDisconnectReason = bridge.forcedDisconnectPort === port
+        ? bridge.forcedDisconnectReason
+        : null;
+      const isCurrentPort = bridge.nativePort === port;
+      if (forcedDisconnectReason) {
+        bridge.forcedDisconnectPort = null;
+        bridge.forcedDisconnectReason = null;
+      }
+      if (!isCurrentPort) {
+        return;
+      }
+      bridge.nativePort = null;
+      clearPollInFlight(bridge);
+      bridge.lastError = forcedDisconnectReason
+        ?? (typeof message === 'string' && message ? message : null);
+      if (forcedDisconnectReason) {
+        scheduleReconnect(bridge);
+        return;
+      }
+      if (isNativeHostAbsentError(message)) {
+        setBridgeState(bridge, 'absent');
+        persistBridgeStatus();
+        return;
+      }
+      scheduleReconnect(bridge);
+    });
+    flushOutbox(bridge);
+    return port;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isNativeHostAbsentError(message)) {
+      markBridgeAbsent(bridge, message);
+      return null;
+    }
+    bridge.nativePort = null;
+    clearPollInFlight(bridge);
+    bridge.lastError = message;
+    scheduleReconnect(bridge);
+    return null;
+  }
 }
 
-function postNativeMessage(message) {
+function markBridgeAbsent(bridge, message) {
+  bridge.nativePort = null;
+  clearPollInFlight(bridge);
+  setBridgeState(bridge, 'absent');
+  bridge.lastError = message || 'native_host_absent';
+  persistBridgeStatus();
+}
+
+function isNativeHostAbsentError(message) {
+  return typeof message === 'string'
+    && /native messaging host.*not found|specified native messaging host not found|host not found|not installed/i.test(message);
+}
+
+function postNativeMessage(bridge, message, options = {}) {
+  if (!gatewayEnabled) {
+    return false;
+  }
   // Poll requests are transient — never buffer/replay them (a stale poll would
   // just confuse the host). Everything else is queued if the channel is down.
   const isPoll = message?.type === 'poll_command';
   try {
-    connectNativePort().postMessage(message);
-  } catch {
-    nativePort = null;
-    pollInFlight = false;
-    if (!isPoll) {
-      enqueueOutbox(message);
+    const port = connectNativePort(bridge, options);
+    if (!port) {
+      if (!isPoll && bridge.state !== 'absent') {
+        enqueueOutbox(bridge, message);
+      }
+      return false;
     }
-    scheduleReconnect();
+    port.postMessage(message);
+    return true;
+  } catch (error) {
+    bridge.nativePort = null;
+    clearPollInFlight(bridge);
+    bridge.lastError = error instanceof Error ? error.message : String(error);
+    if (isNativeHostAbsentError(bridge.lastError)) {
+      setBridgeState(bridge, 'absent');
+      persistBridgeStatus();
+      return false;
+    }
+    if (!isPoll) {
+      enqueueOutbox(bridge, message);
+    }
+    scheduleReconnect(bridge);
+    return false;
   }
+}
+
+function broadcastNativeMessage(message, options = {}) {
+  if (!gatewayEnabled) {
+    return [];
+  }
+  const recipients = [];
+  for (const bridge of bridges) {
+    if (postNativeMessage(bridge, message, options)) {
+      recipients.push({ hostName: bridge.hostName, kind: bridge.kind });
+    }
+  }
+  return recipients;
+}
+
+function postShareMessage(bridge, message) {
+  if (!gatewayEnabled) {
+    return false;
+  }
+  if (!bridge.nativePort || displayStateForBridge(bridge, Date.now()) !== 'connected') {
+    return false;
+  }
+  try {
+    bridge.nativePort.postMessage(message);
+    return true;
+  } catch (error) {
+    bridge.nativePort = null;
+    clearPollInFlight(bridge);
+    bridge.lastError = error instanceof Error ? error.message : String(error);
+    scheduleReconnect(bridge);
+    return false;
+  }
+}
+
+function broadcastShareMessage(message) {
+  const recipients = [];
+  for (const bridge of bridges) {
+    if (postShareMessage(bridge, message)) {
+      recipients.push({ hostName: bridge.hostName, kind: bridge.kind });
+    }
+  }
+  return recipients;
+}
+
+function persistBridgeStatus() {
+  const snapshots = bridges.map(statusSnapshotForBridge);
+  refreshToolbarBadge(snapshots);
+  refreshToolbarIcon();
+  void chrome.storage?.session?.set?.({
+    browserGatewayEnabled: gatewayEnabled,
+    browserGatewayBridgeStatus: snapshots,
+    browserGatewayBridgeStatusUpdatedAt: Date.now(),
+  })?.catch(() => undefined);
+}
+
+function statusSnapshotForBridge(bridge) {
+  return {
+    hostName: bridge.hostName,
+    kind: bridge.kind,
+    state: displayStateForBridge(bridge, Date.now()),
+    reconnectAttempts: bridge.reconnectAttempts,
+    lastPollAckAt: bridge.lastPollAckAt,
+    lastError: bridge.lastError,
+    outboxLength: bridge.outbox.length,
+    pollInFlight: bridge.pollInFlight,
+    pollStartedAt: bridge.pollStartedAt,
+    silentPollCount: bridge.silentPollCount,
+    stateChangedAt: bridge.stateChangedAt,
+    unhealthySince: bridge.unhealthySince,
+  };
+}
+
+function displayStateForBridge(bridge, now) {
+  if (!gatewayEnabled) {
+    return 'disabled';
+  }
+  if (bridge.state === 'connected' && isConnectedBridgeStale(bridge, now)) {
+    return 'dead';
+  }
+  if ((bridge.state === 'reconnecting' || bridge.state === 'disconnected')
+    && isBridgePastUnhealthyGrace(bridge, now)) {
+    return 'dead';
+  }
+  return bridge.state;
+}
+
+function isConnectedBridgeStale(bridge, now) {
+  const contactAt = bridge.lastPollAckAt ?? bridge.stateChangedAt;
+  return typeof contactAt === 'number' && now - contactAt > BADGE_UNHEALTHY_GRACE_MS;
+}
+
+function isBridgePastUnhealthyGrace(bridge, now) {
+  return typeof bridge.unhealthySince === 'number'
+    && now - bridge.unhealthySince > BADGE_UNHEALTHY_GRACE_MS;
+}
+
+function deriveToolbarBadgeState(snapshots, now = Date.now()) {
+  const unhealthyCount = snapshots.filter((snapshot) => isSnapshotBadForBadge(snapshot, now)).length;
+  if (unhealthyCount === snapshots.length && unhealthyCount > 0) {
+    return { text: '!', color: BADGE_RED };
+  }
+  if (snapshots.length === 2 && unhealthyCount === 1) {
+    return { text: '!', color: BADGE_AMBER };
+  }
+  return { text: '', color: null };
+}
+
+function isSnapshotBadForBadge(snapshot, now) {
+  if (snapshot.state === 'dead') {
+    return true;
+  }
+  if (snapshot.state === 'absent' || snapshot.state === 'reconnecting' || snapshot.state === 'disconnected') {
+    return typeof snapshot.unhealthySince === 'number'
+      && now - snapshot.unhealthySince > BADGE_UNHEALTHY_GRACE_MS;
+  }
+  if (snapshot.state === 'connected') {
+    const contactAt = snapshot.lastPollAckAt ?? snapshot.stateChangedAt;
+    return typeof contactAt === 'number' && now - contactAt > BADGE_UNHEALTHY_GRACE_MS;
+  }
+  return false;
+}
+
+function refreshToolbarBadge(snapshots) {
+  const badge = deriveToolbarBadgeState(snapshots);
+  void chrome.action?.setBadgeText?.({ text: badge.text })?.catch(() => undefined);
+  if (badge.color) {
+    void chrome.action?.setBadgeBackgroundColor?.({ color: badge.color })?.catch(() => undefined);
+  }
+}
+
+function refreshToolbarIcon() {
+  if (!chrome.action?.setIcon) {
+    return;
+  }
+  const color = gatewayEnabled ? ICON_BLUE : ICON_GREY;
+  const imageData = {};
+  for (const size of ICON_SIZES) {
+    imageData[size] = createToolbarIconImageData(size, color);
+  }
+  void chrome.action.setIcon({ imageData }).catch(() => undefined);
+}
+
+function createToolbarIconImageData(size, color) {
+  const data = new Uint8ClampedArray(size * size * 4);
+  const center = (size - 1) / 2;
+  const radius = size * 0.43;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const distance = Math.hypot(x - center, y - center);
+      if (distance > radius) {
+        continue;
+      }
+      const offset = (y * size + x) * 4;
+      data[offset] = color[0];
+      data[offset + 1] = color[1];
+      data[offset + 2] = color[2];
+      data[offset + 3] = color[3];
+    }
+  }
+  drawToolbarIconH(data, size);
+  return new ImageData(data, size, size);
+}
+
+function drawToolbarIconH(data, size) {
+  const barWidth = Math.max(2, Math.round(size * 0.13));
+  const top = Math.round(size * 0.25);
+  const bottom = Math.round(size * 0.75);
+  const leftX = Math.round(size * 0.31);
+  const rightX = Math.round(size * 0.62);
+  const crossTop = Math.round(size * 0.44);
+  fillIconRect(data, size, leftX, top, leftX + barWidth, bottom, ICON_WHITE);
+  fillIconRect(data, size, rightX, top, rightX + barWidth, bottom, ICON_WHITE);
+  fillIconRect(data, size, leftX, crossTop, rightX + barWidth, crossTop + barWidth, ICON_WHITE);
+}
+
+function fillIconRect(data, size, left, top, right, bottom, color) {
+  for (let y = Math.max(0, top); y < Math.min(size, bottom); y++) {
+    for (let x = Math.max(0, left); x < Math.min(size, right); x++) {
+      const offset = (y * size + x) * 4;
+      data[offset] = color[0];
+      data[offset + 1] = color[1];
+      data[offset + 2] = color[2];
+      data[offset + 3] = color[3];
+    }
+  }
+}
+
+function getStatusPayload() {
+  const snapshots = bridges.map(statusSnapshotForBridge);
+  return {
+    ok: true,
+    gatewayEnabled,
+    extensionVersion: chrome.runtime.getManifest?.().version ?? 'unknown',
+    bridges: snapshots,
+    sharedTabs: sharedTabs.slice(),
+    badge: deriveToolbarBadgeState(snapshots),
+  };
+}
+
+async function reconnectAllBridges() {
+  if (!gatewayEnabled) {
+    persistBridgeStatus();
+    return getStatusPayload();
+  }
+  for (const bridge of bridges) {
+    clearReconnectTimer(bridge);
+    clearPollInFlight(bridge);
+    const port = bridge.nativePort;
+    bridge.nativePort = null;
+    bridge.forcedDisconnectPort = null;
+    bridge.forcedDisconnectReason = null;
+    bridge.lastError = null;
+    bridge.reconnectAttempts = 0;
+    setBridgeState(bridge, 'disconnected');
+    if (port) {
+      try {
+        port.disconnect?.();
+      } catch {
+        // Reconnect is best-effort; stale channels are replaced below.
+      }
+    }
+    startBridge(bridge);
+    pollForCommand(bridge, { retryAbsent: true });
+  }
+  await reportTabInventory().catch(() => undefined);
+  persistBridgeStatus();
+  return getStatusPayload();
 }
 
 // Commands must execute strictly one-at-a-time. The inventory alarm and the
@@ -165,31 +721,67 @@ function postNativeMessage(message) {
 // and which has crashed the tab's renderer (RESULT_CODE_KILLED_BAD_MESSAGE).
 let commandChain = Promise.resolve();
 
-async function handleNativeMessage(message) {
-  if (!message || message.type !== 'browser_command' || !message.command) {
-    pollInFlight = false;
-    scheduleNextPoll(POLL_IDLE_DELAY_MS);
+async function handleNativeMessage(message, bridge) {
+  if (!gatewayEnabled) {
+    clearPollInFlight(bridge);
+    persistBridgeStatus();
+    return;
+  }
+  if (!message || message.type !== 'browser_command') {
+    if (handleNativePollError(message, bridge)) {
+      return;
+    }
+    persistBridgeStatus();
+    return;
+  }
+  recordPollAck(bridge);
+  if (!message.command) {
+    clearPollInFlight(bridge);
+    persistBridgeStatus();
+    scheduleNextPoll(bridge, POLL_IDLE_DELAY_MS);
     return;
   }
   const command = message.command;
-  commandChain = commandChain.then(() => runBrowserCommand(command));
+  commandChain = commandChain.then(() => runBrowserCommand(command, bridge));
   await commandChain;
 }
 
-async function runBrowserCommand(command) {
+function handleNativePollError(message, bridge) {
+  if (!bridge.pollInFlight || !isNativeHostErrorReply(message)) {
+    return false;
+  }
+  bridge.lastError = message.error;
+  clearPollInFlight(bridge);
+  persistBridgeStatus();
+  scheduleNextPoll(bridge, POLL_TIMEOUT_MS);
+  return true;
+}
+
+function isNativeHostErrorReply(message) {
+  return Boolean(
+    message
+    && typeof message === 'object'
+    && message.ok === false
+    && typeof message.error === 'string'
+    && message.error,
+  );
+}
+
+async function runBrowserCommand(command, bridge) {
   try {
+    assertGatewayEnabled();
     const result = await runCommandWithWatchdog(command);
     if (isTabPayload(result)) {
-      postNativeMessage({ type: 'attach_tab', tab: result });
+      broadcastNativeMessage({ type: 'attach_tab', tab: result });
     }
-    postNativeMessage({
+    postNativeMessage(bridge, {
       type: 'command_result',
       commandId: command.id,
       ok: true,
       result,
     });
   } catch (error) {
-    postNativeMessage({
+    postNativeMessage(bridge, {
       type: 'command_result',
       commandId: command.id,
       ok: false,
@@ -201,8 +793,9 @@ async function runBrowserCommand(command) {
     // this one is still running (the disconnect handler still resets the flag
     // if the channel drops mid-command; the commandChain stays the correctness
     // backstop for any command that arrives through that path).
-    pollInFlight = false;
-    scheduleNextPoll(0);
+    clearPollInFlight(bridge);
+    persistBridgeStatus();
+    scheduleNextPoll(bridge, 0);
   }
 }
 
@@ -259,22 +852,37 @@ async function forceReleaseCommandResources(command) {
   await stopControlledTab(tabId).catch(() => undefined);
 }
 
-function pollForCommand() {
-  if (pollInFlight) {
+function pollForCommand(bridge, options = {}) {
+  if (!gatewayEnabled) {
     return;
   }
-  pollInFlight = true;
-  postNativeMessage({
+  if (bridge.pollInFlight) {
+    return;
+  }
+  bridge.pollInFlight = true;
+  bridge.pollStartedAt = Date.now();
+  armPollWatchdog(bridge);
+  const posted = postNativeMessage(bridge, {
     type: 'poll_command',
     timeoutMs: POLL_TIMEOUT_MS,
-  });
+  }, options);
+  if (!posted) {
+    clearPollInFlight(bridge);
+  }
+  persistBridgeStatus();
 }
 
-function scheduleNextPoll(delayMs) {
-  setTimeout(() => pollForCommand(), delayMs);
+function scheduleNextPoll(bridge, delayMs) {
+  if (!gatewayEnabled) {
+    return;
+  }
+  setTimeout(() => pollForCommand(bridge), delayMs);
 }
 
 async function reportTabInventory() {
+  if (!gatewayEnabled) {
+    return;
+  }
   if (inventoryInFlight) {
     return;
   }
@@ -288,7 +896,7 @@ async function reportTabInventory() {
       tabPayloads.push(await buildTabPayload(tab, { includeText: true }));
     }
     if (tabPayloads.length > 0) {
-      postNativeMessage({
+      broadcastNativeMessage({
         type: 'tab_inventory',
         tabs: tabPayloads,
       });
@@ -299,6 +907,9 @@ async function reportTabInventory() {
 }
 
 async function reportTab(tab) {
+  if (!gatewayEnabled) {
+    return;
+  }
   if (!isWebTab(tab)) {
     return;
   }
@@ -306,30 +917,55 @@ async function reportTab(tab) {
   if (!payload) {
     return;
   }
-  postNativeMessage({
+  broadcastNativeMessage({
     type: 'attach_tab',
     tab: payload,
   });
 }
 
 async function shareActiveTab() {
+  assertGatewayEnabled();
   const tab = await findActiveWebTabForSharing();
   if (!isWebTab(tab)) {
     throw new Error('No active Chrome tab is available to share.');
   }
 
-  const response = await sendNativeMessage({
-    type: 'attach_tab',
-    tab: await buildTabPayload(tab, {
-      includeText: true,
-      includeScreenshot: true,
-    }),
+  const tabPayload = await buildTabPayload(tab, {
+    includeText: true,
+    includeScreenshot: true,
   });
+  const recipients = broadcastShareMessage({
+    type: 'attach_tab',
+    tab: tabPayload,
+  });
+  if (recipients.length > 0) {
+    rememberSharedTab(tabPayload, recipients);
+    persistBridgeStatus();
+  }
 
   return {
-    ok: Boolean(response?.ok),
-    response,
+    ok: recipients.length > 0,
+    recipients,
   };
+}
+
+function rememberSharedTab(tab, recipients) {
+  const entry = {
+    tabId: tab.tabId,
+    windowId: tab.windowId,
+    url: tab.url,
+    title: tab.title,
+    sharedAt: Date.now(),
+    recipients,
+  };
+  const existingIndex = sharedTabs.findIndex((candidate) => candidate.tabId === tab.tabId);
+  if (existingIndex >= 0) {
+    sharedTabs.splice(existingIndex, 1);
+  }
+  sharedTabs.unshift(entry);
+  while (sharedTabs.length > MAX_SHARED_TABS) {
+    sharedTabs.pop();
+  }
 }
 
 async function findActiveWebTabForSharing() {
@@ -358,7 +994,11 @@ async function findActiveWebTabForSharing() {
 }
 
 async function executeBrowserCommand(command) {
+  assertGatewayEnabled();
   switch (command.command) {
+    case 'report_inventory':
+      await reportTabInventory();
+      return { reported: true };
     case 'open_tab': {
       const url = requirePayloadString(command, 'url');
       const tab = await chrome.tabs.create({ url, active: true });
@@ -578,6 +1218,7 @@ async function downloadFileFromTargetTab(command) {
 const tabDebuggerChains = new Map();
 
 function withDebugger(tabId, callback) {
+  assertGatewayEnabled();
   const previous = tabDebuggerChains.get(tabId) ?? Promise.resolve();
   const run = previous.then(() => attachAndRunDebugger(tabId, callback));
   // Chain on settlement (not success) so one failed session does not poison
@@ -1142,6 +1783,7 @@ function delay(ms) {
 }
 
 async function runInTargetTab(command, action, args) {
+  assertGatewayEnabled();
   const tabId = requireTargetTabId(command);
   await startControlledTab(tabId);
   try {
@@ -1213,6 +1855,7 @@ function mergeFrameResults(action, frameResults, args) {
 // that never contain the selector, which would otherwise hold the whole call
 // open until the timeout on every navigation.
 async function waitForSelectorAcrossFrames(tabId, selector, timeoutMs) {
+  assertGatewayEnabled();
   const deadline = Date.now() + Math.max(0, timeoutMs);
   const pollIntervalMs = 250;
   for (;;) {
@@ -1259,6 +1902,7 @@ async function buildTabPayload(tab, options = {}) {
 }
 
 async function capturePageText(tabId) {
+  assertGatewayEnabled();
   // Inject into every frame so iframe content (e.g. portals embedded in an
   // <iframe>) is included instead of only the top frame's header/footer.
   const results = await chrome.scripting.executeScript({
@@ -1328,6 +1972,7 @@ function computeDownscale(width, height, maxWidth, maxHeight) {
 // tab being the active/focused tab of a focused OS window. Defaults to a
 // downscaled JPEG so the base64 payload stays within the MCP inline budget.
 async function captureTabScreenshot(tabId, options = {}) {
+  assertGatewayEnabled();
   if (typeof tabId !== 'number') {
     throw new Error('Browser screenshot requires a Chrome tab id.');
   }
@@ -1396,6 +2041,7 @@ async function waitForTabComplete(tabId, timeoutMs = 15000) {
 }
 
 async function startControlledTab(tabId) {
+  assertGatewayEnabled();
   if (typeof tabId !== 'number') {
     return;
   }
@@ -1492,6 +2138,7 @@ async function findControlGroupId(windowId, noGroupId) {
 }
 
 async function installControlGlow(tabId) {
+  assertGatewayEnabled();
   await chrome.scripting.executeScript({
     target: { tabId },
     func: installControlGlowScript,
@@ -1499,6 +2146,7 @@ async function installControlGlow(tabId) {
 }
 
 async function removeControlGlow(tabId) {
+  assertGatewayEnabled();
   await chrome.scripting.executeScript({
     target: { tabId },
     func: removeControlGlowScript,
@@ -2091,17 +2739,4 @@ function isTabPayload(value) {
     && typeof value.windowId === 'number'
     && typeof value.url === 'string',
   );
-}
-
-function sendNativeMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendNativeMessage(HOST_NAME, message, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      resolve(response);
-    });
-  });
 }

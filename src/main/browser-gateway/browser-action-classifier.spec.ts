@@ -65,6 +65,26 @@ describe('browser-action-classifier', () => {
     expect(result.actionClass).toBe('unknown');
   });
 
+  it('classifies dialog-scoped Post, Send, and Publish buttons as submit actions', () => {
+    for (const accessibleName of ['Post', 'Send', 'Publish']) {
+      expect(
+        classifyBrowserAction({
+          toolName: 'browser.click',
+          actionHint: 'click button',
+          elementContext: {
+            role: 'button',
+            accessibleName,
+            nearbyText: 'Create post dialog',
+            attributes: {
+              'aria-modal': 'true',
+              'data-dialog-role': 'dialog',
+            },
+          },
+        }).actionClass,
+      ).toBe('submit');
+    }
+  });
+
   it('classifies fill_form atomically and blocks when any field is unsafe', () => {
     const result = classifyBrowserFillForm([
       {

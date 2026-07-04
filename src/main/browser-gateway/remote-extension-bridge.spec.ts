@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { RemoteBrowserExtensionBridge } from './remote-extension-bridge';
 
 function makeBridge() {
+  let now = 1_000;
+  const logger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+  };
   const service = {
     attachExistingTab: vi.fn(async (request: unknown) => ({
       decision: 'allowed' as const,
@@ -26,10 +31,21 @@ function makeBridge() {
     commandStore,
     tabStore,
     registry,
-    now: () => 1_000,
+    logger,
+    now: () => now,
     maxRequestsPerWindow: 10,
   });
-  return { bridge, service, commandStore, tabStore, registry };
+  return {
+    bridge,
+    service,
+    commandStore,
+    tabStore,
+    registry,
+    logger,
+    setNow: (value: number) => {
+      now = value;
+    },
+  };
 }
 
 describe('RemoteBrowserExtensionBridge', () => {
@@ -82,6 +98,55 @@ describe('RemoteBrowserExtensionBridge', () => {
       ok: true,
       result: { value: 1 },
     });
+  });
+
+  it('records remote extension contact on polls and classifies stale nodes', async () => {
+    const { bridge, setNow } = makeBridge();
+
+    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+
+    expect(bridge.getLastExtensionContactAt('node-1')).toBe(1_000);
+    expect(bridge.isExtensionContactFresh('node-1')).toBe(true);
+
+    setNow(91_001);
+
+    expect(bridge.isExtensionContactFresh('node-1')).toBe(false);
+    expect(bridge.describeExtensionContact('node-1')).toMatchObject({
+      nodeId: 'node-1',
+      lastContactAt: 1_000,
+      silent: true,
+      staleForMs: 1,
+    });
+  });
+
+  it('logs remote extension poll lost and resumed transitions once per state change', async () => {
+    const { bridge, logger, setNow } = makeBridge();
+
+    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    setNow(91_001);
+
+    expect(bridge.isExtensionContactFresh('node-1')).toBe(false);
+    expect(bridge.isExtensionContactFresh('node-1')).toBe(false);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Remote browser extension poll lost',
+      expect.objectContaining({
+        nodeId: 'node-1',
+        lastContactAt: 1_000,
+        staleForMs: 1,
+      }),
+    );
+
+    setNow(92_000);
+    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'Remote browser extension poll resumed',
+      expect.objectContaining({
+        nodeId: 'node-1',
+        lastContactAt: 92_000,
+      }),
+    );
   });
 
   it('expires node tabs and rejects pending node commands on disconnect', () => {

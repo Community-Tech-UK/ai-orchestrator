@@ -67,6 +67,8 @@ import type {
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
 import { StaleRuntimeReconciler } from './stale-runtime-reconciler';
+import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
+import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
 import { getAutoTitleService } from './auto-title-service';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -1408,6 +1410,32 @@ export class InstanceManager extends EventEmitter {
   // Public API - Communication
   // ============================================
 
+  /** Load- and context-scaled init/respawn wait budget (see init-wait-budget.ts). */
+  private computeInitWaitBudgetMs(instance: Instance): number {
+    return resolveInitWaitBudgetMs(
+      instance.contextUsage?.used ?? 0,
+      getClampedLoadWatchdogMultiplier(),
+    );
+  }
+
+  /**
+   * Await a background init/wake/respawn promise, bounded by `budgetMs`. Clears
+   * and unrefs the timer once the race settles so a fast-resolving promise does
+   * not leave a multi-minute timer (and its closure) pending on the event loop.
+   */
+  private async awaitWithBudget(work: Promise<void>, budgetMs: number, timeoutMessage: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(timeoutMessage)), budgetMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([work, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async sendInput(
     instanceId: string,
     message: string,
@@ -1439,19 +1467,17 @@ export class InstanceManager extends EventEmitter {
     let hookError: string | undefined;
     try {
 
-    // If the instance is still initializing in the background, wait for it to
-    // finish before sending any user input. A 30s timeout guards against a
-    // hung init process.
+    // Wait for a background init to finish before delivering input. The budget
+    // scales with host load and transcript-replay size (see init-wait-budget).
+    // On timeout we do NOT abort: a large-context replay may still be
+    // progressing, so re-throw and let the renderer re-queue against the same
+    // readyPromise (dead inits are caught by wake deadlines + StuckProcessDetector).
     if (instance.readyPromise) {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Instance initialization timed out')), 30_000)
+      await this.awaitWithBudget(
+        instance.readyPromise,
+        this.computeInitWaitBudgetMs(instance),
+        'Instance initialization timed out',
       );
-      try {
-        await Promise.race([instance.readyPromise, timeoutPromise]);
-      } catch (error) {
-        instance.abortController?.abort();
-        throw error;
-      }
       if (instance.status === 'failed') {
         throw new Error('Instance initialization failed');
       }
@@ -1461,10 +1487,11 @@ export class InstanceManager extends EventEmitter {
     // This holds the IPC call instead of rejecting, so the renderer's queued
     // message is delivered once the new CLI process is ready.
     if (instance.respawnPromise) {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Instance respawn timed out')), 30_000)
+      await this.awaitWithBudget(
+        instance.respawnPromise,
+        this.computeInitWaitBudgetMs(instance),
+        'Instance respawn timed out',
       );
-      await Promise.race([instance.respawnPromise, timeoutPromise]);
       if (instance.status === 'error' || instance.status === 'failed') {
         throw new Error('Instance respawn after interrupt failed');
       }

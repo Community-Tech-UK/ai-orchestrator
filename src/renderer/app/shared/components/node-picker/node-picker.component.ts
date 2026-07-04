@@ -9,7 +9,8 @@ import {
 } from '@angular/core';
 import { RemoteNodeStore } from '../../../core/state/remote-node.store';
 import { SettingsStore } from '../../../core/state/settings.store';
-import type { WorkerNodeInfo } from '../../../../../shared/types/worker-node.types';
+import type { RemoteNodeRosterEntry } from '../../../../../shared/types/worker-node.types';
+import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
 
 @Component({
   standalone: true,
@@ -219,7 +220,7 @@ export class NodePickerComponent {
     if (!id) return 'Running on this machine';
     const node = this.nodeStore.nodeById(id);
     if (!node) return 'Node not found';
-    return `Running on ${node.name} (${node.capabilities.platform})`;
+    return `Running on ${node.name} (${formatRemoteNodePlatformLabel(node.platform)})`;
   });
 
   toggleOpen(): void {
@@ -231,14 +232,14 @@ export class NodePickerComponent {
     this.isOpen.set(false);
   }
 
-  isNodeSelectable(node: WorkerNodeInfo): boolean {
+  isNodeSelectable(node: RemoteNodeRosterEntry): boolean {
     if (node.status !== 'connected' && node.status !== 'degraded') return false;
     const cli = this.selectedCli();
     if (cli === 'auto') return true;
     return node.capabilities.supportedClis.includes(cli as never);
   }
 
-  nodeDisabledReason(node: WorkerNodeInfo): string {
+  nodeDisabledReason(node: RemoteNodeRosterEntry): string {
     if (node.status === 'disconnected') return 'Node is disconnected';
     if (node.status === 'connecting') return 'Node is connecting...';
     const cli = this.selectedCli();
@@ -248,15 +249,14 @@ export class NodePickerComponent {
     return '';
   }
 
-  healthClass(node: WorkerNodeInfo): string {
+  healthClass(node: RemoteNodeRosterEntry): string {
     return 'health-' + node.status;
   }
 
-  nodeSubtitle(node: WorkerNodeInfo): string {
+  nodeSubtitle(node: RemoteNodeRosterEntry): string {
     const caps = node.capabilities;
     const parts: string[] = [];
-    const platformLabel = caps.platform === 'win32' ? 'Win32' : caps.platform === 'darwin' ? 'macOS' : 'Linux';
-    parts.push(platformLabel);
+    parts.push(formatRemoteNodePlatformLabel(node.platform));
     if (caps.gpuName) parts.push('GPU');
     if (caps.hasBrowserRuntime) parts.push('Chrome');
     if (caps.hasDocker) parts.push('Docker');
