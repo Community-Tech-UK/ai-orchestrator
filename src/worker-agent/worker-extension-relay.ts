@@ -9,10 +9,14 @@ import {
 import type { WorkerNodeExtensionRelaySummary } from '../shared/types/worker-node.types';
 
 const MAX_RELAY_PAYLOAD_BYTES = 4 * 1024 * 1024;
+const EXTENSION_CONTACT_LOST_MS = 90_000;
+const POLL_HEARTBEAT_INTERVAL = 500;
 
 export interface WorkerExtensionRelayOptions {
   config: WorkerExtensionRelayConfig;
   sendRequest: (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
+  logger?: Pick<Console, 'info' | 'warn'>;
+  now?: () => number;
 }
 
 interface ExtensionRpcRequest {
@@ -27,15 +31,28 @@ interface AuthorizedExtensionParams {
   payload: Record<string, unknown>;
 }
 
+type WorkerExtensionRelayRegistrationSummary = Pick<
+  WorkerNodeExtensionRelaySummary,
+  'registration' | 'lastRegistrationCheckAt' | 'manifestPath' | 'registrationError'
+>;
+
 export class WorkerExtensionRelay {
   private server: net.Server | null = null;
   private readonly retryTimers = new Set<ReturnType<typeof setTimeout>>();
   private config: WorkerExtensionRelayConfig;
   private readonly sendRequest: WorkerExtensionRelayOptions['sendRequest'];
+  private readonly logger: Pick<Console, 'info' | 'warn'>;
+  private readonly now: () => number;
+  private registrationSummary: WorkerExtensionRelayRegistrationSummary | undefined;
+  private lastExtensionContactAt: number | undefined;
+  private extensionContactState: 'never' | 'active' | 'lost' = 'never';
+  private authenticatedPollCount = 0;
 
   constructor(options: WorkerExtensionRelayOptions) {
     this.config = options.config;
     this.sendRequest = options.sendRequest;
+    this.logger = options.logger ?? console;
+    this.now = options.now ?? Date.now;
   }
 
   getSocketPath(): string {
@@ -71,7 +88,7 @@ export class WorkerExtensionRelay {
       const onError = (error: NodeJS.ErrnoException) => {
         server.off('error', onError);
         if (error.code === 'EADDRINUSE') {
-          console.warn('[WorkerExtensionRelay] Relay socket already has a listener', { socketPath });
+          this.logger.warn('[WorkerExtensionRelay] Relay socket already has a listener', { socketPath });
           resolve();
           return;
         }
@@ -81,6 +98,7 @@ export class WorkerExtensionRelay {
       server.listen(socketPath, () => {
         server.off('error', onError);
         this.server = server;
+        this.logger.info('[WorkerExtensionRelay] Relay started', { socketPath });
         resolve();
       });
     });
@@ -103,6 +121,7 @@ export class WorkerExtensionRelay {
         // Socket file is already gone.
       }
     }
+    this.logger.info('[WorkerExtensionRelay] Relay stopped', { socketPath: this.getSocketPath() });
   }
 
   async reconfigure(config: WorkerExtensionRelayConfig): Promise<void> {
@@ -111,16 +130,30 @@ export class WorkerExtensionRelay {
     await this.start();
   }
 
+  setRegistrationSummary(summary: WorkerExtensionRelayRegistrationSummary | undefined): void {
+    this.registrationSummary = summary;
+  }
+
   getSummary(): WorkerNodeExtensionRelaySummary | undefined {
+    this.updateExtensionContactHealth(this.now());
     if (!this.config.enabled) {
       return this.config
-        ? { enabled: false, running: false, ...(this.config.socketPath ? { socketPath: this.config.socketPath } : {}) }
+        ? {
+            enabled: false,
+            running: false,
+            ...(this.config.socketPath ? { socketPath: this.config.socketPath } : {}),
+            ...(this.registrationSummary ?? {}),
+          }
         : undefined;
     }
     return {
       enabled: true,
       running: this.isRunning(),
       socketPath: this.getSocketPath(),
+      ...(this.registrationSummary ?? {}),
+      ...(this.lastExtensionContactAt !== undefined
+        ? { lastExtensionContactAt: this.lastExtensionContactAt }
+        : {}),
     };
   }
 
@@ -128,6 +161,7 @@ export class WorkerExtensionRelay {
     const params = this.parseAuthorizedParams(request.params);
     switch (request.method) {
       case 'browser.extension_attach_tab':
+        this.recordExtensionContact();
         return this.sendRequest(
           NODE_TO_COORDINATOR.BROWSER_EXT_ATTACH_TAB,
           {
@@ -136,8 +170,11 @@ export class WorkerExtensionRelay {
           },
         );
       case 'browser.extension_poll_command':
+        this.recordExtensionContact();
+        this.recordPollHeartbeat();
         return this.forwardPollCommand(params);
       case 'browser.extension_command_result':
+        this.recordExtensionContact();
         return this.forwardCommandResult(params);
       default:
         throw new Error(`unknown_extension_relay_method:${request.method ?? ''}`);
@@ -192,13 +229,60 @@ export class WorkerExtensionRelay {
     this.retryTimers.clear();
   }
 
+  private recordExtensionContact(): void {
+    const contactedAt = this.now();
+    this.updateExtensionContactHealth(contactedAt);
+    const previousState = this.extensionContactState;
+    this.lastExtensionContactAt = contactedAt;
+    if (previousState === 'never') {
+      this.logger.info('[WorkerExtensionRelay] Browser extension first contact', {
+        socketPath: this.getSocketPath(),
+        lastExtensionContactAt: contactedAt,
+      });
+    } else if (previousState === 'lost') {
+      this.logger.info('[WorkerExtensionRelay] Browser extension contact resumed', {
+        socketPath: this.getSocketPath(),
+        lastExtensionContactAt: contactedAt,
+      });
+    }
+    this.extensionContactState = 'active';
+  }
+
+  private updateExtensionContactHealth(now: number): void {
+    if (
+      this.lastExtensionContactAt === undefined
+      || this.extensionContactState !== 'active'
+      || now - this.lastExtensionContactAt <= EXTENSION_CONTACT_LOST_MS
+    ) {
+      return;
+    }
+    this.extensionContactState = 'lost';
+    this.logger.warn('[WorkerExtensionRelay] Browser extension contact lost', {
+      socketPath: this.getSocketPath(),
+      lastExtensionContactAt: this.lastExtensionContactAt,
+      staleForMs: now - this.lastExtensionContactAt - EXTENSION_CONTACT_LOST_MS,
+    });
+  }
+
+  private recordPollHeartbeat(): void {
+    this.authenticatedPollCount += 1;
+    if (this.authenticatedPollCount % POLL_HEARTBEAT_INTERVAL !== 0) {
+      return;
+    }
+    this.logger.info('[WorkerExtensionRelay] Browser extension poll heartbeat', {
+      socketPath: this.getSocketPath(),
+      pollCount: this.authenticatedPollCount,
+      lastExtensionContactAt: this.lastExtensionContactAt,
+    });
+  }
+
   private handleSocket(socket: net.Socket): void {
     let buffer = '';
     // The extension client can vanish at any moment (browser shutdown, pipe
     // teardown). Without an error listener, a write EPIPE/ECONNRESET on this
     // socket becomes an unhandled 'error' event and crashes the whole worker.
     socket.on('error', (error: NodeJS.ErrnoException) => {
-      console.warn('[WorkerExtensionRelay] Relay client socket error', {
+      this.logger.warn('[WorkerExtensionRelay] Relay client socket error', {
         code: error.code,
         message: error.message,
       });
@@ -308,7 +392,7 @@ export class WorkerExtensionRelay {
       return true;
     }
     if (await this.hasLiveUnixSocket(socketPath)) {
-      console.warn('[WorkerExtensionRelay] Relay socket already has a listener', { socketPath });
+      this.logger.warn('[WorkerExtensionRelay] Relay socket already has a listener', { socketPath });
       return false;
     }
     try {

@@ -45,6 +45,17 @@ const DEFAULT_RETRY_DELAYS_MS: readonly number[] = [5_000, 15_000];
  * module does not need a runtime import of ProtocolError.
  */
 export function isTransientThreadStartError(error: unknown): boolean {
+  return isTransientRpcTimeoutError(error);
+}
+
+/**
+ * Method-agnostic transient check: a per-RPC timeout raised by the app-server
+ * client (`ProtocolError: RPC timeout …`). Retrying the SAME client can
+ * plausibly succeed for these (starved host, momentarily busy server), whereas
+ * a closed connection or a deterministic server rejection cannot. Shared by the
+ * thread/start and thread/resume retry helpers.
+ */
+export function isTransientRpcTimeoutError(error: unknown): boolean {
   return (
     error instanceof Error &&
     error.name === 'ProtocolError' &&

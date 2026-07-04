@@ -36,6 +36,7 @@ const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
 interface BrowserExistingTabOperationsDeps {
   extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab'>;
+  isRemoteExtensionContactFresh: (nodeId: string) => boolean;
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant'>;
   approvalStore: Pick<BrowserApprovalStore, 'createRequest'>;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
@@ -207,6 +208,9 @@ export class BrowserExistingTabOperations {
     payload?: Record<string, unknown>,
     timeoutMs = 30_000,
   ): Promise<unknown> {
+    if (attachment.nodeId && !this.deps.isRemoteExtensionContactFresh(attachment.nodeId)) {
+      return Promise.reject(new Error('browser_extension_unreachable'));
+    }
     return this.deps.extensionCommandStore.sendCommand({
       ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command,

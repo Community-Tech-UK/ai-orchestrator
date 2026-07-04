@@ -30,6 +30,14 @@ const workerConfigMockState = vi.hoisted(() => ({
   persistConfig: vi.fn(),
 }));
 
+const extensionRegistrationMockState = vi.hoisted(() => ({
+  checkAndRepair: vi.fn(() => ({
+    registration: 'ok',
+    lastRegistrationCheckAt: 1234,
+    manifestPath: 'C:\\Users\\James\\.orchestrator\\browser-gateway\\native-host\\com.ai_orchestrator.browser_gateway_relay.json',
+  })),
+}));
+
 // Mock WebSocket
 vi.mock('ws', () => {
   class MockWebSocket {
@@ -91,6 +99,12 @@ vi.mock('../worker-config', () => ({
         extensionToken: config.extensionToken ?? 'generated-extension-token',
       }
     : config,
+}));
+
+vi.mock('../extension-relay-native-registration', () => ({
+  ExtensionRelayNativeRegistration: vi.fn().mockImplementation(() => ({
+    checkAndRepair: extensionRegistrationMockState.checkAndRepair,
+  })),
 }));
 
 // Mock capability-reporter
@@ -181,6 +195,7 @@ describe('WorkerAgent', () => {
     wsMockState.instances.length = 0;
     discoveryMockState.onUp = null;
     workerConfigMockState.persistConfig.mockClear();
+    extensionRegistrationMockState.checkAndRepair.mockClear();
     providerDiagnostics.diagnoseProviderRuntime.mockReset();
     agent = new WorkerAgent(mockConfig);
     wsSend = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
@@ -309,6 +324,73 @@ describe('WorkerAgent', () => {
     expect(socket.send).toHaveBeenCalled();
   });
 
+  it('checks extension relay native-host registration before reporting startup capabilities', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      extensionRelay: {
+        enabled: true,
+        legacyNameRegistration: false,
+        socketPath: '/tmp/aio-extension-relay-test.sock',
+      },
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+
+    expect(extensionRegistrationMockState.checkAndRepair).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay-test.sock',
+      }),
+    );
+    expect(vi.mocked(reportCapabilities)).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(Number),
+      expect.any(Object),
+      undefined,
+      expect.objectContaining({
+        enabled: true,
+        registration: 'ok',
+        lastRegistrationCheckAt: 1234,
+      }),
+    );
+  });
+
+  it('does not recheck extension relay native-host registration before the 60 second repair interval', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      heartbeatIntervalMs: 5000,
+      extensionRelay: {
+        enabled: true,
+        legacyNameRegistration: false,
+        socketPath: '/tmp/aio-extension-relay-test.sock',
+      },
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+    expect(extensionRegistrationMockState.checkAndRepair).toHaveBeenCalledTimes(1);
+
+    const registration = JSON.parse(socket.send.mock.calls[0][0] as string) as { id: string };
+    socket.emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: registration.id,
+      result: { nodeId: 'test-node-1', token: 'accepted' },
+    }));
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(extensionRegistrationMockState.checkAndRepair).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(55_000);
+    expect(extensionRegistrationMockState.checkAndRepair).toHaveBeenCalledTimes(2);
+  });
+
   it('fails over to a fallback URL when the primary coordinator is unreachable', async () => {
     const config: WorkerConfig = {
       ...mockConfig,
@@ -420,7 +502,36 @@ describe('WorkerAgent', () => {
       recoveryToken: 'same-node-recovery-token',
     });
     expect(config.nodeToken).toBe('stale-node-token');
+    expect(config.recoveryToken).toBe('same-node-recovery-token');
     expect(workerConfigMockState.persistConfig).not.toHaveBeenCalled();
+
+    secondSocket.emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: secondRegistration.id,
+      error: { code: -32000, message: 'Recovery token rejected' },
+    }));
+    secondSocket.emit('close');
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const thirdSocket = await waitForSocket(2);
+    thirdSocket.emit('open');
+
+    const thirdRegistration = JSON.parse(thirdSocket.send.mock.calls[0][0] as string) as {
+      params: { token: string; recoveryToken?: string };
+    };
+    expect(thirdRegistration.params).toMatchObject({
+      token: 'fresh-pairing-token',
+    });
+    expect(thirdRegistration.params.recoveryToken).toBeUndefined();
+    expect(config.nodeToken).toBeUndefined();
+    expect(config.recoveryToken).toBeUndefined();
+    expect(workerConfigMockState.persistConfig).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.not.objectContaining({
+        nodeToken: expect.any(String),
+        recoveryToken: expect.any(String),
+      }),
+    );
   });
 
   it('does not reset reconnect backoff until registration is accepted', async () => {

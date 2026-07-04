@@ -12,6 +12,7 @@ import {
   BrowserTypeRequestSchema,
   BrowserUploadFileRequestSchema,
   BrowserListAuditLogRequestSchema,
+  BrowserListTargetsRequestSchema,
   BrowserNavigateRequestSchema,
   BrowserProfileSchema,
   BrowserRequestUserLoginRequestSchema,
@@ -144,6 +145,16 @@ describe('browser.schemas', () => {
     ).toBe(true);
   });
 
+  it('accepts live-refresh requests when listing browser targets', () => {
+    const result = BrowserListTargetsRequestSchema.safeParse({
+      nodeId: 'node-1',
+      refresh: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(BrowserListTargetsRequestSchema.safeParse({ refresh: 'yes' }).success).toBe(false);
+  });
+
   it('validates profile and target DTOs', () => {
     expect(
       BrowserProfileSchema.safeParse({
@@ -168,6 +179,7 @@ describe('browser.schemas', () => {
         driver: 'cdp',
         status: 'available',
         lastSeenAt: 3,
+        stale: true,
       }).success,
     ).toBe(true);
   });

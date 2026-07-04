@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import { NodeServicePanelComponent } from './node-service-panel/node-service-panel.component';
 
 @Component({
@@ -160,7 +160,7 @@ import { NodeServicePanelComponent } from './node-service-panel/node-service-pan
   `],
 })
 export class NodeDetailComponent {
-  readonly node = input.required<WorkerNodeInfo>();
+  readonly node = input.required<RemoteNodeRosterEntry>();
 
   readonly projectPaths = computed(() =>
     this.node().capabilities.discoveredProjects

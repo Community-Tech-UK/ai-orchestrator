@@ -1,7 +1,7 @@
 // src/renderer/app/features/remote-nodes/remote-nodes.store.ts
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { RemoteNodeIpcService, type RemoteNodeEvent } from '../../core/services/ipc/remote-node-ipc.service';
-import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { ServiceStatus } from '../../../../shared/types/service.types';
 
 @Injectable({ providedIn: 'root' })
@@ -10,7 +10,7 @@ export class RemoteNodesStore implements OnDestroy {
   private unsubscribe?: () => void;
 
   /** All known worker nodes. */
-  readonly nodes = signal<WorkerNodeInfo[]>([]);
+  readonly nodes = signal<RemoteNodeRosterEntry[]>([]);
 
   /** Loading state. */
   readonly loading = signal(false);

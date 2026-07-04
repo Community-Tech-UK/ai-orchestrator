@@ -285,11 +285,12 @@ export class RpcEventRouter {
     const nodeId = typeof params?.['nodeId'] === 'string' ? params['nodeId'] : wsNodeId;
     const name = typeof params?.['name'] === 'string' ? params['name'] : nodeId;
     const capabilities = params?.['capabilities'] as WorkerNodeCapabilities;
+    const address = typeof params?.['address'] === 'string' ? params['address'] : '';
 
     this.registry.registerNode({
       id: nodeId,
       name,
-      address: '',
+      address,
       capabilities,
       status: 'connected',
       connectedAt: Date.now(),
@@ -299,7 +300,12 @@ export class RpcEventRouter {
 
     getWorkerNodeHealth().startMonitoring(nodeId);
 
-    logger.info('Node registered via RPC', { nodeId, name });
+    logger.info('Node registered via RPC', {
+      node: name,
+      nodeId,
+      platform: capabilities.platform,
+      address,
+    });
   }
 
   private handleNodeHeartbeat(nodeId: string, request: RpcRequest): void {

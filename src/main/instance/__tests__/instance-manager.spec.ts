@@ -1672,6 +1672,61 @@ describe('InstanceManager', () => {
       ).rejects.toThrow('Instance non-existent-id not found');
     });
 
+    it('times out the init-wait at the base budget and does NOT abort a still-progressing init', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+
+      // Simulate an init that is still in progress (never settles within the budget).
+      let resolveInit!: () => void;
+      instance.readyPromise = new Promise<void>((res) => { resolveInit = res; });
+      const abort = vi.fn();
+      instance.abortController = { abort, signal: { aborted: false } } as unknown as AbortController;
+      instance.contextUsage = { used: 0, total: 200_000, percentage: 0 };
+
+      vi.useFakeTimers();
+      try {
+        const sendPromise = manager.sendInput(instance.id, 'queued while initializing');
+        const rejects = expect(sendPromise).rejects.toThrow('Instance initialization timed out');
+        // Base budget for 0 tokens at multiplier 1 (VITEST forces multiplier=1) is 30s.
+        await vi.advanceTimersByTimeAsync(30_000);
+        await rejects;
+      } finally {
+        vi.useRealTimers();
+        resolveInit();
+      }
+
+      // Fix: a slow-but-healthy replay must not be killed by the send timeout —
+      // the renderer re-queues and a later attempt awaits the same readyPromise.
+      expect(abort).not.toHaveBeenCalled();
+    });
+
+    it('scales the init-wait budget by context size, not the old fixed 30s cap', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+
+      instance.readyPromise = new Promise<void>(() => { /* never settles */ });
+      // budget = (30_000 + (250_000-50_000)/1000*500) * 1 = 130_000ms (< 180s cap).
+      instance.contextUsage = { used: 250_000, total: 258_400, percentage: 97 };
+
+      vi.useFakeTimers();
+      try {
+        const sendPromise = manager.sendInput(instance.id, 'big-context queued message');
+        const rejects = expect(sendPromise).rejects.toThrow('Instance initialization timed out');
+        let settled = false;
+        void sendPromise.then(() => { settled = true; }, () => { settled = true; });
+
+        // Past the OLD fixed 30s cap but before the scaled 130s budget — still waiting.
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(settled).toBe(false);
+
+        // Past the scaled budget — now it times out.
+        await vi.advanceTimersByTimeAsync(15_000);
+        await rejects;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('increments requestCount on the instance', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

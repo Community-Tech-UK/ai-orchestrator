@@ -1,6 +1,7 @@
 // src/renderer/app/features/remote-nodes/node-card.component.ts
 import { Component, input, computed, ChangeDetectionStrategy } from '@angular/core';
-import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
+import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display';
 
 @Component({
   selector: 'app-node-card',
@@ -165,11 +166,10 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
   `],
 })
 export class NodeCardComponent {
-  readonly node = input.required<WorkerNodeInfo>();
+  readonly node = input.required<RemoteNodeRosterEntry>();
 
   readonly platformLabel = computed(() => {
-    const p = this.node().capabilities.platform;
-    return p === 'darwin' ? 'macOS' : p === 'win32' ? 'Windows' : 'Linux';
+    return formatRemoteNodePlatformLabel(this.node().platform);
   });
 
   readonly memoryLabel = computed(() => {

@@ -400,6 +400,76 @@ describe('BrowserGatewayService', () => {
     expect(driver.screenshot).not.toHaveBeenCalled();
   });
 
+  it('marks listed remote extension targets stale when their node has no recent contact', async () => {
+    const { service } = makeService({
+      target: makeTarget({
+        id: 'existing-tab:n.node-1:7:42:target',
+        profileId: 'existing-tab:n.node-1:7:42',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        mode: 'existing-tab',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1_000,
+      }),
+      extensionContactState: {
+        getLastExtensionContactAt: () => 500,
+        isExtensionContactFresh: () => false,
+        describeExtensionContact: (nodeId) => ({
+          nodeId,
+          lastContactAt: 500,
+          silent: true,
+          staleForMs: 120_000,
+        }),
+      },
+    });
+
+    const result = await service.listTargets({ nodeId: 'node-1' });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: [{
+        id: 'existing-tab:n.node-1:7:42:target',
+        nodeId: 'node-1',
+        lastSeenAt: 1_000,
+        stale: true,
+      }],
+    });
+  });
+
+  it('queues a bounded remote inventory refresh before returning refreshed target listings', async () => {
+    const sendCommand = vi.fn(async () => ({ ok: true }));
+    const { service } = makeService({
+      target: makeTarget({
+        id: 'existing-tab:n.node-1:7:42:target',
+        profileId: 'existing-tab:n.node-1:7:42',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        mode: 'existing-tab',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1_000,
+      }),
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.listTargets({ nodeId: 'node-1', refresh: true });
+
+    expect(sendCommand).toHaveBeenCalledWith({
+      queueKey: 'node:node-1',
+      command: 'report_inventory',
+      timeoutMs: 3_000,
+      executionTimeoutMs: 2_500,
+    });
+    expect(result.data).toEqual([
+      expect.objectContaining({
+        id: 'existing-tab:n.node-1:7:42:target',
+        nodeId: 'node-1',
+      }),
+    ]);
+  });
+
   it('records requires_user for mutating browser actions', async () => {
     const { service, audits } = makeService();
 

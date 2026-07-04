@@ -20,7 +20,7 @@ import {
 } from '../../core/services/ipc/remote-node-ipc.service';
 import type {
   RemotePairingCredentialInfo,
-  WorkerNodeInfo,
+  RemoteNodeRosterEntry,
 } from '../../../../shared/types/worker-node.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { InlineHelpComponent } from './ui/inline-help.component';
@@ -30,7 +30,6 @@ import { CopyRowComponent } from './ui/copy-row.component';
 import { CodePreviewBlockComponent } from './ui/code-preview-block.component';
 import { DangerZoneComponent } from './ui/danger-zone.component';
 import {
-  type RegisteredNodeRecord,
   type NodeHealthEntry,
   buildNodeHealthEntries,
   browserAutomationState,
@@ -49,6 +48,18 @@ import {
   type AndroidAutomationConfigDraft,
 } from './remote-node-android-config.component';
 import { RemoteNodeRepairPanelComponent } from './remote-node-repair-panel.component';
+import {
+  buildCanonicalConnectionConfig,
+  buildNodeDiagnostics,
+  buildPairingCommand,
+  buildPairingLink,
+  formatPairingCredentialLabel,
+  formatNodeCapacity,
+  formatNodePlatformLabel,
+  selectPairingConnectionHost,
+  selectPairingConnectionPort,
+  type PairingCopyInput,
+} from './remote-nodes-pairing-ui';
 
 @Component({
   standalone: true,
@@ -96,7 +107,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly savingToken = signal(false);
   protected readonly pairingBusy = signal(false);
 
-  protected readonly liveNodes = signal<WorkerNodeInfo[]>([]);
+  protected readonly liveNodes = signal<RemoteNodeRosterEntry[]>([]);
   protected readonly connectedCount = signal(0);
 
   // Per-node browser-automation config form (one node configured at a time).
@@ -156,9 +167,13 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       : '';
   };
 
+  readonly pairingCommandPreview = () => {
+    const pairing = this.activePairing();
+    return pairing ? this.buildPairingCommand(pairing.token) : '';
+  };
+
   readonly nodeHealthEntries = (): NodeHealthEntry[] => {
-    const registeredNodes = this.store.remoteNodesRegisteredNodes() as Record<string, RegisteredNodeRecord>;
-    return buildNodeHealthEntries(registeredNodes, this.liveNodes());
+    return buildNodeHealthEntries(this.liveNodes());
   };
 
   async ngOnInit(): Promise<void> {
@@ -298,26 +313,28 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
 
   async copyToken(): Promise<void> {
     const token = this.store.remoteNodesEnrollmentToken();
-    if (!token) return;
-    await this.writeClipboard(token);
+    if (token) await this.writeClipboard(token);
   }
 
   async copyLegacyConnectionConfig(): Promise<void> {
     const token = this.store.remoteNodesEnrollmentToken();
-    if (!token) return;
-    await this.writeClipboard(JSON.stringify(this.buildConnectionConfig(token), null, 2));
-  }
-
-  async copyPairingToken(token: string): Promise<void> {
-    await this.writeClipboard(token);
+    if (token) await this.writeClipboard(JSON.stringify(this.buildConnectionConfig(token), null, 2));
   }
 
   async copyPairingLink(token: string): Promise<void> {
     await this.writeClipboard(this.buildPairingLink(token));
   }
 
+  async copyPairingCommand(token: string): Promise<void> {
+    await this.writeClipboard(this.buildPairingCommand(token));
+  }
+
   async copyPairingConfig(token: string): Promise<void> {
     await this.writeClipboard(JSON.stringify(this.buildConnectionConfig(token), null, 2));
+  }
+
+  async copyNodeDiagnostics(entry: NodeHealthEntry): Promise<void> {
+    await this.writeClipboard(JSON.stringify(this.buildNodeDiagnostics(entry), null, 2));
   }
 
   async revokePairing(token: string): Promise<void> {
@@ -394,18 +411,15 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     }
   }
 
-  protected abbreviateToken(token: string): string {
-    return token.length <= 18
-      ? token
-      : `${token.slice(0, 8)}...${token.slice(-6)}`;
-  }
-
   protected browserAutomationState = browserAutomationState;
   protected browserAutomationLabel = browserAutomationLabel;
   protected extensionRelayState = extensionRelayState;
   protected extensionRelayLabel = extensionRelayLabel;
   protected androidAutomationState = androidAutomationState;
   protected androidAutomationLabel = androidAutomationLabel;
+  protected formatPairingCredentialLabel = formatPairingCredentialLabel;
+  protected formatNodePlatformLabel = formatNodePlatformLabel;
+  protected formatNodeCapacity = formatNodeCapacity;
 
   protected openBrowserConfig(entry: NodeHealthEntry): void {
     this.configuringNodeId.set(entry.id);
@@ -611,41 +625,30 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   private buildConnectionConfig(token: string): Record<string, unknown> {
-    return {
-      token,
-      namespace: this.store.remoteNodesNamespace(),
-      host: this.getConnectionHost(),
-      port: this.store.remoteNodesServerPort(),
-      requireTls: this.serverStatus().requireTls ?? this.store.remoteNodesRequireTls(),
-    };
+    return buildCanonicalConnectionConfig(this.buildPairingCopyInput(token));
   }
 
   private buildPairingLink(token: string): string {
-    const params = new URLSearchParams({
-      host: this.getConnectionHost(),
-      port: String(this.store.remoteNodesServerPort()),
-      namespace: this.store.remoteNodesNamespace(),
-      token,
-      requireTls: String(this.serverStatus().requireTls ?? this.store.remoteNodesRequireTls()),
-    });
-    return `ai-orchestrator://remote-node/pair?${params.toString()}`;
+    return buildPairingLink(this.buildPairingCopyInput(token));
   }
 
-  private getConnectionHost(): string {
-    const status = this.serverStatus();
-    const configuredHost = status.host ?? this.store.remoteNodesServerHost();
-    if (configuredHost === '0.0.0.0' && status.tailscaleDnsName) {
-      return status.tailscaleDnsName;
-    }
+  private buildPairingCommand(token: string): string {
+    return buildPairingCommand(this.buildPairingCopyInput(token));
+  }
 
-    if (configuredHost === '0.0.0.0' && status.tailscaleIp) {
-      return status.tailscaleIp;
-    }
+  private buildNodeDiagnostics(entry: NodeHealthEntry): Record<string, unknown> {
+    return buildNodeDiagnostics(entry);
+  }
 
-    const localIps = status.localIps ?? [];
-    return configuredHost === '0.0.0.0' && localIps.length > 0
-      ? localIps[0]
-      : configuredHost;
+  private buildPairingCopyInput(token: string): PairingCopyInput {
+    return {
+      token,
+      label: this.pendingPairings().find((pairing) => pairing.token === token)?.label,
+      host: selectPairingConnectionHost(this.serverStatus(), this.store.remoteNodesServerHost()),
+      port: selectPairingConnectionPort(this.serverStatus(), this.store.remoteNodesServerPort()),
+      namespace: this.store.remoteNodesNamespace(),
+      requireTls: this.serverStatus().requireTls ?? this.store.remoteNodesRequireTls(),
+    };
   }
 
   private async updatePairingQrCode(): Promise<void> {

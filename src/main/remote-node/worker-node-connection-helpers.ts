@@ -1,4 +1,5 @@
 import type { NodePlatform } from '../../shared/types/worker-node.types';
+import type { RpcRequest } from './worker-node-rpc';
 import { COORDINATOR_TO_NODE } from './worker-node-rpc';
 
 /**
@@ -65,4 +66,13 @@ export function summarizeRpcParams(params: unknown): Record<string, unknown> | u
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function withConnectionAddress(request: RpcRequest, remoteAddress: string | undefined): RpcRequest {
+  const address = remoteAddress?.trim();
+  if (!address) return request;
+  const params = request.params && typeof request.params === 'object'
+    ? { ...(request.params as Record<string, unknown>), address }
+    : { address };
+  return { ...request, params };
 }

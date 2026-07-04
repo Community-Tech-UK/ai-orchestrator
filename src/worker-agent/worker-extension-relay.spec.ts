@@ -8,6 +8,11 @@ import { WorkerExtensionRelay } from './worker-extension-relay';
 
 function makeRelay() {
   const sendRequest = vi.fn(async () => ({ ok: true }));
+  const logger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+  };
+  let now = 1_000;
   const relay = new WorkerExtensionRelay({
     config: {
       enabled: true,
@@ -15,8 +20,17 @@ function makeRelay() {
       extensionToken: 'extension-token',
     },
     sendRequest,
+    logger,
+    now: () => now,
   });
-  return { relay, sendRequest };
+  return {
+    relay,
+    sendRequest,
+    logger,
+    setNow: (value: number) => {
+      now = value;
+    },
+  };
 }
 
 describe('WorkerExtensionRelay', () => {
@@ -98,6 +112,93 @@ describe('WorkerExtensionRelay', () => {
       NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
       { timeoutMs: 1000 },
       15_000,
+    );
+  });
+
+  it('records the last authenticated extension contact in its summary', async () => {
+    const { relay, setNow } = makeRelay();
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { timeoutMs: 1000 },
+      },
+    });
+    expect(relay.getSummary()).toMatchObject({
+      lastExtensionContactAt: 1_000,
+    });
+
+    setNow(2_500);
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_command_result',
+      params: {
+        extensionToken: 'extension-token',
+        payload: {
+          commandId: 'cmd-1',
+          ok: true,
+          result: { done: true },
+        },
+      },
+    });
+
+    expect(relay.getSummary()).toMatchObject({
+      lastExtensionContactAt: 2_500,
+    });
+  });
+
+  it('logs extension first-contact, contact lost, contact resumed, and poll heartbeats', async () => {
+    const { relay, logger, setNow } = makeRelay();
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { timeoutMs: 1000 },
+      },
+    });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      '[WorkerExtensionRelay] Browser extension first contact',
+      expect.objectContaining({ socketPath: '/tmp/aio-extension-relay.sock' }),
+    );
+
+    for (let poll = 2; poll <= 500; poll += 1) {
+      setNow(1_000 + poll);
+      await relay.handleExtensionRpcRequest({
+        method: 'browser.extension_poll_command',
+        params: {
+          extensionToken: 'extension-token',
+          payload: { timeoutMs: 1000 },
+        },
+      });
+    }
+
+    expect(logger.info).toHaveBeenCalledWith(
+      '[WorkerExtensionRelay] Browser extension poll heartbeat',
+      expect.objectContaining({ pollCount: 500 }),
+    );
+
+    setNow(92_000);
+    relay.getSummary();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[WorkerExtensionRelay] Browser extension contact lost',
+      expect.objectContaining({ lastExtensionContactAt: 1_500 }),
+    );
+
+    setNow(93_000);
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { timeoutMs: 1000 },
+      },
+    });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      '[WorkerExtensionRelay] Browser extension contact resumed',
+      expect.objectContaining({ lastExtensionContactAt: 93_000 }),
     );
   });
 
@@ -216,6 +317,34 @@ describe('WorkerExtensionRelay', () => {
     expect(relay.isRunning()).toBe(false);
     expect(fs.existsSync(socketPath)).toBe(true);
     await close(owner);
+  });
+
+  it('logs relay start and stop lifecycle events with the socket path', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const socketPath = tempSocketPath();
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    const relay = new WorkerExtensionRelay({
+      config: { enabled: true, socketPath, extensionToken: 'extension-token' },
+      sendRequest: vi.fn(),
+      logger,
+    });
+
+    await relay.start();
+    await relay.stop();
+
+    expect(logger.info).toHaveBeenCalledWith(
+      '[WorkerExtensionRelay] Relay started',
+      { socketPath },
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      '[WorkerExtensionRelay] Relay stopped',
+      { socketPath },
+    );
   });
 
   it('survives a client that disconnects before the response is written', async () => {

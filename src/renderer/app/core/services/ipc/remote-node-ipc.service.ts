@@ -3,9 +3,9 @@ import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from './electron-ipc.service';
 import type {
   RemotePairingCredentialInfo,
+  RemoteNodeRosterEntry,
   RemoteWorkerRepairCommand,
   RemoteWorkerRepairDiagnostic,
-  WorkerNodeInfo,
   WorkerNodeBrowserAutomationSummary,
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeExtensionRelaySummary,
@@ -53,7 +53,7 @@ export interface AndroidAutomationConfigInput {
 export interface RemoteNodeEvent {
   type: 'connected' | 'disconnected' | 'degraded' | 'metrics' | 'updated' | 'flap-storm';
   nodeId: string;
-  node?: WorkerNodeInfo;
+  node?: RemoteNodeRosterEntry;
   /** Present on 'flap-storm' events: human-readable node name. */
   nodeName?: string;
   /** Present on 'flap-storm' events: replace count within the detection window. */
@@ -106,18 +106,18 @@ export class RemoteNodeIpcService {
   private readonly base = inject(ElectronIpcService);
   private get api() { return this.base.getApi(); }
 
-  async listNodes(): Promise<WorkerNodeInfo[]> {
+  async listNodes(): Promise<RemoteNodeRosterEntry[]> {
     if (!this.api) return [];
     const result = await this.api.remoteNodeList() as IpcResult | null;
     if (!result?.success || !Array.isArray(result.data)) return [];
-    return result.data as WorkerNodeInfo[];
+    return result.data as RemoteNodeRosterEntry[];
   }
 
-  async getNode(nodeId: string): Promise<WorkerNodeInfo | null> {
+  async getNode(nodeId: string): Promise<RemoteNodeRosterEntry | null> {
     if (!this.api) return null;
     const result = await this.api.remoteNodeGet(nodeId) as IpcResult | null;
     if (!result?.success) return null;
-    return (result.data ?? null) as WorkerNodeInfo | null;
+    return (result.data ?? null) as RemoteNodeRosterEntry | null;
   }
 
   async getServerStatus(): Promise<RemoteNodeServerStatus> {
@@ -337,7 +337,7 @@ export class RemoteNodeIpcService {
     return this.api.onRemoteNodeEvent(callback as (event: unknown) => void);
   }
 
-  onNodesChanged(callback: (nodes: WorkerNodeInfo[]) => void): () => void {
+  onNodesChanged(callback: (nodes: RemoteNodeRosterEntry[]) => void): () => void {
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     if (!this.api) return () => {};
     return this.api.onRemoteNodeNodesChanged(callback as (nodes: unknown) => void);

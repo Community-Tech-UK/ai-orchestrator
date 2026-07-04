@@ -35,7 +35,12 @@ export class WorkerNodeRegistry extends EventEmitter {
 
   registerNode(info: WorkerNodeInfo): void {
     this.nodes.set(info.id, { ...info });
-    logger.info('Node registered', { nodeId: info.id, address: info.address });
+    logger.info('Node registered', {
+      node: info.name,
+      nodeId: info.id,
+      platform: info.capabilities.platform,
+      address: info.address,
+    });
     this.emit('node:connected', this.nodes.get(info.id)!);
   }
 
@@ -43,7 +48,7 @@ export class WorkerNodeRegistry extends EventEmitter {
     const node = this.nodes.get(nodeId);
     if (!node) return;
     this.nodes.delete(nodeId);
-    logger.info('Node deregistered', { nodeId });
+    logger.info('Node deregistered', { node: node.name, nodeId });
     this.emit('node:disconnected', node);
   }
 
@@ -108,7 +113,7 @@ export class WorkerNodeRegistry extends EventEmitter {
     // Return null if no candidate reached a positive score
     if (bestScore <= 0) return null;
 
-    logger.info('Node selected', { nodeId: bestNode?.id, score: bestScore });
+    logger.info('Node selected', { node: bestNode?.name, nodeId: bestNode?.id, score: bestScore });
     return bestNode;
   }
 

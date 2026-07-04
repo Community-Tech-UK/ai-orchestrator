@@ -72,6 +72,8 @@ export interface WorkerAndroidAutomationConfig {
 export interface WorkerExtensionRelayConfig {
   /** Master switch. Default false. */
   enabled: boolean;
+  /** Transitional legacy native-host registration for old one-port extensions. Default true when enabled. */
+  legacyNameRegistration?: boolean;
   /** Worker-local socket/pipe path for the browser native host to connect to. */
   socketPath?: string;
   /** Worker-local native-host token. Generated locally; never sent by coordinator config. */
@@ -205,7 +207,7 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
 
   // Apply CLI overrides
   const args = parseCliArgs(process.argv.slice(2));
-  if (args['coordinator']) merged.coordinatorUrl = args['coordinator'];
+  if (args['coordinator']) merged.coordinatorUrl = normalizeCoordinatorUrl(args['coordinator']);
   if (args['name']) merged.name = args['name'];
   if (args['namespace']) merged.namespace = args['namespace'];
   const persistableConfig: WorkerConfig = { ...merged };
@@ -237,11 +239,38 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   return merged;
 }
 
+export function assertWorkerConfigHasCoordinator(config: WorkerConfig): void {
+  if (!getConfiguredCoordinatorUrl(config)) {
+    throw new Error(
+      'Worker config is missing coordinatorUrl. Paste the full Connection Config or run:\n  aio-worker pair <pairing-link>',
+    );
+  }
+}
+
+export function getConfiguredCoordinatorUrl(
+  config: Pick<WorkerConfig, 'coordinatorUrl' | 'coordinatorUrls'>,
+): string | undefined {
+  const primary = config.coordinatorUrl?.trim();
+  if (primary) {
+    return primary;
+  }
+  return config.coordinatorUrls?.find((url) => typeof url === 'string' && url.trim().length > 0)?.trim();
+}
+
 function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFile): Partial<WorkerConfig> {
   const normalized: Partial<WorkerConfig> = { ...fileConfig };
 
   if (!normalized.authToken && typeof fileConfig.token === 'string') {
     normalized.authToken = fileConfig.token;
+  }
+
+  if (typeof fileConfig.coordinatorUrl === 'string') {
+    normalized.coordinatorUrl = normalizeCoordinatorUrl(fileConfig.coordinatorUrl);
+  }
+  if (Array.isArray(fileConfig.coordinatorUrls)) {
+    normalized.coordinatorUrls = fileConfig.coordinatorUrls
+      .map((url) => normalizeCoordinatorUrl(url))
+      .filter((url): url is string => Boolean(url));
   }
 
   if (typeof fileConfig.host === 'string' && isValidPort(fileConfig.port)) {
@@ -254,6 +283,24 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
   normalized.extensionRelay = normalizeExtensionRelay(fileConfig.extensionRelay);
 
   return normalized;
+}
+
+export function normalizeCoordinatorUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+      return trimmed;
+    }
+    url.search = '';
+    url.hash = '';
+    return url.pathname === '/' ? `${url.protocol}//${url.host}` : url.toString();
+  } catch {
+    return trimmed;
+  }
 }
 
 /**
@@ -354,6 +401,9 @@ function normalizeExtensionRelay(
   const result: WorkerExtensionRelayConfig = {
     enabled: obj['enabled'] === true,
   };
+  if (typeof obj['legacyNameRegistration'] === 'boolean') {
+    result.legacyNameRegistration = obj['legacyNameRegistration'];
+  }
   if (typeof obj['socketPath'] === 'string' && obj['socketPath'].trim().length > 0) {
     result.socketPath = obj['socketPath'];
   }
@@ -376,6 +426,7 @@ export function ensureExtensionRelayDefaults(
   return {
     ...config,
     enabled: true,
+    legacyNameRegistration: config.legacyNameRegistration ?? true,
     socketPath: config.socketPath ?? defaultSocketPath(),
     extensionToken: config.extensionToken ?? crypto.randomBytes(32).toString('hex'),
   };

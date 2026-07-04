@@ -28,7 +28,7 @@ import {
   type OrchestratorAction,
   type OrchestratorNodeSummary
 } from './orchestration-protocol';
-import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import { getRemoteNodeRosterService } from '../remote-node/remote-node-roster-service';
 import { getConsensusCoordinator } from './consensus-coordinator';
 import type { ConsensusProviderSpec } from './consensus.types';
 import { AutomationCreatePayloadSchema } from '@contracts/schemas/automation';
@@ -209,20 +209,21 @@ export class OrchestrationHandler extends EventEmitter {
    * Get the orchestration prompt to prepend to the first message
    */
   getOrchestrationPrompt(instanceId: string, currentModel?: string): string {
-    const connectedNodes: OrchestratorNodeSummary[] = getWorkerNodeRegistry()
-      .getHealthyNodes()
+    const connectedNodes: OrchestratorNodeSummary[] = getRemoteNodeRosterService()
+      .list()
+      .filter((node) => node.status === 'connected')
       .map((n) => ({
         id: n.id,
         name: n.name,
-        platform: n.capabilities.platform,
+        platform: n.platform,
         cpuCores: n.capabilities.cpuCores,
         totalMemoryMB: n.capabilities.totalMemoryMB,
-        gpuName: n.capabilities.gpuName,
-        supportedClis: n.capabilities.supportedClis,
-        hasBrowserRuntime: n.capabilities.hasBrowserRuntime,
-        hasDocker: n.capabilities.hasDocker,
+        gpuName: n.gpuName,
+        supportedClis: n.supportedClis,
+        hasBrowserRuntime: n.hasBrowserRuntime,
+        hasDocker: n.hasDocker,
         activeInstances: n.activeInstances,
-        maxConcurrentInstances: n.capabilities.maxConcurrentInstances,
+        maxConcurrentInstances: n.maxConcurrentInstances,
       }));
     return generateOrchestrationPrompt(instanceId, currentModel, connectedNodes);
   }

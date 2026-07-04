@@ -48,6 +48,11 @@
       "filter": ["aio-mcp*"]
     },
     {
+      "from": "dist/worker-agent-sea",
+      "to": "worker-agent-cli",
+      "filter": ["worker-agent*", "aio-worker*", "worker-tools/**/*"]
+    },
+    {
       "from": "resources/browser-extension",
       "to": "browser-extension",
       "filter": ["**/*"]

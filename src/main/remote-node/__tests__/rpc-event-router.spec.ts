@@ -181,6 +181,7 @@ describe('RpcEventRouter', () => {
       nodeId: 'node-3',
       name: 'My Worker',
       capabilities,
+      address: '100.106.40.97',
     });
 
     mockConnection.emit('rpc:request', 'node-3', request);
@@ -188,6 +189,7 @@ describe('RpcEventRouter', () => {
     const registered = registry.getNode('node-3');
     expect(registered).toBeDefined();
     expect(registered?.name).toBe('My Worker');
+    expect(registered?.address).toBe('100.106.40.97');
     expect(registered?.capabilities.cpuCores).toBe(8);
     expect(registered?.status).toBe('connected');
     expect(registered?.activeInstances).toBe(0);

@@ -60,6 +60,11 @@ export interface WorkerNodeExtensionRelaySummary {
   enabled: boolean;
   running: boolean;
   socketPath?: string;
+  registration?: 'ok' | 'repaired' | 'contested' | 'error';
+  lastRegistrationCheckAt?: number;
+  manifestPath?: string;
+  registrationError?: string;
+  lastExtensionContactAt?: number;
 }
 
 export interface AndroidDeviceInfo {
@@ -123,13 +128,49 @@ export interface WorkerNodeCapabilities {
 export interface WorkerNodeInfo {
   id: string;
   name: string;
-  address: string;
+  address?: string;
   capabilities: WorkerNodeCapabilities;
   status: 'connecting' | 'connected' | 'degraded' | 'disconnected';
   connectedAt?: number;
   lastHeartbeat?: number;
   activeInstances: number;
   latencyMs?: number;
+}
+
+export interface RemoteNodeRosterEntry {
+  id: string;
+  name: string;
+  status: WorkerNodeInfo['status'];
+  platform?: NodePlatform;
+  arch?: string;
+  address: string;
+  connected: boolean;
+  connectedAt?: number;
+  lastHeartbeat?: number;
+  lastAuthenticatedAt?: number;
+  registeredAt?: number;
+  pairingLabel?: string;
+  authMethod?: 'pairing_credential' | 'manual_pairing';
+  supportedClis: CanonicalCliType[];
+  hasBrowserRuntime: boolean;
+  hasBrowserMcp: boolean;
+  browserAutomation?: WorkerNodeBrowserAutomationSummary;
+  hasExtensionRelay?: boolean;
+  extensionRelay?: WorkerNodeExtensionRelaySummary;
+  hasAndroidMcp: boolean;
+  androidAutomation?: WorkerNodeAndroidAutomationSummary;
+  hasDocker: boolean;
+  gpuName?: string;
+  gpuMemoryMB?: number;
+  activeInstances: number;
+  maxConcurrentInstances: number;
+  workingDirectories: string[];
+  latencyMs?: number;
+  /**
+   * Backward-compatible non-secret capability block for existing renderer
+   * helpers. It deliberately excludes all identity/session tokens.
+   */
+  capabilities: WorkerNodeCapabilities;
 }
 
 export type RemoteWorkerRepairStatus =

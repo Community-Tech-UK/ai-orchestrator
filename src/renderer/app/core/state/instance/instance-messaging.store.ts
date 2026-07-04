@@ -23,8 +23,9 @@ import {
   type SendInputImmediateOptions,
 } from './instance-messaging-queue-utils';
 
-/** Maximum number of transient-failure retries before dropping a queued message. */
-const MAX_QUEUE_RETRIES = 3;
+// Max transient-failure retries before dropping a queued message. Sized so the
+// cumulative wait exceeds one large-context restart (resume failure → replay).
+const MAX_QUEUE_RETRIES = 5;
 const DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
 const TURN_BLOCKING_SEND_INPUT_IPC_TIMEOUT_MS = 11 * 60_000;
 const NO_SEND_INPUT_IPC_TIMEOUT_MS = null;

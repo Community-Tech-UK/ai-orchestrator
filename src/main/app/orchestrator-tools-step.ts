@@ -4,6 +4,7 @@ import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-
 import { defaultOperatorDbPath } from '../operator/operator-database';
 import {
   getWorkerNodeConnectionServer,
+  getRemoteNodeRosterService,
   getWorkerNodeRegistry,
   isAndroidAutomationReady,
 } from '../remote-node';
@@ -154,35 +155,46 @@ export function createOrchestratorToolsStep(
         // Backs the read-only `list_remote_nodes` MCP tool: expose only
         // operational routing/status fields already advertised by workers.
         listRemoteNodes: async () => {
-          const nodes = getWorkerNodeRegistry().getAllNodes();
+          const nodes = getRemoteNodeRosterService().list();
           return {
-            connectedCount: nodes.filter((node) => node.status === 'connected').length,
+            connectedCount: nodes.filter((node) => node.connected ?? node.status === 'connected').length,
             totalCount: nodes.length,
-            nodes: nodes.map((node) => ({
-              id: node.id,
-              name: node.name,
-              status: node.status,
-              platform: node.capabilities.platform,
-              arch: node.capabilities.arch,
-              supportedClis: [...node.capabilities.supportedClis],
-              hasBrowserRuntime: node.capabilities.hasBrowserRuntime,
-              hasBrowserMcp: node.capabilities.hasBrowserMcp,
-              ...(node.capabilities.browserAutomation
-                ? { browserAutomation: node.capabilities.browserAutomation }
-                : {}),
-              hasAndroidMcp: node.capabilities.hasAndroidMcp,
-              ...(node.capabilities.androidAutomation
-                ? { androidAutomation: node.capabilities.androidAutomation }
-                : {}),
-              hasDocker: node.capabilities.hasDocker,
-              ...(node.capabilities.gpuName ? { gpuName: node.capabilities.gpuName } : {}),
-              ...(node.capabilities.gpuMemoryMB ? { gpuMemoryMB: node.capabilities.gpuMemoryMB } : {}),
-              activeInstances: node.activeInstances,
-              maxConcurrentInstances: node.capabilities.maxConcurrentInstances,
-              workingDirectories: [...node.capabilities.workingDirectories],
-              ...(node.lastHeartbeat !== undefined ? { lastHeartbeat: node.lastHeartbeat } : {}),
-              ...(node.latencyMs !== undefined ? { latencyMs: node.latencyMs } : {}),
-            })),
+            nodes: nodes.map((node) => {
+              const capabilities = node.capabilities;
+              return {
+                id: node.id,
+                name: node.name,
+                status: node.status,
+                connected: node.connected ?? node.status === 'connected',
+                platform: node.platform ?? 'unknown',
+                arch: node.arch ?? capabilities.arch ?? '',
+                ...(node.address ? { address: node.address } : {}),
+                supportedClis: [...(node.supportedClis ?? capabilities.supportedClis ?? [])],
+                hasBrowserRuntime: node.hasBrowserRuntime ?? capabilities.hasBrowserRuntime,
+                hasBrowserMcp: node.hasBrowserMcp ?? capabilities.hasBrowserMcp,
+                ...(node.browserAutomation ?? capabilities.browserAutomation
+                  ? { browserAutomation: node.browserAutomation ?? capabilities.browserAutomation }
+                  : {}),
+                hasAndroidMcp: node.hasAndroidMcp ?? capabilities.hasAndroidMcp,
+                ...(node.androidAutomation ?? capabilities.androidAutomation
+                  ? { androidAutomation: node.androidAutomation ?? capabilities.androidAutomation }
+                  : {}),
+                hasDocker: node.hasDocker ?? capabilities.hasDocker,
+                ...(node.gpuName ?? capabilities.gpuName ? { gpuName: node.gpuName ?? capabilities.gpuName } : {}),
+                ...(node.gpuMemoryMB ?? capabilities.gpuMemoryMB
+                  ? { gpuMemoryMB: node.gpuMemoryMB ?? capabilities.gpuMemoryMB }
+                  : {}),
+                activeInstances: node.activeInstances,
+                maxConcurrentInstances: node.maxConcurrentInstances ?? capabilities.maxConcurrentInstances,
+                workingDirectories: [...(node.workingDirectories ?? capabilities.workingDirectories ?? [])],
+                ...(node.connectedAt !== undefined ? { connectedAt: node.connectedAt } : {}),
+                ...(node.lastHeartbeat !== undefined ? { lastHeartbeat: node.lastHeartbeat } : {}),
+                ...(node.lastAuthenticatedAt !== undefined ? { lastAuthenticatedAt: node.lastAuthenticatedAt } : {}),
+                ...(node.pairingLabel ? { pairingLabel: node.pairingLabel } : {}),
+                ...(node.authMethod ? { authMethod: node.authMethod } : {}),
+                ...(node.latencyMs !== undefined ? { latencyMs: node.latencyMs } : {}),
+              };
+            }),
           };
         },
         // Backs the `run_on_node` MCP tool: resolve the target worker node and

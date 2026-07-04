@@ -4,18 +4,23 @@ import { resolveToken } from '../service/token-resolver';
 import { servicePaths } from '../service/paths';
 import { migrateConfigIfNeeded } from '../service/config-migration';
 import { activateVersion, listVersions } from '../service/rollback';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   DEFAULT_CONFIG_PATH,
   defaultExtensionRelaySocketPath,
   ensureExtensionRelayDefaults,
   loadWorkerConfig,
+  normalizeCoordinatorUrl,
   persistConfig,
   type WorkerConfig,
 } from '../worker-config';
 import {
+  BROWSER_EXTENSION_NATIVE_HOST_NAME,
+  BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+  assertBrowserExtensionNativeHostManifestWritable,
+  browserExtensionNativeHostPaths,
   browserExtensionNativeHostManifestPath,
+  isBrowserExtensionNativeHostManifestOwned,
   prepareBrowserExtensionNativeHostRuntime,
   removeBrowserExtensionNativeHostRuntime,
 } from '../../main/browser-gateway/browser-extension-native-runtime';
@@ -123,16 +128,19 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
         serviceConfigPath: paths.configFile,
       });
       const existing = loadWorkerConfig(paths.configFile);
+      const coordinatorUrl = normalizeCoordinatorUrl(cmd.coordinatorUrl) ?? cmd.coordinatorUrl;
       const merged: WorkerConfig = {
         ...existing,
-        coordinatorUrl: cmd.coordinatorUrl,
+        coordinatorUrl,
         authToken: token,
       };
+      delete merged.nodeToken;
+      delete merged.recoveryToken;
       persistConfig(paths.configFile, merged);
       await mgr.install({
         binaryPath: process.execPath,
         configPath: paths.configFile,
-        coordinatorUrl: cmd.coordinatorUrl,
+        coordinatorUrl,
         enrollmentToken: token,
         logDir: paths.logDir,
         serviceAccount: cmd.serviceAccount,
@@ -171,11 +179,16 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
         throw new Error('Failed to prepare extension relay config');
       }
       const userDataPath = path.dirname(configPath);
-      assertExtensionRelayManifestWritable({
-        manifestPath: browserExtensionNativeHostManifestPath(),
-        userDataPath,
-        force: cmd.force === true,
-      });
+      if (extensionRelay.legacyNameRegistration !== false) {
+        assertBrowserExtensionNativeHostManifestWritable({
+          manifestPath: browserExtensionNativeHostManifestPath(undefined, BROWSER_EXTENSION_NATIVE_HOST_NAME),
+          nativeDir: browserExtensionNativeHostPaths({
+            userDataPath,
+            hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+          }).nativeDir,
+          force: cmd.force === true,
+        });
+      }
       config.extensionRelay = extensionRelay;
       persistConfig(configPath, config);
       const result = prepareBrowserExtensionNativeHostRuntime({
@@ -183,7 +196,17 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
         socketPath: extensionRelay.socketPath,
         extensionToken: extensionRelay.extensionToken,
         hostCommand: currentWorkerNativeHostCommand(),
+        hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
       });
+      if (extensionRelay.legacyNameRegistration !== false) {
+        prepareBrowserExtensionNativeHostRuntime({
+          userDataPath,
+          socketPath: extensionRelay.socketPath,
+          extensionToken: extensionRelay.extensionToken,
+          hostCommand: currentWorkerNativeHostCommand(),
+          hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+        });
+      }
       process.stdout.write(
         [
           `Browser extension relay native host installed: ${result.manifestPath}`,
@@ -204,7 +227,9 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
       persistConfig(configPath, config);
       const result = removeBrowserExtensionNativeHostRuntime({
         userDataPath: path.dirname(configPath),
+        hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
       });
+      removeLegacyExtensionRelayNativeHostIfOwned(path.dirname(configPath));
       process.stdout.write(`Browser extension relay native host removed: ${result.manifestPath}\n`);
       return 0;
     }
@@ -226,29 +251,22 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
   }
 }
 
-function assertExtensionRelayManifestWritable(input: {
-  manifestPath: string;
-  userDataPath: string;
-  force: boolean;
-}): void {
-  if (input.force || !fs.existsSync(input.manifestPath)) {
-    return;
-  }
-  const raw = fs.readFileSync(input.manifestPath, 'utf-8');
-  const manifest = JSON.parse(raw) as { path?: unknown };
-  const existingPath = typeof manifest.path === 'string' ? manifest.path : '';
-  const nativeDir = path.join(input.userDataPath, 'browser-gateway', 'native-host');
-  if (existingPath && isPathInside(nativeDir, existingPath)) {
-    return;
-  }
-  throw new Error(
-    `Refusing to overwrite existing Chrome native host manifest at ${input.manifestPath}; use --force if this machine should use the worker extension relay.`
+function removeLegacyExtensionRelayNativeHostIfOwned(userDataPath: string): void {
+  const nativeDir = browserExtensionNativeHostPaths({
+    userDataPath,
+    hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+  }).nativeDir;
+  const manifestPath = browserExtensionNativeHostManifestPath(
+    undefined,
+    BROWSER_EXTENSION_NATIVE_HOST_NAME,
   );
-}
-
-function isPathInside(parent: string, child: string): boolean {
-  const relative = path.relative(path.resolve(parent), path.resolve(child));
-  return relative === '' || (relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative));
+  if (!isBrowserExtensionNativeHostManifestOwned({ manifestPath, nativeDir })) {
+    return;
+  }
+  removeBrowserExtensionNativeHostRuntime({
+    userDataPath,
+    hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+  });
 }
 
 function currentWorkerNativeHostCommand(): { exe: string; args: string[] } {

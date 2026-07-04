@@ -66,6 +66,25 @@ export function isCodexModelUnavailableError(error: unknown): boolean {
 }
 
 /**
+ * True when codex rejected the turn because the assembled input payload
+ * exceeds its per-turn character cap (currently 1 MiB / 1048576 chars). This is
+ * distinct from a *token* context-window overflow: codex enforces a hard limit
+ * on the raw character length of the request body it assembles from the full
+ * thread (history + tool outputs + freshly-read file contents), and surfaces it
+ * as e.g. "Input exceeds the maximum length of 1048576 characters."
+ *
+ * A session can hit this while still well under its token budget (e.g. after
+ * reading several large files "in full" in one thread). The right recovery is a
+ * native compaction (`thread/compact/start`) + one retry, not a raw surfaced
+ * error — so this is classified separately from thread-loss and model errors.
+ */
+export function isCodexInputTooLargeError(error: unknown): boolean {
+  const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+  return /input exceeds the maximum length of\s*[\d,]+\s*characters/.test(msg)
+    || /exceeds the maximum length of\s*[\d,]+\s*characters/.test(msg);
+}
+
+/**
  * Classifies an error as recoverable by reopening a fresh Codex thread. Most
  * cases require BOTH thread/session context AND a loss indicator — without
  * that gate a bare "not found" from an unrelated source (e.g. a missing file)

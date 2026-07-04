@@ -10,35 +10,205 @@
       }
 
       body {
-        width: 280px;
+        width: 340px;
         margin: 0;
-        padding: 12px;
+        padding: 14px;
+        background: Canvas;
+        color: CanvasText;
       }
 
       h1 {
-        margin: 0 0 10px;
-        font-size: 14px;
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.25;
+      }
+
+      .version {
+        color: #666;
+        font-size: 11px;
+      }
+
+      .header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .gateway-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid #d0d0d0;
+        border-radius: 6px;
+        padding: 8px;
+        margin-bottom: 8px;
+      }
+
+      .toggle-text {
+        min-width: 0;
+      }
+
+      .toggle-title {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .toggle-state {
+        display: block;
+        margin-top: 2px;
+        color: #666;
+        font-size: 11px;
+      }
+
+      .switch {
+        position: relative;
+        flex: 0 0 auto;
+        width: 38px;
+        height: 22px;
+      }
+
+      .switch input {
+        position: absolute;
+        inset: 0;
+        margin: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+
+      .switch-ui {
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        background: #737373;
+        pointer-events: none;
+      }
+
+      .switch-ui::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 120ms ease;
+      }
+
+      .switch input:checked + .switch-ui {
+        background: #15803d;
+      }
+
+      .switch input:checked + .switch-ui::after {
+        transform: translateX(16px);
       }
 
       button {
         width: 100%;
         border: 1px solid #737373;
         border-radius: 6px;
-        padding: 8px 10px;
+        padding: 7px 9px;
+        background: ButtonFace;
+        color: ButtonText;
         font-size: 13px;
         cursor: pointer;
       }
 
-      button + button {
-        margin-top: 8px;
+      button:disabled {
+        cursor: wait;
+        opacity: 0.6;
       }
 
       .dev-only {
         display: none;
+        margin-top: 8px;
       }
 
       .dev-only.visible {
         display: block;
+      }
+
+      .panel {
+        margin-top: 12px;
+      }
+
+      .panel-title {
+        margin: 0 0 6px;
+        color: #666;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      .gateway-row,
+      .tab-row {
+        border: 1px solid #d0d0d0;
+        border-radius: 6px;
+        padding: 8px;
+      }
+
+      .gateway-row + .gateway-row,
+      .tab-row + .tab-row {
+        margin-top: 6px;
+      }
+
+      .gateway-main {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+      }
+
+      .signal {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #9ca3af;
+        flex: 0 0 auto;
+      }
+
+      .signal.ok {
+        background: #15803d;
+      }
+
+      .signal.warn {
+        background: #b45309;
+      }
+
+      .signal.bad {
+        background: #dc2626;
+      }
+
+      .gateway-name,
+      .tab-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .gateway-detail,
+      .tab-url,
+      .disclosure,
+      .empty {
+        margin-top: 4px;
+        color: #666;
+        font-size: 11px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
       }
 
       #status {
@@ -51,8 +221,33 @@
     </style>
   </head>
   <body>
-    <h1>Harness</h1>
-    <button id="share" type="button">Share Current Tab</button>
+    <div class="header">
+      <h1>Harness</h1>
+      <div id="version" class="version"></div>
+    </div>
+    <label class="gateway-toggle">
+      <span class="toggle-text">
+        <span class="toggle-title">Browser Gateway</span>
+        <span id="gateway-enabled-state" class="toggle-state">Loading...</span>
+      </span>
+      <span class="switch">
+        <input id="gateway-enabled" type="checkbox" role="switch">
+        <span class="switch-ui"></span>
+      </span>
+    </label>
+    <div class="actions">
+      <button id="share" type="button">Share tab</button>
+      <button id="reconnect" type="button">Reconnect</button>
+    </div>
+    <div id="share-disclosure" class="disclosure"></div>
+    <section class="panel" aria-labelledby="gateways-title">
+      <h2 id="gateways-title" class="panel-title">Gateways</h2>
+      <div id="gateways"></div>
+    </section>
+    <section class="panel" aria-labelledby="shared-tabs-title">
+      <h2 id="shared-tabs-title" class="panel-title">Shared tabs</h2>
+      <div id="shared-tabs"></div>
+    </section>
     <button id="reload" class="dev-only" type="button">Reload Extension</button>
     <div id="status" role="status"></div>
     <script src="popup.js"></script>

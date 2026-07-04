@@ -5185,7 +5185,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3359
+      "lines": 3399
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5202,6 +5202,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-17-wave2-provider-normalization.md",
       "lines": 2829
+    },
+    {
+      "path": "resources/browser-extension/background.js",
+      "lines": 2743
     },
     {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
@@ -5221,7 +5225,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2609
+      "lines": 2636
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5248,16 +5252,16 @@
       "lines": 2339
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 2277
-    },
-    {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 2255
+      "lines": 2310
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2236
+      "lines": 2285
+    },
+    {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 2277
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5270,10 +5274,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
       "lines": 2112
-    },
-    {
-      "path": "resources/browser-extension/background.js",
-      "lines": 2108
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -5336,6 +5336,10 @@
       "lines": 1635
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 1628
+    },
+    {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
       "lines": 1623
     },
@@ -5350,10 +5354,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
       "lines": 1561
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 1558
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
@@ -5381,7 +5381,7 @@
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
-      "lines": 1458
+      "lines": 1459
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
@@ -5580,6 +5580,10 @@
       "lines": 1139
     },
     {
+      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "lines": 1131
+    },
+    {
       "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
       "lines": 1128
     },
@@ -5600,6 +5604,10 @@
       "lines": 1113
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
+      "lines": 1111
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-06-remote-nodes-ux.md",
       "lines": 1109
     },
@@ -5618,6 +5626,10 @@
     {
       "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
       "lines": 1089
+    },
+    {
+      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
+      "lines": 1085
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -5720,20 +5732,16 @@
       "lines": 983
     },
     {
+      "path": "src/worker-agent/worker-agent.ts",
+      "lines": 978
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-system-infrastructure.COMPLETED.md",
       "lines": 976
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.ts",
       "lines": 976
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
-      "lines": 975
-    },
-    {
-      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
-      "lines": 974
     },
     {
       "path": "src/main/ipc/handlers/vcs-handlers.ts",
@@ -5766,10 +5774,6 @@
     {
       "path": "src/main/plugins/plugin-manager.spec.ts",
       "lines": 950
-    },
-    {
-      "path": "src/worker-agent/worker-agent.ts",
-      "lines": 948
     },
     {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
