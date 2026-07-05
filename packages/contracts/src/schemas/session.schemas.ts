@@ -8,6 +8,7 @@ import {
   WorkingDirectorySchema,
   DisplayNameSchema,
   FileAttachmentSchema,
+  RequiredModelIdSchema,
 } from './common.schemas';
 
 // ============ Helper schemas ============
@@ -694,7 +695,7 @@ export const TodoGetCurrentPayloadSchema = z.object({
 export const CostRecordUsagePayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   sessionId: SessionIdSchema,
-  model: z.string().min(1).max(200),
+  model: RequiredModelIdSchema,
   inputTokens: z.number().int().min(0),
   outputTokens: z.number().int().min(0),
   cacheReadTokens: z.number().int().min(0).optional(),

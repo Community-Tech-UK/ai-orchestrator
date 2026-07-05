@@ -253,11 +253,11 @@
     <div class="connection-card">
       <div class="card-row">
         <div>
-          <span class="card-name">Quick Pairing — connect a computer</span>
+          <span class="card-name">Pair this computer</span>
           <p class="field-hint section-inline-hint">
-            The easy way to add a remote node. Create a temporary pairing code
-            here, then scan the QR code or open the link on the other computer.
-            The code works once and then expires.
+            Create a temporary credential, then run the generated
+            <code>aio-worker pair</code> command on the other computer. The
+            credential works once and then expires.
           </p>
         </div>
         <span class="status-badge" [class]="pendingPairings().length > 0 ? 'status-badge connecting' : 'status-badge disconnected'">
@@ -310,7 +310,7 @@
           (click)="createPairingCredential()"
           [disabled]="pairingBusy() || !serverStatus().running"
         >
-          {{ pairingBusy() ? 'Issuing...' : 'Issue One-Time Credential' }}
+          {{ pairingBusy() ? 'Issuing...' : 'Create Pairing Command' }}
         </button>
         <button
           class="btn btn-secondary"
@@ -342,29 +342,33 @@
 
           <div class="pairing-details">
             <p class="field-hint">
-              These all carry the <strong>same</strong> one-time code — use
-              whichever is easiest on the other computer: scan the QR code, open
-              the Pairing Link, paste the One-Time Credential, or drop the
-              Connection Config into its <code>worker-node.json</code> file.
+              The pairing command carries a one-time credential and the
+              coordinator address. Treat it as secret until this computer pairs.
             </p>
 
             <app-copy-row
-              label="One-Time Credential"
-              [value]="pairing.token"
-              (copyRequested)="copyPairingToken($event)"
+              label="Recommended command"
+              [value]="pairingCommandPreview()"
+              (copyRequested)="copyPairingCommand(pairing.token)"
             />
 
             <app-copy-row
-              label="Pairing Link"
+              label="Pairing link"
               [value]="pairingLink()"
               (copyRequested)="copyPairingLink(pairing.token)"
             />
 
             <app-code-preview-block
-              label="Connection Config"
+              label="Canonical config"
               [code]="pairingConfigPreview()"
               (copyRequested)="copyPairingConfig(pairing.token)"
             />
+
+            <p class="field-hint">
+              Advanced: the raw one-time credential is not enough by itself; the
+              worker also needs the pairing link or canonical config so it knows
+              where the coordinator is.
+            </p>
 
             <div class="meta-row">
               <span>{{ pairing.label || 'Unlabeled credential' }}</span>
@@ -389,15 +393,15 @@
           @for (pairing of pendingPairings(); track pairing.token) {
             <div class="node-row">
               <div>
-                <span class="node-id">{{ pairing.label || abbreviateToken(pairing.token) }}</span>
+                <span class="node-id">{{ formatPairingCredentialLabel(pairing) }}</span>
                 <div class="node-meta">
-                  <span>{{ abbreviateToken(pairing.token) }}</span>
+                  <span>Created {{ formatRelativeTime(pairing.createdAt) }}</span>
                   <span [class.warning-text]="pairingExpiresSoon(pairing)">Expires {{ formatExpiry(pairing.expiresAt) }}</span>
                 </div>
               </div>
               <div class="btn-row compact">
-                <button class="btn btn-secondary small" type="button" (click)="copyPairingLink(pairing.token)">
-                  Copy Link
+                <button class="btn btn-secondary small" type="button" (click)="copyPairingCommand(pairing.token)">
+                  Copy Command
                 </button>
                 <button class="btn btn-danger small" type="button" (click)="revokePairing(pairing.token)">
                   Revoke
@@ -546,13 +550,22 @@
                 <span class="node-id">{{ entry.name }}</span>
                 <div class="node-meta">
                   <span>{{ entry.id }}</span>
+                  <span>{{ formatNodePlatformLabel(entry.platform) }}</span>
                   @if (entry.address) {
                     <span>{{ entry.address }}</span>
                   }
+                  <span>{{ formatNodeCapacity(entry) }}</span>
                 </div>
               </div>
               <div class="status-actions">
                 <span class="status-badge" [class]="'status-badge ' + entry.status">{{ entry.status }}</span>
+                <button
+                  class="btn btn-secondary small"
+                  type="button"
+                  (click)="copyNodeDiagnostics(entry)"
+                >
+                  Copy diagnostics
+                </button>
                 <button
                   class="btn btn-danger small"
                   type="button"

@@ -7,6 +7,8 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import { getModelsForProvider, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import { UnifiedCatalogStore } from '../models/unified-catalog.store';
+import { resolveReviewerModels } from './reviewer-model-options';
 
 /**
  * Reviewer CLIs that can run a cross-model review. Mirrors
@@ -143,13 +145,26 @@ interface ReviewerProviderView {
 })
 export class ReviewSettingsTabComponent {
   store = inject(SettingsStore);
+  private unifiedCatalog = inject(UnifiedCatalogStore);
 
-  private readonly providerById = new Map<string, ReviewerProviderView>(
-    REVIEWER_PROVIDERS.map((provider) => [
-      provider.id,
-      { ...provider, models: getModelsForProvider(provider.id) },
-    ]),
+  private readonly providerById = computed(
+    () => new Map<string, ReviewerProviderView>(
+      REVIEWER_PROVIDERS.map((provider) => [
+        provider.id,
+        {
+          ...provider,
+          models: resolveReviewerModels(
+            this.unifiedCatalog.displayModelsForProvider(provider.id),
+            getModelsForProvider(provider.id),
+          ),
+        },
+      ]),
+    ),
   );
+
+  constructor() {
+    this.unifiedCatalog.ensureLoaded();
+  }
 
   /** All review settings except the reviewer list, which has a bespoke control. */
   readonly genericReviewSettings = computed(() =>
@@ -159,7 +174,7 @@ export class ReviewSettingsTabComponent {
   /** Configured reviewers, in priority order, limited to supported CLIs. */
   readonly orderedProviders = computed<ReviewerProviderView[]>(() =>
     this.configuredProviders()
-      .map((id) => this.providerById.get(id))
+      .map((id) => this.providerById().get(id))
       .filter((provider): provider is ReviewerProviderView => provider !== undefined),
   );
 
@@ -233,8 +248,9 @@ export class ReviewSettingsTabComponent {
     const value = this.store.get('crossModelReviewProviders');
     if (!Array.isArray(value)) return [];
     const seen = new Set<string>();
+    const providerById = this.providerById();
     return value.filter((id): id is string => {
-      if (typeof id !== 'string' || seen.has(id) || !this.providerById.has(id)) return false;
+      if (typeof id !== 'string' || seen.has(id) || !providerById.has(id)) return false;
       seen.add(id);
       return true;
     });

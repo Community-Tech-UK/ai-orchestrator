@@ -8,6 +8,8 @@ vi.mock('../logging/logger', () => ({
 
 import { extractJson, resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
 
+const MISSING_REMOTE_WINDOWS_CWD = 'C:\\__aio_missing_remote_node_workspace__\\repo';
+
 describe('resolveReviewWorkingDirectory', () => {
   it('returns an existing directory unchanged', () => {
     expect(resolveReviewWorkingDirectory(tmpdir())).toBe(tmpdir());
@@ -18,7 +20,7 @@ describe('resolveReviewWorkingDirectory', () => {
   });
 
   it('falls back to process.cwd() for a remote-node Windows path', () => {
-    expect(resolveReviewWorkingDirectory('C:\\Users\\shutu\\Documents\\Work')).toBe(process.cwd());
+    expect(resolveReviewWorkingDirectory(MISSING_REMOTE_WINDOWS_CWD)).toBe(process.cwd());
   });
 
   it('falls back to process.cwd() when the path is a plain file', () => {

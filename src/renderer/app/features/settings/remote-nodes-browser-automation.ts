@@ -5,12 +5,15 @@
  */
 import type {
   WorkerNodeInfo,
+  RemoteNodeRosterEntry,
   WorkerNodeBrowserAutomationSummary,
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeExtensionRelaySummary,
   NodePlatform,
 } from '../../../../shared/types/worker-node.types';
 import { buildBrowserLoginCommand } from '../../../../shared/utils/browser-login-command';
+
+type LiveNodePatchTarget = WorkerNodeInfo | RemoteNodeRosterEntry;
 
 export interface RegisteredNodeRecord {
   sessionId?: string;
@@ -51,13 +54,26 @@ export interface NodeHealthEntry {
   /** Android SDK/device state reported by newer worker nodes. */
   androidAutomation?: WorkerNodeAndroidAutomationSummary;
   supportsGpu: boolean;
+  hasDocker: boolean;
+  activeInstances: number;
+  maxConcurrentInstances: number;
+  workingDirectories: string[];
   supportedClis: string[];
 }
 
 export function buildNodeHealthEntries(
+  nodes: RemoteNodeRosterEntry[],
+): NodeHealthEntry[];
+export function buildNodeHealthEntries(
   registeredNodes: Record<string, RegisteredNodeRecord>,
-  liveNodes: WorkerNodeInfo[],
+  liveNodes: (WorkerNodeInfo | RemoteNodeRosterEntry)[],
+): NodeHealthEntry[];
+export function buildNodeHealthEntries(
+  first: Record<string, RegisteredNodeRecord> | RemoteNodeRosterEntry[],
+  second: (WorkerNodeInfo | RemoteNodeRosterEntry)[] = [],
 ): NodeHealthEntry[] {
+  const registeredNodes = Array.isArray(first) ? {} : first;
+  const liveNodes = Array.isArray(first) ? first : second;
   const liveById = new Map(liveNodes.map((node) => [node.id, node]));
   const ids = new Set<string>([
     ...Object.keys(registeredNodes),
@@ -74,26 +90,34 @@ export function buildNodeHealthEntries(
     .map((id) => {
       const registered = registeredNodes[id];
       const live = liveById.get(id);
+      const roster = live as Partial<RemoteNodeRosterEntry> | undefined;
+      const liveIsRoster = isRemoteNodeRosterEntry(live);
       return {
         id,
         name: live?.name ?? registered?.nodeName ?? id,
         status: live?.status ?? 'disconnected',
         address: live?.address,
-        createdAt: registered?.issuedAt ?? registered?.createdAt,
+        createdAt: roster?.registeredAt ?? registered?.issuedAt ?? registered?.createdAt,
         connectedAt: live?.connectedAt,
         lastHeartbeat: live?.lastHeartbeat,
-        lastSeenAt: registered?.lastSeenAt,
-        pairingLabel: registered?.pairingLabel,
-        platform: live?.capabilities.platform ?? registered?.platform,
-        supportsBrowser: live?.capabilities.hasBrowserRuntime ?? false,
-        browserAutomationReady: live?.capabilities.hasBrowserMcp ?? false,
-        browserAutomation: live?.capabilities.browserAutomation,
-        extensionRelayReady: live?.capabilities.hasExtensionRelay ?? false,
-        extensionRelay: live?.capabilities.extensionRelay,
-        androidAutomationReady: live?.capabilities.hasAndroidMcp ?? false,
-        androidAutomation: live?.capabilities.androidAutomation,
-        supportsGpu: Boolean(live?.capabilities.gpuName),
-        supportedClis: live?.capabilities.supportedClis ?? [],
+        lastSeenAt: roster?.lastAuthenticatedAt ?? registered?.lastSeenAt,
+        pairingLabel: roster?.pairingLabel ?? registered?.pairingLabel,
+        platform: liveIsRoster
+          ? roster?.platform ?? registered?.platform
+          : live?.capabilities.platform ?? registered?.platform,
+        supportsBrowser: roster?.hasBrowserRuntime ?? live?.capabilities.hasBrowserRuntime ?? false,
+        browserAutomationReady: roster?.hasBrowserMcp ?? live?.capabilities.hasBrowserMcp ?? false,
+        browserAutomation: roster?.browserAutomation ?? live?.capabilities.browserAutomation,
+        extensionRelayReady: roster?.hasExtensionRelay ?? live?.capabilities.hasExtensionRelay ?? false,
+        extensionRelay: roster?.extensionRelay ?? live?.capabilities.extensionRelay,
+        androidAutomationReady: roster?.hasAndroidMcp ?? live?.capabilities.hasAndroidMcp ?? false,
+        androidAutomation: roster?.androidAutomation ?? live?.capabilities.androidAutomation,
+        supportsGpu: Boolean(roster?.gpuName ?? live?.capabilities.gpuName),
+        hasDocker: roster?.hasDocker ?? live?.capabilities.hasDocker ?? false,
+        activeInstances: live?.activeInstances ?? 0,
+        maxConcurrentInstances: roster?.maxConcurrentInstances ?? live?.capabilities.maxConcurrentInstances ?? 0,
+        workingDirectories: roster?.workingDirectories ?? live?.capabilities.workingDirectories ?? [],
+        supportedClis: roster?.supportedClis ?? live?.capabilities.supportedClis ?? [],
       };
     })
     .sort((left, right) => {
@@ -103,6 +127,12 @@ export function buildNodeHealthEntries(
       }
       return left.name.localeCompare(right.name);
     });
+}
+
+function isRemoteNodeRosterEntry(
+  node: WorkerNodeInfo | RemoteNodeRosterEntry | undefined,
+): node is RemoteNodeRosterEntry {
+  return Boolean(node && 'connected' in node);
 }
 
 export type BrowserAutomationState = 'ready' | 'enabled' | 'chrome-only' | 'off';
@@ -180,59 +210,65 @@ export function androidAutomationLabel(entry: NodeHealthEntry): string {
   }
 }
 
-export function withPatchedBrowserAutomation(
-  nodes: WorkerNodeInfo[],
+export function withPatchedBrowserAutomation<T extends LiveNodePatchTarget>(
+  nodes: T[],
   nodeId: string,
   summary: WorkerNodeBrowserAutomationSummary,
-): WorkerNodeInfo[] {
+): T[] {
   return nodes.map((node) =>
     node.id === nodeId
       ? {
           ...node,
+          browserAutomation: summary,
+          hasBrowserMcp: summary.enabled && node.capabilities.hasBrowserRuntime,
           capabilities: {
             ...node.capabilities,
             browserAutomation: summary,
             hasBrowserMcp: summary.enabled && node.capabilities.hasBrowserRuntime,
           },
-        }
+        } as T
       : node,
   );
 }
 
-export function withPatchedAndroidAutomation(
-  nodes: WorkerNodeInfo[],
+export function withPatchedAndroidAutomation<T extends LiveNodePatchTarget>(
+  nodes: T[],
   nodeId: string,
   summary: WorkerNodeAndroidAutomationSummary,
-): WorkerNodeInfo[] {
+): T[] {
   return nodes.map((node) =>
     node.id === nodeId
       ? {
           ...node,
+          androidAutomation: summary,
+          hasAndroidMcp: summary.enabled && Boolean(summary.adbVersion),
           capabilities: {
             ...node.capabilities,
             androidAutomation: summary,
             hasAndroidMcp: summary.enabled && Boolean(summary.adbVersion),
           },
-        }
+        } as T
       : node,
   );
 }
 
-export function withPatchedExtensionRelay(
-  nodes: WorkerNodeInfo[],
+export function withPatchedExtensionRelay<T extends LiveNodePatchTarget>(
+  nodes: T[],
   nodeId: string,
   summary: WorkerNodeExtensionRelaySummary,
-): WorkerNodeInfo[] {
+): T[] {
   return nodes.map((node) =>
     node.id === nodeId
       ? {
           ...node,
+          extensionRelay: summary,
+          hasExtensionRelay: summary.enabled && summary.running,
           capabilities: {
             ...node.capabilities,
             extensionRelay: summary,
             hasExtensionRelay: summary.enabled && summary.running,
           },
-        }
+        } as T
       : node,
   );
 }

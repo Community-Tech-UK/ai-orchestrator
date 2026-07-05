@@ -11,21 +11,13 @@
     "downloads",
     "nativeMessaging",
     "scripting",
+    "storage",
     "tabGroups",
     "tabs"
   ],
   "host_permissions": [
     "http://*/*",
     "https://*/*"
-  ],
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["open-shadow-roots.js"],
-      "run_at": "document_start",
-      "all_frames": true,
-      "world": "MAIN"
-    }
   ],
   "action": {
     "default_title": "Harness",

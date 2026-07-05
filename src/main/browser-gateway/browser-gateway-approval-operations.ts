@@ -27,6 +27,7 @@ interface BrowserGatewayApprovalOperationsDeps {
   approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest'>;
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'revokeGrant'>;
   profileStore: Pick<BrowserProfileStore, 'getProfile' | 'setRuntimeState'>;
+  autoApproveApproval?: (approval: BrowserApprovalRequest) => BrowserPermissionGrant | null;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
 }
 
@@ -51,7 +52,9 @@ export class BrowserGatewayApprovalOperations {
       });
     }
 
-    const current = this.expireApprovalIfNeeded(approval);
+    const current = this.resolvePendingApprovalIfNeeded(
+      this.expireApprovalIfNeeded(approval),
+    );
     return this.deps.result({
       context: request,
       profileId: current.profileId,
@@ -73,7 +76,11 @@ export class BrowserGatewayApprovalOperations {
       instanceId: request.instanceId,
       status: request.status,
       limit: request.limit ?? 100,
-    }).map((approval) => this.expireApprovalIfNeeded(approval));
+    })
+      .map((approval) =>
+        this.resolvePendingApprovalIfNeeded(this.expireApprovalIfNeeded(approval)),
+      )
+      .filter((approval) => !request.status || approval.status === request.status);
     return this.deps.result({
       context: request,
       action: 'list_approval_requests',
@@ -103,7 +110,9 @@ export class BrowserGatewayApprovalOperations {
         data: null,
       });
     }
-    const current = this.expireApprovalIfNeeded(approval);
+    const current = this.resolvePendingApprovalIfNeeded(
+      this.expireApprovalIfNeeded(approval),
+    );
     return this.deps.result({
       context: request,
       profileId: current.profileId,
@@ -357,5 +366,21 @@ export class BrowserGatewayApprovalOperations {
     return this.deps.approvalStore.resolveRequest(approval.requestId, {
       status: 'expired',
     }) ?? approval;
+  }
+
+  private resolvePendingApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {
+    if (approval.status !== 'pending') {
+      return approval;
+    }
+    const grant = this.deps.autoApproveApproval?.(approval);
+    if (!grant) {
+      return approval;
+    }
+    return this.deps.approvalStore.getRequest(approval.requestId) ?? {
+      ...approval,
+      status: 'approved',
+      grantId: grant.id,
+      decidedAt: Date.now(),
+    };
   }
 }

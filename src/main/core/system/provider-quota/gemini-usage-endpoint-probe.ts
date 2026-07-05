@@ -36,6 +36,10 @@ import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
 } from '../../../../shared/types/provider-quota.types';
+import {
+  clampQuotaPercent,
+  quotaRemaining,
+} from '../../../../shared/util/provider-quota-format';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
 import { getCliAdditionalPaths } from '../../../cli/cli-environment';
 import { getLogger } from '../../../logging/logger';
@@ -360,7 +364,7 @@ export function parseGeminiQuotaPayload(payload: GeminiQuotaPayload): ProviderQu
   for (const item of order) {
     const entry = aggregate.get(item.family);
     if (!entry) continue;
-    const used = clampPct((1 - entry.minRemaining) * 100);
+    const used = clampQuotaPercent((1 - entry.minRemaining) * 100);
     windows.push({
       kind: 'calendar-period',
       id: item.id,
@@ -368,7 +372,7 @@ export function parseGeminiQuotaPayload(payload: GeminiQuotaPayload): ProviderQu
       unit: 'requests',
       used,
       limit: 100,
-      remaining: 100 - used,
+      remaining: quotaRemaining(100, used),
       resetsAt: entry.resetAt,
     });
   }
@@ -396,12 +400,6 @@ function parseResetAt(value: string | null | undefined): number | null {
   if (typeof value !== 'string' || value.length === 0) return null;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
-}
-
-function clampPct(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  const clamped = Math.max(0, Math.min(100, value));
-  return Math.round(clamped * 1000) / 1000;
 }
 
 function firstTrimmed(...values: (string | undefined)[]): string | undefined {

@@ -12,6 +12,9 @@ import {
   HookPayloadSchemas,
 } from '../plugin.schemas';
 
+const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
+
 // ============================================
 // PluginManifestSchema
 // ============================================
@@ -222,6 +225,28 @@ describe('SkillFrontmatterSchema', () => {
     expect(result.name).toBe('code-review');
     expect(result.effort).toBe('medium');
     expect(result.triggers).toEqual(['review', 'check code']);
+  });
+
+  it('accepts preferred model ids up to the dynamic catalog limit', () => {
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    const result = SkillFrontmatterSchema.parse({
+      name: 'catalog-model-skill',
+      description: 'Uses a catalog model.',
+      preferredModel: maxCatalogModelId,
+    });
+
+    expect(result.preferredModel).toBe(maxCatalogModelId);
+  });
+
+  it('rejects preferred model ids beyond the dynamic catalog limit', () => {
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    expect(() => SkillFrontmatterSchema.parse({
+      name: 'catalog-model-skill',
+      description: 'Uses a catalog model.',
+      preferredModel: tooLongCatalogModelId,
+    })).toThrow(ZodError);
   });
 
   it('accepts minimal frontmatter with only name and description', () => {
@@ -565,6 +590,45 @@ describe('validateHookPayload', () => {
           status: 'failed',
         },
       });
+    });
+
+    it('accepts routing model ids up to the dynamic catalog limit', () => {
+      expect(maxCatalogModelId).toHaveLength(512);
+
+      const spawnBefore = validateHookPayload('instance.spawn.before', {
+        workingDirectory: '/tmp/project',
+        requestedModel: maxCatalogModelId,
+        config: {},
+        timestamp: 123,
+      }) as { requestedModel?: string };
+      const childStarted = validateHookPayload('orchestration.child.started', {
+        parentId: 'parent-1',
+        childId: 'child-1',
+        task: 'Review the change',
+        routing: {
+          requestedModel: maxCatalogModelId,
+          actualModel: maxCatalogModelId,
+          routingSource: 'explicit',
+        },
+        timestamp: 124,
+      }) as { routing?: { requestedModel?: string; actualModel?: string } };
+
+      expect(spawnBefore.requestedModel).toBe(maxCatalogModelId);
+      expect(childStarted.routing?.actualModel).toBe(maxCatalogModelId);
+    });
+
+    it('rejects routing model ids beyond the dynamic catalog limit', () => {
+      expect(tooLongCatalogModelId).toHaveLength(513);
+
+      expect(() => validateHookPayload('instance.spawn.after', {
+        parentId: null,
+        displayName: 'Worker',
+        workingDirectory: '/tmp/project',
+        requestedModel: tooLongCatalogModelId,
+        actualModel: tooLongCatalogModelId,
+        success: true,
+        timestamp: 123,
+      })).toThrow(ZodError);
     });
   });
 });

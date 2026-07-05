@@ -10,6 +10,7 @@ import {
   getModelsForProvider,
   type ModelDisplayInfo,
 } from '../../shared/types/provider.types';
+import type { UnifiedModelEntry } from '../../shared/types/unified-model-catalog.types';
 import { readJsonBody, sendJsonResponse } from './mobile-gateway-http-utils';
 import { serializeInstance } from './mobile-gateway-serializers';
 
@@ -23,6 +24,10 @@ type DynamicModelInfo = Pick<ModelDisplayInfo, 'id' | 'name'> &
 
 export type MobileModelLister = (provider: string) => Promise<DynamicModelInfo[]>;
 
+export interface MobileModelCatalogSource {
+  getModelsByProvider(provider: string): UnifiedModelEntry[];
+}
+
 export interface GatewayModelInstanceSource {
   getInstance(id: string): Instance | undefined;
   changeModel(instanceId: string, newModel: string): Promise<Instance>;
@@ -30,6 +35,7 @@ export interface GatewayModelInstanceSource {
 
 interface MobileModelHandlerDeps {
   instanceManager: GatewayModelInstanceSource;
+  modelCatalog?: MobileModelCatalogSource;
   listDynamicModels?: MobileModelLister;
   logger: SubsystemLogger;
 }
@@ -126,6 +132,11 @@ async function modelsForProvider(
   provider: ModelProvider,
   deps: MobileModelHandlerDeps,
 ): Promise<MobileModelDto[]> {
+  const unifiedModels = modelsFromUnifiedCatalog(provider, deps);
+  if (unifiedModels) {
+    return unifiedModels;
+  }
+
   if (!DYNAMIC_MODEL_PROVIDERS.has(provider)) {
     return staticModels(provider);
   }
@@ -144,6 +155,29 @@ async function modelsForProvider(
   const load = loadDynamicModels(provider, deps).finally(() => dynamicInflight.delete(provider));
   dynamicInflight.set(provider, load);
   return load;
+}
+
+function modelsFromUnifiedCatalog(
+  provider: ModelProvider,
+  deps: MobileModelHandlerDeps,
+): MobileModelDto[] | null {
+  if (!deps.modelCatalog) {
+    return null;
+  }
+
+  try {
+    const entries = deps.modelCatalog.getModelsByProvider(provider);
+    if (entries.length === 0) {
+      return staticModels(provider);
+    }
+    return entries.map((entry) => toMobileModelFromUnified(provider, entry));
+  } catch (error) {
+    deps.logger.warn('Falling back to static mobile model catalog after unified catalog read failed', {
+      provider,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return staticModels(provider);
+  }
 }
 
 async function loadDynamicModels(
@@ -207,6 +241,17 @@ function toMobileModel(model: ModelDisplayInfo): MobileModelDto {
     tier: model.tier,
     pinned: model.pinned,
     family: model.family,
+  };
+}
+
+function toMobileModelFromUnified(provider: string, model: UnifiedModelEntry): MobileModelDto {
+  const known = getModelsForProvider(provider).find((entry) => entry.id === model.id);
+  return {
+    id: model.id,
+    name: model.name ?? known?.name ?? model.id,
+    tier: model.tier ?? known?.tier ?? 'balanced',
+    pinned: known?.pinned,
+    family: model.family ?? known?.family,
   };
 }
 

@@ -15,6 +15,7 @@ const styles = readFileSync(resolve(specDirectory, './campaign-page.component.sc
 await resolveComponentResources((url) => {
   if (url.endsWith('campaign-page.component.html')) return Promise.resolve(template);
   if (url.endsWith('campaign-page.component.scss')) return Promise.resolve(styles);
+  if (url.endsWith('.html') || url.endsWith('.scss')) return Promise.resolve('');
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 

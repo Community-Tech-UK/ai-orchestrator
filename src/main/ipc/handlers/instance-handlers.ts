@@ -6,6 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getLogger } from '../../logging/logger';
 import { getIdempotencyStore, IdempotencyStore } from '../../transport/idempotency-store';
+import { registerInstanceProviderLimitHandlers } from './instance-provider-limit-ipc';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { FileAttachment } from '../../../shared/types/instance.types';
@@ -334,6 +335,9 @@ export function registerInstanceHandlers(deps: {
       }
     }
   );
+
+  // Provider-limit park: resume-now / cancel (extracted to keep this file lean)
+  registerInstanceProviderLimitHandlers();
 
   // Restart instance
   ipcMain.handle(
@@ -964,11 +968,21 @@ export function registerInstanceHandlers(deps: {
 
           const approved = action !== 'deny';
           const updatedInput = action === 'modify' ? validatedPayload.updatedInput : undefined;
-          await instanceManager.resumeAfterDeferredPermission(
-            validatedPayload.instanceId,
-            approved,
-            updatedInput,
-          );
+          const enableYolo = approved && validatedPayload.metadata?.['enableYolo'] === true;
+          if (enableYolo) {
+            await instanceManager.resumeAfterDeferredPermission(
+              validatedPayload.instanceId,
+              approved,
+              updatedInput,
+              { yoloMode: true },
+            );
+          } else {
+            await instanceManager.resumeAfterDeferredPermission(
+              validatedPayload.instanceId,
+              approved,
+              updatedInput,
+            );
+          }
 
           if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
             // Map 'modify' to 'allow' for PermissionManager — it only knows allow/deny.
@@ -990,7 +1004,12 @@ export function registerInstanceHandlers(deps: {
 
           return {
             success: true,
-            data: { requestId: validatedPayload.requestId, responded: true, resumed: true }
+            data: {
+              requestId: validatedPayload.requestId,
+              responded: true,
+              resumed: true,
+              ...(enableYolo ? { yoloMode: true } : {}),
+            }
           };
         }
 

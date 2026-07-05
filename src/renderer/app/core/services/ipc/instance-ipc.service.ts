@@ -138,6 +138,22 @@ export class InstanceIpcService {
   }
 
   /**
+   * Resume a session parked on a provider limit immediately (skip the wait).
+   */
+  async providerLimitResumeNow(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.providerLimitResumeNow({ instanceId });
+  }
+
+  /**
+   * Cancel a provider-limit park so the session will not auto-resume.
+   */
+  async providerLimitCancel(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.providerLimitCancel({ instanceId });
+  }
+
+  /**
    * Restart an instance
    */
   async restartInstance(instanceId: string): Promise<IpcResponse> {

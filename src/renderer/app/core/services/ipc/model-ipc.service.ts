@@ -21,21 +21,45 @@ export class ModelIpcService {
 
   async discoverModels(): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.modelDiscover();
+    return wrapDataResponse(await this.api.modelDiscover());
   }
 
   async verifyModel(modelId: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.modelVerify({ modelId });
+    return wrapAvailabilityResponse(await this.api.modelVerify({ modelId }));
   }
 
-  async setOverride(modelId: string, config: Record<string, unknown>): Promise<IpcResponse> {
+  async setOverride(provider: string, modelId: string, config: Record<string, unknown>): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.modelSetOverride({ modelId, config });
+    return this.api.modelSetOverride({ provider, modelId, config });
   }
 
-  async removeOverride(modelId: string): Promise<IpcResponse> {
+  async removeOverride(modelId: string, provider?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.modelRemoveOverride({ modelId });
+    return this.api.modelRemoveOverride({ provider, modelId });
   }
+}
+
+function wrapDataResponse(result: unknown): IpcResponse {
+  return isIpcResponse(result) ? result : { success: true, data: result };
+}
+
+function wrapAvailabilityResponse(result: unknown): IpcResponse<boolean> {
+  if (isIpcResponse(result)) {
+    return result as IpcResponse<boolean>;
+  }
+  if (typeof result === 'boolean') {
+    return result
+      ? { success: true, data: true }
+      : { success: false, data: false, error: { message: 'Model is not available.' } };
+  }
+  return { success: false, error: { message: 'Invalid model verification response.' } };
+}
+
+function isIpcResponse(value: unknown): value is IpcResponse {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && typeof (value as { success?: unknown }).success === 'boolean',
+  );
 }

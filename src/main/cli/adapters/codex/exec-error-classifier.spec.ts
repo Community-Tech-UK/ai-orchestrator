@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isBenignCodexStdinNotice, isCodexModelUnavailableError, isFatalSpawnError, isRecoverableThreadResumeError } from './exec-error-classifier';
+import { isBenignCodexStdinNotice, isCodexInputTooLargeError, isCodexModelUnavailableError, isFatalSpawnError, isRecoverableThreadResumeError } from './exec-error-classifier';
 import { CliSpawnCwdError, directoryExists, enrichSpawnError } from '../base-cli-adapter-utils';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -73,6 +73,33 @@ describe('spawn errors vs other codex classifiers (cross-checks)', () => {
 
   it('spawn errors are not benign stdin notices', () => {
     expect(isBenignCodexStdinNotice('spawn codex ENOENT')).toBe(false);
+  });
+});
+
+describe('isCodexInputTooLargeError', () => {
+  it('matches the codex per-turn char-cap error (with and without leading "Input")', () => {
+    expect(isCodexInputTooLargeError(new Error('Input exceeds the maximum length of 1048576 characters.'))).toBe(true);
+    expect(isCodexInputTooLargeError(new Error('Codex error: exceeds the maximum length of 1048576 characters'))).toBe(true);
+  });
+
+  it('is case-insensitive and tolerates thousands separators', () => {
+    expect(isCodexInputTooLargeError(new Error('input exceeds the maximum length of 1,048,576 characters'))).toBe(true);
+  });
+
+  it('matches string inputs, not just Error objects', () => {
+    expect(isCodexInputTooLargeError('Input exceeds the maximum length of 1048576 characters')).toBe(true);
+  });
+
+  it('does NOT match token-based context overflow (handled by ptl-retry token path)', () => {
+    expect(isCodexInputTooLargeError(new Error('The input token count (1,048,577) exceeds the maximum number of tokens allowed (1,048,576).'))).toBe(false);
+    expect(isCodexInputTooLargeError(new Error('ran out of room in the context window'))).toBe(false);
+  });
+
+  it('does NOT match unrelated errors', () => {
+    expect(isCodexInputTooLargeError(new Error('thread not found'))).toBe(false);
+    expect(isCodexInputTooLargeError(new Error('http 500'))).toBe(false);
+    expect(isCodexInputTooLargeError(undefined)).toBe(false);
+    expect(isCodexInputTooLargeError(null)).toBe(false);
   });
 });
 

@@ -1,5 +1,6 @@
 // src/renderer/app/features/remote-nodes/remote-nodes-page.component.ts
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { NodeCardComponent } from './node-card.component';
 import { NodeDetailComponent } from './node-detail.component';
 import { RemoteNodesStore } from './remote-nodes.store';
@@ -13,7 +14,15 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
   template: `
     <div class="page-container">
       <div class="page-header">
-        <h2>Worker Nodes</h2>
+        <div class="header-left">
+          <button class="back-button" type="button" (click)="goBack()" aria-label="Back to dashboard">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M12.7 4.3 7 10l5.7 5.7-1.4 1.4L4.2 10l7.1-7.1 1.4 1.4Z" />
+            </svg>
+            <span>Back</span>
+          </button>
+          <h2>Worker Nodes</h2>
+        </div>
         <div class="header-actions">
           <span class="node-count">
             {{ store.connectedNodes().length }} connected
@@ -67,7 +76,16 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
       margin-bottom: 24px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
     }
 
     .page-header h2 {
@@ -77,10 +95,37 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
       margin: 0;
     }
 
+    .back-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--color-text-primary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .back-button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .back-button svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+      flex: 0 0 auto;
+    }
+
     .header-actions {
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap;
     }
 
     .node-count {
@@ -158,6 +203,7 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
 export class RemoteNodesPageComponent implements OnInit {
   readonly store = inject(RemoteNodesStore);
   private readonly ipc = inject(RemoteNodeIpcService);
+  private readonly router = inject(Router);
   readonly selectedNodeId = signal<string | null>(null);
   readonly selectedNode = computed(() => {
     const selectedNodeId = this.selectedNodeId();
@@ -198,5 +244,9 @@ export class RemoteNodesPageComponent implements OnInit {
 
   selectNode(nodeId: string): void {
     this.selectedNodeId.set(nodeId);
+  }
+
+  goBack(): void {
+    void this.router.navigate(['/']);
   }
 }

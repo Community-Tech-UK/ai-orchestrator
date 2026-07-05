@@ -21,6 +21,16 @@ const USAGE_BODY = {
   seven_day_sonnet: { utilization: 39.0, resets_at: '2026-06-09T14:00:00+00:00' },
   seven_day_opus: null,
   seven_day_oauth_apps: null,
+  limits: [
+    { group: 'weekly', kind: 'weekly_all', percent: 14, resets_at: '2026-06-12T20:00:00+00:00', scope: null },
+    {
+      group: 'weekly',
+      kind: 'weekly_scoped',
+      percent: 10,
+      resets_at: '2026-06-12T20:00:01+00:00',
+      scope: { model: { display_name: 'Fable', id: null }, surface: null },
+    },
+  ],
   extra_usage: { is_enabled: true, monthly_limit: 1700, used_credits: 190.0, utilization: 11.18, currency: 'EUR' },
 };
 
@@ -50,6 +60,9 @@ describe('ClaudeUsageEndpointProbe', () => {
       expect(byId['claude.5h'].resetsAt).toBe(Date.parse('2026-06-05T15:00:00+00:00'));
       expect(byId['claude.weekly'].used).toBe(14);
       expect(byId['claude.weekly-sonnet'].used).toBe(39);
+      expect(byId['claude.weekly-fable'].used).toBe(10);
+      expect(byId['claude.weekly-fable'].label).toBe('Weekly (Fable)');
+      expect(byId['claude.weekly-fable'].resetsAt).toBe(Date.parse('2026-06-12T20:00:01+00:00'));
       // opus is null → no window
       expect(byId['claude.weekly-opus']).toBeUndefined();
       // extra_usage enabled → credits window

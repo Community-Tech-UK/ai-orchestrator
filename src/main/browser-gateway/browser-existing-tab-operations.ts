@@ -10,7 +10,10 @@ import type {
   BrowserExtensionCommandStore,
 } from './browser-extension-command-store';
 import { browserExtensionQueueKeyForNode } from './browser-extension-command-store';
-import type { BrowserExtensionTabStore } from './browser-extension-tab-store';
+import type {
+  BrowserExtensionTabAttachOptions,
+  BrowserExtensionTabStore,
+} from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
@@ -36,6 +39,7 @@ const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
 interface BrowserExistingTabOperationsDeps {
   extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab'>;
+  isRemoteExtensionContactFresh: (nodeId: string) => boolean;
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant'>;
   approvalStore: Pick<BrowserApprovalStore, 'createRequest'>;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
@@ -152,7 +156,7 @@ export class BrowserExistingTabOperations {
       if (result) {
         try {
           const tab = extractTabPayload(result);
-          this.deps.extensionTabStore.attachTab(tab);
+          this.attachRefreshedTab(tab, attachment);
         } catch {
           // Navigation succeeded; stale metadata is less important than
           // preserving the audited command result.
@@ -207,6 +211,9 @@ export class BrowserExistingTabOperations {
     payload?: Record<string, unknown>,
     timeoutMs = 30_000,
   ): Promise<unknown> {
+    if (attachment.nodeId && !this.deps.isRemoteExtensionContactFresh(attachment.nodeId)) {
+      return Promise.reject(new Error('browser_extension_unreachable'));
+    }
     return this.deps.extensionCommandStore.sendCommand({
       ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command,
@@ -265,10 +272,10 @@ export class BrowserExistingTabOperations {
         attachment.text ? 1_000 : 30_000,
       );
       const tab = extractTabPayload(result);
-      const fresh = this.deps.extensionTabStore.attachTab({
+      const fresh = this.attachRefreshedTab({
         ...tab,
         allowedOrigins: attachment.allowedOrigins,
-      });
+      }, attachment);
       const freshOriginDecision = isOriginAllowed(fresh.url, fresh.allowedOrigins);
       if (!freshOriginDecision.allowed) {
         return this.deps.result({
@@ -456,6 +463,28 @@ export class BrowserExistingTabOperations {
       data: attachment.screenshotBase64,
     });
   }
+
+  private attachRefreshedTab(
+    input: Parameters<BrowserExtensionTabStore['attachTab']>[0],
+    source: BrowserExistingTabAttachment,
+  ): BrowserExistingTabAttachment {
+    const options = remoteTabAttachOptions(source);
+    return options
+      ? this.deps.extensionTabStore.attachTab(input, options)
+      : this.deps.extensionTabStore.attachTab(input);
+  }
+}
+
+function remoteTabAttachOptions(
+  attachment: BrowserExistingTabAttachment,
+): BrowserExtensionTabAttachOptions | undefined {
+  if (!attachment.nodeId && !attachment.nodeName) {
+    return undefined;
+  }
+  return {
+    ...(attachment.nodeId ? { nodeId: attachment.nodeId } : {}),
+    ...(attachment.nodeName ? { nodeName: attachment.nodeName } : {}),
+  };
 }
 
 function extensionCommandCallerTimeoutMs(executionTimeoutMs: number): number {

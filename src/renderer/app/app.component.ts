@@ -4,7 +4,7 @@
 
 import { ChangeDetectionStrategy, Component, computed, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { ToastService } from './core/services/toast.service';
-import { Router, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { ElectronIpcService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
@@ -93,8 +93,11 @@ export class AppComponent implements OnInit, OnDestroy {
 
   private menuListenerCleanup: (() => void) | null = null;
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
+  private routerEventsSubscription: { unsubscribe(): void } | null = null;
 
   isMacOS = false;
+  protected readonly currentRouteUrl = signal(this.router.url || '/');
+  protected readonly showRouteBackstop = computed(() => this.isNonDashboardRoute(this.currentRouteUrl()));
 
   /**
    * Right-edge inset (px) for the title-bar status cluster so it always clears
@@ -166,6 +169,8 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   async ngOnInit(): Promise<void> {
+    this.bindRouteBackstop();
+
     try {
       await this.settingsStore.initialize();
     } catch {
@@ -264,6 +269,8 @@ export class AppComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.resumeToastTimer) clearTimeout(this.resumeToastTimer);
     this.resumeToastTimer = null;
+    this.routerEventsSubscription?.unsubscribe();
+    this.routerEventsSubscription = null;
     this.menuListenerCleanup?.();
     this.menuListenerCleanup = null;
     this.windowControlsOverlayCleanup?.();
@@ -289,6 +296,25 @@ export class AppComponent implements OnInit, OnDestroy {
 
   openSetupCenter(): void {
     void this.router.navigate(['/setup']);
+  }
+
+  protected goToDashboard(): void {
+    void this.router.navigate(['/']);
+  }
+
+  private bindRouteBackstop(): void {
+    this.currentRouteUrl.set(this.router.url || '/');
+    this.routerEventsSubscription?.unsubscribe();
+    this.routerEventsSubscription = this.router.events.subscribe((event) => {
+      if (event instanceof NavigationEnd) {
+        this.currentRouteUrl.set(event.urlAfterRedirects || event.url || '/');
+      }
+    });
+  }
+
+  private isNonDashboardRoute(url: string): boolean {
+    const path = url.split(/[?#]/)[0] || '/';
+    return path !== '/';
   }
 
   dismissStartupBanner(): void {

@@ -21,12 +21,16 @@ import { runOrchestratorToolsForwarder } from './orchestrator-tools-mcp-forwarde
 import { runCodememForwarder } from '../codemem/codemem-mcp-forwarder';
 import { runBrowserMcpForwarder } from '../browser-gateway/browser-mcp-stdio-server';
 import { runBrowserExtensionNativeHost } from '../browser-gateway/browser-extension-native-host';
+import { runRemoteNodesCli } from './remote-nodes-cli';
+
+type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
 
 const SUBCOMMANDS = {
-  'orchestrator-tools': runOrchestratorToolsForwarder,
-  codemem: runCodememForwarder,
-  'browser-gateway': runBrowserMcpForwarder,
-  'native-host': runBrowserExtensionNativeHost,
+  'orchestrator-tools': (() => runOrchestratorToolsForwarder()) as AioMcpRunner,
+  codemem: (() => runCodememForwarder()) as AioMcpRunner,
+  'browser-gateway': (() => runBrowserMcpForwarder()) as AioMcpRunner,
+  'native-host': (() => runBrowserExtensionNativeHost()) as AioMcpRunner,
+  'remote-nodes': runRemoteNodesCli,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;
@@ -48,7 +52,7 @@ export async function runAioMcpDispatcher(argv: readonly string[]): Promise<numb
     return 2;
   }
   try {
-    await SUBCOMMANDS[subcommand]();
+    await SUBCOMMANDS[subcommand](argv.slice(3));
     return 0;
   } catch (error) {
     process.stderr.write(
@@ -67,6 +71,7 @@ function formatHelp(): string {
     '  codemem             Stdio MCP forwarder for codemem (LSP/symbol search)',
     '  browser-gateway     Stdio MCP forwarder for browser-gateway',
     '  native-host         Chrome native-messaging host for the browser extension',
+    '  remote-nodes        Print the safe remote worker roster (--json for JSON)',
     '',
   ].join('\n');
 }

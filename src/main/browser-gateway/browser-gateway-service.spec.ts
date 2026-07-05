@@ -400,6 +400,76 @@ describe('BrowserGatewayService', () => {
     expect(driver.screenshot).not.toHaveBeenCalled();
   });
 
+  it('marks listed remote extension targets stale when their node has no recent contact', async () => {
+    const { service } = makeService({
+      target: makeTarget({
+        id: 'existing-tab:n.node-1:7:42:target',
+        profileId: 'existing-tab:n.node-1:7:42',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        mode: 'existing-tab',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1_000,
+      }),
+      extensionContactState: {
+        getLastExtensionContactAt: () => 500,
+        isExtensionContactFresh: () => false,
+        describeExtensionContact: (nodeId) => ({
+          nodeId,
+          lastContactAt: 500,
+          silent: true,
+          staleForMs: 120_000,
+        }),
+      },
+    });
+
+    const result = await service.listTargets({ nodeId: 'node-1' });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: [{
+        id: 'existing-tab:n.node-1:7:42:target',
+        nodeId: 'node-1',
+        lastSeenAt: 1_000,
+        stale: true,
+      }],
+    });
+  });
+
+  it('queues a bounded remote inventory refresh before returning refreshed target listings', async () => {
+    const sendCommand = vi.fn(async () => ({ ok: true }));
+    const { service } = makeService({
+      target: makeTarget({
+        id: 'existing-tab:n.node-1:7:42:target',
+        profileId: 'existing-tab:n.node-1:7:42',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        mode: 'existing-tab',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1_000,
+      }),
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.listTargets({ nodeId: 'node-1', refresh: true });
+
+    expect(sendCommand).toHaveBeenCalledWith({
+      queueKey: 'node:node-1',
+      command: 'report_inventory',
+      timeoutMs: 3_000,
+      executionTimeoutMs: 2_500,
+    });
+    expect(result.data).toEqual([
+      expect.objectContaining({
+        id: 'existing-tab:n.node-1:7:42:target',
+        nodeId: 'node-1',
+      }),
+    ]);
+  });
+
   it('records requires_user for mutating browser actions', async () => {
     const { service, audits } = makeService();
 
@@ -1089,23 +1159,119 @@ describe('BrowserGatewayService', () => {
     });
   });
 
-  it('does not auto-approve manual login handoffs even for YOLO instances', async () => {
-    const { service } = makeService({
+  it('auto-approves manual handoff requests for YOLO instances without surfacing a prompt', async () => {
+    const { service, approvalStore, grants, profileStore } = makeService({
       autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
     });
 
-    const result = await service.requestUserLogin({
+    const login = await service.requestUserLogin({
       profileId: 'profile-1',
       targetId: 'target-1',
       instanceId: 'instance-1',
       provider: 'claude',
       reason: 'Sign in required.',
     });
+    expect(login).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      reason: 'auto_approved_by_yolo_mode',
+    });
+    expect('requestId' in login).toBe(false);
+    expect(grants[0]).toMatchObject({
+      mode: 'per_action',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      allowedActionClasses: ['read'],
+      autonomous: false,
+    });
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
+      status: 'approved',
+      grantId: 'grant-1',
+    });
+    expect(profileStore.setRuntimeState).toHaveBeenCalledWith('profile-1', {
+      lastLoginCheckAt: expect.any(Number),
+    });
 
-    expect(result).toMatchObject({
+    const manualStep = await service.pauseForManualStep({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      kind: 'two_factor',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      reason: 'Enter the authenticator code.',
+    });
+    expect(manualStep).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      reason: 'auto_approved_by_yolo_mode',
+    });
+    expect('requestId' in manualStep).toBe(false);
+    expect(grants[1]).toMatchObject({
+      mode: 'per_action',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      allowedActionClasses: ['read'],
+      autonomous: false,
+    });
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-2', {
+      status: 'approved',
+      grantId: 'grant-2',
+    });
+  });
+
+  it('auto-resolves stale pending browser approvals when YOLO is enabled before listing', async () => {
+    BrowserGatewayService._resetForTesting();
+    const { service, approvalStore, grants } = makeService({
+      useSingleton: true,
+    });
+
+    const pending = await service.pauseForManualStep({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'codex',
+      reason: 'Refresh the shared tab.',
+    });
+    expect(pending).toMatchObject({
       decision: 'requires_user',
       outcome: 'not_run',
-      reason: 'manual_login_required',
+      requestId: 'request-1',
+    });
+
+    BrowserGatewayService.initialize({
+      autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
+    });
+
+    const listed = await service.listApprovalRequests({
+      instanceId: 'instance-1',
+      status: 'pending',
+    });
+    expect(listed).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: [],
+    });
+    expect(grants[0]).toMatchObject({
+      id: 'grant-1',
+      instanceId: 'instance-1',
+      provider: 'codex',
+    });
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
+      status: 'approved',
+      grantId: 'grant-1',
+    });
+
+    await expect(service.getApprovalStatus({
+      requestId: 'request-1',
+      instanceId: 'instance-1',
+      provider: 'codex',
+    })).resolves.toMatchObject({
+      decision: 'allowed',
+      data: {
+        requestId: 'request-1',
+        status: 'approved',
+        grantId: 'grant-1',
+      },
     });
   });
 

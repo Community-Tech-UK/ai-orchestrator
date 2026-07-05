@@ -93,14 +93,20 @@ export class DeferredPermissionHandler {
     instanceId: string,
     approved: boolean,
     updatedInput?: Record<string, unknown>,
+    options?: { yoloMode?: boolean },
   ): Promise<void> {
     const instance = this.deps.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+    const previousYoloMode = instance.yoloMode;
+    if (options?.yoloMode !== undefined) {
+      instance.yoloMode = options.yoloMode;
+    }
 
-    const release = await this.ops.acquireSessionMutex(instanceId, 'resume-deferred-permission');
+    let release: (() => void) | undefined;
     try {
+      release = await this.ops.acquireSessionMutex(instanceId, 'resume-deferred-permission');
       const oldAdapter = this.deps.getAdapter(instanceId);
       if (!oldAdapter) {
         throw new Error(`No adapter for instance ${instanceId}`);
@@ -233,6 +239,7 @@ export class DeferredPermissionHandler {
           toolName: deferred.toolName,
         });
       } catch (error) {
+        instance.yoloMode = previousYoloMode;
         this.ops.transitionState(instance, 'error');
         logger.error(
           'Failed to resume after deferred permission',
@@ -243,8 +250,13 @@ export class DeferredPermissionHandler {
       }
 
       this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+    } catch (error) {
+      if (options?.yoloMode !== undefined) {
+        instance.yoloMode = previousYoloMode;
+      }
+      throw error;
     } finally {
-      release();
+      release?.();
     }
   }
 }

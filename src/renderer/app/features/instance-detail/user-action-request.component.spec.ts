@@ -66,6 +66,7 @@ describe('UserActionRequestComponent', () => {
     clearPendingApprovals: vi.fn(),
     decrementPendingApproval: vi.fn(),
     changeAgentMode: vi.fn(),
+    setLocalYoloMode: vi.fn(),
   };
 
   beforeEach(async () => {
@@ -91,6 +92,7 @@ describe('UserActionRequestComponent', () => {
     fakeInstanceStore.clearPendingApprovals.mockReset();
     fakeInstanceStore.decrementPendingApproval.mockReset();
     fakeInstanceStore.changeAgentMode.mockResolvedValue(undefined);
+    fakeInstanceStore.setLocalYoloMode.mockReset();
 
     await TestBed.configureTestingModule({
       imports: [UserActionRequestComponent],
@@ -296,6 +298,82 @@ describe('UserActionRequestComponent', () => {
     expect(modifyCall).toBeDefined();
     // arg[0]=instanceId, [1]=requestId, [2]=response, [3]=permissionKey, [4]=decisionAction, [5]=scope, [6]=metadata, [7]=updatedInput
     expect(modifyCall![7]).toEqual(newInput);
+  });
+
+  it('shows the backend error when allowing a deferred permission fails', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+    fakeIpc.respondToInputRequired.mockResolvedValueOnce({
+      success: false,
+      error: { message: 'No deferred tool use pending for instance inst-a' },
+    });
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-allow-fails',
+      prompt: 'Allow Bash?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'deferred_permission',
+        tool_use_id: 'toolu_fail',
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const approveBtn = fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement;
+    approveBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fixture.nativeElement.textContent).toContain('Allow Bash?');
+    expect(fixture.nativeElement.textContent).toContain('No deferred tool use pending');
+  });
+
+  it('approves a deferred permission with YOLO enabled from the YOLO button', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+    fakeIpc.respondToInputRequired.mockResolvedValueOnce({
+      success: true,
+      data: { requestId: 'req-yolo', responded: true, resumed: true, yoloMode: true },
+    });
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-yolo',
+      prompt: 'Allow Bash?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'deferred_permission',
+        tool_use_id: 'toolu_yolo',
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const yoloBtn = fixture.nativeElement.querySelector('.btn-yolo') as HTMLButtonElement;
+    yoloBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fakeIpc.toggleYoloMode).not.toHaveBeenCalled();
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith(
+      'inst-a',
+      'req-yolo',
+      'Permission granted. Please proceed with the operation.',
+      undefined,
+      'allow',
+      'once',
+      {
+        type: 'deferred_permission',
+        tool_use_id: 'toolu_yolo',
+        enableYolo: true,
+      }
+    );
+    expect(fakeInstanceStore.setLocalYoloMode).toHaveBeenCalledWith('inst-a', true);
+    expect(fixture.nativeElement.textContent).not.toContain('Allow Bash?');
   });
 
   it('does not change approve/deny button behaviour for non-deferred requests', async () => {

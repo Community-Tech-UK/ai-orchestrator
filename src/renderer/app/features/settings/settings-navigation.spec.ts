@@ -28,4 +28,10 @@ describe('settings navigation', () => {
     expect(connectionsIndex).toBeLessThan(voiceIndex);
     expect(voiceIndex).toBeLessThan(remoteNodesIndex);
   });
+
+  it('does not give Models a static Recommended nav pill', () => {
+    const models = NAV_ITEMS.find((item) => item.id === 'models');
+
+    expect(models?.recommended).not.toBe(true);
+  });
 });

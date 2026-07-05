@@ -20,10 +20,11 @@ export interface SettingMetadata {
   key: keyof AppSettings;
   label: string;
   description: string;
-  type: 'boolean' | 'string' | 'number' | 'select' | 'directory' | 'multi-select';
+  type: 'boolean' | 'string' | 'number' | 'select' | 'directory' | 'multi-select' | 'json';
   category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced' | 'review' | 'network' | 'mcp' | 'rtk';
   options?: { value: string | number; label: string }[];
   min?: number;
   max?: number;
   placeholder?: string;
+  hidden?: boolean;
 }

@@ -15,6 +15,8 @@ import type { OperatorGitBatchSummary } from '../../../shared/types/operator.typ
 import { createOrchestratorToolDefinitions } from '../orchestrator-tools';
 
 describe('orchestrator MCP tools', () => {
+  const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+  const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
   const ledgers: ConversationLedgerService[] = [];
   const dbs: SqliteDriver[] = [];
 
@@ -195,6 +197,7 @@ describe('orchestrator MCP tools', () => {
             supportedClis: ['claude', 'codex'],
             hasBrowserRuntime: true,
             hasBrowserMcp: true,
+            hasAndroidMcp: true,
             hasDocker: false,
             gpuName: 'NVIDIA RTX 4090',
             gpuMemoryMB: 24576,
@@ -213,6 +216,7 @@ describe('orchestrator MCP tools', () => {
             supportedClis: ['gemini'],
             hasBrowserRuntime: false,
             hasBrowserMcp: false,
+            hasAndroidMcp: false,
             hasDocker: true,
             activeInstances: 0,
             maxConcurrentInstances: 2,
@@ -241,6 +245,7 @@ describe('orchestrator MCP tools', () => {
           supportedClis: ['claude', 'codex'],
           hasBrowserRuntime: true,
           hasBrowserMcp: true,
+          hasAndroidMcp: true,
           hasDocker: false,
           gpuName: 'NVIDIA RTX 4090',
           gpuMemoryMB: 24576,
@@ -259,6 +264,7 @@ describe('orchestrator MCP tools', () => {
           supportedClis: ['gemini'],
           hasBrowserRuntime: false,
           hasBrowserMcp: false,
+          hasAndroidMcp: false,
           hasDocker: true,
           activeInstances: 0,
           maxConcurrentInstances: 2,
@@ -274,8 +280,11 @@ describe('orchestrator MCP tools', () => {
     const runOnNode = tools.find((t) => t.name === 'run_on_node');
 
     expect(runOnNode?.description).toMatch(/Windows PC/i);
+    expect(runOnNode?.description).toMatch(/laptop|desktop/i);
+    expect(runOnNode?.description).toMatch(/Noah's laptop/i);
     expect(runOnNode?.description).toMatch(/remote machine|other machine/i);
     expect(runOnNode?.description).toMatch(/list_remote_nodes/i);
+    expect(runOnNode?.description).toMatch(/before local filesystem/i);
   });
 
   it('run_on_node forwards parsed args to the injected spawnRemoteInstance', async () => {
@@ -302,10 +311,18 @@ describe('orchestrator MCP tools', () => {
       node: 'windows-pc',
       prompt: 'run the tests',
       provider: 'claude',
+      requiresAndroid: true,
+      androidDeviceKind: 'emulator',
     });
 
     expect(calls).toEqual([
-      { node: 'windows-pc', prompt: 'run the tests', provider: 'claude' },
+      {
+        node: 'windows-pc',
+        prompt: 'run the tests',
+        provider: 'claude',
+        requiresAndroid: true,
+        androidDeviceKind: 'emulator',
+      },
     ]);
     expect(result).toMatchObject({ instanceId: 'inst-9', nodeId: 'node-9', status: 'initializing' });
   });
@@ -378,6 +395,69 @@ describe('orchestrator MCP tools', () => {
     const runOnNode = tools.find((t) => t.name === 'run_on_node');
 
     await expect(runOnNode!.handler({ node: 'windows-pc' })).rejects.toThrow();
+  });
+
+  it('run_on_node accepts model ids up to the dynamic catalog limit', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      spawnRemoteInstance: async (args) => {
+        calls.push(args);
+        return {
+          instanceId: 'inst-model',
+          nodeId: 'node-model',
+          nodeName: 'linux-box',
+          workingDirectory: '/work',
+          status: 'initializing',
+        };
+      },
+    });
+    const runOnNode = tools.find((t) => t.name === 'run_on_node');
+
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    await runOnNode!.handler({
+      prompt: 'run with model',
+      provider: 'claude',
+      model: maxCatalogModelId,
+    });
+
+    expect(calls).toEqual([{
+      prompt: 'run with model',
+      provider: 'claude',
+      model: maxCatalogModelId,
+    }]);
+  });
+
+  it('run_on_node rejects model ids beyond the dynamic catalog limit', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      spawnRemoteInstance: async (args) => {
+        calls.push(args);
+        return {
+          instanceId: 'inst-too-long',
+          nodeId: 'node-too-long',
+          nodeName: 'linux-box',
+          workingDirectory: '/work',
+          status: 'initializing',
+        };
+      },
+    });
+    const runOnNode = tools.find((t) => t.name === 'run_on_node');
+
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    await expect(runOnNode!.handler({
+      prompt: 'run with model',
+      provider: 'claude',
+      model: tooLongCatalogModelId,
+    })).rejects.toThrow();
+    expect(calls).toEqual([]);
   });
 
   it('read_node_output forwards parsed args to the injected reader', async () => {
@@ -683,6 +763,51 @@ describe('orchestrator MCP tools', () => {
 
     expect(calls).toEqual([{ id: 'auto-1', enabled: false }]);
     expect(result).toMatchObject({ id: 'auto-1', enabled: false });
+  });
+
+  it('update_automation accepts model ids up to the dynamic catalog limit', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      updateAutomation: async (args) => {
+        calls.push(args);
+        return {
+          id: args.id,
+          name: 'Daily PR sweep',
+          scheduleSummary: 'cron 0 9 * * 1-5 (UTC)',
+          nextRunAt: null,
+          enabled: true,
+          workingDirectory: '/repo',
+        };
+      },
+    });
+    const tool = tools.find((t) => t.name === 'update_automation');
+
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    await tool!.handler({ id: 'auto-1', model: maxCatalogModelId });
+
+    expect(calls).toEqual([{ id: 'auto-1', model: maxCatalogModelId }]);
+  });
+
+  it('update_automation rejects model ids beyond the dynamic catalog limit', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      updateAutomation: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const tool = tools.find((t) => t.name === 'update_automation');
+
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    await expect(
+      tool!.handler({ id: 'auto-1', model: tooLongCatalogModelId }),
+    ).rejects.toThrow();
   });
 
   it('update_automation rejects when both cron and runAt are provided', async () => {

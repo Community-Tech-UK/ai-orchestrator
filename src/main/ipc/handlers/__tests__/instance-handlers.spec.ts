@@ -793,6 +793,33 @@ describe('instance-handlers', () => {
       expect(mockClearPrompt).toHaveBeenCalledWith('req-defer-1');
     });
 
+    it('can resume a deferred permission with YOLO enabled', async () => {
+      vi.mocked(mockInstanceManager.resumeAfterDeferredPermission).mockResolvedValue(undefined);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-56',
+        requestId: 'req-defer-yolo',
+        response: 'approved',
+        decisionAction: 'allow',
+        decisionScope: 'once',
+        metadata: { type: 'deferred_permission', enableYolo: true },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        requestId: 'req-defer-yolo',
+        responded: true,
+        resumed: true,
+        yoloMode: true,
+      });
+      expect(mockInstanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith(
+        'inst-56',
+        true,
+        undefined,
+        { yoloMode: true },
+      );
+    });
+
     it('rejects deferred permission responses while paused', async () => {
       mockPauseIsPaused.mockReturnValue(true);
 

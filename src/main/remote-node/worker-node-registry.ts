@@ -35,7 +35,12 @@ export class WorkerNodeRegistry extends EventEmitter {
 
   registerNode(info: WorkerNodeInfo): void {
     this.nodes.set(info.id, { ...info });
-    logger.info('Node registered', { nodeId: info.id, address: info.address });
+    logger.info('Node registered', {
+      node: info.name,
+      nodeId: info.id,
+      platform: info.capabilities.platform,
+      address: info.address,
+    });
     this.emit('node:connected', this.nodes.get(info.id)!);
   }
 
@@ -43,7 +48,7 @@ export class WorkerNodeRegistry extends EventEmitter {
     const node = this.nodes.get(nodeId);
     if (!node) return;
     this.nodes.delete(nodeId);
-    logger.info('Node deregistered', { nodeId });
+    logger.info('Node deregistered', { node: node.name, nodeId });
     this.emit('node:disconnected', node);
   }
 
@@ -66,7 +71,8 @@ export class WorkerNodeRegistry extends EventEmitter {
   updateNodeMetrics(nodeId: string, partial: Partial<WorkerNodeInfo>): void {
     const node = this.nodes.get(nodeId);
     if (!node) return;
-    const { id: _ignoredId, ...safePartial } = partial;
+    const safePartial = { ...partial };
+    delete safePartial.id;
     const updated = { ...node, ...safePartial, id: nodeId };
     this.nodes.set(nodeId, updated);
     this.emit('node:updated', updated);
@@ -107,7 +113,7 @@ export class WorkerNodeRegistry extends EventEmitter {
     // Return null if no candidate reached a positive score
     if (bestScore <= 0) return null;
 
-    logger.info('Node selected', { nodeId: bestNode?.id, score: bestScore });
+    logger.info('Node selected', { node: bestNode?.name, nodeId: bestNode?.id, score: bestScore });
     return bestNode;
   }
 
@@ -226,6 +232,14 @@ export function matchNodeByCapabilityTag(
   return ranked.find((n) => n.capabilities.supportedClis.some((c) => c.toLowerCase() === t));
 }
 
+function normalizeNodeLookup(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['\u2018\u2019]s\b/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
 function hasPhysicalAndroidDevice(caps: WorkerNodeCapabilities): boolean {
   return caps.androidAutomation?.connectedDevices.some((device) =>
     (device.kind === 'usb' || device.kind === 'wifi') && device.state === 'device'
@@ -254,7 +268,8 @@ export function isAndroidAutomationReady(caps: WorkerNodeCapabilities): boolean 
  * error message listing what is available. Pure — does not touch the registry
  * singleton, so it is trivially testable.
  *
- * Resolution order: exact id → exact name (case-insensitive) → capability tag.
+ * Resolution order: exact id → exact name (case-insensitive) → normalized
+ * id/name (e.g. "Noah's laptop" → "noahlaptop") → capability tag.
  */
 export function resolveWorkerNodeTarget(
   requested: string,
@@ -267,7 +282,15 @@ export function resolveWorkerNodeTarget(
     return typeof n.name === 'string' && n.name.toLowerCase() === want.toLowerCase();
   });
   if (exact) return { nodeId: exact.id };
-  // 2. Capability-tag fallback.
+
+  const normalizedWant = normalizeNodeLookup(want);
+  const normalized = connected.find((n) =>
+    normalizeNodeLookup(n.id) === normalizedWant ||
+    (typeof n.name === 'string' && normalizeNodeLookup(n.name) === normalizedWant)
+  );
+  if (normalized) return { nodeId: normalized.id };
+
+  // 3. Capability-tag fallback.
   const byCapability = matchNodeByCapabilityTag(want, connected);
   if (byCapability) return { nodeId: byCapability.id };
   // 3. No match — clear, actionable error.

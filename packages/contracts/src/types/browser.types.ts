@@ -98,6 +98,7 @@ export interface BrowserTarget {
   driver: BrowserTargetDriver;
   status: BrowserTargetStatus;
   lastSeenAt: number;
+  stale?: boolean;
 }
 
 export interface BrowserPermissionGrant {
@@ -259,6 +260,7 @@ export interface BrowserProfileRequest {
 export interface BrowserListTargetsRequest {
   profileId?: string;
   nodeId?: string;
+  refresh?: boolean;
 }
 
 export interface BrowserFindOrOpenRequest {

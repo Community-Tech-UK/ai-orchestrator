@@ -5,6 +5,7 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
+import { RequiredModelIdSchema } from '@contracts/schemas/common';
 import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getModelRouter } from '../../routing/model-router';
@@ -21,7 +22,7 @@ const RoutingPreviewPayloadSchema = z.object({
 });
 
 const RoutingGetTierPayloadSchema = z.object({
-  modelId: z.string().min(1).max(200),
+  modelId: RequiredModelIdSchema,
 });
 
 export function registerRoutingHandlers(): void {

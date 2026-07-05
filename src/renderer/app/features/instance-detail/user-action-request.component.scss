@@ -84,6 +84,14 @@
   line-height: 1.5;
 }
 
+.request-error {
+  margin: var(--spacing-sm) 0 0;
+  color: var(--error-color);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: right;
+}
+
 .request-actions {
   display: flex;
   gap: var(--spacing-sm);

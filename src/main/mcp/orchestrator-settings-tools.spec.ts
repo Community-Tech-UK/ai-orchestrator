@@ -72,12 +72,12 @@ describe('orchestrator settings MCP tools', () => {
     }));
 
     const result = await tool.handler({}) as {
-      settings: Array<{
+      settings: {
         key: keyof AppSettings;
         value: unknown;
         writable: boolean;
         policyTier: string;
-      }>;
+      }[];
     };
 
     expect(result.settings.find((setting) => setting.key === 'theme')).toMatchObject({
@@ -109,13 +109,13 @@ describe('orchestrator settings MCP tools', () => {
     const settings = makeSettingsManager({ auxiliaryLlmEndpointsJson: endpointConfig });
     const { tool: listTool } = toolByName('list_settings', settings);
     const listResult = await listTool.handler({}) as {
-      settings: Array<{
+      settings: {
         key: keyof AppSettings;
         value: unknown;
         defaultValue: unknown;
         writable: boolean;
         policyTier: string;
-      }>;
+      }[];
     };
 
     expect(listResult.settings.find((setting) => setting.key === 'auxiliaryLlmEndpointsJson'))
@@ -141,7 +141,7 @@ describe('orchestrator settings MCP tools', () => {
     const { tool } = toolByName('list_settings');
 
     const result = await tool.handler({ category: 'display' }) as {
-      settings: Array<{ key: keyof AppSettings; category: string }>;
+      settings: { key: keyof AppSettings; category: string }[];
     };
 
     expect(result.settings.some((setting) => setting.key === 'theme')).toBe(true);
@@ -276,6 +276,12 @@ describe('orchestrator settings MCP tools', () => {
       tool.handler({ key: 'defaultModelByProvider', value: { claude: 123 } }),
     ).rejects.toThrow(/Invalid value/);
     await expect(
+      tool.handler({ key: 'customModelsByProvider', value: { claude: 'not-an-array' } }),
+    ).rejects.toThrow(/Invalid value/);
+    await expect(
+      tool.handler({ key: 'customModelsByProvider', value: { claude: ['future-model', ''] } }),
+    ).rejects.toThrow(/Invalid value/);
+    await expect(
       tool.handler({ key: 'crossModelReviewProviders', value: ['gemini', 'not-a-provider'] }),
     ).rejects.toThrow(/Invalid value/);
     await expect(
@@ -285,6 +291,54 @@ describe('orchestrator settings MCP tools', () => {
       }),
     ).rejects.toThrow(/Invalid value/);
     expect(settings.set).not.toHaveBeenCalled();
+  });
+
+  it('accepts provider-specific custom model arrays as an open setting', async () => {
+    const broadcast = vi.fn();
+    const settings = makeSettingsManager({ customModelsByProvider: {} });
+    const { tool } = toolByName('set_setting', settings, { broadcastSettingsChange: broadcast });
+    const customModels = { claude: ['claude-future-opus'], codex: ['gpt-9-codex'] };
+
+    const result = await tool.handler({
+      key: 'customModelsByProvider',
+      value: customModels,
+    });
+
+    expect(settings.set).toHaveBeenCalledWith('customModelsByProvider', customModels);
+    expect(broadcast).toHaveBeenCalledWith({
+      key: 'customModelsByProvider',
+      value: customModels,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      key: 'customModelsByProvider',
+      newValue: customModels,
+    });
+  });
+
+  it('accepts an optional HTTP(S) remote model catalog override URL as an open setting', async () => {
+    const broadcast = vi.fn();
+    const settings = makeSettingsManager({ modelCatalogRemoteOverrideUrl: '' });
+    const { tool } = toolByName('set_setting', settings, { broadcastSettingsChange: broadcast });
+
+    const result = await tool.handler({
+      key: 'modelCatalogRemoteOverrideUrl',
+      value: 'https://catalog.example.com/models-override.json',
+    });
+
+    expect(settings.set).toHaveBeenCalledWith(
+      'modelCatalogRemoteOverrideUrl',
+      'https://catalog.example.com/models-override.json',
+    );
+    expect(broadcast).toHaveBeenCalledWith({
+      key: 'modelCatalogRemoteOverrideUrl',
+      value: 'https://catalog.example.com/models-override.json',
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      key: 'modelCatalogRemoteOverrideUrl',
+      newValue: 'https://catalog.example.com/models-override.json',
+    });
   });
 
   it('logs an audit line for successful tool-initiated mutations', async () => {

@@ -6,6 +6,9 @@ import {
 } from '../instance.schemas';
 
 describe('instance.schemas', () => {
+  const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+  const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
+
   it('accepts reasoning effort when changing a model', () => {
     expect(InstanceChangeModelPayloadSchema.parse({
       instanceId: 'instance-1',
@@ -50,5 +53,39 @@ describe('instance.schemas', () => {
       provider: 'codex',
       yoloMode: true,
     }).yoloMode).toBe(true);
+  });
+
+  it('accepts catalog-length model ids on instance create and model change payloads', () => {
+    expect(maxCatalogModelId).toHaveLength(512);
+
+    expect(InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      provider: 'claude',
+      model: maxCatalogModelId,
+    }).success).toBe(true);
+    expect(InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      message: 'hello',
+      provider: 'claude',
+      model: maxCatalogModelId,
+    }).success).toBe(true);
+    expect(InstanceChangeModelPayloadSchema.safeParse({
+      instanceId: 'instance-1',
+      model: maxCatalogModelId,
+    }).success).toBe(true);
+  });
+
+  it('rejects model ids beyond the catalog override limit', () => {
+    expect(tooLongCatalogModelId).toHaveLength(513);
+
+    expect(InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      provider: 'claude',
+      model: tooLongCatalogModelId,
+    }).success).toBe(false);
+    expect(InstanceChangeModelPayloadSchema.safeParse({
+      instanceId: 'instance-1',
+      model: tooLongCatalogModelId,
+    }).success).toBe(false);
   });
 });

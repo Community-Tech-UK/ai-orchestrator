@@ -94,6 +94,15 @@ import {
   getBrowserExtensionCommandStore,
 } from './browser-extension-command-store';
 import {
+  getBrowserExtensionContactState,
+  type BrowserExtensionContactStateReader,
+} from './browser-extension-contact-state';
+import {
+  isRemoteExtensionContactFresh,
+  remoteExtensionUnreachableFindOrOpenInput,
+  withRemoteExtensionStaleFlag,
+} from './browser-extension-node-contact';
+import {
   BrowserGatewayActionGuard,
   providerFromContext,
 } from './browser-gateway-action-guard';
@@ -140,6 +149,7 @@ import type {
 } from './browser-gateway-service-types';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { stageBrowserUploadOnNode } from './browser-remote-upload-staging';
+import { refreshBrowserExtensionInventory } from './browser-extension-inventory-refresh';
 
 export type {
   BrowserGatewayAttachExistingTabRequest,
@@ -192,6 +202,7 @@ export class BrowserGatewayService {
     'attachTab' | 'getTab' | 'detachTab' | 'listTabs'
   >;
   private readonly extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  private readonly extensionContactState: BrowserExtensionContactStateReader;
   private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
@@ -212,6 +223,7 @@ export class BrowserGatewayService {
     this.driver = options.driver ?? getPuppeteerBrowserDriver();
     this.extensionTabStore = options.extensionTabStore ?? getBrowserExtensionTabStore();
     this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
+    this.extensionContactState = options.extensionContactState ?? getBrowserExtensionContactState();
     this.auditStore = options.auditStore ?? getBrowserAuditStore();
     this.grantStore = options.grantStore ?? getBrowserGrantStore();
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
@@ -223,6 +235,7 @@ export class BrowserGatewayService {
     this.existingTabOperations = new BrowserExistingTabOperations({
       extensionCommandStore: this.extensionCommandStore,
       extensionTabStore: this.extensionTabStore,
+      isRemoteExtensionContactFresh: (nodeId) => isRemoteExtensionContactFresh(nodeId, { extensionContactState: this.extensionContactState }),
       grantStore: this.grantStore,
       approvalStore: this.approvalStore,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
@@ -233,12 +246,14 @@ export class BrowserGatewayService {
       extensionTabStore: this.extensionTabStore,
       profileStore: this.profileStore,
       getLiveTarget: (profileId, targetId) => this.getLiveTarget(profileId, targetId),
+      autoApproveApproval: (approval) => this.autoApproveApproval(approval),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.approvalOperations = new BrowserGatewayApprovalOperations({
       approvalStore: this.approvalStore,
       grantStore: this.grantStore,
       profileStore: this.profileStore,
+      autoApproveApproval: (approval) => this.autoApproveApproval(approval),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.actionGuard = new BrowserGatewayActionGuard({
@@ -512,11 +527,15 @@ export class BrowserGatewayService {
   async listTargets(
     request: BrowserGatewayListTargetsRequest = {},
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget>[]>> {
+    if (request.refresh === true) {
+      await refreshBrowserExtensionInventory({ request, commandStore: this.extensionCommandStore });
+    }
     const liveTargets = request.profileId
       ? await this.driver.listTargets(request.profileId).catch(() => null)
       : null;
     const targets = (liveTargets ?? this.targetRegistry.listTargets(request.profileId))
       .filter((target) => !request.nodeId || target.nodeId === request.nodeId)
+      .map((target) => withRemoteExtensionStaleFlag(target, { extensionContactState: this.extensionContactState }))
       .map((target) => toAgentSafeTarget(target));
     return this.result({
       context: request,
@@ -540,6 +559,23 @@ export class BrowserGatewayService {
       .filter((tab) => !request.nodeId || tab.nodeId === request.nodeId);
     const existing = findExistingTabCandidate(tabs, url, titleHint);
     if (existing) {
+      if (
+        existing.nodeId &&
+        !isRemoteExtensionContactFresh(existing.nodeId, {
+          extensionContactState: this.extensionContactState,
+        })
+      ) {
+        return this.result(remoteExtensionUnreachableFindOrOpenInput({
+          request,
+          profileId: existing.profileId,
+          targetId: existing.targetId,
+          actionClass: 'read',
+          url: existing.url,
+          origin: existing.origin,
+          nodeId: existing.nodeId,
+          deps: { extensionContactState: this.extensionContactState },
+        }));
+      }
       return this.result({
         context: request,
         profileId: existing.profileId,
@@ -568,6 +604,21 @@ export class BrowserGatewayService {
         summary: 'A URL is required before Browser Gateway can open a new Chrome tab',
         data: null,
       });
+    }
+
+    if (
+      request.nodeId &&
+      !isRemoteExtensionContactFresh(request.nodeId, {
+        extensionContactState: this.extensionContactState,
+      })
+    ) {
+      return this.result(remoteExtensionUnreachableFindOrOpenInput({
+        request,
+        actionClass: 'navigate',
+        url,
+        nodeId: request.nodeId,
+        deps: { extensionContactState: this.extensionContactState },
+      }));
     }
 
     try {

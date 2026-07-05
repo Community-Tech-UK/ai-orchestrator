@@ -1,8 +1,12 @@
 import * as fs from 'node:fs';
 import * as net from 'node:net';
+import * as path from 'node:path';
 import { stdin, stdout } from 'node:process';
 import type { BrowserAttachExistingTabRequest } from '@contracts/types/browser';
 import type { BrowserExtensionNativeRuntimeConfig } from './browser-extension-native-runtime';
+
+const NATIVE_HOST_ERROR_LOG_NAME = 'native-host-error.log';
+const NATIVE_HOST_ERROR_LOG_MAX_BYTES = 64 * 1024;
 
 interface BrowserExtensionAttachTabMessage {
   type: 'attach_tab';
@@ -46,6 +50,13 @@ export interface HandleBrowserExtensionNativeMessageInput {
   extensionOrigin?: string;
   runtimeConfig: BrowserExtensionNativeRuntimeConfig;
   send?: (input: ExtensionRpcSendInput) => Promise<unknown>;
+}
+
+export interface AppendNativeHostErrorLogInput {
+  configPath: string;
+  message: string;
+  now?: () => number;
+  maxBytes?: number;
 }
 
 export function createNativeMessageFrame(message: unknown): Buffer {
@@ -141,15 +152,50 @@ export async function runBrowserExtensionNativeHost(): Promise<void> {
     return;
   }
 
-  const runtimeConfig = JSON.parse(
-    fs.readFileSync(configPath, 'utf-8'),
-  ) as BrowserExtensionNativeRuntimeConfig;
+  let runtimeConfig: BrowserExtensionNativeRuntimeConfig;
+  try {
+    runtimeConfig = JSON.parse(
+      fs.readFileSync(configPath, 'utf-8'),
+    ) as BrowserExtensionNativeRuntimeConfig;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendNativeHostErrorLog({
+      configPath,
+      message: `fatal init: ${message}`,
+    });
+    stdout.write(createNativeMessageFrame({
+      ok: false,
+      error: 'unreadable_native_config',
+    }));
+    return;
+  }
   await runNativeMessageLoop({
     runtimeConfig,
+    configPath,
     extensionOrigin: process.argv[2],
     input: stdin,
     output: stdout,
   });
+}
+
+export function appendNativeHostErrorLog(input: AppendNativeHostErrorLogInput): void {
+  const maxBytes = Math.max(1, input.maxBytes ?? NATIVE_HOST_ERROR_LOG_MAX_BYTES);
+  const logPath = path.join(path.dirname(input.configPath), NATIVE_HOST_ERROR_LOG_NAME);
+  const timestamp = new Date(input.now?.() ?? Date.now()).toISOString();
+  const safeMessage = input.message.replace(/[\r\n]+/g, ' ');
+  const line = `[${timestamp}] ${safeMessage}\n`;
+  try {
+    fs.mkdirSync(path.dirname(logPath), { recursive: true, mode: 0o700 });
+    const existing = fs.existsSync(logPath) ? fs.readFileSync(logPath) : Buffer.alloc(0);
+    const combined = Buffer.concat([existing, Buffer.from(line, 'utf-8')]);
+    const capped = combined.length <= maxBytes
+      ? combined
+      : combined.subarray(combined.length - maxBytes);
+    fs.writeFileSync(logPath, capped, { mode: 0o600 });
+    chmodIfSupported(logPath, 0o600);
+  } catch {
+    // Native-host diagnostics must never prevent Chrome from receiving a reply.
+  }
 }
 
 function parseBrowserExtensionNativeMessage(
@@ -205,6 +251,7 @@ function parseBrowserExtensionNativeMessage(
 
 function runNativeMessageLoop(options: {
   runtimeConfig: BrowserExtensionNativeRuntimeConfig;
+  configPath?: string;
   extensionOrigin?: string;
   input: NodeJS.ReadableStream;
   output: NodeJS.WritableStream;
@@ -212,6 +259,7 @@ function runNativeMessageLoop(options: {
   return new Promise<void>((resolve, reject) => {
     let buffer = Buffer.alloc(0);
     let pending = Promise.resolve();
+    let loggedTransportFailure = false;
 
     options.input.on('data', (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
@@ -232,6 +280,13 @@ function runNativeMessageLoop(options: {
             });
             options.output.write(createNativeMessageFrame(response));
           } catch (error) {
+            if (!loggedTransportFailure && options.configPath && isNativeHostTransportStartupError(error)) {
+              loggedTransportFailure = true;
+              appendNativeHostErrorLog({
+                configPath: options.configPath,
+                message: `socket connect failed: ${error instanceof Error ? error.message : String(error)}`,
+              });
+            }
             options.output.write(createNativeMessageFrame({
               ok: false,
               error: error instanceof Error ? error.message : String(error),
@@ -356,8 +411,23 @@ function sendExtensionRpc(input: ExtensionRpcSendInput): Promise<unknown> {
   });
 }
 
+function isNativeHostTransportStartupError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ECONNREFUSED' || code === 'ENOENT' || code === 'ECONNRESET';
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function chmodIfSupported(targetPath: string, mode: number): void {
+  if (process.platform === 'win32') {
+    return;
+  }
+  fs.chmodSync(targetPath, mode);
 }
 
 // No auto-run here. The aio-mcp SEA dispatcher is the only entrypoint —

@@ -67,6 +67,8 @@ import type {
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
 import { StaleRuntimeReconciler } from './stale-runtime-reconciler';
+import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
+import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
 import { getAutoTitleService } from './auto-title-service';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -81,6 +83,8 @@ import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
 import { getContextEngine } from '../context/context-engine.js';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
+import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
@@ -317,6 +321,17 @@ export class InstanceManager extends EventEmitter {
       onChildExit: (childId, child, exitCode) => this.handleChildExit(childId, child, exitCode),
       onOutput: (id, content) => this.stuckDetector.recordOutput(id, content),
       onToolStateChange: (id, state) => this.stuckDetector.updateState(id, state),
+      onProviderLimitTurn: (params) => {
+        const instance = this.state.getInstance(params.instanceId);
+        if (!instance) return 'skipped';
+        return getInstanceProviderLimitHandler().maybePark({
+          instanceId: params.instanceId,
+          provider: instance.provider,
+          resetAtHint: params.resetAtHint,
+          reason: params.reason,
+          resumePrompt: params.resumePrompt,
+        });
+      },
       createSnapshot: (id, name, desc, trigger) => {
         try {
           getSessionContinuityManager().createSnapshot(id, name, desc, trigger);
@@ -337,6 +352,34 @@ export class InstanceManager extends EventEmitter {
       },
       emitProviderRuntimeEvent: (instanceId, event, options) =>
         this.emitProviderRuntimeEvent(instanceId, event, options),
+    });
+
+    // Wire the (opt-in) regular-session provider-limit auto-resume handler so
+    // it can park an instance, drive the quota-park countdown chip, and re-send
+    // the throttled turn once the window resets. Mirrors the loop path.
+    getInstanceProviderLimitHandler().configure({
+      isEnabled: () => this.settings.get('instanceProviderLimitResumeEnabled') === true,
+      setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
+      resendInput: (id, prompt) => {
+        void this.sendInput(id, prompt).catch((err) =>
+          logger.warn('Provider-limit resume re-send failed', {
+            instanceId: id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      },
+      getQuotaSnapshot: (provider) => {
+        try {
+          return getProviderQuotaService().getSnapshot(provider);
+        } catch {
+          return null;
+        }
+      },
+      getWorkspaceCwd: (id) => this.state.getInstance(id)?.workingDirectory,
+      isResumable: (id) => {
+        const inst = this.state.getInstance(id);
+        return !!inst && inst.status !== 'terminated' && inst.status !== 'failed';
+      },
     });
 
     // Lifecycle manager needs dependencies
@@ -1284,8 +1327,9 @@ export class InstanceManager extends EventEmitter {
     instanceId: string,
     approved: boolean,
     updatedInput?: Record<string, unknown>,
+    options?: { yoloMode?: boolean },
   ): Promise<void> {
-    return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved, updatedInput);
+    return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved, updatedInput, options);
   }
 
   async changeModel(
@@ -1367,6 +1411,32 @@ export class InstanceManager extends EventEmitter {
   // Public API - Communication
   // ============================================
 
+  /** Load- and context-scaled init/respawn wait budget (see init-wait-budget.ts). */
+  private computeInitWaitBudgetMs(instance: Instance): number {
+    return resolveInitWaitBudgetMs(
+      instance.contextUsage?.used ?? 0,
+      getClampedLoadWatchdogMultiplier(),
+    );
+  }
+
+  /**
+   * Await a background init/wake/respawn promise, bounded by `budgetMs`. Clears
+   * and unrefs the timer once the race settles so a fast-resolving promise does
+   * not leave a multi-minute timer (and its closure) pending on the event loop.
+   */
+  private async awaitWithBudget(work: Promise<void>, budgetMs: number, timeoutMessage: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(timeoutMessage)), budgetMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([work, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async sendInput(
     instanceId: string,
     message: string,
@@ -1398,19 +1468,17 @@ export class InstanceManager extends EventEmitter {
     let hookError: string | undefined;
     try {
 
-    // If the instance is still initializing in the background, wait for it to
-    // finish before sending any user input. A 30s timeout guards against a
-    // hung init process.
+    // Wait for a background init to finish before delivering input. The budget
+    // scales with host load and transcript-replay size (see init-wait-budget).
+    // On timeout we do NOT abort: a large-context replay may still be
+    // progressing, so re-throw and let the renderer re-queue against the same
+    // readyPromise (dead inits are caught by wake deadlines + StuckProcessDetector).
     if (instance.readyPromise) {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Instance initialization timed out')), 30_000)
+      await this.awaitWithBudget(
+        instance.readyPromise,
+        this.computeInitWaitBudgetMs(instance),
+        'Instance initialization timed out',
       );
-      try {
-        await Promise.race([instance.readyPromise, timeoutPromise]);
-      } catch (error) {
-        instance.abortController?.abort();
-        throw error;
-      }
       if (instance.status === 'failed') {
         throw new Error('Instance initialization failed');
       }
@@ -1420,10 +1488,11 @@ export class InstanceManager extends EventEmitter {
     // This holds the IPC call instead of rejecting, so the renderer's queued
     // message is delivered once the new CLI process is ready.
     if (instance.respawnPromise) {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Instance respawn timed out')), 30_000)
+      await this.awaitWithBudget(
+        instance.respawnPromise,
+        this.computeInitWaitBudgetMs(instance),
+        'Instance respawn timed out',
       );
-      await Promise.race([instance.respawnPromise, timeoutPromise]);
       if (instance.status === 'error' || instance.status === 'failed') {
         throw new Error('Instance respawn after interrupt failed');
       }

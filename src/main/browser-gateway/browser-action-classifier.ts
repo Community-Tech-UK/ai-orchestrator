@@ -48,6 +48,7 @@ const DESTRUCTIVE_WORDS = [
 ];
 
 const SUBMIT_WORDS = [
+  'post',
   'submit',
   'publish',
   'send',

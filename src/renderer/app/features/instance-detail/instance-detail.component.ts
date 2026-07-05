@@ -679,19 +679,18 @@ export class InstanceDetailComponent {
     const staticModels = PROVIDER_MODEL_LIST[provider] ?? [];
     this.fallbackModels.set(staticModels);
 
-    // Then try dynamic fetch (may return same static list for non-dynamic providers).
-    try {
-      const response = await this.providerIpc.listModelsForProvider(provider);
-      if (response.success && response.data && response.data.length > 0) {
-        if (provider === 'copilot' || provider === 'cursor') {
+    // Dynamic renderer-side discovery is only a producer for providers that
+    // still need it. The dropdown itself remains unified-catalog-first with a
+    // static fallback while the catalog update round-trip completes.
+    if (provider === 'copilot' || provider === 'cursor') {
+      try {
+        const response = await this.providerIpc.listModelsForProvider(provider);
+        if (response.success && response.data && response.data.length > 0) {
           void this.providerIpc.pushCliDiscoveredModels(provider, response.data);
         }
-        if (this.instance()?.provider === provider) {
-          this.fallbackModels.set(response.data);
-        }
+      } catch {
+        // Static fallback already set above.
       }
-    } catch {
-      // Static fallback already set above.
     }
   }
 

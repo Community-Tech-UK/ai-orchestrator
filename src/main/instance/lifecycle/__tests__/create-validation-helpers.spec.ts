@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  clearKnownModelCatalogSnapshotForTesting,
+  replaceKnownModelCatalogSnapshot,
+} from '../../../../shared/types/provider.types';
 
 /**
  * Regression coverage for getKnownModelsForCli — the model-validation source of
@@ -64,6 +68,7 @@ describe('getKnownModelsForCli', () => {
   beforeEach(() => {
     cursorListModels.mockReset();
     copilotListModels.mockReset();
+    clearKnownModelCatalogSnapshotForTesting();
   });
 
   it('queries the Cursor CLI dynamically (not the static curated subset)', async () => {
@@ -107,5 +112,30 @@ describe('getKnownModelsForCli', () => {
     expect(cursorListModels).not.toHaveBeenCalled();
     expect(copilotListModels).not.toHaveBeenCalled();
     expect(models.length).toBeGreaterThan(0);
+  });
+
+  it('includes catalog-only ids for strict providers without spawning a CLI', async () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'gemini', id: 'gemini-4-pro-preview' },
+      { provider: 'antigravity', id: 'Gemini 4 Pro (High)' },
+    ]);
+
+    const geminiModels = await getKnownModelsForCli('gemini');
+    const antigravityModels = await getKnownModelsForCli('antigravity');
+
+    expect(cursorListModels).not.toHaveBeenCalled();
+    expect(copilotListModels).not.toHaveBeenCalled();
+    expect(geminiModels).toContain('gemini-4-pro-preview');
+    expect(antigravityModels).toContain('Gemini 4 Pro (High)');
+  });
+
+  it('uses the live catalog snapshot as authoritative for Codex once it is populated', async () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'codex', id: 'gpt-live-only' },
+    ]);
+
+    const models = await getKnownModelsForCli('codex');
+
+    expect(models).toEqual(['gpt-live-only']);
   });
 });

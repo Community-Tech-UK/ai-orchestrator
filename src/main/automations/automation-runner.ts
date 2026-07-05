@@ -16,7 +16,7 @@ import { getAutomationEvents } from './automation-events';
 import { ThreadWakeupRunner } from './thread-wakeup-runner';
 import { SessionRevivalService } from '../session/session-revival-service';
 import { emitPluginHook } from '../plugins/hook-emitter';
-import { getLoopCoordinator } from '../orchestration/loop-coordinator';
+import { dispatchAutomationSystemAction } from './automation-system-action-dispatch';
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
   DEFAULT_RETRY_BASE_DELAY_MS,
@@ -335,31 +335,7 @@ export class AutomationRunner {
   }
 
   private dispatchSystemActionIfHandled(claimed: ClaimedAutomationRun): AutomationRun | null {
-    const action = claimed.snapshot.action.systemAction;
-    if (!action) return null;
-
-    if (action.type === 'loopProviderLimitResume') {
-      const resumed = getLoopCoordinator().resumeLoop(action.loopRunId);
-      if (!resumed && claimed.snapshot.destination.kind === 'thread') {
-        logger.warn('Loop provider-limit resume system action could not directly resume; falling back to thread wakeup', {
-          automationId: claimed.run.automationId,
-          runId: claimed.run.id,
-          loopRunId: action.loopRunId,
-        });
-        return null;
-      }
-      return this.store.terminalizeRun(
-        claimed.run.id,
-        resumed ? 'succeeded' : 'failed',
-        resumed ? undefined : `Loop ${action.loopRunId} is not paused or active`,
-        resumed
-          ? `Loop ${action.loopRunId} resumed after provider quota reset.`
-          : `Loop ${action.loopRunId} could not be resumed after provider quota reset.`,
-        this.now(),
-      );
-    }
-
-    return null;
+    return dispatchAutomationSystemAction(claimed, { store: this.store, now: () => this.now() });
   }
 
   private reconcileInstanceState(instance: Instance): void {

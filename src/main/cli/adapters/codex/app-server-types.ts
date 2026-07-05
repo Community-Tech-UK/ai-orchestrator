@@ -312,6 +312,55 @@ export interface ReviewStartResponse {
   turn?: Turn;
 }
 
+// ─── Model Catalog ─────────────────────────────────────────────────────────
+
+export interface ModelListParams {
+  cursor?: string | null;
+  includeHidden?: boolean | null;
+  limit?: number | null;
+}
+
+export type ModelListInputModality = 'text' | 'image';
+
+export interface ModelListReasoningEffortOption {
+  description: string;
+  reasoningEffort: string;
+}
+
+export interface ModelListServiceTier {
+  description: string;
+  id: string;
+  name: string;
+}
+
+export interface ModelListModel {
+  additionalSpeedTiers?: string[];
+  defaultReasoningEffort: string;
+  defaultServiceTier?: string | null;
+  description: string;
+  displayName: string;
+  hidden: boolean;
+  id: string;
+  inputModalities?: ModelListInputModality[];
+  isDefault: boolean;
+  model: string;
+  serviceTiers?: ModelListServiceTier[];
+  supportedReasoningEfforts: ModelListReasoningEffortOption[];
+  supportsPersonality?: boolean;
+  upgrade?: string | null;
+  upgradeInfo?: {
+    migrationMarkdown?: string | null;
+    model: string;
+    modelLink?: string | null;
+    upgradeCopy?: string | null;
+  } | null;
+}
+
+export interface ModelListResponse {
+  data: ModelListModel[];
+  nextCursor?: string | null;
+}
+
 // ─── Thread Items (from Notifications) ──────────────────────────────────────
 
 export interface ThreadItem {
@@ -394,6 +443,7 @@ export interface AppServerMethodMap {
   'thread/turns/list': { params: ThreadTurnsListParams; result: ThreadTurnsListResponse };
   'thread/compact/start': { params: ThreadCompactStartParams; result: ThreadCompactStartResponse };
   'review/start': { params: ReviewStartParams; result: ReviewStartResponse };
+  'model/list': { params: ModelListParams; result: ModelListResponse };
   'turn/start': { params: TurnStartParams; result: TurnStartResponse };
   'turn/interrupt': { params: TurnInterruptParams; result: TurnInterruptResponse };
 }

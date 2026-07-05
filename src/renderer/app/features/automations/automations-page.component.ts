@@ -15,6 +15,7 @@ import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { NO_WORKSPACE_KEY } from '../../../../shared/utils/workspace-key';
 import { AutomationStore, type AutomationDraft } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
+import { PageHeaderComponent } from '../../shared/components';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { describeSchedule } from './schedule-format';
@@ -88,7 +89,7 @@ function fromLocalDateInput(value: string): number {
 @Component({
   selector: 'app-automations-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, CompactModelPickerComponent],
+  imports: [CommonModule, FormsModule, CompactModelPickerComponent, PageHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'onEscape()' },
   templateUrl: './automations-page.component.html',

@@ -164,6 +164,55 @@ describe('SettingsManager field-level dirty writes', () => {
     expect(emitted).toEqual([{ claude: 'sonnet', codex: 'gpt-5.5' }]);
   });
 
+  it('round-trips customModelsByProvider through normal settings writes', () => {
+    const manager = new SettingsManager();
+    const customModelsByProvider = {
+      claude: ['claude-future-opus'],
+      codex: ['gpt-future-codex'],
+    };
+
+    manager.set('customModelsByProvider', customModelsByProvider);
+
+    expect(manager.get('customModelsByProvider')).toEqual(customModelsByProvider);
+  });
+
+  it('migrates a legacy customModelOverride into the active provider custom model list', () => {
+    mocks.store.defaultCli = 'gemini';
+    mocks.store.customModelOverride = 'gemini-3-pro-preview';
+
+    new SettingsManager();
+
+    expect(mocks.store.customModelsByProvider).toEqual({
+      gemini: ['gemini-3-pro-preview'],
+    });
+    expect(mocks.store.customModelOverride).toBe('');
+  });
+
+  it('does not duplicate a legacy customModelOverride already present in customModelsByProvider', () => {
+    mocks.store.defaultCli = 'claude';
+    mocks.store.customModelOverride = 'claude-future-opus';
+    mocks.store.customModelsByProvider = { claude: ['claude-future-opus'] };
+
+    new SettingsManager();
+
+    expect(mocks.store.customModelsByProvider).toEqual({
+      claude: ['claude-future-opus'],
+    });
+    expect(mocks.store.customModelOverride).toBe('');
+  });
+
+  it('does not migrate legacy customModelOverride values beyond the dynamic model id limit', () => {
+    const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
+    expect(tooLongCatalogModelId).toHaveLength(513);
+    mocks.store.defaultCli = 'claude';
+    mocks.store.customModelOverride = tooLongCatalogModelId;
+
+    new SettingsManager();
+
+    expect(mocks.store.customModelsByProvider).toBeUndefined();
+    expect(mocks.store.customModelOverride).toBe(tooLongCatalogModelId);
+  });
+
   it('treats nested keys removed by the caller as deletions', () => {
     mocks.store.defaultModelByProvider = { claude: 'opus', codex: 'gpt-5.5' };
     const manager = new SettingsManager();

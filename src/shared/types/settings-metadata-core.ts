@@ -1,4 +1,16 @@
 import type { SettingMetadata } from './settings-metadata.types';
+import { PROVIDER_MODEL_LIST } from './provider.types';
+
+const DEFAULT_MODEL_SETTING_PROVIDERS = ['claude', 'codex', 'gemini'] as const;
+
+function buildDefaultModelOptions(): { value: string; label: string }[] {
+  return DEFAULT_MODEL_SETTING_PROVIDERS.flatMap((provider) =>
+    (PROVIDER_MODEL_LIST[provider] ?? []).map((model) => ({
+      value: model.id,
+      label: model.name,
+    })),
+  );
+}
 
 export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
@@ -44,22 +56,23 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     description: 'Which model new instances start with, when the chosen CLI lets you pick one.',
     type: 'select',
     category: 'general',
-    options: [
-      { value: 'opus', label: 'Opus (latest)' },
-      { value: 'sonnet', label: 'Sonnet (latest)' },
-      { value: 'haiku', label: 'Haiku (latest)' },
-      { value: 'gpt-5.5', label: 'GPT-5.5' },
-      { value: 'gpt-5.5-mini', label: 'GPT-5.5 Mini' },
-      { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
-      { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
-      { value: 'gpt-5.2', label: 'GPT-5.2' },
-      { value: 'o3', label: 'OpenAI o3' },
-      { value: 'gemini-3-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
-      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (canonical ID — currently capacity-limited)' },
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Preview)' },
-      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-    ],
+    options: buildDefaultModelOptions(),
+  },
+  {
+    key: 'customModelsByProvider',
+    label: 'Custom models by provider',
+    description: 'Provider-specific model ids added by the user. Edit these from Settings → Models so each provider list can validate duplicates.',
+    type: 'json',
+    category: 'advanced',
+    hidden: true,
+  },
+  {
+    key: 'modelCatalogRemoteOverrideUrl',
+    label: 'Remote model catalog override',
+    description: 'Optional HTTP(S) JSON catalog URL. Requests are still filtered by the app network policy; leave empty to disable.',
+    type: 'string',
+    category: 'advanced',
+    placeholder: 'https://catalog.example.com/models-override.json',
   },
   {
     key: 'theme',
@@ -140,6 +153,13 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'notify', label: 'Just notify me' },
       { value: 'runOnce', label: 'Run it once on next launch' },
     ],
+  },
+  {
+    key: 'instanceProviderLimitResumeEnabled',
+    label: 'Auto-resume sessions after a provider limit',
+    description: 'When a regular chat session stops on a provider rate/session limit, park it and automatically re-send your message once the quota window resets (loops already do this). Off by default: unattended resumes can spend quota while you are away.',
+    type: 'boolean',
+    category: 'orchestration',
   },
   {
     key: 'reactionsEnabled',

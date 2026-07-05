@@ -161,7 +161,7 @@ describe('assertWorkspaceSymlinks', () => {
   it('fails when a workspace link points outside the worktree (absolute)', async () => {
     await provisionNodeModules(root, worktree);
     const link = join(worktree, 'node_modules', '@ai-orchestrator', 'sdk');
-    rmSync(link, { force: true });
+    rmSync(link, { recursive: true, force: true });
     symlinkSync(join(root, 'packages', 'sdk'), link, process.platform === 'win32' ? 'junction' : 'dir'); // absolute → escapes worktree
     const checks = await assertWorkspaceSymlinks(worktree);
     const sdk = checks.find((c) => c.name === '@ai-orchestrator/sdk');

@@ -7,6 +7,10 @@ import { ChatStore } from '../chats/chat-store';
 import { GitBatchCancelledError, GitBatchService, getGitBatchService } from '../operator/git-batch-service';
 import { OperatorRunStore } from '../operator/operator-run-store';
 import type { McpServerToolDefinition } from './mcp-server-tools';
+import type {
+  WorkerNodeAndroidAutomationSummary,
+  WorkerNodeBrowserAutomationSummary,
+} from '../../shared/types/worker-node.types';
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
 import {
   createSettingsToolDefinitions,
@@ -21,6 +25,8 @@ import type {
   PostponeAutomationFn,
   UpdateAutomationFn,
 } from './orchestrator-automation-tools';
+
+const ProviderModelIdSchema = z.string().min(1).max(512);
 
 // The automation MCP tool schemas/types/definitions live in
 // ./orchestrator-automation-tools (extracted to keep this file under the LOC
@@ -67,22 +73,23 @@ export const ListRemoteNodesArgsSchema = z.object({}).strict();
 export type ListRemoteNodesArgs = z.infer<typeof ListRemoteNodesArgsSchema>;
 
 export interface RemoteNodeToolInfo {
-  id: string;
-  name: string;
-  status: 'connecting' | 'connected' | 'degraded' | 'disconnected';
-  platform: string;
-  arch: string;
+  id: string; name: string;
+  status: 'connecting' | 'connected' | 'degraded' | 'disconnected'; connected?: boolean;
+  platform: string; arch: string; address?: string;
   supportedClis: string[];
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
+  browserAutomation?: WorkerNodeBrowserAutomationSummary;
+  hasAndroidMcp: boolean;
+  androidAutomation?: WorkerNodeAndroidAutomationSummary;
   hasDocker: boolean;
   gpuName?: string;
   gpuMemoryMB?: number;
   activeInstances: number;
   maxConcurrentInstances: number;
   workingDirectories: string[];
-  lastHeartbeat?: number;
-  latencyMs?: number;
+  connectedAt?: number; lastHeartbeat?: number; lastAuthenticatedAt?: number;
+  pairingLabel?: string; authMethod?: 'pairing_credential' | 'manual_pairing'; latencyMs?: number;
 }
 
 export interface ListRemoteNodesResult {
@@ -94,7 +101,7 @@ export interface ListRemoteNodesResult {
 export type ListRemoteNodesFn = () => Promise<ListRemoteNodesResult>;
 
 export const REMOTE_NODE_DISCOVERY_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. Call list_remote_nodes first when reachability matters. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
+  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
 
 export const RunOnNodeArgsSchema = z.object({
   /**
@@ -113,7 +120,20 @@ export const RunOnNodeArgsSchema = z.object({
   /** CLI provider to use on the node (defaults to the node/app default). */
   provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   /** Optional model override. */
-  model: z.string().min(1).optional(),
+  model: ProviderModelIdSchema.optional(),
+  /**
+   * Require worker browser automation for this spawn. Use for remote browser
+   * evidence jobs that need injected chrome-devtools tools.
+   */
+  requiresBrowser: z.boolean().optional(),
+  /**
+   * Require Android automation for this spawn. Use for remote emulator/device,
+   * adb, mobile-mcp, APK, or phone testing. If omitted, the parent may infer
+   * Android placement from a clearly Android-focused prompt.
+   */
+  requiresAndroid: z.boolean().optional(),
+  /** Android device preference when requiresAndroid is true. */
+  androidDeviceKind: z.enum(['emulator', 'physical', 'any']).optional(),
 });
 
 export type RunOnNodeArgs = z.infer<typeof RunOnNodeArgsSchema>;
@@ -497,6 +517,22 @@ export function createOrchestratorToolDefinitions(
           model: {
             type: 'string',
             description: 'Optional model override.',
+          },
+          requiresBrowser: {
+            type: 'boolean',
+            description:
+              'Require browser automation on the worker and inject chrome-devtools tools. Use for remote browser evidence, screenshots, viewport sweeps, or UI audits.',
+          },
+          requiresAndroid: {
+            type: 'boolean',
+            description:
+              'Require Android automation on the worker and inject mobile-mcp tools. Use for emulator, physical device, adb, APK, phone, or native app testing. If omitted, clearly Android-focused prompts may be inferred.',
+          },
+          androidDeviceKind: {
+            type: 'string',
+            enum: ['emulator', 'physical', 'any'],
+            description:
+              'Android device preference when requiresAndroid is true. Defaults to any.',
           },
         },
         required: ['prompt'],

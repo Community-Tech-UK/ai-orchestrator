@@ -113,6 +113,20 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     },
 
     /**
+     * Resume a session parked on a provider limit immediately (skip the wait).
+     */
+    providerLimitResumeNow: (payload: { instanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_PROVIDER_LIMIT_RESUME_NOW, payload);
+    },
+
+    /**
+     * Cancel a provider-limit park so the session will not auto-resume.
+     */
+    providerLimitCancel: (payload: { instanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_PROVIDER_LIMIT_CANCEL, payload);
+    },
+
+    /**
      * Restart an instance
      */
     restartInstance: (payload: { instanceId: string }): Promise<IpcResponse> => {

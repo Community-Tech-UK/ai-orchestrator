@@ -6,9 +6,15 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { ChatStore } from '../../core/state/chat.store';
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { UsageStore } from '../../core/state/usage.store';
+import {
+  getModelsForProvider,
+  type ModelDisplayInfo,
+} from '../../../../shared/types/provider.types';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import type { PendingSelection } from './compact-model-picker.types';
 import type { UnifiedSelection } from './unified-model-menu.component';
+import { DynamicModelCatalogService } from './dynamic-model-catalog.service';
+import { UnifiedCatalogStore } from './unified-catalog.store';
 
 function chatRecord(overrides: Partial<ChatRecord> = {}): ChatRecord {
   return {
@@ -45,10 +51,22 @@ describe('CompactModelPickerComponent', () => {
     setModel: vi.fn(async () => undefined),
     setReasoning: vi.fn(async () => undefined),
   };
+  let unifiedModelsByProvider: Record<string, ModelDisplayInfo[]>;
+  const dynamicCatalog = {
+    ensureLoaded: vi.fn(),
+    modelsFor: vi.fn((provider: string) => getModelsForProvider(provider)),
+  };
+  const unifiedCatalog = {
+    ensureLoaded: vi.fn(),
+    displayModelsForProvider: vi.fn((provider: string) => unifiedModelsByProvider[provider] ?? []),
+    lastBuiltAt: signal<number | null>(null),
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
     selectedInstance.set(null);
+    unifiedModelsByProvider = {};
+    unifiedCatalog.lastBuiltAt.set(null);
     TestBed.configureTestingModule({
       imports: [CompactModelPickerComponent],
       providers: [
@@ -56,6 +74,8 @@ describe('CompactModelPickerComponent', () => {
         { provide: ChatStore, useValue: chatStore },
         { provide: ProviderStateService, useValue: providerState },
         { provide: UsageStore, useValue: usageStore },
+        { provide: DynamicModelCatalogService, useValue: dynamicCatalog },
+        { provide: UnifiedCatalogStore, useValue: unifiedCatalog },
       ],
     });
     fixture = TestBed.createComponent(CompactModelPickerComponent);
@@ -81,6 +101,23 @@ describe('CompactModelPickerComponent', () => {
 
     const chevron = fixture.nativeElement.querySelector('.compact-picker__chevron');
     expect(chevron).not.toBeNull();
+  });
+
+  it('uses unified catalog rows for strict-provider catalog-only selected models', () => {
+    unifiedModelsByProvider['claude'] = [
+      { id: 'claude-future-opus', name: 'Future Opus', tier: 'powerful', family: 'Opus' },
+    ];
+    fixture.componentRef.setInput('mode', 'live-instance');
+    fixture.componentRef.setInput('chat', chatRecord({
+      provider: 'claude',
+      model: 'claude-future-opus',
+    }));
+    fixture.detectChanges();
+
+    const labels = Array.from(fixture.nativeElement.querySelectorAll('.compact-picker__label'))
+      .map((el) => (el as HTMLElement).textContent?.trim());
+    expect(labels[1]).toBe('Future Opus');
+    expect(dynamicCatalog.modelsFor).not.toHaveBeenCalled();
   });
 
   it('shows the reasoning suffix only when reasoning is non-null', () => {
@@ -192,7 +229,11 @@ describe('CompactModelPickerComponent', () => {
     ]);
   });
 
-  it('live provider row commits the provider default model with default reasoning', async () => {
+  it('live provider row commits the unified-catalog default model with default reasoning', async () => {
+    unifiedModelsByProvider['codex'] = [
+      { id: 'gpt-live-codex', name: 'Live Codex', tier: 'powerful', family: 'GPT' },
+      { id: 'gpt-5.5', name: 'GPT 5.5', tier: 'balanced', family: 'GPT' },
+    ];
     fixture.componentRef.setInput('mode', 'live-instance');
     fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: null }));
     fixture.detectChanges();
@@ -202,7 +243,7 @@ describe('CompactModelPickerComponent', () => {
     }).onUnifiedSelect({ kind: 'provider', provider: 'codex' });
 
     expect(chatStore.setProvider).toHaveBeenCalledWith('chat-1', 'codex');
-    expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'gpt-5.5');
+    expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'gpt-live-codex');
     expect(chatStore.setReasoning).toHaveBeenCalledWith('chat-1', 'xhigh');
   });
 
@@ -292,5 +333,30 @@ describe('CompactModelPickerComponent', () => {
     fixture.detectChanges();
     pill = fixture.nativeElement.querySelector('.compact-picker__status') as HTMLElement;
     expect(pill).toBeNull();
+  });
+
+  it('updates catalog freshness as time passes and clears timers on destroy', () => {
+    fixture.destroy();
+    vi.useFakeTimers();
+    const builtAt = 1_000_000;
+    vi.setSystemTime(builtAt);
+    unifiedCatalog.lastBuiltAt.set(builtAt);
+    fixture = TestBed.createComponent(CompactModelPickerComponent);
+    fixture.componentRef.setInput('mode', 'live-instance');
+    fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet' }));
+    fixture.detectChanges();
+
+    let freshness = fixture.nativeElement.querySelector('.compact-picker__catalog') as HTMLElement;
+    expect(freshness?.textContent).toContain('just now');
+
+    vi.setSystemTime(builtAt + 60_000);
+    vi.advanceTimersByTime(60_000);
+    fixture.detectChanges();
+
+    freshness = fixture.nativeElement.querySelector('.compact-picker__catalog') as HTMLElement;
+    expect(freshness?.textContent).toContain('2m ago');
+
+    fixture.destroy();
+    vi.advanceTimersByTime(60_000);
   });
 });

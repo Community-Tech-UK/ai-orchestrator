@@ -13,6 +13,7 @@ import { BrowserAttachExistingTabRequestSchema } from '@contracts/schemas/browse
 export const BROWSER_CDP_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 export const WORKER_NODE_WS_MAX_PAYLOAD_BYTES = BROWSER_CDP_MAX_FRAME_BYTES + 16 * 1024 * 1024;
 export const WORKER_NODE_WS_BACKPRESSURE_BYTES = 32 * 1024 * 1024;
+const ProviderModelIdSchema = z.string().max(512);
 
 // -- Shared sub-schemas -------------------------------------------------------
 
@@ -39,6 +40,11 @@ const WorkerNodeCapabilitiesSchema = z.object({
     enabled: z.boolean(),
     running: z.boolean(),
     socketPath: z.string().optional(),
+    registration: z.enum(['ok', 'repaired', 'contested', 'error']).optional(),
+    lastRegistrationCheckAt: z.number().int().nonnegative().optional(),
+    manifestPath: z.string().optional(),
+    registrationError: z.string().optional(),
+    lastExtensionContactAt: z.number().int().nonnegative().optional(),
   }).optional(),
   hasAndroidMcp: z.boolean().optional().default(false),
   androidAutomation: z.object({
@@ -94,6 +100,7 @@ export const NodeRegisterParamsSchema = z.object({
   name: z.string().min(1).max(100),
   capabilities: WorkerNodeCapabilitiesSchema,
   token: z.string().optional(),
+  address: z.string().optional(),
 });
 
 export const NodeHeartbeatParamsSchema = z.object({
@@ -140,7 +147,7 @@ export const InstanceSpawnParamsSchema = z.object({
   cliType: z.string().min(1),
   workingDirectory: z.string().min(1),
   systemPrompt: z.string().optional(),
-  model: z.string().optional(),
+  model: ProviderModelIdSchema.optional(),
   yoloMode: z.boolean().optional(),
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),

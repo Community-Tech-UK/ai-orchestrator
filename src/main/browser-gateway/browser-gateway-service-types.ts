@@ -12,6 +12,7 @@ import type { BrowserExtensionCommandStore } from './browser-extension-command-s
 import type { BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserHealthService } from './browser-health-service';
+import type { BrowserExtensionContactStateReader } from './browser-extension-contact-state';
 import type { BrowserProfileRegistry } from './browser-profile-registry';
 import type { BrowserProfileStore } from './browser-profile-store';
 import type { BrowserTargetRegistry } from './browser-target-registry';
@@ -40,6 +41,7 @@ export interface BrowserGatewayScreenshotRequest
 export interface BrowserGatewayListTargetsRequest extends BrowserGatewayContext {
   profileId?: string;
   nodeId?: string;
+  refresh?: boolean;
 }
 
 export interface BrowserGatewayAuditLogRequest
@@ -111,6 +113,7 @@ export interface BrowserGatewayServiceOptions {
     'attachTab' | 'getTab' | 'detachTab' | 'listTabs'
   >;
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  extensionContactState?: BrowserExtensionContactStateReader;
   auditStore?: Pick<BrowserAuditStore, 'record' | 'list'>;
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;

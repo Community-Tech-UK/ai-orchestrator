@@ -20,7 +20,7 @@ import type {
   BrowserProfile,
   BrowserTarget,
 } from '@contracts/types/browser';
-import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
@@ -78,7 +78,7 @@ export class BrowserPageComponent implements OnInit {
   );
 
   readonly browserNodeOptions = computed(() => [...this.remoteNodes.nodes()].sort((a, b) => {
-    const rank = (node: WorkerNodeInfo): number =>
+    const rank = (node: RemoteNodeRosterEntry): number =>
       node.capabilities.hasBrowserMcp ? 0 : node.capabilities.hasBrowserRuntime ? 1 : 2;
     return rank(a) - rank(b) || a.name.localeCompare(b.name);
   }));
@@ -490,7 +490,7 @@ export class BrowserPageComponent implements OnInit {
     return node ? `${node.name} · ${this.nodeReadinessLabel(node)}` : `${nodeId} · Missing`;
   }
 
-  nodeReadinessLabel(node: WorkerNodeInfo): string {
+  nodeReadinessLabel(node: RemoteNodeRosterEntry): string {
     if (node.status === 'disconnected') {
       return 'Disconnected';
     }
@@ -503,7 +503,7 @@ export class BrowserPageComponent implements OnInit {
     return 'Off';
   }
 
-  isProfileNodeSelectable(node: WorkerNodeInfo): boolean {
+  isProfileNodeSelectable(node: RemoteNodeRosterEntry): boolean {
     return node.capabilities.hasBrowserMcp && node.status !== 'disconnected';
   }
 

@@ -219,8 +219,9 @@ describe('McpManager', () => {
     expect(context.selectedTools).toEqual([
       expect.objectContaining({ id: 'orchestrator:list_remote_nodes' }),
     ]);
-    expect(prompt).toContain('Windows PCs and other machines');
-    expect(prompt).toContain('Inspect nodes before claiming reachability');
+    expect(prompt).toContain('Windows PCs, laptops, desktops, named machines');
+    expect(prompt).toContain('for example "Noah\'s laptop"');
+    expect(prompt).toContain('check list_remote_nodes before local filesystem');
   });
 });
 

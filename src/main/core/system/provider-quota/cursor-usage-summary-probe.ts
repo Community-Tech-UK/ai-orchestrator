@@ -14,6 +14,10 @@ import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
 } from '../../../../shared/types/provider-quota.types';
+import {
+  clampQuotaPercent,
+  quotaRemaining,
+} from '../../../../shared/util/provider-quota-format';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
 import {
   CursorCredentialsReader,
@@ -136,7 +140,7 @@ export function parseCursorUsageSummaryPayload(
   const windows: ProviderQuotaWindow[] = [];
   const plan = usage.plan;
   if (plan?.enabled) {
-    const used = clampPct(
+    const used = clampQuotaPercent(
       typeof plan.totalPercentUsed === 'number'
         ? plan.totalPercentUsed
         : percentageFromUsedLimit(plan.used, plan.limit),
@@ -146,7 +150,7 @@ export function parseCursorUsageSummaryPayload(
 
   const onDemand = usage.onDemand;
   if (onDemand?.enabled) {
-    const used = clampPct(percentageFromUsedLimit(onDemand.used, onDemand.limit));
+    const used = clampQuotaPercent(percentageFromUsedLimit(onDemand.used, onDemand.limit));
     windows.push(percentWindow('cursor.on-demand', 'On-demand spend', used, resetAt));
   }
 
@@ -166,7 +170,7 @@ function percentWindow(
     unit: 'usd',
     used,
     limit: 100,
-    remaining: 100 - used,
+    remaining: quotaRemaining(100, used),
     resetsAt,
   };
 }
@@ -175,13 +179,6 @@ function percentageFromUsedLimit(used: number | null | undefined, limit: number 
   if (typeof used !== 'number' || !Number.isFinite(used)) return 0;
   if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return 0;
   return (used / limit) * 100;
-}
-
-function clampPct(n: number): number {
-  if (!Number.isFinite(n)) return 0;
-  if (n < 0) return 0;
-  if (n > 100) return 100;
-  return n;
 }
 
 function parseResetsAt(value: string | null | undefined): number | null {

@@ -22,6 +22,9 @@ await resolveComponentResources((url) => {
   ) {
     return Promise.resolve('');
   }
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 

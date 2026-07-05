@@ -1,6 +1,13 @@
 import { WorkerAgent } from './worker-agent';
-import { DEFAULT_CONFIG_PATH, loadWorkerConfig, resolveConfigPath } from './worker-config';
+import {
+  assertWorkerConfigHasCoordinator,
+  DEFAULT_CONFIG_PATH,
+  getConfiguredCoordinatorUrl,
+  loadWorkerConfig,
+  resolveConfigPath,
+} from './worker-config';
 import { parseServiceArgs, runServiceCommand } from './cli/service-cli';
+import { runPairCommand } from './cli/pair-cli';
 import { runBrowserExtensionNativeHost } from '../main/browser-gateway/browser-extension-native-host';
 import { installWorkerFileLogging } from './worker-file-logger';
 import { runWorkerSupervisor } from './worker-supervisor';
@@ -9,10 +16,18 @@ import { acquireSingleInstanceLock } from './single-instance-lock';
 const SUPERVISE_FLAG = '--supervise';
 
 async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
+  let argv = process.argv.slice(2);
   if (argv[0] === 'native-host') {
     await runBrowserExtensionNativeHost();
     return;
+  }
+
+  if (argv[0] === 'pair') {
+    const result = await runPairCommand(argv.slice(1));
+    if (!result.startWorker) {
+      process.exit(result.exitCode);
+    }
+    argv = ['--config', result.configPath, SUPERVISE_FLAG];
   }
 
   const cmd = parseServiceArgs(argv);
@@ -48,9 +63,10 @@ async function main(): Promise<void> {
 
   const activeConfigPath = configPath ?? DEFAULT_CONFIG_PATH;
   const config = loadWorkerConfig(activeConfigPath);
+  assertWorkerConfigHasCoordinator(config);
 
   console.log(`Worker node "${config.name}" (${config.nodeId})`);
-  console.log(`Connecting to coordinator at ${config.coordinatorUrl}...`);
+  console.log(`Connecting to coordinator at ${getConfiguredCoordinatorUrl(config)}...`);
 
   // Single-instance guard: a second worker for the same node id would register
   // under the same identity and evict the primary's coordinator socket in a

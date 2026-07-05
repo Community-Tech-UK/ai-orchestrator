@@ -127,6 +127,18 @@ export interface AppSettings {
 
   // Advanced
   customModelOverride: string; // empty = use default
+  /**
+   * User-entered model ids per provider. These feed the unified model catalog as
+   * `user-custom` entries so newly shipped models can be selected without an app
+   * rebuild while still preserving the legacy single-model override below.
+   */
+  customModelsByProvider: Record<string, string[]>;
+  /**
+   * Optional HTTP(S) JSON catalog override URL. Empty disables the remote
+   * source; non-empty URLs are still checked by the main-process network policy
+   * before any request is made.
+   */
+  modelCatalogRemoteOverrideUrl: string;
   parserBufferMaxKB: number; // max size for NDJSON parser buffer
   codememEnabled: boolean;
   codememIndexingEnabled: boolean;
@@ -174,6 +186,14 @@ export interface AppSettings {
    * whenever a workspace is opened (mirrors the codemem auto-warm trigger).
    */
   codebaseAutoIndexEnabled: boolean;
+  /**
+   * When true, a *regular* (non-loop) interactive instance that stops on a
+   * provider rate/session-limit is parked and automatically resumed after the
+   * quota-reset window — its throttled turn is re-sent. Mirrors the loop
+   * coordinator's provider-limit auto-resume, but for plain chat sessions.
+   * Default OFF: unattended resumes can spend quota while the user is away.
+   */
+  instanceProviderLimitResumeEnabled: boolean;
   /**
    * Hard cap on file count during preflight. Workspaces over this are
    * recorded as `'too_large'` and never auto-indexed — the user must use the
@@ -492,6 +512,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Advanced
   customModelOverride: '',
+  customModelsByProvider: {},
+  modelCatalogRemoteOverrideUrl: '',
   parserBufferMaxKB: 1024, // 1MB max parser buffer
   codememEnabled: true,
   codememIndexingEnabled: true,
@@ -504,6 +526,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   broadRootFileThreshold: 100,
   chromeDevtoolsAttachEnabled: false,
   chromeDevtoolsAttachProfileId: '',
+
+  // Regular-session provider-limit auto-resume (default OFF — see interface doc)
+  instanceProviderLimitResumeEnabled: false,
 
   // Codebase auto-index defaults
   codebaseAutoIndexEnabled: false,

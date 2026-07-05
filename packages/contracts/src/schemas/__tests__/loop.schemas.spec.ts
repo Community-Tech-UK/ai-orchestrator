@@ -5,6 +5,7 @@ import {
   LoopCrossModelReviewConfigSchema,
   LoopHardCapsSchema,
   LoopInterveneePayloadSchema,
+  LoopContextWindowCalibrationSchema,
   LoopPendingInputSchema,
   LoopIterationSchema,
   ProgressSignalEvidenceSchema,
@@ -22,6 +23,9 @@ import {
  * easy to attribute.
  */
 describe('Loop schemas — type/schema drift guards', () => {
+  const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
+  const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
+
   describe('LoopReviewSeveritySchema', () => {
     it('accepts the four documented severities', () => {
       for (const sev of ['critical', 'high', 'medium', 'low'] as const) {
@@ -204,6 +208,34 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
       expect(parsed.completionSignalsFired[0].openCount).toBe(0);
       expect(parsed.completionSignalsFired[1].openCount).toBeUndefined();
+    });
+  });
+
+  describe('LoopContextWindowCalibrationSchema model', () => {
+    it('accepts model ids up to the dynamic catalog limit', () => {
+      expect(maxCatalogModelId).toHaveLength(512);
+
+      expect(LoopContextWindowCalibrationSchema.safeParse({
+        provider: 'claude',
+        model: maxCatalogModelId,
+        windowTokens: 200_000,
+        calibratedAt: 1,
+        source: 'provider-error',
+        reason: 'provider reported limit',
+      }).success).toBe(true);
+    });
+
+    it('rejects model ids beyond the dynamic catalog limit', () => {
+      expect(tooLongCatalogModelId).toHaveLength(513);
+
+      expect(LoopContextWindowCalibrationSchema.safeParse({
+        provider: 'claude',
+        model: tooLongCatalogModelId,
+        windowTokens: 200_000,
+        calibratedAt: 1,
+        source: 'provider-error',
+        reason: 'provider reported limit',
+      }).success).toBe(false);
     });
   });
 

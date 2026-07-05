@@ -14,6 +14,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { ModelIpcService } from '../../core/services/ipc/model-ipc.service';
+import { CustomModelsPanelComponent } from './custom-models-panel.component';
 
 // ─── Local interfaces ────────────────────────────────────────────────────────
 
@@ -26,12 +27,19 @@ interface ModelInfo {
   maxTokens?: number;
 }
 
+interface VerificationFailure {
+  id: string;
+  name: string;
+  provider: string;
+  message: string;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 @Component({
   selector: 'app-models-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, CustomModelsPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="models-page">
@@ -43,9 +51,24 @@ interface ModelInfo {
           <span class="title">Models</span>
           <span class="subtitle">Model discovery, verification, and provider management</span>
         </div>
-        <button class="header-btn refresh-btn" type="button" (click)="refresh()" [disabled]="loading()">
+        <div class="header-actions">
+          <button
+            class="header-btn verify-all-btn"
+            type="button"
+            (click)="verifyAllVisibleModels()"
+            [disabled]="loading() || verifyingAll() || filteredModels().length === 0"
+          >
+            {{ verifyingAll() ? 'Verifying...' : 'Verify all' }}
+          </button>
+          <button
+            class="header-btn refresh-btn"
+            type="button"
+            (click)="refresh()"
+            [disabled]="loading() || verifyingAll()"
+          >
           {{ loading() ? 'Loading...' : 'Refresh' }}
-        </button>
+          </button>
+        </div>
       </div>
 
       <!-- Metric cards -->
@@ -71,7 +94,7 @@ interface ModelInfo {
             class="provider-btn"
             type="button"
             [class.active]="activeProvider() === provider"
-            [disabled]="loading()"
+            [disabled]="loading() || verifyingAll()"
             (click)="selectProvider(provider)"
           >
             {{ provider }}
@@ -82,6 +105,31 @@ interface ModelInfo {
       @if (errorMessage()) {
         <div class="error-banner">{{ errorMessage() }}</div>
       }
+
+      @if (verificationSummary()) {
+        <div
+          class="verification-results"
+          [class.has-failures]="verificationFailures().length > 0"
+          role="status"
+        >
+          <div class="verification-results-title">{{ verificationSummary() }}</div>
+          @if (verificationFailures().length > 0) {
+            <ul class="verification-failure-list">
+              @for (failure of verificationFailures(); track failure.provider + ':' + failure.id) {
+                <li>
+                  <span class="verification-failure-name">{{ failure.name }}</span>
+                  <span class="verification-failure-message">{{ failure.message }}</span>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      }
+
+      <app-custom-models-panel
+        [provider]="activeProvider()"
+        [availableModelIds]="availableModelIdsForActiveProvider()"
+      />
 
       <!-- Model cards grid -->
       <div class="models-grid">
@@ -116,7 +164,7 @@ interface ModelInfo {
               <button
                 class="btn verify-btn"
                 type="button"
-                [disabled]="loading() || verifyingId() === model.id"
+                [disabled]="loading() || verifyingAll() || verifyingId() === model.id"
                 (click)="verifyModel(model)"
               >
                 {{ verifyingId() === model.id ? 'Verifying...' : 'Verify' }}
@@ -149,10 +197,10 @@ interface ModelInfo {
             />
           </label>
           <label class="field field-wide">
-            <span class="field-label">JSON Config</span>
+            <span class="field-label">Catalog metadata JSON</span>
             <textarea
               class="textarea"
-              placeholder='{ "temperature": 0.7 }'
+              placeholder='{ "name": "Future Opus", "tier": "powerful" }'
               [value]="overrideConfig()"
               (input)="onOverrideConfigInput($event)"
             ></textarea>
@@ -177,402 +225,7 @@ interface ModelInfo {
 
     </div>
   `,
-  styles: [`
-    :host {
-      display: flex;
-      width: 100%;
-      height: 100%;
-    }
-
-    .models-page {
-      display: flex;
-      flex-direction: column;
-      width: 100%;
-      height: 100%;
-      gap: var(--spacing-md);
-      padding: var(--spacing-lg);
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      overflow-y: auto;
-    }
-
-    /* ── Header ── */
-
-    .page-header {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-md);
-      flex-shrink: 0;
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
-      font-size: 12px;
-      white-space: nowrap;
-    }
-
-    .header-btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    .refresh-btn {
-      margin-left: auto;
-    }
-
-    .header-title {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .title {
-      font-size: 18px;
-      font-weight: 700;
-    }
-
-    .subtitle {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    /* ── Notices / Banners ── */
-
-    .notice-banner {
-      padding: var(--spacing-sm) var(--spacing-md);
-      border: 1px solid color-mix(in srgb, var(--warning-color, #f59e0b) 50%, transparent);
-      border-radius: var(--radius-sm);
-      background: color-mix(in srgb, var(--warning-color, #f59e0b) 12%, transparent);
-      color: var(--text-primary);
-      font-size: 12px;
-      flex-shrink: 0;
-    }
-
-    .error-banner {
-      padding: var(--spacing-sm) var(--spacing-md);
-      border: 1px solid color-mix(in srgb, var(--error-color) 60%, transparent);
-      border-radius: var(--radius-sm);
-      background: color-mix(in srgb, var(--error-color) 14%, transparent);
-      color: var(--error-color);
-      font-size: 12px;
-      flex-shrink: 0;
-    }
-
-    /* ── Metric cards ── */
-
-    .metrics-row {
-      display: flex;
-      gap: var(--spacing-md);
-      flex-shrink: 0;
-    }
-
-    .metric-card {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: var(--spacing-xs);
-      padding: var(--spacing-md);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      background: var(--bg-secondary);
-    }
-
-    .metric-label {
-      font-size: 11px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .metric-value {
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--text-primary);
-    }
-
-    /* ── Provider selector bar ── */
-
-    .provider-bar {
-      display: flex;
-      gap: var(--spacing-sm);
-      flex-wrap: wrap;
-      flex-shrink: 0;
-    }
-
-    .provider-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
-      font-size: 12px;
-      text-transform: capitalize;
-    }
-
-    .provider-btn.active {
-      background: var(--primary-color);
-      border-color: var(--primary-color);
-      color: #fff;
-    }
-
-    .provider-btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    /* ── Model cards grid ── */
-
-    .models-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: var(--spacing-md);
-      flex-shrink: 0;
-    }
-
-    .model-card {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-sm);
-      padding: var(--spacing-md);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      background: var(--bg-secondary);
-    }
-
-    .model-card.status-verified {
-      border-color: color-mix(in srgb, var(--success-color, #22c55e) 50%, var(--border-color));
-    }
-
-    .model-card.status-error {
-      border-color: color-mix(in srgb, var(--error-color) 50%, var(--border-color));
-    }
-
-    .card-header {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-xs);
-    }
-
-    .model-name {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-primary);
-      word-break: break-word;
-    }
-
-    .badges {
-      display: flex;
-      gap: var(--spacing-xs);
-      flex-wrap: wrap;
-    }
-
-    .badge {
-      padding: 2px 8px;
-      border-radius: 9999px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-    }
-
-    .provider-badge {
-      background: color-mix(in srgb, var(--primary-color) 18%, transparent);
-      color: var(--primary-color);
-      border: 1px solid color-mix(in srgb, var(--primary-color) 35%, transparent);
-      text-transform: capitalize;
-    }
-
-    .status-badge.available {
-      background: color-mix(in srgb, var(--text-muted) 14%, transparent);
-      color: var(--text-muted);
-      border: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
-    }
-
-    .status-badge.verified {
-      background: color-mix(in srgb, var(--success-color, #22c55e) 14%, transparent);
-      color: var(--success-color, #22c55e);
-      border: 1px solid color-mix(in srgb, var(--success-color, #22c55e) 35%, transparent);
-    }
-
-    .status-badge.error {
-      background: color-mix(in srgb, var(--error-color) 14%, transparent);
-      color: var(--error-color);
-      border: 1px solid color-mix(in srgb, var(--error-color) 35%, transparent);
-    }
-
-    .capabilities {
-      display: flex;
-      gap: var(--spacing-xs);
-      flex-wrap: wrap;
-    }
-
-    .capability-tag {
-      padding: 2px 6px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-
-    .token-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 11px;
-    }
-
-    .token-label {
-      color: var(--text-muted);
-    }
-
-    .token-value {
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .card-footer {
-      margin-top: auto;
-      display: flex;
-      justify-content: flex-end;
-    }
-
-    .empty-state {
-      grid-column: 1 / -1;
-      padding: var(--spacing-lg);
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 13px;
-      border: 1px dashed var(--border-color);
-      border-radius: var(--radius-md);
-    }
-
-    /* ── Buttons ── */
-
-    .btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    .btn.primary {
-      background: var(--primary-color);
-      border-color: var(--primary-color);
-      color: #fff;
-    }
-
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    .verify-btn {
-      font-size: 11px;
-      padding: 3px 10px;
-    }
-
-    /* ── Override panel ── */
-
-    .override-panel {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-md);
-      padding: var(--spacing-md);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      background: var(--bg-secondary);
-      flex-shrink: 0;
-    }
-
-    .override-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .override-fields {
-      display: flex;
-      gap: var(--spacing-md);
-      flex-wrap: wrap;
-    }
-
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-xs);
-      min-width: 200px;
-    }
-
-    .field-wide {
-      flex: 1;
-    }
-
-    .field-label {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    .input {
-      padding: var(--spacing-xs) var(--spacing-sm);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      font-size: 12px;
-    }
-
-    .textarea {
-      min-height: 72px;
-      resize: vertical;
-      padding: var(--spacing-xs) var(--spacing-sm);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      font-size: 12px;
-      font-family: var(--font-family-mono);
-    }
-
-    .override-actions {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-md);
-    }
-
-    .override-message {
-      font-size: 12px;
-      color: var(--success-color, #22c55e);
-    }
-
-    .override-message.is-error {
-      color: var(--error-color);
-    }
-
-    @media (max-width: 768px) {
-      .metrics-row {
-        flex-direction: column;
-      }
-
-      .override-fields {
-        flex-direction: column;
-      }
-
-      .models-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-  `],
+  styleUrl: './models-page.component.scss',
 })
 export class ModelsPageComponent implements OnInit {
   private readonly router = inject(Router);
@@ -583,6 +236,9 @@ export class ModelsPageComponent implements OnInit {
   readonly errorMessage = signal<string | null>(null);
   readonly activeProvider = signal('claude');
   readonly verifyingId = signal<string | null>(null);
+  readonly verifyingAll = signal(false);
+  readonly verificationFailures = signal<VerificationFailure[]>([]);
+  readonly verificationSummary = signal<string | null>(null);
 
   readonly overrideModelId = signal('');
   readonly overrideConfig = signal('');
@@ -607,6 +263,10 @@ export class ModelsPageComponent implements OnInit {
     () => this.models().filter((m) => m.status === 'verified').length
   );
 
+  readonly availableModelIdsForActiveProvider = computed(() =>
+    this.filteredModels().map((model) => model.id)
+  );
+
   async ngOnInit(): Promise<void> {
     await this.refresh();
   }
@@ -616,8 +276,9 @@ export class ModelsPageComponent implements OnInit {
   }
 
   async refresh(): Promise<void> {
-    if (this.loading()) return;
+    if (this.loading() || this.verifyingAll()) return;
     this.errorMessage.set(null);
+    this.clearVerificationReport();
     this.loading.set(true);
     try {
       // Attempt discovery first; fall back to listing the active provider's models.
@@ -635,29 +296,70 @@ export class ModelsPageComponent implements OnInit {
   }
 
   async selectProvider(provider: string): Promise<void> {
+    if (this.verifyingAll()) return;
     this.activeProvider.set(provider);
+    this.clearVerificationReport();
     await this.loadProviderModels(provider);
   }
 
   async verifyModel(model: ModelInfo): Promise<void> {
-    if (this.loading() || this.verifyingId() === model.id) return;
+    if (this.loading() || this.verifyingAll() || this.verifyingId() === model.id) return;
+    this.clearVerificationReport();
     this.verifyingId.set(model.id);
     try {
       const response = await this.modelIpc.verifyModel(model.id);
       if (response.success) {
-        this.models.update((list) =>
-          list.map((m) => (m.id === model.id ? { ...m, status: 'verified' } : m))
-        );
+        this.updateModelStatus(model, 'verified');
       } else {
-        this.models.update((list) =>
-          list.map((m) => (m.id === model.id ? { ...m, status: 'error' } : m))
-        );
+        this.updateModelStatus(model, 'error');
         this.errorMessage.set(
           response.error?.message ?? `Verification failed for ${model.name}.`
         );
       }
     } finally {
       this.verifyingId.set(null);
+    }
+  }
+
+  async verifyAllVisibleModels(): Promise<void> {
+    if (this.loading() || this.verifyingAll()) return;
+
+    const models = this.filteredModels();
+    if (models.length === 0) return;
+
+    const failures: VerificationFailure[] = [];
+    this.errorMessage.set(null);
+    this.clearVerificationReport();
+    this.verifyingAll.set(true);
+
+    try {
+      for (const model of models) {
+        this.verifyingId.set(model.id);
+        const response = await this.modelIpc.verifyModel(model.id);
+        if (response.success) {
+          this.updateModelStatus(model, 'verified');
+          continue;
+        }
+
+        const message = response.error?.message ?? `Verification failed for ${model.name}.`;
+        this.updateModelStatus(model, 'error');
+        failures.push({
+          id: model.id,
+          name: model.name,
+          provider: model.provider,
+          message,
+        });
+      }
+
+      this.verificationFailures.set(failures);
+      this.verificationSummary.set(
+        failures.length > 0
+          ? `${failures.length} of ${models.length} ${models.length === 1 ? 'model' : 'models'} did not pass verification.`
+          : `All ${models.length} ${models.length === 1 ? 'model' : 'models'} passed verification.`,
+      );
+    } finally {
+      this.verifyingId.set(null);
+      this.verifyingAll.set(false);
     }
   }
 
@@ -680,7 +382,7 @@ export class ModelsPageComponent implements OnInit {
       }
     }
 
-    const response = await this.modelIpc.setOverride(modelId, config);
+    const response = await this.modelIpc.setOverride(this.activeProvider(), modelId, config);
     if (response.success) {
       this.overrideMessage.set('Override applied.');
       this.overrideIsError.set(false);
@@ -733,6 +435,23 @@ export class ModelsPageComponent implements OnInit {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  private updateModelStatus(model: ModelInfo, status: ModelInfo['status']): void {
+    this.models.update((list) =>
+      list.map((candidate) =>
+        this.isSameModel(candidate, model) ? { ...candidate, status } : candidate,
+      ),
+    );
+  }
+
+  private isSameModel(left: ModelInfo, right: ModelInfo): boolean {
+    return left.id === right.id && left.provider === right.provider;
+  }
+
+  private clearVerificationReport(): void {
+    this.verificationFailures.set([]);
+    this.verificationSummary.set(null);
   }
 
   private normalizeModels(data: unknown, fallbackProvider?: string): ModelInfo[] {

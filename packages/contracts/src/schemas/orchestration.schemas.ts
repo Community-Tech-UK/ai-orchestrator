@@ -4,6 +4,8 @@ import {
   SessionIdSchema,
   DirectoryPathSchema,
   FilePathSchema,
+  ModelIdSchema,
+  RequiredModelIdSchema,
   WorkingDirectorySchema,
 } from './common.schemas';
 
@@ -14,7 +16,7 @@ export const SpawnChildPayloadSchema = z.object({
   task: z.string().min(1).max(100000),
   name: z.string().max(200).optional(),
   agentId: z.string().max(100).optional(),
-  model: z.string().max(100).optional(),
+  model: ModelIdSchema.optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   node: z.string().max(200).optional(),
 });
@@ -43,7 +45,7 @@ const DebateConfigSchema = z.object({
   agents: z.number().int().min(2).max(16),
   maxRounds: z.number().int().min(1).max(10),
   convergenceThreshold: z.number().min(0).max(1),
-  synthesisModel: z.string().min(1).max(200),
+  synthesisModel: RequiredModelIdSchema,
   temperatureRange: z.tuple([z.number().min(0).max(2), z.number().min(0).max(2)]),
   timeout: z.number().int().min(1000).max(3_600_000),
 });
@@ -542,7 +544,7 @@ export const ReactionSetAutoMergePayloadSchema = z.object({
 
 export const ConsensusProviderSpecSchema = z.object({
   provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']),
-  model: z.string().optional(),
+  model: ModelIdSchema.optional(),
   weight: z.number().optional(),
 });
 

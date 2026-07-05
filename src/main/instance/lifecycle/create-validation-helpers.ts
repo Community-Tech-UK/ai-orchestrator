@@ -1,6 +1,9 @@
 import { CopilotCliAdapter } from '../../cli/adapters/copilot-cli-adapter';
 import { CursorCliAdapter } from '../../cli/adapters/cursor-cli-adapter';
-import { getModelsForProvider } from '../../../shared/types/provider.types';
+import {
+  getKnownCatalogModelIdsForProvider,
+  getModelsForProvider,
+} from '../../../shared/types/provider.types';
 import type { InstanceCreateConfig } from '../../../shared/types/instance.types';
 import { getLogger } from '../../logging/logger';
 
@@ -8,7 +11,9 @@ const logger = getLogger('InstanceLifecycle');
 
 /**
  * Return the set of valid model ids for a CLI, used to reject cross-provider
- * model leakage before spawn / on model change.
+ * model leakage before spawn / on model change. The shared unified-catalog
+ * snapshot is authoritative when populated; static provider lists are only the
+ * offline/no-snapshot fallback.
  *
  * Copilot and Cursor expose their real model list only at runtime
  * (`<cli> --list-models`), and our static `PROVIDER_MODEL_LIST` entry for them
@@ -19,10 +24,11 @@ const logger = getLogger('InstanceLifecycle');
  * the static list only when the CLI is unreachable.
  */
 export async function getKnownModelsForCli(cliType: string): Promise<string[]> {
+  const catalogIds = getKnownCatalogModelIdsForProvider(cliType);
   if (cliType === 'copilot') {
     try {
       const models = await new CopilotCliAdapter().listAvailableModels();
-      return models.map(model => model.id);
+      return mergeModelIds(models.map(model => model.id), catalogIds);
     } catch (error) {
       logger.warn('Falling back to static Copilot model list during validation', {
         error: error instanceof Error ? error.message : String(error),
@@ -33,7 +39,7 @@ export async function getKnownModelsForCli(cliType: string): Promise<string[]> {
   if (cliType === 'cursor') {
     try {
       const models = await new CursorCliAdapter().listAvailableModels();
-      return models.map(model => model.id);
+      return mergeModelIds(models.map(model => model.id), catalogIds);
     } catch (error) {
       logger.warn('Falling back to static Cursor model list during validation', {
         error: error instanceof Error ? error.message : String(error),
@@ -41,7 +47,13 @@ export async function getKnownModelsForCli(cliType: string): Promise<string[]> {
     }
   }
 
-  return getModelsForProvider(cliType).map(model => model.id);
+  return catalogIds.length > 0
+    ? catalogIds
+    : getModelsForProvider(cliType).map(model => model.id);
+}
+
+function mergeModelIds(primary: string[], secondary: string[]): string[] {
+  return [...new Set([...primary, ...secondary])];
 }
 
 /**

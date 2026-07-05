@@ -1,6 +1,10 @@
 import { Injectable, DestroyRef, computed, inject, signal } from '@angular/core';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
-import { getModelsForProvider, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import {
+  getModelsForProvider,
+  replaceKnownModelCatalogSnapshot,
+  type ModelDisplayInfo,
+} from '../../../../shared/types/provider.types';
 import type {
   CatalogStatus,
   UnifiedModelEntry,
@@ -8,7 +12,7 @@ import type {
 
 /**
  * UnifiedCatalogStore — renderer-side reactive view of the main-process unified
- * model catalog (static + models.dev + CLI-discovered).
+ * model catalog (static, models.dev, overrides, custom, and CLI-discovered).
  *
  * This is the "consume half" data layer for A1: it reads `MODELS_UNIFIED_CATALOG`
  * and live-refreshes whenever the main process pushes `models:catalog-updated`.
@@ -63,6 +67,7 @@ export class UnifiedCatalogStore {
         const res = await this.providerIpc.getUnifiedModelCatalog();
         if (res.success && res.data) {
           this._models.set(res.data.models);
+          replaceKnownModelCatalogSnapshot(res.data.models);
           this._status.set(res.data.status);
           this.loaded = true;
         }
@@ -93,7 +98,7 @@ export class UnifiedCatalogStore {
       const known = curated.get(entry.id);
       return {
         id: entry.id,
-        name: known?.name ?? humanizeModelId(entry.id),
+        name: known?.name ?? entry.name ?? humanizeModelId(entry.id),
         tier: entry.tier,
         ...(known?.pinned ? { pinned: known.pinned } : {}),
         ...(known?.family ?? entry.family ? { family: known?.family ?? entry.family } : {}),

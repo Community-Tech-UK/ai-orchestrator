@@ -55,8 +55,8 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
       <!-- Page header -->
       <header class="page-header">
         <div class="header-left">
-          <button class="back-btn" (click)="goBack()" title="Go back">
-            &#8592;
+          <button class="back-btn" type="button" (click)="goBack()" aria-label="Back to dashboard">
+            &larr; Back
           </button>
           <div class="header-text">
             <h1 class="page-title">Observations &amp; Reflections</h1>
@@ -255,6 +255,9 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
     }
 
     .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
       padding: 0.4rem 0.75rem;
       background: var(--bg-secondary);
       border: 1px solid var(--border-color);
@@ -704,7 +707,7 @@ export class ObservationsPageComponent implements OnInit {
   }
 
   goBack(): void {
-    this.router.navigate(['..']);
+    void this.router.navigate(['/']);
   }
 
   toggleObservation(id: string): void {

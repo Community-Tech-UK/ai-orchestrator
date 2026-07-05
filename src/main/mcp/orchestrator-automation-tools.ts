@@ -13,6 +13,7 @@
  */
 
 import { z } from 'zod';
+import { ModelIdSchema } from '@contracts/schemas/common';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import type { SpawnRemoteInstanceMeta } from './orchestrator-tools';
 
@@ -174,7 +175,9 @@ export const UpdateAutomationArgsSchema = z
     /** New CLI provider. Omit to leave unchanged. */
     provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
     /** New model override for the spawned agent. Omit to leave unchanged. */
-    model: z.string().min(1).max(100).optional(),
+    model: ModelIdSchema.refine((value) => value.length > 0, {
+      message: 'String must contain at least 1 character(s)',
+    }).optional(),
     /** New reasoning-effort level for the spawned agent. Omit to leave unchanged. */
     reasoningEffort: z
       .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow'])

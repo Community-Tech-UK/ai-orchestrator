@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { FileAttachmentSchema } from './common.schemas';
+import {
+  FileAttachmentSchema,
+  ModelIdSchema,
+  RequiredModelIdSchema,
+} from './common.schemas';
 
 export const ChatProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot']);
 export const ChatReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
@@ -19,7 +23,7 @@ export const ChatIdPayloadSchema = z.object({
 export const ChatCreatePayloadSchema = z.object({
   name: z.string().max(160).optional(),
   provider: ChatProviderSchema,
-  model: z.string().max(160).nullable().optional(),
+  model: ModelIdSchema.nullable().optional(),
   reasoningEffort: ChatReasoningEffortSchema.nullable().optional(),
   currentCwd: z.string().min(1).max(4096),
   parentChatId: ChatIdStringSchema.optional(),
@@ -43,7 +47,7 @@ export const ChatSetProviderPayloadSchema = z.object({
 
 export const ChatSetModelPayloadSchema = z.object({
   chatId: ChatIdStringSchema,
-  model: z.string().min(1).max(160).nullable(),
+  model: RequiredModelIdSchema.nullable(),
 });
 
 export const ChatSetReasoningPayloadSchema = z.object({

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { InstanceIdSchema } from './common.schemas';
+import { InstanceIdSchema, RequiredModelIdSchema } from './common.schemas';
 
 export const PromptHistoryEntrySchema = z.object({
   id: z.string().min(1).max(200),
@@ -7,7 +7,7 @@ export const PromptHistoryEntrySchema = z.object({
   createdAt: z.number().int().nonnegative(),
   projectPath: z.string().min(1).max(10000).optional(),
   provider: z.string().min(1).max(100).optional(),
-  model: z.string().min(1).max(200).optional(),
+  model: RequiredModelIdSchema.optional(),
   wasSlashCommand: z.boolean().optional(),
 });
 

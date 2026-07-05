@@ -178,6 +178,27 @@ describe('WorkerNodeConnectionServer — socket replacement race', () => {
     expect(mockRepairTracker.clear).toHaveBeenCalledWith(NODE_ID);
     expect(mockRepairTracker.recordRejectedRegistration).not.toHaveBeenCalled();
   });
+
+  it('forwards the socket remote address with the registration request', () => {
+    const server = WorkerNodeConnectionServer.getInstance();
+    const internals = server as unknown as {
+      handleConnection(ws: ReturnType<typeof makeFakeWs>, remoteAddress?: string): void;
+    };
+    const ws = makeFakeWs();
+    let forwarded: unknown;
+    server.on('rpc:request', (_nodeId, request) => {
+      forwarded = request;
+    });
+
+    internals.handleConnection(ws, '100.106.40.97');
+    ws.emit('message', registerMessage());
+
+    expect(forwarded).toMatchObject({
+      params: {
+        address: '100.106.40.97',
+      },
+    });
+  });
 });
 
 describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {

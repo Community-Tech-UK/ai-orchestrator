@@ -23,6 +23,9 @@ await resolveComponentResources((url) => {
   if (url.endsWith('browser-page.component.scss')) {
     return Promise.resolve(styles);
   }
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 
@@ -235,9 +238,9 @@ describe('BrowserPageComponent', () => {
             message: 'Copilot can use Browser Gateway through ACP MCP config.',
           },
           codex: {
-            available: false,
-            status: 'unavailable_exec_mode',
-            message: 'Codex exec-mode Browser Gateway is unavailable.',
+            available: true,
+            status: 'available_via_mcp',
+            message: 'Codex can use Browser Gateway through injected MCP config in local AIO sessions.',
           },
           gemini: {
             available: false,
@@ -409,7 +412,7 @@ describe('BrowserPageComponent', () => {
     const text = fixture.nativeElement.textContent;
 
     expect(text).toContain('Claude can use Browser Gateway MCP tools.');
-    expect(text).toContain('Codex exec-mode Browser Gateway is unavailable.');
+    expect(text).toContain('Codex can use Browser Gateway through injected MCP config in local AIO sessions.');
     expect(text).toContain('Gemini Browser Gateway is unavailable until adapter MCP injection is implemented.');
   });
 

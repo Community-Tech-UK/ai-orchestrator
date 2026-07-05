@@ -59,7 +59,10 @@ async function main(): Promise<void> {
     execFileSync('codesign', ['--sign', '-', '--force', '--timestamp=none', binOut], { stdio: 'inherit' });
   }
 
+  const aliasOut = path.join(outDir, `aio-worker${suffix}`);
+  fs.copyFileSync(binOut, aliasOut);
   console.log(`[sea] built ${binOut}`);
+  console.log(`[sea] built ${aliasOut}`);
 }
 
 main().catch((err) => {

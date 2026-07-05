@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildNodeHealthEntries,
   browserAutomationState,
   browserAutomationLabel,
   extensionRelayState,
@@ -10,6 +11,7 @@ import {
   loginCommandPreview,
   type NodeHealthEntry,
 } from './remote-nodes-browser-automation';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 
 function entry(over: Partial<NodeHealthEntry> = {}): NodeHealthEntry {
   return {
@@ -21,6 +23,10 @@ function entry(over: Partial<NodeHealthEntry> = {}): NodeHealthEntry {
     extensionRelayReady: false,
     androidAutomationReady: false,
     supportsGpu: false,
+    hasDocker: false,
+    activeInstances: 0,
+    maxConcurrentInstances: 0,
+    workingDirectories: [],
     supportedClis: [],
     ...over,
   };
@@ -70,6 +76,46 @@ describe('browserAutomationState', () => {
         }),
       ),
     ).toMatch(/starts on first use/);
+  });
+});
+
+describe('buildNodeHealthEntries', () => {
+  it('does not infer a platform from fallback capabilities for disconnected roster entries', () => {
+    const entries = buildNodeHealthEntries([
+      {
+        id: 'node-unknown',
+        name: 'paired-worker',
+        status: 'disconnected',
+        address: '',
+        connected: false,
+        supportedClis: [],
+        hasBrowserRuntime: false,
+        hasBrowserMcp: false,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        activeInstances: 0,
+        maxConcurrentInstances: 0,
+        workingDirectories: [],
+        capabilities: {
+          platform: 'linux',
+          arch: '',
+          cpuCores: 0,
+          totalMemoryMB: 0,
+          availableMemoryMB: 0,
+          supportedClis: [],
+          hasBrowserRuntime: false,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 0,
+          workingDirectories: [],
+          browsableRoots: [],
+          discoveredProjects: [],
+        },
+      } satisfies RemoteNodeRosterEntry,
+    ]);
+
+    expect(entries[0].platform).toBeUndefined();
   });
 });
 

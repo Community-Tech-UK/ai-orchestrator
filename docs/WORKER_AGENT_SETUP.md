@@ -6,7 +6,7 @@ This guide walks through setting up a remote worker node so the AI Orchestrator 
 
 The coordinator runs a WebSocket server. The worker agent connects to it, registers its capabilities (installed CLIs, GPU, browser, etc.), and then listens for RPC commands to spawn and manage CLI instances locally. The coordinator routes work to whatever node best matches the task requirements.
 
-Workers auto-discover the coordinator on the LAN via mDNS — no IP address needed. On first connection, the worker enrolls using a shared enrollment token and receives its own unique per-node token for all future connections.
+Workers pair to the coordinator with a one-time pairing command or canonical connection config. On first connection, the worker enrolls with that one-time credential and receives its own unique per-node token for all future connections. LAN mDNS discovery still exists as a fallback, but explicit pairing is the reliable path, especially on Windows and VPN/Tailscale networks.
 
 ## Prerequisites
 
@@ -34,11 +34,13 @@ On the worker machine you need:
 git clone <your-repo-url> ai-orchestrator
 cd ai-orchestrator
 npm install
-npm run build:worker-agent
+npm run build:worker-dist
 ```
 
-This runs esbuild and produces a single bundled file at `dist/worker-agent/index.js`.
-It also bundles the browser accessibility runner at
+This runs esbuild and produces a bundled worker entrypoint at
+`dist/worker-agent/index.js`. It also builds standalone worker binaries at
+`dist/worker-agent-sea/worker-agent` and `dist/worker-agent-sea/aio-worker`
+(`.exe` on Windows), plus the browser accessibility runner at
 `dist/worker-tools/axe-audit.mjs`.
 
 **Note:** `npm install` runs a postinstall script that rebuilds `better-sqlite3` for Electron. This is only needed if you plan to run the full Electron app on this machine — the worker agent itself doesn't use SQLite. If the postinstall fails (e.g. missing C++ build tools), the worker agent will still work fine.
@@ -54,36 +56,55 @@ On the Mac where the Electron app runs:
 
 The app will:
 - Start a WebSocket server on port 4878, bound to `0.0.0.0` (all interfaces)
-- Auto-generate a 64-character enrollment token
-- Begin advertising the service on the LAN via mDNS
+- Prepare pairing credentials for first-time worker enrollment
+- Begin advertising the service on the LAN via mDNS for fallback discovery
 
 You can adjust the port, host, and namespace in the Server Config section. If you change these while the server is running, click **Apply & Restart Server**.
 
 **Firewall:** Your Mac may prompt "Accept incoming connections?" on first run. Allow it. On macOS Sequoia+, a "wants to find devices on your local network" prompt will also appear — allow that too (required for mDNS discovery).
 
-## Step 3 — Get the Enrollment Token
+## Step 3 — Pair This Computer
 
 In the same **Remote Nodes** settings panel on the Mac:
 
-1. Scroll to the **Auth Token** section
-2. Click the **eye icon** to reveal the token, then **Copy** — or use the **Copy Connection Config** button which generates a ready-to-paste `worker-node.json` file
+1. Scroll to **Pair this computer**
+2. Click **Copy Command**
+3. Run the copied command on the worker machine
 
-The enrollment token is used for first-time registration only. After the worker connects and registers, it automatically receives its own unique per-node token. Future connections use that per-node token — you never need to copy the enrollment token again.
+The copied command looks like this:
 
-## Step 4 — Configure the Worker Agent (on the Worker Machine)
+```powershell
+aio-worker pair "ai-orchestrator://remote-node/pair?host=<mac-host>&port=4878&namespace=default&token=...&requireTls=false"
+```
 
-On the Windows machine, create the config file at:
+If you are running from a source checkout instead of a packaged worker binary, use the same arguments with the built worker entrypoint:
+
+```powershell
+node dist/worker-agent/index.js pair "ai-orchestrator://remote-node/pair?host=<mac-host>&port=4878&namespace=default&token=...&requireTls=false"
+```
+
+Or run the source-built standalone alias directly:
+
+```powershell
+.\dist\worker-agent-sea\aio-worker.exe pair "ai-orchestrator://remote-node/pair?host=<mac-host>&port=4878&namespace=default&token=...&requireTls=false"
+```
+
+The pairing link contains a one-time credential. Treat it as secret while it is valid. After the worker connects and registers, it automatically receives its own unique per-node token. Future connections use that per-node token — you never need to copy the one-time credential again.
+
+## Step 4 — Canonical Config Fallback
+
+The pairing command writes the worker config for you. If you cannot run the pairing command, use **Copy Canonical Config** in the Mac app and paste it into:
 
 ```
 %USERPROFILE%\.orchestrator\worker-node.json
 ```
 
-If you used **Copy Connection Config** on the Mac, paste it directly. Otherwise, create it manually:
+Canonical config shape:
 
 ```json
 {
   "name": "windows-pc",
-  "authToken": "<paste-the-enrollment-token>",
+  "authToken": "<one-time-pairing-credential>",
   "coordinatorUrl": "ws://<mac-ip>:4878",
   "namespace": "default",
   "maxConcurrentInstances": 10,
@@ -97,12 +118,12 @@ Field reference:
 
 | Field | Required | What it does |
 |---|---|---|
-| `name` | Yes | Human-readable name shown in the orchestrator UI. |
-| `authToken` | Yes | Enrollment token from the coordinator (used for first-time registration only). |
-| `namespace` | Yes | Must match the coordinator's namespace to be discovered via mDNS (default `"default"`). |
+| `name` | No | Human-readable name shown in the orchestrator UI. Defaults to the machine hostname when omitted. |
+| `authToken` | Yes | One-time pairing credential from the coordinator (used for first-time registration only). |
+| `coordinatorUrl` | Yes | WebSocket URL of the coordinator (e.g. `"ws://192.168.0.15:4878"`). Use `wss://` if TLS is enabled on the coordinator. |
+| `namespace` | Yes | Must match the coordinator's namespace (default `"default"`). |
 | `maxConcurrentInstances` | No | How many CLI instances this node can run simultaneously (default 10). |
 | `workingDirectories` | No | Paths the worker is allowed to use. The agent enforces path sandboxing — it rejects spawn requests outside these roots. |
-| `coordinatorUrl` | Recommended | WebSocket URL of the coordinator (e.g. `"ws://192.168.0.15:4878"`). Without this, the worker relies on mDNS auto-discovery, which is unreliable on Windows. Use `wss://` if TLS is enabled on the coordinator. |
 | `heartbeatIntervalMs` | No | Interval for heartbeat + capability refresh (default 10000ms). |
 
 Optional Android automation block:
@@ -130,9 +151,10 @@ Rules:
 - Android automation can also be toggled from Settings > Remote Nodes on the
   coordinator after the worker has connected.
 
-The copied UI config may instead contain `token`, `host`, `port`, and
-`requireTls`. The worker accepts that shape too: it treats `token` as the
-first-run enrollment token and derives `coordinatorUrl` from `host`/`port`.
+Older UI/config examples may contain `token`, `host`, `port`, and `requireTls`.
+The worker still accepts that legacy shape for compatibility: it treats `token`
+as the first-run pairing credential and derives `coordinatorUrl` from
+`host`/`port`.
 
 When Tailscale is running on the coordinator, the generated pairing config prefers
 the coordinator's Tailscale MagicDNS name when the Tailscale CLI exposes it, then
@@ -143,6 +165,7 @@ host set to `0.0.0.0` so it accepts connections on the Tailscale interface.
 **Auto-generated fields** (don't set these manually):
 - `nodeId` — UUID generated on first run, persisted to this file
 - `nodeToken` — unique per-node token received after enrollment, persisted automatically
+- `recoveryToken` — same-node recovery credential used only to repair a stale per-node token
 
 ## Step 5 — Run the Worker Agent
 
@@ -160,15 +183,15 @@ Connected! Listening for work.
 ```
 
 The worker:
-1. Discovers the coordinator on the LAN via mDNS (filtered by namespace)
-2. Connects and sends the enrollment token
+1. Reads `coordinatorUrl` from `worker-node.json`
+2. Connects and sends the one-time pairing credential
 3. Receives a unique per-node token (saved to `worker-node.json` automatically)
 4. Reports capabilities (CPU, memory, GPU, CLIs, browser, Android SDK/devices)
 5. Starts listening for RPC commands
 
 **Reconnection:** If the connection drops, the worker retries with exponential backoff (1s → 2s → 4s → ... up to 30s max). If the coordinator restarts or changes IP, continuous mDNS discovery detects it and reconnects automatically.
 
-CLI flag overrides are available if you don't want to edit the config file:
+CLI flag overrides are available for development if you do not want to edit the config file:
 
 ```bash
 node dist/worker-agent/index.js --coordinator ws://192.168.1.50:4878 --name windows-pc --token <token> --namespace default
@@ -286,7 +309,7 @@ may instead use the direct this-device endpoint configured under Voice settings.
 
 When `coordinatorUrl` is not set in the worker config, the worker automatically discovers the coordinator on the local network using mDNS (Bonjour/DNS-SD). The coordinator advertises itself as an `_ai-orchestrator._tcp` service. The worker finds it, checks that the `namespace` matches, and connects.
 
-This means you typically don't need to know the Mac's IP address — just make sure both machines are on the same subnet and the Mac firewall allows port 4878 inbound.
+This is a fallback path. Prefer the copied pairing command or canonical config when setting up a worker, especially on Windows.
 
 **Continuous discovery:** The worker keeps the mDNS browser running after connecting. If the coordinator restarts or its IP changes, the worker detects it and reconnects automatically.
 
@@ -303,15 +326,16 @@ After first-time enrollment:
 
 1. The coordinator issues the worker a unique **per-node token** (64-char hex)
 2. The worker saves this to `worker-node.json` as `nodeToken` (automatically)
-3. All future connections use the per-node token — not the enrollment token
+3. All future connections use the per-node token — not the original pairing credential
 4. The coordinator can **revoke** individual nodes from Settings > Remote Nodes without affecting others
-5. The enrollment token can be **regenerated** without disrupting existing registered nodes
+5. Manual pairing credentials can be **regenerated** without disrupting existing registered nodes
 
-If you need to re-enroll a worker (e.g. after revocation), delete the `nodeToken` and `nodeId` fields from its `worker-node.json` and restart.
+If you need to re-enroll a worker (e.g. after revocation), delete the `nodeToken`,
+`recoveryToken`, and `nodeId` fields from its `worker-node.json` and restart.
 
 ## Network Considerations
 
-**Same LAN (recommended):** Both machines on the same network, Mac firewall allows port 4878 inbound. mDNS handles discovery. This is the simplest setup.
+**Same LAN:** Both machines on the same network, Mac firewall allows port 4878 inbound. The copied pairing command can use the Mac's LAN address; mDNS remains available as a fallback.
 
 **Tailscale (recommended across changing networks):** Install Tailscale on both
 machines, sign them into the same tailnet, and keep MagicDNS enabled. When the
@@ -345,11 +369,13 @@ Then set `"coordinatorUrl": "ws://localhost:4878"` in the worker config.
 
 **"Failed to connect" on startup** — Check that the coordinator has remote nodes enabled in Settings, the port is open, and both machines can reach each other (`ping` / `Test-NetConnection <mac-ip> -Port 4878`).
 
-**"No coordinator discovered" on startup** — mDNS discovery failed. This is common on Windows. Set `coordinatorUrl` explicitly in the worker config (e.g. `"ws://192.168.0.14:4878"`). Also check that both machines are on the same subnet, the Mac firewall allows incoming connections, and the `namespace` matches.
+**"Worker config is missing coordinatorUrl"** — The worker only has a raw credential or incomplete config. Paste the full canonical Connection Config or run `aio-worker pair <pairing-link>`.
+
+**"No coordinator discovered" on startup** — mDNS discovery failed. This is common on Windows. Run the copied pairing command or set `coordinatorUrl` explicitly in the worker config (e.g. `"ws://192.168.0.14:4878"`). Also check that both machines are on the same subnet, the Mac firewall allows incoming connections, and the `namespace` matches.
 
 **Node shows "degraded" in the UI** — The coordinator hasn't received a heartbeat in 30 seconds. Check the worker agent process is still running and there are no network interruptions. It auto-recovers on reconnect within the 30s grace period.
 
-**"Unauthorized" errors** — The enrollment token doesn't match, or the node was revoked. Copy the enrollment token again from Settings > Remote Nodes. If the node was revoked, delete `nodeToken` and `nodeId` from `worker-node.json` and restart.
+**"Unauthorized" errors** — The one-time pairing credential does not match, expired, or the node was revoked. Copy a fresh pairing command from Settings > Remote Nodes. If the node was revoked, delete `nodeToken`, `recoveryToken`, and `nodeId` from `worker-node.json` and restart.
 
 **Spawn rejected with "directory not allowed"** — The requested working directory isn't in the worker's `workingDirectories` list. Add the path to the config and restart the agent.
 

@@ -1,13 +1,23 @@
-import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  appendNativeHostErrorLog,
   createNativeMessageFrame,
   parseNativeMessageFrame,
   handleBrowserExtensionNativeMessage,
 } from './browser-extension-native-host';
 
 describe('browser extension native host', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('keeps native host runtime files electron-free for worker builds', () => {
     const files = [
       'browser-extension-native-host.ts',
@@ -15,7 +25,7 @@ describe('browser extension native host', () => {
     ];
 
     for (const file of files) {
-      const source = readFileSync(path.join(__dirname, file), 'utf-8');
+      const source = fs.readFileSync(path.join(__dirname, file), 'utf-8');
       expect(source).not.toMatch(/from ['"]electron['"]|require\(['"]electron['"]\)/);
     }
   });
@@ -221,6 +231,31 @@ describe('browser extension native host', () => {
         },
       },
     });
+  });
+
+  it('appends native-host fatal startup diagnostics next to runtime config with a size cap', () => {
+    const nativeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-native-host-'));
+    tempDirs.push(nativeDir);
+    const configPath = path.join(nativeDir, 'runtime-relay.json');
+    const logPath = path.join(nativeDir, 'native-host-error.log');
+
+    appendNativeHostErrorLog({
+      configPath,
+      message: 'first startup failure',
+      now: () => 1_000,
+      maxBytes: 180,
+    });
+    appendNativeHostErrorLog({
+      configPath,
+      message: 'second startup failure '.repeat(8),
+      now: () => 2_000,
+      maxBytes: 180,
+    });
+
+    const log = fs.readFileSync(logPath, 'utf-8');
+    expect(Buffer.byteLength(log, 'utf-8')).toBeLessThanOrEqual(180);
+    expect(log).toContain('second startup failure');
+    expect(log).not.toContain('first startup failure');
   });
 
 });

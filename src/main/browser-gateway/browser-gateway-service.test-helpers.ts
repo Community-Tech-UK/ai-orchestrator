@@ -92,6 +92,7 @@ export function makeService(overrides: {
     allowedOrigins: BrowserProfile['allowedOrigins'];
   };
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  extensionContactState?: BrowserGatewayServiceOptions['extensionContactState'];
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
   stageUploadFileOnNode?: (nodeId: string, localPath: string) => Promise<string>;
   useSingleton?: boolean;
@@ -198,7 +199,16 @@ export function makeService(overrides: {
       ) ?? null,
     ),
     listRequests: vi.fn(() => approvalRequests),
-    resolveRequest: vi.fn(),
+    resolveRequest: vi.fn((requestId: string, resolution: { status: BrowserApprovalRequest['status']; grantId?: string }) => {
+      const request = approvalRequests.find((item) => item.requestId === requestId);
+      if (!request) {
+        return null;
+      }
+      request.status = resolution.status;
+      request.grantId = resolution.grantId ?? request.grantId;
+      request.decidedAt = Date.now();
+      return request;
+    }),
   };
   const profileRegistry = {
     createProfile: vi.fn((input) => ({ ...(profile ?? makeProfile()), ...input })),
@@ -213,8 +223,12 @@ export function makeService(overrides: {
   };
   const extensionTabStore = {
     attachTab: vi.fn((input, options?: { nodeId?: string; nodeName?: string }) => ({
-      profileId: `existing-tab:${input.windowId}:${input.tabId}`,
-      targetId: `existing-tab:${input.windowId}:${input.tabId}:target`,
+      profileId: options?.nodeId
+        ? `existing-tab:n.${options.nodeId}:${input.windowId}:${input.tabId}`
+        : `existing-tab:${input.windowId}:${input.tabId}`,
+      targetId: options?.nodeId
+        ? `existing-tab:n.${options.nodeId}:${input.windowId}:${input.tabId}:target`
+        : `existing-tab:${input.windowId}:${input.tabId}:target`,
       tabId: input.tabId,
       windowId: input.windowId,
       ...(options?.nodeId ? { nodeId: options.nodeId } : {}),
@@ -271,6 +285,15 @@ export function makeService(overrides: {
     driver,
     extensionTabStore,
     extensionCommandStore: overrides.extensionCommandStore,
+    extensionContactState: overrides.extensionContactState ?? {
+      getLastExtensionContactAt: () => Date.now(),
+      isExtensionContactFresh: () => true,
+      describeExtensionContact: (nodeId: string) => ({
+        nodeId,
+        lastContactAt: Date.now(),
+        silent: false,
+      }),
+    },
     auditStore,
     grantStore,
     approvalStore,
@@ -296,12 +319,13 @@ export function makeService(overrides: {
         remoteExtensions: {
           total: 0,
           ready: 0,
+          silent: 0,
           nodes: [],
         },
         providerCapabilities: {
           claude: 'available_via_mcp',
           copilot: 'available_via_acp_mcp',
-          codex: 'available_app_server',
+          codex: 'available_via_mcp',
           gemini: 'unconfigured_adapter_injection_missing',
         },
         providerCapabilityDetails: {
@@ -317,7 +341,7 @@ export function makeService(overrides: {
           },
           codex: {
             available: true,
-            status: 'available_app_server',
+            status: 'available_via_mcp',
             message: 'Available',
           },
           gemini: {

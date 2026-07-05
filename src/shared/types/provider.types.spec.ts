@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   CLAUDE_MODELS,
@@ -6,16 +6,25 @@ import {
   COPILOT_MODELS,
   DEFAULT_MODELS,
   MODEL_PRICING,
+  MAX_MODEL_ID_LENGTH,
   PROVIDER_MODEL_LIST,
   REASONING_EFFORTS,
   getDefaultModelForCli,
   getDefaultReasoningEffort,
+  clearKnownModelCatalogSnapshotForTesting,
   getPrimaryModelForProvider,
   getProviderModelContextWindow,
   isAntigravityModelId,
+  mergeKnownModelCatalogSnapshot,
   normalizeModelAliasForProvider,
   normalizeModelForProvider,
+  replaceKnownModelCatalogSnapshot,
+  resolveModelForTier,
 } from './provider.types';
+
+afterEach(() => {
+  clearKnownModelCatalogSnapshotForTesting();
+});
 
 describe('provider type helpers', () => {
   it('returns 1M context for explicit Claude 1M variants', () => {
@@ -168,6 +177,86 @@ describe('model alias normalization', () => {
   it('preserves unknown dynamic Copilot model IDs', () => {
     expect(normalizeModelForProvider('copilot', 'grok-4-next')).toBe('grok-4-next');
   });
+
+  it('normalizes tier aliases case-insensitively before provider validation', () => {
+    expect(normalizeModelForProvider('claude', 'BALANCED')).toBe(
+      resolveModelForTier('balanced', 'claude'),
+    );
+    expect(normalizeModelForProvider('codex', 'Fast')).toBe(
+      resolveModelForTier('fast', 'codex'),
+    );
+  });
+});
+
+describe('catalog-backed model normalization', () => {
+  it('accepts catalog-only model IDs for strict providers', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'claude', id: 'claude-future-opus' },
+      { provider: 'gemini', id: 'gemini-4-pro-preview' },
+      { provider: 'antigravity', id: 'Gemini 4 Pro (High)' },
+    ]);
+
+    expect(normalizeModelForProvider('claude', 'claude-future-opus')).toBe('claude-future-opus');
+    expect(normalizeModelForProvider('gemini', 'gemini-4-pro-preview')).toBe('gemini-4-pro-preview');
+    expect(normalizeModelForProvider('antigravity', 'Gemini 4 Pro (High)')).toBe('Gemini 4 Pro (High)');
+  });
+
+  it('still falls back strict providers for truly unknown IDs', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'claude', id: 'claude-future-opus' },
+    ]);
+
+    expect(normalizeModelForProvider('gemini', 'claude-future-opus')).toBe(
+      getPrimaryModelForProvider('gemini'),
+    );
+    expect(normalizeModelForProvider('antigravity', 'gemini-4-pro-preview')).toBe(
+      getPrimaryModelForProvider('antigravity'),
+    );
+  });
+
+  it('keeps broad Codex ID tolerance and also trusts catalog-only Codex IDs', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'codex', id: 'chatgpt-6-codex-preview' },
+    ]);
+
+    expect(normalizeModelForProvider('codex', 'gpt-6.1')).toBe('gpt-6.1');
+    expect(normalizeModelForProvider('codex', 'chatgpt-6-codex-preview')).toBe(
+      'chatgpt-6-codex-preview',
+    );
+    expect(normalizeModelForProvider('codex', 'not a model id')).toBe(
+      getPrimaryModelForProvider('codex'),
+    );
+  });
+
+  it('degrades overlong dynamic model IDs before they reach runtime boundaries', () => {
+    const maxLengthCodexModel = `gpt-${'a'.repeat(MAX_MODEL_ID_LENGTH - 4)}`;
+    const tooLongCodexModel = `${maxLengthCodexModel}a`;
+    const tooLongCopilotModel = `future-${'x'.repeat(MAX_MODEL_ID_LENGTH)}`;
+
+    expect(maxLengthCodexModel).toHaveLength(MAX_MODEL_ID_LENGTH);
+    expect(tooLongCodexModel).toHaveLength(MAX_MODEL_ID_LENGTH + 1);
+    expect(tooLongCopilotModel.length).toBeGreaterThan(MAX_MODEL_ID_LENGTH);
+
+    expect(normalizeModelForProvider('codex', maxLengthCodexModel)).toBe(maxLengthCodexModel);
+    expect(normalizeModelForProvider('codex', tooLongCodexModel)).toBe(
+      getPrimaryModelForProvider('codex'),
+    );
+    expect(normalizeModelForProvider('copilot', tooLongCopilotModel)).toBe(
+      getPrimaryModelForProvider('copilot'),
+    );
+  });
+
+  it('can merge custom ids without dropping an existing catalog snapshot', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'claude', id: 'claude-live-opus' },
+    ]);
+    mergeKnownModelCatalogSnapshot([
+      { provider: 'gemini', id: 'gemini-custom-pro' },
+    ]);
+
+    expect(normalizeModelForProvider('claude', 'claude-live-opus')).toBe('claude-live-opus');
+    expect(normalizeModelForProvider('gemini', 'gemini-custom-pro')).toBe('gemini-custom-pro');
+  });
 });
 
 describe('antigravity model selection', () => {
@@ -193,6 +282,14 @@ describe('antigravity model selection', () => {
     expect(isAntigravityModelId('balanced')).toBe(false);
     expect(isAntigravityModelId('')).toBe(false);
     expect(isAntigravityModelId(undefined)).toBe(false);
+  });
+
+  it('recognizes catalog-only agy labels so custom/live entries can be forwarded', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'antigravity', id: 'Gemini 4 Pro (Thinking)' },
+    ]);
+
+    expect(isAntigravityModelId('Gemini 4 Pro (Thinking)')).toBe(true);
   });
 
   it('keeps valid agy labels and falls back stale ids to the default', () => {

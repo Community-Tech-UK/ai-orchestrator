@@ -1,20 +1,25 @@
 /**
  * Static model capability catalog.
  *
- * A committed snapshot of model capabilities, context windows, pricing, and
- * modalities for all providers Harness can route to. Sourced from
- * provider documentation and the models.dev dataset.
+ * A generated view of model capabilities, context windows, pricing, and
+ * modalities for first-party providers Harness can route to.
  *
- * This catalog is the *primary* source for the model picker and routing logic.
- * Runtime API discovery (model-discovery.ts) acts as an *enrichment layer*
- * on top — never as the primary source — so the picker is instant and fully
- * offline regardless of network availability.
+ * PROVIDER_MODEL_LIST is the canonical static source of selectable model IDs.
+ * This file derives capability metadata from that list so the picker, settings
+ * metadata, and capability catalog cannot drift independently.
  *
- * To update: regenerate by running `scripts/update-models-catalog.ts`
- * (or update manually when provider docs change).
+ * Runtime API discovery and models.dev overlays remain enrichment layers on top
+ * of this offline fallback.
  *
- * Catalog version: 2026-06-09
+ * Catalog version: 2026-07-03
  */
+
+import {
+  MODEL_PRICING,
+  PROVIDER_MODEL_LIST,
+  getProviderModelContextWindow,
+  type ModelDisplayInfo,
+} from '../types/provider.types';
 
 export type ModelModality = 'text' | 'image' | 'audio' | 'video' | 'embedding' | 'code';
 export type ModelProvider =
@@ -64,366 +69,121 @@ export interface ModelCatalogEntry {
   active: boolean;
 }
 
-const VERIFIED = '2026-05-29';
-const FABLE_VERIFIED = '2026-06-09';
+const VERIFIED = '2026-07-03';
 
-/** Comprehensive static model catalog. */
-export const MODEL_CATALOG: ModelCatalogEntry[] = [
-  // ─────────────────────────────────────────────────
-  // Anthropic — Claude 4.x family
-  // ─────────────────────────────────────────────────
-  {
-    id: 'claude-fable-5',
-    name: 'Claude Fable 5',
-    provider: 'anthropic',
-    contextWindow: 1_000_000,
-    maxOutputTokens: 128_000,
-    pricing: {
-      inputPer1mTokens: 10.0,
-      outputPer1mTokens: 50.0,
-      cachePer1mWrite: 12.5,
-      cachePer1mRead: 1.0,
-    },
-    inputModalities: ['text', 'image'],
+const CATALOG_PROVIDER_BY_STATIC_PROVIDER = {
+  claude: 'anthropic',
+  codex: 'openai',
+  gemini: 'google',
+} as const satisfies Record<string, ModelProvider>;
+
+type StaticCatalogProvider = keyof typeof CATALOG_PROVIDER_BY_STATIC_PROVIDER;
+
+const STATIC_CATALOG_PROVIDERS = Object.keys(
+  CATALOG_PROVIDER_BY_STATIC_PROVIDER,
+) as StaticCatalogProvider[];
+
+/** Comprehensive static model catalog generated from PROVIDER_MODEL_LIST. */
+export const MODEL_CATALOG: ModelCatalogEntry[] = STATIC_CATALOG_PROVIDERS.flatMap((provider) => {
+  const catalogProvider = CATALOG_PROVIDER_BY_STATIC_PROVIDER[provider];
+  return (PROVIDER_MODEL_LIST[provider] ?? []).map((model) =>
+    buildCatalogEntry(provider, catalogProvider, model),
+  );
+});
+
+function buildCatalogEntry(
+  staticProvider: StaticCatalogProvider,
+  provider: ModelProvider,
+  model: ModelDisplayInfo,
+): ModelCatalogEntry {
+  const price = MODEL_PRICING[model.id];
+
+  return {
+    id: model.id,
+    name: model.name,
+    provider,
+    contextWindow: inferContextWindow(staticProvider, model.id),
+    maxOutputTokens: inferMaxOutputTokens(staticProvider, model.id),
+    pricing: price
+      ? {
+          inputPer1mTokens: price.input,
+          outputPer1mTokens: price.output,
+          ...inferCachePricing(provider, price.input),
+        }
+      : undefined,
+    inputModalities: inferInputModalities(provider),
     outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: true,
-      bestFor: ['demanding reasoning', 'long-horizon agentic work', 'complex coding', 'analysis'],
-    },
-    lastVerified: FABLE_VERIFIED,
-    active: true,
-  },
-  {
-    id: 'claude-opus-4-8',
-    name: 'Claude Opus 4.8',
-    provider: 'anthropic',
-    contextWindow: 1_000_000,
-    maxOutputTokens: 128_000,
-    pricing: {
-      inputPer1mTokens: 5.0,
-      outputPer1mTokens: 25.0,
-      cachePer1mWrite: 6.25,
-      cachePer1mRead: 0.5,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: true,
-      bestFor: ['complex reasoning', 'long-horizon coding', 'analysis', 'council'],
-    },
+    capabilities: inferCapabilities(staticProvider, model),
     lastVerified: VERIFIED,
     active: true,
-  },
-  {
-    id: 'claude-opus-4-7',
-    name: 'Claude Opus 4.7',
-    provider: 'anthropic',
-    contextWindow: 1_000_000,
-    maxOutputTokens: 32_000,
-    pricing: {
-      inputPer1mTokens: 5.0,
-      outputPer1mTokens: 25.0,
-      cachePer1mWrite: 6.25,
-      cachePer1mRead: 0.5,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: true,
-      bestFor: ['complex reasoning', 'code generation', 'analysis', 'council'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'claude-sonnet-4-6',
-    name: 'Claude Sonnet 4.6',
-    provider: 'anthropic',
-    contextWindow: 200_000,
-    maxOutputTokens: 16_000,
-    pricing: {
-      inputPer1mTokens: 3.0,
-      outputPer1mTokens: 15.0,
-      cachePer1mWrite: 3.75,
-      cachePer1mRead: 0.3,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: true,
-      bestFor: ['balanced', 'code', 'orchestration', 'agentic'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'claude-haiku-4-5-20251001',
-    name: 'Claude Haiku 4.5',
-    provider: 'anthropic',
-    contextWindow: 200_000,
-    maxOutputTokens: 8_000,
-    pricing: {
-      inputPer1mTokens: 0.8,
-      outputPer1mTokens: 4.0,
-      cachePer1mWrite: 1.0,
-      cachePer1mRead: 0.08,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: false,
-      bestFor: ['fast', 'cheap', 'simple tasks', 'verification'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'claude-3-5-sonnet-20241022',
-    name: 'Claude 3.5 Sonnet (Oct 2024)',
-    provider: 'anthropic',
-    contextWindow: 200_000,
-    maxOutputTokens: 8_192,
-    pricing: {
-      inputPer1mTokens: 3.0,
-      outputPer1mTokens: 15.0,
-      cachePer1mWrite: 3.75,
-      cachePer1mRead: 0.3,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: false,
-      bestFor: ['code', 'analysis'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  // ─────────────────────────────────────────────────
-  // Google — Gemini 2.x family
-  // ─────────────────────────────────────────────────
-  {
-    id: 'gemini-2.5-pro',
-    name: 'Gemini 2.5 Pro',
-    provider: 'google',
-    contextWindow: 1_000_000,
-    maxOutputTokens: 8_192,
-    pricing: {
-      inputPer1mTokens: 1.25,  // ≤200k; $2.50 for >200k
-      outputPer1mTokens: 10.0,
-    },
-    inputModalities: ['text', 'image', 'audio', 'video'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: false,
-      reasoning: true,
-      bestFor: ['long context', 'multimodal', 'reasoning'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'gemini-2.0-flash',
-    name: 'Gemini 2.0 Flash',
-    provider: 'google',
-    contextWindow: 1_000_000,
-    maxOutputTokens: 8_192,
-    pricing: {
-      inputPer1mTokens: 0.1,
-      outputPer1mTokens: 0.4,
-    },
-    inputModalities: ['text', 'image', 'audio', 'video'],
-    outputModalities: ['text', 'image', 'audio'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: false,
-      reasoning: false,
-      bestFor: ['fast', 'cheap', 'multimodal', 'agentic'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'gemini-1.5-flash',
-    name: 'Gemini 1.5 Flash',
-    provider: 'google',
-    contextWindow: 1_000_000,
-    maxOutputTokens: 8_192,
-    pricing: {
-      inputPer1mTokens: 0.075,
-      outputPer1mTokens: 0.3,
-    },
-    inputModalities: ['text', 'image', 'audio', 'video'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: false,
-      reasoning: false,
-      bestFor: ['fast', 'cheap', 'long context'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  // ─────────────────────────────────────────────────
-  // OpenAI — GPT-4o / o1 / o3 family
-  // ─────────────────────────────────────────────────
-  {
-    id: 'gpt-4o',
-    name: 'GPT-4o',
-    provider: 'openai',
-    contextWindow: 128_000,
-    maxOutputTokens: 16_384,
-    pricing: {
-      inputPer1mTokens: 2.5,
-      outputPer1mTokens: 10.0,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: false,
-      bestFor: ['balanced', 'multimodal', 'code'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'gpt-4o-mini',
-    name: 'GPT-4o mini',
-    provider: 'openai',
-    contextWindow: 128_000,
-    maxOutputTokens: 16_384,
-    pricing: {
-      inputPer1mTokens: 0.15,
-      outputPer1mTokens: 0.6,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: false,
-      bestFor: ['fast', 'cheap', 'simple'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'o3',
-    name: 'OpenAI o3',
-    provider: 'openai',
-    contextWindow: 200_000,
-    maxOutputTokens: 100_000,
-    pricing: {
-      inputPer1mTokens: 10.0,
-      outputPer1mTokens: 40.0,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: true,
-      bestFor: ['deep reasoning', 'math', 'complex code', 'council'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'o4-mini',
-    name: 'OpenAI o4-mini',
-    provider: 'openai',
-    contextWindow: 200_000,
-    maxOutputTokens: 100_000,
-    pricing: {
-      inputPer1mTokens: 1.1,
-      outputPer1mTokens: 4.4,
-    },
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: true,
-      reasoning: true,
-      bestFor: ['fast reasoning', 'code', 'verification'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  // ─────────────────────────────────────────────────
-  // Mistral
-  // ─────────────────────────────────────────────────
-  {
-    id: 'mistral-large-latest',
-    name: 'Mistral Large',
-    provider: 'mistral',
-    contextWindow: 128_000,
-    maxOutputTokens: 8_192,
-    pricing: {
-      inputPer1mTokens: 2.0,
-      outputPer1mTokens: 6.0,
-    },
-    inputModalities: ['text'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: false,
-      reasoning: false,
-      bestFor: ['multilingual', 'code', 'balanced'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-  {
-    id: 'codestral-latest',
-    name: 'Codestral',
-    provider: 'mistral',
-    contextWindow: 256_000,
-    maxOutputTokens: 8_192,
-    pricing: {
-      inputPer1mTokens: 1.0,
-      outputPer1mTokens: 3.0,
-    },
-    inputModalities: ['text'],
-    outputModalities: ['text'],
-    capabilities: {
-      functionCalling: true,
-      streaming: true,
-      promptCaching: false,
-      reasoning: false,
-      bestFor: ['code generation', 'fill-in-middle', 'long files'],
-    },
-    lastVerified: VERIFIED,
-    active: true,
-  },
-];
+  };
+}
+
+function inferContextWindow(provider: StaticCatalogProvider, modelId: string): number {
+  if (provider === 'claude') {
+    return getProviderModelContextWindow(provider, modelId);
+  }
+  if (provider === 'gemini') {
+    return 1_000_000;
+  }
+  return 200_000;
+}
+
+function inferMaxOutputTokens(provider: StaticCatalogProvider, modelId: string): number {
+  const normalized = modelId.toLowerCase();
+
+  if (provider === 'claude') {
+    if (normalized.includes('fable') || normalized.includes('opus')) {
+      return 128_000;
+    }
+    if (normalized.includes('sonnet')) {
+      return 64_000;
+    }
+    return 8_000;
+  }
+
+  if (provider === 'gemini') {
+    return normalized.includes('flash') ? 8_192 : 65_536;
+  }
+
+  return normalized.includes('mini') || normalized.includes('spark') ? 32_768 : 100_000;
+}
+
+function inferInputModalities(provider: ModelProvider): ModelModality[] {
+  if (provider === 'google') {
+    return ['text', 'image', 'audio', 'video'];
+  }
+  return ['text', 'image'];
+}
+
+function inferCapabilities(
+  provider: StaticCatalogProvider,
+  model: ModelDisplayInfo,
+): ModelCatalogEntry['capabilities'] {
+  return {
+    functionCalling: true,
+    streaming: true,
+    promptCaching: provider !== 'gemini',
+    reasoning: model.tier !== 'fast',
+    bestFor: [
+      model.tier,
+      ...(model.family ? [model.family.toLowerCase()] : []),
+    ],
+  };
+}
+
+function inferCachePricing(
+  provider: ModelProvider,
+  inputPrice: number,
+): Pick<NonNullable<ModelCatalogEntry['pricing']>, 'cachePer1mWrite' | 'cachePer1mRead'> {
+  if (provider !== 'anthropic') {
+    return {};
+  }
+  return {
+    cachePer1mWrite: inputPrice * 1.25,
+    cachePer1mRead: inputPrice * 0.1,
+  };
+}
 
 /** Look up a catalog entry by model ID. Returns undefined if not found. */
 export function getModelCatalogEntry(modelId: string): ModelCatalogEntry | undefined {
