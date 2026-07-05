@@ -1,4 +1,4 @@
-<div class="app-container" [class.macos]="isMacOS">
+<div class="app-container" [class.macos]="isMacOS" [class.windows]="!isMacOS">
   <div class="title-bar-drag-area" [class.windows]="!isMacOS"></div>
 
   <div

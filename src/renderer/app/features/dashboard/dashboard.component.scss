@@ -14,7 +14,7 @@
    bare spinner. */
 .dashboard-skeleton {
   display: flex;
-  height: calc(100vh - 52px);
+  height: 100%;
   width: 100%;
   background: var(--bg-primary);
   overflow: hidden;
@@ -123,7 +123,7 @@
 .dashboard {
   display: flex;
   min-height: 100%;
-  height: calc(100vh - 52px);
+  height: 100%;
   width: 100%;
   background:
     radial-gradient(circle at 10% 6%, var(--shell-workspace-glow-secondary), transparent 26%),

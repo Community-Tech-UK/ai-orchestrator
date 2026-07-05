@@ -52,65 +52,74 @@ function makeDegradedReport(summary = 'Multiple codex installs detected.'): Star
   };
 }
 
+async function setupAppComponent(platform = 'darwin'): Promise<{
+  fixture: ComponentFixture<AppComponent>;
+  component: AppComponent;
+}> {
+  window.localStorage.clear();
+
+  TestBed.overrideComponent(AppComponent, {
+    set: {
+      imports: [],
+      template,
+      templateUrl: undefined,
+      styles: [styles],
+      styleUrl: undefined,
+      styleUrls: [],
+      schemas: [CUSTOM_ELEMENTS_SCHEMA],
+    },
+  });
+
+  await TestBed.configureTestingModule({
+    imports: [AppComponent],
+    providers: [
+      { provide: Router, useValue: { navigate: vi.fn() } },
+      {
+        provide: ElectronIpcService,
+        useValue: {
+          platform,
+          onStartupCapabilities: vi.fn(() => () => void 0),
+          on: vi.fn(() => () => void 0),
+          appReady: vi.fn(async () => ({ success: true })),
+          getStartupCapabilities: vi.fn(async () => null),
+        },
+      },
+      { provide: PerfInstrumentationService, useValue: {} },
+      { provide: StressFixturesService, useValue: {} },
+      { provide: WorkspaceBenchService, useValue: {} },
+      { provide: UsageStore, useValue: { init: vi.fn() } },
+      { provide: PromptHistoryStore, useValue: { init: vi.fn() } },
+      {
+        provide: SettingsStore,
+        useValue: {
+          initialize: vi.fn(async () => void 0),
+          isInitialized: signal(false).asReadonly(),
+          get: vi.fn(() => false),
+        },
+      },
+      { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },
+      { provide: PauseRendererController, useValue: { bindReactive: vi.fn() } },
+    ],
+    schemas: [CUSTOM_ELEMENTS_SCHEMA],
+  })
+    .compileComponents();
+
+  const fixture = TestBed.createComponent(AppComponent);
+  const component = fixture.componentInstance;
+  component.startupCapabilities.set(makeDegradedReport());
+  fixture.detectChanges();
+  await fixture.whenStable();
+  fixture.detectChanges();
+
+  return { fixture, component };
+}
+
 describe('AppComponent startup banner', () => {
   let fixture: ComponentFixture<AppComponent>;
   let component: AppComponent;
 
   beforeEach(async () => {
-    window.localStorage.clear();
-
-    TestBed.overrideComponent(AppComponent, {
-      set: {
-        imports: [],
-        template,
-        templateUrl: undefined,
-        styles: [styles],
-        styleUrl: undefined,
-        styleUrls: [],
-        schemas: [CUSTOM_ELEMENTS_SCHEMA],
-      },
-    });
-
-    await TestBed.configureTestingModule({
-      imports: [AppComponent],
-      providers: [
-        { provide: Router, useValue: { navigate: vi.fn() } },
-        {
-          provide: ElectronIpcService,
-          useValue: {
-            platform: 'darwin',
-            onStartupCapabilities: vi.fn(() => () => void 0),
-            on: vi.fn(() => () => void 0),
-            appReady: vi.fn(async () => ({ success: true })),
-            getStartupCapabilities: vi.fn(async () => null),
-          },
-        },
-        { provide: PerfInstrumentationService, useValue: {} },
-        { provide: StressFixturesService, useValue: {} },
-        { provide: WorkspaceBenchService, useValue: {} },
-        { provide: UsageStore, useValue: { init: vi.fn() } },
-        { provide: PromptHistoryStore, useValue: { init: vi.fn() } },
-        {
-          provide: SettingsStore,
-          useValue: {
-            initialize: vi.fn(async () => void 0),
-            isInitialized: signal(false).asReadonly(),
-            get: vi.fn(() => false),
-          },
-        },
-        { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },
-        { provide: PauseRendererController, useValue: { bindReactive: vi.fn() } },
-      ],
-      schemas: [CUSTOM_ELEMENTS_SCHEMA],
-    })
-      .compileComponents();
-
-    fixture = TestBed.createComponent(AppComponent);
-    component = fixture.componentInstance;
-    component.startupCapabilities.set(makeDegradedReport());
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    ({ fixture, component } = await setupAppComponent());
   });
 
   it('renders a dismiss control for degraded startup checks', () => {
@@ -142,5 +151,17 @@ describe('AppComponent startup banner', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.startup-banner')).not.toBeNull();
+  });
+});
+
+describe('AppComponent title bar layout', () => {
+  it('marks Windows shells so content clears the native caption controls', async () => {
+    const { fixture } = await setupAppComponent('win32');
+    const container = fixture.nativeElement.querySelector('.app-container') as HTMLElement | null;
+
+    expect(container?.classList.contains('windows')).toBe(true);
+    expect(container?.classList.contains('macos')).toBe(false);
+    expect(styles).toContain('.app-container.windows');
+    expect(styles).toContain('padding-top: 40px');
   });
 });
