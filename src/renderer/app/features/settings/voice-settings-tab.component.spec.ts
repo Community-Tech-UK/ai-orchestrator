@@ -20,6 +20,9 @@ await resolveComponentResources((url) => {
   if (url.endsWith('voice-settings-tab.component.scss')) {
     return Promise.resolve(styles);
   }
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 

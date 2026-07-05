@@ -21,6 +21,9 @@ await resolveComponentResources((url) => {
   if (url.endsWith('setup-center.component.scss')) {
     return Promise.resolve(styles);
   }
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 
