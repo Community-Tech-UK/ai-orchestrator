@@ -94,10 +94,8 @@ export class ExtensionRelayNativeRegistration {
         this.lastSummary = { ...base, registration: 'ok' };
         return this.lastSummary;
       }
-      const foreignManifestPath = this.foreignRegisteredManifestPath(paths, registeredManifestPath)
-        ?? (this.foreignManifestOwnerPath(paths) ? paths.manifestPath : undefined);
-      if (foreignManifestPath) {
-        this.warnContested(foreignManifestPath);
+      if (this.foreignManifestOwnerPath(paths)) {
+        this.warnContested(paths.manifestPath);
         this.lastSummary = {
           ...base,
           registration: 'contested',
@@ -211,21 +209,6 @@ export class ExtensionRelayNativeRegistration {
       return undefined;
     }
     return this.registry.readManifestPath(BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME);
-  }
-
-  private foreignRegisteredManifestPath(paths: {
-    manifestPath: string;
-    nativeDir: string;
-  }, registeredManifestPath: string | undefined): string | undefined {
-    if (!registeredManifestPath || registeredManifestPath === paths.manifestPath) {
-      return undefined;
-    }
-    return this.foreignManifestOwnerPath({
-      manifestPath: registeredManifestPath,
-      nativeDir: paths.nativeDir,
-    })
-      ? registeredManifestPath
-      : undefined;
   }
 
   private foreignManifestOwnerPath(paths: {

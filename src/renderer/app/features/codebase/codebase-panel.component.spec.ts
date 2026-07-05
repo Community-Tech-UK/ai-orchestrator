@@ -23,6 +23,11 @@ await resolveComponentResources((url) => {
   if (url.endsWith('codebase-panel.component.html') || url.endsWith('codebase-panel.component.scss')) {
     return Promise.resolve('');
   }
+  // The resolver is global within an Angular test worker and can be asked for
+  // resources belonging to components registered by unrelated specs.
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 

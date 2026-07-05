@@ -223,8 +223,12 @@ export function makeService(overrides: {
   };
   const extensionTabStore = {
     attachTab: vi.fn((input, options?: { nodeId?: string; nodeName?: string }) => ({
-      profileId: `existing-tab:${input.windowId}:${input.tabId}`,
-      targetId: `existing-tab:${input.windowId}:${input.tabId}:target`,
+      profileId: options?.nodeId
+        ? `existing-tab:n.${options.nodeId}:${input.windowId}:${input.tabId}`
+        : `existing-tab:${input.windowId}:${input.tabId}`,
+      targetId: options?.nodeId
+        ? `existing-tab:n.${options.nodeId}:${input.windowId}:${input.tabId}:target`
+        : `existing-tab:${input.windowId}:${input.tabId}:target`,
       tabId: input.tabId,
       windowId: input.windowId,
       ...(options?.nodeId ? { nodeId: options.nodeId } : {}),

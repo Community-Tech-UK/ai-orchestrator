@@ -229,7 +229,7 @@ describe('ExtensionRelayNativeRegistration', () => {
     );
   });
 
-  it('does not overwrite a registry-targeted relay manifest owned outside the worker native directory', () => {
+  it('repairs a registry-targeted foreign relay manifest without modifying that foreign file', () => {
     const registry = makeRegistry();
     const logger = makeLogger();
     const chromeNativeMessagingDir = path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts');
@@ -266,21 +266,19 @@ describe('ExtensionRelayNativeRegistration', () => {
     });
 
     expect(summary).toMatchObject({
-      registration: 'contested',
-      registrationError: 'foreign_relay_manifest',
+      registration: 'repaired',
     });
-    expect(registry.registerHost).not.toHaveBeenCalled();
-    expect(fs.existsSync(expectedManifestPath)).toBe(false);
+    expect(registry.registerHost).toHaveBeenCalledWith(
+      BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+      expectedManifestPath,
+    );
+    expect(JSON.parse(fs.readFileSync(expectedManifestPath, 'utf-8'))).toMatchObject({
+      name: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+    });
     expect(JSON.parse(fs.readFileSync(foreignManifestPath, 'utf-8'))).toMatchObject({
       path: foreignWrapperPath,
     });
-    expect(logger.warn).toHaveBeenCalledWith(
-      '[WorkerExtensionRelay] Native-host registration contested',
-      expect.objectContaining({
-        hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
-        manifestPath: foreignManifestPath,
-      }),
-    );
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('reports registration errors when the Windows registry write fails', () => {
@@ -316,12 +314,29 @@ describe('ExtensionRelayNativeRegistration', () => {
     );
   });
 
-  it('marks registration contested after repeated repairs without log spam', () => {
+  it('marks registry flapping to a foreign manifest contested after repeated repairs without log spam', () => {
     const registry = makeRegistry();
     const logger = makeLogger();
+    const chromeNativeMessagingDir = path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts');
+    const expectedManifestPath = browserExtensionNativeHostManifestPath(
+      chromeNativeMessagingDir,
+      BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+    );
+    const foreignManifestPath = path.join(scratchRoot, 'foreign-owner', 'relay-manifest.json');
+    const foreignWrapperPath = path.join(scratchRoot, 'foreign-owner', 'host.cmd');
+    fs.mkdirSync(path.dirname(foreignManifestPath), { recursive: true });
+    fs.writeFileSync(foreignWrapperPath, '@echo off\n', 'utf-8');
+    fs.writeFileSync(foreignManifestPath, `${JSON.stringify({
+      name: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+      description: 'Foreign relay owner',
+      path: foreignWrapperPath,
+      type: 'stdio',
+      allowed_origins: [],
+    }, null, 2)}\n`, 'utf-8');
+    registry.readManifestPath.mockReturnValue(foreignManifestPath);
     const manager = new ExtensionRelayNativeRegistration({
       userDataPath: path.join(scratchRoot, 'worker'),
-      chromeNativeMessagingDir: path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts'),
+      chromeNativeMessagingDir,
       hostCommand: { exe: AIO_MCP, args: ['native-host'] },
       registry,
       logger,
@@ -347,6 +362,17 @@ describe('ExtensionRelayNativeRegistration', () => {
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn.mock.calls[0][0]).toContain('contested');
     expect(registry.registerHost).toHaveBeenCalledTimes(5);
+    expect(registry.registerHost).toHaveBeenCalledWith(
+      BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+      expectedManifestPath,
+    );
+    expect(registry.registerHost).not.toHaveBeenCalledWith(
+      BROWSER_EXTENSION_NATIVE_HOST_NAME,
+      expect.any(String),
+    );
+    expect(JSON.parse(fs.readFileSync(foreignManifestPath, 'utf-8'))).toMatchObject({
+      path: foreignWrapperPath,
+    });
   });
 
   function makeRegistry() {

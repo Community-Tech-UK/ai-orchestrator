@@ -656,6 +656,115 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('preserves remote node metadata when refreshing a remote existing-tab snapshot', async () => {
+    const sendCommand = vi.fn(async () => ({
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example Fresh',
+      url: 'https://example.com/fresh',
+      text: 'fresh remote text',
+    }));
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example',
+      url: 'https://example.com/page',
+      origin: 'https://example.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { extensionTabStore, service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.snapshot({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(extensionTabStore.attachTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Remote Example Fresh',
+        text: 'fresh remote text',
+      }),
+      {
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+      },
+    );
+  });
+
+  it('preserves remote node metadata when navigation refreshes a remote existing tab', async () => {
+    const sendCommand = vi.fn(async () => ({
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example After Navigate',
+      url: 'https://example.com/after',
+      text: 'after navigation',
+    }));
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example',
+      url: 'https://example.com/page',
+      origin: 'https://example.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { extensionTabStore, service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.navigate({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      url: 'https://example.com/after',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(extensionTabStore.attachTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Remote Example After Navigate',
+        text: 'after navigation',
+      }),
+      {
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+      },
+    );
+  });
+
   it('fails remote existing-tab commands fast when extension contact is stale', async () => {
     const sendCommand = vi.fn();
     const existingTab = {
