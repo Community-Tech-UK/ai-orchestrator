@@ -8,11 +8,11 @@ const componentSource = readFileSync(resolve(specDirectory, './automations-page.
 const templateSource = readFileSync(resolve(specDirectory, './automations-page.component.html'), 'utf8');
 
 describe('AutomationsPageComponent route header', () => {
-  it('uses the shared PageHeaderComponent for the page title and dashboard Back control', () => {
+  it('uses the shared PageHeaderComponent for the page title while shell owns Back navigation', () => {
     expect(componentSource).toContain('PageHeaderComponent');
     expect(templateSource).toContain('<app-page-header');
     expect(templateSource).toContain('title="Automations"');
-    expect(templateSource).toContain('backRoute="/"');
+    expect(templateSource).not.toContain('backRoute="/"');
     expect(templateSource).not.toContain('<header class="toolbar">');
   });
 });

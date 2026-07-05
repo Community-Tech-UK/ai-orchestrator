@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import type {
   MemoryEntry,
   MemoryR1Stats,
@@ -38,7 +37,6 @@ interface MemoryEntryView extends MemoryEntry {
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Memory</span>
           <span class="subtitle">Memory retrieval, learned patterns, and session history</span>
@@ -241,7 +239,6 @@ interface MemoryEntryView extends MemoryEntry {
         gap: var(--spacing-xs);
       }
 
-      .header-btn,
       .btn {
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
@@ -372,7 +369,6 @@ interface MemoryEntryView extends MemoryEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MemoryPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly memoryIpc = inject(MemoryIpcService);
   private unsubscribes: (() => void)[] = [];
 
@@ -427,10 +423,6 @@ export class MemoryPageComponent implements OnInit, OnDestroy {
     for (const unsub of this.unsubscribes) {
       unsub();
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async retrieveMemories(): Promise<void> {

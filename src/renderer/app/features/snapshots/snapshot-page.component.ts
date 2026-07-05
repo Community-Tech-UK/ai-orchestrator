@@ -133,12 +133,6 @@ export class SnapshotPageComponent implements OnInit, OnDestroy {
     this.confirmRevert.set(null);
   }
 
-  // ---- Navigation ----
-
-  goBack(): void {
-    this.router.navigate(['/']);
-  }
-
   // ---- Public event handlers ----
 
   onInstanceIdInput(event: Event): void {

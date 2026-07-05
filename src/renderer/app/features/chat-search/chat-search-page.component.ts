@@ -35,13 +35,6 @@ const RESULT_CAP = 50;
   template: `
     <div class="search-page">
       <header class="search-header">
-        <button class="back-btn" type="button" (click)="goBack()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
-          </svg>
-          Back
-        </button>
         <div class="search-input-wrap">
           <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -131,25 +124,6 @@ const RESULT_CAP = 50;
       display: flex;
       gap: 12px;
       align-items: center;
-    }
-
-    .back-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-radius: 8px;
-      background: var(--glass-light);
-      border: 1px solid var(--glass-border);
-      color: var(--text-secondary);
-      cursor: pointer;
-      font-size: 12px;
-      transition: all var(--transition-fast);
-
-      &:hover {
-        color: var(--text-primary);
-        background: var(--glass-strong);
-      }
     }
 
     .search-input-wrap {
@@ -406,10 +380,6 @@ export class ChatSearchPageComponent implements OnInit, AfterViewInit {
     void this.router.navigate(['/']);
   }
 
-  goBack(): void {
-    void this.router.navigate(['/']);
-  }
-
   formatTime(ts: number): string {
     if (!ts) return '';
     const diff = Date.now() - ts;
@@ -428,7 +398,7 @@ export class ChatSearchPageComponent implements OnInit, AfterViewInit {
     if (this.query()) {
       this.clear();
     } else {
-      this.goBack();
+      void this.router.navigate(['/']);
     }
   }
 

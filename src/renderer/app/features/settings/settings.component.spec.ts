@@ -24,10 +24,11 @@ import type {
   StartupCapabilityOverallStatus,
   StartupCapabilityReport,
 } from '../../../../shared/types/startup-capability.types';
-import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { CliUpdatePillState } from '../../../../shared/types/diagnostics.types';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
+const template = readFileSync(resolve(specDirectory, './settings.component.html'), 'utf8');
 const styles = readFileSync(resolve(specDirectory, './settings.component.scss'), 'utf8');
 
 await resolveComponentResources((url) => {
@@ -59,9 +60,13 @@ function makeReport(
   };
 }
 
-/** Minimal worker node — the component only reads `.status` for badges. */
-function makeNode(id: string, status: WorkerNodeInfo['status']): WorkerNodeInfo {
-  return { id, name: id, status } as WorkerNodeInfo;
+/** Minimal remote node — the component only reads connection state for badges. */
+function makeNode(
+  id: string,
+  status: RemoteNodeRosterEntry['status'],
+  connected = status === 'connected',
+): RemoteNodeRosterEntry {
+  return { id, name: id, status, connected } as RemoteNodeRosterEntry;
 }
 
 describe('SettingsComponent', () => {
@@ -80,7 +85,7 @@ describe('SettingsComponent', () => {
   let router: { navigate: ReturnType<typeof vi.fn> };
 
   let startupCallback: ((report: StartupCapabilityReport) => void) | null;
-  let nodes$: WritableSignal<WorkerNodeInfo[]>;
+  let nodes$: WritableSignal<RemoteNodeRosterEntry[]>;
   let cliPillState$: WritableSignal<CliUpdatePillState>;
 
   beforeEach(async () => {
@@ -98,7 +103,7 @@ describe('SettingsComponent', () => {
     router = { navigate: vi.fn().mockResolvedValue(true) };
 
     startupCallback = null;
-    nodes$ = signal<WorkerNodeInfo[]>([]);
+    nodes$ = signal<RemoteNodeRosterEntry[]>([]);
     cliPillState$ = signal<CliUpdatePillState>({ generatedAt: 0, count: 0, entries: [] });
 
     TestBed.overrideComponent(SettingsComponent, {
@@ -206,6 +211,16 @@ describe('SettingsComponent', () => {
     expect(component.navBadges()['remote-nodes']).toEqual({ text: '1 degraded', status: 'warn' });
   });
 
+  it('counts degraded Remote Nodes as online when the socket is still live', () => {
+    nodes$.set([makeNode('n1', 'degraded', true)]);
+
+    expect(component.navBadges()['remote-nodes']).toEqual({ text: '1 degraded', status: 'warn' });
+    expect(component.remoteNodesHelpStatus()).toEqual({
+      variant: 'info',
+      text: '1 of 1 enrolled node is connected.',
+    });
+  });
+
   it('surfaces a CLI Health badge only when CLI updates are available', () => {
     expect(component.navBadges()['cli-health']).toBeUndefined();
 
@@ -258,5 +273,28 @@ describe('SettingsComponent', () => {
     const restored = TestBed.createComponent(SettingsComponent).componentInstance;
 
     expect(restored.helpCollapsed()).toBe(true);
+  });
+
+  it('does not render a route-level Back button in the routed settings template', () => {
+    expect(template).not.toContain('class="back-btn"');
+    expect(template).not.toContain('aria-label="Back to dashboard"');
+  });
+
+  it('keeps the legacy close/navigate path for modal callers', () => {
+    const emit = vi.spyOn(component.closeDialog, 'emit');
+
+    component.goBack();
+
+    expect(emit).toHaveBeenCalledOnce();
+    expect(router.navigate).toHaveBeenCalledWith(['/']);
+  });
+
+  it('closes settings on Escape when focus is outside the search field', () => {
+    const emit = vi.spyOn(component.closeDialog, 'emit');
+
+    component.onKeydown(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(emit).toHaveBeenCalledOnce();
+    expect(router.navigate).toHaveBeenCalledWith(['/']);
   });
 });

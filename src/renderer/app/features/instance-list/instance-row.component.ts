@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { Instance } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 
 @Component({
   selector: 'app-instance-row',
@@ -328,7 +329,7 @@ export class InstanceRowComponent {
     const nodeId = this.remoteNodeId();
     if (!nodeId) return false;
     const node = this.remoteNodeStore.nodeById(nodeId);
-    return !node || (node.status !== 'connected' && node.status !== 'degraded');
+    return !node || !isRemoteNodeOnline(node);
   });
 
   readonly remoteNodeBadgeTitle = computed(() => {

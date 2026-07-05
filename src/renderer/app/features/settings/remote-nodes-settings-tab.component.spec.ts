@@ -151,4 +151,103 @@ describe('RemoteNodesSettingsTabComponent', () => {
       'aio-worker pair "ai-orchestrator://remote-node/pair?host=studio-mac.tailnet-abcd.ts.net&port=4878&namespace=default&token=pair-token&requireTls=false"',
     );
   });
+
+  it('counts degraded roster entries as connected when the socket is still live', async () => {
+    ipc.listNodes.mockResolvedValueOnce([
+      {
+        id: 'node-degraded',
+        name: 'windows-pc',
+        status: 'degraded',
+        connected: true,
+        address: '100.64.1.2',
+        supportedClis: [],
+        hasBrowserRuntime: false,
+        hasBrowserMcp: false,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        activeInstances: 0,
+        maxConcurrentInstances: 4,
+        workingDirectories: [],
+        capabilities: {
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 8,
+          totalMemoryMB: 16384,
+          availableMemoryMB: 8192,
+          supportedClis: [],
+          hasBrowserRuntime: false,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 4,
+          workingDirectories: [],
+          browsableRoots: [],
+          discoveredProjects: [],
+        },
+      },
+    ]);
+
+    await (
+      component as unknown as {
+        refreshNodes: () => Promise<void>;
+      }
+    ).refreshNodes();
+
+    expect(
+      (
+        component as unknown as {
+          connectedCount: WritableSignal<number>;
+        }
+      ).connectedCount(),
+    ).toBe(1);
+  });
+
+  it('does not count connecting roster entries as connected without a live socket flag', async () => {
+    ipc.listNodes.mockResolvedValueOnce([
+      {
+        id: 'node-connecting',
+        name: 'windows-pc',
+        status: 'connecting',
+        address: '100.64.1.2',
+        supportedClis: [],
+        hasBrowserRuntime: false,
+        hasBrowserMcp: false,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        activeInstances: 0,
+        maxConcurrentInstances: 4,
+        workingDirectories: [],
+        capabilities: {
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 8,
+          totalMemoryMB: 16384,
+          availableMemoryMB: 8192,
+          supportedClis: [],
+          hasBrowserRuntime: false,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 4,
+          workingDirectories: [],
+          browsableRoots: [],
+          discoveredProjects: [],
+        },
+      },
+    ]);
+
+    await (
+      component as unknown as {
+        refreshNodes: () => Promise<void>;
+      }
+    ).refreshNodes();
+
+    expect(
+      (
+        component as unknown as {
+          connectedCount: WritableSignal<number>;
+        }
+      ).connectedCount(),
+    ).toBe(0);
+  });
 });

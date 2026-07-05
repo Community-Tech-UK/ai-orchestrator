@@ -7,7 +7,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { Router } from '@angular/router';
 import type {
   BrowserAllowedOrigin,
   BrowserApprovalRequest,
@@ -42,7 +41,6 @@ export class BrowserPageComponent implements OnInit {
   private readonly ipc = inject(BrowserGatewayIpcService);
   private readonly auxIpc = inject(AuxiliaryLlmIpcService);
   private readonly remoteNodes = inject(RemoteNodeStore);
-  private readonly router = inject(Router);
 
   readonly profiles = signal<BrowserProfile[]>([]);
   readonly targets = signal<BrowserTarget[]>([]);
@@ -135,10 +133,6 @@ export class BrowserPageComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     void this.remoteNodes.initialize();
     await this.refresh();
-  }
-
-  goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   async refresh(): Promise<void> {

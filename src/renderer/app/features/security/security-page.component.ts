@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { SecurityIpcService } from '../../core/services/ipc/security-ipc.service';
 import { CommandIpcService } from '../../core/services/ipc/command-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
@@ -55,7 +54,6 @@ interface EnvVar {
 export class SecurityPageComponent implements OnInit {
   private readonly security = inject(SecurityIpcService);
   private readonly commandIpc = inject(CommandIpcService);
-  private readonly router = inject(Router);
 
   // ── Tab state ──────────────────────────────────────────────────────────────
 
@@ -110,12 +108,6 @@ export class SecurityPageComponent implements OnInit {
   ngOnInit(): void {
     this.loadAuditLog();
     this.loadBashConfig();
-  }
-
-  // ─── Navigation ────────────────────────────────────────────────────────────
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   // ─── Tab switching ─────────────────────────────────────────────────────────

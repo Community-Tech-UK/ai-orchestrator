@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { LspIpcService } from '../../core/services/ipc/lsp-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
@@ -100,7 +99,6 @@ function symbolKindIcon(kind: string): string {
   styleUrl: './lsp-page.component.scss',
 })
 export class LspPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly lspIpc = inject(LspIpcService);
 
   // ---- Server status ----
@@ -142,10 +140,6 @@ export class LspPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   kindIcon(kind: string): string {

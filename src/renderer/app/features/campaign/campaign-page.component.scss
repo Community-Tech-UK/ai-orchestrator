@@ -3,7 +3,6 @@
 .cp-title-block { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .cp-header h1 { margin: 0 0 4px; font-size: 21px; }
 .cp-subtitle { font-size: 12px; opacity: 0.62; }
-.cp-back { flex: 0 0 auto; }
 button, input, select, textarea { font: inherit; }
 button { border: 1px solid var(--border, rgba(255,255,255,0.16)); background: rgba(255,255,255,0.04); color: inherit; border-radius: 5px; padding: 5px 9px; cursor: pointer; }
 button:hover:not(:disabled), button.active { background: rgba(104, 211, 145, 0.14); border-color: rgba(104, 211, 145, 0.5); }

@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { ArchiveIpcService } from '../../core/services/ipc/archive-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -34,7 +33,6 @@ interface ArchiveEntry {
 
       <!-- Page header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Archives</span>
           <span class="subtitle">Session archive management and search</span>
@@ -492,17 +490,6 @@ interface ArchiveEntry {
         color: #fff;
       }
 
-      .header-btn {
-        border-radius: var(--radius-sm);
-        border: 1px solid var(--border-color);
-        background: var(--bg-tertiary);
-        color: var(--text-primary);
-        padding: var(--spacing-xs) var(--spacing-md);
-        font-size: 12px;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-
       /* ---- Tag chips ---- */
 
       .tag-chip {
@@ -779,7 +766,6 @@ interface ArchiveEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ArchivePageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly archiveIpc = inject(ArchiveIpcService);
 
   readonly archives = signal<ArchiveEntry[]>([]);
@@ -854,10 +840,6 @@ export class ArchivePageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.loadArchives();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refresh(): Promise<void> {

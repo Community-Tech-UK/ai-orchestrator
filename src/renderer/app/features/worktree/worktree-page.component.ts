@@ -46,7 +46,6 @@ interface InstanceOption {
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Worktrees</span>
           <span class="subtitle">Parallel branch workflow with merge/conflict visibility</span>
@@ -213,15 +212,6 @@ interface InstanceOption {
       display: flex;
       align-items: center;
       gap: var(--spacing-md);
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
     }
 
     .header-title {
@@ -459,10 +449,6 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   openRepoJobLaunch(): void {

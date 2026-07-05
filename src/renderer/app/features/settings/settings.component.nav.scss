@@ -13,51 +13,9 @@
   box-shadow: 12px 0 34px color-mix(in srgb, var(--bg-primary) 56%, transparent);
 }
 
-.sidebar-header {
-  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-md);
-}
-
-.back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  width: 100%;
-  min-height: 38px;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--transition-fast),
-    border-color var(--transition-fast),
-    color var(--transition-fast);
-}
-
-.back-btn app-settings-nav-icon {
-  font-size: 18px;
-  color: var(--text-muted);
-  transition:
-    color var(--transition-fast),
-    transform var(--transition-fast);
-}
-
-.back-btn:hover {
-  background: var(--settings-nav-bg-hover);
-  border-color: var(--glass-border-hover);
-}
-
-.back-btn:hover app-settings-nav-icon {
-  color: var(--text-primary);
-  transform: translateX(-2px);
-}
-
 .sidebar-search {
   position: relative;
-  padding: 0 var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-lg) var(--spacing-md);
 }
 
 .search-icon {
@@ -270,10 +228,6 @@
   .settings-sidebar {
     width: 236px;
     min-width: 236px;
-  }
-
-  .back-btn {
-    font-size: var(--text-md);
   }
 
   .nav-recommended,

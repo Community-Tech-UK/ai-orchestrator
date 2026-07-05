@@ -1335,6 +1335,7 @@ export class MobileGatewayServer {
       provider?: unknown;
       model?: unknown;
       initialPrompt?: unknown;
+      attachments?: unknown;
       forceNodeId?: unknown;
       nodeName?: unknown;
     };
@@ -1344,6 +1345,13 @@ export class MobileGatewayServer {
       this.sendJson(res, 400, { error: 'workingDirectory required' });
       return;
     }
+    // Optional image attachments carried on the first message (mobile paste /
+    // photo pick). The initial-prompt delivery path already understands
+    // `attachments` (see InstanceCreateConfig), so we just forward them.
+    const attachments =
+      Array.isArray(body.attachments) && body.attachments.length > 0
+        ? (body.attachments as FileAttachment[])
+        : undefined;
     const provider =
       typeof body.provider === 'string' && VALID_PROVIDERS.has(body.provider)
         ? (body.provider as InstanceCreateConfig['provider'])
@@ -1370,6 +1378,7 @@ export class MobileGatewayServer {
     const config: InstanceCreateConfig = {
       workingDirectory,
       initialPrompt: typeof body.initialPrompt === 'string' ? body.initialPrompt : undefined,
+      attachments,
       provider,
       modelOverride: typeof body.model === 'string' ? body.model : undefined,
       forceNodeId,

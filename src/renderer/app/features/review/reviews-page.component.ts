@@ -13,7 +13,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import type {
   ReviewAgentConfig,
   ReviewIssue,
@@ -44,7 +43,6 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Reviews</span>
           <span class="subtitle">Session start, agent selection, issue acknowledgment, and export</span>
@@ -229,7 +227,6 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
         gap: var(--spacing-xs);
       }
 
-      .header-btn,
       .btn {
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
@@ -362,7 +359,6 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ReviewsPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly orchestrationIpc = inject(OrchestrationIpcService);
   private readonly instanceIpc = inject(InstanceIpcService);
   private readonly fileIpc = inject(FileIpcService);
@@ -408,10 +404,6 @@ export class ReviewsPageComponent implements OnInit, OnDestroy {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refreshAll(): Promise<void> {

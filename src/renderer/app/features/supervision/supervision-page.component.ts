@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import type { SupervisionTree } from '../../../../shared/types/supervision.types';
 import { SupervisionTreeViewComponent } from './tree-view.component';
 import { OrchestrationIpcService } from '../../core/services/ipc/orchestration-ipc.service';
@@ -36,7 +35,6 @@ interface SupervisionHealthData {
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Supervision</span>
           <span class="subtitle">Tree health, failures, and circuit breakers</span>
@@ -128,15 +126,6 @@ interface SupervisionHealthData {
       display: flex;
       align-items: center;
       gap: var(--spacing-md);
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
     }
 
     .header-title {
@@ -303,7 +292,6 @@ interface SupervisionHealthData {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SupervisionPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly orchestrationIpc = inject(OrchestrationIpcService);
   private readonly baseIpc = inject(BaseIpcService);
 
@@ -340,10 +328,6 @@ export class SupervisionPageComponent implements OnInit, OnDestroy {
       unsubscribe();
     }
     this.unsubscribers = [];
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refreshAll(): Promise<void> {

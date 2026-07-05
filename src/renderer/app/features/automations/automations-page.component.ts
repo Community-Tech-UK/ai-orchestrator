@@ -1,7 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
 import type {
   Automation,
   AutomationAction,
@@ -96,7 +95,6 @@ function fromLocalDateInput(value: string): number {
   styleUrl: './automations-page.component.css',
 })
 export class AutomationsPageComponent {
-  private readonly router = inject(Router);
   private readonly instances = inject(InstanceStore);
   store = inject(AutomationStore);
 
@@ -171,10 +169,6 @@ export class AutomationsPageComponent {
 
   constructor() {
     void this.store.loadTemplates();
-  }
-
-  goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   closeOverlay(): void {

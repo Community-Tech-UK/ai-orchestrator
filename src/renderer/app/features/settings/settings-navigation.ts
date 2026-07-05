@@ -1,4 +1,5 @@
 import type { InlineHelpVariant } from './ui/inline-help.component';
+import { listSettingsExternalLinks } from '../../shared/control-surface/control-surface-nav';
 
 export type SettingsTab =
   | 'general'
@@ -259,6 +260,8 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     keywords: 'parser codemem buffer experimental',
   },
 ];
+
+export const SETTINGS_EXTERNAL_LINKS = listSettingsExternalLinks();
 
 const SETTINGS_TAB_IDS = new Set<SettingsTab>(NAV_ITEMS.map((item) => item.id));
 

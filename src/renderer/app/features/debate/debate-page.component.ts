@@ -13,7 +13,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import type {
   ActiveDebate,
   DebateResult,
@@ -33,7 +32,6 @@ const DEFAULT_DEBATE_MAX_ROUNDS = 2;
   template: `
     <div class="debate-page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Debate</span>
           <span class="subtitle">Multi-agent consensus and synthesis</span>
@@ -142,15 +140,6 @@ const DEFAULT_DEBATE_MAX_ROUNDS = 2;
       display: flex;
       align-items: center;
       gap: var(--spacing-md);
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
     }
 
     .header-title {
@@ -316,7 +305,6 @@ const DEFAULT_DEBATE_MAX_ROUNDS = 2;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DebatePageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly orchestrationIpc = inject(OrchestrationIpcService);
 
   readonly query = signal('');
@@ -349,10 +337,6 @@ export class DebatePageComponent implements OnInit, OnDestroy {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async startDebate(): Promise<void> {

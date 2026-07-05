@@ -24,6 +24,7 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { AppIpcService } from '../../core/services/ipc/app-ipc.service';
 import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import type { StartupCapabilityReport } from '../../../../shared/types/startup-capability.types';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
@@ -203,7 +204,7 @@ export class SettingsComponent {
     if (degraded > 0) {
       return { text: `${degraded} degraded`, status: 'warn' };
     }
-    const connected = nodes.filter((node) => node.status === 'connected').length;
+    const connected = nodes.filter(isRemoteNodeOnline).length;
     if (connected > 0) {
       return { text: `${connected} online`, status: 'ok' };
     }
@@ -298,7 +299,7 @@ export class SettingsComponent {
     if (nodes.length === 0) {
       return { variant: 'info', text: 'No remote nodes are enrolled yet.' };
     }
-    const connected = nodes.filter((node) => node.status === 'connected').length;
+    const connected = nodes.filter(isRemoteNodeOnline).length;
     return {
       variant: connected === nodes.length ? 'info' : 'warning',
       text: `${connected} of ${nodes.length} enrolled ${nodes.length === 1 ? 'node is' : 'nodes are'} connected.`,
@@ -411,13 +412,6 @@ export class SettingsComponent {
     });
   }
 
-  /** Toggle the contextual help/preview pane and remember the choice (item 13). */
-  toggleHelp(): void {
-    const collapsed = !this.helpCollapsed();
-    this.helpCollapsed.set(collapsed);
-    this.persistHelpCollapsed(collapsed);
-  }
-
   goBack(): void {
     // If opened as modal, emit close; otherwise navigate home.
     this.closeDialog.emit();
@@ -428,6 +422,13 @@ export class SettingsComponent {
     if (event.key === 'Escape') {
       this.goBack();
     }
+  }
+
+  /** Toggle the contextual help/preview pane and remember the choice (item 13). */
+  toggleHelp(): void {
+    const collapsed = !this.helpCollapsed();
+    this.helpCollapsed.set(collapsed);
+    this.persistHelpCollapsed(collapsed);
   }
 
   resetAll(): void {

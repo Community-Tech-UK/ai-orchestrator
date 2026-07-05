@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { NAV_ITEMS } from './settings-navigation';
+import { NAV_ITEMS, SETTINGS_EXTERNAL_LINKS } from './settings-navigation';
 
 describe('settings navigation', () => {
   it('groups Connections with network and remote controls', () => {
@@ -33,5 +33,17 @@ describe('settings navigation', () => {
     const models = NAV_ITEMS.find((item) => item.id === 'models');
 
     expect(models?.recommended).not.toBe(true);
+  });
+
+  it('derives tool-like settings links from the Control Surface registry', () => {
+    expect(SETTINGS_EXTERNAL_LINKS.map((item) => item.id).sort()).toEqual([
+      'archive',
+      'hooks',
+      'mcp',
+      'models',
+      'remote-config',
+      'snapshots',
+      'worktrees',
+    ].sort());
   });
 });

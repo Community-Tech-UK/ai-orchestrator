@@ -14,7 +14,6 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { ObservationIpcService } from '../../core/services/ipc/observation-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -55,9 +54,6 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
       <!-- Page header -->
       <header class="page-header">
         <div class="header-left">
-          <button class="back-btn" type="button" (click)="goBack()" aria-label="Back to dashboard">
-            &larr; Back
-          </button>
           <div class="header-text">
             <h1 class="page-title">Observations &amp; Reflections</h1>
             <p class="page-subtitle">Auto-reflection on agent actions and pattern recognition</p>
@@ -252,24 +248,6 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
       display: flex;
       align-items: center;
       gap: 0.75rem;
-    }
-
-    .back-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      padding: 0.4rem 0.75rem;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      color: var(--text-primary);
-      font-size: 1rem;
-      cursor: pointer;
-      transition: background 0.15s;
-
-      &:hover {
-        background: var(--bg-hover);
-      }
     }
 
     .page-title {
@@ -676,7 +654,6 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
   `],
 })
 export class ObservationsPageComponent implements OnInit {
-  private router = inject(Router);
   private observationIpc = inject(ObservationIpcService);
 
   readonly observations = signal<Observation[]>([]);
@@ -704,10 +681,6 @@ export class ObservationsPageComponent implements OnInit {
 
   refresh(): void {
     this.loadAll();
-  }
-
-  goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   toggleObservation(id: string): void {

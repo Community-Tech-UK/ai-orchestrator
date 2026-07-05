@@ -7,7 +7,6 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
 import { KnowledgeStore } from '../../core/state/knowledge.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { WakeManagementComponent } from './wake-management.component';
@@ -36,7 +35,6 @@ interface FolderPickerApi {
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">&larr; Back</button>
         <div class="header-title">
           <span class="title">Knowledge Graph</span>
           <span class="subtitle">Entities, facts, wake context, and codebase intelligence</span>
@@ -628,7 +626,6 @@ interface FolderPickerApi {
       gap: var(--spacing-xs);
     }
 
-    .header-btn,
     .btn {
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-color);
@@ -1016,7 +1013,6 @@ interface FolderPickerApi {
 })
 export class KnowledgePageComponent implements OnInit {
   protected store = inject(KnowledgeStore);
-  private router = inject(Router);
   private settingsStore = inject(SettingsStore);
 
   protected entityQuery = signal('');
@@ -1046,10 +1042,6 @@ export class KnowledgePageComponent implements OnInit {
     ]);
 
     await this.initializeMineDirectory();
-  }
-
-  goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   onEntityQueryInput(event: Event): void {

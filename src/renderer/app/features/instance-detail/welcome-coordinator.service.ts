@@ -1,6 +1,7 @@
 import { Injectable, inject, signal, computed, effect } from '@angular/core';
 import { InstanceStore } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import {
   OrchestrationIpcService,
   RecentDirectoriesIpcService,
@@ -309,7 +310,7 @@ export class WelcomeCoordinatorService {
     let effectiveWorkingDir = workingDir;
     if (forceNodeId) {
       const node = this.remoteNodeStore.nodeById(forceNodeId);
-      if (!node || (node.status !== 'connected' && node.status !== 'degraded')) {
+      if (!node || !isRemoteNodeOnline(node)) {
         this.store.setError(
           'Selected remote node is no longer connected. Please choose another node or use Local.',
         );

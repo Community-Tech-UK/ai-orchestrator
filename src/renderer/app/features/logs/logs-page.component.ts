@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { LoggingIpcService } from '../../core/services/ipc/logging-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -43,7 +42,6 @@ interface DebugCommand {
 
       <!-- Page header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Logs &amp; Debug</span>
           <span class="subtitle">Application logs, debug commands, and diagnostics</span>
@@ -305,7 +303,6 @@ interface DebugCommand {
 
     /* ── Buttons ───────────────────────────────────────────────────────────── */
 
-    .header-btn,
     .btn {
       padding: var(--spacing-xs) var(--spacing-md);
       border-radius: var(--radius-sm);
@@ -317,7 +314,6 @@ interface DebugCommand {
       white-space: nowrap;
     }
 
-    .header-btn:hover,
     .btn:hover:not(:disabled) {
       background: var(--bg-secondary);
     }
@@ -730,7 +726,6 @@ interface DebugCommand {
   `],
 })
 export class LogsPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly loggingIpc = inject(LoggingIpcService);
 
   // ── Tab state ──────────────────────────────────────────────────────────────
@@ -787,12 +782,6 @@ export class LogsPageComponent implements OnInit {
 
   ngOnInit(): void {
     void this.loadLogs();
-  }
-
-  // ─── Navigation ────────────────────────────────────────────────────────────
-
-  goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   // ─── Tab switching ─────────────────────────────────────────────────────────

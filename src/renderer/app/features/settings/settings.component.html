@@ -1,13 +1,6 @@
 <div class="settings-page" (keydown)="onKeydown($event)" tabindex="0">
   <!-- Left nav rail -->
   <aside class="settings-sidebar">
-    <div class="sidebar-header">
-      <button class="back-btn" type="button" (click)="goBack()" aria-label="Back to dashboard">
-        <app-settings-nav-icon name="back" />
-        <span>Back</span>
-      </button>
-    </div>
-
     <div class="sidebar-search">
       <span class="search-icon"><app-settings-nav-icon name="search" /></span>
       <input
@@ -346,7 +339,6 @@
                 <app-inline-help variant="tip" heading="Finding your way">
                   Sidebar sections are grouped by what they affect — agent
                   behavior, workspace tools, network, and health diagnostics.
-                  Press Esc to leave Settings.
                 </app-inline-help>
               }
             }

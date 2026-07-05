@@ -27,9 +27,12 @@ $durableDirs = @(
   'conversation-history',
   'conversation-ledger',
   'session-continuity',
+  'projects',
+  'transaction-logs',
   'archived-sessions',
   'content-store',
   'output-storage',
+  'child-results',
   'snapshots',
   'operator',
   'loop-mode'
@@ -38,6 +41,8 @@ $durableDirs = @(
 $durableFiles = @(
   'loop-learnings.json'
 )
+
+$projectMirrorExcludeDirs = @('shadow-repo')
 
 function Resolve-UserDataRoot {
   param([string]$RequestedRoot)
@@ -84,6 +89,18 @@ function Resolve-HarnessExe {
   }
 
   throw 'Could not locate Harness.exe. Pass -HarnessExe explicitly.'
+}
+
+function Assert-NotOneDrivePath {
+  param([string]$PathValue, [string]$Label)
+  if ([string]::IsNullOrWhiteSpace($PathValue)) {
+    return
+  }
+
+  $normalized = $PathValue -replace '/', '\'
+  if ($normalized -match '(?i)(^|\\)OneDrive(?:\s+-\s+[^\\]+)?($|\\)') {
+    throw "$Label must not be under OneDrive: $PathValue"
+  }
 }
 
 function Assert-HarnessClosed {
@@ -147,12 +164,16 @@ function Assert-HubReady {
 }
 
 function Invoke-RobocopyMirror {
-  param([string]$Source, [string]$Destination)
+  param([string]$Source, [string]$Destination, [string[]]$ExcludeDirs = @())
   if (-not (Test-Path -LiteralPath $Destination)) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
   }
 
   $args = @($Source, $Destination, '/MIR', '/R:2', '/W:2', '/FFT', '/Z')
+  if ($ExcludeDirs.Count -gt 0) {
+    $args += '/XD'
+    $args += $ExcludeDirs
+  }
   if ($DryRun) {
     $args += '/L'
   }
@@ -185,6 +206,26 @@ function Copy-DurableFile {
   Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
+function Remove-ProjectShadowRepos {
+  param([string]$ProjectsRoot)
+  if (-not (Test-Path -LiteralPath $ProjectsRoot -PathType Container)) {
+    return
+  }
+
+  $shadowRepos = @(
+    Get-ChildItem -LiteralPath $ProjectsRoot -Directory -Recurse -Filter 'shadow-repo' -ErrorAction SilentlyContinue |
+      Where-Object { ($_.FullName -replace '/', '\') -match '\\checkpoints\\shadow-repo$' } |
+      Sort-Object { $_.FullName.Length } -Descending
+  )
+  foreach ($repo in $shadowRepos) {
+    if ($DryRun) {
+      Write-Host "remove stale shadow repo $($repo.FullName)"
+      continue
+    }
+    Remove-Item -LiteralPath $repo.FullName -Recurse -Force
+  }
+}
+
 function Sync-DurableState {
   param([ValidateSet('pull', 'push')][string]$Direction, [string]$LocalRoot, [string]$HubRoot)
 
@@ -195,7 +236,11 @@ function Sync-DurableState {
     $source = Join-Path $sourceRoot $dir
     $dest = Join-Path $destRoot $dir
     if (Test-Path -LiteralPath $source -PathType Container) {
-      Invoke-RobocopyMirror -Source $source -Destination $dest
+      $excludeDirs = if ($dir -eq 'projects') { $projectMirrorExcludeDirs } else { @() }
+      Invoke-RobocopyMirror -Source $source -Destination $dest -ExcludeDirs $excludeDirs
+      if ($Direction -eq 'push' -and $dir -eq 'projects') {
+        Remove-ProjectShadowRepos -ProjectsRoot $dest
+      }
     } else {
       Write-Host "skip missing directory $source"
     }
@@ -271,8 +316,13 @@ function Scan-StateRoot {
   }
 }
 
-$script:ResolvedUserDataRoot = Resolve-UserDataRoot -RequestedRoot $UserDataRoot
+$resolvedUserData = Resolve-UserDataRoot -RequestedRoot $UserDataRoot
 $resolvedHub = $HubPath
+
+Assert-NotOneDrivePath -PathValue $resolvedUserData -Label 'UserDataRoot'
+Assert-NotOneDrivePath -PathValue $resolvedHub -Label 'HubPath'
+
+$script:ResolvedUserDataRoot = $resolvedUserData
 
 Write-Host "Mode         = $Mode"
 Write-Host "UserDataRoot = $script:ResolvedUserDataRoot"

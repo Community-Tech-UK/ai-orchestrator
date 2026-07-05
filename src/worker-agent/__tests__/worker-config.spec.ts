@@ -343,6 +343,22 @@ describe('loadWorkerConfig', () => {
     );
   });
 
+  it('reports the same startup error for unsupported coordinator URL protocols', () => {
+    expect(() => assertWorkerConfigHasCoordinator({
+      nodeId: 'node-1',
+      name: 'worker',
+      authToken: 'pair-token',
+      coordinatorUrl: 'https://coordinator.example.test:4878',
+      namespace: 'default',
+      maxConcurrentInstances: 10,
+      workingDirectories: [],
+      reconnectIntervalMs: 5000,
+      heartbeatIntervalMs: 10000,
+    })).toThrow(
+      'Worker config is missing coordinatorUrl. Paste the full Connection Config or run:\n  aio-worker pair <pairing-link>',
+    );
+  });
+
   it('uses the first fallback coordinator URL when no primary is configured', () => {
     const config = {
       nodeId: 'node-1',

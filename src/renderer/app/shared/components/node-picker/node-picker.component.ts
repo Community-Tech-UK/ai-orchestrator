@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { RemoteNodeStore } from '../../../core/state/remote-node.store';
 import { SettingsStore } from '../../../core/state/settings.store';
+import { isRemoteNodeOnline } from '../../../core/state/remote-node-connectivity';
 import type { RemoteNodeRosterEntry } from '../../../../../shared/types/worker-node.types';
 import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
 
@@ -212,6 +213,7 @@ export class NodePickerComponent {
     if (!id) return 'health-local';
     const node = this.nodeStore.nodeById(id);
     if (!node) return 'health-disconnected';
+    if (!isRemoteNodeOnline(node)) return 'health-disconnected';
     return 'health-' + node.status;
   });
 
@@ -233,15 +235,17 @@ export class NodePickerComponent {
   }
 
   isNodeSelectable(node: RemoteNodeRosterEntry): boolean {
-    if (node.status !== 'connected' && node.status !== 'degraded') return false;
+    if (!isRemoteNodeOnline(node)) return false;
     const cli = this.selectedCli();
     if (cli === 'auto') return true;
     return node.capabilities.supportedClis.includes(cli as never);
   }
 
   nodeDisabledReason(node: RemoteNodeRosterEntry): string {
-    if (node.status === 'disconnected') return 'Node is disconnected';
-    if (node.status === 'connecting') return 'Node is connecting...';
+    if (!isRemoteNodeOnline(node)) {
+      if (node.status === 'connecting') return 'Node is connecting...';
+      return 'Node is disconnected';
+    }
     const cli = this.selectedCli();
     if (cli !== 'auto' && !node.capabilities.supportedClis.includes(cli as never)) {
       return `${cli} CLI not installed on this node`;
@@ -250,6 +254,7 @@ export class NodePickerComponent {
   }
 
   healthClass(node: RemoteNodeRosterEntry): string {
+    if (!isRemoteNodeOnline(node)) return 'health-disconnected';
     return 'health-' + node.status;
   }
 

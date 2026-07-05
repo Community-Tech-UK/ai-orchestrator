@@ -75,6 +75,9 @@ vi.mock('../worker-config', () => ({
       return undefined;
     }
     const url = new URL(value.trim());
+    if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+      return undefined;
+    }
     url.search = '';
     url.hash = '';
     return url.pathname === '/' ? `${url.protocol}//${url.host}` : url.toString();
@@ -221,6 +224,17 @@ describe('service-cli', () => {
     expect(mockInstall).toHaveBeenCalledWith(expect.objectContaining({
       coordinatorUrl: 'wss://mac.tail4fc107.ts.net:4878/worker',
     }));
+  });
+
+  it('rejects service install coordinator URLs that are not WebSocket URLs', async () => {
+    const command = parseServiceArgs([
+      '--install-service',
+      '--coordinator-url',
+      'https://mac.tail4fc107.ts.net:4878',
+    ]);
+
+    await expect(runServiceCommand(command!)).rejects.toThrow(/must be a ws:\/\/ or wss:\/\//i);
+    expect(mockInstall).not.toHaveBeenCalled();
   });
 
   it('parses extension relay install and uninstall commands', () => {

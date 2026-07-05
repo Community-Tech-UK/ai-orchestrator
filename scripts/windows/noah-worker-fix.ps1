@@ -13,6 +13,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Assert-NotOneDrivePath {
+  param([string]$PathValue, [string]$Label)
+  if ([string]::IsNullOrWhiteSpace($PathValue)) {
+    return
+  }
+
+  $normalized = $PathValue -replace '/', '\'
+  if ($normalized -match '(?i)(^|\\)OneDrive(?:\s+-\s+[^\\]+)?($|\\)') {
+    throw "$Label must not be under OneDrive: $PathValue"
+  }
+}
+
 function Get-NodeExeFromCommandLine {
   param([string]$CommandLine)
   if ([string]::IsNullOrWhiteSpace($CommandLine)) { return '' }
@@ -69,9 +81,7 @@ function Backup-AndWriteLauncher {
 }
 
 $repo = (Resolve-Path -LiteralPath $RepoPath).Path
-if ($repo -match '\\OneDrive\\') {
-  throw "Refusing to use a OneDrive repo path: $repo"
-}
+Assert-NotOneDrivePath -PathValue $repo -Label 'RepoPath'
 
 $idx = Join-Path $repo 'dist\worker-agent\index.js'
 if (-not (Test-Path -LiteralPath $idx -PathType Leaf)) {
@@ -91,7 +101,7 @@ $srcDir = Split-Path -Parent $src
 
 $vbs = @"
 Set sh = CreateObject("Wscript.Shell")
-sh.Run """$resolvedNodeExe"" ""$idx""", 0, False
+sh.Run """$resolvedNodeExe"" ""$idx"" --supervise", 0, False
 "@
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'

@@ -128,7 +128,10 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
         serviceConfigPath: paths.configFile,
       });
       const existing = loadWorkerConfig(paths.configFile);
-      const coordinatorUrl = normalizeCoordinatorUrl(cmd.coordinatorUrl) ?? cmd.coordinatorUrl;
+      const coordinatorUrl = normalizeCoordinatorUrl(cmd.coordinatorUrl);
+      if (!coordinatorUrl) {
+        throw new Error('--coordinator-url must be a ws:// or wss:// URL');
+      }
       const merged: WorkerConfig = {
         ...existing,
         coordinatorUrl,

@@ -23,6 +23,7 @@ import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicat
 import { SkillStore } from '../../core/state/skill.store';
 import { HookStore } from '../../core/state/hook.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
@@ -208,7 +209,7 @@ export class InstanceHeaderComponent implements OnInit {
 
   readonly remoteNodeDisconnected = computed(() => {
     const node = this.remoteNode();
-    return this.isRemote() && (!node || (node.status !== 'connected' && node.status !== 'degraded'));
+    return this.isRemote() && (!node || !isRemoteNodeOnline(node));
   });
 
   readonly remoteNodeTooltip = computed(() => {

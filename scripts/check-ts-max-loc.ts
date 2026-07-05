@@ -133,7 +133,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/mcp/mcp-manager.ts': 1025,
   'src/main/mcp/mcp-tool-search.ts': 727,
   // Main process — mobile gateway
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 1486,
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 1495,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,

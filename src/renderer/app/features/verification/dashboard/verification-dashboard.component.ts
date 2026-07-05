@@ -20,7 +20,6 @@ import {
   AfterViewInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { CliStore } from '../../../core/state/cli.store';
 import { ElectronIpcService } from '../../../core/services/ipc';
@@ -53,7 +52,6 @@ import { TaskPreflightCardComponent } from '../../../shared/components/task-pref
   styleUrl: './verification-dashboard.component.scss',
 })
 export class VerificationDashboardComponent implements OnDestroy, AfterViewInit {
-  private router = inject(Router);
   private draftService = inject(DraftService);
   private ipc = inject(ElectronIpcService);
   private taskIpc = inject(TaskIpcService);
@@ -347,14 +345,6 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
     if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
     if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
     return new Date(timestamp).toLocaleDateString();
-  }
-
-  // ============================================
-  // Navigation
-  // ============================================
-
-  navigateBack(): void {
-    this.router.navigate(['/']);
   }
 
   toggleAgentsCollapsed(): void {

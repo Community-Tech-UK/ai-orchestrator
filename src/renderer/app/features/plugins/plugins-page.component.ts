@@ -13,7 +13,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { PluginIpcService } from '../../core/services/ipc/plugin-ipc.service';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
@@ -72,7 +71,6 @@ interface ProjectPluginTrustDecision {
 
       <!-- Page Header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Plugins</span>
           <span class="subtitle">Plugin discovery, installation, and management</span>
@@ -456,7 +454,6 @@ interface ProjectPluginTrustDecision {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PluginsPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly pluginIpc = inject(PluginIpcService);
   private readonly instanceStore = inject(InstanceStore);
 
@@ -515,12 +512,6 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
     this.unsubLoaded?.();
     this.unsubUnloaded?.();
     this.unsubError?.();
-  }
-
-  // ── Navigation ─────────────────────────────────────────────────────────────
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   // ── Tab ────────────────────────────────────────────────────────────────────

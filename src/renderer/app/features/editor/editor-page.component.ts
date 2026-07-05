@@ -13,7 +13,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -69,7 +68,6 @@ function editorIcon(id: string): string {
 
       <!-- ===== Page Header ===== -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Editor Integration</span>
           <span class="subtitle">Configure and manage external editor connections</span>
@@ -335,7 +333,6 @@ function editorIcon(id: string): string {
       gap: var(--spacing-xs);
     }
 
-    .header-btn,
     .btn {
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-color);
@@ -771,7 +768,6 @@ function editorIcon(id: string): string {
   `],
 })
 export class EditorPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly fileIpc = inject(FileIpcService);
 
   // ---- Editor lists ----
@@ -793,10 +789,6 @@ export class EditorPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   iconFor(id: string): string {

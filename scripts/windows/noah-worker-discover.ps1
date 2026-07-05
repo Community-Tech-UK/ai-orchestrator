@@ -24,6 +24,18 @@ function Write-TableOrNone {
   Write-Host $text.TrimEnd()
 }
 
+function Redact-SecretText {
+  param([AllowNull()][string]$Text)
+  if ($null -eq $Text) {
+    return $null
+  }
+
+  $redacted = $Text -replace '(?i)(--(?:token|auth-token|enrollment-token)\s+)(?:"[^"]+"|\S+)', '${1}[redacted]'
+  $redacted = $redacted -replace '(?i)([?&](?:token|authToken|auth_token|access_token|refresh_token|client_secret)=)[^"&\s]+', '${1}[redacted]'
+  $redacted = $redacted -replace '(?i)(AIO_WORKER_TOKEN=)(?:"[^"]+"|\S+)', '${1}[redacted]'
+  return $redacted
+}
+
 Write-Host "USER     = $env:USERNAME"
 Write-Host "APPDATA  = $env:APPDATA"
 Write-Host "PROFILE  = $env:USERPROFILE"
@@ -33,7 +45,7 @@ Write-Section 'running worker (node.exe running worker-agent)'
 $workers = @(
   Get-CimInstance Win32_Process -Filter "name='node.exe'" |
     Where-Object { $_.CommandLine -like '*worker-agent*' } |
-    Select-Object ProcessId, CommandLine
+    Select-Object ProcessId, @{Name = 'CommandLine'; Expression = { Redact-SecretText $_.CommandLine }}
 )
 Write-TableOrNone ($workers | Format-List)
 
@@ -45,7 +57,7 @@ if (Test-Path -LiteralPath $startupDir) {
   $launchers = @(Get-ChildItem -LiteralPath $startupDir -Filter *.vbs -File)
   foreach ($launcher in $launchers) {
     Write-Host "== $($launcher.FullName) =="
-    Get-Content -LiteralPath $launcher.FullName
+    Get-Content -LiteralPath $launcher.FullName | ForEach-Object { Redact-SecretText $_ }
   }
 }
 
@@ -53,7 +65,7 @@ Write-Section '.orchestrator source VBS'
 $src = Join-Path $env:USERPROFILE '.orchestrator\run-worker-hidden.vbs'
 if (Test-Path -LiteralPath $src) {
   Write-Host "== $src =="
-  Get-Content -LiteralPath $src
+  Get-Content -LiteralPath $src | ForEach-Object { Redact-SecretText $_ }
 } else {
   Write-Host "none at $src"
 }

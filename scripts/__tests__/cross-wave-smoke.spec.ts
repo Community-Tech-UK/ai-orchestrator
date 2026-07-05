@@ -431,12 +431,14 @@ describe('Wave 7 cross-wave smoke', () => {
       dashboardTs,
       workspaceRailTs,
       sidebarNavTs,
+      controlSurfaceRegistryTs,
     ] = await Promise.all([
       readFile(join(process.cwd(), 'src/renderer/app/app.component.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/app.component.html'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/dashboard.component.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/workspace-rail.component.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/sidebar-nav.component.ts'), 'utf-8'),
+      readFile(join(process.cwd(), 'src/renderer/app/shared/control-surface/control-surface.registry.ts'), 'utf-8'),
     ]);
 
     expect(appTs).toContain('CliUpdatePillComponent');
@@ -444,7 +446,9 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(dashboardTs).toContain("id: 'app.open-browser'");
     expect(dashboardTs).toContain("id: 'app.open-doctor'");
     expect(workspaceRailTs).toContain('routerLink="/browser"');
-    expect(sidebarNavTs).toContain("route: '/browser'");
+    expect(sidebarNavTs).toContain('listDashboardNavGroups');
+    expect(controlSurfaceRegistryTs).toContain("id: 'browser'");
+    expect(controlSurfaceRegistryTs).toContain("path: '/browser'");
   });
 
   it('keeps exported operator artifact bundles redacted and home-relative', async () => {

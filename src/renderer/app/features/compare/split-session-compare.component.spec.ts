@@ -67,9 +67,9 @@ function makeStoreMock(initialInstances: Instance[] = []) {
 // ────────────────────────────────────────────────────────────────
 
 describe('Split compare route navigation', () => {
-  it('keeps a visible dashboard Back control in the split compare window', () => {
-    expect(splitCompareTemplate).toContain('aria-label="Back to dashboard"');
-    expect(splitCompareTemplate).toContain('&larr; Back');
+  it('does not render a local dashboard Back control because the shell owns route navigation', () => {
+    expect(splitCompareTemplate).not.toContain('aria-label="Back to dashboard"');
+    expect(splitCompareTemplate).not.toContain('&larr; Back');
   });
 });
 

@@ -11,7 +11,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { DiffViewerComponent } from '../../shared/components/diff-viewer/diff-viewer.component';
@@ -39,7 +38,6 @@ interface EditPreview {
     <div class="page">
       <!-- Page Header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Multi-Edit</span>
           <span class="subtitle">Preview and apply multi-file edits with diffs</span>
@@ -278,7 +276,6 @@ interface EditPreview {
 
     /* Buttons */
 
-    .header-btn,
     .btn {
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-color);
@@ -510,7 +507,6 @@ interface EditPreview {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MultiEditPageComponent {
-  private readonly router = inject(Router);
   private readonly fileIpc = inject(FileIpcService);
 
   readonly editsJson = signal('');
@@ -539,10 +535,6 @@ export class MultiEditPageComponent {
   readonly totalDeletions = computed(() =>
     this.previews().reduce((sum, p) => sum + p.deletions, 0)
   );
-
-  goBack(): void {
-    this.router.navigate(['/']);
-  }
 
   resetAll(): void {
     this.editsJson.set('');

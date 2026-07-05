@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { SearchIpcService } from '../../core/services/ipc/search-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -40,7 +39,6 @@ interface IndexStats {
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Semantic Search</span>
           <span class="subtitle">Natural language search with vector embeddings and Exa integration</span>
@@ -597,7 +595,6 @@ interface IndexStats {
     }
 
     /* Buttons */
-    .header-btn,
     .btn {
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-color);
@@ -632,7 +629,6 @@ interface IndexStats {
   `],
 })
 export class SemanticSearchPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly searchIpc = inject(SearchIpcService);
 
   // Search form state
@@ -668,10 +664,6 @@ export class SemanticSearchPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.loadStats();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async search(): Promise<void> {

@@ -14,7 +14,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { CodebasePanelComponent } from './codebase-panel.component';
 import { CodebaseIpcService } from '../../core/services/ipc/codebase-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
@@ -45,7 +44,6 @@ const SYMBOL_KIND_ICONS: Record<string, string> = {
     <div class="codebase-page">
       <!-- Page Header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Codebase Search</span>
           <span class="subtitle">Semantic search, indexing, and symbol navigation</span>
@@ -157,21 +155,6 @@ const SYMBOL_KIND_ICONS: Record<string, string> = {
       align-items: center;
       gap: var(--spacing-md);
       flex-shrink: 0;
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
-      font-size: 12px;
-      white-space: nowrap;
-
-      &:hover {
-        background: var(--bg-secondary);
-      }
     }
 
     .header-title {
@@ -426,7 +409,6 @@ const SYMBOL_KIND_ICONS: Record<string, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CodebasePageComponent {
-  private readonly router = inject(Router);
   private readonly codebaseIpc = inject(CodebaseIpcService);
 
   readonly symbolQuery = signal('');
@@ -437,10 +419,6 @@ export class CodebasePageComponent {
   readonly symbolResultCount = computed(() => this.symbolResults().length);
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  goBack(): void {
-    this.router.navigate(['/']);
-  }
 
   async refresh(): Promise<void> {
     if (this.refreshing()) {

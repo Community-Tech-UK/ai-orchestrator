@@ -6,6 +6,7 @@ import type {
   RemoteNodeRosterEntry,
   RemoteWorkerRepairCommand,
   RemoteWorkerRepairDiagnostic,
+  WorkerNodeInfo,
   WorkerNodeBrowserAutomationSummary,
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeExtensionRelaySummary,
@@ -52,8 +53,8 @@ export interface AndroidAutomationConfigInput {
 
 export interface RemoteNodeEvent {
   type: 'connected' | 'disconnected' | 'degraded' | 'metrics' | 'updated' | 'flap-storm';
-  nodeId: string;
-  node?: RemoteNodeRosterEntry;
+  nodeId?: string;
+  node?: RemoteNodeRosterEntry | WorkerNodeInfo;
   /** Present on 'flap-storm' events: human-readable node name. */
   nodeName?: string;
   /** Present on 'flap-storm' events: replace count within the detection window. */

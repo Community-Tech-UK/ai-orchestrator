@@ -2,8 +2,8 @@
  * Spec: AskCouncilPageComponent — logic-level tests.
  *
  * Tests are written without Angular TestBed so they run fast in vitest.
- * We instantiate the component class directly, stub the two dependencies
- * (Router and CompareIpcService), and exercise signals/methods.
+ * We instantiate the component through TestBed, stub CompareIpcService, and
+ * exercise signals/methods.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -11,7 +11,6 @@ import { TestBed } from '@angular/core/testing';
 import { AskCouncilPageComponent } from './ask-council-page.component';
 import type { CompareResult } from './ask-council-page.component';
 import { CompareIpcService } from '../../core/services/ipc/compare-ipc.service';
-import { Router } from '@angular/router';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -45,20 +44,17 @@ describe('AskCouncilPageComponent', () => {
     compareListProviders: ReturnType<typeof vi.fn>;
     compareRun: ReturnType<typeof vi.fn>;
   };
-  let mockRouter: { navigate: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     mockCompareIpc = {
       compareListProviders: vi.fn().mockResolvedValue({ success: true, data: ['claude', 'gemini'] }),
       compareRun: vi.fn().mockResolvedValue({ success: true, data: makeCompareResult() }),
     };
-    mockRouter = { navigate: vi.fn() };
 
     await TestBed.configureTestingModule({
       imports: [AskCouncilPageComponent],
       providers: [
         { provide: CompareIpcService, useValue: mockCompareIpc },
-        { provide: Router, useValue: mockRouter },
       ],
     }).compileComponents();
 
@@ -292,12 +288,4 @@ describe('AskCouncilPageComponent', () => {
     });
   });
 
-  // ── navigation ─────────────────────────────────────────────────────────────
-
-  describe('goBack()', () => {
-    it('navigates to root', () => {
-      component.goBack();
-      expect(mockRouter.navigate).toHaveBeenCalledWith(['/']);
-    });
-  });
 });

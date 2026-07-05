@@ -1,8 +1,12 @@
 // src/renderer/app/features/remote-nodes/remote-nodes.store.ts
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { RemoteNodeIpcService, type RemoteNodeEvent } from '../../core/services/ipc/remote-node-ipc.service';
-import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
+import type {
+  RemoteNodeRosterEntry,
+  WorkerNodeInfo,
+} from '../../../../shared/types/worker-node.types';
 import type { ServiceStatus } from '../../../../shared/types/service.types';
+import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 
 @Injectable({ providedIn: 'root' })
 export class RemoteNodesStore implements OnDestroy {
@@ -17,7 +21,7 @@ export class RemoteNodesStore implements OnDestroy {
 
   /** Connected nodes only. */
   readonly connectedNodes = computed(() =>
-    this.nodes().filter((n) => n.status === 'connected'),
+    this.nodes().filter(isRemoteNodeOnline),
   );
 
   /** Total active instances across all nodes. */
@@ -71,36 +75,99 @@ export class RemoteNodesStore implements OnDestroy {
 
   private handleEvent(event: RemoteNodeEvent): void {
     const current = this.nodes();
+    const nodeId = event.node?.id ?? event.nodeId;
+    if (!nodeId) {
+      return;
+    }
     switch (event.type) {
       case 'connected':
         if (event.node) {
+          const existing = current.find((n) => n.id === nodeId);
           this.nodes.set([
-            ...current.filter((n) => n.id !== event.nodeId),
-            event.node,
+            ...current.filter((n) => n.id !== nodeId),
+            this.toRosterEntry(event.node, existing),
           ]);
         }
         break;
       case 'disconnected':
         this.nodes.set(
           current.map((n) =>
-            n.id === event.nodeId ? { ...n, status: 'disconnected' as const } : n,
+            n.id === nodeId ? { ...n, status: 'disconnected' as const, connected: false } : n,
           ),
         );
         break;
       case 'degraded':
         this.nodes.set(
           current.map((n) =>
-            n.id === event.nodeId ? { ...n, status: 'degraded' as const } : n,
+            n.id === nodeId ? { ...n, status: 'degraded' as const } : n,
           ),
         );
         break;
+      case 'updated':
       case 'metrics':
         if (event.node) {
           this.nodes.set(
-            current.map((n) => (n.id === event.nodeId ? event.node! : n)),
+            current.map((n) => (n.id === nodeId ? this.toRosterEntry(event.node!, n) : n)),
           );
         }
         break;
     }
   }
+
+  private toRosterEntry(
+    node: RemoteNodeRosterEntry | WorkerNodeInfo,
+    existing?: RemoteNodeRosterEntry,
+  ): RemoteNodeRosterEntry {
+    const capabilities = node.capabilities ?? existing?.capabilities ?? fallbackCapabilities();
+    const rosterFields = node as Partial<RemoteNodeRosterEntry>;
+    return {
+      ...existing,
+      id: node.id,
+      name: node.name,
+      address: node.address ?? existing?.address ?? '',
+      capabilities,
+      status: node.status,
+      connected: typeof rosterFields.connected === 'boolean'
+        ? rosterFields.connected
+        : node.status !== 'disconnected',
+      activeInstances: node.activeInstances ?? existing?.activeInstances ?? 0,
+      supportedClis: rosterFields.supportedClis ?? [...capabilities.supportedClis],
+      hasBrowserRuntime: rosterFields.hasBrowserRuntime ?? capabilities.hasBrowserRuntime,
+      hasBrowserMcp: rosterFields.hasBrowserMcp ?? capabilities.hasBrowserMcp,
+      browserAutomation: rosterFields.browserAutomation ?? capabilities.browserAutomation,
+      hasExtensionRelay: rosterFields.hasExtensionRelay ?? capabilities.hasExtensionRelay,
+      extensionRelay: rosterFields.extensionRelay ?? capabilities.extensionRelay,
+      hasAndroidMcp: rosterFields.hasAndroidMcp ?? capabilities.hasAndroidMcp,
+      androidAutomation: rosterFields.androidAutomation ?? capabilities.androidAutomation,
+      hasDocker: rosterFields.hasDocker ?? capabilities.hasDocker,
+      gpuName: rosterFields.gpuName ?? capabilities.gpuName,
+      gpuMemoryMB: rosterFields.gpuMemoryMB ?? capabilities.gpuMemoryMB,
+      maxConcurrentInstances: rosterFields.maxConcurrentInstances ?? capabilities.maxConcurrentInstances,
+      workingDirectories: rosterFields.workingDirectories ?? [...capabilities.workingDirectories],
+      platform: rosterFields.platform ?? capabilities.platform,
+      arch: rosterFields.arch ?? capabilities.arch,
+      connectedAt: node.connectedAt ?? existing?.connectedAt,
+      lastHeartbeat: node.lastHeartbeat ?? existing?.lastHeartbeat,
+      latencyMs: node.latencyMs ?? existing?.latencyMs,
+    };
+  }
+}
+
+function fallbackCapabilities(): RemoteNodeRosterEntry['capabilities'] {
+  return {
+    platform: 'linux',
+    arch: '',
+    cpuCores: 0,
+    totalMemoryMB: 0,
+    availableMemoryMB: 0,
+    supportedClis: [],
+    hasBrowserRuntime: false,
+    hasBrowserMcp: false,
+    hasAndroidMcp: false,
+    hasDocker: false,
+    maxConcurrentInstances: 0,
+    workingDirectories: [],
+    browsableRoots: [],
+    discoveredProjects: [],
+  };
 }

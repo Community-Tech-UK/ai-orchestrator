@@ -11,7 +11,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import {
   HookContext,
   HookResult,
@@ -56,7 +55,6 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Hooks</span>
           <span class="subtitle">Rule CRUD, approval flow, evaluation preview, and import/export</span>
@@ -233,7 +231,6 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
         color: var(--text-muted);
       }
 
-      .header-btn,
       .btn {
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
@@ -433,7 +430,6 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HooksPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly hooksIpc = inject(HooksIpcService);
 
   readonly hooks = signal<HookRule[]>([]);
@@ -454,10 +450,6 @@ export class HooksPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.refreshAll();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refreshAll(): Promise<void> {

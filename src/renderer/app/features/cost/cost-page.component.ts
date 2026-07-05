@@ -27,7 +27,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EchartsThemedComponent } from '../../shared/components/echarts-themed/echarts-themed.component';
@@ -133,7 +132,6 @@ const EMPTY_BUDGET_STATUS: BudgetStatusData = {
   styleUrl: './cost-page.component.scss',
 })
 export class CostPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly costIpc = inject(CostIpcService);
 
   // ── Raw state signals ────────────────────────────────────────────────────
@@ -352,12 +350,6 @@ export class CostPageComponent implements OnInit, OnDestroy {
     } finally {
       this.working.set(false);
     }
-  }
-
-  // ── Navigation ───────────────────────────────────────────────────────────
-
-  goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────

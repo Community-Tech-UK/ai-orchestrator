@@ -30,28 +30,6 @@
   gap: 12px;
 }
 
-.back-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 36px;
-  height: 36px;
-  padding: 0 10px;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.back-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
-}
-
 .verification-icon {
   font-size: 24px;
 }

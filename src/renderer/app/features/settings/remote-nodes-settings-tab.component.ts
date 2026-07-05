@@ -14,6 +14,7 @@ import {
 } from '@angular/core';
 import * as QRCode from 'qrcode';
 import { SettingsStore } from '../../core/state/settings.store';
+import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import {
   RemoteNodeIpcService,
   RemoteNodeServerStatus,
@@ -191,7 +192,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
 
     this.unsubscribeNodesChanged = this.ipc.onNodesChanged((nodes) => {
       this.liveNodes.set(nodes);
-      this.connectedCount.set(nodes.filter((node) => node.status === 'connected').length);
+      this.connectedCount.set(nodes.filter(isRemoteNodeOnline).length);
     });
   }
 
@@ -215,7 +216,9 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     try {
       const status = await this.ipc.getServerStatus();
       this.serverStatus.set(status);
-      this.connectedCount.set(status.connectedCount ?? 0);
+      if (!status.running) {
+        this.connectedCount.set(0);
+      }
     } catch {
       // Non-fatal — server may simply not be running
     }
@@ -225,7 +228,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     try {
       const nodes = await this.ipc.listNodes();
       this.liveNodes.set(nodes);
-      this.connectedCount.set(nodes.filter((node) => node.status === 'connected').length);
+      this.connectedCount.set(nodes.filter(isRemoteNodeOnline).length);
     } catch {
       // Non-fatal.
     }

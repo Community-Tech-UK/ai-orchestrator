@@ -14,7 +14,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { McpIpcService } from '../../core/services/ipc/mcp-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { McpPresetCatalogComponent } from './mcp-preset-catalog.component';
@@ -136,7 +135,6 @@ const ORCHESTRATOR_SCOPES: readonly OrchestratorMcpScope[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class McpPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly mcpIpc = inject(McpIpcService);
   private readonly browserAutomationIpc = inject(BrowserAutomationIpcService);
   readonly multiProviderStore = inject(McpMultiProviderStore);
@@ -368,12 +366,6 @@ export class McpPageComponent implements OnInit, OnDestroy {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  // ── Navigation ────────────────────────────────────────────────────────────
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────

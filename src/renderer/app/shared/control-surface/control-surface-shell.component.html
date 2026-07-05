@@ -1,0 +1,49 @@
+<section
+  class="control-shell"
+  [class.layout-standard]="activeSurface().layout === 'standard'"
+  [class.layout-wide]="activeSurface().layout === 'wide'"
+  [class.layout-fullBleed]="activeSurface().layout === 'fullBleed'"
+>
+  <header class="control-header">
+    <button class="control-back" type="button" (click)="backToDashboard()" aria-label="Back to dashboard">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M19 12H5" />
+        <path d="M12 19l-7-7 7-7" />
+      </svg>
+      <span>Back</span>
+    </button>
+
+    <div class="control-title-block">
+      <p class="control-kicker">Control Center</p>
+      <h1>{{ activeSurface().title }}</h1>
+      @if (activeSurface().subtitle) {
+        <p class="control-subtitle">{{ activeSurface().subtitle }}</p>
+      }
+    </div>
+  </header>
+
+  <div class="control-body">
+    <aside class="control-nav" aria-label="Control Center navigation">
+      @for (group of navGroups; track group.id) {
+        <section class="control-nav-group">
+          <h2>{{ group.label }}</h2>
+          @for (item of group.items; track item.id) {
+            <a
+              class="control-nav-item"
+              [routerLink]="item.path"
+              routerLinkActive="active"
+              [routerLinkActiveOptions]="{ exact: isExactNavMatch(item.path) }"
+            >
+              <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="item.icon"></svg>
+              <span>{{ item.label }}</span>
+            </a>
+          }
+        </section>
+      }
+    </aside>
+
+    <main class="control-content">
+      <router-outlet />
+    </main>
+  </div>
+</section>

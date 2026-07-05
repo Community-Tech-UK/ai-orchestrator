@@ -15,7 +15,6 @@ import {
   computed,
   effect,
 } from '@angular/core';
-import { Router } from '@angular/router';
 import { InstanceStore } from '../../core/state/instance.store';
 import type { Instance, OutputMessage } from '../../core/state/instance/instance.types';
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
@@ -49,7 +48,6 @@ export function pickPaneDefaults(instances: Instance[]): [string | null, string 
 })
 export class SplitSessionCompareComponent {
   private readonly store = inject(InstanceStore);
-  private readonly router = inject(Router);
 
   /** Reactive list of all known instances — drives both pickers. */
   protected readonly instances = this.store.instances;
@@ -112,10 +110,6 @@ export class SplitSessionCompareComponent {
   protected onRightChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     this.rightId.set(value || null);
-  }
-
-  protected goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   /** Display label for a picker option (id + displayName). */

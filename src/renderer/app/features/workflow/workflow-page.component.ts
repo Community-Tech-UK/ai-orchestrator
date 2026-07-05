@@ -13,7 +13,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import type {
   GateType,
   WorkflowExecution,
@@ -48,7 +47,6 @@ interface GateAction {
   template: `
     <div class="workflow-page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Workflows</span>
           <span class="subtitle">Template-driven multi-phase orchestration</span>
@@ -198,15 +196,6 @@ interface GateAction {
       display: flex;
       align-items: center;
       gap: var(--spacing-md);
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
     }
 
     .header-title {
@@ -389,7 +378,6 @@ interface GateAction {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkflowPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly workflowIpc = inject(OrchestrationIpcService);
   private readonly instanceIpc = inject(InstanceIpcService);
   private readonly taskIpc = inject(TaskIpcService);
@@ -434,10 +422,6 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refreshAll(): Promise<void> {

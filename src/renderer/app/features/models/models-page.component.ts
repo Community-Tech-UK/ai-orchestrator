@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { ModelIpcService } from '../../core/services/ipc/model-ipc.service';
 import { CustomModelsPanelComponent } from './custom-models-panel.component';
 
@@ -46,7 +45,6 @@ interface VerificationFailure {
 
       <!-- Page header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Models</span>
           <span class="subtitle">Model discovery, verification, and provider management</span>
@@ -228,7 +226,6 @@ interface VerificationFailure {
   styleUrl: './models-page.component.scss',
 })
 export class ModelsPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly modelIpc = inject(ModelIpcService);
 
   readonly models = signal<ModelInfo[]>([]);
@@ -269,10 +266,6 @@ export class ModelsPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refresh(): Promise<void> {

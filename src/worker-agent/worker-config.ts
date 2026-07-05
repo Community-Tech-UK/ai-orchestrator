@@ -250,11 +250,13 @@ export function assertWorkerConfigHasCoordinator(config: WorkerConfig): void {
 export function getConfiguredCoordinatorUrl(
   config: Pick<WorkerConfig, 'coordinatorUrl' | 'coordinatorUrls'>,
 ): string | undefined {
-  const primary = config.coordinatorUrl?.trim();
+  const primary = normalizeCoordinatorUrl(config.coordinatorUrl);
   if (primary) {
     return primary;
   }
-  return config.coordinatorUrls?.find((url) => typeof url === 'string' && url.trim().length > 0)?.trim();
+  return config.coordinatorUrls
+    ?.map((url) => normalizeCoordinatorUrl(url))
+    .find((url): url is string => Boolean(url));
 }
 
 function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFile): Partial<WorkerConfig> {
@@ -293,13 +295,13 @@ export function normalizeCoordinatorUrl(value: unknown): string | undefined {
   try {
     const url = new URL(trimmed);
     if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
-      return trimmed;
+      return undefined;
     }
     url.search = '';
     url.hash = '';
     return url.pathname === '/' ? `${url.protocol}//${url.host}` : url.toString();
   } catch {
-    return trimmed;
+    return undefined;
   }
 }
 

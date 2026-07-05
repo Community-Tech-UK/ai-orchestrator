@@ -18,7 +18,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { Router } from '@angular/router';
 import { CompareIpcService } from '../../core/services/ipc/compare-ipc.service';
 
 // ─── domain types (mirrored from main-process service) ──────────────────────
@@ -48,7 +47,6 @@ export interface CompareResult {
     <div class="page">
       <!-- Header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Ask Council</span>
           <span class="subtitle">Send the same prompt to multiple AI providers and compare their answers side-by-side</span>
@@ -346,7 +344,6 @@ export interface CompareResult {
     }
 
     /* Buttons */
-    .header-btn,
     .btn {
       border-radius: var(--radius-sm, 4px);
       border: 1px solid var(--border-color);
@@ -540,7 +537,6 @@ export interface CompareResult {
   `],
 })
 export class AskCouncilPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly compareIpc = inject(CompareIpcService);
 
   // ── prompt / provider state ────────────────────────────────────────────────
@@ -592,10 +588,6 @@ export class AskCouncilPageComponent implements OnInit {
   }
 
   // ── actions ────────────────────────────────────────────────────────────────
-
-  goBack(): void {
-    this.router.navigate(['/']);
-  }
 
   onPromptInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement;

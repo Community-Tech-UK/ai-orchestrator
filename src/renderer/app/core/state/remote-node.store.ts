@@ -1,6 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import { RemoteNodeIpcService } from '../services/ipc/remote-node-ipc.service';
+import { isRemoteNodeOnline } from './remote-node-connectivity';
 
 @Injectable({ providedIn: 'root' })
 export class RemoteNodeStore {
@@ -12,9 +13,9 @@ export class RemoteNodeStore {
   /** All known nodes (connected, degraded, disconnected). */
   readonly nodes = this._nodes.asReadonly();
 
-  /** Only nodes with status === 'connected'. */
+  /** Nodes with a live coordinator socket, falling back to status for legacy payloads. */
   readonly connectedNodes = computed(() =>
-    this._nodes().filter(n => n.status === 'connected'),
+    this._nodes().filter(isRemoteNodeOnline),
   );
 
   /** True when at least one node exists (any status). */

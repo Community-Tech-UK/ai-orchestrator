@@ -13,7 +13,6 @@ import {
   ViewChild
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import type {
   ContextStore,
   RLMSession,
@@ -45,9 +44,6 @@ interface QueryResult {
   template: `
     <div class="rlm-page">
       <div class="rlm-header">
-        <button class="header-btn" type="button" (click)="goBack()">
-          ← Back
-        </button>
         <div class="header-title">
           <span class="title">RLM</span>
           <span class="subtitle">Context Manager</span>
@@ -173,15 +169,6 @@ interface QueryResult {
         display: flex;
         align-items: center;
         gap: var(--spacing-md);
-      }
-
-      .header-btn {
-        padding: var(--spacing-xs) var(--spacing-md);
-        border-radius: var(--radius-sm);
-        border: 1px solid var(--border-color);
-        background: var(--bg-tertiary);
-        color: var(--text-primary);
-        cursor: pointer;
       }
 
       .header-title {
@@ -369,7 +356,6 @@ interface QueryResult {
 })
 export class RlmPageComponent implements OnInit, OnDestroy {
   private readonly ipc = inject(ElectronIpcService);
-  private readonly router = inject(Router);
   private subscriptions: (() => void)[] = [];
 
   @ViewChild('browser')
@@ -391,10 +377,6 @@ export class RlmPageComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.subscriptions.forEach((unsub) => unsub());
     this.subscriptions = [];
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refreshStores(): Promise<void> {

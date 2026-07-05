@@ -13,7 +13,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import {
   GrpoDashboardComponent,
   LearningInsight,
@@ -62,7 +61,6 @@ interface RewardTrend {
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Training</span>
           <span class="subtitle">GRPO outcomes, trends, top strategies, and config import/export</span>
@@ -237,7 +235,6 @@ interface RewardTrend {
         color: var(--text-muted);
       }
 
-      .header-btn,
       .btn {
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
@@ -416,7 +413,6 @@ interface RewardTrend {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TrainingPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly trainingIpc = inject(TrainingIpcService);
   private readonly memoryIpc = inject(MemoryIpcService);
 
@@ -460,10 +456,6 @@ export class TrainingPageComponent implements OnInit, OnDestroy {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refreshAll(showBusy = true): Promise<void> {

@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { ChannelStore } from '../../core/state/channel.store';
 import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
 
@@ -24,7 +23,6 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Channels</span>
           <span class="subtitle">Manage Discord and WhatsApp bot connections</span>
@@ -221,7 +219,6 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
         color: var(--text-muted);
       }
 
-      .header-btn,
       .btn {
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
@@ -461,7 +458,6 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChannelsPageComponent implements OnInit {
-  private readonly router = inject(Router);
   protected readonly store = inject(ChannelStore);
   private readonly channelIpc = inject(ChannelIpcService);
 
@@ -484,10 +480,6 @@ export class ChannelsPageComponent implements OnInit {
       const policy = policyResp.data as { mode: 'pairing' | 'allowlist' | 'disabled' };
       this.accessPolicyMode.set(policy.mode);
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   onTokenInput(event: Event): void {

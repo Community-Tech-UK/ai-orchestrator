@@ -20,7 +20,6 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { ProviderIpcService } from '../../../core/services/ipc/provider-ipc.service';
 import { ApiKeyManagerComponent } from './api-key-manager.component';
@@ -55,7 +54,6 @@ interface CliSettingsEntry {
 export class CliSettingsPanelComponent implements OnInit {
   private store = inject(VerificationStore);
   private providerIpc = inject(ProviderIpcService);
-  private router = inject(Router);
   private unifiedCatalog = inject(UnifiedCatalogStore);
 
   // Tabs
@@ -311,10 +309,6 @@ export class CliSettingsPanelComponent implements OnInit {
   close(): void {
     // Emit close event or navigate back
     history.back();
-  }
-
-  goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   private getFallbackModels(command: string): string[] {

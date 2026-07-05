@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { StatsIpcService } from '../../core/services/ipc/stats-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EchartsThemedComponent } from '../../shared/components/echarts-themed/echarts-themed.component';
@@ -65,7 +64,6 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
 
       <!-- Page header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Statistics & Metrics</span>
           <span class="subtitle">Usage analytics, tool metrics, and session summaries</span>
@@ -294,7 +292,6 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
       gap: var(--spacing-xs);
     }
 
-    .header-btn,
     .btn {
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-color);
@@ -618,7 +615,6 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
   `],
 })
 export class StatsPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly statsIpc = inject(StatsIpcService);
 
   // ── State ────────────────────────────────────────────────────────────────────
@@ -723,10 +719,6 @@ export class StatsPageComponent implements OnInit {
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────────
-
-  goBack(): void {
-    this.router.navigate(['/']);
-  }
 
   async loadStats(period: Period): Promise<void> {
     this.currentPeriod.set(period);

@@ -10,6 +10,47 @@ import { OrchestrationIpcService } from '../../core/services/ipc';
 import { FileAttachmentService } from './file-attachment.service';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
+
+function makeRemoteNode(
+  status: RemoteNodeRosterEntry['status'],
+  connected: boolean,
+): RemoteNodeRosterEntry {
+  const capabilities: RemoteNodeRosterEntry['capabilities'] = {
+    platform: 'linux',
+    arch: 'x64',
+    cpuCores: 8,
+    totalMemoryMB: 16384,
+    availableMemoryMB: 8192,
+    supportedClis: ['claude'],
+    hasBrowserRuntime: false,
+    hasBrowserMcp: false,
+    hasAndroidMcp: false,
+    hasDocker: false,
+    maxConcurrentInstances: 4,
+    workingDirectories: ['/repo'],
+    browsableRoots: [],
+    discoveredProjects: [],
+  };
+
+  return {
+    id: 'node-1',
+    name: 'Remote worker',
+    status,
+    connected,
+    platform: 'linux',
+    address: '100.64.1.3',
+    supportedClis: capabilities.supportedClis,
+    hasBrowserRuntime: false,
+    hasBrowserMcp: false,
+    hasAndroidMcp: false,
+    hasDocker: false,
+    activeInstances: 0,
+    maxConcurrentInstances: 4,
+    workingDirectories: ['/repo'],
+    capabilities,
+  };
+}
 
 describe('WelcomeCoordinatorService workflow launch', () => {
   let service: WelcomeCoordinatorService;
@@ -40,6 +81,9 @@ describe('WelcomeCoordinatorService workflow launch', () => {
   };
   let recentDirs: {
     addDirectory: ReturnType<typeof vi.fn>;
+  };
+  let remoteNodeStore: {
+    nodeById: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
@@ -80,13 +124,16 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     recentDirs = {
       addDirectory: vi.fn().mockResolvedValue(undefined),
     };
+    remoteNodeStore = {
+      nodeById: vi.fn(),
+    };
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
         WelcomeCoordinatorService,
         { provide: InstanceStore, useValue: store },
-        { provide: RemoteNodeStore, useValue: { nodeById: vi.fn() } },
+        { provide: RemoteNodeStore, useValue: remoteNodeStore },
         { provide: RecentDirectoriesIpcService, useValue: recentDirs },
         { provide: VcsIpcService, useValue: { vcsIsRepo: vi.fn(), vcsGetStatus: vi.fn() } },
         {
@@ -248,6 +295,24 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       launchMode: 'orchestrated',
       forceNodeId: undefined,
     });
+  });
+
+  it('blocks launch when the selected node has stale connected status but no live socket', async () => {
+    remoteNodeStore.nodeById.mockReturnValue(makeRemoteNode('connected', false));
+    service.onWelcomeNodeChange('node-1');
+    const creatingChange = vi.fn();
+
+    const launched = await service.onWelcomeSendMessage(
+      'Run on the selected node',
+      creatingChange,
+    );
+
+    expect(launched).toBe(false);
+    expect(store.setError).toHaveBeenCalledWith(
+      'Selected remote node is no longer connected. Please choose another node or use Local.',
+    );
+    expect(store.createInstanceWithMessage).not.toHaveBeenCalled();
+    expect(creatingChange).not.toHaveBeenCalled();
   });
 
   it('blocks workflow orchestration for interactive launch mode', async () => {

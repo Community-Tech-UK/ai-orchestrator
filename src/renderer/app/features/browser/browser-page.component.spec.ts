@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ɵresolveComponentResources as resolveComponentResources, signal } from '@angular/core';
-import { Router } from '@angular/router';
 import type { BrowserAuditEntry } from '@contracts/types/browser';
 import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
 import { readFileSync } from 'node:fs';
@@ -63,7 +62,6 @@ describe('BrowserPageComponent', () => {
     getAuditLog: ReturnType<typeof vi.fn>;
     getHealth: ReturnType<typeof vi.fn>;
   };
-  let router: { navigate: ReturnType<typeof vi.fn> };
   let remoteNodeStore: {
     nodes: ReturnType<typeof signal<WorkerNodeInfo[]>>;
     initialize: ReturnType<typeof vi.fn>;
@@ -251,7 +249,6 @@ describe('BrowserPageComponent', () => {
       })),
     };
 
-    router = { navigate: vi.fn().mockResolvedValue(true) };
     const nodes = signal<WorkerNodeInfo[]>([
       makeNode('node-ready', {
         name: 'windows-pc',
@@ -281,7 +278,6 @@ describe('BrowserPageComponent', () => {
       providers: [
         { provide: BrowserGatewayIpcService, useValue: service },
         { provide: RemoteNodeStore, useValue: remoteNodeStore },
-        { provide: Router, useValue: router },
       ],
     }).compileComponents();
 
@@ -570,16 +566,6 @@ describe('BrowserPageComponent', () => {
     });
   });
 
-  it('navigates back to the dashboard from the header back button', () => {
-    const button = fixture.nativeElement.querySelector(
-      '[data-testid="back-button"]',
-    ) as HTMLButtonElement;
-    expect(button).toBeTruthy();
-
-    button.click();
-
-    expect(router.navigate).toHaveBeenCalledWith(['/']);
-  });
 });
 
 function inputEvent(value: string): Event {

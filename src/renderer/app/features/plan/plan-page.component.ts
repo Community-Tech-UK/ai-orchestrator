@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { PlanModeIpcService } from '../../core/services/ipc/plan-mode-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -40,7 +39,6 @@ interface PlanState {
     <div class="page">
       <!-- Page header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Plan Mode</span>
           <span class="subtitle">Plan mode control and review for agent instances</span>
@@ -728,7 +726,6 @@ interface PlanState {
     }
 
     /* Shared controls */
-    .header-btn,
     .btn {
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-color);
@@ -787,7 +784,6 @@ interface PlanState {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanPageComponent implements OnDestroy {
-  private readonly router = inject(Router);
   private readonly planModeIpc = inject(PlanModeIpcService);
 
   readonly instanceIdInput = signal('');
@@ -823,10 +819,6 @@ export class PlanPageComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopPolling();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   onInstanceIdInput(event: Event): void {

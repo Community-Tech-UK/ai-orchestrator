@@ -14,7 +14,6 @@ import {
   computed,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { RemoteConfigIpcService } from '../../core/services/ipc/remote-config-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -48,7 +47,6 @@ let eventLogIdCounter = 0;
 
       <!-- Page Header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Remote Config</span>
           <span class="subtitle">Remote configuration sources and caching</span>
@@ -280,7 +278,6 @@ let eventLogIdCounter = 0;
         gap: var(--spacing-xs);
       }
 
-      .header-btn,
       .btn {
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
@@ -546,7 +543,6 @@ let eventLogIdCounter = 0;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RemoteConfigPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly remoteConfigIpc = inject(RemoteConfigIpcService);
 
   // State signals
@@ -586,10 +582,6 @@ export class RemoteConfigPageComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.unsubscribeUpdated?.();
     this.unsubscribeError?.();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refreshAll(): Promise<void> {

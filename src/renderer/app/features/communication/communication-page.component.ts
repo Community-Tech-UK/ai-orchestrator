@@ -11,7 +11,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import { CommIpcService } from '../../core/services/ipc/comm-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -40,7 +39,6 @@ interface CommBridge {
     <div class="page">
       <!-- Page Header -->
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Communication</span>
           <span class="subtitle">Cross-instance message passing and bridges</span>
@@ -278,7 +276,6 @@ interface CommBridge {
         gap: var(--spacing-xs);
       }
 
-      .header-btn,
       .btn {
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
@@ -553,7 +550,6 @@ interface CommBridge {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CommunicationPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly commIpc = inject(CommIpcService);
 
   readonly messages = signal<CommMessage[]>([]);
@@ -604,10 +600,6 @@ export class CommunicationPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refresh(): Promise<void> {

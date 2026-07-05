@@ -4,11 +4,10 @@ import {
   signal,
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NavigationEnd, Router } from '@angular/router';
+import { Router } from '@angular/router';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
 import { AppComponent } from './app.component';
@@ -59,13 +58,19 @@ function makeDegradedReport(summary = 'Multiple codex installs detected.'): Star
 describe('AppComponent startup banner', () => {
   let fixture: ComponentFixture<AppComponent>;
   let component: AppComponent;
-  let router: { events: Subject<unknown>; navigate: ReturnType<typeof vi.fn>; url: string };
+  let router: {
+    navigate: ReturnType<typeof vi.fn>;
+    navigateByUrl: ReturnType<typeof vi.fn>;
+    url: string;
+  };
+  let menuListeners: Record<string, () => void>;
 
   beforeEach(async () => {
     window.localStorage.clear();
+    menuListeners = {};
     router = {
-      events: new Subject<unknown>(),
       navigate: vi.fn(),
+      navigateByUrl: vi.fn(),
       url: '/',
     };
 
@@ -90,7 +95,10 @@ describe('AppComponent startup banner', () => {
           useValue: {
             platform: 'darwin',
             onStartupCapabilities: vi.fn(() => () => void 0),
-            on: vi.fn(() => () => void 0),
+            on: vi.fn((channel: string, callback: () => void) => {
+              menuListeners[channel] = callback;
+              return () => void 0;
+            }),
             appReady: vi.fn(async () => ({ success: true })),
             getStartupCapabilities: vi.fn(async () => null),
           },
@@ -154,27 +162,21 @@ describe('AppComponent startup banner', () => {
     expect(fixture.nativeElement.querySelector('.startup-banner')).not.toBeNull();
   });
 
-  it('does not show the route fallback back button on the dashboard route', () => {
+  it('does not show a root-level route fallback back button on the dashboard route', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="route-backstop"]')).toBeNull();
   });
 
-  it('shows a route fallback back button on non-dashboard routes', () => {
+  it('does not show a root-level route fallback back button on non-dashboard routes', () => {
     router.url = '/browser';
-    router.events.next(new NavigationEnd(1, '/browser', '/browser'));
     fixture.detectChanges();
 
     const backstop = fixture.nativeElement.querySelector('[data-testid="route-backstop"]') as HTMLButtonElement | null;
-    expect(backstop).not.toBeNull();
-
-    backstop?.click();
-    expect(router.navigate).toHaveBeenCalledWith(['/']);
+    expect(backstop).toBeNull();
   });
 
-  it('treats dashboard query strings and fragments as the dashboard route', () => {
-    router.url = '/?tab=home#top';
-    router.events.next(new NavigationEnd(1, '/?tab=home#top', '/?tab=home#top'));
-    fixture.detectChanges();
+  it('opens Settings from the app menu through the Control Surface registry path', () => {
+    menuListeners['menu:open-settings']?.();
 
-    expect(fixture.nativeElement.querySelector('[data-testid="route-backstop"]')).toBeNull();
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/settings');
   });
 });

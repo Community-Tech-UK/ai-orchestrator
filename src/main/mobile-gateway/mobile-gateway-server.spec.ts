@@ -1019,6 +1019,39 @@ describe('MobileGatewayServer', () => {
     );
   });
 
+  it('forwards initial-message attachments to createInstance', async () => {
+    const token = await pairToken();
+    const attachment = {
+      name: 'shot.png',
+      type: 'image/png',
+      size: 4,
+      data: 'data:image/png;base64,AAAA',
+    };
+    const res = await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({
+        workingDirectory: '/repo/gamma',
+        initialPrompt: 'look at this',
+        attachments: [attachment],
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(source.createInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [attachment] }),
+    );
+  });
+
+  it('omits attachments when none are supplied', async () => {
+    const token = await pairToken();
+    await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ workingDirectory: '/repo/gamma', initialPrompt: 'go' }),
+    });
+    expect(source.createInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: undefined }),
+    );
+  });
+
   it('requires workingDirectory to create', async () => {
     const token = await pairToken();
     const res = await authed(token, '/api/instances', { method: 'POST', body: JSON.stringify({}) });

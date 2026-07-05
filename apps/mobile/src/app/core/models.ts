@@ -134,6 +134,7 @@ export interface MobileCreateInstanceRequest {
   provider?: string;
   model?: string;
   initialPrompt?: string;
+  attachments?: MobileAttachmentDto[];
 }
 
 export interface MobileRecentDirDto {

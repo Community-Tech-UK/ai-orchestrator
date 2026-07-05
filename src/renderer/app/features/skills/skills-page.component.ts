@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import type { SkillBundle, SkillMatch } from '../../../../shared/types/skill.types';
 import { SkillBrowserComponent } from './skill-browser.component';
 import { OrchestrationIpcService } from '../../core/services/ipc/orchestration-ipc.service';
@@ -39,7 +38,6 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
   template: `
     <div class="skills-page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Skills</span>
           <span class="subtitle">Discover, load, and match skill bundles</span>
@@ -173,15 +171,6 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
       display: flex;
       align-items: center;
       gap: var(--spacing-md);
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
     }
 
     .header-title {
@@ -411,7 +400,6 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SkillsPageComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly orchestrationIpc = inject(OrchestrationIpcService);
 
   readonly skills = signal<SkillCardState[]>([]);
@@ -433,10 +421,6 @@ export class SkillsPageComponent implements OnInit {
     if (this.discoveredCount() === 0) {
       await this.discoverSkills();
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async discoverSkills(): Promise<void> {

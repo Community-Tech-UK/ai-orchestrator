@@ -13,7 +13,6 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 import type {
   SpecialistInstance,
   SpecialistProfile,
@@ -37,7 +36,6 @@ interface InstanceOption {
   template: `
     <div class="page">
       <div class="page-header">
-        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
           <span class="title">Specialists</span>
           <span class="subtitle">Recommendations, spawning, and findings tracking</span>
@@ -185,15 +183,6 @@ interface InstanceOption {
       display: flex;
       align-items: center;
       gap: var(--spacing-md);
-    }
-
-    .header-btn {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      cursor: pointer;
     }
 
     .header-title {
@@ -442,7 +431,6 @@ interface InstanceOption {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SpecialistsPageComponent implements OnInit, OnDestroy {
-  private readonly router = inject(Router);
   private readonly orchestrationIpc = inject(OrchestrationIpcService);
   private readonly instanceIpc = inject(InstanceIpcService);
 
@@ -487,10 +475,6 @@ export class SpecialistsPageComponent implements OnInit, OnDestroy {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/']);
   }
 
   async refreshAll(): Promise<void> {

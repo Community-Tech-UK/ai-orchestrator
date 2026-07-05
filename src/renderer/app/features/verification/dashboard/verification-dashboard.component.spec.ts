@@ -32,7 +32,6 @@ import {
   TestBed
 } from '@angular/core/testing';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
 import { VerificationDashboardComponent } from './verification-dashboard.component';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { CliStore } from '../../../core/state/cli.store';
@@ -225,10 +224,6 @@ describe('VerificationDashboardComponent', () => {
     clearDraft: Mock;
   };
 
-  let mockRouter: {
-    navigate: Mock;
-  };
-
   // Test data
   const mockCliList = [
     { name: 'claude', installed: true, version: '1.0.0' },
@@ -314,9 +309,6 @@ describe('VerificationDashboardComponent', () => {
       clearDraft: vi.fn()
     };
 
-    mockRouter = {
-      navigate: vi.fn()
-    };
   }
 
   beforeEach(async () => {
@@ -347,7 +339,6 @@ describe('VerificationDashboardComponent', () => {
         { provide: VerificationStore, useValue: mockVerificationStore },
         { provide: CliStore, useValue: mockCliStore },
         { provide: DraftService, useValue: mockDraftService },
-        { provide: Router, useValue: mockRouter }
       ]
     }).compileComponents();
 
@@ -765,29 +756,6 @@ describe('VerificationDashboardComponent', () => {
         VERIFICATION_DRAFT_KEY,
         'Unsaved work'
       );
-    });
-  });
-
-  // ============================================
-  // Navigation
-  // ============================================
-
-  describe('Navigation', () => {
-    beforeEach(() => {
-      fixture.detectChanges();
-    });
-
-    it('should have back button', () => {
-      const backBtn = fixture.nativeElement.querySelector('.back-btn');
-      expect(backBtn).toBeTruthy();
-    });
-
-    it('should navigate back on back button click', () => {
-      const backSpy = vi.spyOn(component, 'navigateBack');
-      const backBtn = fixture.nativeElement.querySelector('.back-btn');
-      backBtn?.click();
-
-      expect(backSpy).toHaveBeenCalled();
     });
   });
 

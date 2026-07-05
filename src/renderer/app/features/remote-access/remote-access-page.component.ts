@@ -5,7 +5,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { Router } from '@angular/router';
 import { RemoteObserverIpcService } from '../../core/services/ipc/remote-observer-ipc.service';
 import type { RemoteObserverStatus } from '../../../../shared/types/remote-observer.types';
 
@@ -18,7 +17,6 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
     <div class="page">
       <header class="hero">
         <div>
-          <button class="back-btn" type="button" (click)="goBack()">← Back</button>
           <p class="eyebrow">Read-only Access</p>
           <h1>Remote Access</h1>
           <p class="subtitle">
@@ -154,7 +152,6 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
       line-height: 0.98;
     }
 
-    .back-btn,
     button {
       border: 0;
       border-radius: 999px;
@@ -164,7 +161,6 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
       cursor: pointer;
     }
 
-    .back-btn,
     .ghost {
       background: rgba(148, 163, 184, 0.14);
       color: #f8fafc;
@@ -294,7 +290,6 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
   `],
 })
 export class RemoteAccessPageComponent {
-  private readonly router = inject(Router);
   private readonly observerIpc = inject(RemoteObserverIpcService);
 
   readonly host = signal('127.0.0.1');
@@ -306,10 +301,6 @@ export class RemoteAccessPageComponent {
 
   constructor() {
     void this.refresh();
-  }
-
-  goBack(): void {
-    void this.router.navigate(['/']);
   }
 
   async refresh(): Promise<void> {
