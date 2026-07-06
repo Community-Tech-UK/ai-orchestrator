@@ -117,6 +117,41 @@ describe('InstanceListStore', () => {
     expect(instance.currentModel).toBe('gemini-2.5-pro');
   });
 
+  it('carries selfManagesAutoCompaction from the snapshot payload', () => {
+    const selfManaged = store.deserializeInstance({
+      id: 'instance-sm',
+      displayName: 'Codex app-server',
+      createdAt: 1,
+      historyThreadId: 'thread-sm',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      lastActivity: 2,
+      sessionId: 'codex-session-sm',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      selfManagesAutoCompaction: true,
+      outputBuffer: [],
+    });
+    expect(selfManaged.selfManagesAutoCompaction).toBe(true);
+
+    const orchestratorManaged = store.deserializeInstance({
+      id: 'instance-om',
+      displayName: 'Gemini',
+      createdAt: 1,
+      historyThreadId: 'thread-om',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      lastActivity: 2,
+      sessionId: 'gemini-session-om',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      outputBuffer: [],
+    });
+    expect(orchestratorManaged.selfManagesAutoCompaction).toBeUndefined();
+  });
+
   it('infers gemini from restore identifiers when provider and model are missing', () => {
     const instance = store.deserializeInstance({
       id: 'instance-2',

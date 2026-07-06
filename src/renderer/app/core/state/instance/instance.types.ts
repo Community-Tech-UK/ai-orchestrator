@@ -149,6 +149,13 @@ export interface Instance {
   metadata?: Record<string, unknown>;
   /** Machine-readable wait reason for UI display (Phase 6 / §G). Set during backoff, interrupt-ack, respawning, etc. */
   waitReason?: InstanceWaitReason;
+  /**
+   * True when the instance's adapter self-manages context auto-compaction
+   * (Claude CLI always; Codex in app-server mode). When set, the orchestrator
+   * does not auto-compact this instance, so the context-warning banner is
+   * suppressed. Populated from the live adapter capabilities by the backend.
+   */
+  selfManagesAutoCompaction?: boolean;
 }
 
 // ============================================

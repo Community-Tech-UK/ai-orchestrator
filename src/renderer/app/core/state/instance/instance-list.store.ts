@@ -697,6 +697,10 @@ export class InstanceListStore {
       waitReason: this.isRecord(d['waitReason'])
         ? (d['waitReason'] as Instance['waitReason'])
         : undefined,
+      selfManagesAutoCompaction:
+        typeof d['selfManagesAutoCompaction'] === 'boolean'
+          ? d['selfManagesAutoCompaction']
+          : undefined,
       workingDirectory: d['workingDirectory'] as string,
       yoloMode: (d['yoloMode'] as boolean) ?? false,
       launchMode: this.isLaunchMode(d['launchMode']) ? d['launchMode'] : 'orchestrated',

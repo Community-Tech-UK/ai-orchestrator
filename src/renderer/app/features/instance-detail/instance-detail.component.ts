@@ -391,6 +391,12 @@ export class InstanceDetailComponent {
   contextWarningLevel = computed(() => {
     const inst = this.instance();
     if (!inst) return null;
+    // Adapters that self-manage auto-compaction (Claude CLI always; Codex in
+    // app-server mode) handle context internally — the orchestrator never
+    // auto-compacts them, so its "auto-compact at 80%" warning (and the 95%
+    // input-block it drives) is both redundant and misleading here. Suppress it
+    // and defer to the provider's own compaction.
+    if (inst.selfManagesAutoCompaction) return null;
     const pct = inst.contextUsage.percentage;
     if (pct >= 95) return 'emergency' as const;
     if (pct >= 80) return 'critical' as const;

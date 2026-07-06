@@ -37,6 +37,7 @@ export interface ReconcilerInstanceView {
   id: string;
   status: string;
   processId: number | null;
+  provider?: string;
 }
 
 export interface ReconcilerDeps {
@@ -52,6 +53,10 @@ function isProcessAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+function hasSyntheticStartupPid(inst: ReconcilerInstanceView): boolean {
+  return inst.provider === 'antigravity';
 }
 
 export class StaleRuntimeReconciler {
@@ -82,6 +87,7 @@ export class StaleRuntimeReconciler {
     for (const inst of instances) {
       if (!LIVE_PROCESS_STATUSES.has(inst.status)) continue;
       if (inst.processId === null) continue;
+      if (hasSyntheticStartupPid(inst)) continue;
       if (!isProcessAlive(inst.processId)) {
         logger.warn('Stale runtime detected — CLI process is gone', {
           instanceId: inst.id,

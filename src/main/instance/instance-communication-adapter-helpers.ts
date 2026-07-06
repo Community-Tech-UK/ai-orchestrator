@@ -29,11 +29,13 @@ export function isStatelessExecAdapter(adapter: CliAdapter): boolean {
     return false;
   }
   const adapterName = adapter.getName().toLowerCase();
-  return (
-    adapterName.includes('codex') ||
-    adapterName.includes('gemini') ||
-    adapterName.includes('copilot')
-  );
+  return [
+    'antigravity-cli',
+    'codex-cli',
+    'copilot-cli',
+    'cursor-cli',
+    'gemini-cli',
+  ].includes(adapterName);
 }
 
 export function isRecoverableStatelessExecTurnError(adapter: CliAdapter, error: Error): boolean {

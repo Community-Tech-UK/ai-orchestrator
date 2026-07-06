@@ -51,6 +51,12 @@ export interface StateUpdate {
    * means "preserve existing value" — same semantics as optional fields above.
    */
   waitReason?: InstanceWaitReason | null;
+  /**
+   * True when the instance's adapter self-manages context auto-compaction
+   * (Claude CLI always; Codex in app-server mode). Suppresses the orchestrator's
+   * context-warning banner since AIO does not auto-compact these instances.
+   */
+  selfManagesAutoCompaction?: boolean;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;

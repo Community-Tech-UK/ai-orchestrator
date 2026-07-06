@@ -4,8 +4,6 @@ import { FormsModule } from '@angular/forms';
 import type {
   Automation,
   AutomationAction,
-  AutomationConcurrencyPolicy,
-  AutomationMissedRunPolicy,
   AutomationSchedule,
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
@@ -17,6 +15,12 @@ import { InstanceStore } from '../../core/state/instance/instance.store';
 import { PageHeaderComponent } from '../../shared/components';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
+import {
+  emptyForm,
+  fromLocalDateInput,
+  toLocalDateInput,
+  type AutomationFormModel,
+} from './automation-form-model';
 import { describeSchedule } from './schedule-format';
 
 type OverlayMode = 'detail' | 'form' | 'chat' | null;
@@ -27,62 +31,6 @@ interface AutomationGroup {
   title: string;
   subtitle: string;
   automations: Automation[];
-}
-
-interface AutomationFormModel {
-  id?: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-  scheduleType: 'cron' | 'oneTime';
-  cronExpression: string;
-  timezone: string;
-  runAtLocal: string;
-  missedRunPolicy: AutomationMissedRunPolicy;
-  concurrencyPolicy: AutomationConcurrencyPolicy;
-  prompt: string;
-  workingDirectory: string;
-  provider: AutomationAction['provider'];
-  model: string;
-  agentId: string;
-  yoloMode: boolean;
-  reasoningEffort: AutomationAction['reasoningEffort'] | '';
-  forceNodeId: string;
-  attachments: FileAttachment[];
-}
-
-function emptyForm(): AutomationFormModel {
-  return {
-    name: '',
-    description: '',
-    enabled: true,
-    scheduleType: 'cron',
-    cronExpression: '0 9 * * *',
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-    runAtLocal: toLocalDateInput(Date.now() + 60 * 60 * 1000),
-    missedRunPolicy: 'notify',
-    concurrencyPolicy: 'skip',
-    prompt: '',
-    workingDirectory: '',
-    provider: 'auto',
-    model: '',
-    agentId: 'build',
-    yoloMode: false,
-    reasoningEffort: '',
-    forceNodeId: '',
-    attachments: [],
-  };
-}
-
-function toLocalDateInput(timestamp: number): string {
-  const date = new Date(timestamp);
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
-}
-
-function fromLocalDateInput(value: string): number {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? Date.now() : parsed.getTime();
 }
 
 @Component({
@@ -104,6 +52,7 @@ export class AutomationsPageComponent {
   menuOpen = signal(false);
   preflightAcknowledged = signal(false);
   form = signal<AutomationFormModel>(emptyForm());
+  confirmingDeleteId = signal<string | null>(null);
 
   // Chat-composer state
   chatText = signal('');
@@ -180,6 +129,10 @@ export class AutomationsPageComponent {
   onEscape(): void {
     if (this.menuOpen()) {
       this.menuOpen.set(false);
+      return;
+    }
+    if (this.confirmingDeleteId()) {
+      this.confirmingDeleteId.set(null);
       return;
     }
     if (this.overlay() !== null) {
@@ -298,14 +251,78 @@ export class AutomationsPageComponent {
 
   /** Per-automation in-flight state for the inline "run now" play button. */
   private readonly runningIds = signal<ReadonlySet<string>>(new Set());
+  private readonly togglingIds = signal<ReadonlySet<string>>(new Set());
+  private readonly deletingIds = signal<ReadonlySet<string>>(new Set());
 
   isRunning(automation: Automation): boolean {
     return this.runningIds().has(automation.id);
   }
 
+  isToggling(automation: Automation): boolean {
+    return this.togglingIds().has(automation.id);
+  }
+
+  isDeleting(automation: Automation): boolean {
+    return this.deletingIds().has(automation.id);
+  }
+
+  isConfirmingDelete(automation: Automation): boolean {
+    return this.confirmingDeleteId() === automation.id;
+  }
+
+  /** Pause or resume a scheduled automation without opening the edit form. */
+  async togglePaused(automation: Automation): Promise<void> {
+    if (this.togglingIds().has(automation.id)) return;
+    this.confirmingDeleteId.set(null);
+    this.togglingIds.update((ids) => new Set(ids).add(automation.id));
+    try {
+      const updates: { enabled: boolean; active?: boolean } = this.isActive(automation)
+        ? { enabled: false }
+        : { enabled: true };
+      if (!automation.active) {
+        updates.active = true;
+      }
+      await this.store.update(automation.id, updates);
+    } finally {
+      this.togglingIds.update((ids) => {
+        const next = new Set(ids);
+        next.delete(automation.id);
+        return next;
+      });
+    }
+  }
+
+  requestDelete(automation: Automation): void {
+    this.confirmingDeleteId.set(automation.id);
+  }
+
+  cancelDelete(): void {
+    this.confirmingDeleteId.set(null);
+  }
+
+  async confirmDelete(automation: Automation): Promise<void> {
+    if (this.deletingIds().has(automation.id)) return;
+    this.deletingIds.update((ids) => new Set(ids).add(automation.id));
+    try {
+      await this.store.delete(automation.id);
+      if (this.selectedId() === automation.id) {
+        this.selectedId.set(null);
+        this.closeOverlay();
+      }
+      this.confirmingDeleteId.set(null);
+    } finally {
+      this.deletingIds.update((ids) => {
+        const next = new Set(ids);
+        next.delete(automation.id);
+        return next;
+      });
+    }
+  }
+
   /** Trigger an immediate manual run of the automation from the list row. */
   async runNow(automation: Automation): Promise<void> {
     if (this.runningIds().has(automation.id)) return;
+    this.confirmingDeleteId.set(null);
     this.runningIds.update((ids) => new Set(ids).add(automation.id));
     try {
       await this.store.runNow(automation.id);
@@ -491,6 +508,7 @@ export class AutomationsPageComponent {
     if (!automation) return;
     void this.store.delete(automation.id);
     this.selectedId.set(null);
+    this.confirmingDeleteId.set(null);
     this.closeOverlay();
   }
 

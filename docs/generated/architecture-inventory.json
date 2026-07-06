@@ -5313,7 +5313,7 @@
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1810
+      "lines": 1819
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
@@ -5357,7 +5357,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1550
+      "lines": 1556
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
@@ -5940,12 +5940,12 @@
       "lines": 838
     },
     {
-      "path": "src/main/orchestration/child-result-storage.ts",
-      "lines": 836
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 838
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 834
+      "path": "src/main/orchestration/child-result-storage.ts",
+      "lines": 836
     },
     {
       "path": "src/main/learning/ab-testing.ts",

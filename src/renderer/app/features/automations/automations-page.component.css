@@ -25,9 +25,14 @@
     .row { display: flex; align-items: center; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent); }
     .row:hover { background: var(--bg-secondary); }
     .row-select { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; padding: 14px 8px; text-align: left; border: none; background: transparent; color: inherit; cursor: pointer; font: inherit; }
-    .row-play { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin-right: 6px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11px; transition: background .15s ease, color .15s ease, border-color .15s ease; }
-    .row-play:hover { background: var(--bg-tertiary); color: var(--primary-color); border-color: var(--border-color); }
-    .row-play:disabled { cursor: default; opacity: .7; }
+    .row-actions { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-right: 6px; }
+    .row-action, .row-play { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11px; transition: background .15s ease, color .15s ease, border-color .15s ease; }
+    .row-action:hover, .row-play:hover { background: var(--bg-tertiary); color: var(--primary-color); border-color: var(--border-color); }
+    .row-action:disabled, .row-play:disabled { cursor: default; opacity: .7; }
+    .row-action--danger:hover { color: var(--error-color); border-color: color-mix(in srgb, var(--error-color) 38%, var(--border-color)); }
+    .row-action--confirm { width: auto; min-width: 54px; padding: 0 9px; color: var(--error-color); border-color: color-mix(in srgb, var(--error-color) 38%, var(--border-color)); font-size: 12px; font-weight: 500; }
+    .row-action--confirm:hover { background: color-mix(in srgb, var(--error-color) 12%, transparent); color: var(--error-color); border-color: color-mix(in srgb, var(--error-color) 55%, var(--border-color)); }
+    .row-action-icon { line-height: 1; }
     .row-play-icon { line-height: 1; }
     .row-play-spinner { width: 13px; height: 13px; border: 2px solid color-mix(in srgb, var(--text-muted) 40%, transparent); border-top-color: var(--primary-color); border-radius: 50%; animation: row-play-spin .7s linear infinite; }
     @keyframes row-play-spin { to { transform: rotate(360deg); } }

@@ -104,6 +104,15 @@ export interface InstanceStateUpdatePayload {
    * Renderer uses this for activity-line copy, countdowns, and diagnostics.
    */
   waitReason?: InstanceWaitReason | null;
+  /**
+   * True when the instance's adapter manages its own context auto-compaction
+   * (Claude CLI always; Codex in app-server mode). When set, the orchestrator
+   * does NOT auto-compact this instance, so the renderer suppresses its
+   * context-warning/"auto-compact at 80%" banner. Enriched from the live
+   * adapter capabilities at serialize time, so it reflects the mode resolved
+   * after spawn. Undefined before an adapter is attached.
+   */
+  selfManagesAutoCompaction?: boolean;
 }
 
 export interface InstanceOutputPayload {

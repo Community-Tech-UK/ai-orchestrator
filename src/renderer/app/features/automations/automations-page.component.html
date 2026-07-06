@@ -63,20 +63,74 @@
                         }
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      class="row-play"
-                      [disabled]="isRunning(automation)"
-                      [attr.aria-label]="'Run ' + automation.name + ' now'"
-                      [title]="isRunning(automation) ? 'Running…' : 'Run now'"
-                      (click)="runNow(automation)"
-                    >
-                      @if (isRunning(automation)) {
-                        <span class="row-play-spinner" aria-hidden="true"></span>
+                    <div class="row-actions" aria-label="Automation actions">
+                      <button
+                        type="button"
+                        class="row-action"
+                        [disabled]="isToggling(automation)"
+                        [attr.aria-label]="(isActive(automation) ? 'Pause ' : 'Resume ') + automation.name"
+                        [title]="isToggling(automation) ? 'Updating…' : (isActive(automation) ? 'Pause schedule' : 'Resume schedule')"
+                        (click)="togglePaused(automation)"
+                      >
+                        @if (isToggling(automation)) {
+                          <span class="row-play-spinner" aria-hidden="true"></span>
+                        } @else if (isActive(automation)) {
+                          <span class="row-action-icon" aria-hidden="true">⏸</span>
+                        } @else {
+                          <span class="row-action-icon" aria-hidden="true">⏵</span>
+                        }
+                      </button>
+                      <button
+                        type="button"
+                        class="row-play"
+                        [disabled]="isRunning(automation)"
+                        [attr.aria-label]="'Run ' + automation.name + ' now'"
+                        [title]="isRunning(automation) ? 'Running…' : 'Run now'"
+                        (click)="runNow(automation)"
+                      >
+                        @if (isRunning(automation)) {
+                          <span class="row-play-spinner" aria-hidden="true"></span>
+                        } @else {
+                          <span class="row-play-icon" aria-hidden="true">▶</span>
+                        }
+                      </button>
+                      @if (isConfirmingDelete(automation)) {
+                        <button
+                          type="button"
+                          class="row-action row-action--confirm"
+                          [disabled]="isDeleting(automation)"
+                          [attr.aria-label]="'Confirm delete ' + automation.name"
+                          [title]="isDeleting(automation) ? 'Deleting…' : 'Confirm delete'"
+                          (click)="confirmDelete(automation)"
+                        >
+                          @if (isDeleting(automation)) {
+                            <span class="row-play-spinner" aria-hidden="true"></span>
+                          } @else {
+                            Delete
+                          }
+                        </button>
+                        <button
+                          type="button"
+                          class="row-action"
+                          [disabled]="isDeleting(automation)"
+                          [attr.aria-label]="'Cancel delete ' + automation.name"
+                          title="Cancel delete"
+                          (click)="cancelDelete()"
+                        >
+                          <span class="row-action-icon" aria-hidden="true">✕</span>
+                        </button>
                       } @else {
-                        <span class="row-play-icon" aria-hidden="true">▶</span>
+                        <button
+                          type="button"
+                          class="row-action row-action--danger"
+                          [attr.aria-label]="'Delete ' + automation.name"
+                          title="Delete"
+                          (click)="requestDelete(automation)"
+                        >
+                          <span class="row-action-icon" aria-hidden="true">⌫</span>
+                        </button>
                       }
-                    </button>
+                    </div>
                   </div>
                 }
               </div>

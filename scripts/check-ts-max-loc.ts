@@ -72,7 +72,7 @@ const ALLOWLIST: Record<string, number> = {
   // CompletionSignalEvidence.openCount, LoopState ledger +
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
   'packages/contracts/src/schemas/loop.schemas.ts': 773,
-  'packages/contracts/src/types/transport.types.ts': 1810,
+  'packages/contracts/src/types/transport.types.ts': 1818,
   // Main process — automations
   'src/main/automations/automation-store.ts': 852,
   // Main process — browser gateway
@@ -208,9 +208,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/services/ipc/memory-ipc.service.ts': 724,
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,
   // Renderer — stores
-  'src/renderer/app/core/state/instance/instance-list.store.ts': 833,
+  'src/renderer/app/core/state/instance/instance-list.store.ts': 837,
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 794,
-  'src/renderer/app/core/state/instance/instance.store.ts': 769,
+  'src/renderer/app/core/state/instance/instance.store.ts': 773,
   'src/renderer/app/core/state/source-control.store.ts': 976,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
@@ -223,7 +223,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1027,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
   'src/renderer/app/features/instance-detail/input-panel.component.ts': 1719,
-  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1549,
+  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1555,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1266,
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),

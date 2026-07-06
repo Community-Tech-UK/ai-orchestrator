@@ -5,6 +5,7 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import { BaseCliAdapter } from '../cli/adapters/base-cli-adapter';
 import type { SessionDiffTracker } from './session-diff-tracker';
 import { InstanceStateMachine } from './instance-state-machine';
 import type {
@@ -266,6 +267,22 @@ export class InstanceStateManager extends EventEmitter {
   }
 
   /**
+   * Whether the instance's adapter self-manages context auto-compaction
+   * (Claude CLI always; Codex in app-server mode). Read lazily from the live
+   * adapter so it reflects the mode resolved after spawn — do NOT cache it at
+   * setAdapter() time, where Codex's app-server mode is not yet detected.
+   * Returns undefined when no adapter is attached yet so callers can preserve
+   * the renderer's existing value rather than clobbering it with a stale false.
+   */
+  private getSelfManagesAutoCompaction(instanceId: string): boolean | undefined {
+    const adapter = this.adapters.get(instanceId);
+    if (!adapter) return undefined;
+    return adapter instanceof BaseCliAdapter
+      ? adapter.getRuntimeCapabilities().selfManagedAutoCompaction
+      : false;
+  }
+
+  /**
    * Start the batch update timer
    */
   private startBatchTimer(): void {
@@ -280,7 +297,12 @@ export class InstanceStateManager extends EventEmitter {
   private flushUpdates(): void {
     if (this.pendingUpdates.size === 0) return;
 
-    const updates = Array.from(this.pendingUpdates.values());
+    const updates = Array.from(this.pendingUpdates.values()).map((update) => {
+      const selfManaged = this.getSelfManagesAutoCompaction(update.instanceId);
+      return selfManaged === undefined
+        ? update
+        : { ...update, selfManagesAutoCompaction: selfManaged };
+    });
     this.pendingUpdates.clear();
 
     const batchPayload: BatchUpdatePayload = {
@@ -305,9 +327,11 @@ export class InstanceStateManager extends EventEmitter {
   serializeForIpc(instance: Instance): Record<string, unknown> {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { readyPromise, respawnPromise, abortController, communicationTokens, ...rest } = instance;
+    const selfManaged = this.getSelfManagesAutoCompaction(instance.id);
     return {
       ...rest,
-      communicationTokens: Object.fromEntries(communicationTokens)
+      communicationTokens: Object.fromEntries(communicationTokens),
+      ...(selfManaged !== undefined ? { selfManagesAutoCompaction: selfManaged } : {}),
     };
   }
 

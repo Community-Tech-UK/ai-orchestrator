@@ -326,6 +326,8 @@ export class InstanceStore implements OnDestroy {
           historyThreadId: update.historyThreadId ?? inst.historyThreadId,
           // null clears waitReason; undefined preserves existing.
           waitReason: update.waitReason !== undefined ? (update.waitReason ?? undefined) : inst.waitReason,
+          selfManagesAutoCompaction:
+            update.selfManagesAutoCompaction ?? inst.selfManagesAutoCompaction,
           ...(update.displayName ? { displayName: update.displayName } : {}),
           ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
         });
@@ -420,6 +422,8 @@ export class InstanceStore implements OnDestroy {
             historyThreadId: update.historyThreadId ?? instance.historyThreadId,
             // null clears waitReason; undefined preserves existing.
             waitReason: update.waitReason !== undefined ? (update.waitReason ?? undefined) : instance.waitReason,
+            selfManagesAutoCompaction:
+              update.selfManagesAutoCompaction ?? instance.selfManagesAutoCompaction,
             ...(update.displayName ? { displayName: update.displayName } : {}),
             ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
           });
