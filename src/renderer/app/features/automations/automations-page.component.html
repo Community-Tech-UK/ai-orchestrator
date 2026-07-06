@@ -436,6 +436,15 @@
                 <div class="actions actions--start">
                   <button class="btn" type="button" (click)="editSelected()">Edit</button>
                   <button class="btn" type="button" (click)="store.runNow(automation.id)">Run now</button>
+                  <button
+                    class="btn"
+                    type="button"
+                    [disabled]="isToggling(automation)"
+                    [title]="isActive(automation) ? 'Pause schedule' : 'Resume schedule'"
+                    (click)="togglePaused(automation)"
+                  >
+                    {{ isToggling(automation) ? 'Updating…' : (isActive(automation) ? 'Pause' : 'Resume') }}
+                  </button>
                   <button class="btn" type="button" (click)="store.cancelPending(automation.id)">Cancel pending</button>
                   <button class="btn btn--danger" type="button" (click)="deleteSelected()">Delete</button>
                 </div>

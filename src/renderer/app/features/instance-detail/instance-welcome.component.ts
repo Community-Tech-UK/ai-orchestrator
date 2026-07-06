@@ -347,6 +347,14 @@ interface WelcomeProjectContext {
         min-width: 0;
         animation: fadeInUp 0.6s ease-out 0.15s both;
         width: 100%;
+        /*
+         * Sit above .welcome-copy (z-index: 2). The input panel's slash-command
+         * suggestions open upward (bottom: 100%) into the working-directory
+         * card's region; without this the card's stacking context paints over
+         * the dropdown even though the dropdown has a high local z-index.
+         */
+        position: relative;
+        z-index: 3;
       }
 
       .welcome-input-header {
