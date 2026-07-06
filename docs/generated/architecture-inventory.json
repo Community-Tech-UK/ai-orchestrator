@@ -5225,7 +5225,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2636
+      "lines": 2637
     },
     {
       "path": "src/main/channels/channel-message-router.ts",

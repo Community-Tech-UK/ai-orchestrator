@@ -45,5 +45,14 @@
     <main class="control-content">
       <router-outlet />
     </main>
+
+    @if (showHelpPane()) {
+      <app-help-pane
+        class="control-help-pane"
+        [entry]="activeHelp()"
+        [collapsed]="helpCollapsed()"
+        (toggled)="toggleHelp()"
+      />
+    }
   </div>
 </section>

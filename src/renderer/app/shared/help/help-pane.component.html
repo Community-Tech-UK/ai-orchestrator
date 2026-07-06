@@ -1,0 +1,84 @@
+@if (collapsed()) {
+  <button
+    class="help-pane-rail"
+    type="button"
+    (click)="toggled.emit()"
+    aria-expanded="false"
+    title="Show help &amp; tips"
+  >
+    <span class="help-pane-rail-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 6l-6 6 6 6" />
+      </svg>
+    </span>
+    <span class="help-pane-rail-text">Help</span>
+  </button>
+} @else {
+  <div class="help-pane-inner">
+    <header class="help-pane-header">
+      <h3 class="help-pane-title">Help &amp; tips</h3>
+      <button
+        class="help-pane-collapse"
+        type="button"
+        (click)="toggled.emit()"
+        aria-expanded="true"
+        aria-label="Hide help panel"
+        title="Hide help panel"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </button>
+    </header>
+    <div class="help-pane-body">
+      @for (section of renderSections(); track $index) {
+        @switch (section.kind) {
+          @case ('callout') {
+            <app-inline-help [variant]="section.variant" [heading]="section.heading">
+              {{ section.body }}
+            </app-inline-help>
+          }
+          @case ('steps') {
+            <div class="help-block">
+              <p class="help-subhead">{{ section.heading }}</p>
+              <ol class="help-steps">
+                @for (item of section.items; track $index) {
+                  <li>{{ item }}</li>
+                }
+              </ol>
+            </div>
+          }
+          @case ('list') {
+            <div class="help-block">
+              <p class="help-subhead">{{ section.heading }}</p>
+              <ul class="help-list">
+                @for (item of section.items; track $index) {
+                  <li>{{ item }}</li>
+                }
+              </ul>
+            </div>
+          }
+          @case ('code') {
+            <div class="help-block">
+              <p class="help-subhead">{{ section.heading }}</p>
+              <pre class="help-code">{{ section.code }}</pre>
+            </div>
+          }
+          @case ('recommend') {
+            <div class="help-block help-recommend">
+              <p class="help-subhead">{{ section.heading ?? 'Recommended settings' }}</p>
+              @for (item of section.items; track $index) {
+                <div class="help-recommend-item">
+                  <p class="help-recommend-label">
+                    {{ item.label }} <span class="help-recommend-value">{{ item.value }}</span>
+                  </p>
+                  <p class="help-recommend-why">{{ item.why }}</p>
+                </div>
+              }
+            </div>
+          }
+        }
+      }
+    </div>
+  </div>
+}

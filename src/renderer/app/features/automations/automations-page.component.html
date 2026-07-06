@@ -39,7 +39,7 @@
               </h2>
               <div class="rows">
                 @for (automation of group.automations; track automation.id) {
-                  <div class="row">
+                  <div class="row" [class.row--paused]="!isActive(automation)">
                     <button type="button" class="row-select" (click)="select(automation)">
                       @if (isActive(automation)) {
                         <span class="status status--on" aria-hidden="true"></span>

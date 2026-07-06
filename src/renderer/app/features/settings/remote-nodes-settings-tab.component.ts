@@ -24,7 +24,7 @@ import type {
   RemoteNodeRosterEntry,
 } from '../../../../shared/types/worker-node.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
-import { InlineHelpComponent } from './ui/inline-help.component';
+import { InlineHelpComponent } from '../../shared/help/inline-help.component';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
 import { ValidationRowComponent } from './ui/validation-row.component';
 import { CopyRowComponent } from './ui/copy-row.component';

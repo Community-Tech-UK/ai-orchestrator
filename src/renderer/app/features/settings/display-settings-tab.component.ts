@@ -21,7 +21,7 @@ import { SettingRowComponent } from './setting-row.component';
 import { SettingsCardComponent } from './ui/settings-card.component';
 import { SegmentedControlComponent, type SegmentOption } from './ui/segmented-control.component';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
-import { InlineHelpComponent } from './ui/inline-help.component';
+import { InlineHelpComponent } from '../../shared/help/inline-help.component';
 import type {
   AppSettings,
   DisplayDensity,

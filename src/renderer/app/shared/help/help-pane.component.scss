@@ -1,6 +1,13 @@
-.settings-help-pane {
+/**
+ * Help pane styles - shared by the Settings page and the Control Center
+ * shell. Ported from settings.component.help.scss so both surfaces render an
+ * identical Help & tips rail.
+ */
+
+:host {
   flex: 0 0 auto;
   display: flex;
+  width: 320px;
   border-left: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
   background:
     linear-gradient(
@@ -10,11 +17,7 @@
     );
 }
 
-.settings-help-pane:not(.collapsed) {
-  width: 320px;
-}
-
-.settings-help-pane.collapsed {
+:host(.collapsed) {
   width: 44px;
 }
 
@@ -136,13 +139,6 @@
   color: var(--settings-group-fg);
 }
 
-.help-text {
-  margin: 0;
-  font-size: var(--text-sm);
-  line-height: var(--leading-snug);
-  color: var(--text-secondary);
-}
-
 .help-code {
   margin: 0;
   padding: var(--spacing-sm) var(--spacing-md);
@@ -168,34 +164,46 @@
   color: var(--text-secondary);
 }
 
-.help-list strong {
-  color: var(--text-primary);
-}
-
-.help-links {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.help-recommend-item {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: 2px;
 }
 
-.help-links code {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  overflow-wrap: anywhere;
+.help-recommend-item + .help-recommend-item {
+  margin-top: var(--spacing-xs);
+  padding-top: var(--spacing-xs);
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+
+.help-recommend-label {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
   color: var(--text-primary);
+}
+
+.help-recommend-value {
+  font-weight: 500;
+  color: var(--accent-primary, var(--text-secondary));
+}
+
+.help-recommend-why {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--text-secondary);
 }
 
 @media (max-width: 1080px) {
-  .settings-help-pane:not(.collapsed) {
+  :host {
     width: 280px;
   }
 }
 
 @media (max-width: 1180px) {
-  .settings-help-pane {
+  :host,
+  :host(.collapsed) {
     display: none;
   }
 }

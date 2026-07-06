@@ -10,15 +10,35 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ControlSurfaceShellComponent } from './control-surface-shell.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
-const template = readFileSync(resolve(specDirectory, './control-surface-shell.component.html'), 'utf8');
-const styles = readFileSync(resolve(specDirectory, './control-surface-shell.component.scss'), 'utf8');
+
+/** Standalone-component resources loaded from disk for the vitest environment. */
+const resources: Record<string, string> = {
+  'control-surface-shell.component.html': readFileSync(
+    resolve(specDirectory, './control-surface-shell.component.html'),
+    'utf8',
+  ),
+  'control-surface-shell.component.scss': readFileSync(
+    resolve(specDirectory, './control-surface-shell.component.scss'),
+    'utf8',
+  ),
+  'help-pane.component.html': readFileSync(
+    resolve(specDirectory, '../help/help-pane.component.html'),
+    'utf8',
+  ),
+  'help-pane.component.scss': readFileSync(
+    resolve(specDirectory, '../help/help-pane.component.scss'),
+    'utf8',
+  ),
+  'inline-help.component.scss': readFileSync(
+    resolve(specDirectory, '../help/inline-help.component.scss'),
+    'utf8',
+  ),
+};
 
 await resolveComponentResources((url) => {
-  if (url.endsWith('control-surface-shell.component.html')) {
-    return Promise.resolve(template);
-  }
-  if (url.endsWith('control-surface-shell.component.scss')) {
-    return Promise.resolve(styles);
+  const match = Object.entries(resources).find(([name]) => url.endsWith(name));
+  if (match) {
+    return Promise.resolve(match[1]);
   }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });

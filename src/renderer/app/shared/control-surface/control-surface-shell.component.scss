@@ -84,7 +84,7 @@
 .control-body {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
+  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr) auto;
   min-height: 0;
 }
 
@@ -156,11 +156,11 @@
 }
 
 .layout-wide .control-body {
-  grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
+  grid-template-columns: minmax(190px, 220px) minmax(0, 1fr) auto;
 }
 
 .layout-fullBleed .control-body {
-  grid-template-columns: minmax(170px, 200px) minmax(0, 1fr);
+  grid-template-columns: minmax(170px, 200px) minmax(0, 1fr) auto;
 }
 
 @media (max-width: 840px) {

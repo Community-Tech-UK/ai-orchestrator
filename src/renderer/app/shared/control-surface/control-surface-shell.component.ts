@@ -16,11 +16,17 @@ import {
   tryGetControlSurface,
 } from './control-surface.registry';
 import type { ControlSurfaceId, ControlSurfaceItem } from './control-surface.types';
+import { HelpPaneComponent } from '../help/help-pane.component';
+import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
+import type { HelpEntry } from '../help/help-content.types';
+
+/** localStorage key remembering whether the Control Center help pane is collapsed. */
+const HELP_COLLAPSED_KEY = 'aiorch.control.helpCollapsed';
 
 @Component({
   selector: 'app-control-surface-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, HelpPaneComponent],
   templateUrl: './control-surface-shell.component.html',
   styleUrl: './control-surface-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -36,6 +42,20 @@ export class ControlSurfaceShellComponent {
     const id = this.activeSurfaceId();
     return id ? getControlSurface(id) : getControlSurface('settings');
   });
+
+  /** Whether the contextual help pane is collapsed to a thin rail. */
+  protected readonly helpCollapsed = signal(this.readHelpCollapsed());
+
+  /** Help & tips content for the active surface. */
+  protected readonly activeHelp = computed<HelpEntry>(
+    () => CONTROL_SURFACE_HELP[this.activeSurface().id],
+  );
+
+  /**
+   * The Settings page renders its own per-tab help pane, so the shell-level
+   * pane is suppressed there to avoid showing two.
+   */
+  protected readonly showHelpPane = computed(() => this.activeSurface().id !== 'settings');
 
   constructor() {
     this.router.events
@@ -53,6 +73,25 @@ export class ControlSurfaceShellComponent {
 
   protected isExactNavMatch(path: string): boolean {
     return path !== '/campaigns' && path !== '/channels';
+  }
+
+  /** Toggle the help pane and remember the choice. */
+  protected toggleHelp(): void {
+    const collapsed = !this.helpCollapsed();
+    this.helpCollapsed.set(collapsed);
+    try {
+      localStorage.setItem(HELP_COLLAPSED_KEY, String(collapsed));
+    } catch {
+      // Storage may be unavailable (private mode, quota); non-fatal.
+    }
+  }
+
+  private readHelpCollapsed(): boolean {
+    try {
+      return localStorage.getItem(HELP_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
   }
 
   private findActiveSurfaceId(): ControlSurfaceId | null {

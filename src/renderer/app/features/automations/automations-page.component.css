@@ -24,7 +24,9 @@
     .rows { display: flex; flex-direction: column; }
     .row { display: flex; align-items: center; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent); }
     .row:hover { background: var(--bg-secondary); }
-    .row-select { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; padding: 14px 8px; text-align: left; border: none; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+    .row-select { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; padding: 14px 8px; text-align: left; border: none; background: transparent; color: inherit; cursor: pointer; font: inherit; transition: opacity .15s ease; }
+    .row--paused .row-select { opacity: .45; }
+    .row--paused:hover .row-select { opacity: .8; }
     .row-actions { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-right: 6px; }
     .row-action, .row-play { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11px; transition: background .15s ease, color .15s ease, border-color .15s ease; }
     .row-action:hover, .row-play:hover { background: var(--bg-tertiary); color: var(--primary-color); border-color: var(--border-color); }

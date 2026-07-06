@@ -165,6 +165,15 @@ describe('AutomationsPageComponent row actions', () => {
     expect(store.update).toHaveBeenCalledWith('automation-1', { enabled: true });
   });
 
+  it('dims paused rows via the row--paused class', () => {
+    expect(fixture.nativeElement.querySelector('.row.row--paused')).toBeNull();
+
+    automations.set([makeAutomation({ enabled: false, nextFireAt: null })]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.row.row--paused')).not.toBeNull();
+  });
+
   it('requires row-level confirmation before deleting an automation', async () => {
     findButton('Delete Daily check').click();
     fixture.detectChanges();

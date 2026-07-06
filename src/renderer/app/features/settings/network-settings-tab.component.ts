@@ -12,7 +12,7 @@ import { SettingRowComponent } from './setting-row.component';
 import { PauseDetectorEventsDialogComponent } from './pause-detector-events-dialog.component';
 import { SettingsCardComponent } from './ui/settings-card.component';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
-import { InlineHelpComponent } from './ui/inline-help.component';
+import { InlineHelpComponent } from '../../shared/help/inline-help.component';
 import type { AppSettings, SettingMetadata } from '../../../../shared/types/settings.types';
 
 @Component({

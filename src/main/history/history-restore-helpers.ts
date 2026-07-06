@@ -119,6 +119,8 @@ export function getProviderDisplayName(provider: InstanceProvider): string {
       return 'Codex';
     case 'gemini':
       return 'Gemini';
+    case 'antigravity':
+      return 'Antigravity';
     case 'copilot':
       return 'Copilot';
     case 'cursor':

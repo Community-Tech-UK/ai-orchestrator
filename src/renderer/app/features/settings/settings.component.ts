@@ -54,7 +54,9 @@ import { ArchivePageComponent } from '../archive/archive-page.component';
 import { RemoteConfigPageComponent } from '../remote-config/remote-config-page.component';
 import { ModelsPageComponent } from '../models/models-page.component';
 import { SettingsNavIconComponent } from './ui/settings-nav-icon.component';
-import { InlineHelpComponent } from './ui/inline-help.component';
+import { HelpPaneComponent } from '../../shared/help/help-pane.component';
+import type { HelpEntry, HelpLiveStatus } from '../../shared/help/help-content.types';
+import { SETTINGS_TAB_HELP } from './help/settings-help';
 import {
   HELP_COLLAPSED_KEY,
   LAST_TAB_KEY,
@@ -98,7 +100,7 @@ import {
     RemoteConfigPageComponent,
     ModelsPageComponent,
     SettingsNavIconComponent,
-    InlineHelpComponent,
+    HelpPaneComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './settings.component.html',
@@ -122,13 +124,6 @@ export class SettingsComponent {
   readonly searchQuery = signal('');
   /** Whether the contextual help/preview pane is collapsed (item 13). */
   readonly helpCollapsed = signal(this.readHelpCollapsed());
-
-  /**
-   * JSON example rendered in the Models help pane. Kept as a bound value so the
-   * literal braces never reach the Angular template parser, which would treat a
-   * bare `{` as the start of an ICU expansion and fail to compile the template.
-   */
-  readonly modelOverrideExample = '{ "temperature": 0.7, "topP": 0.9 }';
 
   /** Latest startup-capability report — backs the Doctor + Models surfaces. */
   private readonly startupReport = signal<StartupCapabilityReport | null>(null);
@@ -304,6 +299,23 @@ export class SettingsComponent {
       variant: connected === nodes.length ? 'info' : 'warning',
       text: `${connected} of ${nodes.length} enrolled ${nodes.length === 1 ? 'node is' : 'nodes are'} connected.`,
     };
+  });
+
+  /** Registry help content for the active tab. */
+  readonly activeHelp = computed<HelpEntry>(() => SETTINGS_TAB_HELP[this.activeTab()]);
+
+  /** Live subsystem status injected into the help pane for health-backed tabs. */
+  readonly activeHelpStatus = computed<HelpLiveStatus | null>(() => {
+    switch (this.activeTab()) {
+      case 'models':
+        return this.modelsHelpStatus();
+      case 'remote-nodes':
+        return this.remoteNodesHelpStatus();
+      case 'doctor':
+        return this.doctorHelpStatus();
+      default:
+        return null;
+    }
   });
 
   /** NAV_ITEMS filtered by the current search query. */

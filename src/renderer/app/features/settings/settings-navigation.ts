@@ -1,4 +1,4 @@
-import type { InlineHelpVariant } from './ui/inline-help.component';
+import type { InlineHelpVariant } from '../../shared/help/inline-help.component';
 import { listSettingsExternalLinks } from '../../shared/control-surface/control-surface-nav';
 
 export type SettingsTab =
