@@ -17,16 +17,10 @@ export const ORCHESTRATION_CHANNELS = {
   VERIFY_CANCEL: 'verify:cancel',
   VERIFY_GET_PERSONALITIES: 'verify:get-personalities',
   VERIFY_CONFIGURE: 'verify:configure',
-  VERIFY_STARTED: 'verify:started',
-  VERIFY_AGENT_RESPONDED: 'verify:agent-responded',
-  VERIFY_COMPLETED: 'verify:completed',
 
   // Verification operations (Phase 8.3 - alternative naming)
-  VERIFICATION_VERIFY_MULTI: 'verification:verify-multi',
   VERIFICATION_START_CLI: 'verification:start-cli',
   VERIFICATION_CANCEL: 'verification:cancel',
-  VERIFICATION_GET_ACTIVE: 'verification:get-active',
-  VERIFICATION_GET_RESULT: 'verification:get-result',
 
   // Verification streaming events
   VERIFICATION_AGENT_START: 'verification:agent-start',

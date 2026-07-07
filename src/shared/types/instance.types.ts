@@ -4,6 +4,8 @@
 
 import { getAgentById, getDefaultAgent, type AgentMode } from './agent.types';
 import type { ActivityState } from './activity.types';
+import type { ImageResolveFailureReason, ImageResolveKind } from '@contracts/schemas/image';
+import type { InstanceStatus } from '@contracts/types/instance-events';
 import type { CanonicalCliType } from './settings.types';
 import type {
   TerminationPolicy,
@@ -17,6 +19,8 @@ import { getProviderModelContextWindow, type ReasoningEffort } from './provider.
  * CLI provider type for instances
  */
 export type InstanceProvider = CanonicalCliType;
+export type { ImageResolveFailureReason, ImageResolveKind } from '@contracts/schemas/image';
+export type { InstanceStatus } from '@contracts/types/instance-events';
 
 export type InstanceLaunchMode = 'orchestrated' | 'interactive';
 
@@ -82,29 +86,6 @@ export interface PlanModeConfig {
 // ============================================
 // Core Types
 // ============================================
-
-export type InstanceStatus =
-  | 'initializing'
-  | 'ready'           // Init complete, adapter spawned, waiting for first input
-  | 'idle'
-  | 'busy'
-  | 'processing'      // CLI process alive, no output for several seconds (remote heartbeat)
-  | 'thinking_deeply' // CLI process alive, no stdout for 90s+ (extended thinking)
-  | 'waiting_for_input'
-  | 'waiting_for_permission' // CLI paused on deferred tool use, awaiting user approval
-  | 'interrupting'    // Interrupt requested, waiting for provider/process acknowledgement
-  | 'cancelling'      // Turn cancellation is being finalized without process respawn
-  | 'interrupt-escalating' // Second interrupt escalated to process termination
-  | 'cancelled'       // Turn/session was cancelled and can be restarted or superseded
-  | 'superseded'      // Instance was replaced by an edit/fork retry
-  | 'respawning'      // Instance is recovering from interrupt, cannot be interrupted again
-  | 'hibernating'     // Saving state to disk before suspend
-  | 'hibernated'      // State saved, process killed, can wake
-  | 'waking'          // Restoring from hibernation
-  | 'degraded'        // Remote worker node disconnected; awaiting reconnection or failover
-  | 'error'
-  | 'failed'          // Unrecoverable init/wake failure
-  | 'terminated';
 
 /**
  * Why an instance is currently waiting, surfaced to the renderer so a long
@@ -212,17 +193,6 @@ export interface FileAttachment {
   size: number;
   data: string; // data URL
 }
-
-export type ImageResolveKind = 'local' | 'remote' | 'data';
-
-export type ImageResolveFailureReason =
-  | 'too_large'
-  | 'not_found'
-  | 'denied'
-  | 'fetch_failed'
-  | 'unsupported'
-  | 'timeout'
-  | 'invalid_data_uri';
 
 /**
  * Where an image reference was discovered in the assistant output.

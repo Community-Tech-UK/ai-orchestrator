@@ -18,6 +18,7 @@ import { initTruncationCleanup } from '../util/tool-output-truncation';
 import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manager';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { initializeArtifactCleanupMaintenance } from '../session/artifact-cleanup-maintenance';
 import { registerBuiltinTerminationGates } from '../session/builtin-termination-gates';
 import { initLastStopSnapshot } from '../session/last-stop-snapshot';
 import { registerCompactionSummaryRenderer } from '../display-items/compaction-summary-renderer';
@@ -126,8 +127,9 @@ export function createInitializationSteps(
       fn: () => {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { getOperatorDatabase } = require('../operator') as typeof import('../operator');
+          const { getOperatorDatabase, getProjectRegistry } = require('../operator') as typeof import('../operator');
           getOperatorDatabase();
+          getProjectRegistry({ instanceManager });
         } catch (error) {
           logger.warn('Operator database initialization failed; operator IPC handlers will report degraded errors', {
             error: error instanceof Error ? error.message : String(error),
@@ -408,6 +410,7 @@ export function createInitializationSteps(
     },
     { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
     { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); } },
+    { name: 'Artifact cleanup maintenance', fn: () => { initializeArtifactCleanupMaintenance(); } },
     {
       name: 'Resource governor',
       fn: () => {

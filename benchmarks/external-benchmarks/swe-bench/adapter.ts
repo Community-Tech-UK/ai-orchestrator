@@ -6,7 +6,7 @@
  */
 
 import { spawn, execSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import { writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import type { SWEBenchTask, SWEBenchResult } from './types.js';
 
@@ -781,14 +781,4 @@ export function classifyDifficulty(task: SWEBenchTask): 'easy' | 'medium' | 'har
  */
 export function writePatch(patch: string, outputPath: string): void {
   writeFileSync(outputPath, patch, 'utf-8');
-}
-
-/**
- * Read a patch from disk
- */
-export function readPatch(patchPath: string): string {
-  if (!existsSync(patchPath)) {
-    throw new Error(`Patch file not found: ${patchPath}`);
-  }
-  return readFileSync(patchPath, 'utf-8');
 }

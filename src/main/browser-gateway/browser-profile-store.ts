@@ -272,7 +272,3 @@ export function getBrowserProfileStore(): BrowserProfileStore {
   }
   return browserProfileStore;
 }
-
-export function _resetBrowserProfileStoreForTesting(): void {
-  browserProfileStore = null;
-}

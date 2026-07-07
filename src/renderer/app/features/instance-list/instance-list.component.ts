@@ -70,6 +70,7 @@ import {
   saveSortMode,
   saveStatusFilter,
 } from './instance-list-preferences';
+import { getSystemFileManagerLabel } from '../instance-detail/output-stream.utils';
 
 @Component({
   selector: 'app-instance-list',
@@ -138,7 +139,7 @@ export class InstanceListComponent implements OnDestroy {
       || this.historyTimeWindow() !== 'all'
       || this.showEmptyProjects()
   );
-  readonly systemFileManagerLabel = this.getSystemFileManagerLabel();
+  readonly systemFileManagerLabel = getSystemFileManagerLabel();
   private projectMenuTrigger: HTMLButtonElement | null = null;
   private restoreSelectionRequestId = 0;
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1259,16 +1260,6 @@ export class InstanceListComponent implements OnDestroy {
       default:
         this.preferredEditorLabel.set(type.charAt(0).toUpperCase() + type.slice(1));
     }
-  }
-
-  private getSystemFileManagerLabel(): string {
-    if (navigator.userAgent.includes('Windows')) {
-      return 'Explorer';
-    }
-    if (navigator.userAgent.includes('Linux')) {
-      return 'Files';
-    }
-    return 'Finder';
   }
 
   canDragProject(group: ProjectGroup): boolean {

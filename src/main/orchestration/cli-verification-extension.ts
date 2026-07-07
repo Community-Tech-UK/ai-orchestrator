@@ -321,6 +321,11 @@ export class CliVerificationCoordinator extends EventEmitter {
       agentCount: agents.length,
       agents: agents.map(a => ({ name: a.name, type: a.type, personality: a.personality })),
     });
+    this.emit('verification:round-progress', {
+      requestId: request.id,
+      round: 1,
+      total: 1,
+    });
 
     // Run all agents in parallel
     const responsePromises = agents.map((agent, index) =>
@@ -331,6 +336,10 @@ export class CliVerificationCoordinator extends EventEmitter {
 
     // Analyze responses
     const analysis = this.analyzeResponses(responses, request.config);
+    this.emit('verification:consensus-update', {
+      requestId: request.id,
+      score: analysis.consensusStrength,
+    });
 
     // Synthesize final response
     const { synthesizedResponse, confidence } = this.synthesize(
@@ -536,6 +545,12 @@ export class CliVerificationCoordinator extends EventEmitter {
         agentId,
         agentName: agent.name,
         success: false,
+        error: (error as Error).message,
+      });
+      this.emit('verification:agent-error', {
+        requestId: request.id,
+        agentId,
+        agentName: agent.name,
         error: (error as Error).message,
       });
 

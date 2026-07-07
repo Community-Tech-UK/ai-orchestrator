@@ -69,4 +69,31 @@ export class PermissionDecisionStore {
       return [];
     }
   }
+
+  getRecent(limit = 50): PermissionDecisionRecord[] {
+    try {
+      const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+      const stmt = this.db.prepare(`
+        SELECT
+          instance_id AS instanceId,
+          scope,
+          resource,
+          action,
+          decided_by AS decidedBy,
+          rule_id AS ruleId,
+          reason,
+          tool_name AS toolName,
+          is_cached AS isCached,
+          decided_at AS decidedAt
+        FROM permission_decisions
+        ORDER BY created_at DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(boundedLimit) as Array<Omit<PermissionDecisionRecord, 'isCached'> & { isCached: number }>;
+      return rows.map(r => ({ ...r, isCached: r.isCached === 1 }));
+    } catch (err) {
+      logger.error('Failed to query recent permission decisions', err as Error);
+      return [];
+    }
+  }
 }

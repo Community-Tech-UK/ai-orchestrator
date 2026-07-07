@@ -17,7 +17,18 @@ import {
   type ObservationStats,
   type ObservationConfig,
 } from './observation.types';
+import { getConflictDetector, type ConflictResult } from '../memory/conflict-detector';
 import type { ObservationRow, ReflectionRow } from '../persistence/rlm-database.types';
+
+export interface ObservationConflict {
+  existingObservationId: string;
+  result: ConflictResult;
+}
+
+export interface ObservationConflictDetectedEvent {
+  observationId: string;
+  conflicts: ObservationConflict[];
+}
 
 export class ObservationStore extends EventEmitter {
   private static instance: ObservationStore | null = null;
@@ -58,6 +69,7 @@ export class ObservationStore extends EventEmitter {
       id: generateId(),
       ...obs,
     };
+    const conflicts = this.detectObservationConflicts(observation);
 
     // Store to database
     try {
@@ -83,6 +95,18 @@ export class ObservationStore extends EventEmitter {
 
     // Cache locally
     this.observationCache.set(observation.id, observation);
+
+    if (conflicts.length > 0) {
+      this.logger.info('Observation conflicts detected', {
+        observationId: observation.id,
+        conflictCount: conflicts.length,
+        existingObservationIds: conflicts.map((conflict) => conflict.existingObservationId),
+      });
+      this.emit('observation:conflict-detected', {
+        observationId: observation.id,
+        conflicts,
+      } satisfies ObservationConflictDetectedEvent);
+    }
 
     // Generate embedding (async, fire-and-forget)
     this.generateObservationEmbedding(observation).catch((error) => {
@@ -163,8 +187,7 @@ export class ObservationStore extends EventEmitter {
 
         if (!reflection) {
           const db = getRLMDatabase();
-          const rows = db.getReflections({ limit: 1 });
-          const row = rows.find((r) => r.id === reflectionId);
+          const row = db.getReflectionById(reflectionId);
 
           if (row) {
             reflection = this.rowToReflection(row);
@@ -188,60 +211,6 @@ export class ObservationStore extends EventEmitter {
       return reflections;
     } catch (error) {
       this.logger.warn('Failed to query reflections (VectorStore may not be initialized)', { error });
-      return [];
-    }
-  }
-
-  /**
-   * Query relevant observations using semantic search
-   */
-  async queryRelevantObservations(
-    context: string,
-    options?: { topK?: number }
-  ): Promise<Observation[]> {
-    const topK = options?.topK || 10;
-
-    try {
-      const vectorStore = getVectorStore();
-      const searchResults = await vectorStore.search(this.VECTOR_STORE_ID, context, {
-        topK,
-        minSimilarity: 0.3,
-      });
-
-      const observations: Observation[] = [];
-
-      for (const result of searchResults) {
-        // Extract observation ID from section ID (format: "observation-{id}")
-        const observationId = result.entry.sectionId.replace('observation-', '');
-
-        // Try cache first, then database
-        let observation = this.observationCache.get(observationId);
-
-        if (!observation) {
-          const db = getRLMDatabase();
-          const rows = db.getObservations({ limit: 1 });
-          const row = rows.find((r) => r.id === observationId);
-
-          if (row) {
-            observation = this.rowToObservation(row);
-            this.observationCache.set(observation.id, observation);
-          }
-        }
-
-        if (observation) {
-          observations.push(observation);
-        }
-      }
-
-      this.logger.info('Queried relevant observations', {
-        contextLength: context.length,
-        topK,
-        resultsFound: observations.length,
-      });
-
-      return observations;
-    } catch (error) {
-      this.logger.warn('Failed to query observations (VectorStore may not be initialized)', { error });
       return [];
     }
   }
@@ -540,6 +509,58 @@ export class ObservationStore extends EventEmitter {
       promoted: row.promoted === 1,
       tokenCount: row.token_count,
     };
+  }
+
+  private detectObservationConflicts(observation: Observation): ObservationConflict[] {
+    const newContent = this.observationConflictText(observation);
+    const existingObservations = this.recentObservationsForConflictCheck();
+    const detector = getConflictDetector();
+    const conflicts: ObservationConflict[] = [];
+
+    for (const existing of existingObservations) {
+      if (existing.id === observation.id) continue;
+      const result = detector.heuristicCheck(
+        newContent,
+        this.observationConflictText(existing)
+      );
+      if (result) {
+        conflicts.push({ existingObservationId: existing.id, result });
+      }
+      if (conflicts.length >= 5) break;
+    }
+
+    return conflicts;
+  }
+
+  private recentObservationsForConflictCheck(): Observation[] {
+    const byId = new Map<string, Observation>();
+
+    for (const observation of this.observationCache.values()) {
+      byId.set(observation.id, observation);
+    }
+
+    try {
+      const rows = getRLMDatabase().getObservations({ limit: 50 });
+      for (const row of rows) {
+        if (!byId.has(row.id)) {
+          byId.set(row.id, this.rowToObservation(row));
+        }
+      }
+    } catch (error) {
+      this.logger.warn('Failed to load observations for conflict detection', { error });
+    }
+
+    return [...byId.values()]
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 50);
+  }
+
+  private observationConflictText(observation: Observation): string {
+    return [
+      observation.summary,
+      ...observation.keyFindings,
+      ...observation.themes,
+    ].filter(Boolean).join('\n');
   }
 
   /**

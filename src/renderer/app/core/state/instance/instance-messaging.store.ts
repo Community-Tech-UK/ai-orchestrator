@@ -5,7 +5,7 @@
  */
 
 import { effect, Injectable, inject } from '@angular/core';
-import { ElectronIpcService, type IpcResponse } from '../../services/ipc';
+import { IpcFacadeService, type IpcResponse } from '../../services/ipc';
 import { DraftService } from '../../services/draft.service';
 import { InstanceStateService } from './instance-state.service';
 import { InstanceListStore } from './instance-list.store';
@@ -33,7 +33,7 @@ const NO_SEND_INPUT_IPC_TIMEOUT_MS = null;
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
   private stateService = inject(InstanceStateService);
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private listStore = inject(InstanceListStore);
   private draftService = inject(DraftService);
   private pauseStore = inject(PauseStore);

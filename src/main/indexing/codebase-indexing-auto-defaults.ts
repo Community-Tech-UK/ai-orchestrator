@@ -3,13 +3,10 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import ignore from 'ignore';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { DEFAULT_CODE_INDEX_IGNORES } from '../codemem/code-index-ignores';
 import { workspaceHashForPath } from '../codemem/symbol-id';
 import { getProjectRootRegistry } from '../memory/project-root-registry';
 import { RLMContextManager } from '../rlm/context-manager';
-import {
-  getCodebaseIndexingService,
-  type CodebaseIndexingService,
-} from './indexing-service';
 import { getCodebaseIndexingLaneGateway } from './codebase-indexing-lane-gateway';
 import { getCodebaseFileWatcher, type CodebaseFileWatcher } from './file-watcher';
 import { DEFAULT_INDEXING_CONFIG, shouldIncludeFile } from './config';
@@ -23,35 +20,8 @@ import type {
   PreflightResult,
 } from './codebase-indexing-auto.types';
 
-const DEFAULT_IGNORES = [
-  '.git/',
-  '.gitignore',
-  '.gradle/',
-  '.venv/',
-  'cache/',
-  'node_modules/',
-  'dist/',
-  'build/',
-  'libraries/',
-  '.next/',
-  'coverage/',
-  'out/',
-  'target/',
-  'venv/',
-  'vendor/',
-];
-
 export function createDefaultIndexingTarget(): AutoIndexingTarget {
   return getCodebaseIndexingLaneGateway();
-}
-
-export function wrapIndexingService(service: CodebaseIndexingService): AutoIndexingTarget {
-  return {
-    indexCodebase: (storeId, rootPath, options) =>
-      service.indexCodebase(storeId, rootPath, options),
-    on: (event, listener) => service.on(event, listener),
-    off: (event, listener) => service.off(event, listener),
-  };
 }
 
 export function createDefaultFileWatcherTarget(): AutoIndexFileWatcherTarget {
@@ -102,7 +72,7 @@ export async function defaultPreflight(
   rootPath: string,
   limits: { maxFiles: number; maxBytes: number },
 ): Promise<PreflightResult> {
-  const ig = ignore().add(DEFAULT_IGNORES);
+  const ig = ignore().add(['.gitignore', ...DEFAULT_CODE_INDEX_IGNORES]);
   try {
     const gitignore = await fsp.readFile(path.join(rootPath, '.gitignore'), 'utf8');
     ig.add(gitignore);

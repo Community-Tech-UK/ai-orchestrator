@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHudSnapshot, type HudChildInput } from '../orchestration-hud-builder';
+import { buildHudSnapshot, type HudChildInput } from '../../../shared/utils/orchestration-hud-builder';
 
 const NOW = 1_900_000_000_000;
 

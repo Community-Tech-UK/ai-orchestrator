@@ -12,12 +12,12 @@ export const WebhookCreateRoutePayloadSchema = z.object({
   allowedEvents: z.array(z.string().min(1).max(200)).max(100).optional(),
 });
 
-export const WebhookGetRoutePayloadSchema = z.object({
-  id: WebhookRouteIdSchema,
-});
-
 export const WebhookListDeliveriesPayloadSchema = z.object({
   limit: z.number().int().min(1).max(500).optional(),
+}).optional();
+
+export const WebhookListSuggestionsPayloadSchema = z.object({
+  limit: z.number().int().min(1).max(50).optional(),
 }).optional();
 
 export type WebhookCreateRoutePayload = z.infer<typeof WebhookCreateRoutePayloadSchema>;

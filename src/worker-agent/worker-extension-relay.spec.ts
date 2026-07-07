@@ -97,7 +97,7 @@ describe('WorkerExtensionRelay', () => {
     );
   });
 
-  it('forwards poll-command RPC with a bounded worker request timeout', async () => {
+  it('forwards poll-command RPC with a timeout that outlives the coordinator poll hold', async () => {
     const { relay, sendRequest } = makeRelay();
 
     await relay.handleExtensionRpcRequest({
@@ -108,10 +108,30 @@ describe('WorkerExtensionRelay', () => {
       },
     });
 
+    // Poll window + 10s headroom: if the relay gave up BEFORE the coordinator
+    // answered, a command handed over at the last moment would be dropped.
     expect(sendRequest).toHaveBeenCalledWith(
       NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
       { timeoutMs: 1000 },
-      15_000,
+      11_000,
+    );
+  });
+
+  it('defaults the poll-forward timeout window when the extension omits timeoutMs', async () => {
+    const { relay, sendRequest } = makeRelay();
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'extension-token',
+        payload: {},
+      },
+    });
+
+    expect(sendRequest).toHaveBeenCalledWith(
+      NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
+      {},
+      20_000,
     );
   });
 
@@ -287,6 +307,170 @@ describe('WorkerExtensionRelay', () => {
         result: { done: true },
       },
     );
+  });
+
+  it('re-sends a command result with backoff until the coordinator accepts it', async () => {
+    vi.useFakeTimers();
+    const sendRequest = vi.fn()
+      .mockRejectedValueOnce(new Error('coordinator_not_connected'))
+      .mockRejectedValueOnce(new Error('coordinator_not_connected'))
+      .mockRejectedValueOnce(new Error('coordinator_not_connected'))
+      .mockResolvedValueOnce({ ok: true });
+    const relay = new WorkerExtensionRelay({
+      config: {
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay.sock',
+        extensionToken: 'extension-token',
+      },
+      sendRequest,
+    });
+
+    await expect(relay.handleExtensionRpcRequest({
+      method: 'browser.extension_command_result',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { commandId: 'cmd-1', ok: true, result: { done: true } },
+      },
+    })).resolves.toEqual({ ok: true, queued: true });
+
+    // Backoff: 3s then 6s — the executed result survives TWO more transient
+    // RPC failures instead of evaporating after one fire-and-forget retry.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(sendRequest).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(sendRequest).toHaveBeenCalledTimes(4);
+    // Success: no further sends.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sendRequest).toHaveBeenCalledTimes(4);
+  });
+
+  it('gives up re-sending a command result after exhausting retries', async () => {
+    vi.useFakeTimers();
+    const sendRequest = vi.fn(async () => {
+      throw new Error('coordinator_not_connected');
+    });
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const relay = new WorkerExtensionRelay({
+      config: {
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay.sock',
+        extensionToken: 'extension-token',
+      },
+      sendRequest,
+      logger,
+    });
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_command_result',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { commandId: 'cmd-1', ok: true },
+      },
+    });
+
+    // 3s + 6s + 12s + 24s of retries, then a logged drop — never an infinite loop.
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(sendRequest).toHaveBeenCalledTimes(5);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[WorkerExtensionRelay] Dropping command result after exhausted retries',
+      expect.objectContaining({ commandId: 'cmd-1' }),
+    );
+  });
+
+  it('does not resurrect result retries after stop()', async () => {
+    vi.useFakeTimers();
+    let rejectInFlight: ((error: Error) => void) | undefined;
+    const sendRequest = vi.fn()
+      .mockRejectedValueOnce(new Error('coordinator_not_connected'))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        rejectInFlight = reject;
+      }));
+    const relay = new WorkerExtensionRelay({
+      config: {
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay.sock',
+        extensionToken: 'extension-token',
+      },
+      sendRequest,
+    });
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_command_result',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { commandId: 'cmd-1', ok: true },
+      },
+    });
+    // First retry fires and its send is now in flight (timer already removed
+    // itself from the tracked set — the exact window stop() cannot see).
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+
+    await relay.stop();
+    // The in-flight send fails AFTER stop: its .catch must not schedule a
+    // fresh retry timer into the stopped relay.
+    rejectInFlight!(new Error('coordinator_not_connected'));
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('forwards command-received acks and disconnect notices upstream', async () => {
+    const { relay, sendRequest } = makeRelay();
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_command_received',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { commandId: 'cmd-7' },
+      },
+    });
+    expect(sendRequest).toHaveBeenCalledWith(
+      NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RECEIVED,
+      { commandId: 'cmd-7' },
+    );
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_disconnected',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { reason: 'native_host_stdin_eof' },
+      },
+    });
+    expect(sendRequest).toHaveBeenCalledWith(
+      NODE_TO_COORDINATOR.BROWSER_EXT_DISCONNECTED,
+      { reason: 'native_host_stdin_eof' },
+    );
+  });
+
+  it('swallows upstream failures for receipts and disconnect notices', async () => {
+    const sendRequest = vi.fn(async () => {
+      throw new Error('coordinator_not_connected');
+    });
+    const relay = new WorkerExtensionRelay({
+      config: {
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay.sock',
+        extensionToken: 'extension-token',
+      },
+      sendRequest,
+    });
+
+    await expect(relay.handleExtensionRpcRequest({
+      method: 'browser.extension_command_received',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { commandId: 'cmd-7' },
+      },
+    })).resolves.toEqual({ ok: false });
+    await expect(relay.handleExtensionRpcRequest({
+      method: 'browser.extension_disconnected',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { reason: 'native_host_stdin_eof' },
+      },
+    })).resolves.toEqual({ ok: false });
   });
 
   it('rejects requests with an invalid extension token', async () => {

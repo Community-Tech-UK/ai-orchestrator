@@ -63,4 +63,13 @@ describe('stageBrowserUploadOnNode', () => {
       'upload_file_remote_staging_unavailable',
     );
   });
+
+  it('surfaces integrity verification failures from the remote file transfer', async () => {
+    getNode.mockReturnValue(nodeWithWorkingDirectories(['/home/james/aio']));
+    copyToRemote.mockRejectedValueOnce(new Error('copy_to_remote_integrity_mismatch'));
+
+    await expect(stageBrowserUploadOnNode('node-1', '/tmp/app.aab')).rejects.toThrow(
+      'copy_to_remote_integrity_mismatch',
+    );
+  });
 });

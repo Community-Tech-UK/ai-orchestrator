@@ -1,0 +1,39 @@
+<div class="vault-control">
+  <div class="vault-status">
+    <span
+      class="vault-chip"
+      [class.locked]="status()?.locked !== false"
+      [class.unlocked]="status()?.locked === false"
+    >
+      {{ status()?.locked === false ? 'Unlocked' : 'Locked' }}
+    </span>
+    @if (status() && !status()!.passwordSourceConfigured) {
+      <span class="vault-hint">Password source not configured</span>
+    }
+  </div>
+
+  @if (reasonLabel(); as reason) {
+    <p class="vault-reason">{{ reason }}</p>
+  }
+
+  <div class="row-actions">
+    <button
+      class="btn primary"
+      type="button"
+      data-testid="vault-unlock-button"
+      [disabled]="busy() || status()?.locked === false"
+      (click)="unlock()"
+    >
+      {{ busy() ? 'Unlocking...' : 'Unlock' }}
+    </button>
+    <button
+      class="btn"
+      type="button"
+      data-testid="vault-lock-button"
+      [disabled]="busy() || status()?.locked !== false"
+      (click)="lock()"
+    >
+      Lock
+    </button>
+  </div>
+</div>

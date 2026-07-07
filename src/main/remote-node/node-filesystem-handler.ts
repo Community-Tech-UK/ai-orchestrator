@@ -4,6 +4,7 @@ import os from 'node:os';
 import { SecurityFilter } from './security-filter';
 import { ProjectDiscovery } from './project-discovery';
 import { getLogger } from '../logging/logger';
+import { readFilesystemDirectoryTree } from '../services/filesystem-directory-reader';
 import type {
   FsReadDirectoryParams,
   FsReadDirectoryResult,
@@ -17,8 +18,9 @@ import type {
   FsReadFileParams,
   FsReadFileResult,
   FsWriteFileParams,
-  FsEntry,
-  FsErrorCode
+  FsErrorCode,
+  FsChangeEvent,
+  FsEventNotification
 } from '../../shared/types/remote-fs.types';
 import type { NodePlatform } from '../../shared/types/worker-node.types';
 
@@ -96,6 +98,10 @@ interface WatcherEntry {
   abort: AbortController;
 }
 
+interface NodeFilesystemHandlerOptions {
+  onFsEvent?: (event: FsEventNotification) => void;
+}
+
 // ---------------------------------------------------------------------------
 // NodeFilesystemHandler
 // ---------------------------------------------------------------------------
@@ -107,7 +113,10 @@ export class NodeFilesystemHandler {
   private readonly watchers = new Map<string, WatcherEntry>();
   private watchCounter = 0;
 
-  constructor(browsableRoots: string[] = []) {
+  constructor(
+    browsableRoots: string[] = [],
+    private readonly options: NodeFilesystemHandlerOptions = {}
+  ) {
     this.roots = browsableRoots.length > 0 ? browsableRoots : [os.homedir()];
     this.platform = process.platform as NodePlatform;
     this.discovery = new ProjectDiscovery();
@@ -165,7 +174,7 @@ export class NodeFilesystemHandler {
 
     const resolvedPath = await this.validatePath(params.path);
 
-    const allEntries = await this.readDirRecursive(
+    const allEntries = await readFilesystemDirectoryTree(
       resolvedPath,
       depth,
       includeHidden
@@ -281,10 +290,9 @@ export class NodeFilesystemHandler {
           recursive: params.recursive ?? false,
           signal: abort.signal
         });
-        // Consume events (callers poll via events or RPC — this keeps the watcher alive)
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        for await (const _ of watcher) {
-          // Future: emit events over RPC channel
+        for await (const event of watcher) {
+          const change = await this.toChangeEvent(resolvedPath, event);
+          this.options.onFsEvent?.({ watchId, events: [change] });
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== 'AbortError') {
@@ -297,6 +305,30 @@ export class NodeFilesystemHandler {
 
     logger.info('Watching path', { watchId, path: resolvedPath });
     return { watchId };
+  }
+
+  private async toChangeEvent(
+    rootPath: string,
+    event: { eventType: string; filename: string | Buffer | null }
+  ): Promise<FsChangeEvent> {
+    const filename = event.filename?.toString();
+    const targetPath = filename ? path.resolve(rootPath, filename) : rootPath;
+    let exists = false;
+    let isDirectory = false;
+
+    try {
+      const stat = await fs.stat(targetPath);
+      exists = true;
+      isDirectory = stat.isDirectory();
+    } catch {
+      exists = false;
+    }
+
+    return {
+      type: event.eventType === 'change' ? 'change' : exists ? 'add' : 'delete',
+      path: targetPath,
+      isDirectory,
+    };
   }
 
   async unwatch(params: FsUnwatchParams): Promise<void> {
@@ -412,84 +444,4 @@ export class NodeFilesystemHandler {
     return { ok: true, size: buffer.length };
   }
 
-  // -------------------------------------------------------------------------
-  // Private helpers
-  // -------------------------------------------------------------------------
-
-  private async readDirRecursive(
-    dirPath: string,
-    depth: number,
-    includeHidden: boolean
-  ): Promise<FsEntry[]> {
-    let dirents: import('node:fs').Dirent[];
-    try {
-      dirents = await fs.readdir(dirPath, { withFileTypes: true });
-    } catch (err) {
-      logger.warn('Failed to read directory', { dirPath, err: String(err) });
-      return [];
-    }
-
-    // Filter hidden entries unless explicitly included
-    const visible = includeHidden
-      ? dirents
-      : dirents.filter((d) => !d.name.startsWith('.'));
-
-    const entries: FsEntry[] = [];
-
-    for (const dirent of visible) {
-      const fullPath = path.join(dirPath, dirent.name);
-      const isDirectory = dirent.isDirectory();
-      const isSymlink = dirent.isSymbolicLink();
-      const ignored =
-        isDirectory && SecurityFilter.shouldSkipDirectory(dirent.name);
-      const restricted = SecurityFilter.isRestricted(dirent.name);
-
-      let size = 0;
-      let modifiedAt = 0;
-      try {
-        const s = await fs.stat(fullPath);
-        size = s.size;
-        modifiedAt = s.mtimeMs;
-      } catch {
-        // Stat failure is non-fatal — leave defaults
-      }
-
-      const extension = isDirectory
-        ? undefined
-        : path.extname(dirent.name) || undefined;
-
-      const entry: FsEntry = {
-        name: dirent.name,
-        path: fullPath,
-        isDirectory,
-        isSymlink,
-        size,
-        modifiedAt,
-        extension,
-        ignored,
-        restricted
-      };
-
-      // Recurse into non-ignored directories when depth allows
-      if (isDirectory && !ignored && depth > 1) {
-        entry.children = await this.readDirRecursive(
-          fullPath,
-          depth - 1,
-          includeHidden
-        );
-      }
-
-      entries.push(entry);
-    }
-
-    // Sort: directories first, then alphabetical by name
-    entries.sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) {
-        return a.isDirectory ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
-
-    return entries;
-  }
 }

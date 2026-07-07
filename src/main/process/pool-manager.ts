@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
+import { getJitterScheduler } from '../tasks/jitter-scheduler';
 
 const logger = getLogger('PoolManager');
 const DEFAULT_RESUME_POOL_GRACE_MS = 60_000;
@@ -36,7 +37,7 @@ export interface AcquireOptions {
 export class PoolManager extends EventEmitter {
   private config: PoolConfig;
   private pool: PooledInstance[] = [];
-  private warmupTimer: ReturnType<typeof setInterval> | null = null;
+  private warmupTaskId: string | null = null;
   private maintenanceDeferredUntil = 0;
 
   private static instance: PoolManager;
@@ -62,21 +63,27 @@ export class PoolManager extends EventEmitter {
   }
 
   start(): void {
-    if (this.config.enableAutoWarm && !this.warmupTimer) {
-      this.warmupTimer = setInterval(() => {
-        if (Date.now() < this.maintenanceDeferredUntil) {
-          return;
-        }
-        this.checkPoolLevel();
-      }, this.config.warmupIntervalMs);
+    if (this.config.enableAutoWarm && !this.warmupTaskId) {
+      this.warmupTaskId = getJitterScheduler().schedule({
+        name: 'Pool warmup check',
+        intervalMs: this.config.warmupIntervalMs,
+        handler: () => {
+          if (Date.now() < this.maintenanceDeferredUntil) {
+            return;
+          }
+          this.checkPoolLevel();
+        },
+        avoidMinuteBoundary: false,
+        maxCatchUp: 1,
+      });
       logger.info('Pool manager started', { config: this.config as unknown as Record<string, unknown> });
     }
   }
 
   stop(): void {
-    if (this.warmupTimer) {
-      clearInterval(this.warmupTimer);
-      this.warmupTimer = null;
+    if (this.warmupTaskId) {
+      getJitterScheduler().unschedule(this.warmupTaskId);
+      this.warmupTaskId = null;
     }
   }
 

@@ -73,6 +73,31 @@ export function remoteExtensionUnreachableFindOrOpenInput(params: {
   };
 }
 
+/**
+ * Human-readable channel state for error messages, e.g.
+ * `extension last contacted 42s ago` / `no extension contact recorded`.
+ * Merges host-observed contact with the worker relay's own summary, since
+ * either side may have seen the extension more recently.
+ */
+export function remoteExtensionContactSummary(
+  nodeId: string,
+  deps: RemoteExtensionContactDeps,
+): string {
+  const lastContactAt = latestTimestamp(
+    deps.extensionContactState.getLastExtensionContactAt(nodeId),
+    remoteExtensionRelayLastContactAt(nodeId, deps),
+  );
+  const disconnect = deps.extensionContactState.getLastDisconnect?.(nodeId);
+  const disconnectSuffix = disconnect && (lastContactAt === undefined || disconnect.at >= lastContactAt)
+    ? `; channel disconnected ${Math.max(0, Math.round((now(deps) - disconnect.at) / 1000))}s ago (${disconnect.reason})`
+    : '';
+  if (lastContactAt === undefined) {
+    return `no extension contact recorded${disconnectSuffix}`;
+  }
+  const ageSeconds = Math.max(0, Math.round((now(deps) - lastContactAt) / 1000));
+  return `extension last contacted ${ageSeconds}s ago${disconnectSuffix}`;
+}
+
 function remoteExtensionContactDescription(
   nodeId: string,
   deps: RemoteExtensionContactDeps,

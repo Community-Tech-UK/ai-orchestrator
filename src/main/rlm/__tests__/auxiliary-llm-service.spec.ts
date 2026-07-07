@@ -246,8 +246,8 @@ describe('AuxiliaryLlmService — local-first routing', () => {
     );
 
     const request = mocks.generateOpenAi.mock.calls[0]?.[2];
-    expect(request?.systemPrompt).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
-    expect(request?.userPrompt).toBe('user prompt \uD83D\uDE00 zero\u200Bwidth');
+    expect(request?.systemPrompt).toBe('sys prompt \uD83D\uDE00 zerowidth');
+    expect(request?.userPrompt).toBe('user prompt \uD83D\uDE00 zerowidth');
   });
 });
 
@@ -736,8 +736,8 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     );
 
     const params = remoteState.rpc.mock.calls[0]?.[2] as { systemPrompt: string; userPrompt: string };
-    expect(params.systemPrompt).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
-    expect(params.userPrompt).toBe('user prompt \uD83D\uDE00 zero\u200Bwidth');
+    expect(params.systemPrompt).toBe('sys prompt \uD83D\uDE00 zerowidth');
+    expect(params.userPrompt).toBe('user prompt \uD83D\uDE00 zerowidth');
   });
 
   it('prefers the remote worker node over a healthy coordinator localhost Ollama (local-first)', async () => {

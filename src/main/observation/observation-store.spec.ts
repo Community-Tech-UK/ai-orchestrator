@@ -5,32 +5,37 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ObservationStore, getObservationStore } from './observation-store';
 
-// Mock dependencies
-vi.mock('../persistence/rlm-database', () => ({
-  getRLMDatabase: () => ({
-    addObservation: vi.fn(),
-    addReflection: vi.fn(),
-    getObservations: vi.fn().mockReturnValue([]),
-    getReflections: vi.fn().mockReturnValue([]),
-    updateObservation: vi.fn(),
-    updateReflection: vi.fn(),
-    deleteExpiredObservations: vi.fn().mockReturnValue(0),
-    deleteExpiredReflections: vi.fn().mockReturnValue(0),
-    getObservationStats: vi.fn().mockReturnValue({
-      totalObservations: 0,
-      totalReflections: 0,
-      promotedReflections: 0,
-      averageConfidence: 0,
-      averageEffectiveness: 0,
-    }),
+const mockDb = vi.hoisted(() => ({
+  addObservation: vi.fn(),
+  addReflection: vi.fn(),
+  getObservations: vi.fn().mockReturnValue([]),
+  getReflections: vi.fn().mockReturnValue([]),
+  getReflectionById: vi.fn().mockReturnValue(null),
+  updateObservation: vi.fn(),
+  updateReflection: vi.fn(),
+  deleteExpiredObservations: vi.fn().mockReturnValue(0),
+  deleteExpiredReflections: vi.fn().mockReturnValue(0),
+  getObservationStats: vi.fn().mockReturnValue({
+    totalObservations: 0,
+    totalReflections: 0,
+    promotedReflections: 0,
+    averageConfidence: 0,
+    averageEffectiveness: 0,
   }),
 }));
 
+const mockVectorStore = vi.hoisted(() => ({
+  addSection: vi.fn().mockResolvedValue({}),
+  search: vi.fn().mockResolvedValue([]),
+}));
+
+// Mock dependencies
+vi.mock('../persistence/rlm-database', () => ({
+  getRLMDatabase: () => mockDb,
+}));
+
 vi.mock('../rlm/vector-store', () => ({
-  getVectorStore: () => ({
-    addSection: vi.fn().mockResolvedValue({}),
-    search: vi.fn().mockResolvedValue([]),
-  }),
+  getVectorStore: () => mockVectorStore,
 }));
 
 vi.mock('../logging/logger', () => ({
@@ -46,6 +51,21 @@ describe('ObservationStore', () => {
   let store: ObservationStore;
 
   beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.getObservations.mockReturnValue([]);
+    mockDb.getReflections.mockReturnValue([]);
+    mockDb.getReflectionById.mockReturnValue(null);
+    mockDb.deleteExpiredObservations.mockReturnValue(0);
+    mockDb.deleteExpiredReflections.mockReturnValue(0);
+    mockDb.getObservationStats.mockReturnValue({
+      totalObservations: 0,
+      totalReflections: 0,
+      promotedReflections: 0,
+      averageConfidence: 0,
+      averageEffectiveness: 0,
+    });
+    mockVectorStore.search.mockResolvedValue([]);
+    mockVectorStore.addSection.mockResolvedValue({});
     ObservationStore._resetForTesting();
     store = getObservationStore();
   });
@@ -105,6 +125,52 @@ describe('ObservationStore', () => {
 
       expect(emitSpy).toHaveBeenCalledWith('observation:stored', expect.objectContaining({
         id: expect.any(String),
+      }));
+    });
+
+    it('emits observation:conflict-detected for contradictory observations', () => {
+      const now = Date.now();
+      mockDb.getObservations.mockReturnValueOnce([{
+        id: 'obs-existing',
+        summary: 'Feature flag alpha is enabled',
+        source_ids_json: '[]',
+        instance_ids_json: '[]',
+        themes_json: '["feature","flag"]',
+        key_findings_json: '["Feature flag alpha enabled"]',
+        success_signals: 0,
+        failure_signals: 0,
+        timestamp: now - 1000,
+        created_at: now - 1000,
+        ttl: 86400000,
+        promoted: 0,
+        token_count: 12,
+      }]);
+      const handler = vi.fn();
+      store.on('observation:conflict-detected', handler);
+
+      const observation = store.storeObservation({
+        summary: 'Feature flag alpha is disabled',
+        sourceIds: [],
+        instanceIds: [],
+        themes: ['feature', 'flag'],
+        keyFindings: ['Feature flag alpha disabled'],
+        successSignals: 0,
+        failureSignals: 1,
+        timestamp: now,
+        createdAt: now,
+        ttl: 86400000,
+        promoted: false,
+        tokenCount: 12,
+      });
+
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({
+        observationId: observation.id,
+        conflicts: [
+          expect.objectContaining({
+            existingObservationId: 'obs-existing',
+            result: expect.objectContaining({ type: 'antonym' }),
+          }),
+        ],
       }));
     });
   });
@@ -235,6 +301,29 @@ describe('ObservationStore', () => {
     });
   });
 
+  describe('queryRelevantReflections', () => {
+    it('looks up cache-missed vector hits by reflection id instead of querying one arbitrary row', async () => {
+      mockVectorStore.search.mockResolvedValueOnce([
+        { entry: { sectionId: 'reflection-ref-target' } },
+      ]);
+      mockDb.getReflections.mockReturnValueOnce([
+        reflectionRow({ id: 'ref-other', confidence: 0.99 }),
+      ]);
+      mockDb.getReflectionById.mockReturnValueOnce(
+        reflectionRow({ id: 'ref-target', confidence: 0.8 }),
+      );
+
+      const reflections = await store.queryRelevantReflections('cache miss context', {
+        topK: 1,
+        minConfidence: 0.5,
+      });
+
+      expect(reflections).toHaveLength(1);
+      expect(reflections[0].id).toBe('ref-target');
+      expect(mockDb.getReflectionById).toHaveBeenCalledWith('ref-target');
+    });
+  });
+
   describe('recordInjection', () => {
     it('should update injection stats on success', () => {
       const reflection = store.storeReflection({
@@ -284,3 +373,34 @@ describe('ObservationStore', () => {
     });
   });
 });
+
+function reflectionRow(overrides: Partial<{
+  id: string;
+  title: string;
+  insight: string;
+  observation_ids_json: string;
+  patterns_json: string;
+  confidence: number;
+  applicability_json: string;
+  created_at: number;
+  ttl: number;
+  usage_count: number;
+  effectiveness_score: number;
+  promoted_to_procedural: number;
+}> = {}) {
+  return {
+    id: 'ref-1',
+    title: 'Reflection',
+    insight: 'Use the direct lookup',
+    observation_ids_json: '[]',
+    patterns_json: '[]',
+    confidence: 0.8,
+    applicability_json: '[]',
+    created_at: Date.now(),
+    ttl: 86_400_000,
+    usage_count: 0,
+    effectiveness_score: 0,
+    promoted_to_procedural: 0,
+    ...overrides,
+  };
+}

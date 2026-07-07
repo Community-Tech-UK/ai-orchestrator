@@ -150,6 +150,30 @@ export function registerStatsHandlers(): void {
     }
   );
 
+  // Renderer-facing alias used by the Stats page.
+  ipcMain.handle(
+    IPC_CHANNELS.STATS_GET_STATS,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(StatsGetPayloadSchema, payload, 'STATS_GET_STATS');
+        const stats = statsManager.getStats(validated?.period ?? 'all');
+        return { success: true, data: stats };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'STATS_GET_STATS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
   // Get session stats
   ipcMain.handle(
     IPC_CHANNELS.STATS_GET_SESSION,

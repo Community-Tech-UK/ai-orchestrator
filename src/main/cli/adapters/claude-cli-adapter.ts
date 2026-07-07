@@ -66,6 +66,7 @@ import {
   summarizeClaudeLogText,
   type ClaudeToolUseContext,
 } from './claude-cli-permission-details';
+import { probeVersionStatus } from './cli-status-probe';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -525,67 +526,18 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       return this.cliStatusPromise;
     }
 
-    this.cliStatusPromise = new Promise((resolve) => {
-      const proc = this.spawnProcess(['--version']);
-      let output = '';
-      let settled = false;
-      const timeoutHandle = setTimeout(() => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        proc.kill();
-        const status: CliStatus = {
-          available: false,
-          error: 'Timeout checking Claude CLI'
-        };
-        this.cachedCliStatus = status;
-        this.cliStatusPromise = null;
-        resolve(status);
-      }, 5000);
-
-      const finish = (status: CliStatus): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timeoutHandle);
-        this.cachedCliStatus = status;
-        this.cliStatusPromise = null;
-        resolve(status);
-      };
-
-      proc.stdout?.on('data', (data) => {
-        output += data.toString();
-      });
-      proc.stderr?.on('data', (data) => {
-        output += data.toString();
-      });
-
-      proc.on('close', (code) => {
-        const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
-        if (code === 0 || output.includes('claude')) {
-          finish({
-            available: true,
-            version: versionMatch?.[1] || 'unknown',
-            path: 'claude',
-            authenticated: true // Claude CLI handles auth internally
-          });
-        } else {
-          finish({
-            available: false,
-            version: versionMatch?.[1] || 'unknown',
-            error: `Claude CLI not found or not configured: ${output}`
-          });
-        }
-      });
-
-      proc.on('error', (err) => {
-        finish({
-          available: false,
-          error: `Failed to spawn claude: ${err.message}`
-        });
-      });
+    this.cliStatusPromise = probeVersionStatus({
+      spawn: () => this.spawnProcess(['--version']),
+      path: 'claude',
+      timeoutError: 'Timeout checking Claude CLI',
+      spawnError: (err) => `Failed to spawn claude: ${err.message}`,
+      unavailableError: ({ output }) => `Claude CLI not found or not configured: ${output}`,
+      isAvailable: ({ code, output }) => code === 0 || output.includes('claude'),
+      includeVersionOnUnavailable: true,
+    }).then((status) => {
+      this.cachedCliStatus = status;
+      this.cliStatusPromise = null;
+      return status;
     });
 
     return this.cliStatusPromise;

@@ -182,6 +182,8 @@ export const SETTINGS_TOOL_POLICY = {
   broadRootFileThreshold: open(numberSettingSchema('broadRootFileThreshold')),
   chromeDevtoolsAttachEnabled: readOnly(true),
   chromeDevtoolsAttachProfileId: readOnly(true),
+  // Agents must never repoint or read the vault master-password source.
+  browserVaultMasterPasswordFile: secret(),
   codebaseAutoIndexEnabled: open(z.boolean()),
   instanceProviderLimitResumeEnabled: open(z.boolean()),
   codebaseAutoIndexMaxFiles: open(numberSettingSchema('codebaseAutoIndexMaxFiles')),
@@ -337,17 +339,6 @@ export function coerceWritableSettingValue(
     value: parseWritableSettingValue(typedKey, value, policy),
     policy,
   };
-}
-
-export function coerceWritableSettingsUpdate(
-  settings: Record<string, unknown>,
-): Partial<AppSettings> {
-  const coerced: Partial<AppSettings> = {};
-  for (const [key, value] of Object.entries(settings)) {
-    const writable = coerceWritableSettingValue(key, value);
-    (coerced as Record<string, unknown>)[writable.key] = writable.value;
-  }
-  return coerced;
 }
 
 /**

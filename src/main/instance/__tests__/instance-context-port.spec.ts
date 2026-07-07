@@ -87,7 +87,7 @@ vi.mock('../auto-title-service', () => ({ getAutoTitleService: vi.fn(() => ({ ma
 vi.mock('../instance-deps', () => ({ productionCoreDeps: {} }));
 vi.mock('../../cli/cli-detection', () => ({ detectAllClis: vi.fn().mockResolvedValue([]) }));
 vi.mock('../../process/load-balancer', () => ({ getLoadBalancer: vi.fn(() => ({ updateMetrics: vi.fn(), removeMetrics: vi.fn() })) }));
-vi.mock('../../state', () => ({ getAppStore: vi.fn(), addInstance: vi.fn(), removeInstance: vi.fn(), updateInstance: vi.fn(), setGlobalState: vi.fn() }));
+vi.mock('../../state', () => ({ getAppStore: vi.fn(), setGlobalState: vi.fn() }));
 vi.mock('../../util/slow-operations', () => ({ measureAsync: vi.fn((_n: string, fn: () => unknown) => fn()), SlowOperationMonitor: vi.fn().mockImplementation(() => ({ record: vi.fn() })) }));
 vi.mock('../../orchestration/task-manager', () => ({ getTaskManager: vi.fn(() => ({ startTimeoutChecker: vi.fn(), stopTimeoutChecker: vi.fn() })) }));
 vi.mock('../../pause/pause-coordinator', async () => {

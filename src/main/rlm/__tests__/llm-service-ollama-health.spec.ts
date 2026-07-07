@@ -227,7 +227,7 @@ describe('LLMService direct provider request sanitization', () => {
     vi.unstubAllGlobals();
   });
 
-  it('strips lone surrogates from Anthropic request bodies', async () => {
+  it('sanitizes Anthropic request bodies', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockJsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
     );
@@ -244,13 +244,13 @@ describe('LLMService direct provider request sanitization', () => {
 
     const anthropicCall = fetchMock.mock.calls.find(([url]) => url === 'https://api.anthropic.com/v1/messages');
     const body = JSON.parse((anthropicCall?.[1] as RequestInit).body as string);
-    expect(body.system).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
+    expect(body.system).toBe('sys prompt \uD83D\uDE00 zerowidth');
     expect(body.messages).toEqual([
-      { role: 'user', content: 'user prompt \uD83D\uDE00 zero\u200Bwidth' },
+      { role: 'user', content: 'user prompt \uD83D\uDE00 zerowidth' },
     ]);
   });
 
-  it('strips lone surrogates from Ollama prompt parts before concatenating', async () => {
+  it('sanitizes Ollama prompt parts before concatenating', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockJsonResponse({ response: 'ok' }));
     vi.stubGlobal('fetch', fetchMock);
     const { getLLMService } = await import('../llm-service');
@@ -262,10 +262,10 @@ describe('LLMService direct provider request sanitization', () => {
 
     const generateCall = fetchMock.mock.calls.find(([url]) => url === 'http://ollama.test/api/generate');
     const body = JSON.parse((generateCall?.[1] as RequestInit).body as string);
-    expect(body.prompt).toBe('sys\n\nUser: user \uD83D\uDE00 zero\u200Bwidth');
+    expect(body.prompt).toBe('sys\n\nUser: user \uD83D\uDE00 zerowidth');
   });
 
-  it('strips lone surrogates from OpenAI request bodies', async () => {
+  it('sanitizes OpenAI request bodies', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockJsonResponse({ choices: [{ message: { content: 'ok' } }] }),
     );
@@ -283,8 +283,8 @@ describe('LLMService direct provider request sanitization', () => {
     const openAiCall = fetchMock.mock.calls.find(([url]) => url === 'https://api.openai.com/v1/chat/completions');
     const body = JSON.parse((openAiCall?.[1] as RequestInit).body as string);
     expect(body.messages).toEqual([
-      { role: 'system', content: 'sys prompt \uD83D\uDE00 zero\u200Bwidth' },
-      { role: 'user', content: 'user prompt \uD83D\uDE00 zero\u200Bwidth' },
+      { role: 'system', content: 'sys prompt \uD83D\uDE00 zerowidth' },
+      { role: 'user', content: 'user prompt \uD83D\uDE00 zerowidth' },
     ]);
   });
 });

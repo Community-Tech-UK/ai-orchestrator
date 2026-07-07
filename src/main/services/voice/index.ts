@@ -7,10 +7,6 @@ export function getVoiceService(): VoiceService {
   return instance;
 }
 
-export function _resetVoiceServiceForTesting(): void {
-  instance = null;
-}
-
 export { VoiceService, VoiceServiceError };
 export type {
   CreateVoiceTranscriptionSessionInput,

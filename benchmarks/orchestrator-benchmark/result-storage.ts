@@ -129,16 +129,6 @@ export function completeSession(sessionId: string): void {
 }
 
 /**
- * Get all runs for a specific task
- */
-export function getRunsForTask(sessionId: string, taskId: string): BenchmarkRun[] {
-  const session = loadSession(sessionId);
-  if (!session) return [];
-
-  return session.runs.filter(r => r.taskId === taskId);
-}
-
-/**
  * Get runs filtered by system and context stage
  */
 export function getRuns(
@@ -480,20 +470,4 @@ export function saveReport(sessionId: string, report: BenchmarkReport): void {
   ensureResultsDir();
   const reportPath = join(RESULTS_DIR, `${sessionId}-report.json`);
   writeFileSync(reportPath, JSON.stringify(report, null, 2));
-}
-
-/**
- * List all benchmark sessions
- */
-export function listSessions(): string[] {
-  ensureResultsDir();
-
-  try {
-    const files = require('fs').readdirSync(RESULTS_DIR) as string[];
-    return files
-      .filter((f: string) => f.endsWith('.json') && !f.endsWith('-report.json'))
-      .map((f: string) => f.replace('.json', ''));
-  } catch {
-    return [];
-  }
 }

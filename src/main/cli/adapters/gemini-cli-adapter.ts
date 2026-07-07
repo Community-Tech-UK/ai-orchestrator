@@ -43,6 +43,7 @@ import {
   parseGeminiNdjsonEvent,
   parseGeminiStreamingEvent,
 } from './gemini-json';
+import { probeVersionStatus } from './cli-status-probe';
 
 const logger = getLogger('GeminiCliAdapter');
 
@@ -158,48 +159,14 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   }
 
   async checkStatus(): Promise<CliStatus> {
-    return new Promise((resolve) => {
-      const proc = this.spawnProcess(['--version']);
-      let output = '';
-
-      proc.stdout?.on('data', (data) => {
-        output += data.toString();
-      });
-      proc.stderr?.on('data', (data) => {
-        output += data.toString();
-      });
-
-      proc.on('close', (code) => {
-        if (code === 0 || output.includes('gemini')) {
-          const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
-          resolve({
-            available: true,
-            version: versionMatch?.[1] || 'unknown',
-            path: 'gemini',
-            authenticated: !output.includes('not authenticated')
-          });
-        } else {
-          resolve({
-            available: false,
-            error: `Gemini CLI not found or not configured: ${output}`
-          });
-        }
-      });
-
-      proc.on('error', (err) => {
-        resolve({
-          available: false,
-          error: `Failed to spawn gemini: ${err.message}`
-        });
-      });
-
-      setTimeout(() => {
-        proc.kill();
-        resolve({
-          available: false,
-          error: 'Timeout checking Gemini CLI'
-        });
-      }, 5000);
+    return probeVersionStatus({
+      spawn: () => this.spawnProcess(['--version']),
+      path: 'gemini',
+      timeoutError: 'Timeout checking Gemini CLI',
+      spawnError: (err) => `Failed to spawn gemini: ${err.message}`,
+      unavailableError: ({ output }) => `Gemini CLI not found or not configured: ${output}`,
+      isAvailable: ({ code, output }) => code === 0 || output.includes('gemini'),
+      authenticated: ({ output }) => !output.includes('not authenticated'),
     });
   }
 

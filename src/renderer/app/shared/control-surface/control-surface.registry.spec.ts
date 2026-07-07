@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CONTROL_SURFACES,
   listControlNavGroups,
-  listControlSurfaces,
   listDashboardNavGroups,
   listSettingsExternalLinks,
 } from './control-surface.registry';
@@ -86,20 +86,20 @@ const VALID_LAYOUTS: readonly ControlSurfaceLayout[] = ['standard', 'wide', 'ful
 
 describe('control surface registry', () => {
   it('has unique ids and paths', () => {
-    const surfaces = listControlSurfaces();
+    const surfaces = CONTROL_SURFACES;
 
     expect(new Set(surfaces.map((surface) => surface.id)).size).toBe(surfaces.length);
     expect(new Set(surfaces.map((surface) => surface.path)).size).toBe(surfaces.length);
   });
 
   it('contains every in-scope route path', () => {
-    const paths = listControlSurfaces().map((surface) => surface.path).sort();
+    const paths = CONTROL_SURFACES.map((surface) => surface.path).sort();
 
     expect(paths).toEqual([...EXPECTED_PATHS].sort());
   });
 
   it('has valid metadata for every surface', () => {
-    for (const surface of listControlSurfaces()) {
+    for (const surface of CONTROL_SURFACES) {
       expect(surface.path.startsWith('/')).toBe(true);
       expect(surface.label.trim()).not.toBe('');
       expect(surface.title.trim()).not.toBe('');

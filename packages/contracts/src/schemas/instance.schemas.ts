@@ -246,29 +246,6 @@ export const UserActionRespondRawPayloadSchema = z.object({
   selectedOption: z.string().max(10000).optional(),
 });
 
-// ============ User Action Request ============
-
-export const UserActionRequestPayloadSchema = z.object({
-  instanceId: InstanceIdSchema,
-  action: z.string().min(1).max(200),
-  description: z.string().min(1).max(10000),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
-
-// ============ Commands ============
-
-export {
-  CommandCreatePayloadSchema,
-  CommandDeletePayloadSchema,
-  CommandExecutePayloadSchema,
-  CommandListPayloadSchema,
-  CommandResolvePayloadSchema,
-  CommandUpdatePayloadSchema,
-  UsageRecordPayloadSchema,
-  UsageSnapshotPayloadSchema,
-  WorkspaceIsGitRepoPayloadSchema,
-} from './command.schemas';
-
 // ============ Plan Mode ============
 
 export const PlanModeEnterPayloadSchema = z.object({

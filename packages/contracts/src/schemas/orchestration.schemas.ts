@@ -98,10 +98,6 @@ export const SupervisionGetTreePayloadSchema = z.object({
   instanceId: InstanceIdSchema.optional(),
 });
 
-export const SupervisionGetHealthPayloadSchema = z.object({
-  instanceId: InstanceIdSchema.optional(),
-}).optional();
-
 export const SupervisionHandleFailurePayloadSchema = z.object({
   childInstanceId: InstanceIdSchema,
   error: z.string().max(10000),

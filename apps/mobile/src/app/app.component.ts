@@ -2,7 +2,9 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { Router, RouterOutlet } from '@angular/router';
 import { HostStore } from './core/host-store';
 import { GatewayClient } from './core/gateway-client.service';
+import { LiveActivityService } from './core/live-activity.service';
 import { PushService } from './core/push.service';
+import { ResumeService } from './core/resume.service';
 import { AppLockService } from './core/app-lock.service';
 import {
   ApprovalSheetComponent,
@@ -36,6 +38,8 @@ export class AppComponent implements OnInit {
   private readonly gateway = inject(GatewayClient);
   private readonly router = inject(Router);
   private readonly push = inject(PushService);
+  private readonly liveActivity = inject(LiveActivityService);
+  private readonly resume = inject(ResumeService);
   protected readonly appLock = inject(AppLockService);
 
   private readonly suppressed = signal<Set<string>>(new Set());
@@ -52,6 +56,9 @@ export class AppComponent implements OnInit {
     await this.appLock.init(); // raise the biometric gate before anything renders behind it
     await this.hostStore.load();
     void this.push.init(); // request push permission + register token (native only)
+    void this.liveActivity.init(); // lock-screen session activity (native only)
+    // If iOS evicted the app while backgrounded, return to where the user was.
+    void this.resume.restore();
   }
 
   protected async decide(prompt: MobilePromptDto, decision: ApprovalDecision): Promise<void> {

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ElectronIpcService } from '../../services/ipc';
+import { IpcFacadeService } from '../../services/ipc';
 import { InstanceListStore } from './instance-list.store';
 import { InstanceStateService } from './instance-state.service';
 
@@ -79,7 +79,7 @@ describe('InstanceListStore', () => {
       providers: [
         InstanceListStore,
         InstanceStateService,
-        { provide: ElectronIpcService, useValue: ipc },
+        { provide: IpcFacadeService, useValue: ipc },
       ],
     });
 

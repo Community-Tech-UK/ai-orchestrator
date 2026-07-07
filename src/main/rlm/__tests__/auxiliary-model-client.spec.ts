@@ -195,7 +195,7 @@ describe('generateWithOllama', () => {
     expect(body.keep_alive).toBe('2h');
   });
 
-  it('strips lone surrogates from prompt parts before concatenating', async () => {
+  it('sanitizes prompt parts before concatenating', async () => {
     const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
     vi.stubGlobal('fetch', mockFetch);
     const { generateWithOllama } = await import('../auxiliary-model-client');
@@ -207,7 +207,7 @@ describe('generateWithOllama', () => {
 
     const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(options.body as string);
-    expect(body.prompt).toBe('sys\n\nuser \uD83D\uDE00 zero\u200Bwidth');
+    expect(body.prompt).toBe('sys\n\nuser \uD83D\uDE00 zerowidth');
   });
 
   it('throws with "timed out" on AbortError', async () => {
@@ -325,7 +325,7 @@ describe('generateWithOpenAiCompatible', () => {
     expect(body.response_format).toBeUndefined();
   });
 
-  it('strips lone surrogates from OpenAI-compatible message content', async () => {
+  it('sanitizes OpenAI-compatible message content', async () => {
     const mockFetch = vi.fn().mockResolvedValue(
       mockResponse({ choices: [{ message: { content: 'hello' } }] }, true)
     );
@@ -340,8 +340,8 @@ describe('generateWithOpenAiCompatible', () => {
     const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(options.body as string);
     expect(body.messages).toEqual([
-      { role: 'system', content: 'sys prompt \uD83D\uDE00 zero\u200Bwidth' },
-      { role: 'user', content: 'user prompt \uD83D\uDE00 zero\u200Bwidth' },
+      { role: 'system', content: 'sys prompt \uD83D\uDE00 zerowidth' },
+      { role: 'user', content: 'user prompt \uD83D\uDE00 zerowidth' },
     ]);
   });
 

@@ -4,7 +4,7 @@ import { IPC_CHANNELS } from '../generated/channels';
 import { createOperatorDomain } from '../domains/operator.preload';
 
 describe('operator preload domain', () => {
-  it('exposes only run audit methods retained by the Chats tool layer', () => {
+  it('exposes run audit and operator project methods', () => {
     const ipcRenderer = {
       invoke: vi.fn(),
       on: vi.fn(),
@@ -16,8 +16,12 @@ describe('operator preload domain', () => {
     expect(Object.keys(domain).sort()).toEqual([
       'cancelOperatorRun',
       'getOperatorRun',
+      'listOperatorProjects',
       'listOperatorRuns',
       'onOperatorEvent',
+      'planOperatorProjectVerification',
+      'rescanOperatorProjects',
+      'resolveOperatorProject',
     ]);
   });
 });

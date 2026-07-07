@@ -7,6 +7,7 @@ export type BrowserActionClass =
   | 'file-download'
   | 'submit'
   | 'destructive'
+  | 'payment'
   | 'unknown';
 
 export type BrowserProfileMode = 'session' | 'isolated';
@@ -106,6 +107,7 @@ export interface BrowserPermissionGrant {
   mode: BrowserGrantMode;
   instanceId: string;
   provider: BrowserProvider;
+  nodeId?: string;
   profileId?: string;
   targetId?: string;
   allowedOrigins: BrowserAllowedOrigin[];
@@ -138,6 +140,7 @@ export interface BrowserElementContext {
 
 export interface BrowserGrantProposal {
   mode: BrowserGrantMode;
+  nodeId?: string;
   allowedOrigins: BrowserAllowedOrigin[];
   allowedActionClasses: BrowserActionClass[];
   allowExternalNavigation: boolean;
@@ -323,12 +326,26 @@ export interface BrowserElementCandidate {
   options?: BrowserSelectOption[];
 }
 
+export interface BrowserControlVerifyExpectation {
+  /** Optional override control to read back; defaults to the acted-on selector. */
+  selector?: string;
+  /** Future-compatible uid target. Existing-tab verification currently needs a selector. */
+  uid?: string;
+  /** Expected current input/textarea/select value. */
+  value?: string;
+  /** Expected visible label of a selected option/custom select. */
+  selectedLabel?: string;
+  /** Expected checked state for checkbox/radio/switch controls. */
+  checked?: boolean;
+}
+
 export interface BrowserClickRequest extends BrowserTargetRequest {
   /** CSS selector. Optional when `uid` is provided. */
   selector?: string;
   /** Robust CDP element handle from browser.accessibility_snapshot (pierces closed shadow roots). */
   uid?: string;
   actionHint?: string;
+  verify?: BrowserControlVerifyExpectation;
   requestId?: string;
 }
 
@@ -339,6 +356,7 @@ export interface BrowserTypeRequest extends BrowserTargetRequest {
   uid?: string;
   value: string;
   actionHint?: string;
+  verify?: BrowserControlVerifyExpectation;
   requestId?: string;
 }
 
@@ -349,6 +367,7 @@ export interface BrowserFillFormField {
   uid?: string;
   value: string;
   actionHint?: string;
+  verify?: BrowserControlVerifyExpectation;
 }
 
 export interface BrowserFillFormRequest extends BrowserTargetRequest {
@@ -363,6 +382,7 @@ export interface BrowserSelectRequest extends BrowserTargetRequest {
   uid?: string;
   value: string;
   actionHint?: string;
+  verify?: BrowserControlVerifyExpectation;
   requestId?: string;
 }
 
@@ -471,6 +491,7 @@ export interface BrowserCreateGrantRequest extends BrowserGrantProposal {
 
 export interface BrowserListGrantsRequest {
   instanceId?: string;
+  nodeId?: string;
   profileId?: string;
   includeExpired?: boolean;
   limit?: number;

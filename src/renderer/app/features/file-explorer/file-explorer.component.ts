@@ -15,9 +15,10 @@ import {
   HostListener,
   OnDestroy,
 } from '@angular/core';
-import { ElectronIpcService, FileEntry } from '../../core/services/ipc';
+import { IpcFacadeService, FileEntry } from '../../core/services/ipc';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { RemoteFsIpcService } from '../../core/services/ipc/remote-fs-ipc.service';
+import type { RemoteFsEventNotification } from '../../../../shared/types/remote-fs.types';
 
 interface TreeNode extends FileEntry {
   children?: TreeNode[];
@@ -470,15 +471,21 @@ interface TreeNode extends FileEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FileExplorerComponent implements OnDestroy {
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private viewLayoutService = inject(ViewLayoutService);
   private remoteFsIpc = inject(RemoteFsIpcService);
+  private readonly removeRemoteFsEventListener: () => void;
+  private remoteRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Inputs - path to auto-load when it changes (e.g., from selected instance)
   initialPath = input<string | null>(null);
   executionNodeId = input<string | null>(null);
 
   constructor() {
+    this.removeRemoteFsEventListener = this.remoteFsIpc.onFsEvent((event) => {
+      this.handleRemoteFsEvent(event);
+    });
+
     // Watch for initialPath changes and sync with selected instance's working directory
     effect(() => {
       const path = this.initialPath();
@@ -1029,11 +1036,32 @@ export class FileExplorerComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.removeRemoteFsEventListener();
+    if (this.remoteRefreshTimer) {
+      clearTimeout(this.remoteRefreshTimer);
+      this.remoteRefreshTimer = null;
+    }
     const watchId = this.remoteWatchId();
     const nodeId = this.executionNodeId();
     if (watchId && nodeId) {
       void this.remoteFsIpc.unwatch(nodeId, watchId);
     }
+  }
+
+  private handleRemoteFsEvent(event: RemoteFsEventNotification): void {
+    const watchId = this.remoteWatchId();
+    const nodeId = this.executionNodeId();
+    if (!watchId || !nodeId || event.nodeId !== nodeId || event.watchId !== watchId) {
+      return;
+    }
+
+    if (this.remoteRefreshTimer) {
+      clearTimeout(this.remoteRefreshTimer);
+    }
+    this.remoteRefreshTimer = setTimeout(() => {
+      this.remoteRefreshTimer = null;
+      void this.refresh();
+    }, 250);
   }
 
   private findNode(tree: Map<string, TreeNode>, path: string): TreeNode | undefined {

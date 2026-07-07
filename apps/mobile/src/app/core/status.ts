@@ -36,3 +36,19 @@ export function needsAttention(status: string): boolean {
   return status === 'waiting_for_permission' || status === 'waiting_for_input';
 }
 
+/** True while the agent is actively doing work (drives the typing indicator). */
+export function isWorking(status: string): boolean {
+  switch (status) {
+    case 'busy':
+    case 'processing':
+    case 'thinking_deeply':
+    case 'initializing':
+    case 'waking':
+    case 'respawning':
+    case 'interrupting':
+      return true;
+    default:
+      return false;
+  }
+}
+

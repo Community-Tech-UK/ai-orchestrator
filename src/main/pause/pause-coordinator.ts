@@ -15,8 +15,6 @@ export interface PauseState {
   lastChange: number;
 }
 
-export type PauseCoordinatorEvent = 'pause' | 'resume' | 'change';
-
 const STALE_PERSISTED_MS = 24 * 60 * 60 * 1000;
 
 export class PauseCoordinator extends EventEmitter {

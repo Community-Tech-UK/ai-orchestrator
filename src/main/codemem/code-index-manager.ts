@@ -333,11 +333,6 @@ export class CodeIndexManager extends EventEmitter {
           lastIndexedAt: Date.now(),
         });
       }
-      this.opts.store.upsertMerkleNode({
-        nodeHash: EMPTY_ROOT_HASH,
-        kind: 'root',
-        childrenJson: '[]',
-      });
       return EMPTY_ROOT_HASH;
     }
 
@@ -395,11 +390,6 @@ export class CodeIndexManager extends EventEmitter {
           : childTokens.join('\n'),
       );
 
-      this.opts.store.upsertMerkleNode({
-        nodeHash,
-        kind: directoryPath ? 'dir' : 'root',
-        childrenJson: JSON.stringify(childTokens),
-      });
       directoryHashes.set(directoryPath, nodeHash);
     }
 
@@ -502,12 +492,6 @@ export class CodeIndexManager extends EventEmitter {
     leafTokens.sort();
 
     const leafHash = sha256(leafTokens.join('\n'));
-    this.opts.store.upsertMerkleNode({
-      nodeHash: leafHash,
-      kind: 'file',
-      childrenJson: JSON.stringify(leafTokens),
-    });
-
     this.opts.store.upsertManifestEntry({
       workspaceHash,
       pathFromRoot,

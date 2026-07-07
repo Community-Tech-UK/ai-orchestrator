@@ -5,14 +5,7 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  recordProviderRuntimeEventSpan,
-  traceDebate,
-  traceInstanceLifecycle,
-  traceVerification,
-} from '../otel-spans';
-
-const noopSpanBody = async (): Promise<void> => undefined;
+import { recordProviderRuntimeEventSpan } from '../otel-spans';
 
 describe('otel-spans', () => {
   let exporter: InMemorySpanExporter;
@@ -31,103 +24,6 @@ describe('otel-spans', () => {
     trace.disable();
     await provider.shutdown();
     exporter.reset();
-  });
-
-  it('creates span for verification with correct name and attributes', async () => {
-    await traceVerification('v-1', { query: 'Is this safe?', agentCount: 3 }, noopSpanBody);
-
-    await provider.forceFlush();
-    const spans = exporter.getFinishedSpans();
-
-    expect(spans).toHaveLength(1);
-    expect(spans[0].name).toBe('orchestration.verification');
-    expect(spans[0].attributes['verification.id']).toBe('v-1');
-    expect(spans[0].attributes['verification.agent_count']).toBe(3);
-    expect(spans[0].attributes['verification.query']).toBe('Is this safe?');
-  });
-
-  it('omits optional verification attributes when not provided', async () => {
-    await traceVerification('v-2', {}, noopSpanBody);
-
-    await provider.forceFlush();
-    const spans = exporter.getFinishedSpans();
-
-    expect(spans).toHaveLength(1);
-    expect(spans[0].attributes['verification.agent_count']).toBeUndefined();
-    expect(spans[0].attributes['verification.query']).toBeUndefined();
-  });
-
-  it('creates span for debate with correct name and attributes', async () => {
-    await traceDebate('d-1', { topic: 'Architecture', rounds: 4 }, noopSpanBody);
-
-    await provider.forceFlush();
-    const spans = exporter.getFinishedSpans();
-
-    expect(spans).toHaveLength(1);
-    expect(spans[0].name).toBe('orchestration.debate');
-    expect(spans[0].attributes['debate.id']).toBe('d-1');
-    expect(spans[0].attributes['debate.rounds']).toBe(4);
-    expect(spans[0].attributes['debate.topic']).toBe('Architecture');
-  });
-
-  it('creates span for instance lifecycle with correct name and attributes', async () => {
-    await traceInstanceLifecycle('create', 'inst-1', noopSpanBody);
-
-    await provider.forceFlush();
-    const spans = exporter.getFinishedSpans();
-
-    expect(spans).toHaveLength(1);
-    expect(spans[0].name).toBe('instance.create');
-    expect(spans[0].attributes['instance.id']).toBe('inst-1');
-    expect(spans[0].attributes['instance.operation']).toBe('create');
-  });
-
-  it('propagates errors and still ends the span', async () => {
-    const boom = new Error('boom');
-
-    await expect(
-      traceVerification('v-err', {}, async () => {
-        throw boom;
-      }),
-    ).rejects.toThrow('boom');
-
-    await provider.forceFlush();
-    const spans = exporter.getFinishedSpans();
-
-    expect(spans).toHaveLength(1);
-    expect(spans[0].name).toBe('orchestration.verification');
-  });
-
-  it('redacts secrets from span error status before export', async () => {
-    const sensitiveSample = 'Bearer abcdef1234567890ghijkl';
-
-    await expect(
-      traceVerification('v-secret', {}, async () => {
-        throw new Error(`provider rejected ${sensitiveSample}`);
-      }),
-    ).rejects.toThrow('provider rejected');
-
-    await provider.forceFlush();
-    const [span] = exporter.getFinishedSpans();
-
-    expect(span.status.message).not.toContain(sensitiveSample);
-    expect(span.status.message).toContain('Bearer <redacted-secret>');
-  });
-
-  it('redacts secrets embedded in span attribute values before they reach the exporter (Task 14)', async () => {
-    const sensitiveSample = 'Bearer abcdef1234567890ghijkl';
-
-    await traceVerification('v-attr-secret', { query: `find ${sensitiveSample} in the repo`, agentCount: 2 }, noopSpanBody);
-
-    await provider.forceFlush();
-    const [span] = exporter.getFinishedSpans();
-
-    // The secret never reaches the exporter verbatim — through any attribute.
-    expect(JSON.stringify(span.attributes)).not.toContain(sensitiveSample);
-    expect(span.attributes['verification.query']).toContain('<redacted-secret>');
-    // Operational attributes are preserved.
-    expect(span.attributes['verification.id']).toBe('v-attr-secret');
-    expect(span.attributes['verification.agent_count']).toBe(2);
   });
 
   it('redacts secret-keyed provider runtime event attributes but keeps operational ones (Task 14)', async () => {
@@ -151,13 +47,6 @@ describe('otel-spans', () => {
     expect(JSON.stringify(span?.attributes)).not.toContain('abcdef1234567890ghijkl');
     expect(span?.attributes['provider.name']).toBe('claude');
     expect(span?.attributes['ai.provider.request_id']).toBe('req_456');
-  });
-
-  it('returns the value produced by the wrapped function', async () => {
-    const result = await traceDebate('d-2', {}, async () => 42);
-
-    await provider.forceFlush();
-    expect(result).toBe(42);
   });
 
   it('records provider diagnostics attributes on runtime event spans', async () => {

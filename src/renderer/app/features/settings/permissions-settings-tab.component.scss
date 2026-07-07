@@ -2,3 +2,94 @@
 @use './permissions-settings-tab.permissions' as *;
 @use './permissions-settings-tab.patterns' as *;
 @use './permissions-settings-tab.stats' as *;
+
+.audit-filter-row {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.audit-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: min(100%, 360px);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.audit-filter input {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.audit-row {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  padding: 10px;
+}
+
+.audit-row.denial {
+  border-color: var(--error-color);
+}
+
+.audit-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-action {
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.audit-action.allow {
+  color: var(--success-color);
+}
+
+.audit-action.deny {
+  color: var(--error-color);
+}
+
+.audit-resource {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.audit-tool,
+.audit-meta,
+.audit-reason {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.audit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.audit-reason {
+  margin-top: 6px;
+}

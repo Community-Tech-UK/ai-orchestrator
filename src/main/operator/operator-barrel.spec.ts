@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 describe('operator barrel exports', () => {
+  it('exposes project registry and verification planning APIs', async () => {
+    const operator = await import('./index') as Record<string, unknown>;
+
+    expect(operator['getProjectRegistry']).toBeTypeOf('function');
+    expect(operator['planProjectVerification']).toBeTypeOf('function');
+  });
+
   it('does not expose retired deterministic operator engine APIs', async () => {
     const operator = await import('./index') as Record<string, unknown>;
 

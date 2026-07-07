@@ -243,7 +243,3 @@ function defaultSubscribePolicyChanges(cb: () => void): () => void {
 export function getCliAutoUpdateService(): CliAutoUpdateService {
   return CliAutoUpdateService.getInstance();
 }
-
-export function _resetCliAutoUpdateServiceForTesting(): void {
-  CliAutoUpdateService._resetForTesting();
-}

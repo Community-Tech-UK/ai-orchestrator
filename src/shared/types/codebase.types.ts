@@ -253,7 +253,6 @@ export interface HybridSearchOptions {
   bm25Weight?: number;
   vectorWeight?: number;
   minScore?: number;
-  rerank?: boolean;
   filePatterns?: string[];
 }
 
@@ -266,7 +265,6 @@ export interface HybridSearchResult {
   score: number;
   bm25Score?: number;
   vectorScore?: number;
-  rerankScore?: number;
   matchType: 'bm25' | 'vector' | 'hybrid';
   language?: string;
   chunkType?: ChunkType;
@@ -293,11 +291,6 @@ export interface SearchConfig {
   useHyDE: boolean;
   hydeContextHints: 'auto' | 'code' | 'documentation' | 'none';
 
-  // Reranking
-  useReranking: boolean;
-  rerankerProvider: 'cohere' | 'voyage' | 'local';
-  rerankerModel?: string;
-
   // Results
   defaultTopK: number;
   maxTopK: number;
@@ -305,23 +298,6 @@ export interface SearchConfig {
 
   // Diversity
   diversityThreshold: number;
-}
-
-// ============================================================================
-// Reranker Types
-// ============================================================================
-
-export interface RerankerConfig {
-  provider: 'cohere' | 'voyage' | 'local';
-  model?: string;
-  apiKey?: string;
-  batchSize?: number;
-  maxCandidates?: number;
-}
-
-export interface RerankResult {
-  index: number;
-  score: number;
 }
 
 // ============================================================================
@@ -413,39 +389,6 @@ export interface ModuleContext {
   modulePath: string;
   exports: string[];
   summary?: string;
-}
-
-// ============================================================================
-// Analytics Types
-// ============================================================================
-
-export interface SearchEvent {
-  id: string;
-  query: string;
-  storeId: string;
-  timestamp: number;
-  resultsCount: number;
-  topResultScore: number;
-  clickedResults: number[];
-  searchDurationMs: number;
-  hydeUsed: boolean;
-  rerankUsed: boolean;
-}
-
-export interface QueryPattern {
-  pattern: string;
-  frequency: number;
-  avgResultScore: number;
-  avgClickDepth: number;
-  successRate: number;
-}
-
-export interface SearchMetrics {
-  totalSearches: number;
-  avgResultScore: number;
-  avgClickDepth: number;
-  zeroResultRate: number;
-  avgSearchDuration: number;
 }
 
 // ============================================================================

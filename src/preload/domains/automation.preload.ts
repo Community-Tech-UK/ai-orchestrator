@@ -37,6 +37,21 @@ export function createAutomationDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_
     automationTemplatesList: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.AUTOMATION_TEMPLATES_LIST),
 
+    webhookStatus: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WEBHOOK_STATUS),
+
+    webhookListRoutes: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WEBHOOK_LIST_ROUTES),
+
+    webhookCreateRoute: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WEBHOOK_CREATE_ROUTE, payload),
+
+    webhookListDeliveries: (payload?: { limit?: number }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WEBHOOK_LIST_DELIVERIES, payload ?? {}),
+
+    webhookListSuggestions: (payload?: { limit?: number }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WEBHOOK_LIST_SUGGESTIONS, payload ?? {}),
+
     onAutomationChanged: (callback: (event: unknown) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.AUTOMATION_CHANGED, listener);

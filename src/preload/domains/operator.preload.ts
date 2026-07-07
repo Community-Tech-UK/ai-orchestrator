@@ -16,6 +16,18 @@ export function createOperatorDomain(
     cancelOperatorRun: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.OPERATOR_CANCEL_RUN, payload),
 
+    listOperatorProjects: (payload: unknown = {}): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.OPERATOR_LIST_PROJECTS, payload),
+
+    rescanOperatorProjects: (payload: unknown = {}): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.OPERATOR_RESCAN_PROJECTS, payload),
+
+    resolveOperatorProject: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.OPERATOR_RESOLVE_PROJECT, payload),
+
+    planOperatorProjectVerification: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.OPERATOR_PLAN_PROJECT_VERIFICATION, payload),
+
     onOperatorEvent: (callback: (payload: unknown) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, payload: unknown) => callback(payload);
       ipcRenderer.on(ch.OPERATOR_EVENT, listener);

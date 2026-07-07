@@ -40,6 +40,7 @@ interface RemoteExtensionCommandStore {
     request?: BrowserExtensionPollRequest,
   ): Promise<BrowserExtensionQueuedCommand | null>;
   resolveCommand(result: BrowserExtensionCommandResult): void;
+  markReceived(queueKey: string, commandId: string): void;
   rejectQueue(queueKey: string, reason: string): void;
 }
 
@@ -151,6 +152,30 @@ export class RemoteBrowserExtensionBridge {
       ...(params.result !== undefined ? { result: params.result } : {}),
       ...(params.error ? { error: params.error } : {}),
     });
+    return { ok: true };
+  }
+
+  commandReceived(nodeId: string, params: { commandId: string }): { ok: true } {
+    this.consumeRateLimit(nodeId);
+    this.recordExtensionContact(nodeId);
+    this.commandStore.markReceived(
+      browserExtensionQueueKeyForNode(nodeId),
+      params.commandId,
+    );
+    return { ok: true };
+  }
+
+  /**
+   * The node's native host reported the extension port closing. Recorded for
+   * health/error honesty and telemetry only — freshness semantics unchanged,
+   * because a service-worker replacement recovers within one alarm cycle and
+   * queued commands should keep waiting for it.
+   */
+  extensionDisconnected(nodeId: string, params: { reason?: string }): { ok: true } {
+    this.consumeRateLimit(nodeId);
+    const reason = params.reason ?? 'unknown';
+    this.contactState.markExtensionDisconnect(nodeId, reason);
+    this.logger.info('Remote browser extension channel disconnected', { nodeId, reason });
     return { ok: true };
   }
 

@@ -75,7 +75,7 @@ import { getOutputStyleRegistry } from './output-style-registry';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
 import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
 import {
-  SessionRecoveryHandler,
+  SessionRecoveryCoordinator,
   planSessionRecovery,
   computeResumeConfigFingerprint,
   type RecoveryResult,
@@ -2282,7 +2282,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       );
 
-      const recovery = new SessionRecoveryHandler({
+      const recovery = new SessionRecoveryCoordinator({
         nativeResume: (id, sessionId) => this.nativeResumeAfterRestart(id, sessionId),
         replayFallback: (id, sessionId) => this.replayFallbackAfterRestart(id, sessionId),
       });

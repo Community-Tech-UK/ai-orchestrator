@@ -1,10 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('electron', () => ({
+  powerMonitor: {
+    on: vi.fn(),
+    off: vi.fn(),
+  },
+}));
+
 import { PoolManager } from './pool-manager';
+import { JitterScheduler } from '../tasks/jitter-scheduler';
 
 describe('PoolManager', () => {
   let pool: PoolManager;
 
   beforeEach(() => {
+    JitterScheduler._resetForTesting();
     PoolManager._resetForTesting();
     pool = PoolManager.getInstance();
   });

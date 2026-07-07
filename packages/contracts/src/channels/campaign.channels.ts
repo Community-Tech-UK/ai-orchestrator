@@ -12,11 +12,4 @@ export const CAMPAIGN_CHANNELS = {
 
   // Push events (main → renderer)
   CAMPAIGN_STATE_CHANGED: 'campaign:state-changed',
-  CAMPAIGN_NODE_STARTED: 'campaign:node-started',
-  CAMPAIGN_NODE_TERMINAL: 'campaign:node-terminal',
-  CAMPAIGN_NODE_SKIPPED: 'campaign:node-skipped',
-  CAMPAIGN_PAUSED: 'campaign:paused',
-  CAMPAIGN_COMPLETED: 'campaign:completed',
-  CAMPAIGN_FAILED: 'campaign:failed',
-  CAMPAIGN_HALTED: 'campaign:halted',
 } as const;

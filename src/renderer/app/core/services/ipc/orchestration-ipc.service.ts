@@ -366,13 +366,6 @@ export class OrchestrationIpcService {
   }
 
   /**
-   * Legacy alias for delete
-   */
-  async worktreeDelete(worktreeId: string): Promise<IpcResponse> {
-    return this.worktreeCleanup(worktreeId);
-  }
-
-  /**
    * Legacy alias for get status
    */
   async worktreeGetStatus(worktreeId: string): Promise<IpcResponse> {

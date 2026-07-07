@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   effect,
@@ -10,8 +11,11 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { DraftStore } from '../../core/draft-store';
 import { GatewayClient } from '../../core/gateway-client.service';
+import { HapticsService } from '../../core/haptics.service';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
+import { VoiceInputService } from '../../core/voice-input.service';
 import type {
   MobileAttachmentDto,
   MobileModelCatalog,
@@ -20,6 +24,7 @@ import type {
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 
 const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as const;
+const DRAFT_KEY = 'new-session';
 
 /**
  * Start a new session on the host. The working directory is picked from the
@@ -86,13 +91,30 @@ const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as 
       }
 
       <span class="lbl">First message</span>
-      <textarea
-        rows="4"
-        [ngModel]="firstPrompt()"
-        (ngModelChange)="firstPrompt.set($event)"
-        placeholder="What should the agent do?"
-        (paste)="onPaste($event)"
-      ></textarea>
+      <div class="prompt-wrap">
+        <textarea
+          rows="4"
+          [ngModel]="firstPrompt()"
+          (ngModelChange)="firstPrompt.set($event)"
+          placeholder="What should the agent do?"
+          (paste)="onPaste($event)"
+        ></textarea>
+        @if (canDictate) {
+          <button
+            type="button"
+            class="mic"
+            [class.listening]="listening()"
+            (click)="toggleDictation()"
+            [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
+              <path d="M19 11a7 7 0 0 1-14 0" />
+              <path d="M12 18v4" />
+            </svg>
+          </button>
+        }
+      </div>
 
       @if (attachments().length > 0) {
         <div class="attach-strip">
@@ -185,6 +207,26 @@ const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as 
         color: var(--text); border-radius: var(--radius-pill); padding: 8px 14px; font-size: 14px;
       }
       .attach:disabled { opacity: 0.4; }
+      .prompt-wrap { position: relative; }
+      .prompt-wrap textarea { padding-right: 48px; }
+      .mic {
+        position: absolute; right: 8px; bottom: 8px;
+        width: 34px; height: 34px; border-radius: 50%;
+        border: 1px solid rgba(255,255,255,0.12); background: var(--surface-2);
+        color: var(--text); display: flex; align-items: center; justify-content: center;
+      }
+      .mic svg {
+        width: 18px; height: 18px; display: block;
+        fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round;
+      }
+      .mic.listening {
+        background: var(--accent-error); border-color: transparent; color: #fff;
+        animation: mic-pulse 1.4s infinite ease-in-out;
+      }
+      @keyframes mic-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.45); }
+        50% { box-shadow: 0 0 0 8px rgba(255, 69, 58, 0); }
+      }
       .providers { display: flex; flex-wrap: wrap; gap: 6px; }
       .prov {
         background: var(--surface); border: none; color: var(--text-secondary);
@@ -212,6 +254,9 @@ const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as 
 export class NewSessionComponent implements OnInit {
   private readonly gateway = inject(GatewayClient);
   private readonly images = inject(ImageAttachmentService);
+  private readonly drafts = inject(DraftStore);
+  private readonly haptics = inject(HapticsService);
+  private readonly voice = inject(VoiceInputService);
   private readonly router = inject(Router);
 
   /** Optional working directory key passed from a project's "New" button. */
@@ -224,6 +269,8 @@ export class NewSessionComponent implements OnInit {
   protected readonly attachments = signal<MobileAttachmentDto[]>([]);
   protected readonly attachBusy = signal(false);
   protected readonly canAttach = this.images.available;
+  protected readonly canDictate = this.voice.available;
+  protected readonly listening = this.voice.listening;
 
   /**
    * The working directory this screen was opened against, when launched from a
@@ -266,6 +313,40 @@ export class NewSessionComponent implements OnInit {
         this.selectedDir.set(passed);
       }
     });
+    // Mirror live dictation into the first-message draft while listening.
+    effect(() => {
+      if (this.voice.listening()) {
+        this.firstPrompt.set(this.voice.text());
+      }
+    });
+    // Restore an unsent first message (survives iOS evicting the app), then
+    // persist every change; consumed on successful session creation.
+    void this.drafts.load(DRAFT_KEY).then((text) => {
+      if (text && !this.firstPrompt().trim()) this.firstPrompt.set(text);
+      this.draftReady = true;
+    });
+    effect(() => {
+      const text = this.firstPrompt();
+      if (this.draftReady) this.drafts.save(DRAFT_KEY, text);
+    });
+    inject(DestroyRef).onDestroy(() => {
+      if (this.voice.listening()) void this.voice.stop();
+    });
+  }
+
+  /** Blocks persistence until the stored draft has been considered. */
+  private draftReady = false;
+
+  protected async toggleDictation(): Promise<void> {
+    if (this.voice.listening()) {
+      await this.voice.stop();
+      this.firstPrompt.set(this.voice.text());
+      this.haptics.tap();
+      return;
+    }
+    this.haptics.tap();
+    const started = await this.voice.start(this.firstPrompt());
+    if (!started) this.haptics.error();
   }
 
   async ngOnInit(): Promise<void> {
@@ -382,6 +463,7 @@ export class NewSessionComponent implements OnInit {
         initialPrompt: this.firstPrompt().trim() || undefined,
         attachments: attachments.length ? attachments : undefined,
       });
+      this.drafts.clear(DRAFT_KEY); // consumed — don't resurrect it next time
       const key = instance.workingDirectory || '__no_workspace__';
       void this.router.navigate(['/projects', key, 'sessions', instance.id]);
     } catch (err) {

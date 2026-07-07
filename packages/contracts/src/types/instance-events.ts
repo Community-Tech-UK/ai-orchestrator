@@ -21,8 +21,6 @@ export type InstanceStatus =
   | 'failed'
   | 'terminated';
 
-export type InstanceEventKind = 'created' | 'status_changed' | 'removed';
-
 export type InstanceFailureClass =
   | 'transition'
   | 'startup'

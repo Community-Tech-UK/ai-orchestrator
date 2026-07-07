@@ -31,6 +31,18 @@ describe('surrogate-sanitizer', () => {
       });
     });
 
+    it('also strips dangerous prompt-injection Unicode before provider requests', () => {
+      const input = {
+        prompt: 'run\u202E hidden',
+        nested: [{ text: 'zero\u200Bwidth \uFB01le' }],
+      };
+
+      expect(sanitizeProviderText(input)).toEqual({
+        prompt: 'run hidden',
+        nested: [{ text: 'zerowidth file' }],
+      });
+    });
+
     it('leaves non-plain objects unchanged', () => {
       const date = new Date('2026-07-01T00:00:00.000Z');
       expect(sanitizeProviderText(date)).toBe(date);

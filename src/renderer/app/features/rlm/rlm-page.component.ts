@@ -23,7 +23,7 @@ import type {
   StrategyRecommendation,
   TaskPattern
 } from '../../../../shared/types/self-improvement.types';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { RlmContextBrowserComponent } from './rlm-context-browser.component';
 
 interface QueryResult {
@@ -355,7 +355,7 @@ interface QueryResult {
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class RlmPageComponent implements OnInit, OnDestroy {
-  private readonly ipc = inject(ElectronIpcService);
+  private readonly ipc = inject(IpcFacadeService);
   private subscriptions: (() => void)[] = [];
 
   @ViewChild('browser')

@@ -78,6 +78,7 @@ import { CodexHomeManager } from './codex/codex-home-manager';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './codex/exec-diagnostics';
 import { parseCodexExecTranscript } from './codex/exec-transcript-parser';
 import { isBenignCodexStdinNotice, isCodexInputTooLargeError, isCodexModelUnavailableError, isFatalSpawnError, isRecoverableThreadResumeError } from './codex/exec-error-classifier';
+import { probeVersionStatus } from './cli-status-probe';
 import { CodexTimeoutError, type CodexExecPhase, type CodexTimeoutKind } from './codex/exec-timeout';
 import { enrichSpawnError } from './base-cli-adapter-utils';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
@@ -389,51 +390,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * Returns extended status with `appServerAvailable` metadata.
    */
   async checkStatus(): Promise<CliStatus> {
-    return new Promise((resolve) => {
-      const proc = this.spawnProcess(['--version']);
-      let output = '';
-
-      proc.stdout?.on('data', (data) => {
-        output += data.toString();
-      });
-      proc.stderr?.on('data', (data) => {
-        output += data.toString();
-      });
-
-      proc.on('close', (code) => {
-        if (code === 0 || output.includes('codex')) {
-          const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
-          // Additionally check for app-server subcommand availability
-          const appServerAvailable = checkAppServerAvailability();
-          resolve({
-            available: true,
-            version: versionMatch?.[1] || 'unknown',
-            path: 'codex',
-            authenticated: true,
-            metadata: { appServerAvailable },
-          });
-        } else {
-          resolve({
-            available: false,
-            error: `Codex CLI not found or not configured: ${output}`,
-          });
-        }
-      });
-
-      proc.on('error', (err) => {
-        resolve({
-          available: false,
-          error: `Failed to spawn codex: ${err.message}`,
-        });
-      });
-
-      setTimeout(() => {
-        proc.kill();
-        resolve({
-          available: false,
-          error: 'Timeout checking Codex CLI',
-        });
-      }, 5000);
+    return probeVersionStatus({
+      spawn: () => this.spawnProcess(['--version']),
+      path: 'codex',
+      timeoutError: 'Timeout checking Codex CLI',
+      spawnError: (err) => `Failed to spawn codex: ${err.message}`,
+      unavailableError: ({ output }) => `Codex CLI not found or not configured: ${output}`,
+      isAvailable: ({ code, output }) => code === 0 || output.includes('codex'),
+      metadata: () => ({ appServerAvailable: checkAppServerAvailability() }),
     });
   }
 

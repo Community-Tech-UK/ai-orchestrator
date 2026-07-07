@@ -180,6 +180,89 @@
   }
 </div>
 
+<!-- Permission Audit Section -->
+<div class="section">
+  <div class="section-header">
+    <h4>Permission audit</h4>
+    <div class="header-actions">
+      <button
+        class="btn-secondary"
+        (click)="loadPermissionAudit()"
+        [disabled]="loading()"
+      >
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <p class="section-description">
+    Review recent permission decisions and hard denials. Filter by instance id when tracing a specific agent session.
+  </p>
+
+  <div class="audit-filter-row">
+    <label class="audit-filter">
+      <span>Instance id</span>
+      <input
+        type="text"
+        [value]="permissionAuditInstanceId()"
+        (input)="updatePermissionAuditInstanceId($any($event.target).value)"
+        placeholder="Leave blank for recent decisions"
+      />
+    </label>
+  </div>
+
+  @if (permissionAuditDecisions().length === 0 && permissionAuditDenials().length === 0) {
+    <div class="empty-state">
+      <span class="empty-icon">&#128274;</span>
+      <span>No permission audit entries found</span>
+    </div>
+  } @else {
+    <div class="audit-list">
+      @for (decision of permissionAuditDecisions(); track decision.decidedAt + decision.resource + decision.action) {
+        <div class="audit-row">
+          <div class="audit-main">
+            <span class="audit-action" [class.allow]="decision.action === 'allow'" [class.deny]="decision.action === 'deny'">
+              {{ decision.action }}
+            </span>
+            <span class="audit-resource">{{ decision.resource }}</span>
+            @if (decision.toolName) {
+              <span class="audit-tool">via {{ decision.toolName }}</span>
+            }
+          </div>
+          <div class="audit-meta">
+            <span>{{ decision.instanceId }}</span>
+            <span>{{ decision.scope }}</span>
+            @if (decision.decidedBy) {
+              <span>{{ decision.decidedBy }}</span>
+            }
+            @if (decision.isCached) {
+              <span>cached</span>
+            }
+            <span>{{ formatAuditTimestamp(decision.decidedAt) }}</span>
+          </div>
+          @if (decision.reason) {
+            <div class="audit-reason">{{ decision.reason }}</div>
+          }
+        </div>
+      }
+
+      @for (denial of permissionAuditDenials(); track denial.timestamp + denial.instanceId + denial.toolName) {
+        <div class="audit-row denial">
+          <div class="audit-main">
+            <span class="audit-action deny">{{ denial.behavior }}</span>
+            <span class="audit-resource">{{ denial.toolName }}</span>
+          </div>
+          <div class="audit-meta">
+            <span>{{ denial.instanceId }}</span>
+            <span>{{ formatAuditTimestamp(denial.timestamp) }}</span>
+          </div>
+          <div class="audit-reason">{{ denial.reason }}</div>
+        </div>
+      }
+    </div>
+  }
+</div>
+
 <!-- Learned Patterns Section -->
 <div class="section">
   <div class="section-header">

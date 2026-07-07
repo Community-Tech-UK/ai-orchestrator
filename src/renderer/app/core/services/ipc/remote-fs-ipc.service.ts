@@ -5,6 +5,7 @@ import type {
   FsStatResult,
   FsSearchResult,
   FsWatchResult,
+  RemoteFsEventNotification,
 } from '../../../../../shared/types/remote-fs.types';
 
 interface IpcResult {
@@ -27,6 +28,8 @@ interface ElectronAPI {
   remoteFsWatch(nodeId: string, path: string, recursive?: boolean): Promise<IpcResult>;
 
   remoteFsUnwatch(nodeId: string, watchId: string): Promise<IpcResult>;
+
+  onRemoteFsEvent(callback: (event: RemoteFsEventNotification) => void): () => void;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -69,5 +72,9 @@ export class RemoteFsIpcService {
     if (!this.api) return;
     const result = await this.api.remoteFsUnwatch(nodeId, watchId);
     if (!result.success) throw new Error(result.error?.message ?? 'Failed to unwatch');
+  }
+
+  onFsEvent(callback: (event: RemoteFsEventNotification) => void): () => void {
+    return this.api?.onRemoteFsEvent(callback) ?? (() => undefined);
   }
 }

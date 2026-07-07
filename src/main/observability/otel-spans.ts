@@ -1,96 +1,12 @@
 /**
  * OpenTelemetry Span Helpers
  *
- * Provides typed wrappers for tracing orchestration operations:
- * verification, debate, and instance lifecycle.
+ * Records low-frequency provider diagnostics as OpenTelemetry spans.
  */
 
-import { SpanStatusCode, type Span } from '@opentelemetry/api';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { getOrchestratorTracer } from './otel-setup';
-import { redactForSink, redactSpanAttributes } from '../diagnostics/redaction';
-
-function redactStatusMessage(message: string): string {
-  try {
-    const redacted = redactForSink(message);
-    return typeof redacted === 'string' ? redacted : message;
-  } catch {
-    return message;
-  }
-}
-
-async function withSpan<T>(
-  name: string,
-  attributes: Record<string, string | number | boolean>,
-  fn: (span: Span) => Promise<T>,
-): Promise<T> {
-  const tracer = getOrchestratorTracer();
-  // Task 14: redact secret-shaped attributes before they reach the tracer — this
-  // is the sink that feeds a remote OTLP collector (the local file exporter also
-  // redacts at serialization, but a remote exporter would not).
-  return tracer.startActiveSpan(name, { attributes: redactSpanAttributes(attributes) }, async (span) => {
-    try {
-      const result = await fn(span);
-      span.setStatus({ code: SpanStatusCode.OK });
-      return result;
-    } catch (err) {
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: redactStatusMessage(err instanceof Error ? err.message : String(err)),
-      });
-      throw err;
-    } finally {
-      span.end();
-    }
-  });
-}
-
-export function traceVerification<T>(
-  verificationId: string,
-  meta: { query?: string; agentCount?: number },
-  fn: () => Promise<T>,
-): Promise<T> {
-  return withSpan(
-    'orchestration.verification',
-    {
-      'verification.id': verificationId,
-      ...(meta.agentCount !== undefined && { 'verification.agent_count': meta.agentCount }),
-      ...(meta.query && { 'verification.query': meta.query }),
-    },
-    () => fn(),
-  );
-}
-
-export function traceDebate<T>(
-  debateId: string,
-  meta: { topic?: string; rounds?: number },
-  fn: () => Promise<T>,
-): Promise<T> {
-  return withSpan(
-    'orchestration.debate',
-    {
-      'debate.id': debateId,
-      ...(meta.rounds !== undefined && { 'debate.rounds': meta.rounds }),
-      ...(meta.topic && { 'debate.topic': meta.topic }),
-    },
-    () => fn(),
-  );
-}
-
-export function traceInstanceLifecycle<T>(
-  operation: string,
-  instanceId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  return withSpan(
-    `instance.${operation}`,
-    {
-      'instance.id': instanceId,
-      'instance.operation': operation,
-    },
-    () => fn(),
-  );
-}
+import { redactSpanAttributes } from '../diagnostics/redaction';
 
 /**
  * Records a provider runtime event as an OTel span only for diagnostic event kinds.

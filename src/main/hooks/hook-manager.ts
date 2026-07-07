@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { getLogger } from '../logging/logger';
-import type { HookEvent } from '../../shared/types/hook.types';
+import type { HookContext, HookEvent, HookResult } from '../../shared/types/hook.types';
 import {
   HookExecutor,
   getHookExecutor,
@@ -16,6 +16,7 @@ import {
   type HookExecutionContext,
   type HookExecutorResult
 } from './hook-executor';
+import { getHookEngine } from './hook-engine';
 
 // Local type for hook matchers
 export interface HookMatcher {
@@ -39,6 +40,14 @@ export interface HookManagerConfig {
   maxConcurrentHooks: number;
   defaultTimeout: number;
   stopOnFirstFailure: boolean;
+}
+
+export interface HookLifecycleDispatchResult {
+  event: HookEvent;
+  ruleResult: HookResult;
+  executorResults: HookExecutorResult[];
+  blocked: boolean;
+  message?: string;
 }
 
 const logger = getLogger('HookManager');
@@ -263,6 +272,77 @@ export class HookManager extends EventEmitter {
 
     this.emit('hooks:completed', { event, results });
     return results;
+  }
+
+  async triggerLifecycleHooks(
+    event: HookEvent,
+    context: HookExecutionContext
+  ): Promise<HookLifecycleDispatchResult> {
+    if (!this.config.enabled) {
+      return {
+        event,
+        ruleResult: { matched: false },
+        executorResults: [],
+        blocked: false,
+      };
+    }
+
+    const ruleContext = this.toHookContext(event, context);
+    const ruleResult = getHookEngine().evaluate(ruleContext);
+    this.emit('hook:rules-evaluated', { event, context: ruleContext, result: ruleResult });
+
+    if (ruleResult.action === 'block') {
+      this.emit('hook:lifecycle-blocked', { event, context: ruleContext, result: ruleResult });
+      return {
+        event,
+        ruleResult,
+        executorResults: [],
+        blocked: true,
+        message: ruleResult.message,
+      };
+    }
+
+    const executorResults = await this.triggerHooks(event, context);
+    return {
+      event,
+      ruleResult,
+      executorResults,
+      blocked: false,
+      message: ruleResult.message,
+    };
+  }
+
+  private toHookContext(event: HookEvent, context: HookExecutionContext): HookContext {
+    return {
+      event,
+      sessionId: context.sessionId ?? context.instanceId ?? 'unknown-session',
+      instanceId: context.instanceId ?? 'unknown-instance',
+      toolName: context.toolName,
+      toolInput: context.toolInput,
+      toolOutput: context.toolOutput,
+      filePath: context.filePath,
+      oldContent: context.oldContent,
+      newContent: context.newContent,
+      command: context.command,
+      userPrompt: context.userPrompt,
+      stopReason: context.stopReason,
+      transcript: context.transcript,
+      errorMessage: context.errorMessage,
+      errorProvider: context.errorProvider,
+      compactionMethod: context.compactionMethod,
+      compactionSuccess: context.compactionSuccess,
+      previousContextUsage: context.previousContextUsage,
+      oldCwd: context.oldCwd,
+      newCwd: context.newCwd,
+      changeType: context.changeType,
+      changedPath: context.changedPath,
+      changedRelativePath: context.changedRelativePath,
+      messageCount: context.messageCount,
+      estimatedTokens: context.estimatedTokens,
+      modelResponse: context.modelResponse,
+      responseTokens: context.responseTokens,
+      modelId: context.modelId,
+    };
   }
 
   private findMatchingHooks(

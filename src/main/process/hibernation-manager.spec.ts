@@ -1,10 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('electron', () => ({
+  powerMonitor: {
+    on: vi.fn(),
+    off: vi.fn(),
+  },
+}));
+
 import { HibernationManager } from './hibernation-manager';
+import { JitterScheduler } from '../tasks/jitter-scheduler';
 
 describe('HibernationManager', () => {
   let manager: HibernationManager;
 
   beforeEach(() => {
+    JitterScheduler._resetForTesting();
     HibernationManager._resetForTesting();
     manager = HibernationManager.getInstance();
   });

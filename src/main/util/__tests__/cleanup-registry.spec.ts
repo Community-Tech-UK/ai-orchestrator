@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   registerCleanup,
   runCleanupFunctions,
-  getCleanupCount,
   _resetForTesting,
 } from '../cleanup-registry';
 
@@ -17,7 +16,6 @@ describe('CleanupRegistry', () => {
     registerCleanup(fn1);
     registerCleanup(fn2);
 
-    expect(getCleanupCount()).toBe(2);
     await runCleanupFunctions();
     expect(fn1).toHaveBeenCalledOnce();
     expect(fn2).toHaveBeenCalledOnce();
@@ -28,7 +26,6 @@ describe('CleanupRegistry', () => {
     const unregister = registerCleanup(fn);
 
     unregister();
-    expect(getCleanupCount()).toBe(0);
     await runCleanupFunctions();
     expect(fn).not.toHaveBeenCalled();
   });
@@ -56,16 +53,18 @@ describe('CleanupRegistry', () => {
   });
 
   it('clears registry after running', async () => {
-    registerCleanup(vi.fn());
-    expect(getCleanupCount()).toBe(1);
+    const fn = vi.fn();
+    registerCleanup(fn);
     await runCleanupFunctions();
-    expect(getCleanupCount()).toBe(0);
+    await runCleanupFunctions();
+    expect(fn).toHaveBeenCalledOnce();
   });
 
   it('handles double unregister gracefully', () => {
-    const unregister = registerCleanup(vi.fn());
+    const fn = vi.fn();
+    const unregister = registerCleanup(fn);
     unregister();
     unregister();
-    expect(getCleanupCount()).toBe(0);
+    expect(fn).not.toHaveBeenCalled();
   });
 });

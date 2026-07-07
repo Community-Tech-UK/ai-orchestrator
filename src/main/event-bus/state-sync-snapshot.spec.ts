@@ -25,12 +25,8 @@ describe('buildStateSyncSnapshot', () => {
       },
       appStore: {
         getState: () => ({
-          instances: {},
           global: {
             memoryPressure: 'normal',
-            creationPaused: false,
-            activeTaskCount: 0,
-            shutdownRequested: false,
           },
         }),
       },
@@ -87,12 +83,8 @@ describe('buildStateSyncSnapshot', () => {
       },
       appStore: {
         getState: () => ({
-          instances: {},
           global: {
             memoryPressure: 'critical',
-            creationPaused: true,
-            activeTaskCount: 1,
-            shutdownRequested: false,
           },
         }),
       },
@@ -178,12 +170,8 @@ describe('buildStateSyncSnapshot', () => {
       },
       appStore: {
         getState: () => ({
-          instances: {},
           global: {
             memoryPressure: 'normal',
-            creationPaused: false,
-            activeTaskCount: 0,
-            shutdownRequested: false,
           },
         }),
       },
@@ -243,12 +231,8 @@ describe('buildStateSyncSnapshot', () => {
       },
       appStore: {
         getState: () => ({
-          instances: {},
           global: {
             memoryPressure: 'normal',
-            creationPaused: false,
-            activeTaskCount: 0,
-            shutdownRequested: false,
           },
         }),
       },

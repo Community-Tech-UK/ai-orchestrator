@@ -15,7 +15,7 @@ import {
   output,
   signal
 } from '@angular/core';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
 import { ReviewResultsComponent } from '../review/review-results.component';
 import type {
@@ -333,7 +333,7 @@ interface ReviewSessionData {
   ]
 })
 export class InstanceReviewPanelComponent {
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private vcs = inject(VcsIpcService);
 
   instanceId = input.required<string>();

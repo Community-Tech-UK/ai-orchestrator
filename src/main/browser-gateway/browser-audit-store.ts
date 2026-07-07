@@ -148,7 +148,3 @@ export function getBrowserAuditStore(): BrowserAuditStore {
   }
   return browserAuditStore;
 }
-
-export function _resetBrowserAuditStoreForTesting(): void {
-  browserAuditStore = null;
-}

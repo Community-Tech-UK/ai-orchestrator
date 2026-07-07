@@ -29,12 +29,8 @@ vi.mock('../pause/pause-coordinator', () => ({
 vi.mock('../state', () => ({
   getAppStore: () => ({
     getState: () => ({
-      instances: {},
       global: {
         memoryPressure: 'normal',
-        creationPaused: false,
-        activeTaskCount: 0,
-        shutdownRequested: false,
       },
     }),
   }),

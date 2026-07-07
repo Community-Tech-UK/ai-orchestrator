@@ -1,23 +1,10 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { isInsideOrEqual, pathCompareKey, sleep } from '../../util/path-helpers';
 import { gitExec, gitExecSafe } from './git-exec';
 import { getGitWriteQueue } from './git-write-queue';
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export function pathCompareKey(value: string): string {
-  const resolved = path.resolve(value);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-}
-
-function isInsideOrEqual(parent: string, child: string): boolean {
-  const parentKey = pathCompareKey(parent);
-  const childKey = pathCompareKey(child);
-  const relative = path.relative(parentKey, childKey);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
+export { pathCompareKey } from '../../util/path-helpers';
 
 function isManagedWorktreePath(repoRoot: string, baseDir: string, worktreePath: string): boolean {
   const resolvedBaseDir = path.resolve(repoRoot, baseDir);

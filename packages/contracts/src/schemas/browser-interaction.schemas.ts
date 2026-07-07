@@ -62,8 +62,3 @@ export const BrowserElementCandidateSchema = z
     options: z.array(BrowserSelectOptionSchema).max(50).optional(),
   })
   .strict();
-
-export type BrowserAccessibilityNode = z.infer<typeof BrowserAccessibilityNodeSchema>;
-export type BrowserEvaluateResult = z.infer<typeof BrowserEvaluateResultSchema>;
-export type BrowserSelectOption = z.infer<typeof BrowserSelectOptionSchema>;
-export type BrowserElementCandidate = z.infer<typeof BrowserElementCandidateSchema>;

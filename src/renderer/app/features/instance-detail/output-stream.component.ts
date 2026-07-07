@@ -24,7 +24,7 @@ import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
 import type { FailedImageRef, FileAttachment } from '../../../../shared/types/instance.types';
 import { MarkdownService } from '../../core/services/markdown.service';
-import { ElectronIpcService, InstanceIpcService } from '../../core/services/ipc';
+import { IpcFacadeService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceOutputStore } from '../../core/state/instance/instance-output.store';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
@@ -184,7 +184,7 @@ export class OutputStreamComponent {
   private oldestChunkLoaded = new Map<string, number>(); // instanceId -> oldest chunk index
 
   private markdownService = inject(MarkdownService);
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private instanceIpc = inject(InstanceIpcService);
   private outputStore = inject(InstanceOutputStore);
   private instanceStore = inject(InstanceStore);

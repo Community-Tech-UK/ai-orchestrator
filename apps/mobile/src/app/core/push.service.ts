@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { HostStore } from './host-store';
 import { GatewayClient } from './gateway-client.service';
+import { HapticsService } from './haptics.service';
 
 /**
  * Registers for APNs and forwards the device token to each paired host so the
@@ -16,6 +17,7 @@ import { GatewayClient } from './gateway-client.service';
 export class PushService {
   private readonly hostStore = inject(HostStore);
   private readonly gateway = inject(GatewayClient);
+  private readonly haptics = inject(HapticsService);
   private readonly router = inject(Router);
 
   private started = false;
@@ -45,7 +47,14 @@ export class PushService {
         void this.syncTokenToActiveHost();
       });
       await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-        this.handleTap(action.notification.data as Record<string, unknown>);
+        const data = action.notification.data as Record<string, unknown>;
+        // Custom notification actions (registered natively in AppDelegate):
+        // one-tap Approve/Deny without opening the app UI.
+        if (action.actionId === 'APPROVE' || action.actionId === 'DENY') {
+          void this.respondFromAction(action.actionId, data);
+          return;
+        }
+        this.handleTap(data);
       });
       await PushNotifications.register();
     } catch {
@@ -62,6 +71,30 @@ export class PushService {
       await this.gateway.registerApnsToken(host.id, this.apnsToken);
     } catch {
       /* will retry on the next host change / token refresh */
+    }
+  }
+
+  /** Approve/Deny tapped on the notification itself — respond and stay out of the way. */
+  private async respondFromAction(
+    actionId: 'APPROVE' | 'DENY',
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    const instanceId = typeof data['instanceId'] === 'string' ? data['instanceId'] : '';
+    const requestId = typeof data['requestId'] === 'string' ? data['requestId'] : '';
+    const host = typeof data['host'] === 'string' ? data['host'] : undefined;
+    if (!instanceId || !requestId) return;
+    try {
+      await this.gateway.respondFromPush(host, instanceId, {
+        requestId,
+        decisionAction: actionId === 'APPROVE' ? 'allow' : 'deny',
+        decisionScope: 'once',
+      });
+      this.haptics.success();
+    } catch {
+      // Couldn't reach the host (Tailscale down / prompt expired) — fall back
+      // to opening the session so the user can act from the approval sheet.
+      this.haptics.error();
+      this.handleTap(data);
     }
   }
 

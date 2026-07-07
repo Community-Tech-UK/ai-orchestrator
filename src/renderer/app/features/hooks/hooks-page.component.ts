@@ -16,6 +16,7 @@ import {
   HookResult,
   HookRule,
 } from '../../../../shared/types/hook.types';
+import { HookEventReferenceComponent } from './hook-event-reference.component';
 import { HooksConfigComponent } from './hooks-config.component';
 import { HooksIpcService } from '../../core/services/ipc/hooks-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
@@ -51,7 +52,7 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
 @Component({
   selector: 'app-hooks-page',
   standalone: true,
-  imports: [CommonModule, HooksConfigComponent],
+  imports: [CommonModule, HooksConfigComponent, HookEventReferenceComponent],
   template: `
     <div class="page">
       <div class="page-header">
@@ -151,6 +152,8 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
               <div class="hint">Run evaluation to preview matching rules/actions.</div>
             }
           </div>
+
+          <app-hook-event-reference />
 
           <div class="panel-card">
             <div class="panel-title">Import / Export</div>

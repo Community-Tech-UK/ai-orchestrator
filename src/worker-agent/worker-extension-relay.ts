@@ -11,6 +11,13 @@ import type { WorkerNodeExtensionRelaySummary } from '../shared/types/worker-nod
 const MAX_RELAY_PAYLOAD_BYTES = 4 * 1024 * 1024;
 const EXTENSION_CONTACT_LOST_MS = 90_000;
 const POLL_HEARTBEAT_INTERVAL = 500;
+// Headroom the poll-forward RPC gets beyond the coordinator's poll hold window
+// (network round trip + a loaded coordinator's reply lag).
+const POLL_FORWARD_TIMEOUT_BUFFER_MS = 10_000;
+// Command-result re-send: 3s/6s/12s/24s backoff, then give up (the
+// coordinator-side command has timed out well before then).
+const COMMAND_RESULT_RETRY_BASE_MS = 3_000;
+const COMMAND_RESULT_MAX_RETRIES = 4;
 
 export interface WorkerExtensionRelayOptions {
   config: WorkerExtensionRelayConfig;
@@ -38,6 +45,7 @@ type WorkerExtensionRelayRegistrationSummary = Pick<
 
 export class WorkerExtensionRelay {
   private server: net.Server | null = null;
+  private stopped = false;
   private readonly retryTimers = new Set<ReturnType<typeof setTimeout>>();
   private config: WorkerExtensionRelayConfig;
   private readonly sendRequest: WorkerExtensionRelayOptions['sendRequest'];
@@ -75,6 +83,7 @@ export class WorkerExtensionRelay {
     if (!this.isEnabled() || this.server) {
       return;
     }
+    this.stopped = false;
     if (!this.config.extensionToken) {
       throw new Error('extension_relay_token_missing');
     }
@@ -105,6 +114,11 @@ export class WorkerExtensionRelay {
   }
 
   async stop(): Promise<void> {
+    // Ordering matters: a retry timer that already fired removed itself from
+    // retryTimers and is awaiting sendRequest — when that send rejects, its
+    // .catch would schedule a FRESH timer after this clear. The stopped flag
+    // gates scheduleCommandResultRetry so the resurrection is impossible.
+    this.stopped = true;
     this.clearRetryTimers();
     const server = this.server;
     this.server = null;
@@ -176,18 +190,39 @@ export class WorkerExtensionRelay {
       case 'browser.extension_command_result':
         this.recordExtensionContact();
         return this.forwardCommandResult(params);
+      case 'browser.extension_command_received':
+        this.recordExtensionContact();
+        return this.forwardCommandReceived(params);
+      case 'browser.extension_disconnected':
+        // Deliberately NOT recorded as fresh contact — the channel just died.
+        return this.forwardDisconnected(params);
       default:
         throw new Error(`unknown_extension_relay_method:${request.method ?? ''}`);
     }
   }
 
   private async forwardPollCommand(params: AuthorizedExtensionParams): Promise<unknown> {
+    const pollPayload = this.pollCommandPayload(params.payload);
     const payload = {
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
-      ...this.pollCommandPayload(params.payload),
+      ...pollPayload,
     };
+    // The coordinator can hold this long-poll for the extension's requested
+    // window before answering. The RPC timeout must comfortably OUTLIVE that
+    // hold: if the relay gives up first, a command handed to the abandoned
+    // poll response at the last moment is silently dropped — it never reaches
+    // the extension, and the caller only learns via a much later command
+    // timeout. Seen under coordinator load, where a reply can lag well past
+    // the poll window.
+    const pollWindowMs = typeof pollPayload['timeoutMs'] === 'number'
+      ? pollPayload['timeoutMs']
+      : 10_000;
     try {
-      return await this.sendRequest(NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND, payload, 15_000);
+      return await this.sendRequest(
+        NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
+        payload,
+        pollWindowMs + POLL_FORWARD_TIMEOUT_BUFFER_MS,
+      );
     } catch {
       return null;
     }
@@ -204,8 +239,39 @@ export class WorkerExtensionRelay {
       if (!this.shouldRetryCommandResult(error)) {
         throw error;
       }
-      this.scheduleCommandResultRetry(payload);
+      this.scheduleCommandResultRetry(payload, 0);
       return { ok: true, queued: true };
+    }
+  }
+
+  private async forwardCommandReceived(params: AuthorizedExtensionParams): Promise<unknown> {
+    const commandId = params.payload['commandId'];
+    if (typeof commandId !== 'string' || !commandId) {
+      throw new Error('invalid_extension_relay_command_received');
+    }
+    const payload = {
+      ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
+      commandId,
+    };
+    // Best-effort: a lost receipt only degrades the coordinator's diagnosis
+    // (receipt-missing instead of maybe-applied), never correctness.
+    try {
+      return await this.sendRequest(NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RECEIVED, payload);
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  private async forwardDisconnected(params: AuthorizedExtensionParams): Promise<unknown> {
+    const reason = params.payload['reason'];
+    const payload = {
+      ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
+      ...(typeof reason === 'string' && reason ? { reason } : {}),
+    };
+    try {
+      return await this.sendRequest(NODE_TO_COORDINATOR.BROWSER_EXT_DISCONNECTED, payload);
+    } catch {
+      return { ok: false };
     }
   }
 
@@ -214,11 +280,35 @@ export class WorkerExtensionRelay {
     return !message.startsWith('RPC error ');
   }
 
-  private scheduleCommandResultRetry(payload: Record<string, unknown>): void {
+  /**
+   * An executed command's result must not evaporate because one RPC failed —
+   * the coordinator would misreport real work as "maybe applied". Re-send with
+   * backoff until the coordinator acks or the attempts are exhausted
+   * (3s/6s/12s/24s ≈ 45s — beyond that the coordinator-side command has timed
+   * out anyway and resolveCommand becomes a no-op, which keeps re-sends
+   * idempotent and duplicate-safe).
+   */
+  private scheduleCommandResultRetry(payload: Record<string, unknown>, attempt: number): void {
+    if (this.stopped) {
+      return;
+    }
+    if (attempt >= COMMAND_RESULT_MAX_RETRIES) {
+      this.logger.warn('[WorkerExtensionRelay] Dropping command result after exhausted retries', {
+        commandId: payload['commandId'],
+        attempts: attempt,
+      });
+      return;
+    }
     const timer = setTimeout(() => {
       this.retryTimers.delete(timer);
-      void this.sendRequest(NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RESULT, payload).catch(() => undefined);
-    }, 3_000);
+      void this.sendRequest(NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RESULT, payload)
+        .catch((error: unknown) => {
+          if (!this.shouldRetryCommandResult(error)) {
+            return;
+          }
+          this.scheduleCommandResultRetry(payload, attempt + 1);
+        });
+    }, COMMAND_RESULT_RETRY_BASE_MS * 2 ** attempt);
     this.retryTimers.add(timer);
   }
 

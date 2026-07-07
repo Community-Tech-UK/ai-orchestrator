@@ -30,6 +30,7 @@ describe('browser-mutation-safety', () => {
       'snapshot',
       'accessibility_snapshot',
       'query_elements',
+      'read_control',
       'screenshot',
       'console_messages',
       'network_requests',

@@ -13,6 +13,9 @@ const TOOL_NAMES = [
   'browser.type',
   'browser.fill_form',
   'browser.select',
+  'browser.execute_fill_plan',
+  'browser.fill_credential',
+  'browser.create_agent_credential',
   'browser.upload_file',
   'browser.download_file',
   'browser.request_user_login',
@@ -31,6 +34,13 @@ const TOOL_NAMES = [
   'browser.query_elements',
   'browser.health',
   'browser.get_audit_log',
+  'browser.raise_escalation',
+  'browser.get_campaign',
+  'browser.list_campaigns',
+  'browser.pause_campaign',
+  'browser.claim_campaign_lease',
+  'browser.check_session',
+  'browser.remember_login_fingerprint',
 ] as const;
 
 type BrowserMcpToolName = typeof TOOL_NAMES[number];
@@ -74,6 +84,30 @@ const requestIdProp = {
   ...stringProp,
   description: 'Browser Gateway approval request id.',
 };
+const verifyExpectationSchema = objectSchema({
+  selector: {
+    ...selectorProp,
+    description:
+      'Optional control to read back after the mutation. Defaults to the acted-on selector.',
+  },
+  uid: {
+    ...uidProp,
+    description:
+      'Reserved for uid-based read-back. Existing-tab verification currently needs a selector.',
+  },
+  value: {
+    ...stringProp,
+    description: 'Expected input/textarea/select value after the mutation.',
+  },
+  selectedLabel: {
+    ...stringProp,
+    description: 'Expected visible selected option label after the mutation.',
+  },
+  checked: {
+    ...booleanProp,
+    description: 'Expected checkbox/radio/switch state after the mutation.',
+  },
+});
 
 function objectSchema(
   properties: Record<string, unknown>,
@@ -171,6 +205,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     selector: selectorProp,
     uid: uidProp,
     actionHint: stringProp,
+    verify: verifyExpectationSchema,
     requestId: requestIdProp,
   }, ['profileId', 'targetId']),
   'browser.type': objectSchema({
@@ -180,6 +215,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     uid: uidProp,
     value: stringProp,
     actionHint: stringProp,
+    verify: verifyExpectationSchema,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'value']),
   'browser.fill_form': objectSchema({
@@ -192,6 +228,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         uid: uidProp,
         value: stringProp,
         actionHint: stringProp,
+        verify: verifyExpectationSchema,
       }, ['value']),
     },
     requestId: requestIdProp,
@@ -203,8 +240,109 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     uid: uidProp,
     value: stringProp,
     actionHint: stringProp,
+    verify: verifyExpectationSchema,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'value']),
+  'browser.execute_fill_plan': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    steps: {
+      type: 'array',
+      description:
+        'Ordered fill steps. Each step is applied then READ BACK and verified; the plan '
+        + 'stops and fails at the first step whose control does not reflect the intended '
+        + 'value (no silent no-ops). Managed browser profiles only.',
+      items: objectSchema({
+        field: { ...stringProp, description: 'Stable field label/key for audit + diffs.' },
+        kind: {
+          type: 'string',
+          enum: ['set', 'select', 'check', 'section_save'],
+          description:
+            "'set' types text; 'select' picks a dropdown option (native or ARIA listbox); "
+            + "'check' sets a checkbox/switch; 'section_save' clicks a save/submit control and "
+            + 'verifies its effect via probeTarget/effectProbe.',
+        },
+        target: { ...selectorProp, description: 'CSS selector for the control.' },
+        value: { ...stringProp, description: 'Desired value for set/select.' },
+        checked: { ...booleanProp, description: 'Desired state for check.' },
+        probeTarget: {
+          ...selectorProp,
+          description: 'For section_save: control to read to confirm the save applied.',
+        },
+        effectProbe: objectSchema({
+          value: stringProp,
+          selectedLabel: stringProp,
+          checked: booleanProp,
+        }),
+        expected: objectSchema({
+          value: stringProp,
+          selectedLabel: stringProp,
+          checked: booleanProp,
+        }),
+      }, ['field', 'kind', 'target']),
+    },
+    maxAttempts: {
+      ...numberProp,
+      description: 'Apply+verify attempts per step before failing the plan (default 2).',
+    },
+  }, ['profileId', 'targetId', 'steps']),
+  'browser.fill_credential': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    vaultItemRef: {
+      ...stringProp,
+      description:
+        'Opaque credential vault item reference (NOT a secret). The secret is '
+        + 'resolved in the main process and typed directly into the page — it is '
+        + 'never sent to or returned from the model. Requires a standing credential '
+        + 'authorization for the live origin; managed profiles only.',
+    },
+    fields: {
+      type: 'array',
+      items: objectSchema({
+        selector: { ...selectorProp, description: 'CSS selector for the credential input.' },
+        kind: {
+          type: 'string',
+          enum: ['username', 'password', 'totp', 'email_code'],
+          description:
+            'Which secret to type: a vault item field, or email_code — a one-time '
+            + 'verification code read from the agent mailbox (newest recent message from '
+            + "a sender domain related to the live page origin). Requires an 'email_code' "
+            + 'credential authorization.',
+        },
+      }, ['selector', 'kind']),
+    },
+    emailCode: objectSchema({
+      senderDomains: {
+        type: 'array',
+        items: stringProp,
+        description:
+          'Expected verification-mail sender domains. Each must be the live page origin '
+          + 'host, a parent domain of it, or a subdomain of it (enforced server-side). '
+          + 'Default: the origin host.',
+      },
+      sinceMs: {
+        ...numberProp,
+        description: 'Only consider mail received at/after this epoch-ms (default now - withinMs).',
+      },
+      withinMs: {
+        ...numberProp,
+        description: 'Recency window in ms (default 15 minutes).',
+      },
+    }),
+  }, ['profileId', 'targetId', 'vaultItemRef', 'fields']),
+  'browser.create_agent_credential': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    username: {
+      ...stringProp,
+      description:
+        'Username/email for a NEW agent-owned account. A strong password is '
+        + 'generated and stored in the credential vault (Bitwarden); only a vault '
+        + 'reference + the username are returned — never the password. Requires a '
+        + "'register' credential authorization for the live origin; managed profiles only.",
+    },
+  }, ['profileId', 'targetId', 'username']),
   'browser.upload_file': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
@@ -331,6 +469,104 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     instanceId: stringProp,
     limit: numberProp,
   }),
+  'browser.raise_escalation': objectSchema({
+    campaignId: stringProp,
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    kind: {
+      type: 'string',
+      enum: [
+        'captcha',
+        'two_factor_unavailable',
+        'legal_declaration',
+        'payment',
+        'relogin_failed',
+        'verify_diff',
+        'unknown_challenge',
+      ],
+      description:
+        'Category of hard stop the automation cannot resolve on its own.',
+    },
+    reason: {
+      ...stringProp,
+      description: 'Human-readable explanation for morning triage. Never include a secret or code.',
+    },
+    url: stringProp,
+    screenshotArtifactId: stringProp,
+  }, ['profileId', 'kind', 'reason']),
+  'browser.get_campaign': objectSchema({
+    campaignId: {
+      ...stringProp,
+      description: 'Campaign id. Returns the campaign, live budget counters, canProceed, and pending escalation count.',
+    },
+  }, ['campaignId']),
+  'browser.list_campaigns': objectSchema({
+    status: {
+      type: 'string',
+      enum: ['active', 'paused', 'killed', 'completed', 'expired'],
+      description: 'Optional status filter.',
+    },
+  }),
+  'browser.pause_campaign': objectSchema({
+    campaignId: {
+      ...stringProp,
+      description:
+        'Pause this campaign (agent-side tripwire). Pausing revokes the campaign\'s live '
+        + 'grants; only the user can resume, kill, or create campaigns.',
+    },
+  }, ['campaignId']),
+  'browser.claim_campaign_lease': objectSchema({
+    campaignId: {
+      ...stringProp,
+      description:
+        'Obtain or renew this instance\'s short-lived autonomous grant inside a user-approved, '
+        + 'active, in-budget campaign. Returns {granted, grantId, expiresAt} or a refusal reason.',
+    },
+  }, ['campaignId']),
+  'browser.check_session': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    autoRelogin: {
+      ...booleanProp,
+      description:
+        'When logged out and a fingerprint + re-login recipe exist, automatically re-login '
+        + '(navigate login URL, vault credential fill, optional 2FA, re-verify; max 2 attempts, '
+        + 'then a relogin_failed escalation is parked). Default true.',
+    },
+    campaignId: {
+      ...stringProp,
+      description: 'Campaign to attribute a parked escalation to.',
+    },
+  }, ['profileId', 'targetId']),
+  'browser.remember_login_fingerprint': objectSchema({
+    profileId: profileIdProp,
+    origin: {
+      ...stringProp,
+      description: 'Origin the fingerprint belongs to (e.g. https://portal.example.gov.uk).',
+    },
+    loginUrl: {
+      ...stringProp,
+      description: 'Canonical login URL to navigate to when re-authentication is needed.',
+    },
+    loggedInMarkers: {
+      type: 'array',
+      items: stringProp,
+      description:
+        'Texts present ONLY when logged in (e.g. "Log out", the account name). Record this '
+        + 'right after a successful login so browser.check_session can detect logouts.',
+    },
+    relogin: objectSchema({
+      vaultItemRef: {
+        ...stringProp,
+        description: 'Vault item reference to re-login with (never a secret).',
+      },
+      usernameSelector: selectorProp,
+      passwordSelector: selectorProp,
+      submitSelector: selectorProp,
+      codeSelector: selectorProp,
+      codeKind: { type: 'string', enum: ['totp', 'email_code'] },
+    }, ['vaultItemRef', 'passwordSelector']),
+  }, ['profileId', 'origin', 'loginUrl', 'loggedInMarkers']),
 };
 
 export function createBrowserMcpTools(

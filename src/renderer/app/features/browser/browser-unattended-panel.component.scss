@@ -1,0 +1,51 @@
+:host {
+  display: block;
+}
+
+.unattended-panel {
+  display: grid;
+  gap: var(--spacing-md);
+}
+
+.panel-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.unattended-block {
+  display: grid;
+  gap: var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  padding: var(--spacing-md);
+}
+
+h3 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.btn {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn.small {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

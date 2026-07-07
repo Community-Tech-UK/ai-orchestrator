@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InstanceStore } from '../../core/state/instance.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { SettingsStore } from '../../core/state/settings.store';
-import { ElectronIpcService, RecentDirectoriesIpcService } from '../../core/services/ipc';
+import { IpcFacadeService, RecentDirectoriesIpcService } from '../../core/services/ipc';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
@@ -111,7 +111,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
         { provide: InstanceStore, useValue: instanceStore },
         { provide: HistoryStore, useValue: historyStore },
         { provide: SettingsStore, useValue: createSettingsStoreMock() },
-        { provide: ElectronIpcService, useValue: { forkSession } },
+        { provide: IpcFacadeService, useValue: { forkSession } },
         { provide: RecentDirectoriesIpcService, useValue: { selectFolderAndTrack: vi.fn() } },
         {
           provide: ProviderIpcService,

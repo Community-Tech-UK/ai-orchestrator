@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HookManager } from '../hook-manager';
+import { getHookEngine, _resetHookEngineForTesting } from '../hook-engine';
 
 // Mock electron app
 vi.mock('electron', () => ({
@@ -22,6 +23,7 @@ vi.mock('../hook-executor', () => ({
 describe('Lifecycle Hook Events', () => {
   beforeEach(() => {
     HookManager._resetForTesting();
+    _resetHookEngineForTesting();
   });
 
   it('triggers PreSampling hooks', async () => {
@@ -80,5 +82,75 @@ describe('Lifecycle Hook Events', () => {
     });
 
     expect(results).toHaveLength(0);
+  });
+
+  it('runs HookEngine lifecycle block rules before executable hooks', async () => {
+    const manager = HookManager.getInstance();
+
+    getHookEngine().registerRule({
+      id: 'block-secret-prompt',
+      name: 'Block Secret Prompt',
+      enabled: true,
+      event: 'UserPromptSubmit',
+      conditions: [{ field: 'userPrompt', operator: 'contains', pattern: 'secret' }],
+      action: 'block',
+      message: 'Secret prompts must be reviewed first.',
+      source: 'user',
+      createdAt: Date.now(),
+    });
+
+    manager.registerHook({
+      id: 'user-prompt-executable',
+      name: 'User Prompt Executable',
+      event: 'UserPromptSubmit',
+      enabled: true,
+      handler: { type: 'command', command: 'echo "should not run"' },
+    });
+
+    const result = await manager.triggerLifecycleHooks('UserPromptSubmit', {
+      instanceId: 'test-block',
+      sessionId: 'session-block',
+      userPrompt: 'contains a secret value',
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result.ruleResult.action).toBe('block');
+    expect(result.executorResults).toHaveLength(0);
+    expect(result.message).toContain('Secret prompts must be reviewed first.');
+  });
+
+  it('continues to executable hooks when HookEngine rules only warn', async () => {
+    const manager = HookManager.getInstance();
+
+    getHookEngine().registerRule({
+      id: 'warn-long-prompt',
+      name: 'Warn Long Prompt',
+      enabled: true,
+      event: 'UserPromptSubmit',
+      conditions: [{ field: 'userPrompt', operator: 'contains', pattern: 'review' }],
+      action: 'warn',
+      message: 'Review prompt detected.',
+      source: 'user',
+      createdAt: Date.now(),
+    });
+
+    manager.registerHook({
+      id: 'user-prompt-executable-warn',
+      name: 'User Prompt Executable Warn',
+      event: 'UserPromptSubmit',
+      enabled: true,
+      handler: { type: 'command', command: 'echo "runs after warn"' },
+    });
+
+    const result = await manager.triggerLifecycleHooks('UserPromptSubmit', {
+      instanceId: 'test-warn',
+      sessionId: 'session-warn',
+      userPrompt: 'please review this change',
+    });
+
+    expect(result.blocked).toBe(false);
+    expect(result.ruleResult.action).toBe('warn');
+    expect(result.executorResults).toHaveLength(1);
+    expect(result.executorResults[0].hookId).toBe('user-prompt-executable-warn');
   });
 });

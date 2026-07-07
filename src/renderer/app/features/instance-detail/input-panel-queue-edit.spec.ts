@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderType } from '../providers/provider-selector.component';
+import type { ProviderType } from '../../core/services/provider-state.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { DraftService } from '../../core/services/draft.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
@@ -64,26 +64,6 @@ await resolveComponentResources((url) => {
 
   return Promise.reject(new Error(`Unexpected component resource: ${url}`));
 });
-
-@Component({
-  selector: 'app-provider-selector',
-  standalone: true,
-  template: '',
-})
-class ProviderSelectorStubComponent {
-  @Input() provider: ProviderType = 'claude';
-  @Output() providerSelected = new EventEmitter<ProviderType>();
-}
-
-@Component({
-  selector: 'app-copilot-model-selector',
-  standalone: true,
-  template: '',
-})
-class CopilotModelSelectorStubComponent {
-  @Input() model = '';
-  @Output() modelSelected = new EventEmitter<string>();
-}
 
 @Component({
   selector: 'app-agent-selector',
@@ -173,8 +153,6 @@ describe('InputPanelComponent queued message editing', () => {
         styleUrl: undefined,
         styleUrls: [],
         imports: [
-          ProviderSelectorStubComponent,
-          CopilotModelSelectorStubComponent,
           AgentSelectorStubComponent,
           LoopToggleStubComponent,
           LoopConfigPanelStubComponent,

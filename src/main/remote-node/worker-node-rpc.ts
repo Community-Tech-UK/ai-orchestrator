@@ -27,6 +27,11 @@ export const NODE_TO_COORDINATOR = {
   BROWSER_EXT_ATTACH_TAB: 'browser.ext.attachTab',
   BROWSER_EXT_POLL_COMMAND: 'browser.ext.pollCommand',
   BROWSER_EXT_COMMAND_RESULT: 'browser.ext.commandResult',
+  // Immediate ack that the extension RECEIVED a command (before executing it):
+  // lets the coordinator distinguish a lost handoff from a slow execution.
+  BROWSER_EXT_COMMAND_RECEIVED: 'browser.ext.commandReceived',
+  // Native host announcing its extension port closed (Chrome quit / SW replaced).
+  BROWSER_EXT_DISCONNECTED: 'browser.ext.disconnected',
 } as const;
 
 /** Methods sent FROM coordinator TO worker node */

@@ -49,8 +49,18 @@ declare module './permission-manager' {
       scope: 'once' | 'session' | 'always'
     ): void;
     getPendingBatch(sessionId: string): BatchPermissionRequest | null;
+    getPendingBatches(): BatchPermissionRequest[];
     queuePermission(request: PermissionRequest): void;
     processBatchQueue(sessionId: string): BatchPermissionRequest | null;
+    recordBatchDecisionForPending(
+      action: 'allow_all' | 'deny_all',
+      scope: 'once' | 'session' | 'always'
+    ): number;
+    recordDecisionByRequestId(
+      requestId: string,
+      action: 'allow' | 'deny',
+      scope: 'once' | 'session' | 'always'
+    ): boolean;
     getLearnedPatterns(): LearnedPermissionPattern[];
     approveLearnedPattern(patternId: string): boolean;
     rejectLearnedPattern(patternId: string): boolean;
@@ -162,6 +172,14 @@ export function installPermissionManagerExtensions(
     };
   };
 
+  PermissionManagerCtor.prototype.getPendingBatches = function(): BatchPermissionRequest[] {
+    return Array.from(permissionQueues.entries()).map(([sessionId, queue]) => ({
+      batchId: `pending-${sessionId}`,
+      requests: [...queue],
+      timestamp: Date.now(),
+    }));
+  };
+
   PermissionManagerCtor.prototype.recordBatchDecision = function(
     this: PermissionManager,
     sessionId: string,
@@ -174,6 +192,11 @@ export function installPermissionManagerExtensions(
       this.recordUserDecision(sessionId, request, permissionAction, scope);
     }
     permissionQueues.delete(sessionId);
+    const timer = batchTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      batchTimers.delete(sessionId);
+    }
     this.emit('batch_decision:recorded', {
       sessionId,
       batchId: batch.batchId,
@@ -181,6 +204,56 @@ export function installPermissionManagerExtensions(
       scope,
       count: batch.requests.length,
     });
+  };
+
+  PermissionManagerCtor.prototype.recordBatchDecisionForPending = function(
+    this: PermissionManager,
+    action: 'allow_all' | 'deny_all',
+    scope: 'once' | 'session' | 'always',
+  ): number {
+    let count = 0;
+    for (const [sessionId, queue] of permissionQueues.entries()) {
+      if (queue.length === 0) {
+        continue;
+      }
+      const batch: BatchPermissionRequest = {
+        batchId: `pending-${sessionId}`,
+        requests: [...queue],
+        timestamp: Date.now(),
+      };
+      this.recordBatchDecision(sessionId, batch, action, scope);
+      count += batch.requests.length;
+    }
+    return count;
+  };
+
+  PermissionManagerCtor.prototype.recordDecisionByRequestId = function(
+    this: PermissionManager,
+    requestId: string,
+    action: 'allow' | 'deny',
+    scope: 'once' | 'session' | 'always',
+  ): boolean {
+    for (const [sessionId, queue] of permissionQueues.entries()) {
+      const index = queue.findIndex((request) => request.id === requestId);
+      if (index === -1) {
+        continue;
+      }
+      const [request] = queue.splice(index, 1);
+      if (!request) {
+        return false;
+      }
+      this.recordUserDecision(sessionId, request, action, scope);
+      if (queue.length === 0) {
+        permissionQueues.delete(sessionId);
+        const timer = batchTimers.get(sessionId);
+        if (timer) {
+          clearTimeout(timer);
+          batchTimers.delete(sessionId);
+        }
+      }
+      return true;
+    }
+    return false;
   };
 
   PermissionManagerCtor.prototype.recordDecisionForLearning = function(

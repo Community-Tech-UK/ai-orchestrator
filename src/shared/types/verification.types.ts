@@ -4,6 +4,9 @@
  */
 
 import type { DebateSessionRound } from './debate.types';
+import type {
+  VerificationVerdictReadyPayload as ContractVerificationVerdictReadyPayload,
+} from '@contracts/schemas/verification';
 
 export const DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS = 2;
 
@@ -243,12 +246,7 @@ export interface VerdictDerivationDiagnostic {
   note?: string;
 }
 
-export interface VerificationVerdictReadyPayload {
-  resultId: string;
-  instanceId: string;
-  verdict: VerificationVerdict;
-  diagnostic?: VerdictDerivationDiagnostic;
-}
+export type VerificationVerdictReadyPayload = ContractVerificationVerdictReadyPayload;
 
 /**
  * @deprecated Use DebateSessionRound from debate.types.ts instead

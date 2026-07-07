@@ -1,6 +1,7 @@
 import { ContextCompactor } from '../context/context-compactor';
 import { getCompactionCoordinator, type CompactionResult } from '../context/compaction-coordinator';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getHookManager } from '../hooks/hook-manager';
 import { getLogger } from '../logging/logger';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { getRLMDatabase } from '../persistence/rlm-database';
@@ -301,6 +302,20 @@ export function setupCompactionCoordinator(
         };
         instanceManager.emitOutputMessage(instanceId, boundaryMessage);
       }
+
+      void getHookManager().triggerLifecycleHooks('PostCompact', {
+        instanceId,
+        sessionId: instance?.sessionId,
+        workingDirectory: instance?.workingDirectory,
+        compactionMethod: result.method,
+        compactionSuccess: true,
+        previousContextUsage: result.previousUsage?.percentage,
+      }).catch((error: unknown) => {
+        logger.warn('PostCompact hook dispatch failed', {
+          instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }
 
     windowManager.sendToRenderer('instance:compact-status', {

@@ -5,6 +5,11 @@ import {
   BrowserEvaluateResultSchema,
   BrowserSelectOptionSchema,
 } from './browser-interaction.schemas';
+import {
+  BrowserControlVerifyExpectationSchema,
+  elementUidSchema,
+  requireSelectorOrUid,
+} from './browser-control-action.schemas';
 
 const idSchema = z.string().min(1).max(200);
 const urlSchema = z.string().min(1).max(2000);
@@ -27,6 +32,7 @@ export const BrowserActionClassSchema = z.enum([
   'file-download',
   'submit',
   'destructive',
+  'payment',
   'unknown',
 ]);
 export type BrowserActionClass = z.infer<typeof BrowserActionClassSchema>;
@@ -173,6 +179,7 @@ export type BrowserElementContext = z.infer<typeof BrowserElementContextSchema>;
 export const BrowserGrantProposalSchema = z
   .object({
     mode: BrowserGrantModeSchema,
+    nodeId: idSchema.optional(),
     allowedOrigins: z.array(BrowserAllowedOriginSchema).min(1),
     allowedActionClasses: z.array(BrowserActionClassSchema).min(1),
     allowExternalNavigation: z.boolean(),
@@ -188,6 +195,7 @@ export const BrowserPermissionGrantSchema = z
     mode: BrowserGrantModeSchema,
     instanceId: idSchema,
     provider: BrowserProviderSchema,
+    nodeId: idSchema.optional(),
     profileId: idSchema.optional(),
     targetId: idSchema.optional(),
     allowedOrigins: z.array(BrowserAllowedOriginSchema).min(1),
@@ -443,13 +451,6 @@ export const BrowserQueryElementsRequestSchema = BrowserTargetRequestSchema.exte
 }).strict();
 export type BrowserQueryElementsRequest = z.infer<typeof BrowserQueryElementsRequestSchema>;
 
-// A CDP-resolved element handle. The value is the stringified backendDOMNodeId
-// returned by browser.accessibility_snapshot. Unlike a CSS selector it pierces
-// open AND closed shadow roots (and iframes) because it is resolved through the
-// DevTools protocol rather than document.querySelector, so it is the robust way
-// to act on elements inside web components that attach a closed shadow root.
-const elementUidSchema = z.string().min(1).max(64);
-
 export const BrowserAccessibilitySnapshotRequestSchema = BrowserTargetRequestSchema.extend({
   // When true (default) only semantically interesting nodes are returned, like
   // the DevTools accessibility tree. Set false for the full tree.
@@ -476,26 +477,11 @@ export type BrowserSelectOption = z.infer<typeof BrowserSelectOptionSchema>;
 
 export type BrowserElementCandidate = z.infer<typeof BrowserElementCandidateSchema>;
 
-// An action must identify its target by a CSS selector, a uid handle, or both.
-// uid (from browser.accessibility_snapshot) is required to reach elements inside
-// closed shadow roots, where a selector cannot resolve.
-function requireSelectorOrUid(
-  value: { selector?: string; uid?: string },
-  ctx: z.RefinementCtx,
-): void {
-  if (!value.selector && !value.uid) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['selector'],
-      message: 'Browser action requires a selector or a uid.',
-    });
-  }
-}
-
 export const BrowserClickRequestSchema = BrowserTargetRequestSchema.extend({
   selector: z.string().min(1).max(2000).optional(),
   uid: elementUidSchema.optional(),
   actionHint: z.string().min(1).max(500).optional(),
+  verify: BrowserControlVerifyExpectationSchema.optional(),
   requestId: idSchema.optional(),
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserClickRequest = z.infer<typeof BrowserClickRequestSchema>;
@@ -505,6 +491,7 @@ export const BrowserTypeRequestSchema = BrowserTargetRequestSchema.extend({
   uid: elementUidSchema.optional(),
   value: z.string().max(20_000),
   actionHint: z.string().min(1).max(500).optional(),
+  verify: BrowserControlVerifyExpectationSchema.optional(),
   requestId: idSchema.optional(),
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserTypeRequest = z.infer<typeof BrowserTypeRequestSchema>;
@@ -515,6 +502,7 @@ export const BrowserFillFormFieldSchema = z
     uid: elementUidSchema.optional(),
     value: z.string().max(20_000),
     actionHint: z.string().min(1).max(500).optional(),
+    verify: BrowserControlVerifyExpectationSchema.optional(),
   })
   .strict()
   .superRefine(requireSelectorOrUid);
@@ -531,9 +519,12 @@ export const BrowserSelectRequestSchema = BrowserTargetRequestSchema.extend({
   uid: elementUidSchema.optional(),
   value: z.string().min(1).max(2000),
   actionHint: z.string().min(1).max(500).optional(),
+  verify: BrowserControlVerifyExpectationSchema.optional(),
   requestId: idSchema.optional(),
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserSelectRequest = z.infer<typeof BrowserSelectRequestSchema>;
+
+export { BrowserFillPlanStepSchema, BrowserExecuteFillPlanRequestSchema, BrowserFillCredentialRequestSchema, BrowserCreateAgentCredentialRequestSchema, type BrowserFillPlanStep, type BrowserExecuteFillPlanRequest, type BrowserFillCredentialRequest, type BrowserCreateAgentCredentialRequest } from './browser-form-fill.schemas';
 
 export const BrowserUploadFileRequestSchema = BrowserTargetRequestSchema.extend({
   selector: z.string().min(1).max(2000),
@@ -647,6 +638,7 @@ export type BrowserCreateGrantRequest = z.infer<
 export const BrowserListGrantsRequestSchema = z
   .object({
     instanceId: idSchema.optional(),
+    nodeId: idSchema.optional(),
     profileId: idSchema.optional(),
     includeExpired: z.boolean().optional(),
     limit: z.number().int().min(1).max(100).optional(),

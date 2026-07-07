@@ -11,37 +11,31 @@ import type {
   BrowserProfileMode,
   BrowserTarget,
 } from '@contracts/types/browser';
-import {
-  BrowserProcessLauncher,
-} from './browser-process-launcher';
+import { BrowserProcessLauncher } from './browser-process-launcher';
 import { RoutingBrowserLauncher } from './routing-browser-launcher';
 import {
   normalizeAxTreeNodes,
   normalizeElementCandidates,
 } from './puppeteer-browser-normalizers';
-import {
-  BrowserTargetRegistry,
-  getBrowserTargetRegistry,
-} from './browser-target-registry';
+import { BrowserTargetRegistry, getBrowserTargetRegistry } from './browser-target-registry';
 import {
   redactBrowserText,
   redactBrowserUrl,
   redactElementContext,
   redactHeaders,
 } from './browser-redaction';
-import {
-  waitForCdpDownload,
-  type BrowserCdpSession,
-} from './browser-download-watcher';
+import { waitForCdpDownload, type BrowserCdpSession } from './browser-download-watcher';
 import {
   evaluatePageBridge,
   isPageBridgeSnapshot,
 } from './browser-page-bridge';
-import {
-  BrowserAntiThrottle,
-  type AntiThrottlePage,
-} from './browser-anti-throttle';
+import { applyBrowserSelect } from './browser-select-driver';
+import { applyBrowserTypedValue } from './browser-type-driver';
+import { readControlState, applySetChecked } from './browser-control-driver';
+import type { FillControlReadback } from './browser-fill-plan-executor';
+import { BrowserAntiThrottle, type AntiThrottlePage } from './browser-anti-throttle';
 import { BrowserWedgeRecovery } from './browser-wedge-recovery';
+import { uploadFileAndVerify } from './browser-file-upload-driver';
 
 export interface BrowserSnapshot {
   title: string;
@@ -439,14 +433,7 @@ export class PuppeteerBrowserDriver {
     value: string,
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
-    try {
-      await page.type(selector, value);
-    } catch {
-      await evaluatePageBridge(page, {
-        action: 'type',
-        args: [selector, value],
-      });
-    }
+    await applyBrowserTypedValue(page, selector, value);
     await this.refreshPageTarget(profileId, targetId, page);
   }
 
@@ -457,14 +444,7 @@ export class PuppeteerBrowserDriver {
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
     for (const field of fields) {
-      try {
-        await page.type(field.selector, field.value);
-      } catch {
-        await evaluatePageBridge(page, {
-          action: 'type',
-          args: [field.selector, field.value],
-        });
-      }
+      await applyBrowserTypedValue(page, field.selector, field.value);
     }
     await this.refreshPageTarget(profileId, targetId, page);
   }
@@ -476,14 +456,28 @@ export class PuppeteerBrowserDriver {
     value: string,
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
-    try {
-      await page.select(selector, value);
-    } catch {
-      await evaluatePageBridge(page, {
-        action: 'select',
-        args: [selector, value],
-      });
-    }
+    await applyBrowserSelect(page, selector, value);
+    await this.refreshPageTarget(profileId, targetId, page);
+  }
+
+  /** Read a control's current state for read-back verification. */
+  async readControl(
+    profileId: string,
+    targetId: string,
+    selector: string,
+  ): Promise<FillControlReadback> {
+    return readControlState(this.getPage(profileId, targetId), selector);
+  }
+
+  /** Set a checkbox/radio/switch to the desired state, verifying it took. */
+  async setChecked(
+    profileId: string,
+    targetId: string,
+    selector: string,
+    checked: boolean,
+  ): Promise<void> {
+    const page = this.getPage(profileId, targetId);
+    await applySetChecked(page, selector, checked);
     await this.refreshPageTarget(profileId, targetId, page);
   }
 
@@ -494,11 +488,7 @@ export class PuppeteerBrowserDriver {
     filePath: string,
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
-    const handle = await page.$(selector);
-    if (!handle) {
-      throw new Error(`Browser upload target ${selector} not found`);
-    }
-    await handle.uploadFile(filePath);
+    await uploadFileAndVerify(page, selector, filePath);
     await this.refreshPageTarget(profileId, targetId, page);
   }
 
@@ -692,8 +682,4 @@ export function getPuppeteerBrowserDriver(): PuppeteerBrowserDriver {
     });
   }
   return puppeteerBrowserDriver;
-}
-
-export function _resetPuppeteerBrowserDriverForTesting(): void {
-  puppeteerBrowserDriver = null;
 }

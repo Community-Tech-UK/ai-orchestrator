@@ -18,7 +18,7 @@ import { ContextWarningComponent } from './context-warning.component';
 import { InstanceStore, type InstanceProvider, type OutputMessage } from '../../core/state/instance.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { SettingsStore } from '../../core/state/settings.store';
-import { ElectronIpcService, RecentDirectoriesIpcService } from '../../core/services/ipc';
+import { IpcFacadeService, RecentDirectoriesIpcService } from '../../core/services/ipc';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { DraftService } from '../../core/services/draft.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
@@ -129,7 +129,7 @@ export class InstanceDetailComponent {
   private store = inject(InstanceStore);
   private historyStore = inject(HistoryStore);
   private settingsStore = inject(SettingsStore);
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private recentDirsService = inject(RecentDirectoriesIpcService);
   private draftService = inject(DraftService);
   private newSessionDraft = inject(NewSessionDraftService);

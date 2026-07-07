@@ -37,6 +37,26 @@ export const SecuritySetPermissionPresetPayloadSchema = z.object({
   preset: z.enum(['allow', 'ask', 'deny']),
 });
 
+export const PermissionRecordBatchDecisionPayloadSchema = z.object({
+  action: z.enum(['allow_all', 'deny_all']),
+  scope: z.enum(['once', 'session', 'always']),
+});
+
+export const PermissionRecordDecisionPayloadSchema = z.object({
+  requestId: z.string().min(1).max(200),
+  action: z.enum(['allow', 'deny']),
+  scope: z.enum(['once', 'session', 'always']),
+});
+
+export const PermissionPatternPayloadSchema = z.object({
+  patternId: z.string().min(1).max(200),
+});
+
+export const PermissionGetAuditLogPayloadSchema = z.object({
+  instanceId: z.string().min(1).max(200).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+});
+
 export const BashValidatePayloadSchema = z.object({
   command: z.string().min(1).max(100_000),
 });

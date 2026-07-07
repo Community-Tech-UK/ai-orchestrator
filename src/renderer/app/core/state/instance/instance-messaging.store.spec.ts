@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ElectronIpcService } from '../../services/ipc';
+import { IpcFacadeService } from '../../services/ipc';
 import { InstanceListStore } from './instance-list.store';
 import { InstanceMessagingStore } from './instance-messaging.store';
 import { InstanceStateService } from './instance-state.service';
@@ -69,7 +69,7 @@ describe('InstanceMessagingStore', () => {
       providers: [
         InstanceMessagingStore,
         InstanceStateService,
-        { provide: ElectronIpcService, useValue: ipcMock },
+        { provide: IpcFacadeService, useValue: ipcMock },
         { provide: InstanceListStore, useValue: listStoreMock },
       ],
     });

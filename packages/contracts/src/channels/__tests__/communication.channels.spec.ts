@@ -35,5 +35,6 @@ describe('COMMUNICATION_CHANNELS', () => {
   it('has remote filesystem channels', () => {
     expect(COMMUNICATION_CHANNELS.REMOTE_FS_READ_DIR).toBe('remote-fs:read-dir');
     expect(COMMUNICATION_CHANNELS.REMOTE_FS_UNWATCH).toBe('remote-fs:unwatch');
+    expect(COMMUNICATION_CHANNELS.REMOTE_FS_EVENT).toBe('remote-fs:event');
   });
 });

@@ -6,6 +6,7 @@ import type { WorkerNodeConnectionServer } from './worker-node-connection';
 import type { WorkerNodeRegistry } from './worker-node-registry';
 import type { RpcRequest, RpcNotification } from './worker-node-rpc';
 import type { WorkerNodeCapabilities } from '../../shared/types/worker-node.types';
+import type { FsEventNotification } from '../../shared/types/remote-fs.types';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import {
   getRemoteBrowserExtensionBridge,
@@ -172,6 +173,12 @@ export class RpcEventRouter {
         case NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RESULT:
           this.handleBrowserExtCommandResult(nodeId, request);
           break;
+        case NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RECEIVED:
+          this.handleBrowserExtCommandReceived(nodeId, request);
+          break;
+        case NODE_TO_COORDINATOR.BROWSER_EXT_DISCONNECTED:
+          this.handleBrowserExtDisconnected(nodeId, request);
+          break;
         default:
           logger.warn('Unknown RPC method received', { nodeId, method: request.method });
           this.connection.sendResponse(
@@ -260,6 +267,10 @@ export class RpcEventRouter {
       }
       case NODE_TO_COORDINATOR.TERMINAL_EXIT: {
         this.handleTerminalExitNotification(nodeId, notification);
+        break;
+      }
+      case NODE_TO_COORDINATOR.FS_EVENT: {
+        this.handleFsEventNotification(nodeId, notification);
         break;
       }
       case NODE_TO_COORDINATOR.BROWSER_CDP_MESSAGE: {
@@ -436,6 +447,26 @@ export class RpcEventRouter {
     this.registry.emit('remote:terminal-exit', { nodeId, sessionId, exitCode, signal });
   }
 
+  private handleFsEventNotification(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('File-system event from unknown node', { nodeId });
+      return;
+    }
+
+    try {
+      const params = validateRpcParams(
+        RPC_PARAM_SCHEMAS[NODE_TO_COORDINATOR.FS_EVENT],
+        notification.params
+      ) as FsEventNotification;
+      this.registry.emit('remote:fs-event', { nodeId, ...params });
+    } catch (error) {
+      logger.warn('Malformed fs.event notification', {
+        nodeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private handleBrowserCdpMessageNotification(nodeId: string, notification: RpcNotification): void {
     if (!this.registry.getNode(nodeId)) {
       logger.warn('Browser CDP message from unknown node', { nodeId });
@@ -544,6 +575,22 @@ export class RpcEventRouter {
 
   private handleBrowserExtCommandResult(nodeId: string, request: RpcRequest): void {
     const result = this.getBrowserExtensionBridge().commandResult(
+      nodeId,
+      request.params as never,
+    );
+    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+  }
+
+  private handleBrowserExtCommandReceived(nodeId: string, request: RpcRequest): void {
+    const result = this.getBrowserExtensionBridge().commandReceived(
+      nodeId,
+      request.params as never,
+    );
+    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+  }
+
+  private handleBrowserExtDisconnected(nodeId: string, request: RpcRequest): void {
+    const result = this.getBrowserExtensionBridge().extensionDisconnected(
       nodeId,
       request.params as never,
     );

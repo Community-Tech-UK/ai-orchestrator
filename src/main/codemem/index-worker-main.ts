@@ -20,8 +20,10 @@ import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
 import { pruneCodememWorkspaces } from './codemem-pruner';
 import { CodeIndexManager } from './code-index-manager';
+import { PeriodicScan } from './periodic-scan';
 import { searchHydratedChunks } from './workspace-chunk-search';
 import { workspaceHashForPath } from './symbol-id';
+import type { WorkspaceHash } from './types';
 import type {
   CodeIndexStatusSnapshot,
   IndexWorkerInboundMsg,
@@ -117,10 +119,19 @@ try {
   console.warn('Codemem pruning skipped', error instanceof Error ? error.message : String(error));
 }
 const indexManager = new CodeIndexManager({ store });
+const periodicScan = new PeriodicScan({ store, mgr: indexManager });
+const configuredPeriodicScanIntervalMs = Number(
+  process.env['AIO_CODEMEM_PERIODIC_SCAN_INTERVAL_MS'] ?? 15 * 60 * 1000,
+);
+const PERIODIC_SCAN_INTERVAL_MS = Number.isFinite(configuredPeriodicScanIntervalMs)
+  ? configuredPeriodicScanIntervalMs
+  : 0;
 
 // Track which workspaces we've started watchers for.
 const watchedWorkspaces = new Set<string>();
 const watchedWorkspacePaths = new Map<string, string>();
+let periodicScanTimer: ReturnType<typeof setInterval> | null = null;
+let periodicScanRunning = false;
 
 indexManager.on('code-index:changed', (event: { workspaceHash: string; paths: string[] }) => {
   const workspacePath = watchedWorkspacePaths.get(event.workspaceHash);
@@ -225,6 +236,7 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
         watchedWorkspacePaths.delete(workspaceHash);
         // CodeIndexManager stop is workspace-global — only stop when all are removed.
         if (watchedWorkspaces.size === 0) {
+          stopPeriodicDriftScan();
           await indexManager.stop().catch(() => undefined);
         }
       }
@@ -248,6 +260,7 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
 
     case 'shutdown': {
       shuttingDown = true;
+      stopPeriodicDriftScan();
       await indexManager.stop().catch(() => undefined);
       db.close();
       respond(msg.id);
@@ -306,8 +319,46 @@ async function startWatcherIfNeeded(normalizedPath: string, workspaceHash: strin
   if (!watchedWorkspaces.has(workspaceHash)) {
     await indexManager.start(normalizedPath, workspaceHash);
     watchedWorkspaces.add(workspaceHash);
+    startPeriodicDriftScan();
   }
   watchedWorkspacePaths.set(workspaceHash, normalizedPath);
+}
+
+function startPeriodicDriftScan(): void {
+  if (periodicScanTimer || PERIODIC_SCAN_INTERVAL_MS <= 0) {
+    return;
+  }
+  periodicScanTimer = setInterval(() => {
+    void runPeriodicDriftScan();
+  }, PERIODIC_SCAN_INTERVAL_MS);
+  periodicScanTimer.unref?.();
+}
+
+function stopPeriodicDriftScan(): void {
+  if (!periodicScanTimer) {
+    return;
+  }
+  clearInterval(periodicScanTimer);
+  periodicScanTimer = null;
+}
+
+async function runPeriodicDriftScan(): Promise<void> {
+  if (periodicScanRunning || shuttingDown) {
+    return;
+  }
+  periodicScanRunning = true;
+  try {
+    for (const workspaceHash of [...watchedWorkspaces]) {
+      if (shuttingDown) {
+        return;
+      }
+      await periodicScan.runOnce(workspaceHash as WorkspaceHash);
+    }
+  } catch (error) {
+    console.warn('Codemem periodic drift scan failed', error instanceof Error ? error.message : String(error));
+  } finally {
+    periodicScanRunning = false;
+  }
 }
 
 function degradedWarmWorkspaceResult(normalizedPath: string): WarmWorkspaceResult {

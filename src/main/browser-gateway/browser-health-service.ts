@@ -18,8 +18,16 @@ import {
   BROWSER_EXTENSION_CONTACT_FRESH_MS,
   describeBrowserExtensionContact,
   getBrowserExtensionContactState,
+  type BrowserExtensionContactGapStats,
   type BrowserExtensionContactStateReader,
+  type BrowserExtensionDisconnectRecord,
 } from './browser-extension-contact-state';
+import {
+  browserExtensionQueueKeyForNode,
+  getBrowserExtensionCommandStore,
+  type BrowserExtensionCommandStore,
+  type BrowserExtensionQueueSnapshot,
+} from './browser-extension-command-store';
 
 export type BrowserGatewayHealthStatus = 'ready' | 'partial' | 'missing';
 
@@ -82,6 +90,14 @@ export interface BrowserGatewayHealthReport {
       running: boolean;
       silent: boolean;
       lastContactAt?: number;
+      /** Milliseconds since the extension last contacted the coordinator. */
+      contactAgeMs?: number;
+      /** Command channel load: queued (undelivered), in-flight, waiting pollers. */
+      queue: Omit<BrowserExtensionQueueSnapshot, 'queueKey'>;
+      /** Outage telemetry — gaps >30s since the node registered. */
+      contactGaps: BrowserExtensionContactGapStats;
+      /** Most recent channel-close reported by the node's native host. */
+      lastDisconnect?: BrowserExtensionDisconnectRecord;
       registration?: 'ok' | 'repaired' | 'contested' | 'error';
       lastRegistrationCheckAt?: number;
     }>;
@@ -97,6 +113,7 @@ export interface BrowserHealthServiceOptions {
   rawAutomationHealthService?: Pick<BrowserAutomationHealthService, 'diagnose'>;
   workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   extensionContactState?: BrowserExtensionContactStateReader;
+  extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'describeQueue'>;
   mcpBridgeAvailable?: () => boolean;
   chromeRuntimeDetector?: () => Promise<BrowserChromeRuntimeHealth>;
   now?: () => number;
@@ -165,6 +182,7 @@ export class BrowserHealthService {
   private readonly rawAutomationHealthService: Pick<BrowserAutomationHealthService, 'diagnose'>;
   private readonly workerNodeRegistry: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   private readonly extensionContactState: BrowserExtensionContactStateReader;
+  private readonly extensionCommandStore: Pick<BrowserExtensionCommandStore, 'describeQueue'>;
   private readonly mcpBridgeAvailable: () => boolean;
   private readonly chromeRuntimeDetector: () => Promise<BrowserChromeRuntimeHealth>;
   private readonly now: () => number;
@@ -175,6 +193,7 @@ export class BrowserHealthService {
       options.rawAutomationHealthService ?? getBrowserAutomationHealthService();
     this.workerNodeRegistry = options.workerNodeRegistry ?? getWorkerNodeRegistry();
     this.extensionContactState = options.extensionContactState ?? getBrowserExtensionContactState();
+    this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.mcpBridgeAvailable =
       options.mcpBridgeAvailable ?? (() => defaultMcpBridgeAvailableProvider());
     this.chromeRuntimeDetector = options.chromeRuntimeDetector ?? detectChromeRuntime;
@@ -219,6 +238,18 @@ export class BrowserHealthService {
     if (errors > 0) {
       warnings.push(
         `${errors} Browser Gateway ${errors === 1 ? 'profile is' : 'profiles are'} in an error state.`,
+      );
+    }
+    for (const node of remoteExtensions.nodes) {
+      if (!node.silent) {
+        continue;
+      }
+      const ageSeconds = node.contactAgeMs !== undefined
+        ? `${Math.round(node.contactAgeMs / 1000)}s ago`
+        : 'never';
+      warnings.push(
+        `Browser extension on ${node.nodeName} is not polling (last contact: ${ageSeconds}); `
+        + 'commands to that node cannot be delivered until it reconnects.',
       );
     }
 
@@ -299,6 +330,11 @@ export class BrowserHealthService {
           BROWSER_EXTENSION_CONTACT_FRESH_MS,
         );
         const silent = enabled && running ? contact.silent : false;
+        const lastDisconnect = this.extensionContactState.getLastDisconnect?.(node.id);
+        const { queueKey, ...queue } = this.extensionCommandStore.describeQueue(
+          browserExtensionQueueKeyForNode(node.id),
+        );
+        void queueKey;
         return {
           nodeId: node.id,
           nodeName: node.name,
@@ -306,6 +342,12 @@ export class BrowserHealthService {
           running,
           silent,
           lastContactAt,
+          ...(lastContactAt !== undefined
+            ? { contactAgeMs: Math.max(0, this.now() - lastContactAt) }
+            : {}),
+          queue,
+          contactGaps: this.extensionContactState.getContactGapStats(node.id),
+          ...(lastDisconnect ? { lastDisconnect } : {}),
           registration: relay?.registration,
           lastRegistrationCheckAt: relay?.lastRegistrationCheckAt,
         };

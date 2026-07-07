@@ -18,11 +18,11 @@ import type { PickerProvider } from './compact-model-picker.types';
 import type {
   UnifiedReasoningOption,
   UnifiedSelection,
-} from './unified-model-menu.component';
+} from './model-selection.types';
 import {
   PROVIDER_MENU_COLORS,
   PROVIDER_MENU_LABELS,
-} from './provider-menu.component';
+} from './provider-menu.constants';
 
 type ActiveModelTab = 'favorites' | PickerProvider;
 type ProviderLabelMap = Partial<Record<PickerProvider, string>>;

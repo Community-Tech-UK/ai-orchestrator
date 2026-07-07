@@ -2,25 +2,6 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('chat feature templates', () => {
-  it('renders create-chat controls while hiding the chat history section', () => {
-    const template = readFileSync(
-      'src/renderer/app/features/chats/chat-sidebar.component.html',
-      'utf-8',
-    );
-    const source = readFileSync(
-      'src/renderer/app/features/chats/chat-sidebar.component.ts',
-      'utf-8',
-    );
-
-    expect(template).toContain('New chat');
-    expect(template).not.toContain('chat-group-label');
-    expect(template).not.toContain('chat-list');
-    expect(template).not.toContain('chatStore.chats()');
-    expect(template).not.toContain('archiveChat($event, chat.id)');
-    expect(source).toContain("this.historyStore.clearSelection()");
-    expect(source).toContain("this.instanceStore.setSelectedInstance(null)");
-  });
-
   it('gates the composer behind migrated-chat bootstrap fields', () => {
     const template = readFileSync(
       'src/renderer/app/features/chats/chat-detail.component.html',

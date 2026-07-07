@@ -6,7 +6,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { ElectronIpcService } from '../../services/ipc';
+import { IpcFacadeService } from '../../services/ipc';
 import { ProviderStateService, type ProviderType } from '../../services/provider-state.service';
 import { InstanceStateService } from './instance-state.service';
 import type {
@@ -45,7 +45,7 @@ function supportsResumeRestart(provider: Instance['provider']): boolean {
 @Injectable({ providedIn: 'root' })
 export class InstanceListStore {
   private stateService = inject(InstanceStateService);
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private providerState = inject(ProviderStateService);
 
   /**

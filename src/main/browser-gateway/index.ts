@@ -5,11 +5,28 @@ import {
   type BrowserGatewayServiceOptions,
 } from './browser-gateway-service';
 import {
-  getBrowserGatewayRpcSocketPath,
   initializeBrowserGatewayRpcServer,
 } from './browser-gateway-rpc-server';
 import { prepareBrowserExtensionNativeHostRuntime } from './browser-extension-native-runtime';
 import { setBrowserGatewayMcpBridgeAvailabilityProvider } from './browser-health-service';
+import * as fs from 'node:fs';
+import { CredentialVault } from './browser-credential-vault';
+import { createBwRunner } from './browser-bw-runner';
+import { SqliteVaultOriginBindingStore } from './browser-unattended-sqlite-stores';
+import {
+  getBrowserCampaignService,
+  getBrowserCredentialAuthorizationService,
+} from './browser-unattended-services';
+import {
+  initializeBrowserCampaignRuntime,
+  stopBrowserCampaignRuntime,
+} from './browser-campaign-runtime';
+import { getBrowserGrantStore } from './browser-grant-store';
+import { registerCleanup } from '../util/cleanup-registry';
+import { BrowserEmailCodeReader } from './browser-email-code-reader';
+import { ImapMcpMailboxReader, type ImapMcpServerCommand } from './browser-imap-mailbox-reader';
+import { MCP_CONFIG_PATH } from '../instance/lifecycle/spawn-config-builder';
+import { getBrowserCredentialSession } from './browser-credential-session';
 import { deriveManagedDebugPort } from './chrome-devtools-attach';
 import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -44,6 +61,10 @@ export * from './browser-redaction';
 export * from './browser-safe-dto';
 export * from './browser-target-registry';
 export * from './browser-types';
+export * from './browser-campaign-runtime';
+export * from './browser-imap-mailbox-reader';
+export * from './browser-session-relogin';
+export * from './browser-unattended-services';
 export * from './browser-upload-policy';
 export * from './puppeteer-browser-driver';
 
@@ -51,11 +72,89 @@ export interface BrowserGatewayRuntimeOptions extends BrowserGatewayRpcServerOpt
   autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
 }
 
+/**
+ * Construct the credential vault + authorization services backed by SQLite +
+ * Bitwarden. Best-effort: if the RLM database is not ready this returns empty
+ * options and browser.fill_credential simply reports itself unavailable rather
+ * than crashing gateway startup. Secrets never touch these objects — the vault
+ * resolves them from Bitwarden in-process at fill time using the in-memory
+ * BW_SESSION (unset until James unlocks).
+ */
+function buildCredentialServices(): Pick<
+  BrowserGatewayServiceOptions,
+  'credentialVault' | 'credentialAuthorizations' | 'emailCodeReader'
+> {
+  try {
+    const credentialVault = new CredentialVault({
+      runner: createBwRunner(),
+      bindings: new SqliteVaultOriginBindingStore(),
+      getSession: () => getBrowserCredentialSession().getToken(),
+    });
+    // Shared singleton: the same instance the renderer IPC dialogs write to,
+    // so a newly approved authorization is immediately honoured at fill time.
+    const credentialAuthorizations = getBrowserCredentialAuthorizationService();
+    return { credentialVault, credentialAuthorizations, ...buildEmailCodeReader() };
+  } catch (error) {
+    logger.warn('Credential vault services unavailable; browser.fill_credential disabled', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
+/**
+ * Build the agent-mailbox one-time-code reader over the imap MCP server from
+ * config/mcp-servers.json. Best-effort: when the server is not configured,
+ * email_code fills simply report themselves unavailable. The IMAP credentials
+ * live entirely inside the imap server's own config — never here.
+ */
+function buildEmailCodeReader(): Pick<BrowserGatewayServiceOptions, 'emailCodeReader'> {
+  try {
+    const raw = JSON.parse(fs.readFileSync(MCP_CONFIG_PATH, 'utf-8')) as {
+      mcpServers?: Record<string, { command?: string; args?: string[] }>;
+    };
+    const imap = raw.mcpServers?.['imap'];
+    if (!imap?.command) {
+      logger.info('No imap MCP server configured; email_code fills unavailable');
+      return {};
+    }
+    const server: ImapMcpServerCommand = { command: imap.command, args: imap.args ?? [] };
+    // The agent shared mailbox. The imap server's own default is its FIRST
+    // configured account, which is not necessarily this one — be explicit.
+    const account =
+      process.env['AIO_BROWSER_EMAIL_ACCOUNT']?.trim() || 'james@communitytech.co.uk';
+    const emailCodeReader = new BrowserEmailCodeReader({
+      reader: new ImapMcpMailboxReader({ server, account }),
+    });
+    return { emailCodeReader };
+  } catch (error) {
+    logger.warn('Failed to configure email-code reader; email_code fills unavailable', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
 export async function initializeBrowserGatewayRuntime(
   options: BrowserGatewayRuntimeOptions = {},
 ): Promise<void> {
+  const credentials = buildCredentialServices();
+  // Campaign runtime: budget enforcement for mutations under campaign leases,
+  // the ~60min lease renewer, and lease revocation on any campaign stop.
+  try {
+    initializeBrowserCampaignRuntime({
+      campaigns: getBrowserCampaignService(),
+      grantStore: getBrowserGrantStore(),
+    });
+    registerCleanup(() => stopBrowserCampaignRuntime());
+  } catch (error) {
+    logger.warn('Browser campaign runtime unavailable (campaign leases disabled)', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   const service = initializeBrowserGatewayService({
     autoApproveRequests: options.autoApproveRequests,
+    ...credentials,
     // Pin the managed profile's CDP port to the derived value when it is the
     // designated chrome-devtools attach profile, so the agent's spawn-time
     // `--browserUrl` matches the live port. Otherwise use a random free port.
@@ -103,8 +202,4 @@ export async function initializeBrowserGatewayRuntime(
       });
     }
   }
-}
-
-export function isBrowserGatewayMcpBridgeAvailable(): boolean {
-  return Boolean(getBrowserGatewayRpcSocketPath());
 }

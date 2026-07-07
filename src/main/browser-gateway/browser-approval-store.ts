@@ -194,7 +194,3 @@ export function getBrowserApprovalStore(): BrowserApprovalStore {
   }
   return browserApprovalStore;
 }
-
-export function _resetBrowserApprovalStoreForTesting(): void {
-  browserApprovalStore = null;
-}

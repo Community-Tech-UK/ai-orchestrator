@@ -20,6 +20,7 @@ interface BrowserExtensionBackgroundHarness {
     target?: { tabId?: number };
   }) => Promise<void>;
   reportTabInventory: () => Promise<void>;
+  selfHealIfWedged: () => Promise<void>;
   sendMessage: (message: unknown) => Promise<unknown>;
   tabDebuggerChains: Map<number, Promise<void>>;
   chrome: BrowserExtensionChromeHarness;
@@ -36,6 +37,7 @@ interface BrowserExtensionChromeHarness {
   runtime: {
     connectNative: ReturnType<typeof vi.fn>;
     getManifest: ReturnType<typeof vi.fn>;
+    reload: ReturnType<typeof vi.fn>;
     lastError?: { message: string };
   };
   action: {
@@ -91,6 +93,9 @@ describe('browser extension assets', () => {
     expect(background).toContain("type: 'poll_command'");
     expect(background).toContain("type: 'command_result'");
     expect(background).toContain('executeBrowserCommand');
+    expect(background).toContain("case 'read_control'");
+    expect(background).toContain('fileCount: files.length');
+    expect(background).toContain("'DOM.setFileInputFiles'");
     expect(background).toContain('findActiveWebTabForSharing');
     expect(background).toContain('lastFocusedWindow: true');
     expect(background).toContain('chrome.tabs.query({})');
@@ -163,6 +168,7 @@ describe('browser extension assets', () => {
     // Missing selectors surface as command failures (#10) rather than silent success.
     expect(background).toContain('No element matches selector:');
     expect(background).toContain('__found');
+    expect(background).toContain("if (action === 'read_control')");
   });
 
   it('supports custom (non-native) select dropdowns', () => {
@@ -457,7 +463,7 @@ describe('browser extension assets', () => {
       timeoutMs: 10000,
     });
     expect(harness.ports.has(RELAY_HOST_NAME)).toBe(false);
-    expect(harness.timers.setTimeout.mock.calls.every(([, delayMs]) => delayMs === 15000)).toBe(true);
+    expect(harness.timers.setTimeout.mock.calls.every(([, delayMs]) => delayMs === 30000)).toBe(true);
 
     harness.failConnectHosts.clear();
     emitAlarm(harness, 'browser-gateway-inventory');
@@ -474,12 +480,12 @@ describe('browser extension assets', () => {
     await flushPromises();
     const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
     const watchdogCall = harness.timers.setTimeout.mock.calls
-      .filter(([, delayMs]) => delayMs === 15000)[1];
+      .filter(([, delayMs]) => delayMs === 30000)[1];
 
     expect(watchdogCall).toBeDefined();
     harness.timers.setTimeout.mockClear();
     relayPort.disconnect.mockClear();
-    harness.advanceTimeBy(15001);
+    harness.advanceTimeBy(30001);
     watchdogCall[0]();
 
     expect(relayPort.disconnect).toHaveBeenCalledTimes(1);
@@ -505,7 +511,7 @@ describe('browser extension assets', () => {
     harness.timers.setTimeout.mockClear();
     relayPort.disconnect.mockClear();
 
-    harness.advanceTimeBy(15001);
+    harness.advanceTimeBy(30001);
     emitAlarm(harness, 'browser-gateway-inventory');
     await flushPromises();
 
@@ -524,6 +530,67 @@ describe('browser extension assets', () => {
     }));
   });
 
+  it('self-heals a wedged service worker: hard recycle first, then a rate-limited runtime reload', async () => {
+    // The wedge class this covers: an MV3 worker kept alive forever by its
+    // open native port, with in-memory state stuck so no polls ever go out.
+    // Targeted watchdogs cannot fix variables they do not know about — only
+    // a full worker reload can, and this ladder is the only path to one.
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const reload = harness.chrome.runtime.reload;
+
+    // First strike past the reload threshold: recycle only (a reload without
+    // first trying the cheap fix would throw away diagnosable state).
+    harness.advanceTimeBy(11 * 60_000);
+    emitAlarm(harness, 'browser-gateway-inventory');
+    await flushPromises();
+    expect(reload).not.toHaveBeenCalled();
+
+    // Recycle didn't bring acks back → the worker reloads itself.
+    harness.advanceTimeBy(3 * 60_000);
+    emitAlarm(harness, 'browser-gateway-inventory');
+    await flushPromises();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(harness.chrome.storage.local.set).toHaveBeenCalledWith(
+      expect.objectContaining({ browserGatewayLastSelfReloadAt: expect.any(Number) }),
+    );
+
+    // Still dead soon after: rate limit holds — no reload storm on a machine
+    // whose gateway is legitimately down.
+    harness.advanceTimeBy(3 * 60_000);
+    emitAlarm(harness, 'browser-gateway-inventory');
+    await flushPromises();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not self-heal while the worker is young or while polls are acking', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    const legacyPort = harness.ports.get(LEGACY_HOST_NAME)!;
+    relayPort.disconnect.mockClear();
+    legacyPort.disconnect.mockClear();
+
+    // Young worker: normal reconnect machinery owns the first minutes.
+    harness.advanceTimeBy(2 * 60_000);
+    await harness.selfHealIfWedged();
+    expect(relayPort.disconnect).not.toHaveBeenCalled();
+
+    // Old worker with a FRESH ack: channel is healthy, hands off.
+    harness.advanceTimeBy(4 * 60_000);
+    relayPort.emitMessage({ type: 'browser_command', command: null });
+    await flushPromises();
+    await harness.selfHealIfWedged();
+    expect(relayPort.disconnect).not.toHaveBeenCalled();
+    expect(legacyPort.disconnect).not.toHaveBeenCalled();
+
+    // The ack goes stale → rung 1 recycles every bridge.
+    harness.advanceTimeBy(6 * 60_000);
+    await harness.selfHealIfWedged();
+    expect(relayPort.disconnect).toHaveBeenCalledTimes(1);
+    expect(legacyPort.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores late disconnect events from a recycled stale-poll port after reconnect', async () => {
     const harness = loadBackgroundHarnessForTest();
     await flushPromises();
@@ -531,13 +598,13 @@ describe('browser extension assets', () => {
     const oldRelayPort = harness.ports.get(RELAY_HOST_NAME)!;
     oldRelayPort.disconnect.mockImplementation(() => undefined);
     const watchdogCall = harness.timers.setTimeout.mock.calls
-      .filter(([, delayMs]) => delayMs === 15000)[1];
+      .filter(([, delayMs]) => delayMs === 30000)[1];
 
     harness.timers.setTimeout.mockClear();
-    harness.advanceTimeBy(15001);
+    harness.advanceTimeBy(30001);
     watchdogCall[0]();
     const reconnectCall = harness.timers.setTimeout.mock.calls
-      .find(([, delayMs]) => typeof delayMs === 'number' && delayMs !== 15000);
+      .find(([, delayMs]) => typeof delayMs === 'number' && delayMs !== 30000);
     expect(reconnectCall).toBeDefined();
     reconnectCall![0]();
     await flushPromises();
@@ -839,6 +906,7 @@ function loadBackgroundHarnessForTest(options: {
   const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
   const failConnectHosts = options.failConnectHosts ?? new Set<string>();
   const ports = new Map<string, NativePortHarness>();
+  const localStore: Record<string, unknown> = {};
   const alarmEvent = createChromeEvent<[unknown]>();
   const messageEvent = createChromeEvent<[unknown, unknown, (response: unknown) => void]>();
   let nowMs = 1_000_000;
@@ -890,6 +958,7 @@ function loadBackgroundHarnessForTest(options: {
         onInstalled: createChromeEvent(),
         onMessage: messageEvent,
         onStartup: createChromeEvent(),
+        reload: vi.fn(),
         sendNativeMessage: vi.fn(),
       },
       scripting: {
@@ -912,12 +981,16 @@ function loadBackgroundHarnessForTest(options: {
                 ? {}
                 : { browserGatewayEnabled };
             }
+            if (typeof keys === 'string' && keys in localStore) {
+              return { [keys]: localStore[keys] };
+            }
             return {};
           }),
-          set: vi.fn(async (values: { browserGatewayEnabled?: boolean }) => {
-            if (typeof values.browserGatewayEnabled === 'boolean') {
-              browserGatewayEnabled = values.browserGatewayEnabled;
+          set: vi.fn(async (values: Record<string, unknown>) => {
+            if (typeof values['browserGatewayEnabled'] === 'boolean') {
+              browserGatewayEnabled = values['browserGatewayEnabled'];
             }
+            Object.assign(localStore, values);
           }),
         },
         session: {
@@ -941,7 +1014,7 @@ function loadBackgroundHarnessForTest(options: {
     __backgroundHarness: undefined as BrowserExtensionBackgroundHarness | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { bridges, deriveToolbarBadgeState, forceReleaseCommandResources, reportTabInventory, tabDebuggerChains };`,
+    `${background}\n;globalThis.__backgroundHarness = { bridges, deriveToolbarBadgeState, forceReleaseCommandResources, reportTabInventory, selfHealIfWedged, tabDebuggerChains };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

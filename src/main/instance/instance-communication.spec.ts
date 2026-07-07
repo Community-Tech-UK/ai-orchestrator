@@ -23,6 +23,7 @@ vi.mock('../memory', () => ({
 vi.mock('../hooks/hook-manager', () => ({
   getHookManager: () => ({
     triggerHooks: vi.fn().mockResolvedValue(undefined),
+    triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
   }),
 }));
 

@@ -137,8 +137,8 @@ export class InstanceOutputStore implements ImageAttachmentSink {
         // hardcoded 1000, trimming more aggressively than the main process
         // (which retains LIMITS.OUTPUT_BUFFER_MAX_SIZE) — so freshly streamed
         // history vanished from the UI before it left the main buffer. The
-        // transcript is windowed (TranscriptScrollStrategy renders only the
-        // visible range), so a larger cap costs memory only, never DOM nodes;
+        // transcript rendering derives a bounded display list from this
+        // buffer, so a larger cap costs memory only, never unbounded DOM nodes;
         // older messages beyond the cap reload from disk on scroll-up.
         const max = LIMITS.OUTPUT_BUFFER_MAX_SIZE;
         const trimmed =

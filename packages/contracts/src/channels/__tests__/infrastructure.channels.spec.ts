@@ -21,6 +21,7 @@ describe('INFRASTRUCTURE_CHANNELS', () => {
   it('has security channels', () => {
     expect(INFRASTRUCTURE_CHANNELS.SECURITY_DETECT_SECRETS).toBe('security:detect-secrets');
     expect(INFRASTRUCTURE_CHANNELS.SECURITY_GET_PERMISSION_CONFIG).toBe('security:get-permission-config');
+    expect(INFRASTRUCTURE_CHANNELS.PERMISSION_GET_AUDIT_LOG).toBe('permission:get-audit-log');
   });
 
   it('has cost tracking channels', () => {

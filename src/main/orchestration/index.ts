@@ -41,24 +41,6 @@ export type {
   CoordinatorConfig,
 } from './parallel-worktree-coordinator';
 
-export { SynthesisAgent, getSynthesisAgent } from './synthesis-agent';
-export type {
-  AgentResponse,
-  SynthesisResult,
-  AgreementPoint,
-  DisagreementPoint,
-  SynthesisStrategy,
-  SynthesisConfig,
-} from './synthesis-agent';
-
-export { RestartPolicy, getRestartPolicy } from './restart-policy';
-export type {
-  RestartDecision,
-  FailureRecord,
-  WorkerState,
-  RestartPolicyConfig,
-} from './restart-policy';
-
 // Multi-verification
 export { MultiVerifyCoordinator, getMultiVerifyCoordinator } from './multi-verify-coordinator';
 
@@ -72,21 +54,6 @@ export {
 
 // Debate coordination
 export { DebateCoordinator, getDebateCoordinator } from './debate-coordinator';
-
-// Voting system
-export { VotingSystem, getVotingSystem } from './voting';
-export type {
-  VotingStrategy,
-  VotingSystemConfig,
-  Ballot,
-  BallotOption,
-  Vote,
-  VoteTally,
-  VotingResult,
-  VotingHistory,
-  CreateBallotOptions,
-  VotingStats,
-} from './voting';
 
 // Consensus mechanisms
 export { ConsensusManager, getConsensusManager } from './consensus';

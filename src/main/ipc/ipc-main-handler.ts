@@ -48,6 +48,7 @@ import {
   registerSnapshotHandlers,
   registerMcpHandlers,
   registerBrowserGatewayHandlers,
+  registerBrowserUnattendedHandlers,
   registerTodoHandlers,
   registerSecurityHandlers,
   registerDebugHandlers,
@@ -300,6 +301,11 @@ export class IpcMainHandler {
     registerBrowserGatewayHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
       instanceManager: this.instanceManager,
+    });
+    // Unattended-layer trigger surfaces (vault unlock, credential
+    // authorizations, campaigns, escalation triage) — renderer-only.
+    registerBrowserUnattendedHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
     });
 
     // LSP handlers

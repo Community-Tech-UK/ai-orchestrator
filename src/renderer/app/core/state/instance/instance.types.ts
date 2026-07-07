@@ -11,6 +11,7 @@ import type {
   FailedImageRef,
   FileAttachment,
   InstanceLaunchMode as SharedInstanceLaunchMode,
+  InstanceStatus as SharedInstanceStatus,
   InstanceRecoveryMethod,
   InstanceWaitReason,
   ThinkingContent,
@@ -21,28 +22,7 @@ import type { ExecutionLocation } from '../../../../../shared/types/worker-node.
 // Core Types
 // ============================================
 
-export type InstanceStatus =
-  | 'initializing'
-  | 'ready'         // Instance is fully started and available for input (alias for idle)
-  | 'idle'
-  | 'busy'
-  | 'processing'      // CLI process alive, no output for several seconds (remote heartbeat)
-  | 'thinking_deeply' // CLI process alive, no stdout for 90s+ (extended thinking)
-  | 'waiting_for_input'
-  | 'waiting_for_permission' // CLI paused on deferred tool use, awaiting user approval
-  | 'interrupting'    // Interrupt requested, waiting for provider/process acknowledgement
-  | 'cancelling'      // Turn cancellation is being finalized without process respawn
-  | 'interrupt-escalating' // Second interrupt escalated to process termination
-  | 'cancelled'       // Turn/session was cancelled and can be restarted or superseded
-  | 'superseded'      // Instance was replaced by an edit/fork retry
-  | 'respawning'    // Instance is recovering from interrupt, cannot be interrupted again
-  | 'hibernating'   // Instance is in the process of hibernating (transitional)
-  | 'hibernated'    // Instance is hibernated (resting, clickable to wake)
-  | 'waking'        // Instance is waking from hibernation (transitional, like initializing)
-  | 'degraded'      // Remote worker node disconnected; awaiting reconnection or failover
-  | 'error'
-  | 'failed'        // Instance failed to start or encountered a fatal error (alias for error)
-  | 'terminated';
+export type InstanceStatus = SharedInstanceStatus;
 
 export interface ContextUsage {
   /** Current context-window occupancy (tokens used in the latest API call). */

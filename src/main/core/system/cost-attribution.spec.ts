@@ -6,7 +6,6 @@ import {
   recordCostAttribution,
   recordInstanceTurnAttribution,
   getCostAttributionFilePath,
-  isCostAttributionEnabled,
   _resetCostAttributionForTesting,
 } from './cost-attribution';
 
@@ -33,7 +32,6 @@ describe('cost-attribution', () => {
 
   it('is a no-op when the flag is unset', () => {
     delete process.env['AIO_COST_ATTRIBUTION'];
-    expect(isCostAttributionEnabled()).toBe(false);
     expect(getCostAttributionFilePath()).toBeNull();
     recordCostAttribution({ source: 'one-shot', taskType: 'verify-orchestration' });
     // Nothing written anywhere in the temp dir.

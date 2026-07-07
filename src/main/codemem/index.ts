@@ -269,15 +269,6 @@ export function getCodemem(): CodememService {
   return codememService;
 }
 
-export async function shutdownCodemem(): Promise<void> {
-  if (!codememService) {
-    return;
-  }
-
-  await codememService.shutdown();
-  codememService = null;
-}
-
 export function resetCodememForTesting(): void {
   if (!codememService) {
     return;

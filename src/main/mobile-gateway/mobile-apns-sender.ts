@@ -36,7 +36,20 @@ export interface ApnsTransport {
     jwt: string;
     topic: string;
     payload: string;
+    /** APNs push type header; defaults to 'alert'. */
+    pushType?: string;
   }): Promise<{ status: number; reason?: string }>;
+}
+
+/** A Live Activity content refresh (apns-push-type: liveactivity). */
+export interface LiveActivityUpdate {
+  event: 'update' | 'end';
+  /** Must match the widget's ActivityAttributes.ContentState shape. */
+  contentState: Record<string, unknown>;
+  /** Unix seconds after which iOS shows the activity as stale. */
+  staleDate?: number;
+  /** For event 'end': unix seconds when the activity should dismiss. */
+  dismissalDate?: number;
 }
 
 export interface MobileApnsSenderOptions {
@@ -79,6 +92,19 @@ export function buildApnsJwt(config: MobileApnsConfig, iatSeconds: number): stri
   return `${signingInput}.${base64url(signature)}`;
 }
 
+/** Build the APNs JSON body for a Live Activity update. */
+export function buildLiveActivityPayload(update: LiveActivityUpdate, nowSeconds: number): string {
+  return JSON.stringify({
+    aps: {
+      timestamp: nowSeconds,
+      event: update.event,
+      'content-state': update.contentState,
+      ...(update.staleDate ? { 'stale-date': update.staleDate } : {}),
+      ...(update.dismissalDate ? { 'dismissal-date': update.dismissalDate } : {}),
+    },
+  });
+}
+
 /** Build the APNs JSON body for an alert. */
 export function buildApnsPayload(alert: ApnsAlert): string {
   const body: Record<string, unknown> = {
@@ -100,6 +126,7 @@ class Http2ApnsTransport implements ApnsTransport {
     jwt: string;
     topic: string;
     payload: string;
+    pushType?: string;
   }): Promise<{ status: number; reason?: string }> {
     return new Promise((resolve, reject) => {
       const client = http2.connect(`https://${args.host}`);
@@ -121,7 +148,7 @@ class Http2ApnsTransport implements ApnsTransport {
         ':path': `/3/device/${args.deviceToken}`,
         authorization: `bearer ${args.jwt}`,
         'apns-topic': args.topic,
-        'apns-push-type': 'alert',
+        'apns-push-type': args.pushType ?? 'alert',
         'apns-priority': '10',
         'content-type': 'application/json',
       });
@@ -253,6 +280,70 @@ export class MobileApnsSender {
     const failures = results.filter((r) => !r.ok);
     if (failures.length > 0) {
       logger.warn('APNs delivery had failures', {
+        sent: results.length,
+        failed: failures.length,
+        reasons: [...new Set(failures.map((f) => f.reason).filter(Boolean))],
+      });
+    }
+    return results;
+  }
+
+  /**
+   * Push a Live Activity content refresh to per-activity tokens. Uses the
+   * `liveactivity` push type and the `<bundleId>.push-type.liveactivity`
+   * topic Apple requires; otherwise shares the JWT/host machinery with
+   * ordinary alerts.
+   */
+  async sendLiveActivity(
+    activityTokens: string[],
+    update: LiveActivityUpdate,
+  ): Promise<ApnsSendResult[]> {
+    if (activityTokens.length === 0) {
+      return [];
+    }
+    const config = this.configProvider();
+    if (!this.isConfigured()) {
+      return [];
+    }
+
+    let jwt: string;
+    try {
+      jwt = this.getJwt(config);
+    } catch (err) {
+      logger.warn('Failed to build APNs JWT (bad .p8 key?)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+
+    const host = apnsHost(config.production);
+    const payload = buildLiveActivityPayload(update, Math.floor(this.now() / 1000));
+
+    const results = await Promise.all(
+      activityTokens.map(async (deviceToken): Promise<ApnsSendResult> => {
+        try {
+          const { status, reason } = await this.transport.post({
+            host,
+            deviceToken,
+            jwt,
+            topic: `${config.bundleId}.push-type.liveactivity`,
+            payload,
+            pushType: 'liveactivity',
+          });
+          return { deviceToken, ok: status === 200, status, reason };
+        } catch (err) {
+          return {
+            deviceToken,
+            ok: false,
+            reason: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }),
+    );
+
+    const failures = results.filter((r) => !r.ok);
+    if (failures.length > 0) {
+      logger.debug('Live Activity delivery had failures', {
         sent: results.length,
         failed: failures.length,
         reasons: [...new Set(failures.map((f) => f.reason).filter(Boolean))],

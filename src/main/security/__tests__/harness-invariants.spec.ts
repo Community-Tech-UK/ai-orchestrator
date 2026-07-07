@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ToolPermissionChecker } from '../tool-permission-checker';
-import { BashValidator } from '../bash-validator';
+import { BashValidationPipeline as BashValidator } from '../bash-validation';
 import { PermissionManager } from '../permission-manager';
 import { getDisallowedTools } from '../../../shared/utils/permission-mapper';
 import type { AgentToolPermissions } from '../../../shared/types/agent.types';

@@ -1,10 +1,11 @@
 /**
  * Provider-bound UTF-16 cleanup.
  *
- * This intentionally only strips invalid lone surrogate code units. It does
- * not normalize text or remove invisible characters; prompt-injection Unicode
- * defense lives in unicode-sanitizer.ts and has different semantics.
+ * Strips invalid lone surrogate code units, then removes dangerous invisible
+ * Unicode controls before text enters provider request payloads.
  */
+
+import { sanitizeUnicode } from './unicode-sanitizer';
 
 function isHighSurrogate(code: number): boolean {
   return code >= 0xD800 && code <= 0xDBFF;
@@ -54,7 +55,7 @@ export function sanitizeProviderText<T>(value: T): T {
  */
 function sanitizeValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
   if (typeof value === 'string') {
-    return stripLoneSurrogates(value);
+    return sanitizeUnicode(stripLoneSurrogates(value));
   }
 
   if (Array.isArray(value)) {

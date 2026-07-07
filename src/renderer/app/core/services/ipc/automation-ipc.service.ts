@@ -9,6 +9,13 @@ import type {
   AutomationPreflightRequest,
   AutomationTemplate,
 } from '../../../../../shared/types/task-preflight.types';
+import type {
+  WebhookCreateRouteInput,
+  WebhookAutomationSuggestion,
+  WebhookDeliveryRecord,
+  WebhookRouteConfig,
+  WebhookServerStatus,
+} from '../../../../../shared/types/webhook.types';
 
 @Injectable({ providedIn: 'root' })
 export class AutomationIpcService {
@@ -75,6 +82,31 @@ export class AutomationIpcService {
   async listTemplates(): Promise<IpcResponse<AutomationTemplate[]>> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.automationTemplatesList() as Promise<IpcResponse<AutomationTemplate[]>>;
+  }
+
+  async webhookStatus(): Promise<IpcResponse<WebhookServerStatus>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.webhookStatus() as Promise<IpcResponse<WebhookServerStatus>>;
+  }
+
+  async webhookListRoutes(): Promise<IpcResponse<WebhookRouteConfig[]>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.webhookListRoutes() as Promise<IpcResponse<WebhookRouteConfig[]>>;
+  }
+
+  async webhookCreateRoute(payload: WebhookCreateRouteInput): Promise<IpcResponse<WebhookRouteConfig>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.webhookCreateRoute(payload) as Promise<IpcResponse<WebhookRouteConfig>>;
+  }
+
+  async webhookListDeliveries(payload: { limit?: number } = {}): Promise<IpcResponse<WebhookDeliveryRecord[]>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.webhookListDeliveries(payload) as Promise<IpcResponse<WebhookDeliveryRecord[]>>;
+  }
+
+  async webhookListSuggestions(payload: { limit?: number } = {}): Promise<IpcResponse<WebhookAutomationSuggestion[]>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.webhookListSuggestions(payload) as Promise<IpcResponse<WebhookAutomationSuggestion[]>>;
   }
 
   /**

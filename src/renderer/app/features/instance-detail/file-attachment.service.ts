@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { ElectronIpcService, FileIpcService } from '../../core/services/ipc';
+import { IpcFacadeService, FileIpcService } from '../../core/services/ipc';
 
 const MIME_BY_EXT: Record<string, string> = {
   txt: 'text/plain',
@@ -44,7 +44,7 @@ function guessMimeType(fileName: string): string {
 
 @Injectable({ providedIn: 'root' })
 export class FileAttachmentService {
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private fileIpc = inject(FileIpcService);
 
   /**

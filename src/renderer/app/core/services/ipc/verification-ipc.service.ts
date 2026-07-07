@@ -18,19 +18,6 @@ export class VerificationIpcService {
   // ============================================
 
   /**
-   * Verify with multiple models (API-based)
-   */
-  async verificationVerifyMulti(payload: {
-    query: string;
-    context?: string;
-    models?: string[];
-    consensusThreshold?: number;
-  }): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.verificationVerifyMulti(payload);
-  }
-
-  /**
    * Start CLI-based verification
    */
   async verificationStartCli(payload: {
@@ -61,19 +48,4 @@ export class VerificationIpcService {
     return this.api.verificationCancel({ id: verificationId });
   }
 
-  /**
-   * Get active verifications
-   */
-  async verificationGetActive(): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.verificationGetActive();
-  }
-
-  /**
-   * Get verification result
-   */
-  async verificationGetResult(verificationId: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.verificationGetResult(verificationId);
-  }
 }

@@ -1,4 +1,11 @@
 import type { AcpMcpServerConfig } from '../../shared/types/cli.types';
+import {
+  tomlArray,
+  tomlBareKey,
+  tomlString,
+  tomlTableKey,
+  toWindowsSafeBridge,
+} from './mcp-config-toml-helpers';
 
 export interface MobileMcpConfigOptions {
   serial: string;
@@ -69,7 +76,7 @@ export function buildMobileMcpCodexConfigToml(options: MobileMcpConfigOptions): 
   }
   const name = serverNameOf(options);
   const blocks = [
-    `[mcp_servers.${tomlKey(name)}]`,
+    `[mcp_servers.${tomlTableKey(name)}]`,
     `command = ${tomlString(bridge.command)}`,
     `args = ${tomlArray(bridge.args)}`,
     'enabled = true',
@@ -77,7 +84,7 @@ export function buildMobileMcpCodexConfigToml(options: MobileMcpConfigOptions): 
     'startup_timeout_sec = 20',
     `tool_timeout_sec = ${TOOL_TIMEOUT_SEC}`,
     '',
-    `[mcp_servers.${tomlKey(name)}.env]`,
+    `[mcp_servers.${tomlTableKey(name)}.env]`,
     ...Object.entries(bridge.env).map(([key, value]) =>
       `${tomlBareKey(key)} = ${tomlString(value)}`
     ),
@@ -162,13 +169,6 @@ function serverNameOf(options: MobileMcpConfigOptions): string {
     : requested;
 }
 
-function toWindowsSafeBridge(command: string, args: string[]): { command: string; args: string[] } {
-  if (process.platform === 'win32' && needsCmdWrapper(command)) {
-    return { command: 'cmd', args: ['/c', command, ...args] };
-  }
-  return { command, args };
-}
-
 function resolveMaestroMcpBridgeSpec(options: MobileMcpConfigOptions): MobileMcpBridgeSpec | null {
   if (options.maestro !== true || !options.serial) {
     return null;
@@ -184,25 +184,4 @@ function resolveMaestroMcpBridgeSpec(options: MobileMcpConfigOptions): MobileMcp
       ANDROID_SERIAL: options.serial,
     },
   };
-}
-
-function needsCmdWrapper(command: string): boolean {
-  const lower = command.toLowerCase();
-  return lower !== 'cmd' && lower !== 'cmd.exe' && !lower.endsWith('.exe');
-}
-
-function tomlString(value: string): string {
-  return JSON.stringify(value);
-}
-
-function tomlArray(values: string[]): string {
-  return `[${values.map((value) => tomlString(value)).join(', ')}]`;
-}
-
-function tomlKey(value: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(value) ? `"${value}"` : tomlString(value);
-}
-
-function tomlBareKey(value: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(value) ? value : tomlString(value);
 }

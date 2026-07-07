@@ -234,17 +234,6 @@ function extractMentionedClasses(output: string): string[] {
 }
 
 /**
- * Get a human-readable summary of the score
- */
-export function formatScore(score: KnownAnswerScore): string {
-  return [
-    `Correctness: ${score.correctness}%`,
-    `False negatives: ${score.falseNegatives}`,
-    `False positives: ${score.falsePositives}`,
-  ].join('\n');
-}
-
-/**
  * Check if ground truth exists
  */
 export function hasGroundTruth(): boolean {
@@ -343,25 +332,4 @@ export function niahScoreToCorrectness(score: NiahScore): number {
     base = Math.max(0, base - 10);
   }
   return Math.round(base * 10) / 10;
-}
-
-/**
- * Format a NIAH score for display
- */
-export function formatNiahScore(score: NiahScore): string {
-  const lines = [
-    `Retrieval Accuracy: ${score.retrievalAccuracy}%`,
-    `Needles Found: ${score.needleResults.filter(r => r.found).length}/${score.needleResults.length}`,
-  ];
-
-  for (const result of score.needleResults) {
-    const status = result.found ? (result.exactMatch ? 'EXACT' : 'FOUND') : 'MISSED';
-    lines.push(`  ${result.needleId}: ${status}`);
-  }
-
-  if (score.reasoningCorrect !== undefined) {
-    lines.push(`Reasoning: ${score.reasoningCorrect ? 'CORRECT' : 'INCORRECT'}`);
-  }
-
-  return lines.join('\n');
 }

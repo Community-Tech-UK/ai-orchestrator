@@ -38,15 +38,6 @@ export function getHistoryTimeWindowCutoff(
   return now - HISTORY_TIME_WINDOW_DAYS[window] * DAY_MS;
 }
 
-export function isWithinHistoryTimeWindow(
-  timestamp: number,
-  window: HistoryTimeWindow,
-  now = Date.now()
-): boolean {
-  const cutoff = getHistoryTimeWindowCutoff(window, now);
-  return cutoff === null || timestamp >= cutoff;
-}
-
 export function shouldShowHistoryOnlyProject(
   input: HistoryOnlyProjectVisibilityInput
 ): boolean {

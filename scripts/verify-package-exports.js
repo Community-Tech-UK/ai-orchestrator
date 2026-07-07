@@ -3,8 +3,9 @@
  * verify-package-exports.js
  *
  * Fails CI if any source file imports `@contracts`, `@contracts/schemas`,
- * or `@contracts/types` as a blanket barrel. Consumers must use a
- * specific subpath (e.g. `@contracts/schemas/session`).
+ * `@contracts/types`, or the internal `@sdk` public barrel as a blanket
+ * barrel. Consumers must use a specific subpath (e.g.
+ * `@contracts/schemas/session`, `@sdk/provider-adapter`).
  *
  * Usage:
  *   node scripts/verify-package-exports.js
@@ -21,15 +22,18 @@ const EXTENSIONS = new Set(['.ts', '.tsx']);
 
 const SKIP_SUFFIXES = [
   'packages/contracts/src/index.ts',
+  'packages/sdk/src/__tests__/sdk-exports.spec.ts',
 ];
 
 const BANNED_PATTERNS = [
   /from\s+['"]@contracts['"]/g,
   /from\s+['"]@contracts\/schemas['"]/g,
   /from\s+['"]@contracts\/types['"]/g,
+  /from\s+['"]@sdk['"]/g,
   /require\(\s*['"]@contracts['"]\s*\)/g,
   /require\(\s*['"]@contracts\/schemas['"]\s*\)/g,
   /require\(\s*['"]@contracts\/types['"]\s*\)/g,
+  /require\(\s*['"]@sdk['"]\s*\)/g,
 ];
 
 function walk(dir, out = []) {
@@ -90,6 +94,7 @@ function main() {
   }
   console.error('\nFix: replace the barrel import with an explicit subpath, e.g.');
   console.error(`  import { X } from '@contracts/schemas/session';`);
+  console.error(`  import type { ProviderAdapter } from '@sdk/provider-adapter';`);
   console.error(`See docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md Item 10.`);
   process.exit(1);
 }

@@ -8,7 +8,9 @@ import {
   BrowserGatewayResultSchema,
   BrowserPermissionGrantSchema,
   BrowserClickRequestSchema,
+  BrowserFillFormRequestSchema,
   BrowserManualStepRequestSchema,
+  BrowserSelectRequestSchema,
   BrowserTypeRequestSchema,
   BrowserUploadFileRequestSchema,
   BrowserListAuditLogRequestSchema,
@@ -143,6 +145,33 @@ describe('browser.schemas', () => {
         executionNodeId: null,
       }).success,
     ).toBe(true);
+  });
+
+  it('accepts node-scoped browser grants for reattached existing tabs', () => {
+    const parsed = BrowserPermissionGrantSchema.safeParse({
+      id: 'grant-1',
+      mode: 'session',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      nodeId: 'node-1',
+      allowedOrigins: [
+        {
+          scheme: 'https',
+          hostPattern: 'play.google.com',
+          includeSubdomains: true,
+        },
+      ],
+      allowedActionClasses: ['input'],
+      allowExternalNavigation: false,
+      autonomous: false,
+      requestedBy: 'user',
+      decidedBy: 'user',
+      decision: 'allow',
+      expiresAt: 10_000,
+      createdAt: 1_000,
+    });
+
+    expect(parsed.success).toBe(true);
   });
 
   it('accepts live-refresh requests when listing browser targets', () => {
@@ -356,6 +385,34 @@ describe('browser.schemas', () => {
         targetId: 'target-1',
         selector: 'input[name="title"]',
         value: 'Release notes',
+        verify: { value: 'Release notes' },
+      }).success,
+    ).toBe(true);
+    expect(
+      BrowserSelectRequestSchema.safeParse({
+        profileId: 'profile-1',
+        targetId: 'target-1',
+        selector: 'select.track',
+        value: 'production',
+        verify: { selectedLabel: 'Production' },
+      }).success,
+    ).toBe(true);
+    expect(
+      BrowserClickRequestSchema.safeParse({
+        profileId: 'profile-1',
+        targetId: 'target-1',
+        selector: 'input[type="checkbox"]',
+        verify: { checked: true },
+      }).success,
+    ).toBe(true);
+    expect(
+      BrowserFillFormRequestSchema.safeParse({
+        profileId: 'profile-1',
+        targetId: 'target-1',
+        fields: [
+          { selector: '#one', value: 'One', verify: { value: 'One' } },
+          { selector: '#terms', value: 'on', verify: { checked: true } },
+        ],
       }).success,
     ).toBe(true);
     expect(

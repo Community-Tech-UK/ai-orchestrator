@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLIPBOARD_SERVICE } from '../../src/renderer/app/core/services/clipboard.service';
-import { ElectronIpcService } from '../../src/renderer/app/core/services/ipc';
+import { IpcFacadeService } from '../../src/renderer/app/core/services/ipc';
 import { HistoryStore } from '../../src/renderer/app/core/state/history.store';
 import { InstanceStore } from '../../src/renderer/app/core/state/instance.store';
 import type { OutputMessage } from '../../src/renderer/app/core/state/instance/instance.types';
@@ -226,7 +226,7 @@ describe('Wave 7 cross-wave smoke', () => {
       providers: [
         QuickActionDispatcherService,
         { provide: InstanceStore, useValue: { setSelectedInstance: vi.fn() } },
-        { provide: ElectronIpcService, useValue: { invoke: vi.fn() } },
+        { provide: IpcFacadeService, useValue: { invoke: vi.fn() } },
         { provide: ChildDiagnosticBundleModalService, useValue: { open: vi.fn() } },
         { provide: CLIPBOARD_SERVICE, useValue: fakeClipboard },
       ],

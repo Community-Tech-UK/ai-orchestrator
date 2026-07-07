@@ -89,40 +89,4 @@ export class CommandIpcService {
     return this.api.deleteCommand(commandId);
   }
 
-  // ============================================
-  // Bash Validation
-  // ============================================
-
-  /**
-   * Validate a bash command for safety
-   * Returns risk level and any warnings/blocks
-   */
-  async bashValidate(command: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.bashValidate(command);
-  }
-
-  /**
-   * Get bash validator configuration
-   */
-  async bashGetConfig(): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.bashGetConfig();
-  }
-
-  /**
-   * Add a command to the allowed list
-   */
-  async bashAddAllowed(command: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.bashAddAllowed(command);
-  }
-
-  /**
-   * Add a command to the blocked list
-   */
-  async bashAddBlocked(command: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.bashAddBlocked(command);
-  }
 }

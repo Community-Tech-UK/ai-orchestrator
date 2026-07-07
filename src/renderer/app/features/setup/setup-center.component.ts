@@ -16,7 +16,7 @@ import {
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { FirstRunService } from '../../core/services/first-run.service';
 import type {
   StartupCapabilityCategory,
@@ -56,7 +56,7 @@ const CATEGORY_ORDER: StartupCapabilityCategory[] = ['provider', 'native', 'subs
   styleUrl: './setup-center.component.scss',
 })
 export class SetupCenterComponent implements OnInit {
-  private readonly ipc = inject(ElectronIpcService);
+  private readonly ipc = inject(IpcFacadeService);
   private readonly router = inject(Router);
   private readonly firstRunService = inject(FirstRunService);
 

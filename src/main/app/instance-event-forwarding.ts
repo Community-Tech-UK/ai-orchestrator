@@ -15,12 +15,8 @@ import {
 } from '../session/session-continuity';
 import {
   getAppStore,
-  addInstance,
-  removeInstance,
   setGlobalState,
-  updateInstance,
 } from '../state';
-import type { InstanceSlice } from '../state';
 import { getLoadBalancer } from '../process/load-balancer';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
@@ -43,25 +39,6 @@ export interface InstanceEventForwardingOptions {
   windowManager: WindowManager;
   isStatelessExecProvider: (provider: string | undefined) => boolean;
   getNodeLatencyForInstance: (instanceId: string) => number | undefined;
-}
-
-function toSlice(instance: Instance): InstanceSlice {
-  return {
-    id: instance.id,
-    displayName: instance.displayName,
-    status: instance.status,
-    contextUsage: instance.contextUsage,
-    lastActivity: instance.lastActivity,
-    provider: instance.provider,
-    currentModel: instance.currentModel,
-    parentId: instance.parentId,
-    childrenIds: instance.childrenIds,
-    agentId: instance.agentId,
-    workingDirectory: instance.workingDirectory,
-    processId: instance.processId,
-    errorCount: instance.errorCount,
-    totalTokensUsed: instance.totalTokensUsed,
-  };
 }
 
 function isProviderThreadCompactionMessage(message: OutputMessage): boolean {
@@ -464,20 +441,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   );
 
   instanceManager.on('instance:created', (instance: Instance) => {
-    try { addInstance(toSlice(instance)); } catch { /* store failure must not block main flow */ }
     if (instance.status) previousStatus.set(instance.id, instance.status);
-  });
-
-  instanceManager.on('instance:removed', (instanceId: string) => {
-    try { removeInstance(instanceId); } catch { /* non-critical */ }
-  });
-
-  instanceManager.on('instance:state-update', (update: Record<string, unknown>) => {
-    const id = update['instanceId'] as string | undefined;
-    if (!id) return;
-    const instance = instanceManager.getInstance(id);
-    if (!instance) return;
-    try { updateInstance(id, toSlice(instance)); } catch { /* non-critical */ }
   });
 
   instanceManager.on('instance:batch-update', (payload: {
@@ -485,11 +449,6 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   }) => {
     if (!payload.updates) return;
     for (const update of payload.updates) {
-      const partial: Partial<InstanceSlice> = {};
-      if (update.status) partial.status = update.status as InstanceSlice['status'];
-      if (update.contextUsage) partial.contextUsage = update.contextUsage;
-      try { updateInstance(update.instanceId, partial); } catch { /* non-critical */ }
-
       // Fire a desktop notification when an instance transitions from an active
       // state to idle/completed. Skip if we haven't seen a previous status yet
       // (startup) to avoid spurious notifications.

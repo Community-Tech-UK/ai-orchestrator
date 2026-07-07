@@ -181,12 +181,6 @@ export interface MigrationRow {
   checksum: string;
 }
 
-export interface Migration {
-  name: string;
-  up: string;
-  down?: string;
-}
-
 // Knowledge Graph rows
 export interface KGEntityRow {
   id: string;

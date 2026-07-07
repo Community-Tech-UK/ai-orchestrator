@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getWorkerNodeConnectionServer } from './worker-node-connection';
@@ -90,6 +91,19 @@ export class FileTransferService {
       data,
       mkdirp: true
     });
+    const readback = await server.sendRpc<FsReadFileResult>(
+      nodeId,
+      COORDINATOR_TO_NODE.FS_READ_FILE,
+      { path: remotePath }
+    );
+    const remoteBuffer = Buffer.from(readback.data, 'base64');
+    if (
+      readback.size !== buffer.length ||
+      remoteBuffer.length !== buffer.length ||
+      sha256(remoteBuffer) !== sha256(buffer)
+    ) {
+      throw new Error('copy_to_remote_integrity_mismatch');
+    }
 
     logger.info('copyToRemote: complete', {
       localPath: resolvedLocal,
@@ -158,4 +172,8 @@ export class FileTransferService {
 
 export function getFileTransferService(): FileTransferService {
   return FileTransferService.getInstance();
+}
+
+function sha256(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
 }

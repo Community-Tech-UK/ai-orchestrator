@@ -13,7 +13,6 @@
  */
 
 import { EventEmitter } from 'events';
-import type { AgentResponse } from './synthesis-agent';
 
 export type ConsensusAlgorithm =
   | 'majority'

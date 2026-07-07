@@ -62,7 +62,7 @@ vi.mock('../remote/observer-server', () => ({ getRemoteObserverServer: vi.fn(() 
 vi.mock('../repo-jobs', () => ({ getRepoJobService: vi.fn(() => ({ on: vi.fn() })) }));
 vi.mock('../process/load-balancer', () => ({ getLoadBalancer: vi.fn(() => ({ removeMetrics: vi.fn(), updateMetrics: vi.fn() })) }));
 vi.mock('../workflows/workflow-manager', () => ({ getWorkflowManager: vi.fn(() => ({ cleanupInstance: vi.fn() })) }));
-vi.mock('../state', () => ({ getAppStore: vi.fn(), addInstance: vi.fn(), removeInstance: vi.fn(), setGlobalState: vi.fn(), updateInstance: vi.fn() }));
+vi.mock('../state', () => ({ getAppStore: vi.fn(), setGlobalState: vi.fn() }));
 
 // ── Non-hoisted mocks (not used inside vi.mock factories) ─────────────────────
 

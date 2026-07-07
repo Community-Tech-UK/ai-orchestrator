@@ -12,7 +12,7 @@ import {
 } from '../../../../shared/types/provider.types';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import type { PendingSelection } from './compact-model-picker.types';
-import type { UnifiedSelection } from './unified-model-menu.component';
+import type { UnifiedSelection } from './model-selection.types';
 import { DynamicModelCatalogService } from './dynamic-model-catalog.service';
 import { UnifiedCatalogStore } from './unified-catalog.store';
 

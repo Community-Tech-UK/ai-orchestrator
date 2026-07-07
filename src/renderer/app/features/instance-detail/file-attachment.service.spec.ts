@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { FileAttachmentService } from './file-attachment.service';
-import { ElectronIpcService, FileIpcService } from '../../core/services/ipc';
+import { IpcFacadeService, FileIpcService } from '../../core/services/ipc';
 
 describe('FileAttachmentService', () => {
   let service: FileAttachmentService;
@@ -44,7 +44,7 @@ describe('FileAttachmentService', () => {
     TestBed.configureTestingModule({
       providers: [
         FileAttachmentService,
-        { provide: ElectronIpcService, useValue: ipc },
+        { provide: IpcFacadeService, useValue: ipc },
         { provide: FileIpcService, useValue: fileIpc },
       ],
     });

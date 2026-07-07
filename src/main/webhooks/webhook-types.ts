@@ -1,6 +1,12 @@
-import type { WebhookDeliveryRecord, WebhookRouteConfig, WebhookServerStatus } from '../../shared/types/webhook.types';
+import type {
+  WebhookCreateRouteInput,
+  WebhookDeliveryRecord,
+  WebhookRouteConfig,
+  WebhookServerStatus,
+} from '../../shared/types/webhook.types';
 
 export type {
+  WebhookCreateRouteInput,
   WebhookDeliveryRecord,
   WebhookRouteConfig,
   WebhookServerStatus,
@@ -8,16 +14,6 @@ export type {
 
 export interface WebhookRuntimeRouteConfig extends WebhookRouteConfig {
   signingSecret: string;
-}
-
-export interface WebhookCreateRouteInput {
-  path: string;
-  secret: string;
-  enabled?: boolean;
-  allowUnsignedDev?: boolean;
-  maxBodyBytes?: number;
-  allowedAutomationIds?: string[];
-  allowedEvents?: string[];
 }
 
 export interface WebhookServerOptions {

@@ -54,7 +54,17 @@ import {
   type MobileModelCatalogSource,
   type MobileModelLister,
 } from './mobile-gateway-model-handlers';
-import { sendMobileCompletionPush, sendMobilePromptPush } from './mobile-gateway-push';
+import {
+  sendBrowserEscalationPush,
+  sendMobileCompletionPush,
+  sendMobileLiveActivityPush,
+  sendMobilePromptPush,
+  type BrowserEscalationPushInput,
+} from './mobile-gateway-push';
+import {
+  handleApnsTokenRequest,
+  handleLiveActivityTokenRequest,
+} from './mobile-gateway-device-token-handlers';
 
 export {
   buildProjects,
@@ -568,6 +578,9 @@ export class MobileGatewayServer {
     this.clearPromptsForInstance(instanceId);
     this.lastStatusByInstance.delete(instanceId);
     this.unreadCompletions.delete(instanceId);
+    // Dismiss any lock-screen Live Activity tracking this session.
+    sendMobileLiveActivityPush(this.pushDeps(), instanceId, 'idle', 'end');
+    this.registry.clearLiveActivityTokensForInstance(instanceId);
     this.scheduleSnapshotBroadcast();
   }
 
@@ -609,6 +622,11 @@ export class MobileGatewayServer {
   private notifyCompletionOnIdle(instanceId: string, status: string): void {
     const prev = this.lastStatusByInstance.get(instanceId);
     this.lastStatusByInstance.set(instanceId, status);
+    if (prev !== status) {
+      // Keep any lock-screen Live Activity for this session fresh. No-op
+      // unless a phone registered an activity token for the instance.
+      sendMobileLiveActivityPush(this.pushDeps(), instanceId, status);
+    }
     if (WORKING_STATUSES.has(status)) {
       this.unreadCompletions.delete(instanceId);
       return;
@@ -765,6 +783,11 @@ export class MobileGatewayServer {
 
   private sendCompletionPush(instanceId: string): void {
     sendMobileCompletionPush(this.pushDeps(), instanceId);
+  }
+
+  /** Page the phone about a parked unattended-browser hard stop. */
+  notifyBrowserEscalation(escalation: BrowserEscalationPushInput): void {
+    sendBrowserEscalationPush(this.pushDeps(), escalation);
   }
 
   private pushDeps() {
@@ -1018,13 +1041,26 @@ export class MobileGatewayServer {
             return await this.handleHistoryMessages(res, decodeURIComponent(segments[2]));
           }
         }
-        if (
-          segments[1] === 'devices' &&
-          segments.length === 4 &&
-          segments[3] === 'apns-token' &&
-          method === 'POST'
-        ) {
-          return await this.handleApnsToken(req, res, decodeURIComponent(segments[2]), device.deviceId);
+        if (segments[1] === 'devices' && segments.length === 4 && method === 'POST') {
+          const targetDeviceId = decodeURIComponent(segments[2]);
+          if (segments[3] === 'apns-token') {
+            return await handleApnsTokenRequest(
+              this.deviceTokenDeps(),
+              req,
+              res,
+              targetDeviceId,
+              device.deviceId,
+            );
+          }
+          if (segments[3] === 'live-activity-token') {
+            return await handleLiveActivityTokenRequest(
+              this.deviceTokenDeps(),
+              req,
+              res,
+              targetDeviceId,
+              device.deviceId,
+            );
+          }
         }
       }
 
@@ -1435,24 +1471,12 @@ export class MobileGatewayServer {
       logger,
     };
   }
-  private async handleApnsToken(
-    req: IncomingMessage,
-    res: ServerResponse,
-    deviceId: string,
-    authedDeviceId: string,
-  ): Promise<void> {
-    if (deviceId !== authedDeviceId) {
-      this.sendJson(res, 403, { error: 'Can only set the APNs token for your own device' });
-      return;
-    }
-    const body = (await readJsonBody(req)) as { apnsToken?: unknown };
-    const apnsToken = typeof body.apnsToken === 'string' ? body.apnsToken.trim() : '';
-    if (!apnsToken) {
-      this.sendJson(res, 400, { error: 'apnsToken required' });
-      return;
-    }
-    const ok = this.registry.setApnsToken(deviceId, apnsToken);
-    this.sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'Device not found' });
+  private deviceTokenDeps() {
+    return {
+      registry: this.registry,
+      sendJson: (res: ServerResponse, statusCode: number, payload: unknown) =>
+        this.sendJson(res, statusCode, payload),
+    };
   }
 
   private async handlePair(req: IncomingMessage, res: ServerResponse): Promise<void> {

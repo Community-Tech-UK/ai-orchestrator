@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { McpServer } from '../mcp-server';
-import { createOrchestratorTools } from '../mcp-server-tools';
+import type { McpServerToolDefinition } from '../mcp-server-tools';
 
 describe('McpServer', () => {
   beforeEach(() => {
@@ -16,29 +16,16 @@ describe('McpServer', () => {
 
   it('lists registered tools', async () => {
     const server = McpServer.getInstance();
-    const tools = createOrchestratorTools({
-      listInstances: vi.fn(),
-      spawnInstance: vi.fn(),
-      verify: vi.fn(),
-      debate: vi.fn(),
-      consensus: vi.fn(),
-    });
-    server.registerTools(tools);
+    server.registerTools(createTestTools());
 
     const result = await server.handleRequest({ method: 'tools/list', id: 2 }) as { tools: unknown[] };
-    expect(result.tools).toHaveLength(5);
+    expect(result.tools).toHaveLength(1);
   });
 
   it('calls a tool', async () => {
     const server = McpServer.getInstance();
     const mockListInstances = vi.fn().mockResolvedValue([{ id: 'inst-1' }]);
-    server.registerTools(createOrchestratorTools({
-      listInstances: mockListInstances,
-      spawnInstance: vi.fn(),
-      verify: vi.fn(),
-      debate: vi.fn(),
-      consensus: vi.fn(),
-    }));
+    server.registerTools(createTestTools(mockListInstances));
 
     const result = await server.handleRequest({
       method: 'tools/call',
@@ -118,3 +105,14 @@ describe('McpServer', () => {
     expect(server.isStarted()).toBe(false);
   });
 });
+
+function createTestTools(
+  listInstances: () => Promise<unknown[]> = vi.fn(async () => []),
+): McpServerToolDefinition[] {
+  return [{
+    name: 'orchestrator.list_instances',
+    description: 'List all running AI instances',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => listInstances(),
+  }];
+}

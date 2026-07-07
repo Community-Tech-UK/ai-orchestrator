@@ -346,6 +346,39 @@ export class GatewayClient {
     this._prompts.set(this._prompts().filter((p) => p.requestId !== body.requestId));
   }
 
+  /**
+   * Respond to an approval straight from a push-notification action. The push
+   * carries the sending Mac's hostname, so this routes to that paired host
+   * even when it isn't the active one (multi-host phones), without needing
+   * the app UI or WebSocket to be up.
+   */
+  async respondFromPush(
+    hostName: string | undefined,
+    instanceId: string,
+    body: MobileRespondRequest,
+  ): Promise<void> {
+    const hosts = this.hostStore.hosts();
+    const target =
+      (hostName && hosts.find((h) => h.name.toLowerCase() === hostName.toLowerCase())) ||
+      this.hostStore.activeHost() ||
+      hosts[0];
+    if (!target) throw new Error('No paired host');
+    const scheme = target.secure ? 'https' : 'http';
+    const res = await fetch(
+      `${scheme}://${target.host}:${target.port}/api/instances/${encodeURIComponent(instanceId)}/respond`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${target.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    this._prompts.set(this._prompts().filter((p) => p.requestId !== body.requestId));
+  }
+
   async interrupt(instanceId: string): Promise<void> {
     await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/interrupt`);
   }
@@ -420,6 +453,18 @@ export class GatewayClient {
   async registerApnsToken(deviceId: string, apnsToken: string): Promise<void> {
     await this.request('POST', `/api/devices/${encodeURIComponent(deviceId)}/apns-token`, {
       apnsToken,
+    });
+  }
+
+  /** Register (or clear, with an empty token) a session's Live Activity push token. */
+  async registerLiveActivityToken(
+    deviceId: string,
+    instanceId: string,
+    token: string,
+  ): Promise<void> {
+    await this.request('POST', `/api/devices/${encodeURIComponent(deviceId)}/live-activity-token`, {
+      instanceId,
+      token,
     });
   }
 

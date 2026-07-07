@@ -1,13 +1,12 @@
 /**
  * Core Module
  *
- * Central infrastructure components for error recovery,
- * retry logic, circuit breakers, and system health.
+ * Central infrastructure components for error recovery, circuit breakers, and
+ * system health.
  */
 
 // Error Recovery
 export { ErrorRecoveryManager, getErrorRecoveryManager, retryWithBackoff, type WithRetryOptions } from './error-recovery';
-export { RetryManager, retryOperation, withRetry, type RetryOptions, type RetryResult } from './retry-manager';
 export { classifyLoopError, type LoopErrorClassification, type LoopErrorClassificationContext } from './loop-error-classification';
 
 // Circuit Breaker
@@ -20,10 +19,6 @@ export {
   type CircuitBreakerEvent,
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
 } from './circuit-breaker';
-
-// Startup & Migration
-export { StartupOptimizer, type StartupTask, type StartupPhase, type TaskResult } from './startup-optimizer';
-export { MigrationManager, type Migration, type MigrationResult } from './migration-manager';
 
 // Re-export from subdirectories
 export * from './config';

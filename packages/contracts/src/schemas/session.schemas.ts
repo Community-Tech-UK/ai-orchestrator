@@ -523,7 +523,7 @@ export const StatsRecordToolUsagePayloadSchema = z.object({
 });
 
 export const StatsGetPayloadSchema = z.object({
-  period: z.enum(['day', 'week', 'month', 'all']).optional(),
+  period: z.enum(['day', 'week', 'month', 'year', 'all']).optional(),
 });
 
 export const StatsGetSessionPayloadSchema = z.object({
@@ -532,7 +532,7 @@ export const StatsGetSessionPayloadSchema = z.object({
 
 export const StatsExportPayloadSchema = z.object({
   filePath: FilePathSchema,
-  period: z.enum(['day', 'week', 'month', 'all']).optional(),
+  period: z.enum(['day', 'week', 'month', 'year', 'all']).optional(),
 });
 
 // ============ Observation schemas ============

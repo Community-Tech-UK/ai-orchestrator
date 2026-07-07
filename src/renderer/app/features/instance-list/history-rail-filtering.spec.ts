@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import {
   getHistoryTimeWindowCutoff,
-  isWithinHistoryTimeWindow,
   shouldShowHistoryOnlyProject,
 } from './history-rail-filtering';
 
@@ -44,10 +43,12 @@ describe('history rail filtering', () => {
   it('matches timestamps against the selected activity time window', () => {
     const now = Date.UTC(2026, 4, 2, 12, 0, 0);
     const day = 24 * 60 * 60 * 1000;
+    const cutoff = getHistoryTimeWindowCutoff('day', now);
 
-    expect(isWithinHistoryTimeWindow(now - day + 1, 'day', now)).toBe(true);
-    expect(isWithinHistoryTimeWindow(now - day - 1, 'day', now)).toBe(false);
-    expect(isWithinHistoryTimeWindow(now - 365 * day, 'all', now)).toBe(true);
+    expect(cutoff).toBe(now - day);
+    expect(now - day + 1 >= cutoff!).toBe(true);
+    expect(now - day - 1 >= cutoff!).toBe(false);
+    expect(getHistoryTimeWindowCutoff('all', now)).toBeNull();
   });
 
   it('hides native-only history projects in relevant mode', () => {

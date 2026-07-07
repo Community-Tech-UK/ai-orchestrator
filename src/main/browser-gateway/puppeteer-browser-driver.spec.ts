@@ -340,6 +340,11 @@ describe('PuppeteerBrowserDriver', () => {
     let currentUrl = 'http://localhost:4567';
     const elementHandle = {
       uploadFile: vi.fn(),
+      evaluate: vi.fn(async () => ({
+        uploaded: true,
+        fileCount: 1,
+        files: [{ name: 'app.aab', size: 0 }],
+      })),
     };
     const page = {
       url: () => currentUrl,
@@ -349,6 +354,33 @@ describe('PuppeteerBrowserDriver', () => {
       }),
       type: vi.fn(),
       select: vi.fn(),
+      // The robust select path drives the page bridge (page.evaluate), not
+      // page.select. Emulate a native <select> whose value takes correctly.
+      evaluate: vi.fn(async (_fn: unknown, input: { action: string }) => {
+        if (input.action === 'describe_control') {
+          return {
+            kind: 'native',
+            options: [
+              { value: '', label: 'Choose track' },
+              { value: 'production', label: 'Production' },
+            ],
+            value: '',
+            selectedLabel: 'Choose track',
+          };
+        }
+        if (input.action === 'apply_select_native') {
+          return {
+            kind: 'native',
+            options: [
+              { value: '', label: 'Choose track' },
+              { value: 'production', label: 'Production' },
+            ],
+            value: 'production',
+            selectedLabel: 'Production',
+          };
+        }
+        return {};
+      }),
       $: vi.fn().mockResolvedValue(elementHandle),
     };
     const browser = {
@@ -378,13 +410,158 @@ describe('PuppeteerBrowserDriver', () => {
     expect(page.type).toHaveBeenCalledWith('input[name="title"]', 'Release notes');
     expect(page.type).toHaveBeenCalledWith('#one', 'One');
     expect(page.type).toHaveBeenCalledWith('#two', 'Two');
-    expect(page.select).toHaveBeenCalledWith('select.track', 'production');
+    // Robust select resolves + verifies via the page bridge (not page.select).
+    expect(page.evaluate).toHaveBeenCalled();
     expect(page.$).toHaveBeenCalledWith('input[type="file"]');
     expect(elementHandle.uploadFile).toHaveBeenCalledWith('/tmp/app.aab');
+    expect(elementHandle.evaluate).toHaveBeenCalled();
     expect(targetRegistry.listTargets('profile-1')[0]).toMatchObject({
       url: 'http://localhost:4567/mutated',
       title: 'Mutated',
     });
+  });
+
+  it('throws when Puppeteer file upload leaves the input empty', async () => {
+    const elementHandle = {
+      uploadFile: vi.fn(),
+      evaluate: vi.fn(async () => ({
+        fileCount: 0,
+        files: [],
+      })),
+    };
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      $: vi.fn().mockResolvedValue(elementHandle),
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => ({ pages: async () => [page] }),
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    await expect(driver.uploadFile(
+      'profile-1',
+      target.id,
+      'input[type="file"]',
+      '/tmp/app.aab',
+    )).rejects.toThrow('browser_upload_verify_mismatch:file_count');
+  });
+
+  it('throws when a native <select> silently ignores the set (read-back mismatch)', async () => {
+    // The control keeps showing the placeholder after apply — the classic
+    // silent no-op. Unattended filling must surface this, not report success.
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      evaluate: vi.fn(async (_fn: unknown, input: { action: string }) => {
+        const options = [
+          { value: '', label: 'Choose track' },
+          { value: 'production', label: 'Production' },
+        ];
+        if (input.action === 'describe_control') {
+          return { kind: 'native', options, value: '', selectedLabel: 'Choose track' };
+        }
+        // apply returns the UNCHANGED state — the set didn't take.
+        return { kind: 'native', options, value: '', selectedLabel: 'Choose track' };
+      }),
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => ({ pages: async () => [page] }),
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    await expect(
+      driver.select('profile-1', target.id, 'select.track', 'production'),
+    ).rejects.toThrow(/did not take/);
+  });
+
+  it('throws with the available options when no <select> option matches', async () => {
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      evaluate: vi.fn(async (_fn: unknown, input: { action: string }) => {
+        if (input.action === 'describe_control') {
+          return {
+            kind: 'native',
+            options: [
+              { value: 'gb', label: 'United Kingdom' },
+              { value: 'ie', label: 'Ireland' },
+            ],
+            value: 'gb',
+            selectedLabel: 'United Kingdom',
+          };
+        }
+        return {};
+      }),
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => ({ pages: async () => [page] }),
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    await expect(
+      driver.select('profile-1', target.id, 'select.country', 'Narnia'),
+    ).rejects.toThrow(/no <select> option/);
+  });
+
+  it('reads back a control state for verification', async () => {
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      evaluate: vi.fn(async (_fn: unknown, input: { action: string }) => {
+        expect(input.action).toBe('read_control');
+        return { value: '16760348', selectedLabel: undefined, checked: undefined };
+      }),
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => ({ pages: async () => [page] }),
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    const state = await driver.readControl('profile-1', target.id, '#company');
+    expect(state).toEqual({ value: '16760348', selectedLabel: undefined, checked: undefined });
+  });
+
+  it('setChecked throws when the checkbox does not reach the desired state', async () => {
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      // The control stays unchecked after the click — must fail loudly.
+      evaluate: vi.fn(async () => ({ checked: false })),
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => ({ pages: async () => [page] }),
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    await expect(
+      driver.setChecked('profile-1', target.id, '#terms', true),
+    ).rejects.toThrow(/did not reach checked=true/);
   });
 
   it('keeps CDP-driven pages focused and alive against background throttling', async () => {

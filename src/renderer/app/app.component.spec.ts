@@ -17,7 +17,7 @@ import { PauseStore } from './core/state/pause/pause.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { SettingsStore } from './core/state/settings.store';
 import { UsageStore } from './core/state/usage.store';
-import { ElectronIpcService } from './core/services/ipc';
+import { IpcFacadeService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
 import { WorkspaceBenchService } from './core/services/workspace-bench.service';
@@ -95,7 +95,7 @@ async function setupAppComponent(platform = 'darwin'): Promise<{
     providers: [
       { provide: Router, useValue: createRouterMock() },
       {
-        provide: ElectronIpcService,
+        provide: IpcFacadeService,
         useValue: {
           platform,
           onStartupCapabilities: vi.fn(() => () => void 0),
@@ -162,7 +162,7 @@ describe('AppComponent startup banner', () => {
       providers: [
         { provide: Router, useValue: router },
         {
-          provide: ElectronIpcService,
+          provide: IpcFacadeService,
           useValue: {
             platform: 'darwin',
             onStartupCapabilities: vi.fn(() => () => void 0),

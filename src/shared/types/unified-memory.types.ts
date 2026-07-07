@@ -56,22 +56,6 @@ export interface UnifiedMemoryConfig {
   enableGRPO: boolean;
 }
 
-// ============ Tool Actions ============
-
-export type MemoryToolType =
-  | 'store'
-  | 'retrieve'
-  | 'update'
-  | 'delete'
-  | 'summarize'
-  | 'link';
-
-export interface MemoryToolAction {
-  tool: MemoryToolType;
-  params: Record<string, unknown>;
-  targetType: MemoryType;
-}
-
 // ============ Unified State ============
 
 export interface UnifiedMemoryState {

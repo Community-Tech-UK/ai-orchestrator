@@ -8,6 +8,7 @@ interface BrowserGrantRow {
   mode: BrowserPermissionGrant['mode'];
   instance_id: string;
   provider: BrowserPermissionGrant['provider'];
+  node_id: string | null;
   profile_id: string | null;
   target_id: string | null;
   allowed_origins_json: string;
@@ -33,6 +34,7 @@ export type BrowserGrantInput = Omit<
 export interface BrowserGrantListFilter {
   instanceId?: string;
   profileId?: string;
+  nodeId?: string;
   includeExpired?: boolean;
   limit?: number;
 }
@@ -47,11 +49,11 @@ export class BrowserGrantStore {
       .prepare(
         `
         INSERT INTO browser_permission_grants
-          (id, mode, instance_id, provider, profile_id, target_id,
+          (id, mode, instance_id, provider, node_id, profile_id, target_id,
            allowed_origins_json, allowed_action_classes_json,
            allow_external_navigation, upload_roots_json, autonomous,
            requested_by, decided_by, decision, reason, expires_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       )
       .run(
@@ -59,6 +61,7 @@ export class BrowserGrantStore {
         input.mode,
         input.instanceId,
         input.provider,
+        input.nodeId ?? null,
         input.profileId ?? null,
         input.targetId ?? null,
         JSON.stringify(input.allowedOrigins),
@@ -91,9 +94,15 @@ export class BrowserGrantStore {
       where.push('instance_id = ?');
       params.push(filter.instanceId);
     }
-    if (filter.profileId) {
+    if (filter.profileId && filter.nodeId) {
+      where.push('(profile_id = ? OR (profile_id IS NULL AND node_id = ?))');
+      params.push(filter.profileId, filter.nodeId);
+    } else if (filter.profileId) {
       where.push('profile_id = ?');
       params.push(filter.profileId);
+    } else if (filter.nodeId) {
+      where.push('node_id = ?');
+      params.push(filter.nodeId);
     }
     if (!filter.includeExpired) {
       where.push('decision = ?');
@@ -152,6 +161,7 @@ export class BrowserGrantStore {
       mode: row.mode,
       instanceId: row.instance_id,
       provider: row.provider,
+      nodeId: row.node_id ?? undefined,
       profileId: row.profile_id ?? undefined,
       targetId: row.target_id ?? undefined,
       allowedOrigins: this.parseJson(row.allowed_origins_json, []),
@@ -188,8 +198,4 @@ export function getBrowserGrantStore(): BrowserGrantStore {
     browserGrantStore = new BrowserGrantStore();
   }
   return browserGrantStore;
-}
-
-export function _resetBrowserGrantStoreForTesting(): void {
-  browserGrantStore = null;
 }

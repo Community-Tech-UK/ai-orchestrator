@@ -28,7 +28,6 @@ export const AutomationTriggerSourceSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const AutomationScheduleTypeSchema = z.enum(['cron', 'oneTime']);
 export const AutomationMissedRunPolicySchema = z.enum(['skip', 'notify', 'runOnce']);
 export const AutomationReasoningEffortSchema = z.enum([
   'none',
@@ -158,11 +157,6 @@ export const AutomationPreflightPayloadSchema = z.object({
   model: ModelIdSchema.optional(),
   yoloMode: z.boolean().optional(),
   expectedUnattended: z.boolean().optional(),
-});
-
-export const AutomationValidateCronPayloadSchema = z.object({
-  expression: z.string().min(1).max(200),
-  timezone: z.string().min(1).max(100),
 });
 
 export type AutomationCreatePayload = z.infer<typeof AutomationCreatePayloadSchema>;

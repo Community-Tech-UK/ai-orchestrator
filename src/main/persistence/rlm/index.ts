@@ -92,7 +92,6 @@ export {
 // Compaction marker operations
 export {
   recordCompactionMarker,
-  listCompactionMarkers,
   type RecordCompactionMarkerParams,
   type CompactionMarker
 } from './rlm-compaction-markers';

@@ -110,7 +110,8 @@
 }
 
 .btn-secondary,
-.btn-primary {
+.btn-primary,
+.btn-danger {
   padding: var(--spacing-xs) var(--spacing-md);
   border-radius: var(--radius-sm);
   font-size: 12px;
@@ -142,6 +143,22 @@
 
   &:hover:not(:disabled) {
     background: var(--primary-hover);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn-danger {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-color);
+
+  &:hover:not(:disabled) {
+    background: var(--error-color);
+    color: white;
   }
 
   &:disabled {
@@ -306,6 +323,10 @@
 
 .backup-card .setting-row {
   border-radius: 0;
+}
+
+.backup-card .reset-section {
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* Export / Import result banner */

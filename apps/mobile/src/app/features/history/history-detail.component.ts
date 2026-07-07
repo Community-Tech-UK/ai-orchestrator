@@ -13,8 +13,10 @@ import {
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import type { MobileMessageDto } from '../../core/models';
+import { CodeCopyDirective } from '../../shared/code-copy.directive';
+import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { renderMobileMarkdown } from '../../shared/mobile-markdown';
-import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-items';
+import { buildDisplayItems, toolLabel, type DisplayItem } from '../../shared/transcript-items';
 
 /**
  * Read-only transcript of a persisted (closed/archived) session, fetched from
@@ -25,6 +27,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
   standalone: true,
   selector: 'app-history-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CopyButtonComponent, CodeCopyDirective],
   template: `
     <section class="screen">
       <header class="top">
@@ -36,7 +39,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
       </header>
 
       <div class="scroll-wrap">
-        <div #scrollEl class="transcript" (scroll)="onScroll()">
+        <div #scrollEl class="transcript" appCodeCopy (scroll)="onScroll()">
           @if (loading()) {
             <p class="muted">Loading…</p>
           } @else if (error()) {
@@ -53,7 +56,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
                   </button>
                   @if (expandedTools().has(item.id)) {
                     @for (t of item.items; track t.id) {
-                      <div class="tool-line">{{ t.content }}</div>
+                      <div class="tool-line">{{ toolLabel(t) }}</div>
                     }
                   }
                 </div>
@@ -63,6 +66,9 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
                     <span class="role">{{ roleLabel(item.message.type) }}</span>
                   }
                   <div class="content markdown-body" [innerHTML]="renderMarkdown(item.message.content)"></div>
+                  @if (item.message.type !== 'system' && item.message.content) {
+                    <app-copy-button [text]="item.message.content" />
+                  }
                 </div>
               }
             }
@@ -160,6 +166,7 @@ export class HistoryDetailComponent implements OnInit {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly renderMarkdown = renderMobileMarkdown;
+  protected readonly toolLabel = toolLabel;
 
   /** Which collapsed tool groups the user has expanded (keyed by group id). */
   protected readonly expandedTools = signal<Set<string>>(new Set());

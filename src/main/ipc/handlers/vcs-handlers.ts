@@ -35,6 +35,7 @@ import {
   type GitStatusChangedEvent,
 } from '../../workspace/git/git-status-watcher';
 import { getLogger } from '../../logging/logger';
+import { getHookManager } from '../../hooks/hook-manager';
 import type { WindowManager } from '../../window-manager';
 
 const logger = getLogger('VcsHandlers');
@@ -638,6 +639,26 @@ export function registerVcsHandlers(deps?: {
           };
         }
         const vcs = createVcsManager(validated.workingDirectory);
+        const hookResult = await getHookManager().triggerLifecycleHooks('BeforeCommit', {
+          workingDirectory: validated.workingDirectory,
+          command: [
+            'git commit',
+            validated.amend ? '--amend' : null,
+            validated.signoff ? '--signoff' : null,
+          ].filter(Boolean).join(' '),
+          userPrompt: validated.message,
+          content: validated.message,
+        });
+        if (hookResult.blocked) {
+          return {
+            success: false,
+            error: {
+              code: 'VCS_COMMIT_BLOCKED_BY_HOOK',
+              message: hookResult.message ?? 'Commit blocked by hook rule.',
+              timestamp: Date.now(),
+            },
+          };
+        }
         const result = await vcs.commit({
           message: validated.message,
           signoff: validated.signoff,

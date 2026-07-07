@@ -12,7 +12,6 @@ export const FILTER_TEXT_STORAGE_KEY = 'instance-list-filter-text';
 export const NO_WORKSPACE_KEY = '__no_workspace__';
 export const CHATS_KEY = '__chats__';
 export const ORPHANED_CHILDREN_KEY = '__orphaned_children__';
-export const MIN_VISIBLE_HISTORY_THREADS = 5;
 
 export type HistorySortMode = 'last-interacted' | 'created';
 

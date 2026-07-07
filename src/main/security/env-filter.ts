@@ -3,9 +3,6 @@
  */
 
 import { detectSecretsInKeyValue, SecretType } from './secret-detector';
-import { getLogger } from '../logging/logger';
-
-const logger = getLogger('EnvFilter');
 
 /**
  * Environment variable filter configuration
@@ -273,18 +270,6 @@ export function getSafeEnv(
 }
 
 /**
- * Log blocked environment variables (for debugging)
- */
-export function logBlockedEnvVars(blocked: FilterResult[]): void {
-  if (blocked.length === 0) return;
-
-  logger.info('Blocked environment variables', {
-    count: blocked.length,
-    variables: blocked.map(r => ({ name: r.name, reason: r.reason, secretType: r.secretType })),
-  });
-}
-
-/**
  * API keys that trusted child processes (CLI adapters, MCP servers) need
  * to authenticate with their respective AI/VCS providers.
  *
@@ -318,31 +303,4 @@ export function getSafeEnvForTrustedProcess(
   return getSafeEnv(additionalEnv, {
     allowlist: TRUSTED_PROCESS_ALLOWED_KEYS,
   });
-}
-
-/**
- * Create a minimal safe environment with only essential variables
- */
-export function getMinimalSafeEnv(): Record<string, string> {
-  const essential = [
-    'PATH',
-    'HOME',
-    'USER',
-    'SHELL',
-    'TERM',
-    'LANG',
-    'LC_ALL',
-    'TMPDIR',
-    'NODE_ENV',
-  ];
-
-  const env: Record<string, string> = {};
-
-  for (const key of essential) {
-    if (process.env[key]) {
-      env[key] = process.env[key]!;
-    }
-  }
-
-  return env;
 }

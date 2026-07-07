@@ -215,14 +215,3 @@ export function installWorkerFileLogging(
   activeLogger = new WorkerFileLogger(options).install();
   return activeLogger;
 }
-
-/** The active worker file logger, if one has been installed. */
-export function getWorkerFileLogger(): WorkerFileLogger | null {
-  return activeLogger;
-}
-
-/** Test helper: uninstall and clear the singleton. */
-export function _resetWorkerFileLoggingForTesting(): void {
-  activeLogger?.uninstall();
-  activeLogger = null;
-}

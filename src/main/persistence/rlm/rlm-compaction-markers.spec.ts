@@ -8,7 +8,6 @@ import {
 } from './rlm-schema';
 import {
   getCompactionMarker,
-  listCompactionMarkers,
   recordCompactionMarker,
 } from './rlm-compaction-markers';
 
@@ -55,7 +54,7 @@ describe('RLM compaction markers', () => {
     ]);
   });
 
-  it('records and lists markers newest first', () => {
+  it('records marker metadata', () => {
     const db = openMigratedDb();
     recordCompactionMarker(db, {
       id: 'old',
@@ -77,20 +76,18 @@ describe('RLM compaction markers', () => {
       createdAt: 200,
     });
 
-    expect(listCompactionMarkers(db, { instanceId: 'inst-1' })).toEqual([
-      expect.objectContaining({
-        id: 'new',
-        method: 'thread-compacted',
-        ledgerAnchor: 200,
-      }),
-      expect.objectContaining({
-        id: 'old',
-        threadId: 'thread-1',
-        utilizationBefore: 92,
-        utilizationAfter: 0,
-        metadata: { source: 'manual' },
-      }),
-    ]);
+    expect(getCompactionMarker(db, 'old')).toMatchObject({
+      id: 'old',
+      threadId: 'thread-1',
+      utilizationBefore: 92,
+      utilizationAfter: 0,
+      metadata: { source: 'manual' },
+    });
+    expect(getCompactionMarker(db, 'new')).toMatchObject({
+      id: 'new',
+      method: 'thread-compacted',
+      ledgerAnchor: 200,
+    });
   });
 
   it('retrieves one marker by id', () => {

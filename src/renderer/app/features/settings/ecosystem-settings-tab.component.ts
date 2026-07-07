@@ -17,7 +17,7 @@ import {
   signal,
   OnDestroy
 } from '@angular/core';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { SettingsStore } from '../../core/state/settings.store';
 import type { RecentDirectoriesOptions } from '../../../../shared/types/recent-directories.types';
@@ -361,7 +361,7 @@ interface FileReadTextResponse {
   styleUrl: './ecosystem-settings-tab.component.scss'
 })
 export class EcosystemSettingsTabComponent implements OnDestroy {
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private recentDirsIpc = inject(RecentDirectoriesIpcService);
   private settingsStore = inject(SettingsStore);
 

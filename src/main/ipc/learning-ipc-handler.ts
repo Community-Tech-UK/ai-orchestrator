@@ -220,11 +220,30 @@ function registerRLMHandlers(): void {
     }
   );
 
+  // Renderer-facing learning alias used by the training page.
+  ipcMain.handle(
+    IPC_CHANNELS.LEARNING_GET_PATTERNS,
+    (_event, payload: unknown): TaskPattern[] => {
+      const validated = validateIpcPayload(RlmGetPatternsPayloadSchema, payload, 'LEARNING_GET_PATTERNS');
+      const minSuccessRate = validated?.minSuccessRate ?? 0;
+      return tracker.getTopPatterns(50).filter(p => p.effectiveness >= minSuccessRate);
+    }
+  );
+
   // Get strategy suggestions (RLM alias)
   ipcMain.handle(
     IPC_CHANNELS.RLM_GET_STRATEGY_SUGGESTIONS,
     (_event, payload: unknown): StrategyRecommendation => {
       const validated = validateIpcPayload(RlmGetStrategySuggestionsPayloadSchema, payload, 'RLM_GET_STRATEGY_SUGGESTIONS');
+      return strategist.getRecommendation('general', validated.context, validated.context);
+    }
+  );
+
+  // Renderer-facing learning alias used by the training page.
+  ipcMain.handle(
+    IPC_CHANNELS.LEARNING_GET_SUGGESTIONS,
+    (_event, payload: unknown): StrategyRecommendation => {
+      const validated = validateIpcPayload(RlmGetStrategySuggestionsPayloadSchema, payload, 'LEARNING_GET_SUGGESTIONS');
       return strategist.getRecommendation('general', validated.context, validated.context);
     }
   );

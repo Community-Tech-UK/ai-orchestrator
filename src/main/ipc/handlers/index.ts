@@ -13,6 +13,7 @@ export { registerLspHandlers } from './lsp-handlers';
 export { registerSnapshotHandlers } from './snapshot-handlers';
 export { registerMcpHandlers } from './mcp-handlers';
 export { registerBrowserGatewayHandlers } from './browser-gateway-handlers';
+export { registerBrowserUnattendedHandlers } from './browser-unattended-handlers';
 export { registerTodoHandlers } from './todo-handlers';
 export { registerSecurityHandlers } from './security-handlers';
 export { registerDebugHandlers } from './debug-handlers';

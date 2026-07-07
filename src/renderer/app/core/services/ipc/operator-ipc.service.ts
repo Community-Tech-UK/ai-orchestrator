@@ -4,6 +4,8 @@ import type {
   OperatorRunGraph,
   OperatorRunRecord,
   OperatorRunStatus,
+  OperatorProjectRecord,
+  OperatorProjectResolution,
 } from '../../../../../shared/types/operator.types';
 import {
   ElectronIpcService,
@@ -41,6 +43,42 @@ export class OperatorIpcService {
       return { success: false, error: { message: 'Not in Electron' } };
     }
     return this.api.cancelOperatorRun({ runId }) as Promise<IpcResponse<OperatorRunGraph>>;
+  }
+
+  async listProjects(payload: {
+    query?: string;
+    limit?: number;
+  } = {}): Promise<IpcResponse<OperatorProjectRecord[]>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.listOperatorProjects(payload) as Promise<IpcResponse<OperatorProjectRecord[]>>;
+  }
+
+  async rescanProjects(payload: {
+    includeRecent?: boolean;
+    includeActiveInstances?: boolean;
+    includeConversationLedger?: boolean;
+    roots?: string[];
+  } = {}): Promise<IpcResponse<OperatorProjectRecord[]>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.rescanOperatorProjects(payload) as Promise<IpcResponse<OperatorProjectRecord[]>>;
+  }
+
+  async resolveProject(query: string): Promise<IpcResponse<OperatorProjectResolution>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.resolveOperatorProject({ query }) as Promise<IpcResponse<OperatorProjectResolution>>;
+  }
+
+  async planProjectVerification(projectPath: string): Promise<IpcResponse<unknown>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.planOperatorProjectVerification({ projectPath }) as Promise<IpcResponse<unknown>>;
   }
 
   onOperatorEvent(callback: (payload: OperatorRunEventNotification) => void): () => void {

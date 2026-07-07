@@ -15,36 +15,10 @@ import {
   loopStatusToPhase,
   automationRunStatusToPhase,
   instanceStatusToPhase,
-  isTerminalPhase,
-  isActivePhase,
-  WORKFLOW_TERMINAL_STATES,
   type WorkflowLifecyclePhase,
 } from './workflow-lifecycle.types';
 
 describe('workflow lifecycle projection', () => {
-  describe('terminal-phase predicates', () => {
-    const terminal: WorkflowLifecyclePhase[] = ['completed', 'failed', 'cancelled'];
-    const nonTerminal: WorkflowLifecyclePhase[] = ['pending', 'running', 'paused', 'blocked'];
-
-    it('classifies terminal phases', () => {
-      for (const p of terminal) {
-        expect(isTerminalPhase(p)).toBe(true);
-        expect(isActivePhase(p)).toBe(false);
-      }
-    });
-
-    it('classifies non-terminal phases', () => {
-      for (const p of nonTerminal) {
-        expect(isTerminalPhase(p)).toBe(false);
-        expect(isActivePhase(p)).toBe(true);
-      }
-    });
-
-    it('exports exactly the terminal states', () => {
-      expect([...WORKFLOW_TERMINAL_STATES].sort()).toEqual(['cancelled', 'completed', 'failed']);
-    });
-  });
-
   describe('loopStatusToPhase', () => {
     const cases: Record<LoopStatus, WorkflowLifecyclePhase> = {
       running: 'running',
@@ -69,7 +43,7 @@ describe('workflow lifecycle projection', () => {
     });
 
     it('treats provider-limit as resumable, not terminal', () => {
-      expect(isTerminalPhase(loopStatusToPhase('provider-limit'))).toBe(false);
+      expect(loopStatusToPhase('provider-limit')).toBe('paused');
     });
 
     it('treats completed-needs-review as a successful terminal', () => {
@@ -77,11 +51,11 @@ describe('workflow lifecycle projection', () => {
     });
 
     it('treats ping-pong deadlock and reviewer fault statuses as failed terminals', () => {
-      expect(isTerminalPhase(loopStatusToPhase('cost-exceeded'))).toBe(true);
-      expect(isTerminalPhase(loopStatusToPhase('needs-human-arbitration'))).toBe(true);
-      expect(isTerminalPhase(loopStatusToPhase('reviewer-unreliable'))).toBe(true);
-      expect(isTerminalPhase(loopStatusToPhase('reviewer-unavailable'))).toBe(true);
-      expect(isTerminalPhase(loopStatusToPhase('builder-unreliable'))).toBe(true);
+      expect(loopStatusToPhase('cost-exceeded')).toBe('failed');
+      expect(loopStatusToPhase('needs-human-arbitration')).toBe('failed');
+      expect(loopStatusToPhase('reviewer-unreliable')).toBe('failed');
+      expect(loopStatusToPhase('reviewer-unavailable')).toBe('failed');
+      expect(loopStatusToPhase('builder-unreliable')).toBe('failed');
     });
   });
 

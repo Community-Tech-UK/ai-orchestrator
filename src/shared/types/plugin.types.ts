@@ -9,28 +9,21 @@
 import type { InstanceCreateConfig, OutputMessage } from './instance.types';
 import type { AutomationDeliveryMode, AutomationTriggerSource } from './automation.types';
 import type { ChildDiagnosticBundle } from './agent-tree.types';
+import type {
+  PluginCapability,
+  PluginHookEvent,
+  PluginIsolation,
+  PluginSlot,
+} from '@contracts/schemas/plugin';
 
 export type PluginRecord = Record<string, unknown>;
 
-export type PluginSlot =
-  | 'provider'
-  | 'channel'
-  | 'mcp'
-  | 'skill'
-  | 'hook'
-  | 'tracker'
-  | 'notifier'
-  | 'telemetry_exporter';
-
-export type PluginCapability =
-  | 'network'
-  | 'filesystem.read'
-  | 'filesystem.write'
-  | 'spawn.process'
-  | 'manager.read'
-  | 'manager.write';
-
-export type PluginIsolation = 'legacy' | 'worker';
+export type {
+  PluginCapability,
+  PluginHookEvent,
+  PluginIsolation,
+  PluginSlot,
+} from '@contracts/schemas/plugin';
 
 export type PluginLoadPhase =
   | 'manifest_load'
@@ -418,8 +411,6 @@ export interface PluginHookPayloads {
     config: Record<string, unknown>;
   };
 }
-
-export type PluginHookEvent = keyof PluginHookPayloads;
 
 export type TypedOrchestratorHooks = {
   [K in PluginHookEvent]?: (

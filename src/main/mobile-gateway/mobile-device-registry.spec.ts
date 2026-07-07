@@ -112,3 +112,43 @@ describe('MobileDeviceRegistry', () => {
     });
   });
 });
+
+describe('live activity tokens', () => {
+  let persistence: ReturnType<typeof memPersistence>;
+  let registry: MobileDeviceRegistry;
+
+  beforeEach(() => {
+    persistence = memPersistence();
+    registry = new MobileDeviceRegistry(persistence);
+  });
+
+  function pairDevice(): { deviceId: string } {
+    const pairing = registry.issuePairing();
+    const result = registry.pair({ pairingToken: pairing.pairingToken, label: 'phone' });
+    if (result.status !== 'paired') throw new Error('pairing failed');
+    return { deviceId: result.device.deviceId };
+  }
+
+  it('stores, retrieves and clears per-instance activity tokens', () => {
+    const { deviceId } = pairDevice();
+
+    expect(registry.setLiveActivityToken(deviceId, 'inst-1', 'tok-a')).toBe(true);
+    expect(registry.liveActivityTokensFor('inst-1')).toEqual(['tok-a']);
+    expect(registry.liveActivityTokensFor('inst-2')).toEqual([]);
+
+    // Empty token clears the registration.
+    expect(registry.setLiveActivityToken(deviceId, 'inst-1', '')).toBe(true);
+    expect(registry.liveActivityTokensFor('inst-1')).toEqual([]);
+  });
+
+  it('clears tokens for a removed instance across devices', () => {
+    const { deviceId } = pairDevice();
+    registry.setLiveActivityToken(deviceId, 'inst-1', 'tok-a');
+    registry.clearLiveActivityTokensForInstance('inst-1');
+    expect(registry.liveActivityTokensFor('inst-1')).toEqual([]);
+  });
+
+  it('rejects tokens for unknown devices', () => {
+    expect(registry.setLiveActivityToken('ghost', 'inst-1', 'tok')).toBe(false);
+  });
+});

@@ -31,11 +31,25 @@ interface BrowserExtensionCommandResultMessage {
   error?: string;
 }
 
+interface BrowserExtensionCommandReceivedMessage {
+  type: 'command_received';
+  commandId: string;
+}
+
 type BrowserExtensionNativeMessage =
   | BrowserExtensionAttachTabMessage
   | BrowserExtensionTabInventoryMessage
   | BrowserExtensionPollCommandMessage
-  | BrowserExtensionCommandResultMessage;
+  | BrowserExtensionCommandResultMessage
+  | BrowserExtensionCommandReceivedMessage;
+
+// The socket RPC timeout must OUTLIVE every downstream hop or a reply carrying
+// a freshly dequeued command is abandoned mid-flight and the command silently
+// dropped. Ladder (poll window 10s): coordinator holds ≤10s → worker relay
+// waits window+10s=20s → native host must wait ≥25s → the extension's poll
+// watchdog sits above all of it. Non-poll messages keep the short budget.
+const NATIVE_RPC_TIMEOUT_MS = 15_000;
+const NATIVE_POLL_RPC_TIMEOUT_BUFFER_MS = 15_000;
 
 interface ExtensionRpcSendInput {
   socketPath: string;
@@ -43,6 +57,7 @@ interface ExtensionRpcSendInput {
   extensionToken: string;
   extensionOrigin?: string;
   payload: Record<string, unknown>;
+  timeoutMs?: number;
 }
 
 export interface HandleBrowserExtensionNativeMessageInput {
@@ -91,6 +106,7 @@ export async function handleBrowserExtensionNativeMessage(
       }));
       return {
         ok: true,
+        ackType: 'attach_tab',
         result,
       };
     }
@@ -105,6 +121,7 @@ export async function handleBrowserExtensionNativeMessage(
       }
       return {
         ok: true,
+        ackType: 'tab_inventory',
         result: {
           attached: results.length,
           results,
@@ -112,6 +129,7 @@ export async function handleBrowserExtensionNativeMessage(
       };
     }
     case 'poll_command': {
+      const pollWindowMs = message.timeoutMs ?? 10_000;
       const result = await send({
         ...toBaseRpcInput({
           extensionOrigin: input.extensionOrigin,
@@ -119,10 +137,32 @@ export async function handleBrowserExtensionNativeMessage(
         }),
         method: 'browser.extension_poll_command',
         payload: message.timeoutMs === undefined ? {} : { timeoutMs: message.timeoutMs },
+        timeoutMs: pollWindowMs + NATIVE_POLL_RPC_TIMEOUT_BUFFER_MS,
       });
       return {
         type: 'browser_command',
         command: result ?? null,
+      };
+    }
+    case 'command_received': {
+      // Fire-and-forget. Awaiting this RPC inside the serialized frame chain
+      // let a slow/stalled coordinator hold the receipt ack for its full RPC
+      // timeout, head-of-line blocking the command result (and next poll)
+      // queued behind it — converting fast successful commands into
+      // receipt_missing. A receipt lost here degrades to exactly that same
+      // receipt_missing verdict, so failures are safe to swallow.
+      void send({
+        ...toBaseRpcInput({
+          extensionOrigin: input.extensionOrigin,
+          runtimeConfig: input.runtimeConfig,
+        }),
+        method: 'browser.extension_command_received',
+        payload: { commandId: message.commandId },
+      }).catch(() => undefined);
+      return {
+        ok: true,
+        ackType: 'command_received',
+        commandId: message.commandId,
       };
     }
     case 'command_result': {
@@ -136,6 +176,8 @@ export async function handleBrowserExtensionNativeMessage(
       });
       return {
         ok: true,
+        ackType: 'command_result',
+        commandId: message.commandId,
         result,
       };
     }
@@ -230,6 +272,16 @@ function parseBrowserExtensionNativeMessage(
     };
   }
   if (
+    message['type'] === 'command_received'
+    && typeof message['commandId'] === 'string'
+    && message['commandId']
+  ) {
+    return {
+      type: 'command_received',
+      commandId: message['commandId'],
+    };
+  }
+  if (
     message['type'] === 'command_result'
     && typeof message['commandId'] === 'string'
     && typeof message['ok'] === 'boolean'
@@ -272,9 +324,19 @@ function runNativeMessageLoop(options: {
         const frame = buffer.subarray(0, frameLength);
         buffer = buffer.subarray(frameLength);
         pending = pending.then(async () => {
+          // Parsed before the try so the error reply can carry the frame
+          // type: the extension must be able to tell a failed poll (retry
+          // the poll) from a failed result/receipt forward (must NOT clear
+          // the in-flight poll while a command is still executing).
+          let frameType: string | undefined;
           try {
+            const message = parseNativeMessageFrame(frame);
+            if (message && typeof message === 'object') {
+              const type = (message as Record<string, unknown>)['type'];
+              frameType = typeof type === 'string' ? type : undefined;
+            }
             const response = await handleBrowserExtensionNativeMessage({
-              message: parseNativeMessageFrame(frame),
+              message,
               extensionOrigin: options.extensionOrigin,
               runtimeConfig: options.runtimeConfig,
             });
@@ -289,6 +351,7 @@ function runNativeMessageLoop(options: {
             }
             options.output.write(createNativeMessageFrame({
               ok: false,
+              ...(frameType ? { ackType: frameType } : {}),
               error: error instanceof Error ? error.message : String(error),
             }));
           }
@@ -297,9 +360,42 @@ function runNativeMessageLoop(options: {
     });
     options.input.on('error', reject);
     options.input.on('end', () => {
-      pending.then(() => resolve(), reject);
+      pending
+        .then(() =>
+          // Chrome closed the native messaging port (browser quit, extension
+          // reloaded, or service worker replaced). Tell the gateway so health
+          // and error messages can report a real disconnect instead of
+          // inferring one from silence. Best-effort by design.
+          sendBrowserExtensionDisconnected({
+            runtimeConfig: options.runtimeConfig,
+            extensionOrigin: options.extensionOrigin,
+            reason: 'native_host_stdin_eof',
+          }))
+        .then(() => resolve(), reject);
     });
   });
+}
+
+export async function sendBrowserExtensionDisconnected(input: {
+  runtimeConfig: BrowserExtensionNativeRuntimeConfig;
+  extensionOrigin?: string;
+  reason: string;
+  send?: (rpc: ExtensionRpcSendInput) => Promise<unknown>;
+}): Promise<void> {
+  const send = input.send ?? sendExtensionRpc;
+  try {
+    await send({
+      ...toBaseRpcInput({
+        extensionOrigin: input.extensionOrigin,
+        runtimeConfig: input.runtimeConfig,
+      }),
+      method: 'browser.extension_disconnected',
+      payload: { reason: input.reason },
+      timeoutMs: 3_000,
+    });
+  } catch {
+    // The gateway may be gone too (app shutdown); the signal is best-effort.
+  }
 }
 
 function readNativeMessageFrame(): Promise<Buffer> {
@@ -372,7 +468,7 @@ function sendExtensionRpc(input: ExtensionRpcSendInput): Promise<unknown> {
     const timeout = setTimeout(() => {
       socket.destroy();
       reject(new Error('Browser Gateway extension RPC request timed out'));
-    }, 15_000);
+    }, input.timeoutMs ?? NATIVE_RPC_TIMEOUT_MS);
 
     socket.on('connect', () => {
       socket.write(`${JSON.stringify({

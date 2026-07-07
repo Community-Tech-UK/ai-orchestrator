@@ -17,6 +17,28 @@ renderer.image = ({ href, title, text }) => {
   return `<img src="${escapeHtml(href)}" alt="${escapeHtml(text)}"${titleAttr}>`;
 };
 
+/**
+ * Fenced code blocks get a header bar with the language label and a "Copy"
+ * chip. The chip is a span (not a button) because Angular's [innerHTML]
+ * sanitizer strips <button>; CodeCopyDirective handles activation by
+ * delegation from the transcript container.
+ */
+renderer.code = ({ text, lang, escaped }) => {
+  const language = (lang ?? '').match(/^\S*/)?.[0] ?? '';
+  const body = `${text.replace(/\n$/, '')}\n`;
+  const codeHtml = escaped ? body : escapeHtml(body);
+  const langClass = language ? ` class="language-${escapeHtml(language)}"` : '';
+  return (
+    '<div class="md-code">' +
+    '<div class="md-code-bar">' +
+    `<span class="md-code-lang">${language ? escapeHtml(language) : 'code'}</span>` +
+    '<span class="md-code-copy" role="button" tabindex="0" aria-label="Copy code">Copy</span>' +
+    '</div>' +
+    `<pre><code${langClass}>${codeHtml}</code></pre>` +
+    '</div>'
+  );
+};
+
 renderer.table = ({ header, rows }) => {
   const headerHtml = header.map((cell) => `<th>${cell.text}</th>`).join('');
   const bodyHtml = rows
@@ -74,7 +96,21 @@ export function renderMobileMarkdown(content: string): string {
       'tr',
       'ul',
     ],
-    ALLOWED_ATTR: ['alt', 'class', 'href', 'rel', 'src', 'start', 'target', 'title', 'type', 'value'],
+    ALLOWED_ATTR: [
+      'alt',
+      'aria-label',
+      'class',
+      'href',
+      'rel',
+      'role',
+      'src',
+      'start',
+      'tabindex',
+      'target',
+      'title',
+      'type',
+      'value',
+    ],
   });
   renderCache.set(content, sanitized);
   while (renderCache.size > RENDER_CACHE_LIMIT) {

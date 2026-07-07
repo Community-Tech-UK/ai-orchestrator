@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../db/sqlite-driver';
-import { EvidenceStore, getEvidenceStore } from './evidence-store';
+import { EvidenceStore } from './evidence-store';
 import type { EvidenceState } from './evidence-store';
 import { resolveCompletion, type EvidenceInput } from './evidence-resolver';
 
@@ -266,23 +266,23 @@ describe('EvidenceStore — deleteForLoop', () => {
   });
 });
 
-describe('EvidenceStore — getEvidenceStore singleton', () => {
+describe('EvidenceStore — singleton', () => {
   afterEach(() => {
     EvidenceStore._resetForTesting();
   });
 
   it('returns the same instance for the same db', () => {
     const db = createTestDb();
-    const s1 = getEvidenceStore(db);
-    const s2 = getEvidenceStore(db);
+    const s1 = EvidenceStore.getInstance(db);
+    const s2 = EvidenceStore.getInstance(db);
     expect(s1).toBe(s2);
   });
 
   it('returns a fresh instance after _resetForTesting', () => {
     const db = createTestDb();
-    const s1 = getEvidenceStore(db);
+    const s1 = EvidenceStore.getInstance(db);
     EvidenceStore._resetForTesting();
-    const s2 = getEvidenceStore(db);
+    const s2 = EvidenceStore.getInstance(db);
     expect(s1).not.toBe(s2);
   });
 });

@@ -77,18 +77,6 @@ export interface LearningInsight {
   successRate: number;
 }
 
-export interface Experience {
-  id: string;
-  taskType: string;
-  description: string;
-  successfulPatterns: TaskPattern[];
-  failurePatterns: TaskPattern[];
-  examplePrompts: ExamplePrompt[];
-  sampleSize: number;
-  avgSuccessRate: number;
-  lastUpdated: number;
-}
-
 export interface ExamplePrompt {
   prompt: string;
   context?: string;

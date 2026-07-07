@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  SessionRecoveryHandler,
+  SessionRecoveryCoordinator,
   planSessionRecovery,
   computeResumeConfigFingerprint,
 } from '../session-recovery';
@@ -17,12 +17,12 @@ function cursor(overrides: Partial<ResumeCursor> = {}): ResumeCursor {
   };
 }
 
-describe('SessionRecoveryHandler', () => {
+describe('SessionRecoveryCoordinator', () => {
   it('tries native resume first', async () => {
     const nativeResume = vi.fn().mockResolvedValue({ success: true });
     const replayFallback = vi.fn();
 
-    const handler = new SessionRecoveryHandler({ nativeResume, replayFallback });
+    const handler = new SessionRecoveryCoordinator({ nativeResume, replayFallback });
     const result = await handler.recover('instance-1', 'session-abc');
 
     expect(nativeResume).toHaveBeenCalledWith('instance-1', 'session-abc');
@@ -35,7 +35,7 @@ describe('SessionRecoveryHandler', () => {
     const nativeResume = vi.fn().mockResolvedValue({ success: false, error: 'Session not found' });
     const replayFallback = vi.fn().mockResolvedValue({ success: true });
 
-    const handler = new SessionRecoveryHandler({ nativeResume, replayFallback });
+    const handler = new SessionRecoveryCoordinator({ nativeResume, replayFallback });
     const result = await handler.recover('instance-1', 'session-abc');
 
     expect(nativeResume).toHaveBeenCalled();
@@ -45,7 +45,7 @@ describe('SessionRecoveryHandler', () => {
   });
 
   it('returns failure when both phases fail', async () => {
-    const handler = new SessionRecoveryHandler({
+    const handler = new SessionRecoveryCoordinator({
       nativeResume: vi.fn().mockResolvedValue({ success: false }),
       replayFallback: vi.fn().mockResolvedValue({ success: false, error: 'No history' }),
     });

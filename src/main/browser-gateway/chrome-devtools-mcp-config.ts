@@ -1,4 +1,10 @@
 import type { AcpMcpServerConfig } from '../../shared/types/cli.types';
+import {
+  tomlArray,
+  tomlString,
+  tomlTableKey,
+  toWindowsSafeBridge,
+} from './mcp-config-toml-helpers';
 
 /**
  * MCP config writer for the `chrome-devtools` server when it is **attached** to
@@ -55,31 +61,6 @@ export function resolveChromeDevtoolsBridgeSpec(
   return toWindowsSafeBridge(command, args);
 }
 
-/**
- * On Windows, `npx` is not a real executable — there's only `npx.cmd` — and
- * modern Node refuses to spawn a `.cmd` without a shell (CVE-2024-27980). MCP
- * launchers (e.g. Claude Code) start stdio servers shell-less, so a bare `npx`
- * server silently dies with ENOENT and its tools never register. Wrap such
- * commands as `cmd /c <command> …`, which is the only form that spawns reliably
- * shell-less. Verified live on a Windows worker:
- *   spawn('npx')→ENOENT, spawn('npx.cmd')→EINVAL, spawn('cmd',['/c','npx',…])→ok.
- *
- * The builder runs on the machine that will run the server (the worker node for
- * remote spawns), so `process.platform` reflects where `npx` resolves.
- */
-function toWindowsSafeBridge(command: string, args: string[]): ChromeDevtoolsBridgeSpec {
-  if (process.platform === 'win32' && needsCmdWrapper(command)) {
-    return { command: 'cmd', args: ['/c', command, ...args] };
-  }
-  return { command, args };
-}
-
-function needsCmdWrapper(command: string): boolean {
-  const lower = command.toLowerCase();
-  // Already a shell, or a concrete .exe — leave alone.
-  return lower !== 'cmd' && lower !== 'cmd.exe' && !lower.endsWith('.exe');
-}
-
 function serverNameOf(options: ChromeDevtoolsMcpConfigOptions): string {
   return options.serverName ?? DEFAULT_SERVER_NAME;
 }
@@ -107,7 +88,7 @@ export function buildChromeDevtoolsCodexConfigToml(
   }
   const name = serverNameOf(options);
   return [
-    `[mcp_servers.${tomlKey(name)}]`,
+    `[mcp_servers.${tomlTableKey(name)}]`,
     `command = ${tomlString(bridge.command)}`,
     `args = ${tomlArray(bridge.args)}`,
     'enabled = true',
@@ -151,17 +132,4 @@ export function buildChromeDevtoolsAcpMcpServers(
       env: [],
     },
   ];
-}
-
-function tomlString(value: string): string {
-  return JSON.stringify(value);
-}
-
-function tomlArray(values: string[]): string {
-  return `[${values.map((value) => tomlString(value)).join(', ')}]`;
-}
-
-/** Bare key if it's a safe identifier, otherwise a quoted (dotted-safe) key. */
-function tomlKey(value: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(value) ? `"${value}"` : tomlString(value);
 }

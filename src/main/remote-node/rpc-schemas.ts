@@ -322,6 +322,18 @@ export const BrowserExtCommandResultParamsSchema = z.object({
   error: z.string().min(1).max(2000).optional(),
 });
 
+export const BrowserExtCommandReceivedParamsSchema = z.object({
+  token: z.string().optional(),
+  extensionOrigin: z.string().min(1).max(200).optional(),
+  commandId: z.string().min(1).max(200),
+});
+
+export const BrowserExtDisconnectedParamsSchema = z.object({
+  token: z.string().optional(),
+  extensionOrigin: z.string().min(1).max(200).optional(),
+  reason: z.string().min(1).max(200).optional(),
+});
+
 /** No params — stop the managed Chrome on the node. */
 export const BrowserStopManagedParamsSchema = z.object({});
 
@@ -376,6 +388,8 @@ export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'browser.ext.attachTab': BrowserExtAttachTabParamsSchema,
   'browser.ext.pollCommand': BrowserExtPollCommandParamsSchema,
   'browser.ext.commandResult': BrowserExtCommandResultParamsSchema,
+  'browser.ext.commandReceived': BrowserExtCommandReceivedParamsSchema,
+  'browser.ext.disconnected': BrowserExtDisconnectedParamsSchema,
   'instance.spawn': InstanceSpawnParamsSchema,
   'instance.sendInput': InstanceSendInputParamsSchema,
   'instance.terminate': InstanceIdParamsSchema,

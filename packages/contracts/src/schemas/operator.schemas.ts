@@ -12,29 +12,6 @@ export const OperatorRunStatusSchema = z.enum([
   'blocked',
 ]);
 
-export const OperatorNodeTypeSchema = z.enum([
-  'plan',
-  'discover-projects',
-  'project-agent',
-  'repo-job',
-  'workflow',
-  'git-batch',
-  'shell',
-  'verification',
-  'synthesis',
-]);
-
-export const OperatorRunEventKindSchema = z.enum([
-  'state-change',
-  'progress',
-  'shell-command',
-  'fs-write',
-  'instance-spawn',
-  'verification-result',
-  'recovery',
-  'budget',
-]);
-
 export const OperatorRunBudgetSchema = z.object({
   maxNodes: z.number().int().min(0),
   maxRetries: z.number().int().min(0),
@@ -107,6 +84,26 @@ export const OperatorListRunsPayloadSchema = z.object({
 
 export const OperatorRunIdPayloadSchema = z.object({
   runId: z.string().min(1),
+});
+
+export const OperatorListProjectsPayloadSchema = z.object({
+  query: z.string().max(500).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+}).optional();
+
+export const OperatorRescanProjectsPayloadSchema = z.object({
+  includeRecent: z.boolean().optional(),
+  includeActiveInstances: z.boolean().optional(),
+  includeConversationLedger: z.boolean().optional(),
+  roots: z.array(z.string().min(1).max(4096)).max(25).optional(),
+}).optional();
+
+export const OperatorResolveProjectPayloadSchema = z.object({
+  query: z.string().min(1).max(4096),
+});
+
+export const OperatorPlanProjectVerificationPayloadSchema = z.object({
+  projectPath: z.string().min(1).max(4096),
 });
 
 export type OperatorListRunsPayload = z.infer<typeof OperatorListRunsPayloadSchema>;

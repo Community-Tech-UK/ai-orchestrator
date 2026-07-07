@@ -1,0 +1,133 @@
+<div class="campaign-panel">
+  @if (errorMessage()) {
+    <div class="error-banner">{{ errorMessage() }}</div>
+  }
+  @if (validationError()) {
+    <div class="error-banner">{{ validationError() }}</div>
+  }
+
+  <form class="create-form" (submit)="$event.preventDefault(); submitCampaign()">
+    <label>
+      <span>Label</span>
+      <input type="text" [value]="label()" (input)="onLabelInput($event)" />
+    </label>
+
+    <label>
+      <span>Profile</span>
+      <select data-testid="campaign-profile-select" [value]="selectedProfileId()" (change)="onProfileChange($event)">
+        @for (profile of profiles(); track profile.id) {
+          <option [value]="profile.id">{{ profile.label }}</option>
+        }
+      </select>
+    </label>
+
+    <label>
+      <span>Allowed origins (one per line)</span>
+      <textarea [value]="originsText()" (input)="onOriginsInput($event)"></textarea>
+    </label>
+
+    <div class="action-class-checks">
+      <span class="field-label">Allowed action classes</span>
+      @for (actionClass of allowedActionClasses; track actionClass) {
+        <label class="inline-toggle">
+          <input
+            type="checkbox"
+            [checked]="isActionClassSelected(actionClass)"
+            (change)="toggleActionClass(actionClass)"
+          />
+          <span>{{ actionClass }}</span>
+        </label>
+      }
+    </div>
+
+    <div class="budget-grid">
+      <label>
+        <span>Max actions</span>
+        <input type="number" min="1" [value]="budgetDraft().maxActions" (input)="onBudgetInput('maxActions', $event)" />
+      </label>
+      <label>
+        <span>Max submits</span>
+        <input type="number" min="0" [value]="budgetDraft().maxSubmits" (input)="onBudgetInput('maxSubmits', $event)" />
+      </label>
+      <label>
+        <span>Max new accounts</span>
+        <input type="number" min="0" [value]="budgetDraft().maxNewAccounts" (input)="onBudgetInput('maxNewAccounts', $event)" />
+      </label>
+      <label>
+        <span>Max uploads</span>
+        <input type="number" min="0" [value]="budgetDraft().maxUploads" (input)="onBudgetInput('maxUploads', $event)" />
+      </label>
+      <label>
+        <span>Duration (hours, max {{ maxDurationHours }})</span>
+        <input
+          type="number"
+          min="1"
+          [max]="maxDurationHours"
+          [value]="budgetDraft().durationHours"
+          (input)="onBudgetInput('durationHours', $event)"
+        />
+      </label>
+    </div>
+
+    <button class="btn primary" type="submit" data-testid="campaign-submit" [disabled]="busy()">
+      {{ busy() ? 'Creating...' : 'Create Campaign' }}
+    </button>
+  </form>
+
+  <div class="campaign-list">
+    @if (campaigns().length === 0) {
+      <p class="empty">No campaigns yet.</p>
+    }
+    @for (item of campaigns(); track item.campaign.id) {
+      <div class="campaign-row">
+        <div class="campaign-header">
+          <div>
+            <strong>{{ item.campaign.label }}</strong>
+            <span class="status-chip" [attr.data-status]="item.campaign.status">{{ item.campaign.status }}</span>
+          </div>
+          <button class="btn small" type="button" (click)="toggleExpand(item.campaign.id)">
+            {{ expandedCampaignId() === item.campaign.id ? 'Collapse' : 'Expand' }}
+          </button>
+        </div>
+        <div class="label">{{ counterLabel(item) }}</div>
+        <div class="label">Expires {{ formatExpiry(item.campaign.expiresAt) }}</div>
+
+        <div class="row-actions">
+          @if (item.campaign.status === 'active') {
+            <button class="btn small" type="button" (click)="pause(item.campaign.id)">Pause</button>
+          }
+          @if (item.campaign.status === 'paused') {
+            <button class="btn small" type="button" (click)="resume(item.campaign.id)">Resume</button>
+          }
+          @if (item.campaign.status === 'active' || item.campaign.status === 'paused') {
+            <button class="btn small danger" type="button" (click)="kill(item.campaign.id)">Kill</button>
+          }
+        </div>
+
+        @if (expandedCampaignId() === item.campaign.id) {
+          <div class="campaign-detail">
+            @if (campaignDetails()[item.campaign.id]; as detail) {
+              <div class="label">Pending escalations: {{ detail.pendingEscalations }}</div>
+            }
+            <label>
+              <span>Pre-approve declaration hash (sha-256 hex)</span>
+              <input
+                type="text"
+                [value]="declarationHashDraft(item.campaign.id)"
+                (input)="onDeclarationHashInput(item.campaign.id, $event)"
+              />
+            </label>
+            <button
+              class="btn small"
+              type="button"
+              [disabled]="!isDeclarationHashValid(item.campaign.id)"
+              (click)="approveDeclaration(item.campaign.id)"
+            >
+              Approve Declaration
+            </button>
+          </div>
+        }
+      </div>
+    }
+  </div>
+</div>

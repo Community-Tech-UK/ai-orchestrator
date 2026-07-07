@@ -11,18 +11,6 @@ export class IllegalTransitionError extends Error {
 }
 
 /**
- * Back-compat alias retained while callers migrate to IllegalTransitionError.
- *
- * @deprecated Prefer {@link IllegalTransitionError}.
- */
-export class InvalidTransitionError extends IllegalTransitionError {
-  constructor(from: InstanceStatus, to: InstanceStatus) {
-    super(from, to);
-    this.name = 'InvalidTransitionError';
-  }
-}
-
-/**
  * Terminal states — once reached, no further transitions are allowed.
  */
 const TERMINAL_STATES = new Set<InstanceStatus>(['terminated', 'failed']);
@@ -165,7 +153,7 @@ const TRANSITION_MAP: Readonly<Record<InstanceStatus, readonly InstanceStatus[]>
  *   const sm = new InstanceStateMachine('initializing');
  *   sm.transition('ready');   // ok
  *   sm.transition('busy');    // ok
- *   sm.transition('ready');   // throws InvalidTransitionError (busy → ready not in map... wait, it is)
+ *   sm.transition('ready');   // throws IllegalTransitionError if not allowed
  */
 export class InstanceStateMachine {
   private _current: InstanceStatus;
@@ -207,7 +195,7 @@ export class InstanceStateMachine {
    */
   transition(next: InstanceStatus): void {
     if (!this.canTransition(next)) {
-      throw new InvalidTransitionError(this._current, next);
+      throw new IllegalTransitionError(this._current, next);
     }
     this._current = next;
   }

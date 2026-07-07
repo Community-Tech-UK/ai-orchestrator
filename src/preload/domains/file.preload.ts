@@ -348,35 +348,6 @@ export function createFileDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     // ============================================
 
     /**
-     * Watch a path for changes
-     */
-    watcherWatch: (
-      path: string,
-      options?: {
-        recursive?: boolean;
-        patterns?: string[];
-        ignorePatterns?: string[];
-        debounceMs?: number;
-      }
-    ): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WATCHER_WATCH, { path, options });
-    },
-
-    /**
-     * Stop watching a path
-     */
-    watcherUnwatch: (watcherId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WATCHER_UNWATCH, { watcherId });
-    },
-
-    /**
-     * Get active watchers
-     */
-    watcherGetActive: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WATCHER_GET_ACTIVE);
-    },
-
-    /**
      * Listen for file change events
      */
     onWatcherFileChanged: (callback: (data: unknown) => void): (() => void) => {

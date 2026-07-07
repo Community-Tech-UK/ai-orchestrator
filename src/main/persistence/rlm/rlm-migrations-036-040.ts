@@ -89,4 +89,87 @@ export const RLM_MIGRATIONS_036_040: Migration[] = [
       DROP TABLE IF EXISTS session_compaction_markers;
     `,
   },
+  // Migration 040: unattended browser-automation persistence — credential vault
+  // origin bindings, standing credential authorizations, campaigns + budget
+  // counters, and the human-escalation queue. Secrets stay in Bitwarden; these
+  // tables hold only references, scopes, budgets and status.
+  {
+    name: '040_browser_unattended_tables',
+    up: `
+      CREATE TABLE IF NOT EXISTS browser_vault_item_bindings (
+        vault_item_ref   TEXT PRIMARY KEY,
+        origin           TEXT NOT NULL,
+        username         TEXT NOT NULL,
+        created_at       INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS browser_credential_authorizations (
+        id                   TEXT PRIMARY KEY,
+        profile_id           TEXT NOT NULL,
+        allowed_origins_json TEXT NOT NULL,
+        purposes_json        TEXT NOT NULL,
+        vault_folder         TEXT NOT NULL,
+        created_at           INTEGER NOT NULL,
+        expires_at           INTEGER NOT NULL,
+        revoked_at           INTEGER,
+        note                 TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_cred_auth_profile
+        ON browser_credential_authorizations(profile_id);
+
+      CREATE TABLE IF NOT EXISTS browser_campaigns (
+        id                               TEXT PRIMARY KEY,
+        label                            TEXT NOT NULL,
+        profile_id                       TEXT NOT NULL,
+        allowed_origins_json             TEXT NOT NULL,
+        allowed_action_classes_json      TEXT NOT NULL,
+        budget_json                      TEXT NOT NULL,
+        approved_declaration_hashes_json TEXT NOT NULL,
+        status                           TEXT NOT NULL,
+        created_at                       INTEGER NOT NULL,
+        expires_at                       INTEGER NOT NULL,
+        approved_by                      TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_campaigns_status
+        ON browser_campaigns(status);
+
+      CREATE TABLE IF NOT EXISTS browser_campaign_counters (
+        campaign_id      TEXT PRIMARY KEY,
+        actions          INTEGER NOT NULL DEFAULT 0,
+        submits          INTEGER NOT NULL DEFAULT 0,
+        new_accounts     INTEGER NOT NULL DEFAULT 0,
+        uploads          INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS browser_escalations (
+        id                     TEXT PRIMARY KEY,
+        campaign_id            TEXT,
+        profile_id             TEXT NOT NULL,
+        target_id              TEXT,
+        kind                   TEXT NOT NULL,
+        reason                 TEXT NOT NULL,
+        url                    TEXT,
+        screenshot_artifact_id TEXT,
+        status                 TEXT NOT NULL,
+        created_at             INTEGER NOT NULL,
+        resolved_at            INTEGER,
+        resolution_note        TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_escalations_status
+        ON browser_escalations(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_escalations_campaign
+        ON browser_escalations(campaign_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_escalations_campaign;
+      DROP INDEX IF EXISTS idx_escalations_status;
+      DROP TABLE IF EXISTS browser_escalations;
+      DROP TABLE IF EXISTS browser_campaign_counters;
+      DROP INDEX IF EXISTS idx_campaigns_status;
+      DROP TABLE IF EXISTS browser_campaigns;
+      DROP INDEX IF EXISTS idx_cred_auth_profile;
+      DROP TABLE IF EXISTS browser_credential_authorizations;
+      DROP TABLE IF EXISTS browser_vault_item_bindings;
+    `,
+  },
 ];

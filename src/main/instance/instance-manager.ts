@@ -85,6 +85,10 @@ import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
 import { getContextEngine } from '../context/context-engine.js';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
+import {
+  assertInstanceLifecycleHookAllowed,
+  dispatchInstanceLifecycleHook,
+} from './instance-lifecycle-hooks';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
@@ -1240,6 +1244,17 @@ export class InstanceManager extends EventEmitter {
         error: error instanceof Error ? error.message : error ? String(error) : undefined,
         timestamp: Date.now(),
       });
+      if (success) {
+        dispatchInstanceLifecycleHook('SessionStart', instance, {
+          stopReason: 'ready',
+        }, logger);
+      } else {
+        dispatchInstanceLifecycleHook('StopFailure', instance, {
+          errorMessage: error instanceof Error ? error.message : error ? String(error) : 'Session failed to start',
+          errorProvider: instance.provider,
+          stopReason: 'session-start-failed',
+        }, logger);
+      }
     };
 
     if (instance.readyPromise) {
@@ -1265,6 +1280,10 @@ export class InstanceManager extends EventEmitter {
     getActionCircuitBreaker().reset(instanceId);
     forgetLspFeedbackInstance(instanceId);
     await this.lifecycle.terminateInstance(instanceId, graceful);
+    dispatchInstanceLifecycleHook('SessionEnd', instance, {
+      instanceId,
+      stopReason: graceful ? 'graceful' : 'terminated',
+    }, logger);
     emitPluginHook('session.terminated', {
       instanceId,
       parentId: instance?.parentId ?? null,
@@ -1497,6 +1516,13 @@ export class InstanceManager extends EventEmitter {
       if (instance.status === 'error' || instance.status === 'failed') {
         throw new Error('Instance respawn after interrupt failed');
       }
+    }
+
+    if (!options?.isRetry && !options?.autoContinuation) {
+      await assertInstanceLifecycleHookAllowed('UserPromptSubmit', instance, {
+        userPrompt: message,
+        content: message,
+      });
     }
 
     const handledSwitchModeReply = await this.runInputPreflight({

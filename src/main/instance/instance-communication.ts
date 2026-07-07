@@ -48,6 +48,10 @@ import { extractTodoToolItems } from './todo-tool-parser';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 import { detectErrorProviderLimit, detectCompletionProviderLimit } from './instance-provider-limit-detection';
 import {
+  assertInstanceLifecycleHookAllowed,
+  dispatchInstanceLifecycleHook,
+} from './instance-lifecycle-hooks';
+import {
   getAdapterRuntimeCapabilities,
   isContextOverflowMessage,
   isCorruptedSessionMessage,
@@ -114,7 +118,6 @@ export class InstanceCommunicationManager extends EventEmitter {
     super();
     this.deps = deps;
   }
-
 
   /**
    * Get or create circuit breaker state for an instance
@@ -674,6 +677,17 @@ export class InstanceCommunicationManager extends EventEmitter {
     const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
     const finalMessage = this.applyPlanModeTurnHint(instance, finalMessageBase, isAutoContinuation);
 
+    await assertInstanceLifecycleHookAllowed(
+      'PreSampling',
+      instance,
+      {
+        userPrompt: message,
+        content: finalMessage,
+        estimatedTokens: instance.contextUsage?.inputTokens ?? instance.contextUsage?.used,
+      },
+      this.hookManager,
+    );
+
     // Hard checkpoint: snapshot before user message
     if (this.deps.createSnapshot) {
       const name = `Before: ${message.slice(0, 50)}`;
@@ -1218,9 +1232,11 @@ export class InstanceCommunicationManager extends EventEmitter {
           const toolName = (metadata['name'] as string) || 'unknown';
 
           try {
-            await this.hookManager.triggerHooks('PreToolUse', {
+            await this.hookManager.triggerLifecycleHooks('PreToolUse', {
               instanceId,
+              sessionId: instance.providerSessionId || instance.sessionId,
               toolName,
+              toolInput: metadata,
               workingDirectory: instance.workingDirectory,
             });
           } catch (err) {
@@ -1259,6 +1275,15 @@ export class InstanceCommunicationManager extends EventEmitter {
                 });
                 // Internal main-process bus for coordinators (e.g. LSP feedback).
                 getFileEditBus().emitEdited({ instanceId, filePath: fp, toolName, provider: instance.provider });
+                dispatchInstanceLifecycleHook('FileChanged', instance, {
+                  toolName,
+                  filePath: fp,
+                  changedPath: fp,
+                  changedRelativePath: fp.startsWith(instance.workingDirectory)
+                    ? fp.slice(instance.workingDirectory.length).replace(/^[/\\]/, '')
+                    : fp,
+                  changeType: 'change',
+                }, logger, this.hookManager);
               }
             }
           }
@@ -1270,9 +1295,11 @@ export class InstanceCommunicationManager extends EventEmitter {
           const isError = (metadata['is_error'] as boolean) || false;
 
           try {
-            await this.hookManager.triggerHooks('PostToolUse', {
+            await this.hookManager.triggerLifecycleHooks('PostToolUse', {
               instanceId,
+              sessionId: instance.providerSessionId || instance.sessionId,
               content: message.content,
+              toolOutput: message.content,
               workingDirectory: instance.workingDirectory,
             });
             // Log warning if tool result was an error
@@ -1573,6 +1600,15 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (completedInstance) {
         this.recordCompletionCost(instanceId, completedInstance, response);
         this.recordEstimationTelemetry(completedInstance, response);
+        dispatchInstanceLifecycleHook('PostSampling', completedInstance, {
+          modelResponse: response.content,
+          responseTokens: response.usage?.outputTokens,
+          modelId: completedInstance.currentModel,
+        }, logger, this.hookManager);
+        dispatchInstanceLifecycleHook('Stop', completedInstance, {
+          stopReason: response.degradedReason ? `degraded:${response.degradedReason}` : 'complete',
+          transcript: response.content,
+        }, logger, this.hookManager);
       }
       this.deps.onToolStateChange?.(instanceId, 'idle');
 
@@ -1894,6 +1930,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
 
       instance.errorCount++;
+      dispatchInstanceLifecycleHook('StopFailure', instance, {
+        errorMessage: errorContent,
+        errorProvider: instance.provider,
+        stopReason: 'adapter-error',
+      }, logger, this.hookManager);
 
       // Don't mark as error if we're in the middle of interrupt recovery - let lifecycle handle it.
       if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
@@ -2099,6 +2140,13 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         const newStatus = code === 0 ? 'terminated' : 'error';
         logger.info('Instance exited unexpectedly', { instanceId, newStatus, code, signal });
+        if (newStatus === 'error') {
+          dispatchInstanceLifecycleHook('StopFailure', instance, {
+            errorMessage: `Process exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`,
+            errorProvider: instance.provider,
+            stopReason: 'process-exit',
+          }, logger, this.hookManager);
+        }
         this.transitionInstanceStatus(instance, newStatus);
         instance.processId = null;
         this.deps.queueUpdate(

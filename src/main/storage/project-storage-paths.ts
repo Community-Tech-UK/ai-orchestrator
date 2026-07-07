@@ -55,7 +55,3 @@ export function getProjectStoragePaths(): ProjectStoragePaths {
   }
   return storagePaths;
 }
-
-export function _resetProjectStoragePathsForTesting(): void {
-  storagePaths = null;
-}

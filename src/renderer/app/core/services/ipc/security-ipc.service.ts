@@ -111,4 +111,9 @@ export class SecurityIpcService {
       IpcResponse<PermissionConfigResponse & { preset: 'allow' | 'ask' | 'deny' }>
     >;
   }
+
+  async permissionGetAuditLog(instanceId?: string, limit?: number): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.permissionGetAuditLog(instanceId, limit);
+  }
 }

@@ -39,22 +39,6 @@ export function loadTask(taskId: string): BenchmarkTask | undefined {
 }
 
 /**
- * Load tasks filtered by category
- */
-export function loadTasksByCategory(category: BenchmarkTask['category']): BenchmarkTask[] {
-  const suite = loadTaskSuite();
-  return suite.tasks.filter(t => t.category === category);
-}
-
-/**
- * Load tasks filtered by complexity
- */
-export function loadTasksByComplexity(complexity: BenchmarkTask['complexity']): BenchmarkTask[] {
-  const suite = loadTaskSuite();
-  return suite.tasks.filter(t => t.complexity === complexity);
-}
-
-/**
  * Validate the task suite structure
  */
 function validateTaskSuite(suite: TaskSuite): void {
@@ -106,11 +90,4 @@ function validateTask(task: BenchmarkTask): void {
   if (task.timeoutMinutes <= 0 || task.timeoutMinutes > 30) {
     throw new Error(`Task ${task.id} has invalid timeout: ${task.timeoutMinutes} (must be 1-30)`);
   }
-}
-
-/**
- * Get the path to a setup script
- */
-export function getSetupScriptPath(scriptName: string): string {
-  return join(TASKS_DIR, 'setup', scriptName);
 }

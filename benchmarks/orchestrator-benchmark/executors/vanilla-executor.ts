@@ -4,7 +4,7 @@
 
 import { spawn } from 'child_process';
 import { resolve } from 'path';
-import type { BenchmarkTask, ExecutorResult, ContextStage, TokenUsageBreakdown } from '../types.js';
+import type { BenchmarkTask, ExecutorResult, TokenUsageBreakdown } from '../types.js';
 
 export interface VanillaExecutorOptions {
   /** Pre-filled context messages to send before the task */
@@ -161,43 +161,4 @@ export async function executeVanilla(
       });
     });
   });
-}
-
-/**
- * Build context messages for a given context stage
- */
-export function buildContextMessages(stage: ContextStage, workingDirectory: string): string[] {
-  // This will be populated by context-filler.ts
-  // Returns pre-built context appropriate for the stage
-  switch (stage) {
-    case 'fresh':
-      return [];
-    case 'moderate':
-      // ~50k tokens of prior conversation
-      return getModerateContextMessages(workingDirectory);
-    case 'heavy':
-      // ~100k+ tokens of prior conversation
-      return getHeavyContextMessages(workingDirectory);
-  }
-}
-
-function getModerateContextMessages(_workingDirectory: string): string[] {
-  // Placeholder - will be implemented in context-filler.ts
-  return [
-    'Previous task: Explored the codebase structure and identified main components.',
-    'Previous task: Analyzed the instance management system.',
-    'Previous task: Reviewed the IPC communication patterns.',
-  ];
-}
-
-function getHeavyContextMessages(_workingDirectory: string): string[] {
-  // Placeholder - will be implemented in context-filler.ts
-  return [
-    ...getModerateContextMessages(_workingDirectory),
-    'Previous task: Deep dive into orchestration handler implementation.',
-    'Previous task: Analyzed all error handling paths.',
-    'Previous task: Reviewed memory management and caching systems.',
-    'Previous task: Traced request flow from UI to backend.',
-    'Previous task: Examined test coverage and testing patterns.',
-  ];
 }

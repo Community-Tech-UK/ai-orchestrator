@@ -41,12 +41,13 @@ vi.mock('../../auth/remote-auth', () => ({
 
 vi.mock('../rpc-schemas', () => ({
   BROWSER_CDP_MAX_FRAME_BYTES: 8,
-  validateRpcParams: vi.fn(),
+  validateRpcParams: vi.fn((_schema, params) => params),
   RPC_PARAM_SCHEMAS: {
     'node.register': {},
     'node.heartbeat': {},
     'instance.stateChange': {},
     'instance.permissionRequest': {},
+    'fs.event': {},
     'browser.cdp.message': {},
     'browser.ext.pollCommand': {},
   },
@@ -540,6 +541,27 @@ describe('RpcEventRouter', () => {
       sessionId: 'term-3',
       exitCode: null,
       signal: null,
+    });
+  });
+
+  it('emits remote:fs-event on registry for fs.event notification', () => {
+    registry.registerNode(makeNode('node-fs1'));
+    const handler = vi.fn();
+    registry.on('remote:fs-event', handler);
+
+    mockConnection.emit('rpc:notification', 'node-fs1', {
+      jsonrpc: '2.0',
+      method: 'fs.event',
+      params: {
+        watchId: 'watch-1',
+        events: [{ type: 'change', path: '/workspace/a.ts', isDirectory: false }],
+      },
+    });
+
+    expect(handler).toHaveBeenCalledWith({
+      nodeId: 'node-fs1',
+      watchId: 'watch-1',
+      events: [{ type: 'change', path: '/workspace/a.ts', isDirectory: false }],
     });
   });
 

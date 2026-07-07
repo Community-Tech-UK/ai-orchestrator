@@ -5,7 +5,7 @@ import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-his
 import {
   DEFAULT_INSTANCE_PROVIDERS,
   PROVIDER_MENU_LABELS,
-} from '../models/provider-menu.component';
+} from '../models/provider-menu.constants';
 import type { PickerProvider } from '../models/compact-model-picker.types';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.

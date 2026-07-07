@@ -121,6 +121,53 @@ describe('BrowserGatewayService', () => {
     expect(JSON.stringify(result)).not.toContain('driverTargetId');
   });
 
+  it('recovers a timed-out open_tab as success when the post-timeout probe finds the tab', async () => {
+    const sendCommand = vi.fn(async (request: { command: string }) => {
+      if (request.command === 'open_tab') {
+        throw new Error('browser_extension_command_timeout');
+      }
+      return { ok: true }; // report_inventory probe
+    });
+    const { service, extensionTabStore } = makeService({
+      existingTab: {
+        profileId: 'existing-tab:7:99',
+        targetId: 'existing-tab:7:99:target',
+        tabId: 99,
+        windowId: 7,
+        title: 'ProContract',
+        url: 'https://procontract.due-north.com/Login',
+        origin: 'https://procontract.due-north.com',
+        allowedOrigins: [{
+          scheme: 'https' as const,
+          hostPattern: 'procontract.due-north.com',
+          includeSubdomains: false,
+        }],
+      },
+      extensionCommandStore: { sendCommand },
+    });
+    // No matching tab before the open attempt; the tab appears once the
+    // recovery probe refreshes inventory (the open actually worked — only the
+    // ack was lost).
+    extensionTabStore.listTabs.mockReturnValueOnce([]);
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      url: 'https://procontract.due-north.com/Login',
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({ command: 'open_tab' }));
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({ command: 'report_inventory' }));
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        id: 'existing-tab:7:99:target',
+        profileId: 'existing-tab:7:99',
+      },
+    });
+  });
+
   it('reads cached snapshots and screenshots from selected existing Chrome tabs', async () => {
     const { service, driver } = makeService({
       profile: null,
@@ -468,6 +515,75 @@ describe('BrowserGatewayService', () => {
         nodeId: 'node-1',
       }),
     ]);
+  });
+
+  it('marks targets stale and says so when an explicit inventory refresh fails', async () => {
+    // The channel can look "fresh" (recent contact) while the live refresh
+    // still fails — cached tabs must NOT read as proof the extension is alive.
+    const sendCommand = vi.fn(async () => {
+      throw new Error('browser_extension_command_not_delivered');
+    });
+    const { service } = makeService({
+      target: makeTarget({
+        id: 'existing-tab:n.node-1:7:42:target',
+        profileId: 'existing-tab:n.node-1:7:42',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        mode: 'existing-tab',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1_000,
+      }),
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.listTargets({ nodeId: 'node-1', refresh: true });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      reason: expect.stringContaining('inventory refresh FAILED') as string,
+      data: [expect.objectContaining({
+        id: 'existing-tab:n.node-1:7:42:target',
+        stale: true,
+      })],
+    });
+  });
+
+  it('does not report a local refresh failure when no local extension targets exist', async () => {
+    // Machines with no local extension set up must not see "refresh FAILED for
+    // the local extension" on every refreshed listing — the local queue is
+    // probed unconditionally, so its failure is only news when local cached
+    // targets exist.
+    const sendCommand = vi.fn(async () => {
+      throw new Error('browser_extension_command_not_delivered');
+    });
+    const { service } = makeService({
+      target: makeTarget({
+        id: 'existing-tab:n.node-1:7:42:target',
+        profileId: 'existing-tab:n.node-1:7:42',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        mode: 'existing-tab',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1_000,
+      }),
+      extensionCommandStore: { sendCommand },
+    });
+
+    // No nodeId filter and an empty worker registry: the refresh probes only
+    // the local queue, and that probe fails.
+    const result = await service.listTargets({ refresh: true });
+
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'local',
+      command: 'report_inventory',
+    }));
+    // The local failure is masked (no local extension targets exist), so the
+    // listing reports nothing degraded and the node target stays non-stale.
+    expect(result.reason).toBeUndefined();
+    expect(result.data?.[0]).not.toHaveProperty('stale');
   });
 
   it('records requires_user for mutating browser actions', async () => {
@@ -997,6 +1113,87 @@ describe('BrowserGatewayService', () => {
       'input[type="file"]',
       resolvedUploadFile,
     );
+  });
+
+  it('fails verified click when read-back does not match the expectation', async () => {
+    const { service, driver } = makeService({
+      grants: [makeGrant()],
+    });
+    driver.readControl.mockResolvedValueOnce({ checked: false });
+
+    const result = await service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: '#terms',
+      verify: { checked: true },
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    } as any);
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: expect.stringContaining('browser_verify_mismatch') as string,
+    });
+    expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', '#terms');
+    expect(driver.readControl).toHaveBeenCalledWith('profile-1', 'target-1', '#terms');
+  });
+
+  it('fails verified select when selected label read-back does not match', async () => {
+    const { service, driver } = makeService({
+      grants: [makeGrant()],
+    });
+    driver.readControl.mockResolvedValueOnce({ value: 'internal', selectedLabel: 'Internal' });
+
+    const result = await service.select({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'select.track',
+      value: 'production',
+      verify: { selectedLabel: 'Production' },
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    } as any);
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: expect.stringContaining('browser_verify_mismatch') as string,
+    });
+    expect(driver.select).toHaveBeenCalledWith('profile-1', 'target-1', 'select.track', 'production');
+    expect(driver.readControl).toHaveBeenCalledWith('profile-1', 'target-1', 'select.track');
+  });
+
+  it('fails verified fill_form when any field read-back does not match', async () => {
+    const { service, driver } = makeService({
+      grants: [makeGrant()],
+    });
+    driver.readControl
+      .mockResolvedValueOnce({ value: 'One' })
+      .mockResolvedValueOnce({ value: 'wrong' });
+
+    const result = await service.fillForm({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      fields: [
+        { selector: '#one', value: 'One', verify: { value: 'One' } },
+        { selector: '#two', value: 'Two', verify: { value: 'Two' } },
+      ],
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    } as any);
+
+    expect(driver.fillForm).toHaveBeenCalledWith('profile-1', 'target-1', [
+      { selector: '#one', value: 'One' },
+      { selector: '#two', value: 'Two' },
+    ]);
+    expect(driver.readControl).toHaveBeenCalledWith('profile-1', 'target-1', '#one');
+    expect(driver.readControl).toHaveBeenCalledWith('profile-1', 'target-1', '#two');
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: expect.stringContaining('browser_verify_mismatch') as string,
+    });
   });
 
   it('blocks fill_form atomically when a field is credential-like', async () => {
@@ -1623,5 +1820,319 @@ describe('BrowserGatewayService', () => {
       nodeName: 'Windows PC',
     });
     expect(other.data).toEqual([]);
+  });
+
+  it('executeFillPlan fills, verifies via read-back, and reports success', async () => {
+    const { service, driver } = makeService({
+      grants: [makeGrant({ allowedActionClasses: ['input'] })],
+    });
+    // Read-back echoes the intended value so verification passes.
+    driver.readControl.mockImplementation(async (_p: string, _t: string, target: string) =>
+      target === '#company' ? { value: '16760348' } : { value: 'Newbury' },
+    );
+
+    const result = await service.executeFillPlan({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      steps: [
+        { field: 'companyNumber', kind: 'set', target: '#company', value: '16760348' },
+        { field: 'town', kind: 'set', target: '#town', value: 'Newbury' },
+      ],
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(result.data?.ok).toBe(true);
+    expect(driver.type).toHaveBeenCalledTimes(2);
+  });
+
+  it('executeFillPlan fails loudly when a control does not reflect the intended value', async () => {
+    const { service, driver } = makeService({
+      grants: [makeGrant({ allowedActionClasses: ['input'] })],
+    });
+    // The control keeps showing an empty value — the silent no-op case.
+    driver.readControl.mockResolvedValue({ value: '' });
+
+    const result = await service.executeFillPlan({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      steps: [{ field: 'companyNumber', kind: 'set', target: '#company', value: '16760348' }],
+      maxAttempts: 1,
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'failed' });
+    expect(result.data?.ok).toBe(false);
+    expect(result.data?.failedAt).toBe(0);
+  });
+
+  it('executeFillPlan refuses shared existing tabs (managed profiles only)', async () => {
+    const { service, driver } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab: {
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        title: 'Portal',
+        url: 'https://portal.example.gov.uk/form',
+        origin: 'https://portal.example.gov.uk',
+        text: 'application form',
+        allowedOrigins: [
+          { scheme: 'https', hostPattern: 'portal.example.gov.uk', includeSubdomains: false },
+        ],
+      },
+    });
+
+    const result = await service.executeFillPlan({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      steps: [{ field: 'x', kind: 'set', target: '#x', value: 'y' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'execute_fill_plan_managed_profile_only',
+    });
+    expect(driver.type).not.toHaveBeenCalled();
+  });
+
+  it('fillCredential types a vault secret without it ever appearing in the result', async () => {
+    const vault = { getSecretForFill: vi.fn(async () => 'S3cr3t-From-Vault!') };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [
+        { selector: '#user', kind: 'username' },
+        { selector: '#pass', kind: 'password' },
+      ],
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 2 } });
+    // The secret was typed into the page...
+    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#pass', 'S3cr3t-From-Vault!');
+    // ...but never appears anywhere in the returned result (no leakage to the model).
+    expect(JSON.stringify(result)).not.toContain('S3cr3t-From-Vault!');
+    // Authorization was checked for the live origin.
+    expect(authorizations.check).toHaveBeenCalledWith(
+      expect.objectContaining({ profileId: 'profile-1', origin: 'http://localhost:4567', purpose: 'login' }),
+    );
+  });
+
+  it('fillCredential denies when there is no standing authorization', async () => {
+    const vault = { getSecretForFill: vi.fn(async () => 'secret') };
+    const authorizations = {
+      check: vi.fn(() => ({ authorized: false as const, reason: 'origin_not_authorized' as const })),
+    };
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
+    expect(result.reason).toContain('credential_not_authorized');
+    // Never resolved the secret or typed anything.
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+    expect(driver.type).not.toHaveBeenCalled();
+  });
+
+  it('fillCredential resolves an email_code from the mailbox and types it without leakage', async () => {
+    const vault = { getSecretForFill: vi.fn(async () => 'vault-secret') };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const emailCodeReader = {
+      fetchCode: vi.fn(async () => ({ code: '482913', messageId: 'm-1', matchedSender: 'noreply@localhost' })),
+    };
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      emailCodeReader,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#otp', kind: 'email_code' }],
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 1 } });
+    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#otp', '482913');
+    expect(JSON.stringify(result)).not.toContain('482913');
+    // The email_code purpose was authorization-checked for the live origin.
+    expect(authorizations.check).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: 'http://localhost:4567', purpose: 'email_code' }),
+    );
+    // Default sender allowlist is derived from the live origin host.
+    expect(emailCodeReader.fetchCode).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedSenderDomains: ['localhost'] }),
+    );
+    // The vault was never touched for a mailbox code.
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+  });
+
+  it('fillCredential rejects email_code sender domains unrelated to the live origin', async () => {
+    const vault = { getSecretForFill: vi.fn() };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const emailCodeReader = { fetchCode: vi.fn() };
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      emailCodeReader,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#otp', kind: 'email_code' }],
+      emailCode: { senderDomains: ['some-bank.com'] },
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'email_code_sender_domain_not_allowed',
+    });
+    expect(emailCodeReader.fetchCode).not.toHaveBeenCalled();
+    expect(driver.type).not.toHaveBeenCalled();
+  });
+
+  it('fillCredential denies email_code fields when no mailbox reader is configured', async () => {
+    const vault = { getSecretForFill: vi.fn() };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#otp', kind: 'email_code' }],
+    });
+
+    expect(result).toMatchObject({ decision: 'denied', reason: 'email_code_reader_unavailable' });
+  });
+
+  it('fillCredential reports a failed outcome when no matching code mail arrives', async () => {
+    const vault = { getSecretForFill: vi.fn() };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const emailCodeReader = {
+      fetchCode: vi.fn(async () => {
+        throw new Error('No message from an expected sender domain arrived within the recency window');
+      }),
+    };
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      emailCodeReader,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#otp', kind: 'email_code' }],
+    });
+
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'failed' });
+    expect(driver.type).not.toHaveBeenCalled();
+  });
+
+  it('fillCredential is unavailable when the vault is not configured', async () => {
+    const { service } = makeService();
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+    expect(result).toMatchObject({ decision: 'denied', reason: 'credential_vault_unavailable' });
+  });
+
+  it('createAgentCredential registers a vaulted account and returns only a ref + username', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(async () => ({ vaultItemRef: 'item-9', username: 'james@communitytech.co.uk' })),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const { service } = makeService({ credentialVault: vault, credentialAuthorizations: authorizations });
+
+    const result = await service.createAgentCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      username: 'james@communitytech.co.uk',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { vaultItemRef: 'item-9', username: 'james@communitytech.co.uk' },
+    });
+    // The register authorization (not login) was checked.
+    expect(authorizations.check).toHaveBeenCalledWith(
+      expect.objectContaining({ purpose: 'register', origin: 'http://localhost:4567' }),
+    );
+    expect(vault.createAgentCredential).toHaveBeenCalledWith({
+      origin: 'http://localhost:4567',
+      username: 'james@communitytech.co.uk',
+    });
+  });
+
+  it('createAgentCredential denies without a register authorization', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+    };
+    const authorizations = {
+      check: vi.fn(() => ({ authorized: false as const, reason: 'purpose_not_authorized' as const })),
+    };
+    const { service } = makeService({ credentialVault: vault, credentialAuthorizations: authorizations });
+
+    const result = await service.createAgentCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      username: 'x@y.z',
+    });
+
+    expect(result).toMatchObject({ decision: 'denied' });
+    expect(vault.createAgentCredential).not.toHaveBeenCalled();
   });
 });

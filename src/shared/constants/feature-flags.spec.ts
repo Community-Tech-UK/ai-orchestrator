@@ -19,11 +19,9 @@ describe('Feature Flags', () => {
   });
 
   it('has new infrastructure flags', () => {
-    expect(ORCHESTRATION_FEATURES.STREAMING_TOOLS).toBeDefined();
     expect(ORCHESTRATION_FEATURES.LAYERED_COMPACTION).toBeDefined();
     expect(ORCHESTRATION_FEATURES.ERROR_WITHHOLDING).toBeDefined();
     expect(ORCHESTRATION_FEATURES.TOKEN_BUDGET).toBeDefined();
-    expect(ORCHESTRATION_FEATURES.FILE_WATCHER_CACHE).toBeDefined();
   });
 
   it('isFeatureEnabled returns boolean', () => {

@@ -17,6 +17,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { HOOK_EVENTS } from '../../../../shared/types/hook.types';
 import type {
   HookRule,
   HookEvent,
@@ -236,9 +237,26 @@ interface HookFormData {
                           (change)="updateCondition(i, 'field', $any($event.target).value)"
                         >
                           <option value="toolName">Tool Name</option>
+                          <option value="toolInput">Tool Input</option>
+                          <option value="toolOutput">Tool Output</option>
                           <option value="filePath">File Path</option>
+                          <option value="changedPath">Changed Path</option>
+                          <option value="changedRelativePath">Changed Relative Path</option>
+                          <option value="changeType">Change Type</option>
                           <option value="newContent">Content</option>
                           <option value="command">Command</option>
+                          <option value="userPrompt">User Prompt</option>
+                          <option value="stopReason">Stop Reason</option>
+                          <option value="errorMessage">Error Message</option>
+                          <option value="errorProvider">Error Provider</option>
+                          <option value="compactionMethod">Compaction Method</option>
+                          <option value="compactionSuccess">Compaction Success</option>
+                          <option value="previousContextUsage">Previous Context Usage</option>
+                          <option value="oldCwd">Old CWD</option>
+                          <option value="newCwd">New CWD</option>
+                          <option value="modelResponse">Model Response</option>
+                          <option value="responseTokens">Response Tokens</option>
+                          <option value="modelId">Model ID</option>
                         </select>
                         <select
                           class="condition-operator"
@@ -849,16 +867,7 @@ export class HooksConfigComponent {
   ruleTested = output<HookRule>();
 
   /** Available events */
-  events: (HookEvent | 'all')[] = [
-    'all',
-    'PreToolUse',
-    'PostToolUse',
-    'Stop',
-    'SessionStart',
-    'SessionEnd',
-    'BeforeCommit',
-    'UserPromptSubmit',
-  ];
+  events: (HookEvent | 'all')[] = ['all', ...HOOK_EVENTS];
 
   /** Available operators */
   operators: ConditionOperator[] = [

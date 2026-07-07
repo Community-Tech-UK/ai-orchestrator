@@ -6,11 +6,6 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('BrowserRemoteUploadStaging');
 
-export type StageBrowserUploadOnNode = (
-  nodeId: string,
-  localPath: string,
-) => Promise<string>;
-
 /**
  * Stage a coordinator-local file onto a remote worker node so the node's
  * Chrome extension can point `DOM.setFileInputFiles` at a path that exists on

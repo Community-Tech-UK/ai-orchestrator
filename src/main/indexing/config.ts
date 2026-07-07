@@ -4,7 +4,11 @@
  * Default configuration values and helpers for the indexing system.
  */
 
-import type { IndexingConfig, SearchConfig, ChunkConfig, MerkleTreeConfig, FileWatcherConfig, RerankerConfig } from '../../shared/types/codebase.types';
+import type { IndexingConfig, SearchConfig, ChunkConfig, MerkleTreeConfig, FileWatcherConfig } from '../../shared/types/codebase.types';
+import {
+  codeIndexDirectoryIgnoreNames,
+  codeIndexIgnoresAsGlobPatterns,
+} from '../codemem/code-index-ignores';
 
 // ============================================================================
 // Default Indexing Configuration
@@ -52,31 +56,7 @@ export const DEFAULT_INDEXING_CONFIG: IndexingConfig = {
     '**/*.yml',
     '**/*.toml',
   ],
-  excludePatterns: [
-    '**/node_modules/**',
-    '**/.git/**',
-    '**/cache/**',
-    '**/dist/**',
-    '**/build/**',
-    '**/libraries/**',
-    '**/.next/**',
-    '**/coverage/**',
-    '**/.gradle/**',
-    '**/__pycache__/**',
-    '**/.pytest_cache/**',
-    '**/.venv/**',
-    '**/target/**',
-    '**/out/**',
-    '**/vendor/**',
-    '**/*.min.js',
-    '**/*.min.css',
-    '**/*.bundle.js',
-    '**/*.map',
-    '**/package-lock.json',
-    '**/yarn.lock',
-    '**/pnpm-lock.yaml',
-    '**/*.lock',
-  ],
+  excludePatterns: codeIndexIgnoresAsGlobPatterns(),
   maxFileSize: 1024 * 1024, // 1MB
 
   // Persistence
@@ -96,11 +76,6 @@ export const DEFAULT_SEARCH_CONFIG: SearchConfig = {
   // HyDE
   useHyDE: true,
   hydeContextHints: 'auto',
-
-  // Reranking
-  useReranking: true,
-  rerankerProvider: 'local',
-  rerankerModel: undefined,
 
   // Results
   defaultTopK: 10,
@@ -128,23 +103,7 @@ export const DEFAULT_CHUNK_CONFIG: ChunkConfig = {
 // ============================================================================
 
 export const DEFAULT_MERKLE_CONFIG: MerkleTreeConfig = {
-  ignorePatterns: [
-    'node_modules',
-    '.git',
-    'dist',
-    'build',
-    'cache',
-    'libraries',
-    '.next',
-    'coverage',
-    '__pycache__',
-    '.pytest_cache',
-    '.gradle',
-    '.venv',
-    'target',
-    'out',
-    'vendor',
-  ],
+  ignorePatterns: codeIndexDirectoryIgnoreNames(),
   includeExtensions: [
     '.ts',
     '.tsx',
@@ -182,30 +141,9 @@ export const DEFAULT_MERKLE_CONFIG: MerkleTreeConfig = {
 
 export const DEFAULT_FILE_WATCHER_CONFIG: FileWatcherConfig = {
   debounceMs: 500,
-  ignorePatterns: [
-    '**/node_modules/**',
-    '**/.git/**',
-    '**/cache/**',
-    '**/dist/**',
-    '**/build/**',
-    '**/libraries/**',
-    '**/.next/**',
-    '**/coverage/**',
-  ],
+  ignorePatterns: codeIndexIgnoresAsGlobPatterns(),
   maxPendingChanges: 1000,
   autoIndex: true,
-};
-
-// ============================================================================
-// Default Reranker Configuration
-// ============================================================================
-
-export const DEFAULT_RERANKER_CONFIG: RerankerConfig = {
-  provider: 'local',
-  model: undefined,
-  apiKey: undefined,
-  batchSize: 25,
-  maxCandidates: 50,
 };
 
 // ============================================================================
@@ -288,29 +226,6 @@ export const EXTENSION_TO_LANGUAGE: Record<string, string> = {
   '.svelte': 'svelte',
   '.astro': 'astro',
 };
-
-// ============================================================================
-// Tree-sitter Language Support
-// ============================================================================
-
-export const TREE_SITTER_SUPPORTED_LANGUAGES = [
-  'typescript',
-  'javascript',
-  'python',
-  'rust',
-  'go',
-  'java',
-  'c',
-  'cpp',
-  'csharp',
-  'ruby',
-] as const;
-
-export type TreeSitterLanguage = (typeof TREE_SITTER_SUPPORTED_LANGUAGES)[number];
-
-export function isTreeSitterSupported(language: string): language is TreeSitterLanguage {
-  return TREE_SITTER_SUPPORTED_LANGUAGES.includes(language as TreeSitterLanguage);
-}
 
 // ============================================================================
 // Helper Functions

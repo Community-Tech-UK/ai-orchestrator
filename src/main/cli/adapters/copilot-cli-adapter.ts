@@ -40,6 +40,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import { parseNdjsonLine, parseStreamingJson } from '../json-parse';
+import { probeVersionStatus } from './cli-status-probe';
 
 // ============ Re-exports from extracted modules (public API preserved) ============
 
@@ -134,60 +135,16 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   }
 
   async checkStatus(): Promise<CliStatus> {
-    return new Promise((resolve) => {
-      const proc = this.spawnProcess(['--version']);
-      let output = '';
-      let errorOutput = '';
-
-      proc.stdout?.on('data', (data) => {
-        output += data.toString();
-      });
-      proc.stderr?.on('data', (data) => {
-        errorOutput += data.toString();
-      });
-
-      const timer = setTimeout(() => {
-        try {
-          proc.kill('SIGTERM');
-        } catch {
-          /* ignored */
-        }
-        resolve({
-          available: false,
-          error: 'Timeout checking Copilot CLI',
-        });
-      }, 5000);
-
-      proc.on('close', (code) => {
-        clearTimeout(timer);
-        const combined = `${output}\n${errorOutput}`;
-        const versionMatch = combined.match(/(\d+\.\d+\.\d+)/);
-
-        if (code === 0 || versionMatch) {
-          resolve({
-            available: true,
-            version: versionMatch?.[1] ?? 'unknown',
-            path: 'copilot',
-            // We can't tell definitively from --version; assume authenticated
-            // when the binary runs. `copilot login` + `copilot --version`
-            // don't interact, so a real auth probe would need a no-op -p run.
-            authenticated: true,
-          });
-        } else {
-          resolve({
-            available: false,
-            error: `Copilot CLI not found or failed (exit ${code}): ${combined.trim() || 'no output'}`,
-          });
-        }
-      });
-
-      proc.on('error', (err) => {
-        clearTimeout(timer);
-        resolve({
-          available: false,
-          error: `Failed to spawn copilot: ${err.message}`,
-        });
-      });
+    return probeVersionStatus({
+      spawn: () => this.spawnProcess(['--version']),
+      path: 'copilot',
+      timeoutError: 'Timeout checking Copilot CLI',
+      spawnError: (err) => `Failed to spawn copilot: ${err.message}`,
+      unavailableError: ({ code, output }) =>
+        `Copilot CLI not found or failed (exit ${code}): ${output.trim() || 'no output'}`,
+      isAvailable: ({ code, version }) => code === 0 || Boolean(version),
+      killSignal: 'SIGTERM',
+      outputFormat: 'separate',
     });
   }
 

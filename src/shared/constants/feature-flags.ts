@@ -19,11 +19,9 @@ export const ORCHESTRATION_FEATURES = {
   PARALLEL_WORKTREE: true,
 
   // New infrastructure features
-  STREAMING_TOOLS: true,
   LAYERED_COMPACTION: true,
   ERROR_WITHHOLDING: true,
   TOKEN_BUDGET: true,
-  FILE_WATCHER_CACHE: true,
   LIFECYCLE_HOOKS: true,
 
   // Audit / observability

@@ -122,6 +122,12 @@ vi.mock('../../../workspace/git/git-status-watcher', () => ({
   getGitStatusWatcher: () => fakeWatcher,
 }));
 
+vi.mock('../../../hooks/hook-manager', () => ({
+  getHookManager: () => ({
+    triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
+  }),
+}));
+
 // ============================================================
 // 3. Logger mock (no-op)
 // ============================================================

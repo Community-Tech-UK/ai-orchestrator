@@ -52,6 +52,15 @@ class CompactModelPickerStubComponent {
   @Output() selectionChange = new EventEmitter<unknown>();
 }
 
+@Component({
+  selector: 'app-automation-webhooks-panel',
+  standalone: true,
+  template: '',
+})
+class AutomationWebhooksPanelStubComponent {
+  @Input() automations: unknown;
+}
+
 function makeAutomation(overrides: Partial<Automation> = {}): Automation {
   return {
     id: 'automation-1',
@@ -129,7 +138,13 @@ describe('AutomationsPageComponent row actions', () => {
         styles: [styles],
         styleUrl: undefined,
         styleUrls: [],
-        imports: [CommonModule, FormsModule, CompactModelPickerStubComponent, PageHeaderStubComponent],
+        imports: [
+          CommonModule,
+          FormsModule,
+          CompactModelPickerStubComponent,
+          PageHeaderStubComponent,
+          AutomationWebhooksPanelStubComponent,
+        ],
       },
     });
     await TestBed.configureTestingModule({

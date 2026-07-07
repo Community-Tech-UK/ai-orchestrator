@@ -30,7 +30,6 @@ import {
 import { PromptSuggestionService } from '../../core/services/prompt-suggestion.service';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { PromptHistoryStore } from '../../core/state/prompt-history.store';
-import type { ProviderType } from '../providers/provider-selector.component';
 import { AgentSelectorComponent } from '../agents/agent-selector.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { LoopToggleComponent } from '../loop/loop-toggle.component';
@@ -39,7 +38,7 @@ import { LoopPanelOpenerService } from '../loop/loop-panel-opener.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import {
   DEFAULT_INSTANCE_PROVIDERS,
-} from '../models/provider-menu.component';
+} from '../models/provider-menu.constants';
 import type {
   PendingSelection,
   PickerProvider,
@@ -1551,23 +1550,6 @@ export class InputPanelComponent implements OnDestroy {
 
   onToggleYoloMode(): void {
     this.newSessionDraft.setYoloMode(!this.effectiveYoloMode());
-  }
-
-  onProviderSelected(provider: ProviderType): void {
-    if (this.isDraftComposer()) {
-      this.newSessionDraft.setProvider(provider);
-      return;
-    }
-    this.providerState.setProvider(provider);
-  }
-
-  onModelSelected(model: string): void {
-    if (this.isDraftComposer()) {
-      this.newSessionDraft.setProvider(this.selectedProvider());
-      this.newSessionDraft.setModel(model);
-      return;
-    }
-    this.providerState.setModel(model);
   }
 
   private persistComposerText(value: string): void {

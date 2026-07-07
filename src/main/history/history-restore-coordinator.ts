@@ -468,7 +468,3 @@ export function getHistoryRestoreCoordinator(): HistoryRestoreCoordinator {
   singleton ??= new HistoryRestoreCoordinator();
   return singleton;
 }
-
-export function _resetHistoryRestoreCoordinatorForTesting(): void {
-  singleton = null;
-}

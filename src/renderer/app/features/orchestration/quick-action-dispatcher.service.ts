@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import type { ChildDiagnosticBundle } from '../../../../shared/types/agent-tree.types';
 import type {
@@ -23,7 +23,7 @@ interface SummarizeChildrenResponse {
 @Injectable({ providedIn: 'root' })
 export class QuickActionDispatcherService {
   private instanceStore = inject(InstanceStore);
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private modal = inject(ChildDiagnosticBundleModalService);
   private clipboard = inject(CLIPBOARD_SERVICE);
 

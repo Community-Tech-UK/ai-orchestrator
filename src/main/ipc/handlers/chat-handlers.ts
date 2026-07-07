@@ -19,6 +19,7 @@ import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getChatService } from '../../chats';
 import { getMainEventBus } from '../../event-bus/main-event-bus';
+import { getHookManager } from '../../hooks/hook-manager';
 
 let chatEventForwardingRegistered = false;
 
@@ -75,7 +76,17 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
   ipcMain.handle(IPC_CHANNELS.CHAT_SET_CWD, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(ChatSetCwdPayloadSchema, payload, 'CHAT_SET_CWD');
-      return { success: true, data: await service.setCwd(validated.chatId, validated.cwd) };
+      const before = await service.getChat(validated.chatId);
+      const updated = await service.setCwd(validated.chatId, validated.cwd);
+      if (before.chat.currentCwd !== validated.cwd) {
+        void getHookManager().triggerLifecycleHooks('CwdChanged', {
+          instanceId: before.chat.currentInstanceId ?? undefined,
+          workingDirectory: validated.cwd,
+          oldCwd: before.chat.currentCwd ?? undefined,
+          newCwd: validated.cwd,
+        }).catch(() => undefined);
+      }
+      return { success: true, data: updated };
     } catch (error) {
       return chatError(error, 'CHAT_SET_CWD_FAILED');
     }

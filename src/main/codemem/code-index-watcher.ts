@@ -4,7 +4,10 @@ import { watch } from 'chokidar';
 import type { Ignore } from 'ignore';
 import { getLogger } from '../logging/logger';
 import { buildWatchIgnoredMatchers } from '../workspace/watcher/watch-ignore';
+import { DEFAULT_CODE_INDEX_IGNORES } from './code-index-ignores';
 import type { WorkspaceHash } from './types';
+
+export { DEFAULT_CODE_INDEX_IGNORES } from './code-index-ignores';
 
 const logger = getLogger('CodeIndexWatcher');
 
@@ -409,60 +412,3 @@ export class CodeIndexWatcher {
     }
   }
 }
-
-export const DEFAULT_CODE_INDEX_IGNORES = [
-  '.git/',
-  // Loop Mode runtime scratch (per-run state/attachments/control) — not source.
-  '.aio-loop-attachments/',
-  '.aio-loop-control/',
-  '.aio-loop-state/',
-  '.angular/',
-  '.cache/',
-  '.gradle/',
-  '.next/',
-  '.nuxt/',
-  '.output/',
-  '.parcel-cache/',
-  '.pytest_cache/',
-  '.ruff_cache/',
-  '.svelte-kit/',
-  '.turbo/',
-  '.venv/',
-  '_archive/',
-  '_scratch/',
-  'build/',
-  'cache/',
-  'coverage/',
-  'dist/',
-  'external-benchmarks/',
-  'libraries/',
-  'node_modules/',
-  'out/',
-  'release/',
-  'target/',
-  'venv/',
-  'vendor/',
-  '**/*.class',
-  '**/*.7z',
-  '**/*.bz2',
-  '**/*.dmg',
-  '**/*.gz',
-  '**/*.jar',
-  '**/*.lock',
-  '**/*.log',
-  '**/*.map',
-  '**/*.min.css',
-  '**/*.min.js',
-  '**/*.rar',
-  '**/*.tar',
-  '**/*.tar.bz2',
-  '**/*.tar.gz',
-  '**/*.tar.xz',
-  '**/*.tgz',
-  '**/*.war',
-  '**/*.xz',
-  '**/*.zip',
-  'package-lock.json',
-  'pnpm-lock.yaml',
-  'yarn.lock',
-];

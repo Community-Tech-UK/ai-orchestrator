@@ -4,6 +4,7 @@ import * as path from 'path';
 import { promisify } from 'util';
 import { getConversationLedgerService } from '../conversation-ledger';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
+import { findGitRoot } from '../git/git-probe-service';
 import type { Instance } from '../../shared/types/instance.types';
 import type { RecentDirectoryEntry } from '../../shared/types/recent-directories.types';
 import type {
@@ -237,18 +238,6 @@ export class ProjectRegistry {
 
 export function getProjectRegistry(config?: ProjectRegistryConfig): ProjectRegistry {
   return ProjectRegistry.getInstance(config);
-}
-
-async function findGitRoot(startPath: string): Promise<string | null> {
-  let current = startPath;
-  for (;;) {
-    if (await pathExists(path.join(current, '.git'))) {
-      return current;
-    }
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
 }
 
 async function findRepositories(root: string): Promise<string[]> {

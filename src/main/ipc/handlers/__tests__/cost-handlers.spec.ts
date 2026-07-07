@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { IPC_CHANNELS, type IpcResponse } from '../../../../shared/types/ipc.types';
 import { CostTracker } from '../../../core/system/cost-tracker';
 
 // Inject a FRESH real CostTracker per test (the class is kept; only the singleton
@@ -13,7 +14,10 @@ vi.mock('../../../core/system/cost-tracker', async (importOriginal) => {
 });
 
 const electronMocks = vi.hoisted(() => ({
-  handle: vi.fn(),
+  handlers: new Map<string, (event: unknown, payload?: unknown) => Promise<IpcResponse>>(),
+  handle: vi.fn((channel: string, handler: (event: unknown, payload?: unknown) => Promise<IpcResponse>) => {
+    electronMocks.handlers.set(channel, handler);
+  }),
 }));
 vi.mock('electron', () => ({
   ipcMain: { handle: electronMocks.handle },
@@ -41,7 +45,26 @@ function setup(): { tracker: CostTracker; sent: Sent[] } {
 describe('cost-handlers event forwarding', () => {
   beforeEach(() => {
     holder.tracker = new CostTracker();
+    electronMocks.handlers.clear();
     electronMocks.handle.mockClear();
+  });
+
+  it('handles COST_GET_HISTORY with the same stored entries used by the cost page', async () => {
+    const { tracker } = setup();
+    tracker.recordUsage('inst-1', 'sess-1', 'model', 0, 0, 0, 0, 1);
+
+    const result = await invoke(IPC_CHANNELS.COST_GET_HISTORY, {
+      instanceId: 'inst-1',
+      limit: 5,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([
+      expect.objectContaining({
+        instanceId: 'inst-1',
+        sessionId: 'sess-1',
+      }),
+    ]);
   });
 
   it('forwards a recorded turn on cost:usage-recorded (real cost-recorded event)', () => {
@@ -89,3 +112,11 @@ describe('cost-handlers event forwarding', () => {
     expect(sent.some((s) => s.channel === 'cost:usage-recorded')).toBe(true);
   });
 });
+
+async function invoke(channel: string, payload?: unknown): Promise<IpcResponse> {
+  const handler = electronMocks.handlers.get(channel);
+  if (!handler) {
+    throw new Error(`No handler registered for ${channel}`);
+  }
+  return handler({}, payload);
+}

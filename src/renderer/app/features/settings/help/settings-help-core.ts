@@ -410,7 +410,7 @@ export const ADVANCED_TAB_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'tip',
       heading: 'Export before reinstalling',
-      body: 'Export settings before moving machines; import restores your setup, credentials, and pairings in one step.',
+      body: 'Export portable settings before moving machines; credentials, pairings, local paths, and machine identities stay on the original machine.',
     },
   ],
 };

@@ -1,8 +1,8 @@
 /**
  * Infrastructure Domain Bootstrap
  *
- * Initializes checkpointing, health checks, retry management,
- * failover, sandboxing, CLI detection, skills, and hooks.
+ * Initializes checkpointing, health checks, failover, CLI detection, skills,
+ * and hooks.
  */
 
 import { registerBootstrapModule } from './index';
@@ -16,16 +16,12 @@ export function registerInfrastructureBootstrap(): void {
     init: () => {
       const { getCheckpointManager } = require('../session/checkpoint-manager') as typeof import('../session/checkpoint-manager');
       const { getHealthChecker } = require('../core/system/health-checker') as typeof import('../core/system/health-checker');
-      const { getRetryManager } = require('../core/retry-manager') as typeof import('../core/retry-manager');
       const { getFailoverManager } = require('../providers/failover-manager') as typeof import('../providers/failover-manager');
-      const { getSandboxManager } = require('../security/sandbox-manager') as typeof import('../security/sandbox-manager');
       const { getClaudeMdLoader } = require('../core/config/claude-md-loader') as typeof import('../core/config/claude-md-loader');
 
       getCheckpointManager();
       getHealthChecker();
-      getRetryManager();
       getFailoverManager();
-      getSandboxManager();
       getClaudeMdLoader();
     },
   });

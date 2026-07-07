@@ -459,6 +459,13 @@ export function createCommunicationDomain(
       watchId: string
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.REMOTE_FS_UNWATCH, { nodeId, watchId });
+    },
+
+    onRemoteFsEvent: (callback: (event: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.REMOTE_FS_EVENT, handler);
+      return () => ipcRenderer.removeListener(ch.REMOTE_FS_EVENT, handler);
     }
   };
 }

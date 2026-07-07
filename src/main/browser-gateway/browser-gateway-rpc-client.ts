@@ -13,25 +13,34 @@ export interface BrowserGatewayRpcClientLike {
 let nextRequestId = 1;
 
 // The bridge sits between the MCP host (≥30s tool timeout) and the parent
-// gateway, whose extension command store waits up to 30s — and far longer for
-// operations that intentionally wait (`wait_for` ≤120s, `download_file` ≤60s).
-// The previous flat 15s socket timeout was SHORTER than every layer it wrapped,
-// so any operation that legitimately took >15s surfaced as a misleading
-// `browser_gateway_unavailable` (observed live on `navigate`/`click`/
-// `query_elements`). A dead parent still fails fast via a socket error, so a
-// larger timeout costs nothing in the unavailable case — it only stops cutting
-// off slow-but-valid work.
-const DEFAULT_RPC_TIMEOUT_MS = 45_000;
-const MAX_RPC_TIMEOUT_MS = 130_000;
+// gateway, whose extension command store now waits up to ~90s for an extension
+// channel to recover while a command is still queued (undelivered-wait, see
+// browser-extension-command-store), plus the ~35s execution window once
+// delivered — and even longer for operations that intentionally wait
+// (`wait_for` ≤120s, `download_file` ≤60s). The socket timeout must OUTLIVE
+// every inner layer or a slow-but-valid recovery surfaces as a misleading
+// client-side timeout (the original flat 15s bug, observed live on
+// `navigate`/`click`/`query_elements`). A dead parent still fails fast via a
+// socket error, so a large timeout costs nothing in the unavailable case; the
+// gateway itself always answers earlier because its own timers fire first.
+// Sized from the gateway's worst HONEST answer for a mutation on a degraded
+// channel: undelivered-wait 90s + receipt window 15s + heavy-DOM execution 65s
+// + result grace ≈ 175s. The socket must outlive that or the client mislabels
+// the gateway's precise verdict (not_delivered / receipt_missing /
+// maybe_applied + probe) as a generic socket timeout. Only extreme read paths
+// (a full-length wait_for riding out a channel outage) can exceed this — and
+// a read timeout is retry-safe anyway.
+const DEFAULT_RPC_TIMEOUT_MS = 180_000;
+const MAX_RPC_TIMEOUT_MS = 180_000;
 const LONG_OP_TIMEOUT_BUFFER_MS = 15_000;
 const WAIT_FOR_DEFAULT_BUDGET_MS = 30_000;
 const DOWNLOAD_DEFAULT_BUDGET_MS = 60_000;
 // DOM-scaling reads (snapshot/query_elements/accessibility_snapshot/screenshot/
-// evaluate) grow with page size; a flat 45s socket budget reports them as false
-// timeouts on a large/duplicated DOM (the secondary feedback loop in the Webflow
-// incident). Give them a larger socket budget — still well under MAX so a dead
-// parent fails fast on a socket error rather than waiting this out.
-const HEAVY_DOM_RPC_TIMEOUT_MS = 90_000;
+// evaluate) grow with page size and keep their own floor should DEFAULT ever be
+// tuned back down — a flat short socket budget reports them as false timeouts
+// on a large/duplicated DOM (the secondary feedback loop in the Webflow
+// incident).
+const HEAVY_DOM_RPC_TIMEOUT_MS = 180_000;
 
 class BrowserGatewayRpcError extends Error {
   constructor(message: string) {

@@ -13,7 +13,6 @@ vi.mock('node:child_process', () => ({
 }));
 
 import { ProcessLaneGateway } from '../process-lane-gateway';
-import { WorkerThreadLaneGateway } from '../worker-thread-lane-gateway';
 import type { BackgroundJobRecord } from '../types';
 
 type FakeChild = EventEmitter & {
@@ -469,26 +468,4 @@ describe('lane gateways', () => {
     expect(factory).toHaveBeenCalledTimes(1);
   });
 
-  it('WorkerThreadLaneGateway uses postMessage-compatible workers', async () => {
-    const worker = createFakeChild();
-    const gateway = new WorkerThreadLaneGateway({
-      lane: 'indexing',
-      entrypoint: '/tmp/index-lane-worker.js',
-      workerFactory: () => worker,
-      requestTimeoutMs: 1_000,
-    });
-
-    await gateway.start();
-    const promise = gateway.runJob(makeJob('worker-job'), { rootPath: '/repo' });
-    const message = worker.postMessage.mock.calls[0]?.[0] as { jobId: string; type: string };
-    expect(message.type).toBe('run-job');
-
-    worker.emit('message', {
-      type: 'job-succeeded',
-      jobId: message.jobId,
-      result: { ok: true },
-    });
-
-    await expect(promise).resolves.toEqual({ ok: true });
-  });
 });

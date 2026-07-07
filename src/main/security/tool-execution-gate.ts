@@ -8,6 +8,8 @@ import type { ToolPermissionResult } from '../../shared/types/tool-permission.ty
 import { getToolValidator } from './tool-validator';
 import type { ToolValidationResult } from './tool-validator';
 import { getActionCircuitBreaker } from './action-circuit-breaker';
+import { getFilesystemPolicy } from './filesystem-policy';
+import { getNetworkPolicy } from './network-policy';
 
 export interface ToolExecutionGateInput {
   request: PermissionRequest;
@@ -18,7 +20,14 @@ export interface ToolExecutionGateInput {
 export interface ToolExecutionGateDecision {
   action: 'allow' | 'deny' | 'ask';
   reason: string;
-  source: 'permission-rule' | 'tool-validator' | 'tool-checker' | 'bash-validation' | 'circuit-breaker';
+  source:
+    | 'permission-rule'
+    | 'tool-validator'
+    | 'tool-checker'
+    | 'bash-validation'
+    | 'circuit-breaker'
+    | 'filesystem-policy'
+    | 'network-policy';
   permission: EnforcementResult;
   toolPermission?: ToolPermissionResult;
   validation?: ToolValidationResult;
@@ -84,6 +93,28 @@ export class ToolExecutionGate {
         action: 'deny',
         reason: validation.errors.join('; '),
         source: 'tool-validator',
+        permission,
+        validation,
+      };
+    }
+
+    const filesystemDecision = this.evaluateFilesystemPolicy(input.request);
+    if (filesystemDecision) {
+      return {
+        action: 'deny',
+        reason: filesystemDecision.reason,
+        source: 'filesystem-policy',
+        permission,
+        validation,
+      };
+    }
+
+    const networkDecision = this.evaluateNetworkPolicy(input.request);
+    if (networkDecision) {
+      return {
+        action: 'deny',
+        reason: networkDecision.reason,
+        source: 'network-policy',
         permission,
         validation,
       };
@@ -200,6 +231,34 @@ export class ToolExecutionGate {
       toolPermission,
       validation,
     };
+  }
+
+  private evaluateFilesystemPolicy(request: PermissionRequest): { reason: string } | null {
+    const policy = getFilesystemPolicy();
+    switch (request.scope) {
+      case 'file_read':
+      case 'directory_read':
+        return policy.canRead(request.resource)
+          ? null
+          : { reason: `Filesystem policy denied read access to ${request.resource}` };
+      case 'file_write':
+      case 'file_delete':
+      case 'directory_create':
+      case 'directory_delete':
+        return policy.canWrite(request.resource)
+          ? null
+          : { reason: `Filesystem policy denied write access to ${request.resource}` };
+      default:
+        return null;
+    }
+  }
+
+  private evaluateNetworkPolicy(request: PermissionRequest): { reason: string } | null {
+    if (request.scope !== 'network_access') {
+      return null;
+    }
+    const result = getNetworkPolicy().recordRequest(request.resource);
+    return result.allowed ? null : { reason: result.reason };
   }
 }
 

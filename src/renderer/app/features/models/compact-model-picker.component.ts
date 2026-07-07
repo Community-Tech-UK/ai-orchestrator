@@ -18,12 +18,12 @@ import {
   PROVIDER_MENU_COLORS,
   PROVIDER_MENU_LABELS,
   DEFAULT_CHAT_PROVIDERS,
-} from './provider-menu.component';
+} from './provider-menu.constants';
 import { ModelPickerFocusService } from './model-picker-focus.service';
 import {
   type UnifiedSelection,
   type UnifiedReasoningOption,
-} from './unified-model-menu.component';
+} from './model-selection.types';
 import { ModelSelectionPanelComponent } from './model-selection-panel.component';
 import { DynamicModelCatalogService } from './dynamic-model-catalog.service';
 import { UnifiedCatalogStore } from './unified-catalog.store';
@@ -202,7 +202,7 @@ export class CompactModelPickerComponent {
   protected readonly menuId = `compact-model-picker__menu-${idCounter++}`;
 
   // Inputs (decorator-based; signal-input metadata is not picked up by the
-  // project's vitest setup — see model-menu.component.ts for context).
+  // project's vitest setup.
   private readonly _mode = signal<CompactPickerMode>('live-instance');
   private readonly _chat = signal<ChatRecord | null>(null);
   private readonly _hasMessages = signal(false);

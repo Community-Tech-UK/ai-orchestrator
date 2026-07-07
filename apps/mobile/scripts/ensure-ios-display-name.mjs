@@ -16,7 +16,15 @@ const PLIST_STRING_VALUES = new Map([
     'NSLocalNetworkUsageDescription',
     'harness connects to your Mac over your private Tailscale network to control your agent sessions.',
   ],
+  ['NSMicrophoneUsageDescription', 'harness uses the microphone so you can dictate messages to an agent.'],
+  [
+    'NSSpeechRecognitionUsageDescription',
+    'harness transcribes your dictation on-device so you can speak instead of type.',
+  ],
 ]);
+
+/** Boolean plist flags (e.g. Live Activities support). */
+const PLIST_BOOL_VALUES = new Map([['NSSupportsLiveActivities', true]]);
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -48,10 +56,29 @@ export function setPlistStringValue(plist, key, value) {
   );
 }
 
+export function setPlistBoolValue(plist, key, value) {
+  const escapedKey = escapeRegExp(key);
+  const tag = value ? '<true/>' : '<false/>';
+  const pattern = new RegExp(`(<key>${escapedKey}</key>\\s*)(<true/>|<false/>)`);
+
+  if (pattern.test(plist)) {
+    return plist.replace(pattern, `$1${tag}`);
+  }
+
+  if (!plist.includes('</dict>')) {
+    throw new Error(`Cannot add ${key}: Info.plist is missing </dict>`);
+  }
+
+  return plist.replace(/\n<\/dict>/, `\n\t<key>${key}</key>\n\t${tag}\n</dict>`);
+}
+
 export function withHarnessIosDisplayName(plist) {
   let updated = plist;
   for (const [key, value] of PLIST_STRING_VALUES) {
     updated = setPlistStringValue(updated, key, value);
+  }
+  for (const [key, value] of PLIST_BOOL_VALUES) {
+    updated = setPlistBoolValue(updated, key, value);
   }
   return updated;
 }

@@ -147,7 +147,7 @@ export class GracefulShutdownManager {
    * Execute all registered phases in priority order.
    * Returns a ShutdownReport describing what happened.
    */
-  async execute(): Promise<ShutdownReport> {
+  async execute(oneShotPhases: ShutdownPhase[] = []): Promise<ShutdownReport> {
     const startTime = Date.now();
     const results: PhaseResult[] = [];
 
@@ -157,7 +157,7 @@ export class GracefulShutdownManager {
     }
 
     // Sort: ascending priority, then sync before async within same priority
-    const sorted = [...this.phases].sort((a, b) => {
+    const sorted = [...this.phases, ...oneShotPhases].sort((a, b) => {
       if (a.priority !== b.priority) return a.priority - b.priority;
       // sync phases come first within same priority
       if (a.sync && !b.sync) return -1;

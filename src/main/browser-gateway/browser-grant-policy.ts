@@ -9,6 +9,7 @@ export interface BrowserGrantMatchInput {
   grants: BrowserPermissionGrant[];
   instanceId: string;
   provider?: BrowserProvider;
+  nodeId?: string;
   profileId: string;
   targetId?: string;
   origin: string;
@@ -46,6 +47,16 @@ export function requiresAutonomousGrant(
   return actionClasses.some(actionClassRequiresAutonomy);
 }
 
+/**
+ * Action classes that can NEVER be authorized by any grant, autonomous or not.
+ * `payment` fields (card/CVV/IBAN/sort code) have no automated path — the
+ * classifier hard-stops them and grantMatches refuses them outright, so even a
+ * blanket autonomous campaign grant cannot fill a payment form.
+ */
+export function actionClassNeverGrantable(actionClass: BrowserActionClass): boolean {
+  return actionClass === 'payment';
+}
+
 export function findMatchingBrowserGrant(
   input: BrowserGrantMatchInput,
 ): BrowserGrantMatchResult {
@@ -65,6 +76,9 @@ function grantMatches(
   input: BrowserGrantMatchInput,
   now: number,
 ): boolean {
+  if (actionClassNeverGrantable(input.actionClass)) {
+    return false;
+  }
   if (grant.decision !== 'allow') {
     return false;
   }
@@ -75,6 +89,9 @@ function grantMatches(
     return false;
   }
   if (grant.profileId && grant.profileId !== input.profileId) {
+    return false;
+  }
+  if (!grant.profileId && grant.nodeId && grant.nodeId !== input.nodeId) {
     return false;
   }
   if (grant.targetId && input.targetId && grant.targetId !== input.targetId) {

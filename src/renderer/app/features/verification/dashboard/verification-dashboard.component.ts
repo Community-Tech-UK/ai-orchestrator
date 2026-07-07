@@ -22,7 +22,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { CliStore } from '../../../core/state/cli.store';
-import { ElectronIpcService } from '../../../core/services/ipc';
+import { IpcFacadeService } from '../../../core/services/ipc';
 import { TaskIpcService } from '../../../core/services/ipc/task-ipc.service';
 import { DraftService, VERIFICATION_DRAFT_KEY } from '../../../core/services/draft.service';
 import { AgentCardComponent } from '../shared/components/agent-card.component';
@@ -53,7 +53,7 @@ import { TaskPreflightCardComponent } from '../../../shared/components/task-pref
 })
 export class VerificationDashboardComponent implements OnDestroy, AfterViewInit {
   private draftService = inject(DraftService);
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private taskIpc = inject(TaskIpcService);
   store = inject(VerificationStore);
   cliStore = inject(CliStore);

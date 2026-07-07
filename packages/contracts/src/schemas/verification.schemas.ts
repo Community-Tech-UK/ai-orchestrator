@@ -36,17 +36,40 @@ export const VerdictEvidenceSchema = z.object({
   keyPointId: z.string().min(1).max(500).optional(),
 });
 
+const PersonalityTypeSchema = z.enum([
+  'methodical-analyst',
+  'creative-solver',
+  'pragmatic-engineer',
+  'security-focused',
+  'user-advocate',
+  'devils-advocate',
+  'domain-expert',
+  'generalist',
+]);
+
+const ExtractedKeyPointSchema = z.object({
+  id: z.string().min(1).max(500),
+  content: z.string().min(1).max(5000),
+  category: z.enum(['conclusion', 'recommendation', 'warning', 'fact', 'opinion']),
+  confidence: z.number().min(0).max(1),
+  supportingEvidence: z.string().max(5000).optional(),
+});
+
 const AgentResponseSchema = z.object({
   agentId: z.string().min(1).max(500),
   agentIndex: z.number().int().min(0),
   model: RequiredModelIdSchema,
   response: z.string(),
-  keyPoints: z.array(z.unknown()),
+  keyPoints: z.array(ExtractedKeyPointSchema),
   confidence: z.number().min(0).max(1),
+  personality: PersonalityTypeSchema.optional(),
+  reasoning: z.string().optional(),
   duration: z.number().min(0),
   tokens: z.number().min(0),
   cost: z.number().min(0),
-}).passthrough();
+  error: z.string().optional(),
+  timedOut: z.boolean().optional(),
+});
 
 export const VerificationVerdictSchema = z.object({
   status: VerdictStatusSchema,

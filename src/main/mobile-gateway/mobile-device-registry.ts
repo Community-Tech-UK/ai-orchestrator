@@ -157,6 +157,51 @@ export class MobileDeviceRegistry {
     return false;
   }
 
+  /**
+   * Per-activity APNs push tokens for Live Activities, keyed
+   * deviceId → instanceId → token. In-memory only: an activity dies with the
+   * phone process, so persisting its token would only leak stale tokens.
+   */
+  private readonly liveActivityTokens = new Map<string, Map<string, string>>();
+
+  setLiveActivityToken(deviceId: string, instanceId: string, token: string): boolean {
+    this.ensureLoaded();
+    if (!this.getDeviceById(deviceId)) return false;
+    let byInstance = this.liveActivityTokens.get(deviceId);
+    if (!byInstance) {
+      byInstance = new Map<string, string>();
+      this.liveActivityTokens.set(deviceId, byInstance);
+    }
+    if (token) {
+      byInstance.set(instanceId, token);
+    } else {
+      byInstance.delete(instanceId);
+    }
+    return true;
+  }
+
+  clearLiveActivityTokensForInstance(instanceId: string): void {
+    for (const byInstance of this.liveActivityTokens.values()) {
+      byInstance.delete(instanceId);
+    }
+  }
+
+  /** Activity tokens registered for an instance across all live devices. */
+  liveActivityTokensFor(instanceId: string): string[] {
+    this.ensureLoaded();
+    const now = Date.now();
+    const tokens: string[] = [];
+    for (const [deviceId, byInstance] of this.liveActivityTokens) {
+      const token = byInstance.get(instanceId);
+      if (!token) continue;
+      const device = this.getDeviceById(deviceId);
+      if (device && device.expiresAt > now) {
+        tokens.push(token);
+      }
+    }
+    return tokens;
+  }
+
   getDeviceById(deviceId: string): MobileDevice | undefined {
     this.ensureLoaded();
     for (const device of this.devicesByToken.values()) {

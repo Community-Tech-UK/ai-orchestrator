@@ -2,7 +2,6 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
 
 export const USER_MESSAGE_COLLAPSE_CHAR_THRESHOLD = 900;
 export const USER_MESSAGE_COLLAPSE_LINE_THRESHOLD = 12;
-export const USER_MESSAGE_COLLAPSE_VISUAL_LINES = 8;
 
 export function shouldCollapseUserMessage(message: Pick<OutputMessage, 'type' | 'content'>): boolean {
   if (message.type !== 'user') {

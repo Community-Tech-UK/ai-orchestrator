@@ -904,8 +904,4 @@ export class ContextCompactor extends EventEmitter {
   }
 }
 
-export function getContextCompactor(): ContextCompactor {
-  return ContextCompactor.getInstance();
-}
-
 export default ContextCompactor;

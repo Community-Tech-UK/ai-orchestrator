@@ -25,6 +25,9 @@ import {
   BrowserRevokeGrantRequestSchema,
   BrowserScreenshotRequestSchema,
   BrowserSelectRequestSchema,
+  BrowserExecuteFillPlanRequestSchema,
+  BrowserFillCredentialRequestSchema,
+  BrowserCreateAgentCredentialRequestSchema,
   BrowserTargetRequestSchema,
   BrowserTypeRequestSchema,
   BrowserUploadFileRequestSchema,
@@ -43,6 +46,11 @@ import {
   type BrowserExtensionPollRequest,
   type BrowserExtensionQueuedCommand,
 } from './browser-extension-command-store';
+import { getBrowserExtensionContactState } from './browser-extension-contact-state';
+import {
+  handleUnattendedRpcMethod,
+  isUnattendedRpcMethod,
+} from './browser-unattended-rpc-operations';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -67,8 +75,9 @@ export interface BrowserGatewayRpcServerOptions {
   service?: Partial<BrowserGatewayService>;
   extensionCommandStore?: Pick<
     BrowserExtensionCommandStore,
-    'pollCommand' | 'resolveCommand'
+    'pollCommand' | 'resolveCommand' | 'markReceived'
   >;
+  onExtensionDisconnected?: (reason: string) => void;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
   extensionToken?: string;
@@ -87,8 +96,9 @@ export class BrowserGatewayRpcServer {
   private readonly service: Partial<BrowserGatewayService>;
   private readonly extensionCommandStore: Pick<
     BrowserExtensionCommandStore,
-    'pollCommand' | 'resolveCommand'
+    'pollCommand' | 'resolveCommand' | 'markReceived'
   >;
+  private readonly onExtensionDisconnected: (reason: string) => void;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly extensionToken: string;
@@ -103,6 +113,9 @@ export class BrowserGatewayRpcServer {
     this.service = options.service ?? getBrowserGatewayService();
     this.extensionCommandStore =
       options.extensionCommandStore ?? getBrowserExtensionCommandStore();
+    this.onExtensionDisconnected = options.onExtensionDisconnected
+      ?? ((reason: string) =>
+        getBrowserExtensionContactState().markExtensionDisconnect('local', reason));
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.extensionToken = options.extensionToken ?? crypto.randomBytes(32).toString('hex');
@@ -164,6 +177,12 @@ export class BrowserGatewayRpcServer {
     if (request.method === 'browser.extension_command_result') {
       return this.handleExtensionCommandResult(request);
     }
+    if (request.method === 'browser.extension_command_received') {
+      return this.handleExtensionCommandReceived(request);
+    }
+    if (request.method === 'browser.extension_disconnected') {
+      return this.handleExtensionDisconnected(request);
+    }
 
     const params = this.parseParams(request.params);
     if (!this.isKnownLocalInstance(params.instanceId)) {
@@ -171,6 +190,18 @@ export class BrowserGatewayRpcServer {
     }
     this.enforceRateLimit(params.instanceId);
     this.enforcePayloadSize(params.payload);
+
+    // Unattended-layer runtime methods (escalations, campaign leases, session
+    // sentinel) validate their own payloads and dispatch to the unattended
+    // singletons rather than per-tool service methods.
+    if (isUnattendedRpcMethod(request.method)) {
+      return handleUnattendedRpcMethod(request.method, params.payload, {
+        instanceId: params.instanceId,
+        ...(params.provider ? { provider: params.provider } : {}),
+        service: this.service,
+      });
+    }
+
     const payload = this.validatePayload(request.method, params.payload);
     const withContext = {
       ...payload,
@@ -203,6 +234,12 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('fillForm')(withContext);
       case 'browser.select':
         return this.requireMethod('select')(withContext);
+      case 'browser.execute_fill_plan':
+        return this.requireMethod('executeFillPlan')(withContext);
+      case 'browser.fill_credential':
+        return this.requireMethod('fillCredential')(withContext);
+      case 'browser.create_agent_credential':
+        return this.requireMethod('createAgentCredential')(withContext);
       case 'browser.upload_file':
         return this.requireMethod('uploadFile')(withContext);
       case 'browser.download_file':
@@ -270,6 +307,25 @@ export class BrowserGatewayRpcServer {
     const params = this.parseAuthorizedExtensionParams(request.params);
     this.extensionCommandStore.resolveCommand(
       this.validateExtensionCommandResultPayload(params.payload),
+    );
+    return { ok: true };
+  }
+
+  private handleExtensionCommandReceived(request: BrowserGatewayRpcRequest): { ok: true } {
+    const params = this.parseAuthorizedExtensionParams(request.params);
+    const commandId = params.payload['commandId'];
+    if (typeof commandId !== 'string' || !commandId) {
+      throw new Error('Invalid browser gateway RPC payload');
+    }
+    this.extensionCommandStore.markReceived('local', commandId);
+    return { ok: true };
+  }
+
+  private handleExtensionDisconnected(request: BrowserGatewayRpcRequest): { ok: true } {
+    const params = this.parseAuthorizedExtensionParams(request.params);
+    const reason = params.payload['reason'];
+    this.onExtensionDisconnected(
+      typeof reason === 'string' && reason ? reason : 'unknown',
     );
     return { ok: true };
   }
@@ -437,6 +493,12 @@ export class BrowserGatewayRpcServer {
           return BrowserFillFormRequestSchema;
         case 'browser.select':
           return BrowserSelectRequestSchema;
+        case 'browser.execute_fill_plan':
+          return BrowserExecuteFillPlanRequestSchema;
+        case 'browser.fill_credential':
+          return BrowserFillCredentialRequestSchema;
+        case 'browser.create_agent_credential':
+          return BrowserCreateAgentCredentialRequestSchema;
         case 'browser.upload_file':
           return BrowserUploadFileRequestSchema;
         case 'browser.download_file':
@@ -565,8 +627,4 @@ export async function initializeBrowserGatewayRpcServer(
 
 export function getBrowserGatewayRpcSocketPath(): string | null {
   return browserGatewayRpcServer?.getSocketPath() ?? null;
-}
-
-export function _resetBrowserGatewayRpcServerForTesting(): void {
-  browserGatewayRpcServer = null;
 }

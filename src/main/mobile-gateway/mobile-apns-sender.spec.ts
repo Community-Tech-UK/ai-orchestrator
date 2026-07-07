@@ -4,6 +4,7 @@ import {
   MobileApnsSender,
   buildApnsJwt,
   buildApnsPayload,
+  buildLiveActivityPayload,
   apnsHost,
   type ApnsTransport,
 } from './mobile-apns-sender';
@@ -143,5 +144,84 @@ describe('MobileApnsSender', () => {
     now += 60_000; // +1 min, within the 50-min TTL
     await sender.send(['a'], { title: 't', body: 'b' });
     expect(jwts.size).toBe(1);
+  });
+});
+
+describe('buildLiveActivityPayload', () => {
+  it('builds an update payload with timestamp, event and content-state', () => {
+    const payload = JSON.parse(
+      buildLiveActivityPayload(
+        {
+          event: 'update',
+          contentState: { status: 'working', detail: 'my-repo' },
+          staleDate: 1_700_001_800,
+        },
+        1_700_000_000,
+      ),
+    );
+    expect(payload.aps.timestamp).toBe(1_700_000_000);
+    expect(payload.aps.event).toBe('update');
+    expect(payload.aps['content-state']).toEqual({ status: 'working', detail: 'my-repo' });
+    expect(payload.aps['stale-date']).toBe(1_700_001_800);
+    expect(payload.aps['dismissal-date']).toBeUndefined();
+  });
+
+  it('includes the dismissal date on end events', () => {
+    const payload = JSON.parse(
+      buildLiveActivityPayload(
+        {
+          event: 'end',
+          contentState: { status: 'idle', detail: '' },
+          dismissalDate: 1_700_000_300,
+        },
+        1_700_000_000,
+      ),
+    );
+    expect(payload.aps.event).toBe('end');
+    expect(payload.aps['dismissal-date']).toBe(1_700_000_300);
+  });
+});
+
+describe('MobileApnsSender.sendLiveActivity', () => {
+  it('posts with the liveactivity push type and topic suffix', async () => {
+    const seen: { topic: string; pushType?: string; payload: string }[] = [];
+    const transport: ApnsTransport = {
+      post: async (args) => {
+        seen.push({ topic: args.topic, pushType: args.pushType, payload: args.payload });
+        return { status: 200 };
+      },
+    };
+    const sender = new MobileApnsSender({
+      configProvider: () => config(),
+      transport,
+      now: () => 1_700_000_000_000,
+    });
+    const results = await sender.sendLiveActivity(['activity-token'], {
+      event: 'update',
+      contentState: { status: 'working', detail: 'repo' },
+    });
+    expect(results).toEqual([
+      { deviceToken: 'activity-token', ok: true, status: 200, reason: undefined },
+    ]);
+    expect(seen[0].topic).toBe('com.example.app.push-type.liveactivity');
+    expect(seen[0].pushType).toBe('liveactivity');
+    expect(JSON.parse(seen[0].payload).aps.timestamp).toBe(1_700_000_000);
+  });
+
+  it('no-ops when unconfigured', async () => {
+    let called = false;
+    const transport: ApnsTransport = {
+      post: async () => {
+        called = true;
+        return { status: 200 };
+      },
+    };
+    const sender = new MobileApnsSender({ configProvider: () => config({ keyP8: '' }), transport });
+    const results = await sender.sendLiveActivity(['tok'], {
+      event: 'update',
+      contentState: { status: 'working', detail: '' },
+    });
+    expect(results).toEqual([]);
+    expect(called).toBe(false);
   });
 });

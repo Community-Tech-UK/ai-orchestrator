@@ -73,7 +73,6 @@ import { CircuitBreakerRegistry as ProcessCircuitBreakerRegistry } from '../proc
 
 // Core
 import { ErrorRecoveryManager } from '../core/error-recovery';
-import { RetryManager } from '../core/retry-manager';
 import { CircuitBreakerRegistry as CoreCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { ClaudeMdLoader } from '../core/config/claude-md-loader';
 import { HealthChecker } from '../core/system/health-checker';
@@ -89,8 +88,6 @@ import { VerificationCache } from '../orchestration/verification-cache';
 import { ParallelWorktreeCoordinator } from '../orchestration/parallel-worktree-coordinator';
 import { CliVerificationCoordinator } from '../orchestration/cli-verification-extension';
 import { ConsensusManager } from '../orchestration/consensus';
-import { VotingSystem } from '../orchestration/voting';
-import { RestartPolicy } from '../orchestration/restart-policy';
 import { Supervisor } from '../orchestration/supervisor';
 
 // Observation
@@ -152,7 +149,6 @@ import { TriggerMatcher } from '../skills/trigger-matcher';
 import { FilesystemPolicy } from '../security/filesystem-policy';
 import { NetworkPolicy } from '../security/network-policy';
 import { PermissionManager } from '../security/permission-manager';
-import { SandboxManager } from '../security/sandbox-manager';
 
 // Agents
 import { AgentRegistry } from '../agents/agent-registry';
@@ -167,6 +163,7 @@ import { CliDetectionService } from '../cli/cli-detection';
 import { MarkdownCommandRegistry } from '../commands/markdown-command-registry';
 import { ContextCompactor } from '../context/context-compactor';
 import { JITContextLoader } from '../context/jit-loader';
+import { _resetMagicPromptServiceForTesting } from '../magic-prompts/magic-prompt-service';
 import { OrchestratorPluginManager } from '../plugins/plugin-manager';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { FailoverManager } from '../providers/failover-manager';
@@ -191,7 +188,6 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
 
   // Core
   ErrorRecoveryManager._resetForTesting();
-  RetryManager._resetForTesting();
   CoreCircuitBreakerRegistry._resetForTesting();
   ClaudeMdLoader._resetForTesting();
   HealthChecker._resetForTesting();
@@ -207,8 +203,6 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
   ParallelWorktreeCoordinator._resetForTesting();
   CliVerificationCoordinator._resetForTesting();
   ConsensusManager._resetForTesting();
-  VotingSystem._resetForTesting();
-  RestartPolicy._resetForTesting();
   Supervisor._resetForTesting();
 
   // Observation
@@ -270,7 +264,6 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
   FilesystemPolicy._resetForTesting();
   NetworkPolicy._resetForTesting();
   PermissionManager._resetForTesting();
-  SandboxManager._resetForTesting();
 
   // Agents
   AgentRegistry._resetForTesting();
@@ -285,6 +278,7 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
   MarkdownCommandRegistry._resetForTesting();
   ContextCompactor._resetForTesting();
   JITContextLoader._resetForTesting();
+  _resetMagicPromptServiceForTesting();
   OrchestratorPluginManager._resetForTesting();
   RLMDatabase._resetForTesting();
   FailoverManager._resetForTesting();

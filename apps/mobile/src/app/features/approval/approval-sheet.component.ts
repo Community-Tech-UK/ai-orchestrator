@@ -1,11 +1,21 @@
-import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { HapticsService } from '../../core/haptics.service';
 import type { MobilePromptDto } from '../../core/models';
+import { diffLines, type DiffRow } from '../../shared/line-diff';
 
 export type ApprovalScope = 'once' | 'session' | 'always';
 export interface ApprovalDecision {
   action: 'allow' | 'deny';
   scope: ApprovalScope;
   response?: string;
+}
+
+interface FileDiffView {
+  filePath: string;
+  rows: DiffRow[];
+  added: number;
+  removed: number;
+  truncated: boolean;
 }
 
 /**
@@ -25,7 +35,23 @@ export interface ApprovalDecision {
 
       @if (prompt().kind === 'permission') {
         <h2 class="title">{{ prompt().toolName ? prompt().toolName + ' needs approval' : 'Approve action?' }}</h2>
-        @if (commandText()) {
+        @if (fileDiff(); as d) {
+          <div class="diff-head">
+            <span class="diff-path">{{ d.filePath }}</span>
+            <span class="diff-stat">
+              @if (d.added) { <span class="plus">+{{ d.added }}</span> }
+              @if (d.removed) { <span class="minus">−{{ d.removed }}</span> }
+            </span>
+          </div>
+          <div class="diff">
+            @for (row of d.rows; track $index) {
+              <div class="diff-row" [class]="'d-' + row.kind">{{ rowPrefix(row) }}{{ row.text }}</div>
+            }
+            @if (d.truncated) {
+              <div class="diff-row d-skip">⋯ diff truncated — open the session for the full change</div>
+            }
+          </div>
+        } @else if (commandText()) {
           <pre class="cmd">{{ commandText() }}</pre>
         } @else if (prompt().message) {
           <p class="msg">{{ prompt().message }}</p>
@@ -115,6 +141,31 @@ export interface ApprovalDecision {
         font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px;
         white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; margin: 0 0 16px;
       }
+      .diff-head {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+        margin: 0 0 6px;
+      }
+      .diff-path {
+        font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px;
+        color: var(--text-secondary, #8e8e93);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+      }
+      .diff-stat { font-size: 12px; font-weight: 700; flex: none; display: flex; gap: 6px; }
+      .diff-stat .plus { color: var(--accent-online, #34c759); }
+      .diff-stat .minus { color: var(--accent-error, #ff453a); }
+      .diff {
+        background: var(--bg, #000); border-radius: 10px; padding: 8px 0;
+        max-height: 240px; overflow: auto; margin: 0 0 16px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .diff-row {
+        font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.5;
+        padding: 0 12px; white-space: pre; min-width: max-content;
+      }
+      .d-add { background: rgba(52, 199, 89, 0.16); color: #7ee2a0; }
+      .d-del { background: rgba(255, 69, 58, 0.16); color: #ff9d96; }
+      .d-ctx { color: var(--text-secondary, #8e8e93); }
+      .d-skip { color: var(--text-secondary, #8e8e93); font-style: italic; padding: 2px 12px; }
       .msg { color: var(--text-secondary, #8e8e93); margin: 0 0 16px; }
       .secondary-link {
         border: none; background: transparent; color: var(--accent-online, #34c759);
@@ -151,6 +202,8 @@ export interface ApprovalDecision {
   ],
 })
 export class ApprovalSheetComponent {
+  private readonly haptics = inject(HapticsService);
+
   readonly prompt = input.required<MobilePromptDto>();
   readonly decision = output<ApprovalDecision>();
   readonly dismiss = output<void>();
@@ -159,6 +212,59 @@ export class ApprovalSheetComponent {
   protected readonly scopes: ApprovalScope[] = ['once', 'session', 'always'];
   protected readonly scope = signal<ApprovalScope>('once');
   protected readonly answers = signal<Record<number, string>>({});
+
+  /**
+   * Real diff for file-editing tools so approvals aren't blind: Edit renders
+   * old→new, Write renders the content as additions, MultiEdit concatenates
+   * its hunks. Anything unrecognised falls back to the command/JSON preview.
+   */
+  protected readonly fileDiff = computed<FileDiffView | null>(() => {
+    const p = this.prompt();
+    if (p.kind !== 'permission' || !p.toolInput) return null;
+    const args = p.toolInput;
+    const filePath = typeof args['file_path'] === 'string' ? args['file_path'] : '';
+    if (!filePath) return null;
+    const tool = (p.toolName ?? '').toLowerCase();
+
+    if (tool === 'edit' && typeof args['old_string'] === 'string' && typeof args['new_string'] === 'string') {
+      return { filePath, ...diffLines(args['old_string'], args['new_string']) };
+    }
+    if (tool === 'write' && typeof args['content'] === 'string') {
+      return { filePath, ...diffLines('', args['content']) };
+    }
+    if (tool === 'multiedit' && Array.isArray(args['edits'])) {
+      const rows: DiffRow[] = [];
+      let added = 0;
+      let removed = 0;
+      let truncated = false;
+      for (const edit of args['edits'] as unknown[]) {
+        if (!edit || typeof edit !== 'object') continue;
+        const e = edit as Record<string, unknown>;
+        if (typeof e['old_string'] !== 'string' || typeof e['new_string'] !== 'string') continue;
+        if (rows.length) rows.push({ kind: 'skip', text: '⋯' });
+        const d = diffLines(e['old_string'], e['new_string']);
+        rows.push(...d.rows);
+        added += d.added;
+        removed += d.removed;
+        truncated ||= d.truncated;
+      }
+      return rows.length ? { filePath, rows, added, removed, truncated } : null;
+    }
+    return null;
+  });
+
+  protected rowPrefix(row: DiffRow): string {
+    switch (row.kind) {
+      case 'add':
+        return '+ ';
+      case 'del':
+        return '- ';
+      case 'ctx':
+        return '  ';
+      default:
+        return '';
+    }
+  }
 
   protected readonly commandText = computed(() => {
     const args = this.prompt().toolInput;
@@ -181,14 +287,19 @@ export class ApprovalSheetComponent {
       void this.prompt().id;
       this.scope.set('once');
       this.answers.set({});
+      // A new prompt sliding up is the "needs you" moment — buzz once.
+      this.haptics.warning();
     });
   }
 
   protected decide(action: 'allow' | 'deny'): void {
+    if (action === 'allow') this.haptics.success();
+    else this.haptics.warning();
     this.decision.emit({ action, scope: this.scope() });
   }
 
   protected submitOption(optionId: string): void {
+    this.haptics.tap();
     this.decision.emit({ action: 'allow', scope: 'once', response: optionId });
   }
 

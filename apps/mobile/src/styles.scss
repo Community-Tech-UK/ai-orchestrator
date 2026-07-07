@@ -75,6 +75,7 @@ code {
 .markdown-body ol,
 .markdown-body blockquote,
 .markdown-body pre,
+.markdown-body .md-code,
 .markdown-body .md-table-wrap {
   margin: 0 0 0.75em;
 }
@@ -84,6 +85,7 @@ code {
 .markdown-body ol:last-child,
 .markdown-body blockquote:last-child,
 .markdown-body pre:last-child,
+.markdown-body .md-code:last-child,
 .markdown-body .md-table-wrap:last-child {
   margin-bottom: 0;
 }
@@ -145,6 +147,53 @@ code {
   background: transparent;
   padding: 0;
   white-space: pre;
+}
+
+/* Fenced code block wrapper: language bar + copy chip above the <pre>. */
+.markdown-body .md-code {
+  max-width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.markdown-body .md-code pre {
+  margin: 0;
+  border-radius: 0 0 10px 10px;
+}
+
+.markdown-body .md-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 10px 10px 0 0;
+  padding: 5px 10px 5px 12px;
+}
+
+.markdown-body .md-code-lang {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  text-transform: lowercase;
+}
+
+.markdown-body .md-code-copy {
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.markdown-body .md-code-copy:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.markdown-body .md-code-copy.copied {
+  color: var(--accent-online);
 }
 
 .markdown-body img {

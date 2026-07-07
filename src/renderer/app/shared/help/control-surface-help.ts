@@ -119,7 +119,3 @@ export const CONTROL_SURFACE_HELP: Record<ControlSurfaceId, HelpEntry> = {
   'fleet': FLEET_HELP,
   'compare-split': COMPARE_SPLIT_HELP,
 };
-
-export function getControlSurfaceHelp(id: ControlSurfaceId): HelpEntry {
-  return CONTROL_SURFACE_HELP[id];
-}

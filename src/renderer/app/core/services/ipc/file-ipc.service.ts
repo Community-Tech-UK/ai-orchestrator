@@ -144,37 +144,6 @@ export class FileIpcService {
     return this.api.revealFile(filePath);
   }
 
-  // ============================================
-  // File Watcher
-  // ============================================
-
-  /**
-   * Watch a path for changes
-   */
-  async watcherWatch(
-    path: string,
-    options?: { recursive?: boolean; patterns?: string[]; ignorePatterns?: string[]; debounceMs?: number }
-  ): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.watcherWatch(path, options);
-  }
-
-  /**
-   * Stop watching a path
-   */
-  async watcherUnwatch(watcherId: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.watcherUnwatch(watcherId);
-  }
-
-  /**
-   * Get active watchers
-   */
-  async watcherGetActive(): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.watcherGetActive();
-  }
-
   /**
    * Listen for file change events
    */

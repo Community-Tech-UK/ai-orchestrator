@@ -5,7 +5,7 @@
  */
 
 // Re-export base service as BaseIpcService and common types
-export { ElectronIpcService as BaseIpcService, IpcResponse, FileEntry, CopilotModelInfo } from './electron-ipc.service';
+export { ElectronIpcService, ElectronIpcService as BaseIpcService, IpcResponse, FileEntry, CopilotModelInfo } from './electron-ipc.service';
 
 // Re-export domain services
 export { AppIpcService } from './app-ipc.service';
@@ -250,9 +250,6 @@ export class IpcFacadeService {
   openPath = this.file.openPath.bind(this.file);
   copyFileToClipboard = this.file.copyFileToClipboard.bind(this.file);
   revealFile = this.file.revealFile.bind(this.file);
-  watcherWatch = this.file.watcherWatch.bind(this.file);
-  watcherUnwatch = this.file.watcherUnwatch.bind(this.file);
-  watcherGetActive = this.file.watcherGetActive.bind(this.file);
   onWatcherFileChanged = this.file.onWatcherFileChanged.bind(this.file);
   onWatcherFileAdded = this.file.onWatcherFileAdded.bind(this.file);
   onWatcherFileRemoved = this.file.onWatcherFileRemoved.bind(this.file);
@@ -393,10 +390,6 @@ export class IpcFacadeService {
   createCommand = this.command.createCommand.bind(this.command);
   updateCommand = this.command.updateCommand.bind(this.command);
   deleteCommand = this.command.deleteCommand.bind(this.command);
-  bashValidate = this.command.bashValidate.bind(this.command);
-  bashGetConfig = this.command.bashGetConfig.bind(this.command);
-  bashAddAllowed = this.command.bashAddAllowed.bind(this.command);
-  bashAddBlocked = this.command.bashAddBlocked.bind(this.command);
 
   // ============================================
   // LSP Service Methods
@@ -566,7 +559,6 @@ export class IpcFacadeService {
   worktreeSync = this.orchestration.worktreeSync.bind(this.orchestration);
   worktreeAbandon = this.orchestration.worktreeAbandon.bind(this.orchestration);
   worktreeCleanup = this.orchestration.worktreeCleanup.bind(this.orchestration);
-  worktreeDelete = this.orchestration.worktreeDelete.bind(this.orchestration);
   worktreeGetStatus = this.orchestration.worktreeGetStatus.bind(this.orchestration);
   specialistList = this.orchestration.specialistList.bind(this.orchestration);
   specialistListBuiltin = this.orchestration.specialistListBuiltin.bind(this.orchestration);
@@ -608,11 +600,8 @@ export class IpcFacadeService {
   // Verification Service Methods
   // ============================================
 
-  verificationVerifyMulti = this.verification.verificationVerifyMulti.bind(this.verification);
   verificationStartCli = this.verification.verificationStartCli.bind(this.verification);
   verificationCancel = this.verification.verificationCancel.bind(this.verification);
-  verificationGetActive = this.verification.verificationGetActive.bind(this.verification);
-  verificationGetResult = this.verification.verificationGetResult.bind(this.verification);
 
   // ============================================
   // Training Service Methods
@@ -626,15 +615,3 @@ export class IpcFacadeService {
   trainingGetTopStrategies = this.training.trainingGetTopStrategies.bind(this.training);
   trainingConfigure = this.training.trainingConfigure.bind(this.training);
 }
-
-/**
- * ElectronIpcService - Backwards compatibility alias for IpcFacadeService
- *
- * @deprecated Use domain-specific IPC service instead. Import the appropriate service
- * (e.g. InstanceIpcService, TodoIpcService, CommandIpcService, ProviderIpcService)
- * directly from '@core/services/ipc'. This alias will be removed in a future release.
- *
- * This alias allows existing code that imports ElectronIpcService to continue
- * working without changes. New code should use domain-specific services directly.
- */
-export { IpcFacadeService as ElectronIpcService };

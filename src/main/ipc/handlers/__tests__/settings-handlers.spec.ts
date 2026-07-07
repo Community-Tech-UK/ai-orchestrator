@@ -28,6 +28,12 @@ const settingsMocks = vi.hoisted(() => ({
   }),
   reset: vi.fn(),
   resetOne: vi.fn(),
+  remoteSource: null as null | {
+    type: 'url' | 'file' | 'git';
+    location: string;
+    refreshInterval?: number;
+    branch?: string;
+  },
 }));
 
 vi.mock('electron', () => ({
@@ -44,7 +50,20 @@ vi.mock('../../../core/config/settings-manager', () => ({
 
 vi.mock('../../../core/config/remote-config', () => ({
   getRemoteConfigManager: () => ({
-    fetchFromUrl: vi.fn(),
+    configureSource: vi.fn((source) => {
+      settingsMocks.remoteSource = source;
+    }),
+    getStatus: vi.fn(() => ({
+      connected: false,
+      source: settingsMocks.remoteSource ?? undefined,
+    })),
+    getValue: vi.fn(),
+    fetchConfigured: vi.fn(),
+    fetchFromUrl: vi.fn(async () => ({
+      config: { provider: { type: 'claude' } },
+      source: { url: 'https://example.com/config.json', type: 'direct' },
+      cached: false,
+    })),
     fetchFromWellKnown: vi.fn(),
     fetchFromGitHub: vi.fn(),
     discoverForGitRepo: vi.fn(),
@@ -85,6 +104,7 @@ describe('settings-handlers policy validation', () => {
       remoteNodesEnrollmentToken: '',
       theme: 'dark',
     };
+    settingsMocks.remoteSource = null;
     windowManager = { sendToRenderer: vi.fn() };
     registerSettingsHandlers({ windowManager: windowManager as never });
   });
@@ -191,6 +211,26 @@ describe('settings-handlers policy validation', () => {
     expect(settingsMocks.update).toHaveBeenCalledWith({
       theme: 'light',
       remoteNodesEnrollmentToken: 'new-token',
+    });
+  });
+
+  it('persists and reports the renderer remote config source', async () => {
+    const source = {
+      type: 'url' as const,
+      location: 'https://example.com/config.json',
+      refreshInterval: 300,
+    };
+
+    await expect(invoke(IPC_CHANNELS.REMOTE_CONFIG_SET_SOURCE, { source }))
+      .resolves.toMatchObject({ success: true, data: { source } });
+
+    const status = await invoke(IPC_CHANNELS.REMOTE_CONFIG_STATUS);
+    expect(status).toMatchObject({
+      success: true,
+      data: {
+        connected: false,
+        source,
+      },
     });
   });
 });

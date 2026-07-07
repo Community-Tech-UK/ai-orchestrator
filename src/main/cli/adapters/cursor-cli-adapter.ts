@@ -7,6 +7,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { CURSOR_DEFAULT_MODELS, discoverCursorModels } from './cursor-cli-adapter.models';
+import { probeVersionStatus } from './cli-status-probe';
 import type {
   CursorAssistantEvent,
   CursorCliConfig,
@@ -93,62 +94,16 @@ export class CursorCliAdapter extends BaseCliAdapter {
   }
 
   async checkStatus(): Promise<CliStatus> {
-    return new Promise((resolve) => {
-      const proc = this.spawnProcess(['--version']);
-      let output = '';
-      let errorOutput = '';
-
-      proc.stdout?.on('data', (data) => {
-        output += (data as Buffer).toString();
-      });
-      proc.stderr?.on('data', (data) => {
-        errorOutput += (data as Buffer).toString();
-      });
-
-      const timer = setTimeout(() => {
-        try {
-          proc.kill('SIGTERM');
-        } catch {
-          /* ignored */
-        }
-        resolve({
-          available: false,
-          error: 'Timeout checking Cursor CLI',
-        });
-      }, 5000);
-
-      proc.on('close', (code) => {
-        clearTimeout(timer);
-        const combined = `${output}\n${errorOutput}`;
-        // cursor-agent emits versions like "2026.04.17-787b533"; the dotted
-        // date fragment matches \d+\.\d+\.\d+ which is what we capture.
-        const versionMatch = combined.match(/(\d+\.\d+\.\d+)/);
-
-        if (code === 0 || versionMatch) {
-          resolve({
-            available: true,
-            version: versionMatch?.[1] ?? 'unknown',
-            path: 'cursor-agent',
-            // --version doesn't actually probe auth; treat a successful
-            // binary invocation as "authenticated enough" for the status
-            // check. Real auth errors surface via stderr/keychain handlers.
-            authenticated: true,
-          });
-        } else {
-          resolve({
-            available: false,
-            error: `Cursor CLI not found or failed (exit ${code}): ${combined.trim() || 'no output'}`,
-          });
-        }
-      });
-
-      proc.on('error', (err) => {
-        clearTimeout(timer);
-        resolve({
-          available: false,
-          error: `Failed to launch cursor-agent: ${err.message}`,
-        });
-      });
+    return probeVersionStatus({
+      spawn: () => this.spawnProcess(['--version']),
+      path: 'cursor-agent',
+      timeoutError: 'Timeout checking Cursor CLI',
+      spawnError: (err) => `Failed to launch cursor-agent: ${err.message}`,
+      unavailableError: ({ code, output }) =>
+        `Cursor CLI not found or failed (exit ${code}): ${output.trim() || 'no output'}`,
+      isAvailable: ({ code, version }) => code === 0 || Boolean(version),
+      killSignal: 'SIGTERM',
+      outputFormat: 'separate',
     });
   }
 

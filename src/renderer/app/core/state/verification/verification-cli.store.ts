@@ -3,14 +3,14 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { ElectronIpcService } from '../../services/ipc';
+import { IpcFacadeService } from '../../services/ipc';
 import { VerificationStateService } from './verification-state.service';
 import type { CliDetectionResult } from './verification.types';
 
 @Injectable({ providedIn: 'root' })
 export class VerificationCliStore {
   private stateService = inject(VerificationStateService);
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
 
   /**
    * Scan for available CLIs

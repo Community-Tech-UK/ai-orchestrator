@@ -177,6 +177,15 @@ export interface AppSettings {
   /** Managed browser profile id chrome-devtools attaches to (empty = none). */
   chromeDevtoolsAttachProfileId: string;
 
+  /**
+   * Path to a local file containing the Bitwarden master password used to
+   * unlock the browser credential vault from the UI. The path is stored — the
+   * password itself is read at unlock time, kept in main-process memory only,
+   * and never logged or sent to the renderer/model. Empty = unlock unavailable.
+   * Overridable with the AIO_BW_MASTER_PASSWORD_FILE env var.
+   */
+  browserVaultMasterPasswordFile: string;
+
   // Codebase auto-index (separate, heavier pipeline from codemem: BM25 +
   // vector embeddings + Merkle change detection + hybrid search). Auto-runs
   // incrementally whenever a workspace enters the app. See
@@ -526,6 +535,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   broadRootFileThreshold: 100,
   chromeDevtoolsAttachEnabled: false,
   chromeDevtoolsAttachProfileId: '',
+  browserVaultMasterPasswordFile: '',
 
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)
   instanceProviderLimitResumeEnabled: false,

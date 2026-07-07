@@ -190,42 +190,6 @@ export class CliDetectionService {
   }
 
   /**
-   * Check if a specific CLI is available
-   */
-  async isInstalled(type: CliType): Promise<boolean> {
-    const info = await this.detectOne(type);
-    return info.installed;
-  }
-
-  /**
-   * Get the list of known CLI types
-   */
-  getKnownClis(): CliType[] {
-    return Object.keys(CLI_REGISTRY) as CliType[];
-  }
-
-  /**
-   * Get CLI registry entry
-   */
-  getCliConfig(type: CliType): CliRegistryEntry | undefined {
-    return CLI_REGISTRY[type];
-  }
-
-  /**
-   * Get the first available CLI
-   */
-  async getDefaultCli(): Promise<CliInfo | null> {
-    const result = await this.detectAll();
-    // Prefer claude, then antigravity, then codex, then copilot, then others
-    const priority: CliType[] = ['claude', 'antigravity', 'codex', 'copilot', 'cursor', 'ollama'];
-    for (const type of priority) {
-      const cli = result.available.find((c) => c.name === type);
-      if (cli) return cli;
-    }
-    return result.available[0] || null;
-  }
-
-  /**
    * Clear the detection cache
    */
   clearCache(): void {
@@ -586,13 +550,4 @@ export async function detectAvailableClis(): Promise<CliInfo[]> {
 export async function isCliAvailable(type: CliType): Promise<CliInfo> {
   const service = CliDetectionService.getInstance();
   return service.detectOne(type);
-}
-
-export async function getDefaultCli(): Promise<CliInfo | null> {
-  const service = CliDetectionService.getInstance();
-  return service.getDefaultCli();
-}
-
-export function getCliConfig(type: CliType): CliRegistryEntry | undefined {
-  return CLI_REGISTRY[type];
 }

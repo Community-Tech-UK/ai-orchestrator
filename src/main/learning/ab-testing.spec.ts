@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ABTestingEngine, getABTestingEngine } from './ab-testing';
+import { ABTestingEngine } from './ab-testing';
 
 // Mock the RLM database
 vi.mock('../persistence/rlm-database', () => ({
@@ -21,7 +21,7 @@ describe('ABTestingEngine', () => {
   beforeEach(() => {
     // Reset singleton for clean tests
     ABTestingEngine.resetInstance();
-    engine = getABTestingEngine({ persistResults: false });
+    engine = ABTestingEngine.getInstance({ persistResults: false });
     // Add error listener to prevent unhandled error events from throwing
     engine.on('error', () => {});
   });

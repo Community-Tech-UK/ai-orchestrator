@@ -39,4 +39,23 @@ export const BROWSER_CHANNELS = {
   BROWSER_GET_AUDIT_LOG: 'browser:get-audit-log',
   BROWSER_GET_HEALTH: 'browser:get-health',
   BROWSER_CHANGED: 'browser:changed',
+
+  // Unattended-automation trigger surfaces (renderer-only, James-approved
+  // dialogs — deliberately NOT exposed as MCP tools).
+  BROWSER_VAULT_UNLOCK: 'browser:vault-unlock',
+  BROWSER_VAULT_LOCK: 'browser:vault-lock',
+  BROWSER_VAULT_STATUS: 'browser:vault-status',
+  BROWSER_CREATE_CREDENTIAL_AUTHORIZATION: 'browser:create-credential-authorization',
+  BROWSER_LIST_CREDENTIAL_AUTHORIZATIONS: 'browser:list-credential-authorizations',
+  BROWSER_REVOKE_CREDENTIAL_AUTHORIZATION: 'browser:revoke-credential-authorization',
+  BROWSER_CREATE_CAMPAIGN: 'browser:create-campaign',
+  BROWSER_LIST_CAMPAIGNS: 'browser:list-campaigns',
+  BROWSER_GET_CAMPAIGN: 'browser:get-campaign',
+  BROWSER_PAUSE_CAMPAIGN: 'browser:pause-campaign',
+  BROWSER_RESUME_CAMPAIGN: 'browser:resume-campaign',
+  BROWSER_KILL_CAMPAIGN: 'browser:kill-campaign',
+  BROWSER_APPROVE_CAMPAIGN_DECLARATION: 'browser:approve-campaign-declaration',
+  BROWSER_LIST_ESCALATIONS: 'browser:list-escalations',
+  BROWSER_RESOLVE_ESCALATION: 'browser:resolve-escalation',
+  BROWSER_SKIP_ESCALATION: 'browser:skip-escalation',
 } as const;

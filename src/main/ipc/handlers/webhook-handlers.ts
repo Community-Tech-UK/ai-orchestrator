@@ -4,10 +4,12 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   WebhookCreateRoutePayloadSchema,
   WebhookListDeliveriesPayloadSchema,
+  WebhookListSuggestionsPayloadSchema,
 } from '@contracts/schemas/webhook';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getWebhookServer } from '../../webhooks/webhook-server';
 import { getWebhookStore } from '../../webhooks/webhook-store';
+import { listWebhookAutomationSuggestions } from '../../webhooks/webhook-suggestion-service';
 
 function errorResponse(code: string, error: unknown): IpcResponse {
   return {
@@ -46,13 +48,13 @@ export function registerWebhookHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WEBHOOK_CREATE_ROUTE,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
-	      try {
-	        const validated = validateIpcPayload(WebhookCreateRoutePayloadSchema, payload, 'WEBHOOK_CREATE_ROUTE');
-	        const route = store.createRoute(validated);
-	        if (route.enabled) {
-	          await server.start();
-	        }
-	        return { success: true, data: route };
+      try {
+        const validated = validateIpcPayload(WebhookCreateRoutePayloadSchema, payload, 'WEBHOOK_CREATE_ROUTE');
+        const route = store.createRoute(validated);
+        if (route.enabled) {
+          await server.start();
+        }
+        return { success: true, data: route };
       } catch (error) {
         return errorResponse('WEBHOOK_CREATE_ROUTE_FAILED', error);
       }
@@ -63,10 +65,30 @@ export function registerWebhookHandlers(): void {
     IPC_CHANNELS.WEBHOOK_LIST_DELIVERIES,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const validated = validateIpcPayload(WebhookListDeliveriesPayloadSchema, payload ?? {}, 'WEBHOOK_LIST_DELIVERIES');
+        const validated = validateIpcPayload(
+          WebhookListDeliveriesPayloadSchema,
+          payload ?? {},
+          'WEBHOOK_LIST_DELIVERIES',
+        );
         return { success: true, data: store.recentDeliveries(validated?.limit ?? 50) };
       } catch (error) {
         return errorResponse('WEBHOOK_LIST_DELIVERIES_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WEBHOOK_LIST_SUGGESTIONS,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          WebhookListSuggestionsPayloadSchema,
+          payload ?? {},
+          'WEBHOOK_LIST_SUGGESTIONS',
+        );
+        return { success: true, data: listWebhookAutomationSuggestions(validated?.limit ?? 10) };
+      } catch (error) {
+        return errorResponse('WEBHOOK_LIST_SUGGESTIONS_FAILED', error);
       }
     },
   );

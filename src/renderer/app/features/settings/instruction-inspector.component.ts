@@ -7,7 +7,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { InstructionIpcService } from '../../core/services/ipc/instruction-ipc.service';
 import type {
   InstructionResolution,
@@ -372,7 +372,7 @@ import type {
   ]
 })
 export class InstructionInspectorComponent {
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private instructionIpc = inject(InstructionIpcService);
 
   workingDirectory = input.required<string>();

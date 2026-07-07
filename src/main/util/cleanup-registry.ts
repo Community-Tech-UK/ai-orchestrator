@@ -53,11 +53,6 @@ export async function runCleanupFunctions(timeoutMs = 2000): Promise<void> {
   ]);
 }
 
-/** Number of registered cleanup functions. */
-export function getCleanupCount(): number {
-  return cleanups.size;
-}
-
 /** Reset for testing -- clears all registered cleanups. */
 export function _resetForTesting(): void {
   cleanups.clear();

@@ -20,12 +20,6 @@ import { CompositeQuotaProbe } from './composite-quota-probe';
 import { FallbackQuotaProbe } from './fallback-quota-probe';
 import { UsageMonitorSource } from './usage-monitor-source';
 
-export { ClaudeQuotaProbe } from './claude-quota-probe';
-export type {
-  ClaudeAuthStatusExec,
-  ClaudeQuotaProbeOptions,
-} from './claude-quota-probe';
-
 export { ClaudeUsageEndpointProbe, parseUsagePayload } from './claude-usage-endpoint-probe';
 export type {
   ClaudeUsageEndpointProbeOptions,
@@ -134,9 +128,8 @@ export function registerDefaultQuotaProbes(): void {
   });
 
   // Claude: the OAuth usage endpoint is the source of truth for numerical
-  // windows (5-hour / weekly / per-model / overage credits). The older
-  // auth-status `ClaudeQuotaProbe` is retained as a utility but no longer the
-  // registered probe — the endpoint also reports login state (401 ⇒ signed out).
+  // windows (5-hour / weekly / per-model / overage credits) and login state
+  // (401 ⇒ signed out).
   //
   // Each native probe is wrapped in a CompositeQuotaProbe so that, when the
   // standalone token-usage-monitor is running, its `state.json` fills any

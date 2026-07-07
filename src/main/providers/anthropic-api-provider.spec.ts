@@ -401,7 +401,7 @@ describe('AnthropicApiProvider', () => {
       expect(anthropicSdkMocks.create).toHaveBeenCalled();
     });
 
-    it('strips lone surrogates from provider-bound request text only', async () => {
+    it('sanitizes provider-bound request text only', async () => {
       const directProvider = new AnthropicApiProvider({
         ...config,
         enablePromptCaching: false,
@@ -423,10 +423,10 @@ describe('AnthropicApiProvider', () => {
       const countRequest = anthropicSdkMocks.countTokens.mock.calls.at(-1)?.[0] as AnthropicRequest;
       const createRequest = anthropicSdkMocks.create.mock.calls.at(-1)?.[0] as AnthropicRequest;
 
-      expect(countRequest.system).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
-      expect(createRequest.system).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
-      expect(countRequest.messages[0]?.content[0]?.text).toBe('user prompt \uD83D\uDE00 zero\u200Bwidth');
-      expect(createRequest.messages[0]?.content[0]?.text).toBe('user prompt \uD83D\uDE00 zero\u200Bwidth');
+      expect(countRequest.system).toBe('sys prompt \uD83D\uDE00 zerowidth');
+      expect(createRequest.system).toBe('sys prompt \uD83D\uDE00 zerowidth');
+      expect(countRequest.messages[0]?.content[0]?.text).toBe('user prompt \uD83D\uDE00 zerowidth');
+      expect(createRequest.messages[0]?.content[0]?.text).toBe('user prompt \uD83D\uDE00 zerowidth');
     });
   });
 

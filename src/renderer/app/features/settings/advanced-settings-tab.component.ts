@@ -256,7 +256,8 @@ interface AdvancedSection {
           <div class="setting-info">
             <h3 class="setting-label">Export or import settings</h3>
             <p class="setting-description">
-              Save your settings, channel credentials, paired senders, and connected remote computers to a file. Import that file later to restore everything after reinstalling or moving to a new machine.
+              Save portable settings to a file. Credentials, paired devices,
+              local paths, and machine identities are excluded.
             </p>
           </div>
           <div class="setting-control button-group">
@@ -273,6 +274,24 @@ interface AdvancedSection {
               [disabled]="exportImportWorking()"
             >
               Import
+            </button>
+          </div>
+        </div>
+        <div class="setting-row reset-section">
+          <div class="setting-info">
+            <h3 class="setting-label">Reset all settings</h3>
+            <p class="setting-description">
+              Restore app settings to their defaults on this machine. This does
+              not delete conversation history or workspace files.
+            </p>
+          </div>
+          <div class="setting-control button-group">
+            <button
+              class="btn-danger"
+              (click)="doResetAll()"
+              [disabled]="exportImportWorking()"
+            >
+              Reset all
             </button>
           </div>
         </div>
@@ -583,7 +602,7 @@ export class AdvancedSettingsTabComponent {
           // User cancelled the dialog — no message needed
         } else {
           this.exportImportSuccess.set(true);
-          this.exportImportMessage.set(`Settings exported to ${data?.filePath}`);
+          this.exportImportMessage.set(`Portable settings exported to ${data?.filePath}`);
         }
       } else {
         this.exportImportSuccess.set(false);
@@ -606,22 +625,19 @@ export class AdvancedSettingsTabComponent {
         const data = res.data as {
           cancelled?: boolean;
           settingsRestored?: boolean;
-          credentialsRestored?: number;
-          policiesRestored?: number;
-          remoteNodesRestored?: boolean;
+          settingsImported?: number;
+          settingsSkipped?: number;
         };
         if (data?.cancelled) {
           // User cancelled the dialog — no message needed
         } else {
           this.exportImportSuccess.set(true);
           const parts: string[] = [];
-          if (data?.settingsRestored) parts.push('app settings');
-          if (data?.credentialsRestored) parts.push(`${data.credentialsRestored} channel credential(s)`);
-          if (data?.policiesRestored) parts.push(`${data.policiesRestored} access policy/ies`);
-          if (data?.remoteNodesRestored) parts.push('remote node identities');
+          if (data?.settingsRestored) parts.push(`${data.settingsImported ?? 0} setting(s)`);
+          if (data?.settingsSkipped) parts.push(`${data.settingsSkipped} skipped`);
           this.exportImportMessage.set(
             parts.length > 0
-              ? `Imported: ${parts.join(', ')}. Restart the app to fully apply channel changes.`
+              ? `Imported: ${parts.join(', ')}.`
               : 'Import completed (no data found in file).'
           );
           // Reload settings in the store so UI reflects new values
@@ -634,6 +650,25 @@ export class AdvancedSettingsTabComponent {
     } catch (err) {
       this.exportImportSuccess.set(false);
       this.exportImportMessage.set((err as Error).message);
+    } finally {
+      this.exportImportWorking.set(false);
+    }
+  }
+
+  async doResetAll(): Promise<void> {
+    if (!confirm('Reset all settings to their defaults on this machine?')) {
+      return;
+    }
+
+    this.exportImportWorking.set(true);
+    this.exportImportMessage.set(null);
+    try {
+      await this.store.reset();
+      this.exportImportSuccess.set(true);
+      this.exportImportMessage.set('Settings reset to defaults.');
+    } catch (error) {
+      this.exportImportSuccess.set(false);
+      this.exportImportMessage.set((error as Error).message);
     } finally {
       this.exportImportWorking.set(false);
     }

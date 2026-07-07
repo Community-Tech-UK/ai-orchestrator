@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import type { AcpMcpServerConfig } from '../../shared/types/cli.types';
+import { tomlArray, tomlBareKey, tomlString } from './mcp-config-toml-helpers';
 
 /**
  * MCP config writer for the browser-gateway stdio forwarder.
@@ -129,18 +130,4 @@ export function buildBrowserGatewayAcpMcpServers(
       env: Object.entries(bridge.env).map(([name, value]) => ({ name, value })),
     },
   ];
-}
-
-function tomlString(value: string): string {
-  return JSON.stringify(value);
-}
-
-function tomlArray(values: string[]): string {
-  return `[${values.map((value) => tomlString(value)).join(', ')}]`;
-}
-
-function tomlBareKey(value: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(value)
-    ? value
-    : tomlString(value);
 }

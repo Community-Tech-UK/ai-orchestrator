@@ -6,7 +6,11 @@ const BRIDGE_DEFINITIONS = [
 ];
 const INVENTORY_ALARM = 'browser-gateway-inventory';
 const POLL_TIMEOUT_MS = 10000;
-const POLL_WATCHDOG_GRACE_MS = 5000;
+// The watchdog must OUTLIVE the native host's own poll-RPC budget (poll window
+// + 15s), which in turn outlives the worker relay's (+10s) and the
+// coordinator's hold. If this fires before the layers below give up, the port
+// is torn down while a freshly dequeued command is in flight — and dropped.
+const POLL_WATCHDOG_GRACE_MS = 20000;
 const POLL_WATCHDOG_MS = POLL_TIMEOUT_MS + POLL_WATCHDOG_GRACE_MS;
 const POLL_IDLE_DELAY_MS = 250;
 const BADGE_UNHEALTHY_GRACE_MS = 60000;
@@ -28,6 +32,25 @@ const POLL_TIMEOUT_REASON = 'browser_extension_poll_timeout';
 const GATEWAY_ENABLED_STORAGE_KEY = 'browserGatewayEnabled';
 const SAFE_MODE_ERROR = 'browser_safe_mode_enabled';
 
+// Last-resort self-heal ladder. An MV3 service worker with an open native
+// messaging port is kept alive by Chrome INDEFINITELY — so if its in-memory
+// state ever wedges in a way the targeted watchdogs don't cover, it never
+// gets the restart that would clear it: the recovery alarm just fires into
+// the same wedged worker forever (observed live: a bridge that reconnected
+// its port on every native-host restart but never issued another poll).
+// Rung 1: no healthy poll ack for SELF_HEAL_STUCK_MS → hard-recycle every
+// bridge (forced port teardown + fresh reconnect). Rung 2: still no ack
+// after SELF_HEAL_RELOAD_MS → chrome.runtime.reload(), the only true reset
+// for unforeseen wedge states, rate-limited via storage so a machine whose
+// gateway is legitimately down cannot reload-loop.
+const SELF_HEAL_STUCK_MS = 5 * 60000;
+const SELF_HEAL_RECYCLE_MIN_INTERVAL_MS = 150000;
+const SELF_HEAL_RELOAD_MS = 10 * 60000;
+const SELF_HEAL_RELOAD_MIN_INTERVAL_MS = 30 * 60000;
+const SELF_RELOAD_STORAGE_KEY = 'browserGatewayLastSelfReloadAt';
+const SW_STARTED_AT = Date.now();
+let lastSelfHealRecycleAt = 0;
+
 let inventoryInFlight = false;
 let gatewayEnabled = false;
 let gatewayStateLoaded = false;
@@ -36,12 +59,18 @@ const sharedTabs = [];
 const bridges = BRIDGE_DEFINITIONS.map(createBridge);
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(INVENTORY_ALARM, { periodInMinutes: 1 });
+  // 0.5 = 30s, the MV3 minimum (Chrome ≥120). This alarm is the recovery path
+  // after a service-worker suspension — halving it halves the worst-case
+  // window in which queued gateway commands wait for the poll loop to restart.
+  chrome.alarms.create(INVENTORY_ALARM, { periodInMinutes: 0.5 });
   void initializeGateway();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create(INVENTORY_ALARM, { periodInMinutes: 1 });
+  // 0.5 = 30s, the MV3 minimum (Chrome ≥120). This alarm is the recovery path
+  // after a service-worker suspension — halving it halves the worst-case
+  // window in which queued gateway commands wait for the poll loop to restart.
+  chrome.alarms.create(INVENTORY_ALARM, { periodInMinutes: 0.5 });
   void initializeGateway();
 });
 
@@ -59,7 +88,58 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
   }
   void reportTabInventory();
+  void selfHealIfWedged();
 });
+
+async function selfHealIfWedged() {
+  if (!gatewayEnabled) {
+    return;
+  }
+  const now = Date.now();
+  // A young worker is still inside normal reconnect/recovery — judging it
+  // would reload-loop right after every (intentional) restart.
+  if (now - SW_STARTED_AT < SELF_HEAL_STUCK_MS) {
+    return;
+  }
+  const lastAck = bridges.reduce(
+    (max, bridge) => Math.max(max, bridge.lastPollAckAt ?? 0),
+    0,
+  );
+  if (lastAck > 0 && now - lastAck < SELF_HEAL_STUCK_MS) {
+    return;
+  }
+  // No native host installed at all — nothing to heal toward.
+  if (!bridges.some((bridge) => bridge.state !== 'absent')) {
+    return;
+  }
+  // Rung 2 (checked first so rung 1's return cannot starve it): a recycle
+  // was already tried and the channel is still dead — reset the whole
+  // service worker. This clears wedge states in variables no targeted
+  // watchdog knows about, which is the point.
+  if (
+    now - SW_STARTED_AT >= SELF_HEAL_RELOAD_MS
+    && lastSelfHealRecycleAt > 0
+    && typeof chrome.runtime.reload === 'function'
+  ) {
+    const values = await chrome.storage.local.get(SELF_RELOAD_STORAGE_KEY)
+      .catch(() => null);
+    const lastReloadAt = typeof values?.[SELF_RELOAD_STORAGE_KEY] === 'number'
+      ? values[SELF_RELOAD_STORAGE_KEY]
+      : 0;
+    if (lastReloadAt === 0 || now - lastReloadAt >= SELF_HEAL_RELOAD_MIN_INTERVAL_MS) {
+      await chrome.storage.local.set({ [SELF_RELOAD_STORAGE_KEY]: now })
+        .catch(() => undefined);
+      chrome.runtime.reload();
+      return;
+    }
+  }
+  // Rung 1: forced teardown + reconnect of every bridge, same path as the
+  // popup's reconnect button.
+  if (now - lastSelfHealRecycleAt >= SELF_HEAL_RECYCLE_MIN_INTERVAL_MS) {
+    lastSelfHealRecycleAt = now;
+    await reconnectAllBridges().catch(() => undefined);
+  }
+}
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!gatewayEnabled) {
@@ -728,6 +808,17 @@ async function handleNativeMessage(message, bridge) {
     return;
   }
   if (!message || message.type !== 'browser_command') {
+    if (isForwardAckReply(message)) {
+      // Ack (or failure) for a receipt/result/inventory forward we posted.
+      // A FAILED forward must never be treated as a poll error: clearing
+      // pollInFlight mid-command lets the alarm open a second poll and pull
+      // a second command while this one is still executing.
+      if (isNativeHostErrorReply(message)) {
+        bridge.lastError = message.error;
+      }
+      persistBridgeStatus();
+      return;
+    }
     if (handleNativePollError(message, bridge)) {
       return;
     }
@@ -742,6 +833,13 @@ async function handleNativeMessage(message, bridge) {
     return;
   }
   const command = message.command;
+  // Ack receipt BEFORE executing: the gateway uses this to distinguish "the
+  // handoff died and the command never ran" (safe to retry) from "the command
+  // ran but its result never came back" (verify before retrying a mutation).
+  postNativeMessage(bridge, {
+    type: 'command_received',
+    commandId: command.id,
+  });
   commandChain = commandChain.then(() => runBrowserCommand(command, bridge));
   await commandChain;
 }
@@ -755,6 +853,19 @@ function handleNativePollError(message, bridge) {
   persistBridgeStatus();
   scheduleNextPoll(bridge, POLL_TIMEOUT_MS);
   return true;
+}
+
+// Replies from a new-build native host carry the originating frame type as
+// ackType. Anything tagged with a non-poll ackType is a forward ack, not a
+// poll reply. An old-build native host sends untagged replies — those keep
+// the legacy (poll-error) routing, degrading to today's behavior.
+function isForwardAckReply(message) {
+  return Boolean(
+    message
+    && typeof message === 'object'
+    && typeof message.ackType === 'string'
+    && message.ackType !== 'poll_command',
+  );
 }
 
 function isNativeHostErrorReply(message) {
@@ -1131,6 +1242,10 @@ async function executeBrowserCommand(command) {
         typeof command.payload?.query === 'string' ? command.payload.query : undefined,
         typeof command.payload?.limit === 'number' ? command.payload.limit : undefined,
       ]);
+    case 'read_control':
+      return runInTargetTab(command, 'read_control', [
+        requirePayloadString(command, 'selector'),
+      ]);
     default:
       throw new Error(`Unsupported browser command: ${command.command}`);
   }
@@ -1140,6 +1255,7 @@ async function uploadFileInTargetTab(command) {
   const tabId = requireTargetTabId(command);
   const selector = requirePayloadString(command, 'selector');
   const filePath = requirePayloadString(command, 'filePath');
+  let uploadState = { uploaded: false, fileCount: 0, files: [] };
   await startControlledTab(tabId);
   try {
     await withDebugger(tabId, async (debuggee) => {
@@ -1156,24 +1272,39 @@ async function uploadFileInTargetTab(command) {
       if (!objectId) {
         throw new Error('Browser upload file input was not found.');
       }
-      await chrome.debugger.sendCommand(debuggee, 'DOM.setFileInputFiles', {
-        objectId,
-        files: [filePath],
-      });
-      await chrome.debugger.sendCommand(debuggee, 'Runtime.callFunctionOn', {
-        objectId,
-        functionDeclaration: `function() {
-          this.dispatchEvent(new Event('input', { bubbles: true }));
-          this.dispatchEvent(new Event('change', { bubbles: true }));
-        }`,
-        awaitPromise: false,
-      });
-      await chrome.debugger.sendCommand(debuggee, 'Runtime.releaseObjectGroup', {
-        objectGroup: 'aio-upload',
-      }).catch(() => undefined);
+      try {
+        await chrome.debugger.sendCommand(debuggee, 'DOM.setFileInputFiles', {
+          objectId,
+          files: [filePath],
+        });
+        const stateEvaluation = await chrome.debugger.sendCommand(debuggee, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            this.dispatchEvent(new Event('input', { bubbles: true }));
+            this.dispatchEvent(new Event('change', { bubbles: true }));
+            const files = Array.from(this.files || []).map((file) => ({
+              name: String(file.name || '').slice(0, 255),
+              size: typeof file.size === 'number' ? file.size : undefined,
+              type: String(file.type || '').slice(0, 200),
+            }));
+            return {
+              uploaded: files.length > 0,
+              fileCount: files.length,
+              files,
+            };
+          }`,
+          awaitPromise: false,
+          returnByValue: true,
+        });
+        uploadState = stateEvaluation?.result?.value ?? uploadState;
+      } finally {
+        await chrome.debugger.sendCommand(debuggee, 'Runtime.releaseObjectGroup', {
+          objectGroup: 'aio-upload',
+        }).catch(() => undefined);
+      }
     });
     await reportTab(await chrome.tabs.get(tabId));
-    return { uploaded: true, selector };
+    return { selector, ...uploadState };
   } finally {
     await stopControlledTab(tabId);
   }
@@ -1498,7 +1629,30 @@ function uidTypeFn(value) {
         : null;
   const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, 'value');
   if (element.isContentEditable) {
-    element.textContent = value;
+    // Rich-text editors (Slate/Lexical/ProseMirror-style) keep their own model
+    // in sync via native 'beforeinput'/'input' events; a bulk textContent
+    // overwrite bypasses that and desyncs on the editor's next render. Select
+    // the existing content and use execCommand('insertText', ...) so the
+    // replacement travels through the same native editing pipeline a real
+    // keystroke would, falling back to textContent only if that's unavailable.
+    try {
+      const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+      if (selection && typeof document !== 'undefined' && document.createRange) {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      const inserted = typeof document !== 'undefined'
+        && typeof document.execCommand === 'function'
+        && document.execCommand('insertText', false, value);
+      if (!inserted) {
+        element.textContent = value;
+      }
+    } catch (error) {
+      void error;
+      element.textContent = value;
+    }
   } else if (descriptor && typeof descriptor.set === 'function') {
     descriptor.set.call(element, value);
   } else {
@@ -2341,11 +2495,38 @@ function pageBridgeScript(action, args) {
     return true;
   }
 
+  // Rich-text editors (Slate/Lexical/ProseMirror-style) keep their own model
+  // in sync via native 'beforeinput'/'input' events; a bulk textContent
+  // overwrite bypasses that and desyncs on the editor's next render. Select
+  // the existing content and use execCommand('insertText', ...) so the
+  // replacement travels through the same native editing pipeline a real
+  // keystroke would, falling back to textContent only if that's unavailable.
+  function fillContentEditable(element, value) {
+    try {
+      const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+      if (selection && typeof document !== 'undefined' && document.createRange) {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      const inserted = typeof document !== 'undefined'
+        && typeof document.execCommand === 'function'
+        && document.execCommand('insertText', false, value);
+      if (!inserted) {
+        element.textContent = value;
+      }
+    } catch (error) {
+      void error;
+      element.textContent = value;
+    }
+  }
+
   function applyType(element, value) {
     element.scrollIntoView({ block: 'center', inline: 'center' });
     element.focus();
     if (element.isContentEditable) {
-      element.textContent = value;
+      fillContentEditable(element, value);
     } else {
       setNativeValue(element, value);
     }
@@ -2639,6 +2820,21 @@ function pageBridgeScript(action, args) {
   if (action === 'query_elements') {
     const [query, limit] = args;
     return queryElements(query, limit);
+  }
+
+  if (action === 'read_control') {
+    const [selector] = args;
+    const element = findElement(selector);
+    if (!element) {
+      return { __found: false };
+    }
+    const state = controlState(element);
+    return {
+      __found: true,
+      value: state.value,
+      selectedLabel: state.selectedOption,
+      checked: state.checked,
+    };
   }
 
   // Per-frame existence probe used by the background all-frames wait_for poll.

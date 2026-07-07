@@ -41,6 +41,17 @@ describe('scanForBarrelImports', () => {
     expect(offenders).toHaveLength(1);
   });
 
+  it('flags bare @sdk imports', () => {
+    const offenders = scanForBarrelImports([
+      {
+        path: 'fake/sdk.ts',
+        content: "import { ProviderAdapter } from '@sdk';\n",
+      },
+    ]);
+    expect(offenders).toHaveLength(1);
+    expect(offenders[0].pattern).toMatch(/@sdk['"]/);
+  });
+
   it('ALLOWS subpath imports', () => {
     const offenders = scanForBarrelImports([
       {
@@ -49,6 +60,7 @@ describe('scanForBarrelImports', () => {
           "import { X } from '@contracts/schemas/session';",
           "import { Y } from '@contracts/channels/instance';",
           "import type { Z } from '@contracts/types/provider-runtime-events';",
+          "import type { ProviderAdapter } from '@sdk/provider-adapter';",
           "export * from '@contracts/schemas/common';",
         ].join('\n'),
       },
@@ -73,9 +85,10 @@ describe('scanForBarrelImports', () => {
         content: [
           "import { A } from '@contracts';",
           "import { B } from '@contracts/schemas';",
+          "import { C } from '@sdk';",
         ].join('\n'),
       },
     ]);
-    expect(offenders).toHaveLength(2);
+    expect(offenders).toHaveLength(3);
   });
 });

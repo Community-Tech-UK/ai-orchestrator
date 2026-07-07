@@ -67,10 +67,29 @@ interface PageBridgeControlState {
   options?: { value: string; label: string; selected: boolean }[];
 }
 
+interface PageBridgeSelectControl {
+  kind: 'native' | 'custom';
+  options: { value?: string; label?: string }[];
+  value?: string;
+  selectedLabel?: string;
+  custom?: boolean;
+}
+
+interface PageBridgeRange {
+  selectNodeContents: (node: PageBridgeElement) => void;
+}
+
+interface PageBridgeSelection {
+  removeAllRanges: () => void;
+  addRange: (range: PageBridgeRange) => void;
+}
+
 interface PageBridgeDocument extends PageBridgeRoot {
   title: string;
   body?: PageBridgeElement;
   documentElement: PageBridgeElement;
+  createRange?: () => PageBridgeRange;
+  execCommand?: (commandId: string, showUI?: boolean, value?: string) => boolean;
 }
 
 interface PageBridgeGlobal {
@@ -84,6 +103,14 @@ interface PageBridgeGlobal {
     observe: (target: PageBridgeElement, options: Record<string, unknown>) => void;
     disconnect: () => void;
   };
+  getSelection?: () => PageBridgeSelection | null;
+}
+
+export interface PageBridgeFieldDescriptor {
+  tagName?: string;
+  /** Lowercased `type` attribute for `<input>` elements (e.g. 'date', 'email'). */
+  inputType?: string;
+  isContentEditable: boolean;
 }
 
 export function evaluatePageBridge(page: Page, input: PageBridgeInput): Promise<unknown> {
@@ -162,12 +189,40 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
     };
   }
 
+  // Rich-text editors (Slate/Lexical/ProseMirror-style) keep their own model
+  // in sync via native 'beforeinput'/'input' events; a bulk textContent
+  // overwrite bypasses that and desyncs on the editor's next render. Select
+  // the existing content and use execCommand('insertText', ...) so the
+  // replacement travels through the same native editing pipeline a real
+  // keystroke would, falling back to textContent only if that's unavailable.
+  function fillContentEditable(element: PageBridgeElement): boolean {
+    const selection = pageGlobal.getSelection?.();
+    if (!selection || typeof documentRef.createRange !== 'function') {
+      return false;
+    }
+    const range = documentRef.createRange();
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
   function typeIntoElement(selector: string, value: string): Record<string, string | undefined> {
     const element = requireElement(selector);
     element.scrollIntoView?.({ block: 'center', inline: 'center' });
     element.focus?.();
     if (element.isContentEditable) {
-      element.textContent = value;
+      let inserted = false;
+      try {
+        inserted = fillContentEditable(element)
+          && typeof documentRef.execCommand === 'function'
+          && documentRef.execCommand('insertText', false, value);
+      } catch {
+        inserted = false;
+      }
+      if (!inserted) {
+        element.textContent = value;
+      }
     } else {
       element.value = value;
     }
@@ -178,6 +233,15 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
     }));
     element.dispatchEvent?.(new pageGlobal.Event('change', { bubbles: true }));
     return describeElement(element);
+  }
+
+  function describeField(selector: string): PageBridgeFieldDescriptor {
+    const element = requireElement(selector);
+    return {
+      tagName: element.tagName,
+      inputType: typeof element.type === 'string' ? element.type.toLowerCase() : undefined,
+      isContentEditable: Boolean(element.isContentEditable),
+    };
   }
 
   function cssAttr(value: string): string {
@@ -284,6 +348,66 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
     return [...direct, ...nested];
   }
 
+  function normalizeOptionText(value: string | undefined): string {
+    return (value ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.:*]+$/g, '')
+      .trim();
+  }
+
+  function isCustomSelectRole(element: PageBridgeElement): boolean {
+    const role = element.getAttribute?.('role') ?? '';
+    if (role === 'combobox' || role === 'listbox') {
+      return true;
+    }
+    const haspopup = element.getAttribute?.('aria-haspopup') ?? '';
+    return haspopup === 'listbox' || haspopup === 'menu' || haspopup === 'true';
+  }
+
+  function describeSelectControl(element: PageBridgeElement): PageBridgeSelectControl {
+    const tag = (element.tagName || '').toUpperCase();
+    if (tag === 'SELECT') {
+      const options = Array.from(element.options ?? []).map((option) => ({
+        value: String(option.value ?? ''),
+        label: (option.label || option.textContent || '').trim(),
+      }));
+      const selectedLabel = Array.from(element.options ?? [])
+        .filter((option) => option.selected)
+        .map((option) => (option.label || option.textContent || option.value || '').trim())
+        .filter(Boolean)
+        .join(', ');
+      return {
+        kind: 'native',
+        options,
+        value: typeof element.value === 'string' ? element.value : undefined,
+        selectedLabel: selectedLabel || undefined,
+      };
+    }
+
+    // Custom widget: options may only exist in the DOM once opened. Report
+    // whatever [role=option] nodes are currently reachable plus the trigger's
+    // displayed text so the driver can verify a selection after applying it.
+    const options = collectCandidateElements()
+      .filter((candidate) => {
+        const role = candidate.getAttribute?.('role');
+        return role === 'option' || role === 'menuitemradio' || role === 'menuitem';
+      })
+      .map((candidate) => ({
+        value: candidate.getAttribute?.('data-value') ?? undefined,
+        label: elementText(candidate),
+      }));
+    const displayed = (element.innerText || element.textContent || '').trim();
+    return {
+      kind: 'custom',
+      options,
+      value: element.getAttribute?.('aria-activedescendant') ?? undefined,
+      selectedLabel: displayed || undefined,
+      custom: isCustomSelectRole(element),
+    };
+  }
+
   function controlState(element: PageBridgeElement): PageBridgeControlState {
     const state: PageBridgeControlState = {};
     const tag = (element.tagName || '').toUpperCase();
@@ -382,6 +506,42 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
     return typeIntoElement(selector, value);
   }
 
+  if (action === 'describe_field') {
+    const [selector] = args as [string];
+    return describeField(selector);
+  }
+
+  if (action === 'read_control') {
+    const [selector] = args as [string];
+    const state = controlState(requireElement(selector));
+    return {
+      value: state.value,
+      selectedLabel: state.selectedOption,
+      checked: state.checked,
+    };
+  }
+
+  if (action === 'set_checked') {
+    const [selector, desired] = args as [string, boolean];
+    const element = requireElement(selector);
+    const type = (element.type || '').toLowerCase();
+    const ariaChecked = element.getAttribute?.('aria-checked');
+    const current =
+      type === 'checkbox' || type === 'radio'
+        ? Boolean(element.checked)
+        : ariaChecked === 'true';
+    if (current !== desired) {
+      element.scrollIntoView?.({ block: 'center', inline: 'center' });
+      element.click?.();
+    }
+    const state = controlState(requireElement(selector));
+    return {
+      value: state.value,
+      selectedLabel: state.selectedOption,
+      checked: state.checked,
+    };
+  }
+
   if (action === 'select') {
     const [selector, value] = args as [string, string];
     const element = requireElement(selector);
@@ -391,6 +551,49 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
     element.dispatchEvent?.(new pageGlobal.Event('input', { bubbles: true }));
     element.dispatchEvent?.(new pageGlobal.Event('change', { bubbles: true }));
     return describeElement(element);
+  }
+
+  if (action === 'describe_control') {
+    const [selector] = args as [string];
+    return describeSelectControl(requireElement(selector));
+  }
+
+  if (action === 'apply_select_native') {
+    const [selector, index] = args as [string, number];
+    const element = requireElement(selector);
+    element.scrollIntoView?.({ block: 'center', inline: 'center' });
+    element.focus?.();
+    const options = Array.from(element.options ?? []);
+    const option = options[index];
+    if (option) {
+      element.selectedIndex = index;
+      if (typeof option.value === 'string') {
+        element.value = option.value;
+      }
+    }
+    element.dispatchEvent?.(new pageGlobal.InputEvent('input', { bubbles: true }));
+    element.dispatchEvent?.(new pageGlobal.Event('change', { bubbles: true }));
+    return describeSelectControl(element);
+  }
+
+  if (action === 'apply_select_custom') {
+    const [selector, desired] = args as [string, string];
+    const trigger = requireElement(selector);
+    trigger.scrollIntoView?.({ block: 'center', inline: 'center' });
+    trigger.click?.();
+    const wanted = normalizeOptionText(desired);
+    const option = collectCandidateElements().find((element) => {
+      const role = element.getAttribute?.('role');
+      if (role !== 'option' && role !== 'menuitemradio' && role !== 'menuitem') {
+        return false;
+      }
+      return normalizeOptionText(elementText(element)) === wanted;
+    });
+    if (option) {
+      option.scrollIntoView?.({ block: 'center', inline: 'center' });
+      option.click?.();
+    }
+    return describeSelectControl(trigger);
   }
 
   if (action === 'wait_for') {

@@ -443,12 +443,6 @@ export class SettingsComponent {
     this.persistHelpCollapsed(collapsed);
   }
 
-  resetAll(): void {
-    if (confirm('Are you sure you want to reset all settings to their defaults?')) {
-      void this.store.reset();
-    }
-  }
-
   private readStoredTab(): SettingsTab | null {
     try {
       const stored = localStorage.getItem(LAST_TAB_KEY);

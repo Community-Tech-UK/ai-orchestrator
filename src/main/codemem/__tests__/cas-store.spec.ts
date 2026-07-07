@@ -169,12 +169,6 @@ describe('CasStore', () => {
     expect(store.getWorkspaceRoot('w1')?.absPath).toBe('/repo');
   });
 
-  it('upsertMerkleNode is idempotent on nodeHash', () => {
-    store.upsertMerkleNode({ nodeHash: 'n1', kind: 'file', childrenJson: '[]' });
-    store.upsertMerkleNode({ nodeHash: 'n1', kind: 'file', childrenJson: '[]' });
-    expect(store.getMerkleNode('n1')).toMatchObject({ kind: 'file' });
-  });
-
   it('replaceWorkspaceSymbolsForFile replaces file-scoped symbol rows', () => {
     store.replaceWorkspaceSymbolsForFile('w1', 'src/a.ts', [
       {

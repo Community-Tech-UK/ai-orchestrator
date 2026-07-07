@@ -52,6 +52,7 @@ const mockArchiveEntry = vi.fn();
 const mockGetEntries = vi.fn().mockReturnValue([]);
 const mockBackfillMissingAiTitles = vi.fn();
 const mockGenerateTitle = vi.fn();
+const mockListArchivedSessions = vi.fn().mockReturnValue([]);
 
 vi.mock('../../../history', () => ({
   getHistoryManager: () => ({
@@ -74,7 +75,7 @@ vi.mock('../../../instance/auto-title-service', () => ({
 vi.mock('../../../session/session-archive', () => ({
   getSessionArchiveManager: () => ({
     archiveSession: vi.fn(),
-    listArchivedSessions: vi.fn().mockReturnValue([]),
+    listArchivedSessions: mockListArchivedSessions,
     restoreSession: vi.fn(),
     deleteArchivedSession: vi.fn(),
     getArchivedSessionMeta: vi.fn(),
@@ -143,6 +144,8 @@ describe('session-handlers', () => {
     mockArchiveEntry.mockReset();
     mockGetEntries.mockReset();
     mockGetEntries.mockReturnValue([]);
+    mockListArchivedSessions.mockReset();
+    mockListArchivedSessions.mockReturnValue([]);
     mockBackfillMissingAiTitles.mockReset();
     mockGenerateTitle.mockReset();
     mockIsRemoteNodeReachable.mockReset();
@@ -200,6 +203,24 @@ describe('session-handlers', () => {
 
       expect(mockArchiveEntry).toHaveBeenCalledWith('entry-1');
       expect(mockDeleteEntry).toHaveBeenCalledWith('entry-1');
+    });
+  });
+
+  describe('archive search', () => {
+    it('handles ARCHIVE_SEARCH using the archive manager search filter', async () => {
+      mockListArchivedSessions.mockReturnValue([{ sessionId: 'arch-1', displayName: 'Build failure' }]);
+
+      const result = await invoke(IPC_CHANNELS.ARCHIVE_SEARCH, {
+        query: 'build failure',
+        options: { tags: ['ci'], limit: 1 },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([{ sessionId: 'arch-1', displayName: 'Build failure' }]);
+      expect(mockListArchivedSessions).toHaveBeenCalledWith({
+        searchTerm: 'build failure',
+        tags: ['ci'],
+      });
     });
   });
 

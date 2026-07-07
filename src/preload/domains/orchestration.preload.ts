@@ -668,18 +668,6 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     // ============================================
 
     /**
-     * Verify with multiple models (API-based)
-     */
-    verificationVerifyMulti: (payload: {
-      query: string;
-      context?: string;
-      models?: string[];
-      consensusThreshold?: number;
-    }): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.VERIFICATION_VERIFY_MULTI, payload);
-    },
-
-    /**
      * Start CLI-based verification
      */
     verificationStartCli: (payload: {
@@ -706,22 +694,6 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
      */
     verificationCancel: (payload: { id: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VERIFICATION_CANCEL, payload);
-    },
-
-    /**
-     * Get active verifications
-     */
-    verificationGetActive: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.VERIFICATION_GET_ACTIVE);
-    },
-
-    /**
-     * Get verification result
-     */
-    verificationGetResult: (verificationId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.VERIFICATION_GET_RESULT, {
-        verificationId
-      });
     },
 
     /**

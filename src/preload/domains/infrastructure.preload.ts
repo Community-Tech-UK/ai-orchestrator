@@ -127,6 +127,40 @@ export function createInfrastructureDomain(
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SECURITY_SET_PERMISSION_PRESET, { preset });
     },
+    permissionGetPendingBatch: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_GET_PENDING_BATCH);
+    },
+    permissionRecordBatchDecision: (
+      params: { action: 'allow_all' | 'deny_all'; scope: 'once' | 'session' | 'always' }
+    ): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_RECORD_BATCH_DECISION, params);
+    },
+    permissionRecordDecision: (
+      params: { requestId: string; action: 'allow' | 'deny'; scope: 'once' | 'session' | 'always' }
+    ): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_RECORD_DECISION, params);
+    },
+    permissionGetLearnedPatterns: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_GET_LEARNED_PATTERNS);
+    },
+    permissionApprovePattern: (params: { patternId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_APPROVE_PATTERN, params);
+    },
+    permissionRejectPattern: (params: { patternId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_REJECT_PATTERN, params);
+    },
+    permissionGetStats: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_GET_STATS);
+    },
+    permissionGetAuditLog: (
+      instanceId?: string,
+      limit?: number
+    ): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_GET_AUDIT_LOG, {
+        instanceId,
+        limit
+      });
+    },
     securityGetSafeEnv: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SECURITY_GET_SAFE_ENV);
     },
@@ -559,7 +593,6 @@ export function createInfrastructureDomain(
       bm25Weight?: number;
       vectorWeight?: number;
       minScore?: number;
-      rerank?: boolean;
       filePatterns?: string[];
       workspacePath?: string;
     }): Promise<IpcResponse> => {

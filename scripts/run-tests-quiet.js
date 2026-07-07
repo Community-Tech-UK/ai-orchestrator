@@ -62,6 +62,7 @@ const MAX_MSG_CHARS = 1200;
 const passthroughArgs = process.argv.slice(2);
 // A "targeted" run names specific files/paths; skip the slower full-gate preflight.
 const isTargetedRun = passthroughArgs.some((a) => !a.startsWith('-'));
+const hasExplicitCacheFlag = passthroughArgs.some((a) => a === '--cache' || a === '--no-cache');
 
 function log(line = '') {
   process.stdout.write(`${line}\n`);
@@ -105,6 +106,9 @@ function runVitest() {
     const args = [
       'run',
       ...passthroughArgs,
+      // Avoid stale Vitest result-cache file lists after large delete/rename
+      // batches. Callers can still opt back in with an explicit cache flag.
+      ...(hasExplicitCacheFlag ? [] : ['--no-cache']),
       // NB: no --silent. The child's stdout/stderr is redirected to the log FILE
       // (not the user's console), so in-test console output never floods context
       // but IS preserved in the log for genuine drill-down. --silent would drop it.

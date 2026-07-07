@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderType } from '../providers/provider-selector.component';
+import type { ProviderType } from '../../core/services/provider-state.service';
 import type { HybridSearchOptions, HybridSearchResult } from '../../../../shared/types/codebase.types';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { DraftService } from '../../core/services/draft.service';

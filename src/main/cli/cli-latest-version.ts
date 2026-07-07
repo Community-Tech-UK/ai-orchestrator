@@ -159,7 +159,3 @@ function defaultFetchNpmLatestVersion(npmPackage: string, timeoutMs: number): Pr
 export function getCliLatestVersionService(): CliLatestVersionService {
   return CliLatestVersionService.getInstance();
 }
-
-export function _resetCliLatestVersionServiceForTesting(): void {
-  CliLatestVersionService._resetForTesting();
-}

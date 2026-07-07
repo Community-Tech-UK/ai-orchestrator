@@ -16,9 +16,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { getLogger } from '../logging/logger';
 import type { PermissionDecisionStore } from './permission-decision-store.js';
-import { compileRules, hashRules, type CompiledMatcher } from './permission-rule-compiler';
 import { installPermissionManagerExtensions } from './permission-manager-extensions';
-export { compileRules, globToRegex, type CompiledMatcher } from './permission-rule-compiler';
 export type {
   BatchPermissionDecision,
   BatchPermissionRequest,
@@ -339,7 +337,6 @@ export class PermissionManager extends EventEmitter {
   private sessionRules: Map<string, PermissionRule[]> = new Map(); // Per-session rules
   private agentRules = new Map<string, PermissionRule[]>(); // Per-agent rules (#18)
   private loadedProjectRuleRoots: Set<string> = new Set();
-  private matcherCache = new Map<string, CompiledMatcher>();
   private decisionStore?: PermissionDecisionStore;
 
   private constructor() {
@@ -680,6 +677,13 @@ export class PermissionManager extends EventEmitter {
       request,
       action,
       scope,
+    });
+    this.recordDecisionForLearning({
+      request,
+      action,
+      fromCache: false,
+      reason: `User chose: ${action} (${scope})`,
+      decidedAt: Date.now(),
     });
   }
 
@@ -1077,16 +1081,6 @@ export class PermissionManager extends EventEmitter {
 
   private invalidateCache(): void {
     this.decisionCache.clear();
-    this.matcherCache.clear();
-  }
-
-  private getCompiledMatcher(rules: PermissionRule[]): CompiledMatcher {
-    const hash = hashRules(rules);
-    const cached = this.matcherCache.get(hash);
-    if (cached) return cached;
-    const matcher = compileRules(rules);
-    this.matcherCache.set(hash, matcher);
-    return matcher;
   }
 
   /**

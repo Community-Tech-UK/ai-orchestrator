@@ -402,4 +402,19 @@
       </section>
     </aside>
   </main>
+
+  <section class="unattended-section">
+    <div class="section-heading">
+      <div>
+        <h2>Unattended Automation</h2>
+        <p class="section-subtitle">Vault, standing credential authorizations, overnight campaigns, and escalation triage.</p>
+      </div>
+      <button class="btn small" type="button" (click)="toggleUnattendedSection()">
+        {{ showUnattendedSection() ? 'Hide' : 'Show' }}
+      </button>
+    </div>
+    @if (showUnattendedSection()) {
+      <app-browser-unattended-panel />
+    }
+  </section>
 </div>

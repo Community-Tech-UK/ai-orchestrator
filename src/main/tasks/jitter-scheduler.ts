@@ -138,6 +138,7 @@ export class JitterScheduler {
   /** Schedule a task. Returns the task ID. */
   schedule(task: ScheduledTask): string {
     const id = task.id ?? `task-${++taskCounter}`;
+    this.unschedule(id);
 
     const normalized: Required<ScheduledTask> = {
       id,
@@ -180,6 +181,7 @@ export class JitterScheduler {
     state.timer = setTimeout(() => {
       this.runHandler(id, state);
     }, delayMs);
+    state.timer.unref?.();
   }
 
   private runHandler(id: string, state: TaskState): void {

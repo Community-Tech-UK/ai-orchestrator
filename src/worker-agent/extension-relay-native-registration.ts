@@ -5,6 +5,7 @@ import {
   assertBrowserExtensionNativeHostManifestWritable,
   browserExtensionNativeHostManifestPath,
   browserExtensionNativeHostPaths,
+  inspectForeignBrowserExtensionNativeHost,
   isBrowserExtensionNativeHostManifestOwned,
   prepareBrowserExtensionNativeHostRuntime,
   type BrowserExtensionNativeRuntimeConfig,
@@ -39,7 +40,16 @@ export interface LegacyExtensionRelayNativeHostOptions {
   socketPath: string;
   extensionToken: string;
   hostCommand: BrowserExtensionNativeHostCommand;
-  logger?: Pick<Console, 'warn'>;
+  /** Test seam; production omits it (default Chrome dir + OS registration). */
+  chromeNativeMessagingDir?: string;
+  logger?: Pick<Console, 'info' | 'warn'>;
+  /**
+   * Caller-owned dedupe state. The worker retries registration every cycle;
+   * without this, an unresolvable refusal (live foreign owner) logs the same
+   * WARN once a minute forever — the windows-pc log spam. Same failure key
+   * warns once; a new failure mode or a successful install resets it.
+   */
+  warnedFailures?: Set<string>;
 }
 
 export class ExtensionRelayNativeRegistration {
@@ -263,15 +273,52 @@ export function prepareLegacyExtensionRelayNativeHostRuntime(
   options: LegacyExtensionRelayNativeHostOptions,
 ): void {
   const logger = options.logger ?? console;
+  const manifestPath = browserExtensionNativeHostManifestPath(
+    options.chromeNativeMessagingDir,
+    BROWSER_EXTENSION_NATIVE_HOST_NAME,
+  );
   try {
     const nativeDir = browserExtensionNativeHostPaths({
       userDataPath: options.userDataPath,
+      chromeNativeMessagingDir: options.chromeNativeMessagingDir,
       hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
     }).nativeDir;
+    let force = false;
+    if (
+      fs.existsSync(manifestPath)
+      && !isBrowserExtensionNativeHostManifestOwned({ manifestPath, nativeDir })
+    ) {
+      // The manifest belongs to another install (e.g. a Harness desktop app
+      // on the same machine). If that install is provably dead — its wrapper
+      // or runtime config is gone, or the socket it targets has no listener —
+      // every extension command routed through it dies at the first hop while
+      // the extension looks "connected". Seen live on windows-pc: Chrome's
+      // manifest pointed at a runtime whose named pipe no longer existed, and
+      // the worker refused to repair it for days. Take over dead installs;
+      // keep refusing live ones (a running local gateway wins).
+      const liveness = inspectForeignBrowserExtensionNativeHost(manifestPath);
+      if (liveness.alive) {
+        warnOnce(logger, options.warnedFailures, `foreign_alive:${liveness.ownerPath ?? ''}`,
+          '[WorkerExtensionRelay] Leaving live foreign browser extension native host manifest in place',
+          {
+            manifestPath,
+            ownerPath: liveness.ownerPath,
+            reason: liveness.reason,
+            hint: 'set extensionRelay.legacyNameRegistration=false or run with --force to decide explicitly',
+          });
+        return;
+      }
+      force = true;
+      logger.warn('[WorkerExtensionRelay] Taking over DEAD foreign browser extension native host manifest', {
+        manifestPath,
+        ownerPath: liveness.ownerPath,
+        reason: liveness.reason,
+      });
+    }
     assertBrowserExtensionNativeHostManifestWritable({
-      manifestPath: browserExtensionNativeHostManifestPath(undefined, BROWSER_EXTENSION_NATIVE_HOST_NAME),
+      manifestPath,
       nativeDir,
-      force: false,
+      force,
     });
     prepareBrowserExtensionNativeHostRuntime({
       userDataPath: options.userDataPath,
@@ -279,11 +326,29 @@ export function prepareLegacyExtensionRelayNativeHostRuntime(
       extensionToken: options.extensionToken,
       hostCommand: options.hostCommand,
       hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+      chromeNativeMessagingDir: options.chromeNativeMessagingDir,
     });
+    options.warnedFailures?.clear();
   } catch (error) {
-    logger.warn(
+    const message = error instanceof Error ? error.message : String(error);
+    warnOnce(logger, options.warnedFailures, `install_failed:${message}`,
       '[WorkerExtensionRelay] Failed to install transitional legacy browser extension native host runtime',
-      error instanceof Error ? error.message : String(error),
-    );
+      message);
   }
+}
+
+function warnOnce(
+  logger: Pick<Console, 'warn'>,
+  warnedFailures: Set<string> | undefined,
+  key: string,
+  message: string,
+  detail: unknown,
+): void {
+  if (warnedFailures) {
+    if (warnedFailures.has(key)) {
+      return;
+    }
+    warnedFailures.add(key);
+  }
+  logger.warn(message, detail);
 }

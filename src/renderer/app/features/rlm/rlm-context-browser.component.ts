@@ -26,7 +26,7 @@ import type {
   RLMSession,
   QueryType
 } from '../../../../shared/types/rlm.types';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { ContextStatsComponent } from './context-browser/context-stats.component';
 import { ContextSessionStatsComponent } from './context-browser/context-session-stats.component';
 import {
@@ -382,7 +382,7 @@ interface ToastNotification {
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class RlmContextBrowserComponent implements OnInit, OnDestroy {
-  private readonly ipc = inject(ElectronIpcService);
+  private readonly ipc = inject(IpcFacadeService);
   private readonly clipboard = inject(CLIPBOARD_SERVICE);
   private subscriptions: (() => void)[] = [];
   private readonly TEMPLATES_STORAGE_KEY = 'rlm-query-templates';

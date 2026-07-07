@@ -20,14 +20,6 @@ import {
   ParsedTodoInput,
 } from '../../shared/types/todo.types';
 
-export interface TodoManagerEvents {
-  'todo:created': (sessionId: string, item: TodoItem) => void;
-  'todo:updated': (sessionId: string, item: TodoItem) => void;
-  'todo:deleted': (sessionId: string, todoId: string) => void;
-  'todos:changed': (sessionId: string, list: TodoList) => void;
-  'todos:cleared': (sessionId: string) => void;
-}
-
 export class TodoManager extends EventEmitter {
   // Session ID -> TODO items
   private todosBySession: Map<string, TodoItem[]> = new Map();

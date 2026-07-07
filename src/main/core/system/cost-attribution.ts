@@ -66,11 +66,6 @@ function isEnabled(): boolean {
   return raw === '1' || raw === 'true';
 }
 
-/** Exposed for provider-doctor / debugging. */
-export function isCostAttributionEnabled(): boolean {
-  return isEnabled();
-}
-
 function resolveElectronUserData(): string | undefined {
   try {
     // Lazy, guarded require — this module must also load in worker/test

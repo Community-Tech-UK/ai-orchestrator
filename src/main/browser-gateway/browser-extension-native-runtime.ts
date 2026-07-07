@@ -212,6 +212,99 @@ export function isBrowserExtensionNativeHostManifestOwned(input: {
   }
 }
 
+export interface ForeignBrowserExtensionNativeHostLiveness {
+  alive: boolean;
+  reason:
+    | 'manifest_unreadable'
+    | 'wrapper_missing'
+    | 'wrapper_unrecognized'
+    | 'runtime_config_unreadable'
+    | 'socket_missing'
+    | 'socket_present';
+  ownerPath?: string;
+}
+
+/**
+ * Inspect a native-host manifest owned by ANOTHER install (e.g. the Harness
+ * desktop app vs the worker relay) and decide whether that install is
+ * plausibly alive. "Alive" requires the full chain to check out: wrapper
+ * exists → wrapper's runtime config parses → the socket/pipe it targets
+ * exists (something is listening). Any provably broken link means commands
+ * routed through that manifest die at the first hop — the windows-pc outage
+ * where Chrome's manifest pointed at a runtime whose named pipe no longer
+ * existed. Unknown wrapper formats are conservatively treated as alive: we
+ * only take over installs we can PROVE are dead.
+ */
+export function inspectForeignBrowserExtensionNativeHost(
+  manifestPath: string,
+): ForeignBrowserExtensionNativeHostLiveness {
+  let wrapperPath: string;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as { path?: unknown };
+    if (typeof manifest.path !== 'string' || !manifest.path) {
+      return { alive: false, reason: 'manifest_unreadable' };
+    }
+    wrapperPath = manifest.path;
+  } catch {
+    return { alive: false, reason: 'manifest_unreadable' };
+  }
+  if (!fs.existsSync(wrapperPath)) {
+    return { alive: false, reason: 'wrapper_missing', ownerPath: wrapperPath };
+  }
+  const runtimeConfigPath = parseWrapperRuntimeConfigPath(wrapperPath);
+  if (!runtimeConfigPath) {
+    // Not a wrapper we generated — cannot judge it, so treat as alive.
+    return { alive: true, reason: 'wrapper_unrecognized', ownerPath: wrapperPath };
+  }
+  let socketPath: string;
+  try {
+    const runtimeConfig = JSON.parse(
+      fs.readFileSync(runtimeConfigPath, 'utf-8'),
+    ) as { socketPath?: unknown };
+    if (typeof runtimeConfig.socketPath !== 'string' || !runtimeConfig.socketPath) {
+      return { alive: false, reason: 'runtime_config_unreadable', ownerPath: wrapperPath };
+    }
+    socketPath = runtimeConfig.socketPath;
+  } catch {
+    return { alive: false, reason: 'runtime_config_unreadable', ownerPath: wrapperPath };
+  }
+  // Works for unix sockets and Windows named pipes alike: existsSync on
+  // \\.\pipe\<name> reports whether anything is currently listening.
+  return fs.existsSync(socketPath)
+    ? { alive: true, reason: 'socket_present', ownerPath: wrapperPath }
+    : { alive: false, reason: 'socket_missing', ownerPath: wrapperPath };
+}
+
+/**
+ * Both the Harness app and the worker relay generate wrappers through
+ * writeNativeHostWrapper above, so the runtime-config path can be recovered
+ * from the AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG assignment in either the
+ * cmd (`set VAR=path`) or sh (`VAR='path' \`) flavor.
+ */
+function parseWrapperRuntimeConfigPath(wrapperPath: string): string | undefined {
+  let content: string;
+  try {
+    content = fs.readFileSync(wrapperPath, 'utf-8');
+  } catch {
+    return undefined;
+  }
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^(?:set\s+)?AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG=(.+)$/.exec(line.trim());
+    if (!match) {
+      continue;
+    }
+    let value = match[1]!.trim();
+    if (value.endsWith('\\')) {
+      value = value.slice(0, -1).trim();
+    }
+    if (value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
+      value = value.slice(1, -1).replace(/'\\''/g, "'");
+    }
+    return value || undefined;
+  }
+  return undefined;
+}
+
 function assertWindowsRegistrationPathIsSafe(manifestPath: string): void {
   if (process.platform !== 'win32') {
     return;

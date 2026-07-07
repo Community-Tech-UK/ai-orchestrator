@@ -7,7 +7,10 @@ import {
   browserExtensionNativeHostManifestPath,
   browserExtensionNativeHostPaths,
 } from '../main/browser-gateway/browser-extension-native-runtime';
-import { ExtensionRelayNativeRegistration } from './extension-relay-native-registration';
+import {
+  ExtensionRelayNativeRegistration,
+  prepareLegacyExtensionRelayNativeHostRuntime,
+} from './extension-relay-native-registration';
 
 const AIO_MCP = '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp';
 const originalPlatform = process.platform;
@@ -372,6 +375,172 @@ describe('ExtensionRelayNativeRegistration', () => {
     );
     expect(JSON.parse(fs.readFileSync(foreignManifestPath, 'utf-8'))).toMatchObject({
       path: foreignWrapperPath,
+    });
+  });
+
+  describe('prepareLegacyExtensionRelayNativeHostRuntime', () => {
+    it('takes over a DEAD foreign manifest whose wrapper is gone', () => {
+      const chromeDir = path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts');
+      const manifestPath = browserExtensionNativeHostManifestPath(
+        chromeDir,
+        BROWSER_EXTENSION_NATIVE_HOST_NAME,
+      );
+      fs.mkdirSync(chromeDir, { recursive: true });
+      fs.writeFileSync(manifestPath, JSON.stringify({
+        name: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+        path: path.join(scratchRoot, 'harness-app', 'gone.cmd'),
+        type: 'stdio',
+      }));
+      const logger = makeLogger();
+
+      prepareLegacyExtensionRelayNativeHostRuntime({
+        userDataPath: path.join(scratchRoot, 'worker'),
+        socketPath: path.join(scratchRoot, 'relay.sock'),
+        extensionToken: 'extension-token',
+        hostCommand: { exe: AIO_MCP, args: ['native-host'] },
+        chromeNativeMessagingDir: chromeDir,
+        logger,
+      });
+
+      const rewritten = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as { path: string };
+      expect(rewritten.path).toContain(path.join('worker', 'browser-gateway', 'native-host'));
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Taking over DEAD foreign'),
+        expect.objectContaining({ reason: 'wrapper_missing' }),
+      );
+    });
+
+    it('takes over a foreign manifest whose runtime targets a dead socket (windows-pc incident)', () => {
+      const chromeDir = path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts');
+      const manifestPath = browserExtensionNativeHostManifestPath(
+        chromeDir,
+        BROWSER_EXTENSION_NATIVE_HOST_NAME,
+      );
+      const foreignDir = path.join(scratchRoot, 'harness-app');
+      const foreignWrapper = path.join(foreignDir, 'ai-orchestrator-browser-host.cmd');
+      const foreignRuntime = path.join(foreignDir, 'runtime.json');
+      fs.mkdirSync(foreignDir, { recursive: true });
+      fs.writeFileSync(foreignWrapper, [
+        '@echo off',
+        `set AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG=${foreignRuntime}`,
+        '"node" "host.js" %*',
+        '',
+      ].join('\r\n'));
+      fs.writeFileSync(foreignRuntime, JSON.stringify({
+        socketPath: path.join(scratchRoot, 'no-longer-listening.pipe'),
+        extensionToken: 'stale-token',
+        updatedAt: 1,
+      }));
+      fs.mkdirSync(chromeDir, { recursive: true });
+      fs.writeFileSync(manifestPath, JSON.stringify({
+        name: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+        path: foreignWrapper,
+        type: 'stdio',
+      }));
+      const logger = makeLogger();
+
+      prepareLegacyExtensionRelayNativeHostRuntime({
+        userDataPath: path.join(scratchRoot, 'worker'),
+        socketPath: path.join(scratchRoot, 'relay.sock'),
+        extensionToken: 'extension-token',
+        hostCommand: { exe: AIO_MCP, args: ['native-host'] },
+        chromeNativeMessagingDir: chromeDir,
+        logger,
+      });
+
+      const rewritten = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as { path: string };
+      expect(rewritten.path).toContain(path.join('worker', 'browser-gateway', 'native-host'));
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Taking over DEAD foreign'),
+        expect.objectContaining({ reason: 'socket_missing', ownerPath: foreignWrapper }),
+      );
+    });
+
+    it('leaves a LIVE foreign manifest alone and warns only once across cycles', () => {
+      const chromeDir = path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts');
+      const manifestPath = browserExtensionNativeHostManifestPath(
+        chromeDir,
+        BROWSER_EXTENSION_NATIVE_HOST_NAME,
+      );
+      const foreignDir = path.join(scratchRoot, 'harness-app');
+      const foreignWrapper = path.join(foreignDir, 'ai-orchestrator-browser-host.cmd');
+      const foreignRuntime = path.join(foreignDir, 'runtime.json');
+      const liveSocket = path.join(foreignDir, 'live.sock');
+      fs.mkdirSync(foreignDir, { recursive: true });
+      fs.writeFileSync(foreignWrapper, [
+        '@echo off',
+        `set AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG=${foreignRuntime}`,
+        '"node" "host.js" %*',
+        '',
+      ].join('\r\n'));
+      fs.writeFileSync(foreignRuntime, JSON.stringify({
+        socketPath: liveSocket,
+        extensionToken: 'live-token',
+        updatedAt: 1,
+      }));
+      fs.writeFileSync(liveSocket, ''); // stands in for a listening socket
+      fs.mkdirSync(chromeDir, { recursive: true });
+      const foreignManifest = JSON.stringify({
+        name: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+        path: foreignWrapper,
+        type: 'stdio',
+      });
+      fs.writeFileSync(manifestPath, foreignManifest);
+      const logger = makeLogger();
+      const warnedFailures = new Set<string>();
+
+      for (let cycle = 0; cycle < 3; cycle += 1) {
+        prepareLegacyExtensionRelayNativeHostRuntime({
+          userDataPath: path.join(scratchRoot, 'worker'),
+          socketPath: path.join(scratchRoot, 'relay.sock'),
+          extensionToken: 'extension-token',
+          hostCommand: { exe: AIO_MCP, args: ['native-host'] },
+          chromeNativeMessagingDir: chromeDir,
+          logger,
+          warnedFailures,
+        });
+      }
+
+      expect(fs.readFileSync(manifestPath, 'utf-8')).toBe(foreignManifest);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Leaving live foreign'),
+        expect.objectContaining({ reason: 'socket_present' }),
+      );
+    });
+
+    it('treats an unrecognized foreign wrapper as alive (never takes over what it cannot judge)', () => {
+      const chromeDir = path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts');
+      const manifestPath = browserExtensionNativeHostManifestPath(
+        chromeDir,
+        BROWSER_EXTENSION_NATIVE_HOST_NAME,
+      );
+      const foreignWrapper = path.join(scratchRoot, 'other-vendor', 'host.sh');
+      fs.mkdirSync(path.dirname(foreignWrapper), { recursive: true });
+      fs.writeFileSync(foreignWrapper, '#!/bin/sh\nexec /usr/bin/other-host "$@"\n');
+      fs.mkdirSync(chromeDir, { recursive: true });
+      const foreignManifest = JSON.stringify({
+        name: BROWSER_EXTENSION_NATIVE_HOST_NAME,
+        path: foreignWrapper,
+        type: 'stdio',
+      });
+      fs.writeFileSync(manifestPath, foreignManifest);
+      const logger = makeLogger();
+
+      prepareLegacyExtensionRelayNativeHostRuntime({
+        userDataPath: path.join(scratchRoot, 'worker'),
+        socketPath: path.join(scratchRoot, 'relay.sock'),
+        extensionToken: 'extension-token',
+        hostCommand: { exe: AIO_MCP, args: ['native-host'] },
+        chromeNativeMessagingDir: chromeDir,
+        logger,
+      });
+
+      expect(fs.readFileSync(manifestPath, 'utf-8')).toBe(foreignManifest);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Leaving live foreign'),
+        expect.objectContaining({ reason: 'wrapper_unrecognized' }),
+      );
     });
   });
 

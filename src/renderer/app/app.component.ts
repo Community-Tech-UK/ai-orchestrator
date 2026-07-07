@@ -5,7 +5,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { ToastService } from './core/services/toast.service';
 import { Router, RouterOutlet } from '@angular/router';
-import { ElectronIpcService } from './core/services/ipc';
+import { IpcFacadeService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
 import { WorkspaceBenchService, type WorkspaceBenchmarkHarness, type BenchmarkPresetName } from './core/services/workspace-bench.service';
@@ -77,7 +77,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
   styleUrl: './app.component.scss',
 })
 export class AppComponent implements OnInit, OnDestroy {
-  private ipcService = inject(ElectronIpcService);
+  private ipcService = inject(IpcFacadeService);
   private router = inject(Router);
   private perfService = inject(PerfInstrumentationService);
   private stressFixtures = inject(StressFixturesService);

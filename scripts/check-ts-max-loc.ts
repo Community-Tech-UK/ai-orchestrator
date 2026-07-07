@@ -76,7 +76,11 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — automations
   'src/main/automations/automation-store.ts': 852,
   // Main process — browser gateway
-  'src/main/browser-gateway/browser-gateway-service.ts': 2284,
+  // Raised 2284 -> 2400 for the execute_fill_plan + fill_credential service
+  // methods (delegators to browser-form-fill-operations) + the credential
+  // vault/authorization wiring for unattended overnight form-filling.
+  // Raised 2400 -> 2410 for the email_code mailbox-reader pass-through.
+  'src/main/browser-gateway/browser-gateway-service.ts': 2410,
   // Main process — channels
   'src/main/channels/adapters/discord-adapter.ts': 965,
   'src/main/channels/channel-message-router.ts': 2543,
@@ -171,7 +175,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
   'src/main/orchestration/orchestration-handler.ts': 1458,
   'src/main/orchestration/supervisor.ts': 735,
-  'src/main/orchestration/voting.ts': 777,
   // Main process — plugins
   'src/main/plugins/plugin-manager.ts': 1303,
   // Main process — providers
@@ -181,14 +184,12 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — repo jobs
   'src/main/repo-jobs/repo-job-service.ts': 989,
   // Main process — RLM
-  'src/main/rlm/ast-chunker.ts': 766,
   'src/main/rlm/episodic-rlm-store.ts': 766,
   'src/main/rlm/hyde-service.ts': 734,
   'src/main/rlm/llm-service.ts': 1076,
   'src/main/rlm/smart-compaction.ts': 880,
   // Main process — security
   'src/main/security/permission-manager.ts': 1151,
-  'src/main/security/sandbox-manager.ts': 877,
   // Main process — session
   'src/main/session/checkpoint-manager.ts': 752,
   // Re-tightened after moving the public session state interfaces to

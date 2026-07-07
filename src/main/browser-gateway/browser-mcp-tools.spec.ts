@@ -11,6 +11,9 @@ const ALLOWED_TOOLS = [
   'browser.type',
   'browser.fill_form',
   'browser.select',
+  'browser.execute_fill_plan',
+  'browser.fill_credential',
+  'browser.create_agent_credential',
   'browser.upload_file',
   'browser.download_file',
   'browser.request_user_login',
@@ -29,6 +32,13 @@ const ALLOWED_TOOLS = [
   'browser.query_elements',
   'browser.health',
   'browser.get_audit_log',
+  'browser.raise_escalation',
+  'browser.get_campaign',
+  'browser.list_campaigns',
+  'browser.pause_campaign',
+  'browser.claim_campaign_lease',
+  'browser.check_session',
+  'browser.remember_login_fingerprint',
 ];
 
 describe('browser-mcp-tools', () => {

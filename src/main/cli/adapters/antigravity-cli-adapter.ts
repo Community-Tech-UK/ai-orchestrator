@@ -34,6 +34,7 @@ import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { isAntigravityModelId } from '../../../shared/types/provider.types';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
+import { probeVersionStatus } from './cli-status-probe';
 
 const logger = getLogger('AntigravityCliAdapter');
 
@@ -129,45 +130,14 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
   }
 
   async checkStatus(): Promise<CliStatus> {
-    return new Promise((resolve) => {
-      const proc = this.spawnProcess(['--version']);
-      let output = '';
-
-      proc.stdout?.on('data', (data) => {
-        output += data.toString();
-      });
-      proc.stderr?.on('data', (data) => {
-        output += data.toString();
-      });
-
-      proc.on('close', (code) => {
-        const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
-        if (code === 0 || versionMatch) {
-          resolve({
-            available: true,
-            version: versionMatch?.[1] || 'unknown',
-            path: 'agy',
-            authenticated: !/not authenticated|sign in|login required/i.test(output),
-          });
-        } else {
-          resolve({
-            available: false,
-            error: `Antigravity CLI (agy) not found or not configured: ${output}`,
-          });
-        }
-      });
-
-      proc.on('error', (err) => {
-        resolve({
-          available: false,
-          error: `Failed to spawn agy: ${err.message}`,
-        });
-      });
-
-      setTimeout(() => {
-        proc.kill();
-        resolve({ available: false, error: 'Timeout checking Antigravity CLI' });
-      }, 5000);
+    return probeVersionStatus({
+      spawn: () => this.spawnProcess(['--version']),
+      path: 'agy',
+      timeoutError: 'Timeout checking Antigravity CLI',
+      spawnError: (err) => `Failed to spawn agy: ${err.message}`,
+      unavailableError: ({ output }) => `Antigravity CLI (agy) not found or not configured: ${output}`,
+      isAvailable: ({ code, version }) => code === 0 || Boolean(version),
+      authenticated: ({ output }) => !/not authenticated|sign in|login required/i.test(output),
     });
   }
 

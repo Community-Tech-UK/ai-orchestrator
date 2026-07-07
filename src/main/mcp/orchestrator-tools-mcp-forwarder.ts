@@ -12,31 +12,15 @@
  * `RunAsNode` Electron fuse can go back to `false` for packaged builds.
  */
 
-import { createInterface } from 'node:readline';
-import { stdin, stdout } from 'node:process';
-import { getLogManager, getLogger } from '../logging/logger';
-import { McpServer } from './mcp-server';
 import type { McpServerToolDefinition } from './mcp-server-tools';
+import { runStdioMcpForwarder } from './mcp-stdio-forwarder';
 import {
   OrchestratorToolsRpcClient,
   type OrchestratorToolsRpcClientLike,
 } from './orchestrator-tools-rpc-client';
 
-const logger = getLogger('OrchestratorToolsMcpForwarder');
-
 const REMOTE_NODE_DISCOVERY_HINT =
   'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
-
-interface JsonRpcRequest {
-  jsonrpc?: '2.0';
-  id?: number | string | null;
-  method: string;
-  params?: unknown;
-}
-
-function writeResponse(id: JsonRpcRequest['id'], payload: Record<string, unknown>): void {
-  stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, ...payload })}\n`);
-}
 
 /**
  * Build the MCP tool definitions that proxy back to the parent process.
@@ -564,69 +548,8 @@ export function createOrchestratorToolsForwarderTools(
 export async function runOrchestratorToolsForwarder(
   client: OrchestratorToolsRpcClientLike = new OrchestratorToolsRpcClient(),
 ): Promise<void> {
-  getLogManager().updateConfig({ enableConsole: false });
-
-  const server = McpServer.getInstance();
-  server.registerTools(createOrchestratorToolsForwarderTools(client));
-  server.start();
-
-  const shutdown = (): void => {
-    server.stop();
-  };
-
-  process.on('SIGINT', () => {
-    shutdown();
-    process.exit(0);
+  await runStdioMcpForwarder({
+    loggerName: 'OrchestratorToolsMcpForwarder',
+    tools: createOrchestratorToolsForwarderTools(client),
   });
-  process.on('SIGTERM', () => {
-    shutdown();
-    process.exit(0);
-  });
-
-  const rl = createInterface({ input: stdin, crlfDelay: Infinity });
-  for await (const line of rl) {
-    if (!line.trim()) {
-      continue;
-    }
-
-    let request: JsonRpcRequest;
-    try {
-      request = JSON.parse(line) as JsonRpcRequest;
-    } catch (error) {
-      logger.warn('Received invalid JSON-RPC request', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      continue;
-    }
-
-    if (request.method === 'notifications/initialized') {
-      continue;
-    }
-
-    try {
-      const result = await server.handleRequest({
-        method: request.method,
-        params: request.params,
-        id: typeof request.id === 'number' ? request.id : undefined,
-      });
-      if (request.id !== undefined) {
-        writeResponse(request.id, { result });
-      }
-      if (request.method === 'shutdown') {
-        shutdown();
-        process.exit(0);
-      }
-    } catch (error) {
-      if (request.id !== undefined) {
-        writeResponse(request.id, {
-          error: {
-            code: -32000,
-            message: error instanceof Error ? error.message : String(error),
-          },
-        });
-      }
-    }
-  }
-
-  shutdown();
 }

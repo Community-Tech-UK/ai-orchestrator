@@ -363,14 +363,6 @@ export function getGitStatusWatcher(): GitStatusWatcher {
   return watcherInstance;
 }
 
-/** Test hook: drop the singleton (and stop its watchers). */
-export async function _resetGitStatusWatcherForTesting(): Promise<void> {
-  if (watcherInstance) {
-    await watcherInstance.stop();
-    watcherInstance = null;
-  }
-}
-
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;

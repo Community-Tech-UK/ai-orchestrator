@@ -67,6 +67,24 @@ describe('browser-grant-policy', () => {
     ).toBe('no_matching_grant');
   });
 
+  it('never matches a payment action, even under a blanket autonomous grant', () => {
+    const paymentGrant = grant({
+      autonomous: true,
+      allowedActionClasses: ['payment', 'input', 'submit'],
+    });
+    expect(
+      findMatchingBrowserGrant({
+        grants: [paymentGrant],
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: 'profile-1',
+        origin: 'https://play.google.com',
+        actionClass: 'payment',
+        now: 2_000,
+      }).reason,
+    ).toBe('no_matching_grant');
+  });
+
   it('rejects expired revoked consumed and unsafe autonomous grants', () => {
     for (const candidate of [
       grant({ expiresAt: 1_999 }),
@@ -138,5 +156,39 @@ describe('browser-grant-policy', () => {
         now: 2_000,
       }).reason,
     ).toBe('origin_changed_before_execution');
+  });
+
+  it('matches node-scoped grants only on the same node when profile ids churn', () => {
+    const nodeGrant = grant({
+      profileId: undefined,
+      targetId: undefined,
+      nodeId: 'node-1',
+    } as Partial<BrowserPermissionGrant>);
+
+    expect(
+      findMatchingBrowserGrant({
+        grants: [nodeGrant],
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: 'existing-tab:n.node-1:8:99',
+        nodeId: 'node-1',
+        origin: 'https://play.google.com',
+        actionClass: 'input',
+        now: 2_000,
+      }).grant?.id,
+    ).toBe('grant-1');
+
+    expect(
+      findMatchingBrowserGrant({
+        grants: [nodeGrant],
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: 'existing-tab:n.node-2:8:99',
+        nodeId: 'node-2',
+        origin: 'https://play.google.com',
+        actionClass: 'input',
+        now: 2_000,
+      }).reason,
+    ).toBe('no_matching_grant');
   });
 });

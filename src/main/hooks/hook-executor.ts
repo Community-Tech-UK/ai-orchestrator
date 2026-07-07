@@ -51,13 +51,31 @@ export interface HookConfig {
 
 export interface HookExecutionContext {
   instanceId?: string;
+  sessionId?: string;
   workingDirectory?: string;
   env?: Record<string, string>;
   filePath?: string;
   toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: string;
   command?: string;
   content?: string;
   dryRun?: boolean;
+  userPrompt?: string;
+  stopReason?: string;
+  transcript?: string;
+  errorMessage?: string;
+  errorProvider?: string;
+  compactionMethod?: 'native' | 'restart-with-summary';
+  compactionSuccess?: boolean;
+  previousContextUsage?: number;
+  oldCwd?: string;
+  newCwd?: string;
+  changeType?: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+  changedPath?: string;
+  changedRelativePath?: string;
+  oldContent?: string;
+  newContent?: string;
 
   // PreSampling context
   messageCount?: number;

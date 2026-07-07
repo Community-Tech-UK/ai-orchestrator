@@ -45,6 +45,16 @@ export function buildDisplayItems(
   return out;
 }
 
+/**
+ * Human label for a collapsed tool-call line: prefer the tool name from
+ * metadata, fall back to the message content, then a generic "tool".
+ */
+export function toolLabel(message: MobileMessageDto): string {
+  const tool =
+    (message.metadata?.['toolName'] as string) || (message.metadata?.['tool_name'] as string);
+  return tool || message.content || 'tool';
+}
+
 export function formatStampLabel(ts: number, now: number): string {
   const date = new Date(ts);
   const current = new Date(now);

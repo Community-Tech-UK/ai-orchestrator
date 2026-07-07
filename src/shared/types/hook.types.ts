@@ -18,6 +18,22 @@ export type HookEvent =
   | 'BeforeCommit' // Before git commit
   | 'UserPromptSubmit'; // Before user prompt sent
 
+export const HOOK_EVENTS = [
+  'PreToolUse',
+  'PostToolUse',
+  'PreSampling',
+  'PostSampling',
+  'Stop',
+  'StopFailure',
+  'PostCompact',
+  'CwdChanged',
+  'FileChanged',
+  'SessionStart',
+  'SessionEnd',
+  'BeforeCommit',
+  'UserPromptSubmit',
+] as const satisfies readonly HookEvent[];
+
 export type HookAction = 'warn' | 'block';
 
 export type ConditionOperator =

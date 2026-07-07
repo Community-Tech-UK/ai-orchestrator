@@ -12,13 +12,18 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { DraftStore } from '../../core/draft-store';
 import { GatewayClient } from '../../core/gateway-client.service';
+import { HapticsService } from '../../core/haptics.service';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
-import { statusColor, statusLabel } from '../../core/status';
-import type { MobileAttachmentDto, MobileMessageDto, MobileModelCatalog } from '../../core/models';
+import { VoiceInputService } from '../../core/voice-input.service';
+import { isWorking, statusColor, statusLabel } from '../../core/status';
+import type { MobileAttachmentDto, MobileModelCatalog } from '../../core/models';
+import { CodeCopyDirective } from '../../shared/code-copy.directive';
+import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 import { renderMobileMarkdown } from '../../shared/mobile-markdown';
-import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-items';
+import { buildDisplayItems, toolLabel, type DisplayItem } from '../../shared/transcript-items';
 
 /**
  * One agent's live conversation: transcript (replayed history + live stream),
@@ -29,7 +34,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
   standalone: true,
   selector: 'app-conversation',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, ModelSheetComponent],
+  imports: [FormsModule, ModelSheetComponent, CopyButtonComponent, CodeCopyDirective],
   template: `
     <section class="screen">
       <header class="top">
@@ -64,7 +69,15 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
       }
 
       <div class="scroll-wrap">
-        <div #scrollEl class="transcript" (scroll)="onScroll()">
+        <div
+          #scrollEl
+          class="transcript"
+          appCodeCopy
+          (scroll)="onScroll()"
+          (touchstart)="onTouchStart()"
+          (touchend)="onTouchEnd()"
+          (touchcancel)="onTouchEnd()"
+        >
           @for (item of displayItems(); track trackItem(item)) {
             @if (item.kind === 'stamp') {
               <div class="stamp">{{ item.label }}</div>
@@ -83,10 +96,21 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
             } @else {
               <div class="msg" [class]="'t-' + item.message.type">
                 <div class="bubble markdown-body" [innerHTML]="renderMarkdown(item.message.content)"></div>
+                @if (item.message.hasAttachments) {
+                  <span class="attach-flag">📎 photo attached</span>
+                }
+                @if (item.message.type !== 'system' && item.message.content) {
+                  <app-copy-button [text]="item.message.content" />
+                }
               </div>
             }
           } @empty {
             <p class="muted center">{{ online() ? 'No messages yet.' : 'Connecting…' }}</p>
+          }
+          @if (working()) {
+            <div class="typing" role="status" aria-label="Agent is working">
+              <span></span><span></span><span></span>
+            </div>
           }
         </div>
 
@@ -100,7 +124,15 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
               </button>
             }
             @if (!atBottom()) {
-              <button class="scroll-btn" (click)="scrollToBottom()" aria-label="Scroll to bottom">
+              <button
+                class="scroll-btn"
+                [class.new-output]="hasNewOutput()"
+                (click)="scrollToBottom()"
+                aria-label="Scroll to bottom"
+              >
+                @if (hasNewOutput()) {
+                  <span class="pill-label">New output</span>
+                }
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
@@ -159,6 +191,21 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
           (keydown.enter)="onEnter($event)"
           (paste)="onPaste($event)"
         ></textarea>
+        @if (canDictate) {
+          <button
+            type="button"
+            class="attach mic"
+            [class.listening]="listening()"
+            (click)="toggleDictation()"
+            [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
+              <path d="M19 11a7 7 0 0 1-14 0" />
+              <path d="M12 18v4" />
+            </svg>
+          </button>
+        }
         <button type="submit" class="send" [disabled]="!online() || !canSend() || sending()">
           {{ sending() ? '…' : '↑' }}
         </button>
@@ -219,6 +266,12 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
         display: flex; align-items: center; justify-content: center;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
       }
+      /* When output arrived while reading history, grow into a labelled pill. */
+      .scroll-btn.new-output {
+        width: auto; padding: 0 14px; gap: 6px; align-self: flex-end;
+        border-radius: 20px; background: var(--accent-action); border-color: transparent;
+        font-size: 13px; font-weight: 600; color: #fff;
+      }
       .stamp { align-self: center; color: var(--text-secondary); font-size: 13px; text-align: center; }
       /* Collapsed tool-activity group — hides the "Using tool: …" junk. */
       .tool-group { display: flex; flex-direction: column; gap: 4px; }
@@ -233,14 +286,28 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
         font-family: 'SF Mono', ui-monospace, monospace;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
-      .msg { display: flex; }
-      .bubble { word-break: break-word; font-size: 15px; line-height: 1.4; }
-      .t-user { justify-content: flex-end; }
+      .msg { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+      .bubble { word-break: break-word; font-size: 15px; line-height: 1.4; max-width: 100%; }
+      .t-user { align-items: flex-end; }
       .t-user .bubble { background: var(--accent-action); color: #fff; padding: 8px 12px; border-radius: 16px; max-width: 80%; }
       .t-assistant .bubble { color: var(--text); }
-      .t-system { justify-content: center; }
+      .t-system { align-items: center; }
       .t-system .bubble { color: var(--text-secondary); font-size: 13px; text-align: center; }
       .t-error .bubble { color: var(--accent-error); }
+      .attach-flag { color: var(--text-secondary); font-size: 12px; }
+      /* Animated "agent is working" dots pinned to the transcript tail. */
+      .typing { display: flex; gap: 4px; padding: 4px 2px; }
+      .typing span {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--text-secondary);
+        animation: typing-bounce 1.2s infinite ease-in-out;
+      }
+      .typing span:nth-child(2) { animation-delay: 0.15s; }
+      .typing span:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes typing-bounce {
+        0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+        30% { opacity: 1; transform: translateY(-3px); }
+      }
       .t-tool_use .tool, .t-tool_result .bubble { color: var(--text-secondary); font-size: 13px; font-family: 'SF Mono', ui-monospace, monospace; }
       .muted { color: var(--text-secondary); }
       .center { text-align: center; margin-top: 40px; }
@@ -268,6 +335,14 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
         width: 20px; height: 20px; display: block; margin: auto;
         fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round;
       }
+      .mic.listening {
+        background: var(--accent-error); border-color: transparent; color: #fff;
+        animation: mic-pulse 1.4s infinite ease-in-out;
+      }
+      @keyframes mic-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.45); }
+        50% { box-shadow: 0 0 0 8px rgba(255, 69, 58, 0); }
+      }
       .composer textarea {
         flex: 1; resize: none; max-height: 120px; background: var(--surface); color: var(--text);
         border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; padding: 10px 14px; font-size: 16px; font-family: inherit;
@@ -283,6 +358,9 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
 export class ConversationComponent {
   private readonly gateway = inject(GatewayClient);
   private readonly images = inject(ImageAttachmentService);
+  private readonly drafts = inject(DraftStore);
+  private readonly haptics = inject(HapticsService);
+  private readonly voice = inject(VoiceInputService);
   private readonly router = inject(Router);
 
   readonly projectKey = input<string>('');
@@ -292,6 +370,8 @@ export class ConversationComponent {
   protected readonly attachments = signal<MobileAttachmentDto[]>([]);
   protected readonly attachBusy = signal(false);
   protected readonly canAttach = this.images.available;
+  protected readonly canDictate = this.voice.available;
+  protected readonly listening = this.voice.listening;
   protected readonly sending = signal(false);
   protected readonly menuOpen = signal(false);
   protected readonly modelSheetOpen = signal(false);
@@ -303,12 +383,20 @@ export class ConversationComponent {
   protected readonly color = statusColor;
   protected readonly label = statusLabel;
   protected readonly renderMarkdown = renderMobileMarkdown;
+  protected readonly toolLabel = toolLabel;
 
   /** Scroll-position flags driving the floating up/down buttons + auto-follow. */
   protected readonly atTop = signal(true);
   protected readonly atBottom = signal(true);
+  /** New messages arrived while the user was reading scrolled-up history. */
+  protected readonly hasNewOutput = signal(false);
   /** Don't auto-follow new messages while the user is reading scrolled-up history. */
   private stickToBottom = true;
+  /** Finger is on the transcript — never fight an active touch with auto-scroll. */
+  private touching = false;
+  private prevMessageCount = 0;
+  /** Session the current draft belongs to; '' suspends draft persistence. */
+  private draftKeyId = '';
 
   private readonly scrollEl = viewChild<ElementRef<HTMLDivElement>>('scrollEl');
 
@@ -316,6 +404,7 @@ export class ConversationComponent {
     this.gateway.snapshot()?.instances.find((i) => i.id === this.instanceId()),
   );
   protected readonly status = computed(() => this.instance()?.status ?? 'idle');
+  protected readonly working = computed(() => isWorking(this.status()));
   protected readonly messages = computed(() => this.gateway.messagesFor(this.instanceId()));
   protected readonly modelsForProvider = computed(() => {
     const provider = this.instance()?.provider;
@@ -347,7 +436,39 @@ export class ConversationComponent {
     effect(() => {
       this.gateway.setActiveView(this.instanceId() || null);
     });
-    inject(DestroyRef).onDestroy(() => this.gateway.clearActiveView(this.instanceId()));
+    inject(DestroyRef).onDestroy(() => {
+      this.gateway.clearActiveView(this.instanceId());
+      if (this.voice.listening()) void this.voice.stop();
+    });
+
+    // Mirror live dictation into the draft while the recognizer is running.
+    effect(() => {
+      if (this.voice.listening()) {
+        this.draft.set(this.voice.text());
+      }
+    });
+
+    // Restore the persisted unsent draft for this session (survives iOS
+    // evicting the app). Persistence is suspended while swapping sessions so
+    // the old text can't leak into the new session's draft key.
+    effect(() => {
+      const id = this.instanceId();
+      if (!id || id === this.draftKeyId) return;
+      const hadPrevious = this.draftKeyId !== '';
+      this.draftKeyId = '';
+      const pending = this.drafts.load(`instance:${id}`);
+      if (hadPrevious) this.draft.set('');
+      void pending.then((text) => {
+        this.draftKeyId = id;
+        if (text && !this.draft().trim()) this.draft.set(text);
+      });
+    });
+    // Persist every draft change (debounced in the store). Sending clears the
+    // draft signal, which clears the stored draft through this same path.
+    effect(() => {
+      const text = this.draft();
+      if (this.draftKeyId) this.drafts.save(`instance:${this.draftKeyId}`, text);
+    });
 
     // Load (and resync on reconnect) the transcript for the open instance.
     effect(() => {
@@ -357,17 +478,24 @@ export class ConversationComponent {
       }
     });
     // Auto-scroll to the newest message — but only while the user is parked at
-    // the bottom. If they've scrolled up to read history, leave them there.
+    // the bottom. If they've scrolled up to read history, leave them there and
+    // surface a "New output" pill instead of yanking the view down.
     effect(() => {
-      void this.messages().length;
+      const count = this.messages().length;
+      // The typing indicator adds height at the tail; keep following it too.
+      void this.working();
+      const grew = count > this.prevMessageCount;
+      this.prevMessageCount = count;
       // Track the viewChild too: on a one-shot history load the effect can fire
       // before the transcript element exists; re-run once it resolves so we still
       // scroll to the bottom and surface the floating buttons.
       const el = this.scrollEl()?.nativeElement;
       if (!el) return;
       queueMicrotask(() => {
-        if (this.stickToBottom) {
+        if (this.stickToBottom && !this.touching) {
           el.scrollTop = el.scrollHeight;
+        } else if (grew) {
+          this.hasNewOutput.set(true);
         }
         this.updateScrollFlags();
       });
@@ -383,9 +511,27 @@ export class ConversationComponent {
     this.atBottom.set(bottom);
     this.atTop.set(el.scrollTop < 40);
     this.stickToBottom = bottom;
+    if (bottom) {
+      this.hasNewOutput.set(false);
+    }
   }
 
   protected onScroll(): void {
+    this.updateScrollFlags();
+  }
+
+  /**
+   * Break the bottom-pin the instant a finger lands on the transcript, so a
+   * streaming update can never yank the view down mid-gesture. The pin
+   * re-engages on release if the view settled back at the bottom.
+   */
+  protected onTouchStart(): void {
+    this.touching = true;
+    this.stickToBottom = false;
+  }
+
+  protected onTouchEnd(): void {
+    this.touching = false;
     this.updateScrollFlags();
   }
 
@@ -399,11 +545,6 @@ export class ConversationComponent {
       this.stickToBottom = true;
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
-  }
-
-  protected toolLabel(m: MobileMessageDto): string {
-    const tool = (m.metadata?.['toolName'] as string) || (m.metadata?.['tool_name'] as string);
-    return tool || m.content || 'tool';
   }
 
   protected onEnter(event: Event): void {
@@ -468,11 +609,28 @@ export class ConversationComponent {
     this.attachments.update((current) => current.filter((a) => a !== attachment));
   }
 
+  protected async toggleDictation(): Promise<void> {
+    if (this.voice.listening()) {
+      await this.voice.stop();
+      this.draft.set(this.voice.text());
+      this.haptics.tap();
+      return;
+    }
+    this.haptics.tap();
+    const started = await this.voice.start(this.draft());
+    if (!started) this.haptics.error();
+  }
+
   protected async send(event: Event): Promise<void> {
     event.preventDefault();
+    if (this.voice.listening()) {
+      await this.voice.stop();
+      this.draft.set(this.voice.text());
+    }
     const text = this.draft().trim();
     const attachments = this.attachments();
     if ((!text && attachments.length === 0) || this.sending() || !this.online()) return;
+    this.haptics.tap();
     this.sending.set(true);
     this.draft.set('');
     this.attachments.set([]);
@@ -484,6 +642,7 @@ export class ConversationComponent {
       );
     } catch {
       // Restore the draft + attachments so the user doesn't lose them.
+      this.haptics.error();
       this.draft.set(text);
       this.attachments.set(attachments);
     } finally {
@@ -493,6 +652,7 @@ export class ConversationComponent {
 
   protected async interrupt(): Promise<void> {
     this.menuOpen.set(false);
+    this.haptics.heavyTap();
     try {
       await this.gateway.interrupt(this.instanceId());
     } catch {
@@ -503,6 +663,7 @@ export class ConversationComponent {
   protected async terminate(): Promise<void> {
     this.menuOpen.set(false);
     if (!confirm('Terminate this session?')) return;
+    this.haptics.heavyTap();
     try {
       await this.gateway.terminate(this.instanceId());
       this.back();

@@ -93,6 +93,58 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('creates node-scoped grants when approving existing-tab actions on remote nodes', async () => {
+    const sendCommand = vi.fn(async () => ({ clicked: true }));
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      nodeId: 'node-1',
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service, approvalRequests, grants } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [],
+    });
+
+    const first = await service.click({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: '#save',
+      actionHint: 'Save draft',
+    });
+    expect(first).toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+    });
+    expect(approvalRequests[0].proposedGrant).toMatchObject({
+      nodeId: 'node-1',
+    });
+
+    await service.approveRequest({
+      requestId: approvalRequests[0].requestId,
+      grant: approvalRequests[0].proposedGrant,
+      reason: 'Approve Play Console save',
+    });
+
+    expect(grants[0].nodeId).toBe('node-1');
+    expect(grants[0].profileId).toBeUndefined();
+    expect(grants[0].targetId).toBeUndefined();
+  });
+
   it('flags a timed-out existing-tab mutation as maybe-applied so it is not blind-retried', async () => {
     // The extension command timed out: the click may already have applied in the
     // user's Chrome. The surfaced reason must say maybe-applied (verify-before-retry),
@@ -188,7 +240,12 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     const filePath = path.join(tempDir, 'app.ipa');
     fs.writeFileSync(filePath, 'fake app');
     const resolvedFilePath = fs.realpathSync(filePath);
-    const sendCommand = vi.fn(async () => ({ uploaded: true, selector: 'input[type=file]' }));
+    const sendCommand = vi.fn(async () => ({
+      uploaded: true,
+      selector: 'input[type=file]',
+      fileCount: 1,
+      files: [{ name: 'app.ipa', size: Buffer.byteLength('fake app') }],
+    }));
     const existingTab = {
       profileId: 'existing-tab:7:42',
       targetId: 'existing-tab:7:42:target',
@@ -240,12 +297,71 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('fails an existing-tab upload when the extension cannot prove a file was selected', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-empty-'));
+    const filePath = path.join(tempDir, 'app.ipa');
+    fs.writeFileSync(filePath, 'fake app');
+    const sendCommand = vi.fn(async () => ({
+      uploaded: true,
+      selector: 'input[type=file]',
+      fileCount: 0,
+      files: [],
+    }));
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'App Store Connect',
+      url: 'https://appstoreconnect.apple.com/apps',
+      origin: 'https://appstoreconnect.apple.com',
+      allowedOrigins: appStoreConnectTab.allowedOrigins,
+    };
+    const { service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          provider: 'claude',
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['file-upload'],
+          uploadRoots: [tempDir],
+        }),
+      ],
+    });
+
+    const result = await service.uploadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: 'input[type=file]',
+      filePath,
+      actionHint: 'Upload app binary',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+    });
+    expect(result.reason).toContain('browser_upload_verify_mismatch:file_count');
+  });
+
   it('stages the file onto the remote node before uploading into a remote-node existing tab', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-remote-'));
     const filePath = path.join(tempDir, 'app.aab');
     fs.writeFileSync(filePath, 'fake bundle');
     const resolvedFilePath = fs.realpathSync(filePath);
-    const sendCommand = vi.fn(async () => ({ uploaded: true, selector: 'input[type=file]' }));
+    const sendCommand = vi.fn(async () => ({
+      uploaded: true,
+      selector: 'input[type=file]',
+      fileCount: 1,
+      files: [{ name: 'staged-app.aab', size: Buffer.byteLength('fake bundle') }],
+    }));
     // The Play Console tab lives in Chrome on the windows worker node: the
     // coordinator-local path is meaningless there, so the gateway must ship
     // the bytes first and hand the extension the NODE-local staged path.
@@ -316,7 +432,11 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-remote-fail-'));
     const filePath = path.join(tempDir, 'app.aab');
     fs.writeFileSync(filePath, 'fake bundle');
-    const sendCommand = vi.fn(async () => ({ uploaded: true }));
+    const sendCommand = vi.fn(async () => ({
+      uploaded: true,
+      fileCount: 1,
+      files: [{ name: 'app.aab', size: Buffer.byteLength('fake bundle') }],
+    }));
     const stageUploadFileOnNode = vi.fn(async () => {
       throw new Error('upload_file_remote_staging_unavailable: node offline');
     });
@@ -601,7 +721,8 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(result).toMatchObject({
       decision: 'allowed',
       outcome: 'failed',
-      reason: 'browser_extension_unreachable',
+      // Enriched with channel state so the caller learns WHY it is unreachable.
+      reason: expect.stringContaining('browser_extension_unreachable') as string,
     });
     expect(sendCommand).not.toHaveBeenCalled();
   });
@@ -810,7 +931,8 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(result).toMatchObject({
       decision: 'allowed',
       outcome: 'failed',
-      reason: 'browser_extension_unreachable',
+      // Enriched with channel state so the caller learns WHY it is unreachable.
+      reason: expect.stringContaining('browser_extension_unreachable') as string,
     });
     expect(sendCommand).not.toHaveBeenCalled();
   });

@@ -6,6 +6,8 @@
  * manager so this class is direct-testable without disk I/O.
  */
 
+import { getJitterScheduler } from '../tasks/jitter-scheduler';
+
 export interface AutoSaveConfig {
   autoSaveEnabled: boolean;
   autoSaveIntervalMs: number;
@@ -22,7 +24,7 @@ export interface SessionAutoSaveDeps {
 }
 
 export class SessionAutoSaveCoordinator {
-  private globalTimer: NodeJS.Timeout | null = null;
+  private globalTaskId: string | null = null;
   private pendingTimers = new Map<string, NodeJS.Timeout>();
   private deferredUntil = 0;
   private config: AutoSaveConfig = {
@@ -42,15 +44,17 @@ export class SessionAutoSaveCoordinator {
 
   start(config: AutoSaveConfig): void {
     this.config = { ...config };
-    if (!this.config.autoSaveEnabled || this.globalTimer !== null) {
+    if (!this.config.autoSaveEnabled || this.globalTaskId !== null) {
       return;
     }
 
-    this.globalTimer = setInterval(() => {
-      this.scheduleDirtyStates();
-    }, this.config.autoSaveIntervalMs);
-
-    this.globalTimer.unref?.();
+    this.globalTaskId = getJitterScheduler().schedule({
+      name: 'Session auto-save',
+      intervalMs: this.config.autoSaveIntervalMs,
+      handler: () => this.scheduleDirtyStates(),
+      avoidMinuteBoundary: false,
+      maxCatchUp: 1,
+    });
   }
 
   reconfigure(config: AutoSaveConfig): void {
@@ -137,11 +141,11 @@ export class SessionAutoSaveCoordinator {
   }
 
   private stopGlobalTimer(): void {
-    if (this.globalTimer === null) {
+    if (this.globalTaskId === null) {
       return;
     }
 
-    clearInterval(this.globalTimer);
-    this.globalTimer = null;
+    getJitterScheduler().unschedule(this.globalTaskId);
+    this.globalTaskId = null;
   }
 }

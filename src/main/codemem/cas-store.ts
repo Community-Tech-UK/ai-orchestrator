@@ -2,7 +2,6 @@ import { getLogger } from '../logging/logger';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   Chunk,
-  MerkleNode,
   WorkspaceManifestRow,
   WorkspaceSymbolKind,
   WorkspaceSymbolRecord,
@@ -40,12 +39,6 @@ interface ChunkRow {
   imports_json: string;
   exports_json: string;
   raw_text: string;
-}
-
-interface MerkleNodeRow {
-  node_hash: string;
-  kind: MerkleNode['kind'];
-  children_json: string;
 }
 
 interface WorkspaceManifestRowRecord {
@@ -220,26 +213,6 @@ export class CasStore {
       importsJson: row.imports_json,
       exportsJson: row.exports_json,
       rawText: row.raw_text,
-    };
-  }
-
-  upsertMerkleNode(node: MerkleNode): void {
-    this.db.prepare(`
-      INSERT OR IGNORE INTO merkle_nodes (node_hash, kind, children_json)
-      VALUES (?, ?, ?)
-    `).run(node.nodeHash, node.kind, node.childrenJson);
-  }
-
-  getMerkleNode(nodeHash: string): MerkleNode | null {
-    const row = this.db.prepare('SELECT * FROM merkle_nodes WHERE node_hash = ?')
-      .get(nodeHash) as MerkleNodeRow | undefined;
-    if (!row) {
-      return null;
-    }
-    return {
-      nodeHash: row.node_hash,
-      kind: row.kind,
-      childrenJson: row.children_json,
     };
   }
 

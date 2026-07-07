@@ -1,0 +1,179 @@
+:host {
+  display: block;
+}
+
+.campaign-panel {
+  display: grid;
+  gap: var(--spacing-md);
+}
+
+.create-form {
+  display: grid;
+  gap: var(--spacing-sm);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+textarea {
+  min-height: 56px;
+  resize: vertical;
+  font-family: var(--font-family-mono);
+}
+
+.field-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.action-class-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.inline-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.inline-toggle input {
+  width: auto;
+}
+
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.btn {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn.small {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.btn.primary {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.btn.danger {
+  color: var(--error-color);
+  border-color: color-mix(in srgb, var(--error-color) 45%, var(--border-color));
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.campaign-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.campaign-row {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  padding: var(--spacing-sm);
+}
+
+.campaign-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.status-chip {
+  margin-left: var(--spacing-xs);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.status-chip[data-status='active'] {
+  background: color-mix(in srgb, var(--success-color) 16%, transparent);
+  color: var(--success-color);
+}
+
+.status-chip[data-status='paused'] {
+  background: color-mix(in srgb, var(--warning-color) 16%, transparent);
+  color: var(--warning-color);
+}
+
+.status-chip[data-status='killed'] {
+  background: color-mix(in srgb, var(--error-color) 16%, transparent);
+  color: var(--error-color);
+}
+
+.label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.row-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.campaign-detail {
+  display: grid;
+  gap: var(--spacing-xs);
+  padding-top: var(--spacing-xs);
+  border-top: 1px solid var(--border-color);
+}
+
+.error-banner {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid color-mix(in srgb, var(--error-color) 60%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--error-color) 14%, transparent);
+  color: var(--error-color);
+  font-size: 12px;
+}

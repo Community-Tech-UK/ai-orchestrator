@@ -238,6 +238,39 @@ export function registerCostHandlers(deps: {
     }
   );
 
+  // Renderer-facing history alias used by the cost page.
+  ipcMain.handle(
+    IPC_CHANNELS.COST_GET_HISTORY,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const data = payload && typeof payload === 'object' && !Array.isArray(payload)
+          ? payload as Record<string, unknown>
+          : {};
+        const instanceId = typeof data['instanceId'] === 'string' ? data['instanceId'] : undefined;
+        const limit = typeof data['limit'] === 'number' && Number.isFinite(data['limit'])
+          ? Math.max(1, Math.floor(data['limit']))
+          : undefined;
+        const entries = costTracker
+          .getEntries()
+          .filter((entry) => !instanceId || entry.instanceId === instanceId)
+          .slice(limit ? -limit : 0);
+        return { success: true, data: entries };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'COST_GET_HISTORY_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
   // Clear entries
   ipcMain.handle(
     IPC_CHANNELS.COST_CLEAR_ENTRIES,

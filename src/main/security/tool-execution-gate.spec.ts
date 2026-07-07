@@ -6,11 +6,17 @@ const {
   mockCheckToolPermission,
   mockValidateToolInput,
   mockValidateBash,
+  mockCanRead,
+  mockCanWrite,
+  mockRecordNetworkRequest,
 } = vi.hoisted(() => ({
   mockEnforce: vi.fn(),
   mockCheckToolPermission: vi.fn(),
   mockValidateToolInput: vi.fn(),
   mockValidateBash: vi.fn(),
+  mockCanRead: vi.fn(),
+  mockCanWrite: vi.fn(),
+  mockRecordNetworkRequest: vi.fn(),
 }));
 
 vi.mock('./permission-enforcer', () => ({
@@ -34,6 +40,19 @@ vi.mock('./tool-validator', () => ({
 vi.mock('./bash-validation', () => ({
   getBashValidationPipeline: vi.fn(() => ({
     validate: mockValidateBash,
+  })),
+}));
+
+vi.mock('./filesystem-policy', () => ({
+  getFilesystemPolicy: vi.fn(() => ({
+    canRead: mockCanRead,
+    canWrite: mockCanWrite,
+  })),
+}));
+
+vi.mock('./network-policy', () => ({
+  getNetworkPolicy: vi.fn(() => ({
+    recordRequest: mockRecordNetworkRequest,
   })),
 }));
 
@@ -66,6 +85,9 @@ describe('ToolExecutionGate', () => {
     });
     mockCheckToolPermission.mockReturnValue({ behavior: 'allow' });
     mockValidateToolInput.mockReturnValue({ valid: true, errors: [] });
+    mockCanRead.mockReturnValue(true);
+    mockCanWrite.mockReturnValue(true);
+    mockRecordNetworkRequest.mockReturnValue({ allowed: true, reason: 'Domain is in allowlist' });
     mockValidateBash.mockReturnValue({
       valid: true,
       risk: 'safe',
@@ -90,6 +112,47 @@ describe('ToolExecutionGate', () => {
 
     expect(decision.action).toBe('deny');
     expect(decision.source).toBe('tool-validator');
+  });
+
+  it('denies file reads blocked by the filesystem policy', () => {
+    mockCanRead.mockReturnValue(false);
+
+    const decision = new ToolExecutionGate().evaluate({
+      request: {
+        ...request,
+        scope: 'file_read',
+        resource: '/etc/shadow',
+      },
+      toolName: 'Read',
+      toolInput: { file_path: '/etc/shadow' },
+    });
+
+    expect(decision.action).toBe('deny');
+    expect(decision.source).toBe('filesystem-policy');
+    expect(decision.reason).toContain('/etc/shadow');
+    expect(mockCanRead).toHaveBeenCalledWith('/etc/shadow');
+  });
+
+  it('denies network requests blocked by the network policy', () => {
+    mockRecordNetworkRequest.mockReturnValue({
+      allowed: false,
+      reason: 'Domain not in allowlist: example.invalid',
+    });
+
+    const decision = new ToolExecutionGate().evaluate({
+      request: {
+        ...request,
+        scope: 'network_access',
+        resource: 'https://example.invalid/hook',
+      },
+      toolName: 'Fetch',
+      toolInput: { url: 'https://example.invalid/hook' },
+    });
+
+    expect(decision.action).toBe('deny');
+    expect(decision.source).toBe('network-policy');
+    expect(decision.reason).toContain('not in allowlist');
+    expect(mockRecordNetworkRequest).toHaveBeenCalledWith('https://example.invalid/hook');
   });
 
   it('blocks destructive bash commands through the same gate', () => {

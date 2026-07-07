@@ -4,6 +4,10 @@ import {
   OperatorRunEventPayloadSchema,
   OperatorRunUsageSchema,
   OperatorRunIdPayloadSchema,
+  OperatorListProjectsPayloadSchema,
+  OperatorPlanProjectVerificationPayloadSchema,
+  OperatorRescanProjectsPayloadSchema,
+  OperatorResolveProjectPayloadSchema,
 } from '../operator.schemas';
 
 describe('operator schemas', () => {
@@ -78,7 +82,28 @@ describe('operator schemas', () => {
 
     expect(schemas['OperatorGetThreadPayloadSchema']).toBeUndefined();
     expect(schemas['OperatorSendMessagePayloadSchema']).toBeUndefined();
-    expect(schemas['OperatorListProjectsPayloadSchema']).toBeUndefined();
-    expect(schemas['OperatorRescanProjectsPayloadSchema']).toBeUndefined();
+  });
+
+  it('validates operator project registry payloads', () => {
+    expect(OperatorListProjectsPayloadSchema.parse({ query: 'repo', limit: 10 })).toEqual({
+      query: 'repo',
+      limit: 10,
+    });
+    expect(OperatorListProjectsPayloadSchema.parse(undefined)).toEqual(undefined);
+    expect(OperatorRescanProjectsPayloadSchema.parse({
+      includeRecent: true,
+      roots: ['/work/app'],
+    })).toEqual({
+      includeRecent: true,
+      roots: ['/work/app'],
+    });
+    expect(OperatorResolveProjectPayloadSchema.parse({ query: '/work/app' })).toEqual({
+      query: '/work/app',
+    });
+    expect(OperatorPlanProjectVerificationPayloadSchema.parse({
+      projectPath: '/work/app',
+    })).toEqual({
+      projectPath: '/work/app',
+    });
   });
 });

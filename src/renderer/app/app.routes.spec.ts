@@ -2,7 +2,7 @@ import type { Route, Routes } from '@angular/router';
 import { describe, expect, it } from 'vitest';
 
 import { routes } from './app.routes';
-import { listControlSurfaces } from './shared/control-surface/control-surface.registry';
+import { CONTROL_SURFACES } from './shared/control-surface/control-surface.registry';
 
 function normalizePath(path: string): string {
   return path.startsWith('/') ? path : `/${path}`;
@@ -63,7 +63,7 @@ describe('app routes', () => {
     expect(shellRoute).toBeDefined();
 
     const shellPaths = collectShellChildPaths(shellRoute as Route).sort();
-    const registryPaths = listControlSurfaces().map((surface) => surface.path).sort();
+    const registryPaths = CONTROL_SURFACES.map((surface) => surface.path).sort();
 
     expect(shellPaths).toEqual(registryPaths);
   });
@@ -71,7 +71,7 @@ describe('app routes', () => {
   it('does not leave Control Surface routes as top-level siblings', () => {
     const topLevelPaths = new Set(collectTopLevelPaths(routes));
 
-    for (const surface of listControlSurfaces()) {
+    for (const surface of CONTROL_SURFACES) {
       expect(topLevelPaths.has(surface.path)).toBe(false);
     }
   });
@@ -93,7 +93,7 @@ describe('app routes', () => {
 
     const shellChildrenByPath = collectShellChildrenByPath(shellRoute as Route);
 
-    for (const surface of listControlSurfaces()) {
+    for (const surface of CONTROL_SURFACES) {
       expect(shellChildrenByPath.get(surface.path)?.data?.['controlSurfaceId']).toBe(surface.id);
     }
   });

@@ -56,22 +56,6 @@ export type WorkflowLifecyclePhase =
   | 'blocked'
   | WorkflowTerminalState;
 
-export const WORKFLOW_TERMINAL_STATES: readonly WorkflowTerminalState[] = [
-  'completed',
-  'failed',
-  'cancelled',
-];
-
-/** True when the phase is terminal (work has stopped and won't self-resume). */
-export function isTerminalPhase(phase: WorkflowLifecyclePhase): phase is WorkflowTerminalState {
-  return phase === 'completed' || phase === 'failed' || phase === 'cancelled';
-}
-
-/** True when the phase is non-terminal (still live: pending/running/paused/blocked). */
-export function isActivePhase(phase: WorkflowLifecyclePhase): boolean {
-  return !isTerminalPhase(phase);
-}
-
 function assertNever(value: never): never {
   throw new Error(`Unhandled workflow status: ${String(value)}`);
 }

@@ -2,7 +2,7 @@
  * Secret Redaction - Mask and redact sensitive information
  */
 
-import { DetectedSecret, detectSecretsInContent, detectSecretsInEnvContent, detectSecretsInKeyValue } from './secret-detector';
+import { DetectedSecret, detectSecretsInContent, detectSecretsInEnvContent } from './secret-detector';
 
 /**
  * Redaction options
@@ -102,31 +102,6 @@ export function redactEnvContent(content: string, options?: RedactionOptions): s
 export function redactAllSecrets(content: string, options?: RedactionOptions): string {
   const secrets = detectSecretsInContent(content);
   return redactSecretsWithOptions(content, secrets, options);
-}
-
-/**
- * Create a redacted copy of environment variables
- */
-export function redactEnvVars(
-  env: Record<string, string | undefined>,
-  options?: RedactionOptions
-): Record<string, string> {
-  const result: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(env)) {
-    if (value === undefined) continue;
-
-    // Check if this is a sensitive key
-    const secret = detectSecretsInKeyValue(key, value);
-
-    if (secret) {
-      result[key] = redactValue(value, options);
-    } else {
-      result[key] = value;
-    }
-  }
-
-  return result;
 }
 
 /**

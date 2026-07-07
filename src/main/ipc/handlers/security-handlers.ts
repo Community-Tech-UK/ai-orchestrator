@@ -4,10 +4,13 @@
  */
 
 import { ipcMain } from 'electron';
-import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { IPC_CHANNELS, type IpcResponse } from '../../../shared/types/ipc.types';
 import {
-  BashCommandPayloadSchema,
   BashValidatePayloadSchema,
+  PermissionPatternPayloadSchema,
+  PermissionGetAuditLogPayloadSchema,
+  PermissionRecordBatchDecisionPayloadSchema,
+  PermissionRecordDecisionPayloadSchema,
   SecurityCheckEnvVarPayloadSchema,
   SecurityCheckFilePayloadSchema,
   SecurityDetectSecretsPayloadSchema,
@@ -32,8 +35,10 @@ import {
   DEFAULT_ENV_FILTER_CONFIG
 } from '../../security/env-filter';
 import { getBashValidationPipeline } from '../../security/bash-validation';
-import { getBashValidator } from '../../security/bash-validator';
+import { PermissionDecisionStore } from '../../security/permission-decision-store';
 import { getPermissionManager } from '../../security/permission-manager';
+import { getToolPermissionChecker } from '../../security/tool-permission-checker';
+import { getRLMDatabase } from '../../persistence/rlm-database';
 import { validatedHandler } from '../validated-handler';
 
 export function registerSecurityHandlers(): void {
@@ -251,12 +256,149 @@ export function registerSecurityHandlers(): void {
     )
   );
 
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_GET_PENDING_BATCH,
+    async (): Promise<IpcResponse> => {
+      try {
+        const manager = getPermissionManager();
+        const requests = manager.getPendingBatches().flatMap((batch) => batch.requests);
+        return { success: true, data: { requests } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'PERMISSION_GET_PENDING_BATCH_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_RECORD_BATCH_DECISION,
+    validatedHandler(
+      'PERMISSION_RECORD_BATCH_DECISION',
+      PermissionRecordBatchDecisionPayloadSchema,
+      async (payload) => {
+        const count = getPermissionManager().recordBatchDecisionForPending(
+          payload.action,
+          payload.scope,
+        );
+        return { success: true, data: { recorded: count } };
+      }
+    )
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_RECORD_DECISION,
+    validatedHandler(
+      'PERMISSION_RECORD_DECISION',
+      PermissionRecordDecisionPayloadSchema,
+      async (payload) => {
+        const recorded = getPermissionManager().recordDecisionByRequestId(
+          payload.requestId,
+          payload.action,
+          payload.scope,
+        );
+        return { success: true, data: { recorded } };
+      }
+    )
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_GET_LEARNED_PATTERNS,
+    async (): Promise<IpcResponse> => {
+      try {
+        return { success: true, data: getPermissionManager().getLearnedPatterns() };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'PERMISSION_GET_LEARNED_PATTERNS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_APPROVE_PATTERN,
+    validatedHandler(
+      'PERMISSION_APPROVE_PATTERN',
+      PermissionPatternPayloadSchema,
+      async (payload) => ({
+        success: true,
+        data: { approved: getPermissionManager().approveLearnedPattern(payload.patternId) },
+      })
+    )
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_REJECT_PATTERN,
+    validatedHandler(
+      'PERMISSION_REJECT_PATTERN',
+      PermissionPatternPayloadSchema,
+      async (payload) => ({
+        success: true,
+        data: { rejected: getPermissionManager().rejectLearnedPattern(payload.patternId) },
+      })
+    )
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_GET_STATS,
+    async (): Promise<IpcResponse> => {
+      try {
+        const manager = getPermissionManager();
+        return {
+          success: true,
+          data: {
+            ...manager.getStats(),
+            ...manager.getLearningStats(),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'PERMISSION_GET_STATS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_GET_AUDIT_LOG,
+    validatedHandler(
+      'PERMISSION_GET_AUDIT_LOG',
+      PermissionGetAuditLogPayloadSchema,
+      async (payload) => {
+        const limit = payload.limit ?? 50;
+        const decisionStore = new PermissionDecisionStore(getRLMDatabase().getRawDb());
+        const decisions = payload.instanceId
+          ? decisionStore.getByInstance(payload.instanceId).slice(0, limit)
+          : decisionStore.getRecent(limit);
+        const checker = getToolPermissionChecker();
+        const denials = payload.instanceId
+          ? checker.getDenialsForInstance(payload.instanceId).slice(-limit).reverse()
+          : [...checker.getDenials()].slice(-limit).reverse();
+        return { success: true, data: { decisions, denials } };
+      }
+    )
+  );
+
   // ============================================
   // Bash Validation Handlers
   // ============================================
 
   const bashValidator = getBashValidationPipeline();
-  const bashValidatorLegacy = getBashValidator();
 
   // Validate a bash command
   ipcMain.handle(
@@ -267,62 +409,6 @@ export function registerSecurityHandlers(): void {
       async (payload) => {
         const result = bashValidator.validate(payload.command);
         return { success: true, data: result };
-      }
-    )
-  );
-
-  // Get bash validator config (no payload)
-  ipcMain.handle(
-    IPC_CHANNELS.BASH_GET_CONFIG,
-    async (): Promise<IpcResponse> => {
-      try {
-        const config = bashValidatorLegacy.getConfig();
-        // Serialize RegExp patterns to strings for IPC
-        const serializedConfig = {
-          ...config,
-          warningPatterns: config.warningPatterns.map((p: string | RegExp) =>
-            p instanceof RegExp ? p.source : p
-          ),
-          blockedPatterns: config.blockedPatterns.map((p: string | RegExp) =>
-            p instanceof RegExp ? p.source : p
-          )
-        };
-        return { success: true, data: serializedConfig };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'BASH_GET_CONFIG_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Add an allowed command
-  ipcMain.handle(
-    IPC_CHANNELS.BASH_ADD_ALLOWED,
-    validatedHandler(
-      'BASH_ADD_ALLOWED',
-      BashCommandPayloadSchema,
-      async (payload) => {
-        bashValidatorLegacy.addAllowedCommand(payload.command);
-        return { success: true, data: { command: payload.command, added: true } };
-      }
-    )
-  );
-
-  // Add a blocked command
-  ipcMain.handle(
-    IPC_CHANNELS.BASH_ADD_BLOCKED,
-    validatedHandler(
-      'BASH_ADD_BLOCKED',
-      BashCommandPayloadSchema,
-      async (payload) => {
-        bashValidatorLegacy.addBlockedCommand(payload.command);
-        return { success: true, data: { command: payload.command, added: true } };
       }
     )
   );

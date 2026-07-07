@@ -9,7 +9,10 @@ import type {
   BrowserExtensionCommandName,
   BrowserExtensionCommandStore,
 } from './browser-extension-command-store';
-import { browserExtensionQueueKeyForNode } from './browser-extension-command-store';
+import {
+  BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
+  browserExtensionQueueKeyForNode,
+} from './browser-extension-command-store';
 import type {
   BrowserExtensionTabAttachOptions,
   BrowserExtensionTabStore,
@@ -35,11 +38,14 @@ import { redactBrowserText } from './browser-redaction';
 
 const EXTENSION_COMMAND_RESULT_GRACE_MS = 5_000;
 const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
+const POST_TIMEOUT_PROBE_TIMEOUT_MS = 8_000;
+const POST_TIMEOUT_PROBE_EXECUTION_MS = 6_000;
 
 interface BrowserExistingTabOperationsDeps {
   extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab'>;
   isRemoteExtensionContactFresh: (nodeId: string) => boolean;
+  describeRemoteExtensionContact: (nodeId: string) => string;
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant'>;
   approvalStore: Pick<BrowserApprovalStore, 'createRequest'>;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
@@ -212,8 +218,19 @@ export class BrowserExistingTabOperations {
     timeoutMs = 30_000,
   ): Promise<unknown> {
     if (attachment.nodeId && !this.deps.isRemoteExtensionContactFresh(attachment.nodeId)) {
-      return Promise.reject(new Error('browser_extension_unreachable'));
+      return Promise.reject(new Error(
+        `browser_extension_unreachable (${this.describeChannel(attachment.nodeId)})`,
+      ));
     }
+    // Short caller timeouts are deliberate cache-freshness probes (e.g. the 1s
+    // snapshot probe backed by a cached copy) — they must stay fast. Everything
+    // else gets an undelivered-wait long enough to ride out one extension
+    // service-worker recovery cycle: while a command is still queued it has
+    // provably not run, so waiting longer is safe even for mutations.
+    const callerTimeoutMs = extensionCommandCallerTimeoutMs(timeoutMs);
+    const undeliveredWaitMs = timeoutMs >= 5_000
+      ? Math.max(callerTimeoutMs, BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS)
+      : callerTimeoutMs;
     return this.deps.extensionCommandStore.sendCommand({
       ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command,
@@ -224,9 +241,10 @@ export class BrowserExistingTabOperations {
         windowId: attachment.windowId,
       },
       ...(payload ? { payload } : {}),
-      timeoutMs: extensionCommandCallerTimeoutMs(timeoutMs),
+      timeoutMs: callerTimeoutMs,
       executionTimeoutMs: timeoutMs,
-    }).catch((error: unknown) => {
+      undeliveredWaitMs,
+    }).catch(async (error: unknown) => {
       // A command that times out in the user's real Chrome may have ALREADY
       // applied — the extension performed it, the ack just never came back.
       // Blind-retrying a non-idempotent mutation then duplicates it (the Webflow
@@ -235,11 +253,72 @@ export class BrowserExistingTabOperations {
       // plain timeout (safe to retry). This is the single choke point every
       // existing-tab command flows through.
       const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith('browser_extension_command_not_delivered')) {
+        // Removed from the queue before rejection: the extension never received
+        // it, so it certainly did not run — even a mutation is safe to retry.
+        throw new Error(
+          `browser_extension_command_not_delivered (${this.describeChannel(attachment.nodeId)}; `
+          + 'the command never reached the extension and did NOT run — safe to retry)',
+        );
+      }
+      if (message.startsWith('browser_extension_command_receipt_missing')) {
+        // Delivered to the transport, but the extension never acked receiving
+        // it — the handoff almost certainly died en route. Weaker guarantee
+        // than not_delivered (the ack itself could have been lost), hence the
+        // verify-first advice for mutations.
+        throw new Error(
+          `browser_extension_command_receipt_missing (${this.describeChannel(attachment.nodeId)}; `
+          + 'the extension never acknowledged receiving this command — it almost certainly did not '
+          + 'run, but verify page state before retrying a mutation)',
+        );
+      }
       if (message.startsWith('browser_extension_command_timeout') && isMutatingBrowserCommand(command)) {
-        throw new Error('browser_extension_command_timeout_maybe_applied');
+        throw new Error(
+          `browser_extension_command_timeout_maybe_applied${await this.postTimeoutProbeSuffix(attachment)}`,
+        );
       }
       throw error instanceof Error ? error : new Error(message);
     });
+  }
+
+  /**
+   * After a delivered mutation times out, grab a bounded fresh snapshot so the
+   * "maybe applied" error carries the CURRENT page url/title — often enough
+   * for the caller to resolve applied-vs-not without a second round trip
+   * (e.g. a timed-out navigate whose probe already shows the destination URL).
+   * Probe failures degrade silently to the plain maybe-applied message.
+   */
+  private async postTimeoutProbeSuffix(
+    attachment: BrowserExistingTabAttachment,
+  ): Promise<string> {
+    try {
+      const result = await this.deps.extensionCommandStore.sendCommand({
+        ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
+        command: 'snapshot',
+        target: {
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          tabId: attachment.tabId,
+          windowId: attachment.windowId,
+        },
+        timeoutMs: POST_TIMEOUT_PROBE_TIMEOUT_MS,
+        executionTimeoutMs: POST_TIMEOUT_PROBE_EXECUTION_MS,
+        undeliveredWaitMs: POST_TIMEOUT_PROBE_TIMEOUT_MS,
+      });
+      const tab = extractTabPayload(result);
+      return ` (post-timeout probe: page is now at ${tab.url}${tab.title ? ` — "${tab.title}"` : ''})`;
+    } catch {
+      return '';
+    }
+  }
+
+  private describeChannel(nodeId: string | undefined): string {
+    // Local wording stays neutral: not_delivered usually means the extension
+    // is not polling, but receipt_missing means a live handoff died — do not
+    // assert a channel state we cannot observe locally.
+    return nodeId
+      ? `node ${nodeId}: ${this.deps.describeRemoteExtensionContact(nodeId)}`
+      : 'local extension channel — check Chrome is running with the Harness extension';
   }
 
   async snapshot(

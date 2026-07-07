@@ -83,6 +83,14 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'browserVaultMasterPasswordFile',
+    label: 'Credential vault master-password file',
+    description: 'Path to a local file holding the Bitwarden master password used by "Unlock vault" on the Browser screen. Only the path is stored; the password is read at unlock time, kept in memory only, and never logged or shown. Leave empty to disable UI unlock.',
+    type: 'string',
+    category: 'advanced',
+    placeholder: 'e.g., /Users/you/secure/bitwarden-master.txt',
+  },
+  {
     key: 'codememEnabled',
     label: 'Enable code memory',
     description: 'Let agents look up symbols and structure from a lightweight index of your code ("codemem"). Turning this off disables all the code-memory options below.',

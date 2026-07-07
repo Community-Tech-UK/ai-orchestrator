@@ -109,7 +109,3 @@ export function getAdvancedHistorySearch(): AdvancedHistorySearch {
   instance ??= new AdvancedHistorySearchService();
   return instance;
 }
-
-export function _resetAdvancedHistorySearchForTesting(): void {
-  instance = null;
-}

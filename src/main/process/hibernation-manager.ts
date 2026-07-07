@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
+import { getJitterScheduler } from '../tasks/jitter-scheduler';
 
 const logger = getLogger('HibernationManager');
 
@@ -64,7 +65,7 @@ export class HibernationManager extends EventEmitter {
   private config: HibernationConfig;
   private hibernated = new Map<string, HibernatedInstance>();
   private recentWakes = new Map<string, number>();
-  private checkTimer: ReturnType<typeof setInterval> | null = null;
+  private checkTaskId: string | null = null;
   private resumeDeferredUntil = 0;
 
   private static instance: HibernationManager;
@@ -90,21 +91,27 @@ export class HibernationManager extends EventEmitter {
   }
 
   start(): void {
-    if (this.config.enableAutoHibernation && !this.checkTimer) {
-      this.checkTimer = setInterval(() => {
-        if (Date.now() < this.resumeDeferredUntil) {
-          return;
-        }
-        this.emit('check-idle');
-      }, this.config.checkIntervalMs);
+    if (this.config.enableAutoHibernation && !this.checkTaskId) {
+      this.checkTaskId = getJitterScheduler().schedule({
+        name: 'Hibernation idle check',
+        intervalMs: this.config.checkIntervalMs,
+        handler: () => {
+          if (Date.now() < this.resumeDeferredUntil) {
+            return;
+          }
+          this.emit('check-idle');
+        },
+        avoidMinuteBoundary: false,
+        maxCatchUp: 1,
+      });
       logger.info('Hibernation manager started', { config: this.config as unknown as Record<string, unknown> });
     }
   }
 
   stop(): void {
-    if (this.checkTimer) {
-      clearInterval(this.checkTimer);
-      this.checkTimer = null;
+    if (this.checkTaskId) {
+      getJitterScheduler().unschedule(this.checkTaskId);
+      this.checkTaskId = null;
     }
   }
 

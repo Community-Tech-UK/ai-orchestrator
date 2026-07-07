@@ -35,6 +35,40 @@ const CREDENTIAL_WORDS = [
   'verification code',
 ];
 
+// Payment fields are NEVER automatable, even under an autonomous grant — they
+// hard-stop AND are never grantable (see grant policy). Detected ahead of the
+// credential check so a "card number" field can't be mistaken for a credential.
+const PAYMENT_WORDS = [
+  'card number',
+  'cardholder',
+  'card holder',
+  'cvv',
+  'cvc',
+  'security code',
+  'expiry',
+  'expiration',
+  'iban',
+  'sort code',
+  'account number',
+  'card details',
+  'payment details',
+  'billing address',
+];
+
+// Legal declarations / attestations carry legal force (procurement
+// self-certifications, exclusion-grounds declarations). They are escalated to a
+// human unless the visible text hash is pre-approved for the campaign.
+const DECLARATION_WORDS = [
+  'i declare',
+  'i certify',
+  'i confirm that',
+  'on behalf of',
+  'declaration',
+  'i agree that the information',
+  'to the best of my knowledge',
+  'legally binding',
+];
+
 const DESTRUCTIVE_WORDS = [
   'delete',
   'remove',
@@ -65,11 +99,29 @@ export function classifyBrowserAction(
   const contextText = textFromContext(input.elementContext);
   const hintText = normalize(input.actionHint ?? '');
 
+  // Payment first: a card/CVV field must never fall through to credential (which
+  // has a fill primitive) — payment has no automated path at all.
+  if (hasAny(contextText, PAYMENT_WORDS)) {
+    return {
+      actionClass: 'payment',
+      hardStop: true,
+      reason: 'payment_field_never_automated',
+    };
+  }
+
   if (hasAny(contextText, CREDENTIAL_WORDS)) {
     return {
       actionClass: 'credential',
       hardStop: true,
       reason: 'credential_or_manual_challenge',
+    };
+  }
+
+  if (hasAny(contextText, DECLARATION_WORDS)) {
+    return {
+      actionClass: 'submit',
+      hardStop: true,
+      reason: 'legal_declaration_requires_human_or_preapproval',
     };
   }
 

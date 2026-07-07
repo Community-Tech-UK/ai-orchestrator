@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ModelSelectionPanelComponent } from './model-selection-panel.component';
 import type { ModelDisplayInfo, ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { PickerProvider } from './compact-model-picker.types';
-import type { UnifiedReasoningOption, UnifiedSelection } from './unified-model-menu.component';
+import type { UnifiedReasoningOption, UnifiedSelection } from './model-selection.types';
 
 const PROVIDER_LABELS: Record<string, string> = {
   claude: 'Claude',

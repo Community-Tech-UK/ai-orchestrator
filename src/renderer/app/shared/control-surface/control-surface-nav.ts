@@ -1,7 +1,6 @@
 export {
   getControlSurface,
   listControlNavGroups,
-  listControlSurfaces,
   listDashboardNavGroups,
   listSettingsExternalLinks,
   tryGetControlSurface,

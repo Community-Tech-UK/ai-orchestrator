@@ -21,4 +21,5 @@ export const AUTOMATION_CHANNELS = {
   WEBHOOK_LIST_ROUTES: 'webhook:list-routes',
   WEBHOOK_CREATE_ROUTE: 'webhook:create-route',
   WEBHOOK_LIST_DELIVERIES: 'webhook:list-deliveries',
+  WEBHOOK_LIST_SUGGESTIONS: 'webhook:list-suggestions',
 } as const;

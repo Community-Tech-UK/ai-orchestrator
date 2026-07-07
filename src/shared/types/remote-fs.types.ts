@@ -91,6 +91,10 @@ export interface FsEventNotification {
   events: FsChangeEvent[];
 }
 
+export interface RemoteFsEventNotification extends FsEventNotification {
+  nodeId: string;
+}
+
 export interface FsChangeEvent {
   type: 'add' | 'change' | 'delete';
   path: string;

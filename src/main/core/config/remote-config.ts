@@ -25,6 +25,13 @@ export interface RemoteConfigSource {
   etag?: string;
 }
 
+export interface ConfiguredRemoteConfigSource {
+  type: 'url' | 'file' | 'git';
+  location: string;
+  refreshInterval?: number;
+  branch?: string;
+}
+
 /**
  * Remote config result
  */
@@ -32,6 +39,14 @@ export interface RemoteConfigResult {
   config: ProjectConfig | null;
   source: RemoteConfigSource;
   cached: boolean;
+  error?: string;
+}
+
+export interface RemoteConfigStatus {
+  connected: boolean;
+  lastFetched?: number;
+  source?: ConfiguredRemoteConfigSource;
+  cacheAge?: number;
   error?: string;
 }
 
@@ -69,11 +84,16 @@ const WELL_KNOWN_PATHS = [
 export class RemoteConfigManager {
   private cacheDir: string;
   private cache: Map<string, { data: ProjectConfig; fetchedAt: number; etag?: string }> = new Map();
+  private configuredSource: ConfiguredRemoteConfigSource | null = null;
+  private currentConfig: ProjectConfig | null = null;
+  private lastFetched: number | null = null;
+  private lastError: string | null = null;
 
   constructor() {
     this.cacheDir = path.join(app.getPath('userData'), 'remote-config-cache');
     this.ensureCacheDir();
     this.loadCacheFromDisk();
+    this.loadSourceFromDisk();
   }
 
   /**
@@ -111,6 +131,157 @@ export class RemoteConfigManager {
     } catch (error) {
       logger.error('Failed to save remote config cache', error instanceof Error ? error : undefined);
     }
+  }
+
+  private loadSourceFromDisk(): void {
+    try {
+      const sourceFile = path.join(this.cacheDir, 'source.json');
+      if (!fs.existsSync(sourceFile)) {
+        return;
+      }
+      const parsed = JSON.parse(fs.readFileSync(sourceFile, 'utf-8')) as Partial<ConfiguredRemoteConfigSource>;
+      if (this.isConfiguredSource(parsed)) {
+        this.configuredSource = parsed;
+      }
+    } catch (error) {
+      logger.error('Failed to load remote config source', error instanceof Error ? error : undefined);
+    }
+  }
+
+  private saveSourceToDisk(): void {
+    try {
+      const sourceFile = path.join(this.cacheDir, 'source.json');
+      if (this.configuredSource) {
+        fs.writeFileSync(sourceFile, JSON.stringify(this.configuredSource, null, 2));
+      } else if (fs.existsSync(sourceFile)) {
+        fs.unlinkSync(sourceFile);
+      }
+    } catch (error) {
+      logger.error('Failed to save remote config source', error instanceof Error ? error : undefined);
+    }
+  }
+
+  private isConfiguredSource(value: Partial<ConfiguredRemoteConfigSource>): value is ConfiguredRemoteConfigSource {
+    return (
+      (value.type === 'url' || value.type === 'file' || value.type === 'git') &&
+      typeof value.location === 'string' &&
+      value.location.trim().length > 0
+    );
+  }
+
+  private async fetchFromFile(filePath: string): Promise<RemoteConfigResult> {
+    try {
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const config = JSON.parse(content) as ProjectConfig;
+      if (!config || typeof config !== 'object') {
+        throw new Error('Invalid config format');
+      }
+      return {
+        config,
+        source: { url: filePath, type: 'direct', lastFetched: Date.now() },
+        cached: false,
+      };
+    } catch (error) {
+      return {
+        config: null,
+        source: { url: filePath, type: 'direct' },
+        cached: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async fetchConfiguredSource(force = false): Promise<RemoteConfigResult> {
+    if (!this.configuredSource) {
+      return {
+        config: null,
+        source: { url: '', type: 'direct' },
+        cached: false,
+        error: 'No remote config source configured',
+      };
+    }
+
+    switch (this.configuredSource.type) {
+      case 'url':
+        return this.fetchFromUrl(this.configuredSource.location, { useCache: !force });
+      case 'file':
+        return this.fetchFromFile(this.configuredSource.location);
+      case 'git':
+        return this.fetchConfiguredGitSource(force);
+    }
+  }
+
+  private async fetchConfiguredGitSource(force: boolean): Promise<RemoteConfigResult> {
+    const source = this.configuredSource;
+    if (!source || source.type !== 'git') {
+      throw new Error('Git remote config source is not configured');
+    }
+
+    const github = source.location.match(/github\.com[:/]([^/]+)\/([^/.]+)(?:\.git)?/);
+    if (github) {
+      const [, owner, repo] = github;
+      return this.fetchFromGitHub(owner, repo, source.branch || 'main', { useCache: !force });
+    }
+
+    return this.discoverForGitRepo(source.location, { useCache: !force });
+  }
+
+  configureSource(source: ConfiguredRemoteConfigSource): void {
+    if (!this.isConfiguredSource(source)) {
+      throw new Error('Invalid remote config source');
+    }
+    this.configuredSource = {
+      type: source.type,
+      location: source.location.trim(),
+      refreshInterval: source.refreshInterval,
+      branch: source.branch?.trim() || undefined,
+    };
+    this.currentConfig = null;
+    this.lastFetched = null;
+    this.lastError = null;
+    this.saveSourceToDisk();
+  }
+
+  async fetchConfigured(force = false): Promise<RemoteConfigResult> {
+    const result = await this.fetchConfiguredSource(force);
+    if (result.config) {
+      this.currentConfig = result.config;
+      this.lastFetched = result.source.lastFetched ?? Date.now();
+      this.lastError = null;
+    } else {
+      this.lastError = result.error ?? 'Remote config fetch returned no config';
+    }
+    return result;
+  }
+
+  getValue(key: string, defaultValue?: unknown): unknown {
+    if (!this.currentConfig) {
+      return defaultValue;
+    }
+    const normalized = key.trim();
+    if (!normalized || normalized === '*') {
+      return this.currentConfig;
+    }
+
+    let cursor: unknown = this.currentConfig;
+    for (const segment of normalized.split('.')) {
+      if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) {
+        return defaultValue;
+      }
+      cursor = (cursor as Record<string, unknown>)[segment];
+    }
+    return cursor === undefined ? defaultValue : cursor;
+  }
+
+  getStatus(): RemoteConfigStatus {
+    const now = Date.now();
+    return {
+      connected: Boolean(this.currentConfig) && !this.lastError,
+      lastFetched: this.lastFetched ?? undefined,
+      source: this.configuredSource ?? undefined,
+      cacheAge: this.lastFetched ? Math.max(0, Math.floor((now - this.lastFetched) / 1000)) : undefined,
+      error: this.lastError ?? undefined,
+    };
   }
 
   /**

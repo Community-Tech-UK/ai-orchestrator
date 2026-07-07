@@ -45,11 +45,22 @@ vi.mock('../rlm/context-manager', () => ({
 }));
 
 vi.mock('../learning/outcome-tracker', () => ({
-  OutcomeTracker: { getInstance: () => ({}) },
+  OutcomeTracker: {
+    getInstance: () => ({
+      getTopPatterns: vi.fn(() => [
+        { id: 'pattern-1', effectiveness: 0.9 },
+        { id: 'pattern-2', effectiveness: 0.4 },
+      ]),
+    }),
+  },
 }));
 
 vi.mock('../learning/strategy-learner', () => ({
-  StrategyLearner: { getInstance: () => ({}) },
+  StrategyLearner: {
+    getInstance: () => ({
+      getRecommendation: vi.fn(() => ({ strategy: 'reuse winning pattern' })),
+    }),
+  },
 }));
 
 vi.mock('../learning/prompt-enhancer', () => ({
@@ -177,6 +188,16 @@ describe('learning IPC legacy model discovery handlers', () => {
     expect(modelDiscoveryMocks.isModelAvailable).not.toHaveBeenCalled();
     expect(available).toBe(true);
     expect(missing).toBe(false);
+  });
+
+  it('registers renderer-facing learning pattern and suggestion aliases', async () => {
+    await expect(invoke(IPC_CHANNELS.LEARNING_GET_PATTERNS, { minSuccessRate: 0.5 }))
+      .resolves.toEqual([{ id: 'pattern-1', effectiveness: 0.9 }]);
+
+    await expect(invoke(IPC_CHANNELS.LEARNING_GET_SUGGESTIONS, {
+      context: 'CI has failed repeatedly',
+      maxSuggestions: 3,
+    })).resolves.toEqual({ strategy: 'reuse winning pattern' });
   });
 
   it('reports model stats from the unified catalog instead of placeholder totals', async () => {

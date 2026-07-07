@@ -19,6 +19,22 @@ import {
   LogSetSubsystemLevelPayloadSchema,
 } from '@contracts/schemas/observability';
 
+interface DebugCommandDescriptor {
+  id: string;
+  label: string;
+  description: string;
+}
+
+const DEBUG_COMMANDS: DebugCommandDescriptor[] = [
+  { id: 'agent', label: 'Agent', description: 'Inspect built-in agent metadata.' },
+  { id: 'config', label: 'Config', description: 'Inspect configuration resolution and app paths.' },
+  { id: 'file', label: 'File', description: 'Inspect file existence, permissions, and encoding.' },
+  { id: 'memory', label: 'Memory', description: 'Capture process memory usage.' },
+  { id: 'system', label: 'System', description: 'Inspect OS and Electron runtime details.' },
+  { id: 'process', label: 'Process', description: 'Inspect process argv, environment, and resource usage.' },
+  { id: 'all', label: 'All', description: 'Run all non-file diagnostic commands.' },
+];
+
 /**
  * Map log level string to LogLevel type
  */
@@ -30,6 +46,38 @@ function mapLogLevel(
     return level as 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   }
   return 'info';
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeLogOptions(payload: unknown): {
+  level?: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+  subsystem?: string;
+  startTime?: number;
+  endTime?: number;
+  limit?: number;
+} {
+  const root = asRecord(payload);
+  const options = asRecord(root?.['options']) ?? root;
+  return {
+    level: typeof options?.['level'] === 'string' ? mapLogLevel(options['level']) : undefined,
+    subsystem: stringValue(options?.['subsystem']) ?? stringValue(options?.['context']),
+    startTime: numberValue(options?.['startTime']),
+    endTime: numberValue(options?.['endTime']),
+    limit: numberValue(options?.['limit']),
+  };
 }
 
 export function registerDebugHandlers(): void {
@@ -62,6 +110,29 @@ export function registerDebugHandlers(): void {
           success: false,
           error: {
             code: 'LOG_GET_RECENT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Renderer-facing alias used by the Logs page.
+  ipcMain.handle(
+    IPC_CHANNELS.LOG_GET_LOGS,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const logs = logManager.getRecentLogs(normalizeLogOptions(payload));
+        return { success: true, data: logs };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'LOG_GET_LOGS_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }
@@ -161,6 +232,26 @@ export function registerDebugHandlers(): void {
     }
   );
 
+  // Renderer-facing alias used by the Logs page.
+  ipcMain.handle(
+    IPC_CHANNELS.LOG_CLEAR,
+    async (): Promise<IpcResponse> => {
+      try {
+        logManager.clearBuffer();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'LOG_CLEAR_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
   // Export logs
   ipcMain.handle(
     IPC_CHANNELS.LOG_EXPORT,
@@ -248,6 +339,131 @@ export function registerDebugHandlers(): void {
           success: false,
           error: {
             code: 'DEBUG_AGENT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Execute a renderer-selected debug command.
+  ipcMain.handle(
+    IPC_CHANNELS.DEBUG_EXECUTE,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const root = asRecord(payload);
+        const command = stringValue(root?.['command']);
+        const args = asRecord(root?.['args']);
+        if (!command) {
+          throw new Error('Debug command is required');
+        }
+
+        let data: unknown;
+        switch (command) {
+          case 'agent':
+            data = await debugManager.debugAgent(stringValue(args?.['agentId']));
+            break;
+          case 'config':
+            data = await debugManager.debugConfig(stringValue(args?.['workingDirectory']));
+            break;
+          case 'file': {
+            const filePath = stringValue(args?.['filePath']);
+            if (!filePath) {
+              throw new Error('filePath is required for the file debug command');
+            }
+            data = await debugManager.debugFile(filePath);
+            break;
+          }
+          case 'memory':
+            data = debugManager.debugMemory();
+            break;
+          case 'system':
+            data = debugManager.debugSystem();
+            break;
+          case 'process':
+            data = debugManager.debugProcess();
+            break;
+          case 'all':
+            data = await debugManager.debugAll(stringValue(args?.['workingDirectory']));
+            break;
+          default:
+            throw new Error(`Unknown debug command: ${command}`);
+        }
+
+        return { success: true, data };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'DEBUG_EXECUTE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // List commands for the renderer command picker.
+  ipcMain.handle(
+    IPC_CHANNELS.DEBUG_GET_COMMANDS,
+    async (): Promise<IpcResponse> => {
+      try {
+        return { success: true, data: DEBUG_COMMANDS };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'DEBUG_GET_COMMANDS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Lightweight debug surface metadata.
+  ipcMain.handle(
+    IPC_CHANNELS.DEBUG_GET_INFO,
+    async (): Promise<IpcResponse> => {
+      try {
+        return {
+          success: true,
+          data: {
+            commands: DEBUG_COMMANDS,
+            logConfig: logManager.getConfig(),
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'DEBUG_GET_INFO_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Run the non-file diagnostics suite.
+  ipcMain.handle(
+    IPC_CHANNELS.DEBUG_RUN_DIAGNOSTICS,
+    async (): Promise<IpcResponse> => {
+      try {
+        const data = await debugManager.debugAll();
+        return { success: true, data };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'DEBUG_RUN_DIAGNOSTICS_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

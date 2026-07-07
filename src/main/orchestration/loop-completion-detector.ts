@@ -30,6 +30,7 @@ import { findSelfAssignedCaveat, findTargetedVerifyMasquerade } from './loop-ant
 import { parseTaskLedger } from './loop-task-ledger';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { readUtf8FileHead } from './bounded-file-read';
+import { isInsideOrEqual } from '../util/path-helpers';
 import type {
   CompletionSignalEvidence,
   LoopConfig,
@@ -717,11 +718,6 @@ export function isCompletedRenameForPlan(
   return completedPlanFileCandidates(config).some(
     (candidate) => path.resolve(candidate).toLowerCase() === resolved,
   );
-}
-
-function isInsideOrEqual(parent: string, child: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 async function pathExists(target: string): Promise<boolean> {

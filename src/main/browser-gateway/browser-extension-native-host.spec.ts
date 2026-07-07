@@ -7,6 +7,7 @@ import {
   createNativeMessageFrame,
   parseNativeMessageFrame,
   handleBrowserExtensionNativeMessage,
+  sendBrowserExtensionDisconnected,
 } from './browser-extension-native-host';
 
 describe('browser extension native host', () => {
@@ -62,6 +63,7 @@ describe('browser extension native host', () => {
       send,
     })).resolves.toEqual({
       ok: true,
+      ackType: 'attach_tab',
       result: { decision: 'allowed' },
     });
     expect(send).toHaveBeenCalledWith({
@@ -113,6 +115,7 @@ describe('browser extension native host', () => {
       send,
     })).resolves.toEqual({
       ok: true,
+      ackType: 'tab_inventory',
       result: {
         attached: 2,
         results: [
@@ -194,7 +197,100 @@ describe('browser extension native host', () => {
       payload: {
         timeoutMs: 25,
       },
+      // Poll window + 15s buffer: the socket must outlive the relay's own
+      // poll-forward budget or a freshly dequeued command is dropped.
+      timeoutMs: 15_025,
     });
+  });
+
+  it('acks command receipt fire-and-forget without blocking the frame chain', async () => {
+    // The RPC never resolves — the reply must still come back immediately,
+    // otherwise a stalled coordinator head-of-line blocks the command result
+    // (and next poll) queued behind this frame.
+    const send = vi.fn().mockReturnValue(new Promise(() => undefined));
+
+    await expect(handleBrowserExtensionNativeMessage({
+      message: {
+        type: 'command_received',
+        commandId: 'command-9',
+      },
+      runtimeConfig: {
+        socketPath: '/tmp/browser.sock',
+        extensionToken: 'native-token',
+        updatedAt: 1,
+      },
+      send,
+    })).resolves.toEqual({
+      ok: true,
+      ackType: 'command_received',
+      commandId: 'command-9',
+    });
+    expect(send).toHaveBeenCalledWith({
+      socketPath: '/tmp/browser.sock',
+      method: 'browser.extension_command_received',
+      extensionToken: 'native-token',
+      payload: {
+        commandId: 'command-9',
+      },
+    });
+  });
+
+  it('swallows receipt forward failures instead of emitting an error reply', async () => {
+    // A lost receipt already degrades to receipt_missing at the coordinator;
+    // an {ok:false} reply here would (on old extension builds) be misread as
+    // a poll error and spawn a concurrent second command.
+    const send = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await expect(handleBrowserExtensionNativeMessage({
+      message: {
+        type: 'command_received',
+        commandId: 'command-9',
+      },
+      runtimeConfig: {
+        socketPath: '/tmp/browser.sock',
+        extensionToken: 'native-token',
+        updatedAt: 1,
+      },
+      send,
+    })).resolves.toEqual({
+      ok: true,
+      ackType: 'command_received',
+      commandId: 'command-9',
+    });
+  });
+
+  it('reports channel disconnects best-effort and swallows transport failures', async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    await sendBrowserExtensionDisconnected({
+      runtimeConfig: {
+        socketPath: '/tmp/browser.sock',
+        extensionToken: 'native-token',
+        updatedAt: 1,
+      },
+      reason: 'native_host_stdin_eof',
+      send,
+    });
+    expect(send).toHaveBeenCalledWith({
+      socketPath: '/tmp/browser.sock',
+      method: 'browser.extension_disconnected',
+      extensionToken: 'native-token',
+      payload: {
+        reason: 'native_host_stdin_eof',
+      },
+      timeoutMs: 3_000,
+    });
+
+    // The gateway being gone must not throw out of the shutdown path.
+    const failingSend = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(sendBrowserExtensionDisconnected({
+      runtimeConfig: {
+        socketPath: '/tmp/browser.sock',
+        extensionToken: 'native-token',
+        updatedAt: 1,
+      },
+      reason: 'native_host_stdin_eof',
+      send: failingSend,
+    })).resolves.toBeUndefined();
   });
 
   it('forwards command result messages to Browser Gateway extension RPC', async () => {
@@ -217,6 +313,8 @@ describe('browser extension native host', () => {
       send,
     })).resolves.toEqual({
       ok: true,
+      ackType: 'command_result',
+      commandId: 'command-1',
       result: { ok: true },
     });
     expect(send).toHaveBeenCalledWith({

@@ -181,7 +181,3 @@ export function getAutoUpdateService(): AutoUpdateService {
   singleton ??= new AutoUpdateService();
   return singleton;
 }
-
-export function _resetAutoUpdateServiceForTesting(): void {
-  singleton = null;
-}

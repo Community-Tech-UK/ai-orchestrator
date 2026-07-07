@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { getLogger } from '../logging/logger';
-import { SecurityFilter } from '../remote-node/security-filter';
+import { readFilesystemDirectoryTree } from './filesystem-directory-reader';
 import type {
   FsReadDirectoryParams,
   FsReadDirectoryResult,
@@ -9,7 +8,6 @@ import type {
   FsSearchResult,
   FsWatchResult,
   FsReadFileResult,
-  FsEntry
 } from '../../shared/types/remote-fs.types';
 
 const logger = getLogger('FilesystemService');
@@ -224,7 +222,7 @@ export class FilesystemService {
     params: FsReadDirectoryParams
   ): Promise<FsReadDirectoryResult> {
     const { depth = 1, includeHidden = false, limit = 500, cursor } = params;
-    const allEntries = await this.readDirRecursive(
+    const allEntries = await readFilesystemDirectoryTree(
       params.path,
       depth,
       includeHidden
@@ -267,80 +265,6 @@ export class FilesystemService {
     }
   }
 
-  private async readDirRecursive(
-    dirPath: string,
-    depth: number,
-    includeHidden: boolean
-  ): Promise<FsEntry[]> {
-    let dirents: import('node:fs').Dirent[];
-    try {
-      dirents = await fs.readdir(dirPath, { withFileTypes: true });
-    } catch (err) {
-      logger.warn('Failed to read directory', { dirPath, err: String(err) });
-      return [];
-    }
-
-    const visible = includeHidden
-      ? dirents
-      : dirents.filter((d) => !d.name.startsWith('.'));
-
-    const entries: FsEntry[] = [];
-
-    for (const dirent of visible) {
-      const fullPath = path.join(dirPath, dirent.name);
-      const isDirectory = dirent.isDirectory();
-      const isSymlink = dirent.isSymbolicLink();
-      const ignored =
-        isDirectory && SecurityFilter.shouldSkipDirectory(dirent.name);
-      const restricted = SecurityFilter.isRestricted(dirent.name);
-
-      let size = 0;
-      let modifiedAt = 0;
-      try {
-        const s = await fs.stat(fullPath);
-        size = s.size;
-        modifiedAt = s.mtimeMs;
-      } catch {
-        // Stat failure is non-fatal — leave defaults
-      }
-
-      const extension = isDirectory
-        ? undefined
-        : path.extname(dirent.name) || undefined;
-
-      const entry: FsEntry = {
-        name: dirent.name,
-        path: fullPath,
-        isDirectory,
-        isSymlink,
-        size,
-        modifiedAt,
-        extension,
-        ignored,
-        restricted
-      };
-
-      if (isDirectory && !ignored && depth > 1) {
-        entry.children = await this.readDirRecursive(
-          fullPath,
-          depth - 1,
-          includeHidden
-        );
-      }
-
-      entries.push(entry);
-    }
-
-    // Sort: directories first, then alphabetical by name
-    entries.sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) {
-        return a.isDirectory ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
-
-    return entries;
-  }
 }
 
 export function getFilesystemService(): FilesystemService {

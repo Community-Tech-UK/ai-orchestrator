@@ -1,6 +1,6 @@
 import type { InstanceProvider } from '../../core/state/instance/instance.types';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
-import type { ProviderType } from '../providers/provider-selector.component';
+import type { ProviderType } from '../../core/services/provider-state.service';
 import type { PickerProvider } from '../models/compact-model-picker.types';
 
 export function getFileIcon(file: File): string {

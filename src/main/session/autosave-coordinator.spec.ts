@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('electron', () => ({
+  powerMonitor: {
+    on: vi.fn(),
+    off: vi.fn(),
+  },
+}));
+
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
+import { JitterScheduler } from '../tasks/jitter-scheduler';
 
 describe('SessionAutoSaveCoordinator', () => {
   let dirty: Set<string>;
@@ -10,6 +19,7 @@ describe('SessionAutoSaveCoordinator', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    JitterScheduler._resetForTesting();
     dirty = new Set<string>();
     locked = new Set<string>();
     now = 1_000;
@@ -18,6 +28,7 @@ describe('SessionAutoSaveCoordinator', () => {
   });
 
   afterEach(() => {
+    JitterScheduler._resetForTesting();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -77,7 +88,7 @@ describe('SessionAutoSaveCoordinator', () => {
       autoSaveIntervalMs: 50,
     });
 
-    await vi.advanceTimersByTimeAsync(51);
+    await vi.advanceTimersByTimeAsync(60);
     autoSave.stop();
 
     expect(saveState).toHaveBeenCalledOnce();

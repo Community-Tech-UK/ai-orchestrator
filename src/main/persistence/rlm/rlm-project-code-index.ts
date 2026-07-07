@@ -197,25 +197,6 @@ export function listProjectCodeSymbols(
   return rows.map(rowToSymbol);
 }
 
-export function getProjectCodeSymbol(
-  db: SqliteDriver,
-  projectKey: string,
-  symbolId: string,
-): ProjectCodeSymbol | undefined {
-  const row = db.prepare(`
-    SELECT * FROM project_code_symbols
-    WHERE project_key = ? AND symbol_id = ?
-  `).get(projectKey, symbolId) as ProjectCodeSymbolRow | undefined;
-
-  return row ? rowToSymbol(row) : undefined;
-}
-
-export function countProjectCodeSymbols(db: SqliteDriver, projectKey: string): number {
-  return (db.prepare(`
-    SELECT COUNT(*) as count FROM project_code_symbols WHERE project_key = ?
-  `).get(projectKey) as { count: number }).count;
-}
-
 function mustGetStatus(db: SqliteDriver, projectKey: string): ProjectCodeIndexStatus {
   const row = db.prepare(`
     SELECT * FROM project_code_index_status

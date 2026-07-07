@@ -116,10 +116,6 @@ const CONTROL_SURFACE_BY_ID = new Map<ControlSurfaceId, ControlSurfaceItem>(
   CONTROL_SURFACES.map((item) => [item.id, item]),
 );
 
-export function listControlSurfaces(): readonly ControlSurfaceItem[] {
-  return CONTROL_SURFACES;
-}
-
 export function tryGetControlSurface(id: string): ControlSurfaceItem | undefined {
   return CONTROL_SURFACE_BY_ID.get(id as ControlSurfaceId);
 }

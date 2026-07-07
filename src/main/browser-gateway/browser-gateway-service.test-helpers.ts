@@ -93,6 +93,9 @@ export function makeService(overrides: {
   };
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionContactState?: BrowserGatewayServiceOptions['extensionContactState'];
+  credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
+  credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
+  emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
   stageUploadFileOnNode?: (nodeId: string, localPath: string) => Promise<string>;
   useSingleton?: boolean;
@@ -131,6 +134,8 @@ export function makeService(overrides: {
     type: vi.fn(async () => undefined),
     fillForm: vi.fn(async () => undefined),
     select: vi.fn(async () => undefined),
+    readControl: vi.fn(async () => ({ value: undefined, selectedLabel: undefined, checked: undefined })),
+    setChecked: vi.fn(async () => undefined),
     uploadFile: vi.fn(async () => undefined),
     downloadFile: vi.fn(async () => ({
       id: 'download-1',
@@ -293,10 +298,14 @@ export function makeService(overrides: {
         lastContactAt: Date.now(),
         silent: false,
       }),
+      getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
     },
     auditStore,
     grantStore,
     approvalStore,
+    credentialVault: overrides.credentialVault,
+    credentialAuthorizations: overrides.credentialAuthorizations,
+    emailCodeReader: overrides.emailCodeReader,
     autoApproveRequests: overrides.autoApproveRequests,
     resolvePreferredDebugPort: overrides.resolvePreferredDebugPort,
     stageUploadFileOnNode: overrides.stageUploadFileOnNode,

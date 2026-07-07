@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
 import type {
   BrowserAccessibilityNode,
   BrowserAccessibilitySnapshotRequest,
@@ -8,6 +9,7 @@ import type {
   BrowserApproveRequestPayload,
   BrowserAuditEntry,
   BrowserClickRequest,
+  BrowserControlVerifyExpectation,
   BrowserCreateGrantRequest,
   BrowserDenyRequestPayload,
   BrowserDownloadFileRequest,
@@ -32,6 +34,7 @@ import type {
   BrowserTarget,
 } from '@contracts/types/browser';
 import { BrowserAuditStore, getBrowserAuditStore } from './browser-audit-store';
+import { getBrowserCampaignRuntime } from './browser-campaign-runtime';
 import {
   BrowserApprovalStore,
   getBrowserApprovalStore,
@@ -89,6 +92,7 @@ import {
   getBrowserExtensionTabStore,
 } from './browser-extension-tab-store';
 import {
+  BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
   BrowserExtensionCommandStore,
   browserExtensionQueueKeyForNode,
   getBrowserExtensionCommandStore,
@@ -99,6 +103,7 @@ import {
 } from './browser-extension-contact-state';
 import {
   isRemoteExtensionContactFresh,
+  remoteExtensionContactSummary,
   remoteExtensionUnreachableFindOrOpenInput,
   withRemoteExtensionStaleFlag,
 } from './browser-extension-node-contact';
@@ -138,6 +143,9 @@ import type {
   BrowserGatewayAuditLogRequest,
   BrowserGatewayContext,
   BrowserGatewayCreateProfileRequest,
+  BrowserGatewayCreateAgentCredentialRequest,
+  BrowserGatewayExecuteFillPlanRequest,
+  BrowserGatewayFillCredentialRequest,
   BrowserGatewayFindOrOpenRequest,
   BrowserGatewayListTargetsRequest,
   BrowserGatewayMutatingActionRequest,
@@ -147,9 +155,33 @@ import type {
   BrowserGatewayTargetRequest,
   BrowserGatewayUpdateProfileRequest,
 } from './browser-gateway-service-types';
+import type { FillPlanResult } from './browser-fill-plan-executor';
+import {
+  executeFillPlanOperation,
+  fillCredentialOperation,
+  createAgentCredentialOperation,
+  type FillOperationDeps,
+} from './browser-form-fill-operations';
+import {
+  verifyGatewayFillFormReadback,
+  verifyGatewayMutationReadback,
+  type BrowserGatewayMutationReadbackDeps,
+} from './browser-gateway-mutation-readback';
+import {
+  basenameForUploadPath,
+  verifyUploadedFileSelection,
+} from './browser-upload-verify';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { stageBrowserUploadOnNode } from './browser-remote-upload-staging';
 import { refreshBrowserExtensionInventory } from './browser-extension-inventory-refresh';
+import {
+  collectInventoryRefreshFailures,
+  describeInventoryRefreshFailures,
+  notDeliveredOpenTabMessage,
+  recoveredFindOrOpenResultInput,
+  recoverOpenedTabAfterTimeout,
+  withRefreshFailureStaleFlag,
+} from './browser-gateway-refresh-support';
 
 export type {
   BrowserGatewayAttachExistingTabRequest,
@@ -194,6 +226,8 @@ export class BrowserGatewayService {
     | 'type'
     | 'fillForm'
     | 'select'
+    | 'readControl'
+    | 'setChecked'
     | 'uploadFile'
     | 'downloadFile'
   >;
@@ -207,6 +241,9 @@ export class BrowserGatewayService {
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
+  private readonly credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
+  private readonly credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
+  private readonly emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
   private autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
   private resolvePreferredDebugPort?: BrowserGatewayServiceOptions['resolvePreferredDebugPort'];
   private stageUploadFileOnNode: NonNullable<BrowserGatewayServiceOptions['stageUploadFileOnNode']>;
@@ -228,6 +265,9 @@ export class BrowserGatewayService {
     this.grantStore = options.grantStore ?? getBrowserGrantStore();
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
     this.healthService = options.healthService ?? getBrowserHealthService();
+    this.credentialVault = options.credentialVault;
+    this.credentialAuthorizations = options.credentialAuthorizations;
+    this.emailCodeReader = options.emailCodeReader;
     this.autoApproveRequests = options.autoApproveRequests;
     this.resolvePreferredDebugPort = options.resolvePreferredDebugPort;
     this.stageUploadFileOnNode = options.stageUploadFileOnNode ?? stageBrowserUploadOnNode;
@@ -236,6 +276,8 @@ export class BrowserGatewayService {
       extensionCommandStore: this.extensionCommandStore,
       extensionTabStore: this.extensionTabStore,
       isRemoteExtensionContactFresh: (nodeId) => isRemoteExtensionContactFresh(nodeId, { extensionContactState: this.extensionContactState }),
+      describeRemoteExtensionContact: (nodeId) =>
+        remoteExtensionContactSummary(nodeId, { extensionContactState: this.extensionContactState }),
       grantStore: this.grantStore,
       approvalStore: this.approvalStore,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
@@ -265,6 +307,9 @@ export class BrowserGatewayService {
       approvalStore: this.approvalStore,
       autoApproveRequests: (request) => Boolean(this.autoApproveRequests?.(request)),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+      // Campaign budget enforcement: count every mutation executed under a
+      // campaign lease; a tripped budget pauses the campaign + revokes leases.
+      onGrantedMutation: (info) => getBrowserCampaignRuntime()?.recordGrantedMutation(info),
     });
   }
 
@@ -527,16 +572,24 @@ export class BrowserGatewayService {
   async listTargets(
     request: BrowserGatewayListTargetsRequest = {},
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget>[]>> {
-    if (request.refresh === true) {
-      await refreshBrowserExtensionInventory({ request, commandStore: this.extensionCommandStore });
-    }
+    const refreshFailures = collectInventoryRefreshFailures(
+      request.refresh === true
+        ? await refreshBrowserExtensionInventory({ request, commandStore: this.extensionCommandStore })
+        : [],
+    );
     const liveTargets = request.profileId
       ? await this.driver.listTargets(request.profileId).catch(() => null)
       : null;
     const targets = (liveTargets ?? this.targetRegistry.listTargets(request.profileId))
       .filter((target) => !request.nodeId || target.nodeId === request.nodeId)
       .map((target) => withRemoteExtensionStaleFlag(target, { extensionContactState: this.extensionContactState }))
+      .map((target) => withRefreshFailureStaleFlag(target, refreshFailures))
       .map((target) => toAgentSafeTarget(target));
+    const refreshFailureSummary = describeInventoryRefreshFailures(
+      refreshFailures,
+      this.extensionContactState,
+      targets,
+    );
     return this.result({
       context: request,
       profileId: request.profileId,
@@ -545,7 +598,11 @@ export class BrowserGatewayService {
       actionClass: 'read',
       decision: 'allowed',
       outcome: 'succeeded',
-      summary: `Listed ${targets.length} browser targets`,
+      summary: `Listed ${targets.length} browser targets${refreshFailureSummary ? ` (${refreshFailureSummary})` : ''}`,
+      // `summary` only reaches the audit log; `reason` is what the caller sees
+      // on the result — surface the degraded refresh there so cached targets
+      // are never mistaken for a live channel.
+      ...(refreshFailureSummary ? { reason: refreshFailureSummary } : {}),
       data: targets,
     });
   }
@@ -627,6 +684,10 @@ export class BrowserGatewayService {
         command: 'open_tab',
         payload: { url },
         timeoutMs: 30_000,
+        // Ride out one extension service-worker recovery cycle instead of
+        // failing while the command is provably still queued (undelivered ⇒
+        // not applied, so the longer wait is safe).
+        undeliveredWaitMs: BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
       });
       const tab = extractTabPayload(result);
       const node = request.nodeId ? getWorkerNodeRegistry().getNode(request.nodeId) : undefined;
@@ -649,7 +710,27 @@ export class BrowserGatewayService {
         data: safeTargetFromExistingTab(attachment),
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      // An open_tab whose ack was lost may still have opened the tab. Refresh
+      // the inventory and re-match before reporting failure — recovering the
+      // tab as a SUCCESS beats telling the caller to go look for it.
+      if (
+        rawMessage.startsWith('browser_extension_command_timeout')
+        || rawMessage.startsWith('browser_extension_command_receipt_missing')
+      ) {
+        const recovered = await recoverOpenedTabAfterTimeout({
+          ...(request.nodeId ? { nodeId: request.nodeId } : {}),
+          url,
+          commandStore: this.extensionCommandStore,
+          listTabs: () => this.extensionTabStore.listTabs(),
+        });
+        if (recovered) {
+          return this.result(recoveredFindOrOpenResultInput(request, recovered));
+        }
+      }
+      const message = rawMessage.startsWith('browser_extension_command_not_delivered')
+        ? notDeliveredOpenTabMessage(request.nodeId, this.extensionContactState)
+        : rawMessage;
       return this.result({
         context: request,
         action: 'find_or_open',
@@ -664,6 +745,7 @@ export class BrowserGatewayService {
       });
     }
   }
+
 
   async selectTarget(
     request: BrowserGatewayTargetRequest,
@@ -1421,6 +1503,7 @@ export class BrowserGatewayService {
       } else {
         await this.driver.click(request.profileId, request.targetId, request.selector!);
       }
+      await this.verifyMutationReadback(request, request.verify, request.selector, existingTab ?? undefined);
       if (prepared.grant.mode === 'per_action') {
         this.grantStore.consumeGrant(prepared.grant.id);
       }
@@ -1493,6 +1576,7 @@ export class BrowserGatewayService {
       } else {
         await this.driver.type(request.profileId, request.targetId, request.selector!, request.value);
       }
+      await this.verifyMutationReadback(request, request.verify, request.selector, existingTab ?? undefined);
       return this.actionGuard.mutationSucceeded(request, 'type', 'browser.type', prepared);
     } catch (error) {
       return this.actionGuard.mutationFailed(request, 'type', 'browser.type', prepared, error);
@@ -1530,10 +1614,68 @@ export class BrowserGatewayService {
       } else {
         await this.driver.select(request.profileId, request.targetId, request.selector!, request.value);
       }
+      await this.verifyMutationReadback(request, request.verify, request.selector, existingTab ?? undefined);
       return this.actionGuard.mutationSucceeded(request, 'select', 'browser.select', prepared);
     } catch (error) {
       return this.actionGuard.mutationFailed(request, 'select', 'browser.select', prepared, error);
     }
+  }
+
+  /**
+   * Execute a structured fill plan with read-back verification of every step.
+   * Each mutating step is routed through the already-guarded per-action methods
+   * (type/select/click) so grants, classification (a `section_save` hits the
+   * submit class) and audit apply per step; the plan stops and fails loudly on
+   * the first step whose read-back does not match. Managed-profile only for now:
+   * verification uses the puppeteer page bridge, which shared existing tabs do
+   * not expose.
+   */
+  async executeFillPlan(
+    request: BrowserGatewayExecuteFillPlanRequest,
+  ): Promise<BrowserGatewayResult<FillPlanResult | null>> {
+    return executeFillPlanOperation(this.fillOperationDeps(), request);
+  }
+
+  /** Shared deps facade for the extracted fill operations (see browser-form-fill-operations). */
+  private fillOperationDeps(): FillOperationDeps {
+    return {
+      result: (input) => this.result(input),
+      hasExistingTab: (profileId, targetId) => Boolean(this.extensionTabStore.getTab(profileId, targetId)),
+      type: (req) => this.type(req as BrowserGatewayContext & BrowserTypeRequest),
+      select: (req) => this.select(req as BrowserGatewayContext & BrowserSelectRequest),
+      click: (req) => this.click(req as BrowserGatewayContext & BrowserClickRequest),
+      readControl: (profileId, targetId, selector) => this.driver.readControl(profileId, targetId, selector),
+      driverType: (profileId, targetId, selector, value) =>
+        this.driver.type(profileId, targetId, selector, value),
+      refreshTargetOrigin: async (profileId, targetId) => {
+        const target = await this.driver.refreshTarget(profileId, targetId);
+        return target.origin ?? '';
+      },
+      ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
+      ...(this.credentialAuthorizations ? { credentialAuthorizations: this.credentialAuthorizations } : {}),
+      ...(this.emailCodeReader ? { emailCodeReader: this.emailCodeReader } : {}),
+    };
+  }
+
+  /**
+   * Fill credential fields from the agent credential vault WITHOUT the secret
+   * ever entering model context: the request carries only a vault item
+   * reference; the secret is resolved in-process (folder- + origin-jailed) and
+   * typed straight into the page. Gated by a standing James-granted credential
+   * authorization for (profile, live origin, purpose) — this is the sanctioned
+   * bypass of the credential hard-stop, and only for agent-owned managed
+   * profiles. The typed secret never appears in the tool result or audit.
+   */
+  async fillCredential(
+    request: BrowserGatewayFillCredentialRequest,
+  ): Promise<BrowserGatewayResult<{ filled: number } | null>> {
+    return fillCredentialOperation(this.fillOperationDeps(), request);
+  }
+
+  async createAgentCredential(
+    request: BrowserGatewayCreateAgentCredentialRequest,
+  ): Promise<BrowserGatewayResult<{ vaultItemRef: string; username: string } | null>> {
+    return createAgentCredentialOperation(this.fillOperationDeps(), request);
   }
 
   async uploadFile(
@@ -1589,6 +1731,7 @@ export class BrowserGatewayService {
       }
       try {
         let uploadFilePath = uploadDecision.resolvedPath ?? request.filePath;
+        const uploadStat = await fs.stat(uploadFilePath);
         if (existingTab.nodeId) {
           // The tab lives in Chrome on a remote worker node, but the file (and
           // the validation above) is coordinator-local. Ship the bytes to the
@@ -1597,9 +1740,13 @@ export class BrowserGatewayService {
           // path and the site receives an empty/unreadable file.
           uploadFilePath = await this.stageUploadFileOnNode(existingTab.nodeId, uploadFilePath);
         }
-        await this.existingTabOperations.sendCommand(existingTab, 'upload_file', {
+        const uploadResult = await this.existingTabOperations.sendCommand(existingTab, 'upload_file', {
           selector: request.selector,
           filePath: uploadFilePath,
+        });
+        verifyUploadedFileSelection(uploadResult, {
+          fileName: basenameForUploadPath(uploadFilePath),
+          size: uploadStat.size,
         });
         return this.actionGuard.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
       } catch (error) {
@@ -1828,6 +1975,7 @@ export class BrowserGatewayService {
         await this.existingTabOperations.sendCommand(existingTab, 'fill_form', {
           fields: request.fields,
         });
+        await this.verifyFillFormReadback(request, request.fields, existingTab);
         return this.actionGuard.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
       } catch (error) {
         return this.actionGuard.mutationFailed(request, 'fill_form', 'browser.fill_form', prepared, error);
@@ -1937,6 +2085,7 @@ export class BrowserGatewayService {
         selector: field.selector!,
         value: field.value,
       })));
+      await this.verifyFillFormReadback(request, request.fields);
       return this.actionGuard.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
     } catch (error) {
       return this.actionGuard.mutationFailed(request, 'fill_form', 'browser.fill_form', prepared, error);
@@ -2214,6 +2363,30 @@ export class BrowserGatewayService {
       result: <R>(input: BrowserGatewayResultInput<R>) => this.result(input),
       read,
     });
+  }
+
+  private async verifyFillFormReadback(
+    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    fields: BrowserFillFormRequest['fields'],
+    existingTab?: BrowserExistingTabAttachment,
+  ): Promise<void> {
+    await verifyGatewayFillFormReadback(this.mutationReadbackDeps(), request, fields, existingTab);
+  }
+
+  private async verifyMutationReadback(
+    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    expected: BrowserControlVerifyExpectation | undefined,
+    fallbackSelector: string | undefined,
+    existingTab?: BrowserExistingTabAttachment,
+  ): Promise<void> {
+    await verifyGatewayMutationReadback(this.mutationReadbackDeps(), request, expected, fallbackSelector, existingTab);
+  }
+
+  private mutationReadbackDeps(): BrowserGatewayMutationReadbackDeps {
+    return {
+      existingTabOperations: this.existingTabOperations,
+      driver: this.driver,
+    };
   }
 
   // uid (CDP backendNodeId) targeting is resolved by the Chrome extension via

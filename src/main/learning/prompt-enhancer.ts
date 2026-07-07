@@ -459,7 +459,3 @@ export class PromptEnhancer extends EventEmitter {
     };
   }
 }
-
-export function getPromptEnhancer(): PromptEnhancer {
-  return PromptEnhancer.getInstance();
-}

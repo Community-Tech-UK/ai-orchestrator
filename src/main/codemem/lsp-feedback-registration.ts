@@ -23,10 +23,6 @@ const logger = getLogger('LspFeedbackReg');
 let enabled = false;
 let coordinator: LspFeedbackCoordinator | null = null;
 
-export function isLspFeedbackEnabled(): boolean {
-  return enabled;
-}
-
 export function setLspFeedbackEnabled(value: boolean): void {
   enabled = value;
   logger.info('LSP feedback toggled', { enabled });

@@ -1,0 +1,25 @@
+<div class="unattended-panel">
+  <div class="panel-toolbar">
+    <button class="btn small" type="button" [disabled]="loading()" (click)="refreshNow()">Refresh</button>
+  </div>
+
+  <section class="unattended-block">
+    <h3>Credential Vault</h3>
+    <app-browser-vault-control />
+  </section>
+
+  <section class="unattended-block">
+    <h3>Standing Credential Authorizations</h3>
+    <app-browser-credential-authorization-panel [profiles]="profiles()" />
+  </section>
+
+  <section class="unattended-block">
+    <h3>Overnight Campaigns</h3>
+    <app-browser-campaign-list [profiles]="profiles()" />
+  </section>
+
+  <section class="unattended-block">
+    <h3>Escalation Queue</h3>
+    <app-browser-escalation-queue />
+  </section>
+</div>

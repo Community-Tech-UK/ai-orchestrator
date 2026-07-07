@@ -52,6 +52,31 @@ describe('browser-action-classifier', () => {
     }
   });
 
+  it('hard-stops payment fields as a distinct payment class (never a credential)', () => {
+    for (const elementContext of [
+      { label: 'Card number' },
+      { inputName: 'cvv', label: 'CVV' },
+      { label: 'Sort code' },
+      { label: 'IBAN' },
+    ]) {
+      expect(
+        classifyBrowserAction({ toolName: 'browser.type', elementContext }),
+      ).toMatchObject({ actionClass: 'payment', hardStop: true });
+    }
+  });
+
+  it('hard-stops legal declarations for human review / pre-approval', () => {
+    expect(
+      classifyBrowserAction({
+        toolName: 'browser.click',
+        elementContext: {
+          role: 'checkbox',
+          accessibleName: 'I declare that the information is accurate',
+        },
+      }),
+    ).toMatchObject({ actionClass: 'submit', hardStop: true });
+  });
+
   it('does not trust conflicting agent hints', () => {
     const result = classifyBrowserAction({
       toolName: 'browser.click',

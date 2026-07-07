@@ -3,7 +3,7 @@
  *
  * Search input with options:
  * - Text input with debounced search (300ms)
- * - Toggle switches for HyDE and reranking options
+ * - Toggle switch for HyDE query expansion
  * - File pattern filter input (glob patterns)
  * - Emits HybridSearchOptions to parent
  */
@@ -55,18 +55,6 @@ import type { HybridSearchOptions } from '../../../../shared/types/codebase.type
             [disabled]="disabled()"
           />
           <span class="toggle-label">HyDE</span>
-        </label>
-
-        <!-- Rerank Toggle -->
-        <label class="option-toggle" for="rerank-toggle" title="Re-rank results using cross-encoder for better accuracy">
-          <input
-            type="checkbox"
-            id="rerank-toggle"
-            [ngModel]="useRerank()"
-            (ngModelChange)="useRerank.set($event); triggerSearch()"
-            [disabled]="disabled()"
-          />
-          <span class="toggle-label">Rerank</span>
         </label>
 
         <!-- File Pattern Filter -->
@@ -310,7 +298,6 @@ export class CodebaseSearchComponent {
   // Local state
   searchQuery = signal('');
   useHyDE = signal(true);
-  useRerank = signal(false);
   filePattern = signal('');
   topK = signal(25);
 
@@ -344,7 +331,6 @@ export class CodebaseSearchComponent {
       storeId: this.storeId(),
       topK: this.topK(),
       useHyDE: this.useHyDE(),
-      rerank: this.useRerank(),
     };
 
     // Parse file patterns

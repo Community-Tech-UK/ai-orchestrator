@@ -486,10 +486,6 @@ export class OperatorRunStore {
   }
 }
 
-export function defaultOperatorRunBudget(): OperatorRunBudget {
-  return { ...DEFAULT_BUDGET };
-}
-
 function runRowToRecord(row: RunRow): OperatorRunRecord {
   return {
     id: row.id,

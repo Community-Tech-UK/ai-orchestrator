@@ -31,3 +31,28 @@ export interface WebhookServerStatus {
   routeCount: number;
   recentDeliveries: WebhookDeliveryRecord[];
 }
+
+export interface WebhookCreateRouteInput {
+  path: string;
+  secret: string;
+  enabled?: boolean;
+  allowUnsignedDev?: boolean;
+  maxBodyBytes?: number;
+  allowedAutomationIds?: string[];
+  allowedEvents?: string[];
+}
+
+export interface WebhookAutomationSuggestion {
+  id: string;
+  eventType: string;
+  routeId: string;
+  routePath?: string;
+  promptPattern: string;
+  promptCount: number;
+  deliveryCount: number;
+  confidence: number;
+  lastSeenAt: number;
+  rationale: string;
+  suggestedAutomationName: string;
+  suggestedPrompt: string;
+}

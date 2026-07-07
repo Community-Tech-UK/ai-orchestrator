@@ -33,7 +33,6 @@ export const WORKSPACE_CHANNELS = {
   // Git Worktree operations
   WORKTREE_CREATE: 'worktree:create',
   WORKTREE_LIST: 'worktree:list',
-  WORKTREE_DELETE: 'worktree:delete',
   WORKTREE_GET_STATUS: 'worktree:get-status',
   WORKTREE_COMPLETE: 'worktree:complete',
   WORKTREE_PREVIEW_MERGE: 'worktree:preview-merge',
@@ -85,9 +84,6 @@ export const WORKSPACE_CHANNELS = {
 
   // Bash validation operations
   BASH_VALIDATE: 'bash:validate',
-  BASH_GET_CONFIG: 'bash:get-config',
-  BASH_ADD_ALLOWED: 'bash:add-allowed',
-  BASH_ADD_BLOCKED: 'bash:add-blocked',
 
   // MCP operations
   MCP_GET_STATE: 'mcp:get-state',

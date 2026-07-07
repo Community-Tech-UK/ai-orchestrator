@@ -821,11 +821,3 @@ export class ABTestingEngine extends EventEmitter {
     this.assignments.set(experimentId, new Map());
   }
 }
-
-// ============================================
-// Singleton Getter
-// ============================================
-
-export function getABTestingEngine(config?: Partial<ABTestingConfig>): ABTestingEngine {
-  return ABTestingEngine.getInstance(config);
-}

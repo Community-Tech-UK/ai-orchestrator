@@ -12,11 +12,6 @@ import {
   ConfigGetProjectPayloadSchema,
   ConfigResolvePayloadSchema,
   ConfigSaveProjectPayloadSchema,
-  RemoteConfigDiscoverGitPayloadSchema,
-  RemoteConfigFetchGitHubPayloadSchema,
-  RemoteConfigFetchUrlPayloadSchema,
-  RemoteConfigFetchWellKnownPayloadSchema,
-  RemoteConfigInvalidatePayloadSchema,
   SettingsBulkUpdatePayloadSchema,
   SettingsGetPayloadSchema,
   SettingsResetOnePayloadSchema,
@@ -24,7 +19,6 @@ import {
 } from '@contracts/schemas/settings';
 import type { AppSettings, ProjectConfig } from '../../../shared/types/settings.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
-import { exportSettings, importSettings } from '../../core/config/settings-export';
 import {
   resolveConfig,
   loadProjectConfig,
@@ -40,6 +34,8 @@ import {
 } from '../../core/config/settings-control-policy';
 import { WindowManager } from '../../window-manager';
 import { broadcastSettingsChanged } from './settings-broadcast';
+import { registerSettingsRemoteConfigHandlers } from './settings-remote-config-handlers';
+import { registerSettingsTransferHandlers } from './settings-transfer-handlers';
 
 interface SettingsHandlerDeps {
   windowManager: WindowManager;
@@ -47,7 +43,6 @@ interface SettingsHandlerDeps {
 
 export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
   const settings = getSettingsManager();
-  const remoteConfigManager = getRemoteConfigManager();
 
   // ============================================
   // Settings Handlers
@@ -423,256 +418,6 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     }
   );
 
-  // ============================================
-  // Remote Config Handlers
-  // ============================================
-
-  // Fetch config from URL
-  ipcMain.handle(
-    IPC_CHANNELS.REMOTE_CONFIG_FETCH_URL,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(
-          RemoteConfigFetchUrlPayloadSchema,
-          payload,
-          'REMOTE_CONFIG_FETCH_URL'
-        );
-        const config = await remoteConfigManager.fetchFromUrl(validated.url, {
-          timeout: validated.timeout,
-          cacheTTL: validated.cacheTTL,
-          maxRetries: validated.maxRetries,
-          useCache: validated.useCache
-        });
-        return { success: true, data: config };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'REMOTE_CONFIG_FETCH_URL_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Fetch from well-known endpoint
-  ipcMain.handle(
-    IPC_CHANNELS.REMOTE_CONFIG_FETCH_WELL_KNOWN,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(
-          RemoteConfigFetchWellKnownPayloadSchema,
-          payload,
-          'REMOTE_CONFIG_FETCH_WELL_KNOWN'
-        );
-        const config = await remoteConfigManager.fetchFromWellKnown(
-          validated.domain,
-          {
-            timeout: validated.timeout,
-            cacheTTL: validated.cacheTTL
-          }
-        );
-        return { success: true, data: config };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'REMOTE_CONFIG_FETCH_WELL_KNOWN_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Fetch from GitHub
-  ipcMain.handle(
-    IPC_CHANNELS.REMOTE_CONFIG_FETCH_GITHUB,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(
-          RemoteConfigFetchGitHubPayloadSchema,
-          payload,
-          'REMOTE_CONFIG_FETCH_GITHUB'
-        );
-        const config = await remoteConfigManager.fetchFromGitHub(
-          validated.owner,
-          validated.repo,
-          validated.branch
-        );
-        return { success: true, data: config };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'REMOTE_CONFIG_FETCH_GITHUB_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Discover config for git repo
-  ipcMain.handle(
-    IPC_CHANNELS.REMOTE_CONFIG_DISCOVER_GIT,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(
-          RemoteConfigDiscoverGitPayloadSchema,
-          payload,
-          'REMOTE_CONFIG_DISCOVER_GIT'
-        );
-        const config = await remoteConfigManager.discoverForGitRepo(
-          validated.gitRemoteUrl
-        );
-        return { success: true, data: config };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'REMOTE_CONFIG_DISCOVER_GIT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Get cached configs
-  ipcMain.handle(
-    IPC_CHANNELS.REMOTE_CONFIG_GET_CACHED,
-    async (): Promise<IpcResponse> => {
-      try {
-        const cached = remoteConfigManager.getCachedConfigs();
-        return { success: true, data: cached };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'REMOTE_CONFIG_GET_CACHED_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Clear cache
-  ipcMain.handle(
-    IPC_CHANNELS.REMOTE_CONFIG_CLEAR_CACHE,
-    async (): Promise<IpcResponse> => {
-      try {
-        remoteConfigManager.clearCache();
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'REMOTE_CONFIG_CLEAR_CACHE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Invalidate specific cache entry
-  ipcMain.handle(
-    IPC_CHANNELS.REMOTE_CONFIG_INVALIDATE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(
-          RemoteConfigInvalidatePayloadSchema,
-          payload,
-          'REMOTE_CONFIG_INVALIDATE'
-        );
-        remoteConfigManager.invalidateCache(validated.url);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'REMOTE_CONFIG_INVALIDATE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // ============================================
-  // Settings Export/Import
-  // ============================================
-
-  ipcMain.handle(
-    IPC_CHANNELS.SETTINGS_EXPORT,
-    async (): Promise<IpcResponse> => {
-      try {
-        const filePath = await exportSettings();
-        if (!filePath) {
-          return { success: true, data: { cancelled: true } };
-        }
-        return { success: true, data: { filePath } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'SETTINGS_EXPORT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    }
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.SETTINGS_IMPORT,
-    async (): Promise<IpcResponse> => {
-      try {
-        const result = await importSettings();
-        if (!result) {
-          return { success: true, data: { cancelled: true } };
-        }
-        broadcastSettingsChanged(deps.windowManager, {
-            key: '__imported__',
-            value: null,
-        });
-        return { success: true, data: result };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'SETTINGS_IMPORT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    }
-  );
+  registerSettingsRemoteConfigHandlers(deps);
+  registerSettingsTransferHandlers(deps);
 }

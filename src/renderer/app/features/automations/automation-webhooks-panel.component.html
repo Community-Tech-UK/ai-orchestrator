@@ -1,0 +1,158 @@
+<section class="webhooks" aria-label="Webhook routes">
+  <div class="webhooks-head">
+    <div>
+      <h2>Webhook Routes</h2>
+      <span class="muted">Server: {{ serverLabel() }}</span>
+    </div>
+    <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">
+      {{ loading() ? 'Refreshing...' : 'Refresh' }}
+    </button>
+  </div>
+
+  @if (error()) {
+    <div class="webhook-error">{{ error() }}</div>
+  }
+
+  <form class="webhook-form" (ngSubmit)="createRoute()">
+    <label>
+      <span>Route Path</span>
+      <input
+        name="webhookPath"
+        placeholder="/hooks/build"
+        [ngModel]="form().path"
+        (ngModelChange)="patchForm({ path: $event })"
+        required
+      />
+    </label>
+    <label>
+      <span>Signing Secret</span>
+      <input
+        name="webhookSecret"
+        type="password"
+        autocomplete="new-password"
+        placeholder="At least 16 characters"
+        [ngModel]="form().secret"
+        (ngModelChange)="patchForm({ secret: $event })"
+        required
+      />
+    </label>
+    <label>
+      <span>Automation</span>
+      <select
+        name="webhookAutomation"
+        [ngModel]="form().automationId"
+        (ngModelChange)="patchForm({ automationId: $event })"
+      >
+        <option value="">Record only</option>
+        @for (automation of automations; track automation.id) {
+          <option [value]="automation.id">{{ automation.name }}</option>
+        }
+      </select>
+    </label>
+    <label>
+      <span>Event Filter</span>
+      <input
+        name="webhookEvents"
+        placeholder="build.finished, deploy.failed"
+        [ngModel]="form().eventTypes"
+        (ngModelChange)="patchForm({ eventTypes: $event })"
+      />
+    </label>
+    <label>
+      <span>Max Bytes</span>
+      <input
+        name="webhookMaxBytes"
+        type="number"
+        min="1024"
+        max="5000000"
+        [ngModel]="form().maxBodyBytes"
+        (ngModelChange)="patchForm({ maxBodyBytes: +$event })"
+      />
+    </label>
+    <label class="checkbox">
+      <input
+        name="webhookUnsigned"
+        type="checkbox"
+        [ngModel]="form().allowUnsignedDev"
+        (ngModelChange)="patchForm({ allowUnsignedDev: $event })"
+      />
+      <span>Unsigned dev</span>
+    </label>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit" [disabled]="!canCreate()">
+        {{ saving() ? 'Creating...' : 'Create Route' }}
+      </button>
+    </div>
+  </form>
+
+  @if (suggestions().length > 0) {
+    <section class="webhook-suggestions" aria-label="Suggested webhook automations">
+      <h3>Suggested Automations</h3>
+      <div class="suggestion-list">
+        @for (suggestion of suggestions(); track suggestion.id) {
+          <article class="suggestion">
+            <div class="suggestion-main">
+              <strong>{{ suggestion.suggestedAutomationName }}</strong>
+              <span>{{ suggestionConfidence(suggestion) }}</span>
+            </div>
+            <p>{{ suggestion.rationale }}</p>
+            <code>{{ suggestion.suggestedPrompt }}</code>
+            <div class="suggestion-meta">
+              <span>{{ suggestion.routePath || suggestion.routeId }}</span>
+              <span>{{ suggestion.eventType }}</span>
+              <span>{{ suggestion.promptCount }} prompts</span>
+            </div>
+          </article>
+        }
+      </div>
+    </section>
+  }
+
+  <div class="webhook-columns">
+    <section class="webhook-list" aria-label="Configured webhook routes">
+      <h3>Routes</h3>
+      @for (route of routes(); track route.id) {
+        <div class="route">
+          <div class="route-main">
+            <strong>{{ route.path }}</strong>
+            <code>{{ routeEndpoint(route) }}</code>
+          </div>
+          <div class="route-meta">
+            <span>{{ route.enabled ? 'Enabled' : 'Disabled' }}</span>
+            <span>{{ routeAutomations(route) }}</span>
+            <span>{{ routeEvents(route) }}</span>
+            <span>Secret {{ shortHash(route.secretHash) }}</span>
+          </div>
+        </div>
+      } @empty {
+        <div class="empty">No webhook routes.</div>
+      }
+    </section>
+
+    <section class="webhook-list" aria-label="Recent webhook deliveries">
+      <h3>Recent Deliveries</h3>
+      @for (delivery of deliveries(); track delivery.id) {
+        <div [class]="deliveryClass(delivery)">
+          <div class="delivery-top">
+            <strong>{{ delivery.status }}</strong>
+            <span>{{ formatTime(delivery.receivedAt) }}</span>
+          </div>
+          <div class="delivery-meta">
+            <span>{{ deliveryRoute(delivery) }}</span>
+            @if (delivery.eventType) {
+              <span>{{ delivery.eventType }}</span>
+            }
+            @if (delivery.statusCode) {
+              <span>HTTP {{ delivery.statusCode }}</span>
+            }
+          </div>
+          @if (delivery.error) {
+            <div class="delivery-error">{{ delivery.error }}</div>
+          }
+        </div>
+      } @empty {
+        <div class="empty">No deliveries yet.</div>
+      }
+    </section>
+  </div>
+</section>

@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "dist/worker-agent",
-    "rootDir": "src",
+    "rootDir": ".",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "declaration": false,

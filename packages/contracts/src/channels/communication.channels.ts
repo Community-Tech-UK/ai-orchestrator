@@ -78,6 +78,7 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_FS_SEARCH: 'remote-fs:search',
   REMOTE_FS_WATCH: 'remote-fs:watch',
   REMOTE_FS_UNWATCH: 'remote-fs:unwatch',
+  REMOTE_FS_EVENT: 'remote-fs:event',
 
   // File transfer (coordinator <-> remote node)
   REMOTE_FS_COPY_TO_REMOTE: 'remote-fs:copy-to-remote',

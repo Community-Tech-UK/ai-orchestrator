@@ -1,29 +1,29 @@
 import { describe, it, expect } from 'vitest';
 import {
   InstanceStateMachine,
-  InvalidTransitionError,
+  IllegalTransitionError,
   isInstanceSettled,
 } from './instance-state-machine';
 import type { InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
 
 // ---------------------------------------------------------------------------
-// InvalidTransitionError
+// IllegalTransitionError
 // ---------------------------------------------------------------------------
 
-describe('InvalidTransitionError', () => {
-  it('has name "InvalidTransitionError"', () => {
-    const err = new InvalidTransitionError('idle', 'busy');
-    expect(err.name).toBe('InvalidTransitionError');
+describe('IllegalTransitionError', () => {
+  it('has name "IllegalTransitionError"', () => {
+    const err = new IllegalTransitionError('idle', 'busy');
+    expect(err.name).toBe('IllegalTransitionError');
   });
 
   it('includes both states in the message', () => {
-    const err = new InvalidTransitionError('hibernated', 'idle');
+    const err = new IllegalTransitionError('hibernated', 'idle');
     expect(err.message).toContain('hibernated');
     expect(err.message).toContain('idle');
   });
 
   it('is an instance of Error', () => {
-    const err = new InvalidTransitionError('ready', 'waking');
+    const err = new IllegalTransitionError('ready', 'waking');
     expect(err).toBeInstanceOf(Error);
   });
 });
@@ -235,41 +235,41 @@ describe('InstanceStateMachine – valid transitions', () => {
 describe('InstanceStateMachine – invalid transitions', () => {
   it('idle → busy is not allowed', () => {
     const sm = new InstanceStateMachine('idle');
-    expect(() => sm.transition('busy')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('busy')).toThrow(IllegalTransitionError);
     // State must not have changed
     expect(sm.current).toBe('idle');
   });
 
   it('hibernated → idle is not allowed (must go through waking)', () => {
     const sm = new InstanceStateMachine('hibernated');
-    expect(() => sm.transition('idle')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('idle')).toThrow(IllegalTransitionError);
     expect(sm.current).toBe('hibernated');
   });
 
   it('hibernated → ready is not allowed (must go through waking)', () => {
     const sm = new InstanceStateMachine('hibernated');
-    expect(() => sm.transition('ready')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('ready')).toThrow(IllegalTransitionError);
     expect(sm.current).toBe('hibernated');
   });
 
   it('initializing → busy is not allowed', () => {
     const sm = new InstanceStateMachine('initializing');
-    expect(() => sm.transition('busy')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('busy')).toThrow(IllegalTransitionError);
   });
 
   it('waking → busy is not allowed', () => {
     const sm = new InstanceStateMachine('waking');
-    expect(() => sm.transition('busy')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('busy')).toThrow(IllegalTransitionError);
   });
 
   it('hibernating → ready is not allowed (must finish hibernating first)', () => {
     const sm = new InstanceStateMachine('hibernating');
-    expect(() => sm.transition('ready')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('ready')).toThrow(IllegalTransitionError);
   });
 
   it('error → busy is not allowed', () => {
     const sm = new InstanceStateMachine('error');
-    expect(() => sm.transition('busy')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('busy')).toThrow(IllegalTransitionError);
   });
 });
 
@@ -315,7 +315,7 @@ describe('InstanceStateMachine – terminal states', () => {
     const sm = new InstanceStateMachine('terminated');
     const targets: InstanceStatus[] = ['ready', 'idle', 'error', 'failed', 'initializing'];
     for (const target of targets) {
-      expect(() => sm.transition(target)).toThrow(InvalidTransitionError);
+      expect(() => sm.transition(target)).toThrow(IllegalTransitionError);
       expect(sm.current).toBe('terminated');
     }
   });
@@ -324,19 +324,19 @@ describe('InstanceStateMachine – terminal states', () => {
     const sm = new InstanceStateMachine('failed');
     const targets: InstanceStatus[] = ['ready', 'idle', 'error', 'terminated', 'initializing'];
     for (const target of targets) {
-      expect(() => sm.transition(target)).toThrow(InvalidTransitionError);
+      expect(() => sm.transition(target)).toThrow(IllegalTransitionError);
       expect(sm.current).toBe('failed');
     }
   });
 
   it('terminated → terminated is not allowed', () => {
     const sm = new InstanceStateMachine('terminated');
-    expect(() => sm.transition('terminated')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('terminated')).toThrow(IllegalTransitionError);
   });
 
   it('failed → failed is not allowed', () => {
     const sm = new InstanceStateMachine('failed');
-    expect(() => sm.transition('failed')).toThrow(InvalidTransitionError);
+    expect(() => sm.transition('failed')).toThrow(IllegalTransitionError);
   });
 
   it('can be explicitly reset for a new lifecycle epoch after termination', () => {

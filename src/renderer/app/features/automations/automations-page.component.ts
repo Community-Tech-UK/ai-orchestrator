@@ -12,9 +12,10 @@ import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { NO_WORKSPACE_KEY } from '../../../../shared/utils/workspace-key';
 import { AutomationStore, type AutomationDraft } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
-import { PageHeaderComponent } from '../../shared/components';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
+import { AutomationWebhooksPanelComponent } from './automation-webhooks-panel.component';
 import {
   emptyForm,
   fromLocalDateInput,
@@ -36,7 +37,7 @@ interface AutomationGroup {
 @Component({
   selector: 'app-automations-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, CompactModelPickerComponent, PageHeaderComponent],
+  imports: [CommonModule, FormsModule, CompactModelPickerComponent, PageHeaderComponent, AutomationWebhooksPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'onEscape()' },
   templateUrl: './automations-page.component.html',

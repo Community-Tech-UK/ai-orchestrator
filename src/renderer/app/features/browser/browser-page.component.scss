@@ -549,6 +549,15 @@ pre {
   font-size: 12px;
 }
 
+.unattended-section {
+  display: grid;
+  gap: var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  padding: var(--spacing-md);
+}
+
 @media (max-width: 1180px) {
   .browser-grid {
     grid-template-columns: 1fr;

@@ -3,7 +3,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { ElectronIpcService } from '../../services/ipc';
+import { IpcFacadeService } from '../../services/ipc';
 import { VerificationStateService } from './verification-state.service';
 import { VerificationConfigStore } from './verification-config.store';
 import type {
@@ -18,7 +18,7 @@ import type {
 export class VerificationSessionStore {
   private stateService = inject(VerificationStateService);
   private configStore = inject(VerificationConfigStore);
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
 
   /**
    * Start a new verification session

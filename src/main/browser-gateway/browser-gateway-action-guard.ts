@@ -25,6 +25,7 @@ import {
 } from './browser-grant-policy';
 import { isOriginAllowed } from './browser-origin-policy';
 import { redactElementContext } from './browser-redaction';
+import { existingTabGrantNodeId } from './browser-grant-scope';
 
 export interface BrowserGatewayPreparedMutation {
   grant: BrowserPermissionGrant;
@@ -50,6 +51,14 @@ export interface BrowserGatewayActionGuardOptions {
   approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
   autoApproveRequests?: BrowserAutoApprovePredicate;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
+  /**
+   * Fired for every successfully executed guarded mutation with the grant it
+   * ran under. Used for campaign budget enforcement — must never throw.
+   */
+  onGrantedMutation?: (info: {
+    grant: BrowserPermissionGrant;
+    actionClass: BrowserActionClass;
+  }) => void;
 }
 
 export class BrowserGatewayActionGuard {
@@ -61,6 +70,7 @@ export class BrowserGatewayActionGuard {
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
   private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
   private readonly result: BrowserGatewayActionGuardOptions['result'];
+  private readonly onGrantedMutation?: BrowserGatewayActionGuardOptions['onGrantedMutation'];
 
   constructor(options: BrowserGatewayActionGuardOptions) {
     this.profileStore = options.profileStore;
@@ -71,6 +81,7 @@ export class BrowserGatewayActionGuard {
     this.approvalStore = options.approvalStore;
     this.autoApproveRequests = options.autoApproveRequests;
     this.result = options.result;
+    this.onGrantedMutation = options.onGrantedMutation;
   }
 
   async prepareMutatingAction(
@@ -351,6 +362,7 @@ export class BrowserGatewayActionGuard {
     toolName: string,
     prepared: BrowserGatewayPreparedMutation,
   ): BrowserGatewayResult<null> {
+    this.onGrantedMutation?.({ grant: prepared.grant, actionClass: prepared.actionClass });
     return this.result({
       context: request,
       profileId: request.profileId,
@@ -434,14 +446,17 @@ export class BrowserGatewayActionGuard {
       actionHint,
       elementContext,
     });
+    const nodeId = existingTabGrantNodeId(attachment.profileId, attachment.nodeId);
     const grants = this.grantStore.listGrants({
       instanceId: request.instanceId,
       profileId: attachment.profileId,
+      nodeId,
     });
     const match = findMatchingBrowserGrant({
       grants,
       instanceId: request.instanceId ?? '',
       provider: providerFromContext(request.provider),
+      nodeId,
       profileId: attachment.profileId,
       targetId: attachment.targetId,
       origin: originDecision.origin,
@@ -465,6 +480,7 @@ export class BrowserGatewayActionGuard {
         elementContext,
         proposedGrant: {
           mode: 'per_action',
+          ...(nodeId ? { nodeId } : {}),
           allowedOrigins: [originDecision.matchedOrigin],
           allowedActionClasses: [classification.actionClass],
           allowExternalNavigation: false,

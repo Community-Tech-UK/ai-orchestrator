@@ -22,6 +22,7 @@ import {
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import { requiresAutonomousGrant } from './browser-grant-policy';
+import { grantScopeForApproval } from './browser-grant-scope';
 
 interface BrowserGatewayApprovalOperationsDeps {
   approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest'>;
@@ -162,6 +163,11 @@ export class BrowserGatewayApprovalOperations {
     }
 
     const now = Date.now();
+    const scope = grantScopeForApproval({
+      profileId: approval.profileId,
+      targetId: approval.targetId,
+      proposedNodeId: request.grant.nodeId,
+    });
     const grant = this.deps.grantStore.createGrant({
       ...request.grant,
       // An explicit user "Allow" on an approval covering submit/destructive
@@ -174,8 +180,7 @@ export class BrowserGatewayApprovalOperations {
         requiresAutonomousGrant(request.grant.allowedActionClasses),
       instanceId: approval.instanceId,
       provider: approval.provider,
-      profileId: approval.profileId,
-      targetId: approval.targetId,
+      ...scope,
       requestedBy: approval.instanceId,
       decidedBy: 'user',
       decision: 'allow',
@@ -261,6 +266,7 @@ export class BrowserGatewayApprovalOperations {
       mode: request.mode,
       instanceId: request.instanceId,
       provider: request.provider,
+      nodeId: request.nodeId,
       profileId: request.profileId,
       targetId: request.targetId,
       allowedOrigins: request.allowedOrigins,
@@ -295,6 +301,7 @@ export class BrowserGatewayApprovalOperations {
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant[]>> {
     const grants = this.deps.grantStore.listGrants({
       instanceId: request.instanceId,
+      nodeId: request.nodeId,
       profileId: request.profileId,
       includeExpired: request.includeExpired,
       limit: request.limit ?? 100,

@@ -116,10 +116,3 @@ export function handleCoordinatorError(
       : (classified.userMessage || truncateErrorForContext(error, 200)),
   };
 }
-
-/**
- * Sleep for a specified duration. Useful for retry delays.
- */
-export function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}

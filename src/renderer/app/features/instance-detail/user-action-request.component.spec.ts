@@ -9,7 +9,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import {
   UserActionRequestComponent,
@@ -97,7 +97,7 @@ describe('UserActionRequestComponent', () => {
     await TestBed.configureTestingModule({
       imports: [UserActionRequestComponent],
       providers: [
-        { provide: ElectronIpcService, useValue: fakeIpc },
+        { provide: IpcFacadeService, useValue: fakeIpc },
         { provide: InstanceStore, useValue: fakeInstanceStore },
       ],
     }).compileComponents();

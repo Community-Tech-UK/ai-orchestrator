@@ -42,10 +42,6 @@ export async function initSqliteWasm(): Promise<void> {
   sqlite3 = await init({ print: noop, printErr: noop });
 }
 
-export function isSqliteWasmReady(): boolean {
-  return sqlite3 !== undefined;
-}
-
 function normalizeBindings(params: unknown[]): BindingSpec | undefined {
   if (params.length === 0) return undefined;
 

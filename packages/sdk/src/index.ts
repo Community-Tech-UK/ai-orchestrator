@@ -1,7 +1,10 @@
 /**
  * @ai-orchestrator/sdk
  *
- * Public SDK for building tools, plugins, and providers for AI Orchestrator.
+ * Public SDK for external tools, plugins, and providers.
+ *
+ * Internal app code should import explicit subpaths (`@sdk/provider-adapter`,
+ * `@sdk/plugins`, etc.) so tree-shaking and runtime alias checks stay precise.
  */
 
 export * from './tools';

@@ -23,6 +23,7 @@ import type {
   WorkerNodeCapabilities,
   WorkerNodeExtensionRelaySummary,
 } from '../shared/types/worker-node.types';
+import type { FsEventNotification } from '../shared/types/remote-fs.types';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
 import {
@@ -97,6 +98,7 @@ export class WorkerAgent extends EventEmitter {
   private readonly extensionRelay: WorkerExtensionRelay;
   private readonly extensionRelayRegistration: ExtensionRelayNativeRegistration;
   private lastExtensionRelayRegistrationCheckAt: number | null = null;
+  private readonly legacyNativeHostWarnedFailures = new Set<string>();
   private activeCoordinatorUrl: string | null = null;
   private retryRegistrationWithRecovery = false;
 
@@ -175,7 +177,8 @@ export class WorkerAgent extends EventEmitter {
         this.extensionRelay.getSummary(),
       );
       this.fsHandler = new NodeFilesystemHandler(
-        this.config.workingDirectories
+        this.config.workingDirectories,
+        { onFsEvent: (event) => this.sendFsEvent(event) }
       );
       this.startContinuousDiscovery();
 
@@ -821,6 +824,7 @@ export class WorkerAgent extends EventEmitter {
       socketPath: this.extensionRelay.getSocketPath(),
       extensionToken: token,
       hostCommand: this.currentWorkerNativeHostCommand(),
+      warnedFailures: this.legacyNativeHostWarnedFailures,
     });
   }
 
@@ -883,6 +887,17 @@ export class WorkerAgent extends EventEmitter {
         sessionId,
         exitCode,
         signal,
+        token: this.config.nodeToken ?? this.config.authToken
+      }
+    });
+  }
+
+  private sendFsEvent(event: FsEventNotification): void {
+    this.notifier.send({
+      jsonrpc: '2.0',
+      method: NODE_TO_COORDINATOR.FS_EVENT,
+      params: {
+        ...event,
         token: this.config.nodeToken ?? this.config.authToken
       }
     });

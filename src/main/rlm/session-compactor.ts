@@ -589,12 +589,3 @@ ${turnContent}`,
     this.sessionSummaries.delete(sessionId);
   }
 }
-
-// Factory function
-export function createSessionCompactor(
-  config?: Partial<SessionCompactorConfig>
-): SessionCompactor {
-  const compactor = new SessionCompactor(config);
-  compactor.initialize();
-  return compactor;
-}

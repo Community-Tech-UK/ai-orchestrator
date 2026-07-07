@@ -2,7 +2,6 @@ import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { CodebaseMiningStatusRow } from '../rlm-database.types';
 import type {
   CodebaseMiningFileSnapshot,
-  CodebaseMiningResult,
   CodebaseMiningStatus,
   ProjectDiscoverySource,
 } from '../../../shared/types/knowledge-graph.types';
@@ -136,31 +135,6 @@ export function getMiningStatus(db: SqliteDriver, normalizedPath: string): Codeb
   `).get(normalizedPath) as CodebaseMiningStatusRow | undefined;
 
   return row ? rowToStatus(row) : undefined;
-}
-
-export function getMiningResult(db: SqliteDriver, normalizedPath: string): CodebaseMiningResult | undefined {
-  const status = getMiningStatus(db, normalizedPath);
-  if (!status || status.status === 'never') {
-    return undefined;
-  }
-
-  return {
-    normalizedPath: status.normalizedPath,
-    rootPath: status.rootPath,
-    projectKey: status.projectKey,
-    displayName: status.displayName,
-    discoverySource: status.discoverySource,
-    autoMine: status.autoMine,
-    isPaused: status.isPaused,
-    isExcluded: status.isExcluded,
-    status: status.status,
-    factsExtracted: status.factsExtracted ?? 0,
-    hintsCreated: status.hintsCreated ?? 0,
-    filesRead: status.filesRead ?? 0,
-    errors: status.errors ?? [],
-    contentFingerprint: status.contentFingerprint,
-    lastMinedAt: status.completedAt,
-  };
 }
 
 export function beginMining(

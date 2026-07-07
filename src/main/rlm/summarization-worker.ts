@@ -565,16 +565,3 @@ export function getSummarizationWorker(
   }
   return instance;
 }
-
-export function initializeSummarizationWorker(
-  config?: Partial<SummarizationWorkerConfig>
-): void {
-  const worker = getSummarizationWorker(config);
-  worker.initialize();
-  worker.start();
-}
-
-export function _resetSummarizationWorkerForTesting(): void {
-  instance = null;
-  SummarizationWorker._resetForTesting();
-}

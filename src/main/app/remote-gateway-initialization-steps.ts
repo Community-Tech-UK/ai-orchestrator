@@ -2,6 +2,8 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getThinClientWsServer } from '../event-bus/thin-client-ws-server';
 import { getLogger } from '../logging/logger';
 import { getMobileGatewayServer } from '../mobile-gateway/mobile-gateway-server';
+import { setBrowserEscalationNotifyHook } from '../browser-gateway/browser-unattended-services';
+import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import {
   getWorkerNodeRegistry,
   getWorkerNodeConnectionServer,
@@ -13,6 +15,7 @@ import {
 } from '../remote-node';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { AppInitializationContext, AppInitializationStep } from './initialization-steps';
+import type { RemoteFsEventNotification } from '../../shared/types/remote-fs.types';
 
 const logger = getLogger('AppInitialization');
 
@@ -78,6 +81,9 @@ export function createWorkerNodeSubsystemStep(
         context.syncRemoteNodeMetricsToLoadBalancer(node.id);
         windowManager.sendToRenderer('remote-node:event', { type: 'updated', node });
       });
+      registry.on('remote:fs-event', (event: RemoteFsEventNotification) => {
+        windowManager.sendToRenderer(IPC_CHANNELS.REMOTE_FS_EVENT, event);
+      });
 
       await connection.start(config.serverPort, config.serverHost);
       logger.info('Worker node subsystem started', {
@@ -119,6 +125,19 @@ export function createMobileGatewayStep(instanceManager: InstanceManager): AppIn
       // when the gateway is toggled on later from Settings -> Mobile.
       const gateway = getMobileGatewayServer();
       gateway.initialize({ instanceManager });
+      // Unattended browser campaigns page the phone when they park a hard
+      // stop (captcha, failed re-login, …). Wired here — not inside the
+      // escalation service — so the browser gateway stays free of a
+      // mobile-gateway import. No-op when APNs is not configured.
+      setBrowserEscalationNotifyHook((escalation) => {
+        gateway.notifyBrowserEscalation({
+          escalationId: escalation.id,
+          kind: escalation.kind,
+          profileId: escalation.profileId,
+          ...(escalation.campaignId ? { campaignId: escalation.campaignId } : {}),
+          reason: escalation.reason,
+        });
+      });
       if (!settings.get('mobileGatewayEnabled')) {
         logger.info('Mobile gateway disabled (initialized, not started)');
         return;

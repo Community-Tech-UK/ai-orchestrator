@@ -13,7 +13,6 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SecurityIpcService } from '../../core/services/ipc/security-ipc.service';
-import { CommandIpcService } from '../../core/services/ipc/command-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 
@@ -53,11 +52,10 @@ interface EnvVar {
 })
 export class SecurityPageComponent implements OnInit {
   private readonly security = inject(SecurityIpcService);
-  private readonly commandIpc = inject(CommandIpcService);
 
   // ── Tab state ──────────────────────────────────────────────────────────────
 
-  readonly activeTab = signal<'audit' | 'scanner' | 'environment' | 'bash'>('audit');
+  readonly activeTab = signal<'audit' | 'scanner' | 'environment'>('audit');
 
   // ── Global state ───────────────────────────────────────────────────────────
 
@@ -95,24 +93,15 @@ export class SecurityPageComponent implements OnInit {
   readonly testVarAllowed = signal(false);
   readonly filterConfig = signal('');
 
-  // ── Bash validation state ─────────────────────────────────────────────────
-
-  readonly bashCommand = signal('');
-  readonly bashValidationResult = signal<{ riskLevel?: string; warnings?: string[]; blocked?: boolean } | null>(null);
-  readonly bashValidating = signal(false);
-  readonly bashConfig = signal<{ allowedCommands?: string[]; blockedCommands?: string[] } | null>(null);
-  readonly bashNewRule = signal('');
-
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
     this.loadAuditLog();
-    this.loadBashConfig();
   }
 
   // ─── Tab switching ─────────────────────────────────────────────────────────
 
-  switchTab(tab: 'audit' | 'scanner' | 'environment' | 'bash'): void {
+  switchTab(tab: 'audit' | 'scanner' | 'environment'): void {
     this.activeTab.set(tab);
     this.errorMessage.set('');
 
@@ -314,70 +303,6 @@ export class SecurityPageComponent implements OnInit {
     const target = event.target as HTMLInputElement;
     this.testVarValue.set(target.value);
     this.testVarResult.set('');
-  }
-
-  // ─── Bash Validation ───────────────────────────────────────────────────────
-
-  async loadBashConfig(): Promise<void> {
-    try {
-      const response = await this.commandIpc.bashGetConfig();
-      this.bashConfig.set(this.unwrapData<{ allowedCommands?: string[]; blockedCommands?: string[] } | null>(response, null));
-    } catch {
-      // best-effort
-    }
-  }
-
-  async validateBashCommand(): Promise<void> {
-    const cmd = this.bashCommand().trim();
-    if (!cmd) return;
-
-    this.bashValidating.set(true);
-    this.errorMessage.set('');
-    this.bashValidationResult.set(null);
-
-    try {
-      const response = await this.commandIpc.bashValidate(cmd);
-      this.bashValidationResult.set(
-        this.unwrapData<{ riskLevel?: string; warnings?: string[]; blocked?: boolean } | null>(response, null)
-      );
-    } catch (err) {
-      this.errorMessage.set(err instanceof Error ? err.message : 'Validation failed');
-    } finally {
-      this.bashValidating.set(false);
-    }
-  }
-
-  async addBashAllowed(): Promise<void> {
-    const cmd = this.bashNewRule().trim();
-    if (!cmd) return;
-    try {
-      await this.commandIpc.bashAddAllowed(cmd);
-      this.bashNewRule.set('');
-      await this.loadBashConfig();
-    } catch (err) {
-      this.errorMessage.set(err instanceof Error ? err.message : 'Failed to add allowed command');
-    }
-  }
-
-  async addBashBlocked(): Promise<void> {
-    const cmd = this.bashNewRule().trim();
-    if (!cmd) return;
-    try {
-      await this.commandIpc.bashAddBlocked(cmd);
-      this.bashNewRule.set('');
-      await this.loadBashConfig();
-    } catch (err) {
-      this.errorMessage.set(err instanceof Error ? err.message : 'Failed to add blocked command');
-    }
-  }
-
-  onBashCommandInput(event: Event): void {
-    this.bashCommand.set((event.target as HTMLInputElement).value);
-    this.bashValidationResult.set(null);
-  }
-
-  onBashNewRuleInput(event: Event): void {
-    this.bashNewRule.set((event.target as HTMLInputElement).value);
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────

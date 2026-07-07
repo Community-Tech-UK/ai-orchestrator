@@ -521,6 +521,10 @@ export class RLMDatabase extends EventEmitter {
     return observations.getReflections(this.db, options);
   }
 
+  getReflectionById(id: string): ReflectionRow | null {
+    return observations.getReflectionById(this.db, id);
+  }
+
   updateReflection(id: string, updates: {
     usageCount?: number;
     effectivenessScore?: number;

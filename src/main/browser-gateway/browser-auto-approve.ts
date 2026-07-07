@@ -5,6 +5,7 @@ import type {
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import { requiresAutonomousGrant } from './browser-grant-policy';
+import { grantScopeForApproval } from './browser-grant-scope';
 
 export interface BrowserAutoApproveRequest {
   approval: BrowserApprovalRequest;
@@ -16,6 +17,27 @@ export interface BrowserAutoApproveRequest {
 }
 
 export type BrowserAutoApprovePredicate = (request: BrowserAutoApproveRequest) => boolean;
+
+/**
+ * Action classes that a grant may NEVER receive via auto-approval,
+ * regardless of the predicate (e.g. YOLO mode). The classifier's hardStop
+ * path (passwords, 2FA/OTP, captcha, tokens) proposes a grant carrying the
+ * `credential` class, and in the action guard an auto-approved grant
+ * executes the pending mutation directly — so a predicate-based bypass
+ * would let an autonomous agent type credentials with no human in the
+ * loop.
+ *
+ * Note the check is on the PROPOSED GRANT's allowedActionClasses, not the
+ * approval's own actionClass: manual-handoff approvals (request_user_login
+ * / pause_for_manual_step) are also credential-class but propose read-only
+ * grants — auto-approving those merely surfaces the handoff to the human,
+ * who still performs the login themselves. Enforced inside
+ * autoApproveBrowserApproval (not at call sites) so every current and
+ * future caller inherits it.
+ */
+const AUTO_APPROVE_UNGRANTABLE_CLASSES: ReadonlyArray<
+  BrowserApprovalRequest['actionClass']
+> = ['credential', 'payment'];
 
 export interface BrowserAutoApproveDeps {
   approval: BrowserApprovalRequest;
@@ -29,6 +51,10 @@ export interface BrowserAutoApproveDeps {
 export function autoApproveBrowserApproval(
   deps: BrowserAutoApproveDeps,
 ): BrowserPermissionGrant | null {
+  const proposedClasses = deps.approval.proposedGrant.allowedActionClasses;
+  if (AUTO_APPROVE_UNGRANTABLE_CLASSES.some((cls) => proposedClasses.includes(cls))) {
+    return null;
+  }
   let shouldApprove = false;
   try {
     shouldApprove = Boolean(deps.autoApproveRequests?.({
@@ -49,6 +75,11 @@ export function autoApproveBrowserApproval(
 
   const now = deps.now?.() ?? Date.now();
   const proposedGrant = deps.approval.proposedGrant;
+  const scope = grantScopeForApproval({
+    profileId: deps.approval.profileId,
+    targetId: deps.approval.targetId,
+    proposedNodeId: proposedGrant.nodeId,
+  });
   const grant = deps.grantStore.createGrant({
     ...proposedGrant,
     // YOLO auto-approval is the user's standing consent to proceed without
@@ -62,8 +93,7 @@ export function autoApproveBrowserApproval(
       requiresAutonomousGrant(proposedGrant.allowedActionClasses),
     instanceId: deps.approval.instanceId,
     provider: deps.approval.provider,
-    profileId: deps.approval.profileId,
-    targetId: deps.approval.targetId,
+    ...scope,
     requestedBy: deps.approval.instanceId,
     decidedBy: 'user',
     decision: 'allow',

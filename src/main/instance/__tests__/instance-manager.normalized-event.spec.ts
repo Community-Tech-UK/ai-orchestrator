@@ -153,10 +153,6 @@ vi.mock('../../cli/adapters/adapter-factory', () => ({
   getCliDisplayName: vi.fn(() => 'Claude Code'),
 }));
 
-vi.mock('../../cli/claude-cli-adapter', () => ({
-  ClaudeCliAdapter: vi.fn().mockImplementation(() => makeMockAdapter()),
-}));
-
 vi.mock('../../cli/hooks/hook-path-resolver', () => ({
   ensureHookScript: vi.fn(() => '/tmp/test-hooks/defer-permission-hook.mjs'),
 }));
@@ -351,7 +347,10 @@ vi.mock('../../context/jit-loader', () => {
 });
 
 vi.mock('../../hooks/hook-manager', () => ({
-  getHookManager: vi.fn(() => ({ executeHook: vi.fn().mockResolvedValue(undefined) })),
+  getHookManager: vi.fn(() => ({
+    executeHook: vi.fn().mockResolvedValue(undefined),
+    triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
+  })),
 }));
 
 vi.mock('../../core/error-recovery', () => ({

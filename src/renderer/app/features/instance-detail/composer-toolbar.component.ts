@@ -37,7 +37,7 @@ import type { InstanceProvider, InstanceStatus } from '../../core/state/instance
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { getModelSwitchUnavailableReason } from '../../../../shared/types/instance-status-policy';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
-import { DEFAULT_INSTANCE_PROVIDERS } from '../models/provider-menu.component';
+import { DEFAULT_INSTANCE_PROVIDERS } from '../models/provider-menu.constants';
 
 /** Circumference of the SVG ring (r=8, so C ≈ 50.27). */
 const RING_CIRCUMFERENCE = 2 * Math.PI * 8;

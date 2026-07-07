@@ -13,7 +13,7 @@ import {
   input,
   effect
 } from '@angular/core';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import {
   canResolveInputRequiredWithYolo,
@@ -43,7 +43,7 @@ export type { UserActionRequest } from './user-action-request.types';
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class UserActionRequestComponent implements OnInit, OnDestroy {
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private instanceStore = inject(InstanceStore);
 
   instanceId = input<string | null>(null);

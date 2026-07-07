@@ -4,8 +4,8 @@
  * Wraps the SQL module `rlm-evidence-records` and adds:
  *   - Fail-soft on every persistence call (a DB error must never break the loop).
  *   - `_resetForTesting()` for unit-test isolation.
- *   - Singleton `getInstance()` / `getEvidenceStore()` convenience getter that
- *     lazily initialises against the production RLM database.
+ *   - Singleton `getInstance()` that lazily initialises against the production
+ *     RLM database.
  *
  * The three evidence states — `fixed`, `verified`, `reviewed` — are distinct
  * queryable values.  The resolver's pure function is not changed; this store is
@@ -170,14 +170,4 @@ export class EvidenceStore {
       });
     }
   }
-}
-
-// ---- Convenience singleton getter ------------------------------------------
-
-/**
- * Return (or create) the process-wide EvidenceStore singleton backed by the
- * given driver. Callers in the coordinator pass `getRLMDatabase().getDb()`.
- */
-export function getEvidenceStore(db: SqliteDriver): EvidenceStore {
-  return EvidenceStore.getInstance(db);
 }

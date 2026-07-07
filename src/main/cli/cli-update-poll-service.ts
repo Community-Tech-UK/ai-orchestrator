@@ -177,7 +177,3 @@ function toPlanSummary(plan: CliUpdatePlanSummary): CliUpdatePlanSummary {
 export function getCliUpdatePollService(): CliUpdatePollService {
   return CliUpdatePollService.getInstance();
 }
-
-export function _resetCliUpdatePollServiceForTesting(): void {
-  CliUpdatePollService._resetForTesting();
-}

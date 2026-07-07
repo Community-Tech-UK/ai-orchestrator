@@ -1,0 +1,38 @@
+<div class="escalation-queue">
+  @if (errorMessage()) {
+    <div class="error-banner">{{ errorMessage() }}</div>
+  }
+
+  @if (escalations().length === 0) {
+    <p class="empty">No pending escalations. All caught up.</p>
+  }
+
+  @for (escalation of escalations(); track escalation.id) {
+    <div class="escalation-row">
+      <div class="escalation-header">
+        <span class="kind-chip">{{ escalation.kind }}</span>
+        <span class="label">{{ formatAge(escalation.createdAt) }} ago</span>
+      </div>
+      <div class="label">{{ escalation.reason }}</div>
+      @if (escalation.url) {
+        <div class="label">{{ escalation.url }}</div>
+      }
+      <label>
+        <span>Note (optional)</span>
+        <input
+          type="text"
+          [value]="noteDraft(escalation.id)"
+          (input)="onNoteInput(escalation.id, $event)"
+        />
+      </label>
+      <div class="row-actions">
+        <button class="btn small" type="button" [disabled]="busy()" (click)="skip(escalation.id)">
+          Skip
+        </button>
+        <button class="btn small primary" type="button" [disabled]="busy()" (click)="resolve(escalation.id)">
+          Resolve
+        </button>
+      </div>
+    </div>
+  }
+</div>

@@ -45,6 +45,7 @@ describe('BrowserGrantStore', () => {
     expect(grantColumns.map((column) => column.name)).toEqual(
       expect.arrayContaining([
         'mode',
+        'node_id',
         'allowed_origins_json',
         'allowed_action_classes_json',
         'autonomous',
@@ -112,5 +113,35 @@ describe('BrowserGrantStore', () => {
     expect(revoked?.reason).toBe('manual revoke');
     expect(store.listGrants({ includeExpired: true })).toHaveLength(2);
     expect(store.listGrants({})).toEqual([]);
+  });
+
+  it('persists and filters node-scoped grants independently of profile id', () => {
+    const grant = store.createGrant({
+      mode: 'session',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      nodeId: 'node-1',
+      allowedOrigins: [
+        {
+          scheme: 'https',
+          hostPattern: 'play.google.com',
+          includeSubdomains: true,
+        },
+      ],
+      allowedActionClasses: ['input'],
+      allowExternalNavigation: false,
+      autonomous: false,
+      requestedBy: 'user',
+      decidedBy: 'user',
+      decision: 'allow',
+      expiresAt: 61_000,
+    } as Parameters<BrowserGrantStore['createGrant']>[0]);
+
+    expect(grant).toMatchObject({
+      nodeId: 'node-1',
+      profileId: undefined,
+    });
+    expect(store.listGrants({ instanceId: 'instance-1', nodeId: 'node-1' })).toEqual([grant]);
+    expect(store.listGrants({ instanceId: 'instance-1', nodeId: 'node-2' })).toEqual([]);
   });
 });

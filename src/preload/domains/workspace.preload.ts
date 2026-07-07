@@ -179,9 +179,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     worktreeList: (instanceId?: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.WORKTREE_LIST, { instanceId });
     },
-    worktreeDelete: (worktreeId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKTREE_DELETE, { worktreeId });
-    },
     worktreeGetStatus: (worktreeId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.WORKTREE_GET_STATUS, { worktreeId });
     },
@@ -496,19 +493,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       takeSnapshots?: boolean;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MULTIEDIT_APPLY, payload);
-    },
-
-    bashValidate: (command: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.BASH_VALIDATE, command);
-    },
-    bashGetConfig: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.BASH_GET_CONFIG);
-    },
-    bashAddAllowed: (command: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.BASH_ADD_ALLOWED, command);
-    },
-    bashAddBlocked: (command: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.BASH_ADD_BLOCKED, command);
     },
 
     taskGetStatus: (taskId: string): Promise<IpcResponse> => {

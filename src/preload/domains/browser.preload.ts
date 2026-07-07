@@ -13,7 +13,7 @@ type BrowserGrantProposalPayload = {
     includeSubdomains: boolean;
   }>;
   allowedActionClasses: Array<
-    'read' | 'navigate' | 'input' | 'credential' | 'file-upload' | 'file-download' | 'submit' | 'destructive' | 'unknown'
+    'read' | 'navigate' | 'input' | 'credential' | 'file-upload' | 'file-download' | 'submit' | 'destructive' | 'payment' | 'unknown'
   >;
   allowExternalNavigation: boolean;
   uploadRoots?: string[];
@@ -234,6 +234,97 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     },
     browserGetHealth: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_GET_HEALTH, {});
+    },
+    // ── Unattended layer: vault, authorizations, campaigns, escalations ──
+    browserVaultUnlock: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_VAULT_UNLOCK, {});
+    },
+    browserVaultLock: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_VAULT_LOCK, {});
+    },
+    browserVaultStatus: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_VAULT_STATUS, {});
+    },
+    browserCreateCredentialAuthorization: (payload: {
+      profileId: string;
+      allowedOrigins: Array<{
+        scheme: 'https' | 'http';
+        hostPattern: string;
+        includeSubdomains: boolean;
+      }>;
+      purposes: Array<'login' | 'register' | 'totp' | 'email_code'>;
+      vaultFolder: string;
+      expiresAt: number;
+      note?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_CREATE_CREDENTIAL_AUTHORIZATION, payload);
+    },
+    browserListCredentialAuthorizations: (payload?: {
+      profileId?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_LIST_CREDENTIAL_AUTHORIZATIONS, payload ?? {});
+    },
+    browserRevokeCredentialAuthorization: (payload: {
+      authorizationId: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_REVOKE_CREDENTIAL_AUTHORIZATION, payload);
+    },
+    browserCreateCampaign: (payload: {
+      label: string;
+      profileId: string;
+      allowedOrigins: string[];
+      allowedActionClasses: string[];
+      budget: {
+        maxActions: number;
+        maxSubmits: number;
+        maxNewAccounts: number;
+        maxUploads: number;
+        maxDurationMs: number;
+      };
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_CREATE_CAMPAIGN, payload);
+    },
+    browserListCampaigns: (payload?: {
+      status?: 'active' | 'paused' | 'killed' | 'completed' | 'expired';
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_LIST_CAMPAIGNS, payload ?? {});
+    },
+    browserGetCampaign: (payload: { campaignId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_GET_CAMPAIGN, payload);
+    },
+    browserPauseCampaign: (payload: { campaignId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_PAUSE_CAMPAIGN, payload);
+    },
+    browserResumeCampaign: (payload: { campaignId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_RESUME_CAMPAIGN, payload);
+    },
+    browserKillCampaign: (payload: { campaignId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_KILL_CAMPAIGN, payload);
+    },
+    browserApproveCampaignDeclaration: (payload: {
+      campaignId: string;
+      declarationHash: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_APPROVE_CAMPAIGN_DECLARATION, payload);
+    },
+    browserListEscalations: (payload?: {
+      campaignId?: string;
+      profileId?: string;
+      status?: 'pending' | 'resolved' | 'skipped';
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_LIST_ESCALATIONS, payload ?? {});
+    },
+    browserResolveEscalation: (payload: {
+      escalationId: string;
+      note?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_RESOLVE_ESCALATION, payload);
+    },
+    browserSkipEscalation: (payload: {
+      escalationId: string;
+      note?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_SKIP_ESCALATION, payload);
     },
   };
 }

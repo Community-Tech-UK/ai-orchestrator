@@ -1,0 +1,269 @@
+:host {
+  display: block;
+}
+
+.webhooks {
+  margin-top: 34px;
+  padding-top: 24px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+}
+
+.webhooks-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+h2 {
+  margin: 0 0 3px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.webhook-form {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) minmax(160px, 1fr);
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.checkbox {
+  flex-direction: row;
+  align-items: center;
+  min-height: 37px;
+  color: var(--text-primary);
+}
+
+input,
+select {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 9px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+}
+
+.btn {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btn:hover {
+  background: var(--bg-secondary);
+}
+
+.btn--primary {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+  font-weight: 500;
+}
+
+.btn:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.webhook-error {
+  border: 1px solid color-mix(in srgb, var(--error-color) 60%, transparent);
+  color: var(--error-color);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.webhook-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.webhook-suggestions {
+  margin-bottom: 18px;
+}
+
+.suggestion-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.suggestion {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.suggestion-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.suggestion-main strong {
+  font-size: 13px;
+}
+
+.suggestion-main span,
+.suggestion p,
+.suggestion-meta span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.suggestion p {
+  margin: 0 0 8px;
+  line-height: 1.35;
+}
+
+.suggestion code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 11px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 7px;
+}
+
+.suggestion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.suggestion-meta span {
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.webhook-list {
+  min-width: 0;
+}
+
+.route,
+.delivery {
+  padding: 10px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+.route-main,
+.delivery-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.route-main strong,
+.delivery-top strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.route-main code {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-meta,
+.delivery-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.route-meta span,
+.delivery-meta span {
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.delivery-top span,
+.delivery-error,
+.empty {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.delivery--accepted .delivery-top strong {
+  color: var(--success-color);
+}
+
+.delivery--rejected .delivery-top strong,
+.delivery--failed .delivery-top strong {
+  color: var(--error-color);
+}
+
+.delivery-error {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  padding: 14px 0;
+}
+
+@media (max-width: 920px) {
+  .webhook-form,
+  .webhook-columns,
+  .suggestion-list {
+    grid-template-columns: 1fr;
+  }
+}

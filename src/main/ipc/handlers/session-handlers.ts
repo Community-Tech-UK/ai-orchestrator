@@ -576,6 +576,49 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     }
   );
 
+  // Search archives by query string.
+  ipcMain.handle(
+    IPC_CHANNELS.ARCHIVE_SEARCH,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const data = payload && typeof payload === 'object' && !Array.isArray(payload)
+          ? payload as Record<string, unknown>
+          : {};
+        const options = data['options'] && typeof data['options'] === 'object' && !Array.isArray(data['options'])
+          ? data['options'] as Record<string, unknown>
+          : {};
+        const query = typeof data['query'] === 'string' ? data['query'].trim() : '';
+        const tags = Array.isArray(options['tags'])
+          ? options['tags'].filter((tag): tag is string => typeof tag === 'string')
+          : undefined;
+        const limit = typeof options['limit'] === 'number' && Number.isFinite(options['limit'])
+          ? Math.max(1, Math.floor(options['limit']))
+          : undefined;
+
+        const archives = archiveManager
+          .listArchivedSessions({
+            searchTerm: query || undefined,
+            tags,
+          })
+          .slice(0, limit);
+
+        return { success: true, data: archives };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'ARCHIVE_SEARCH_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
   // Restore archive
   ipcMain.handle(
     IPC_CHANNELS.ARCHIVE_RESTORE,

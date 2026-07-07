@@ -147,11 +147,6 @@ export function bridgeCliUpdatePillDeltaToWindow(
   });
 }
 
-export function _resetDiagnosticsHandlersForTesting(): void {
-  cliUpdateDeltaCleanup?.();
-  cliUpdateDeltaCleanup = null;
-}
-
 function toErrorResponse(code: string, error: unknown): IpcResponse {
   return {
     success: false,

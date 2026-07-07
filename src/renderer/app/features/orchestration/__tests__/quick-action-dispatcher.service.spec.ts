@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
-import { ElectronIpcService } from '../../../core/services/ipc';
+import { IpcFacadeService } from '../../../core/services/ipc';
 import { InstanceStore } from '../../../core/state/instance.store';
 import type { HudQuickAction } from '../../../../../shared/types/orchestration-hud.types';
 import { ChildDiagnosticBundleModalService } from '../child-diagnostic-bundle.modal.service';
@@ -20,7 +20,7 @@ describe('QuickActionDispatcherService', () => {
       providers: [
         QuickActionDispatcherService,
         { provide: InstanceStore, useValue: fakeInstanceStore },
-        { provide: ElectronIpcService, useValue: fakeIpc },
+        { provide: IpcFacadeService, useValue: fakeIpc },
         { provide: ChildDiagnosticBundleModalService, useValue: fakeModal },
         { provide: CLIPBOARD_SERVICE, useValue: fakeClipboard },
       ],

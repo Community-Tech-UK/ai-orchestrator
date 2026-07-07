@@ -348,6 +348,63 @@ describe('BrowserGatewayRpcServer', () => {
     });
   });
 
+  it('marks local commands received and records local extension disconnects', async () => {
+    const extensionCommandStore = {
+      pollCommand: vi.fn(),
+      resolveCommand: vi.fn(),
+      markReceived: vi.fn(),
+    };
+    const onExtensionDisconnected = vi.fn();
+    const server = new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      extensionCommandStore,
+      onExtensionDisconnected,
+      registerCleanup: vi.fn(),
+    } as ConstructorParameters<typeof BrowserGatewayRpcServer>[0] & {
+      extensionCommandStore: typeof extensionCommandStore;
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.extension_command_received',
+        params: {
+          extensionToken: 'native-token',
+          payload: { commandId: 'command-1' },
+        },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(extensionCommandStore.markReceived).toHaveBeenCalledWith('local', 'command-1');
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'browser.extension_command_received',
+        params: {
+          extensionToken: 'native-token',
+          payload: {},
+        },
+      }),
+    ).rejects.toThrow(/Invalid browser gateway RPC payload/);
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'browser.extension_disconnected',
+        params: {
+          extensionToken: 'native-token',
+          payload: { reason: 'native_host_stdin_eof' },
+        },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(onExtensionDisconnected).toHaveBeenCalledWith('native_host_stdin_eof');
+  });
+
   it('rejects extension RPC calls with an invalid native-host token', async () => {
     const attachExistingTab = vi.fn();
     const server = new BrowserGatewayRpcServer({

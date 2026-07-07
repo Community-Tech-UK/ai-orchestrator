@@ -36,8 +36,6 @@ export type {
   HybridSearchResult,
   SymbolSearchResult,
   SearchConfig,
-  RerankerConfig,
-  RerankResult,
   FileWatcherConfig,
   WatcherStatus,
   FileChangeEvent,
@@ -45,9 +43,6 @@ export type {
   ContextChunk,
   SymbolContext,
   ModuleContext,
-  SearchEvent,
-  QueryPattern,
-  SearchMetrics,
   ProcessedChunk,
 } from '../../shared/types/codebase.types';
 
@@ -57,10 +52,7 @@ export { TreeSitterChunker, getTreeSitterChunker, resetTreeSitterChunker } from 
 export { MetadataExtractor, getMetadataExtractor, resetMetadataExtractor } from './metadata-extractor';
 export { CodebaseIndexingService, getCodebaseIndexingService, resetCodebaseIndexingService } from './indexing-service';
 export { BM25Search, getBM25Search, resetBM25Search } from './bm25-search';
-export { CrossEncoderReranker, getCrossEncoderReranker, resetCrossEncoderReranker } from './reranker';
 export { CodebaseFileWatcher, getCodebaseFileWatcher, resetCodebaseFileWatcher } from './file-watcher';
-export { SearchAnalytics, getSearchAnalytics, resetSearchAnalytics } from './search-analytics';
-export type { LogSearchOptions } from './search-analytics';
 export {
   CodebaseIndexingAutoCoordinator,
   getCodebaseIndexingAutoCoordinator,

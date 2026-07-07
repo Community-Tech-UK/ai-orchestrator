@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StartupCapabilityReport } from '../../../../shared/types/startup-capability.types';
-import { ElectronIpcService } from '../../core/services/ipc';
+import { IpcFacadeService } from '../../core/services/ipc';
 import { FirstRunService } from '../../core/services/first-run.service';
 import { SetupCenterComponent } from './setup-center.component';
 
@@ -64,7 +64,7 @@ describe('SetupCenterComponent', () => {
       providers: [
         { provide: Router, useValue: router },
         {
-          provide: ElectronIpcService,
+          provide: IpcFacadeService,
           useValue: {
             getStartupCapabilities: vi.fn(async () => readyReport),
           },

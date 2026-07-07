@@ -22,6 +22,7 @@
  */
 
 import { getLogger } from '../../logging/logger';
+import { sleep } from '../../util/path-helpers';
 
 const logger = getLogger('GitWriteQueue');
 
@@ -64,10 +65,6 @@ export function isGitLockError(err: unknown): boolean {
     haystack.includes('.lock') &&
     (haystack.includes('file exists') || haystack.includes('unable to create'))
   );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class GitWriteQueue {

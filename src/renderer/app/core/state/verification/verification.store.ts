@@ -9,7 +9,7 @@
  */
 
 import { Injectable, inject, OnDestroy, computed, signal } from '@angular/core';
-import { ElectronIpcService } from '../../services/ipc';
+import { IpcFacadeService } from '../../services/ipc';
 
 // Sub-stores
 import { VerificationStateService } from './verification-state.service';
@@ -41,7 +41,7 @@ export class VerificationStore implements OnDestroy {
   private queries = inject(VerificationQueries);
 
   // Infrastructure
-  private ipc = inject(ElectronIpcService);
+  private ipc = inject(IpcFacadeService);
   private unsubscribes: (() => void)[] = [];
   private _verdictsByResultId = signal(new Map<string, VerificationVerdict>());
 

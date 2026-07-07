@@ -45,6 +45,8 @@ export const PluginHookEventSchema = z.enum([
   'orchestration.consensus.failed',
   'tool.execute.before',
   'tool.execute.after',
+  'file.edited',
+  'tui.command.execute',
   'session.created',
   'session.resumed',
   'session.compacting',

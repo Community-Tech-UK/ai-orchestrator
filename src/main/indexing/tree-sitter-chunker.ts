@@ -4,9 +4,9 @@
  * Language-aware code chunking that extracts meaningful code units
  * (functions, classes, methods) with their signatures and documentation.
  *
- * Currently uses bracket-counting heuristics (from AstChunker) as the
- * parsing backend. The interface is designed to support tree-sitter
- * integration when native module support is added.
+ * Uses lightweight syntax heuristics as the parsing backend. The interface is
+ * designed to support tree-sitter integration when native module support is
+ * added.
  */
 
 import type {

@@ -219,6 +219,14 @@ export function getReflections(
 }
 
 /**
+ * Get one reflection by id.
+ */
+export function getReflectionById(db: SqliteDriver, id: string): ReflectionRow | null {
+  const stmt = db.prepare(`SELECT * FROM reflections WHERE id = ?`);
+  return (stmt.get(id) as ReflectionRow | undefined) ?? null;
+}
+
+/**
  * Update a reflection.
  */
 export function updateReflection(

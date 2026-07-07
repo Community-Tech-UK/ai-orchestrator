@@ -4,7 +4,7 @@
  * Based on validated patterns from Claude Code pr-review-toolkit
  */
 
-import { ReviewAgentConfig } from '../../../shared/types/review-agent.types';
+import type { ReviewAgentConfig } from '../../../shared/types/review-agent.types';
 
 export const securityAnalyzer: ReviewAgentConfig = {
   id: 'security-analyzer',
@@ -289,11 +289,4 @@ export const builtInReviewAgents: ReviewAgentConfig[] = [
 // Helper to get agent by ID
 export function getReviewAgentById(id: string): ReviewAgentConfig | undefined {
   return builtInReviewAgents.find((a) => a.id === id);
-}
-
-// Helper to get agents by focus area
-export function getReviewAgentsByFocus(focus: string): ReviewAgentConfig[] {
-  return builtInReviewAgents.filter((a) =>
-    a.focusAreas.some((f) => f.toLowerCase().includes(focus.toLowerCase()))
-  );
 }

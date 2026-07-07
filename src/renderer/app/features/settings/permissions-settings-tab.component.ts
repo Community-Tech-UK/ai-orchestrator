@@ -1,12 +1,3 @@
-/**
- * Permissions Settings Tab Component - Batch permissions and permission learning
- *
- * Phase 7 UI/UX Improvements:
- * - Batch permission handling (allow/deny multiple at once)
- * - Permission learning system (view learned patterns, approve/reject)
- * - Statistics on permission decisions
- */
-
 import { ChangeDetectionStrategy, Component, computed, inject, signal, effect } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SecurityIpcService } from '../../core/services/ipc/security-ipc.service';
@@ -60,6 +51,32 @@ interface PermissionStats {
   cacheHitRate: number;
 }
 
+interface PermissionDecisionAuditRecord {
+  instanceId: string;
+  scope: string;
+  resource: string;
+  action: 'allow' | 'deny' | 'ask';
+  decidedBy?: string;
+  ruleId?: string;
+  reason?: string;
+  toolName?: string;
+  isCached?: boolean;
+  decidedAt: string;
+}
+
+interface PermissionDenialAuditRecord {
+  timestamp: number;
+  instanceId: string;
+  toolName: string;
+  behavior: 'allow' | 'warn' | 'deny';
+  reason: string;
+}
+
+interface PermissionAuditResponse {
+  decisions?: PermissionDecisionAuditRecord[];
+  denials?: PermissionDenialAuditRecord[];
+}
+
 @Component({
   selector: 'app-permissions-settings-tab',
   standalone: true,
@@ -102,6 +119,9 @@ export class PermissionsSettingsTabComponent {
     cacheSize: 0,
     cacheHitRate: 0,
   });
+  permissionAuditInstanceId = signal('');
+  permissionAuditDecisions = signal<PermissionDecisionAuditRecord[]>([]);
+  permissionAuditDenials = signal<PermissionDenialAuditRecord[]>([]);
 
   private initialized = false;
 
@@ -134,6 +154,7 @@ export class PermissionsSettingsTabComponent {
       this.loadLearnedPatterns(),
       this.loadStats(),
       this.loadPermissionPreset(),
+      this.loadPermissionAudit(),
     ]);
   }
 
@@ -217,6 +238,32 @@ export class PermissionsSettingsTabComponent {
     } catch (error) {
       console.error('Failed to load stats:', error);
     }
+  }
+
+  async loadPermissionAudit(): Promise<void> {
+    const instanceId = this.permissionAuditInstanceId().trim() || undefined;
+    try {
+      const response = await this.securityIpc.permissionGetAuditLog(instanceId, 50);
+      if (response.success) {
+        const data = response.data as PermissionAuditResponse | undefined;
+        this.permissionAuditDecisions.set(data?.decisions ?? []);
+        this.permissionAuditDenials.set(data?.denials ?? []);
+      }
+    } catch (error) {
+      console.error('Failed to load permission audit:', error);
+    }
+  }
+
+  updatePermissionAuditInstanceId(value: string): void {
+    this.permissionAuditInstanceId.set(value);
+  }
+
+  formatAuditTimestamp(value: string | number): string {
+    const timestamp = typeof value === 'number' ? value : Date.parse(value);
+    if (!Number.isFinite(timestamp)) {
+      return String(value);
+    }
+    return new Date(timestamp).toLocaleString();
   }
 
   async handleBatchDecision(

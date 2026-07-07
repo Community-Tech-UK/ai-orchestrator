@@ -510,19 +510,6 @@ export function createCliAdapter(
 }
 
 /**
- * Creates a CLI adapter with automatic type resolution
- */
-export async function createCliAdapterAuto(
-  options: UnifiedSpawnOptions,
-  requestedType?: SettingsCliType | CliType,
-  defaultType: SettingsCliType = 'auto'
-): Promise<{ adapter: CliAdapter; cliType: CliType }> {
-  const cliType = await resolveCliType(requestedType, defaultType);
-  const adapter = createCliAdapter(cliType, options);
-  return { adapter, cliType };
-}
-
-/**
  * Get display name for a CLI type
  */
 export function getCliDisplayName(cliType: CliType): string {

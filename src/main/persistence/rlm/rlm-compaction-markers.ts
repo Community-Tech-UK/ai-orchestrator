@@ -85,32 +85,6 @@ export function recordCompactionMarker(
   return id;
 }
 
-export function listCompactionMarkers(
-  db: SqliteDriver,
-  filter: { instanceId?: string; projectKey?: string; limit?: number } = {},
-): CompactionMarker[] {
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-  if (filter.instanceId) {
-    conditions.push('instance_id = ?');
-    params.push(filter.instanceId);
-  }
-  if (filter.projectKey) {
-    conditions.push('project_key = ?');
-    params.push(filter.projectKey);
-  }
-  params.push(filter.limit ?? 50);
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const rows = db.prepare(`
-    SELECT *
-    FROM session_compaction_markers
-    ${where}
-    ORDER BY created_at DESC
-    LIMIT ?
-  `).all(...params) as CompactionMarkerRow[];
-  return rows.map(rowToMarker);
-}
-
 export function getCompactionMarker(
   db: SqliteDriver,
   id: string,

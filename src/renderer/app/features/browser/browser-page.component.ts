@@ -24,6 +24,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { BrowserUnattendedPanelComponent } from './browser-unattended-panel.component';
 
 interface BrowserSnapshotView { title: string; url: string; text: string }
 
@@ -32,7 +33,7 @@ const recentAuditWindowMs = 15 * 60 * 1000;
 @Component({
   selector: 'app-browser-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, BrowserUnattendedPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './browser-page.component.html',
   styleUrl: './browser-page.component.scss',
@@ -66,6 +67,7 @@ export class BrowserPageComponent implements OnInit {
   readonly autonomousDestructiveEnabled = signal(false);
   readonly autonomousConfirmation = signal('');
   readonly showAuditHistory = signal(false);
+  readonly showUnattendedSection = signal(false);
 
   readonly runningProfileCount = computed(
     () => this.profiles().filter((profile) => profile.status === 'running').length,
@@ -503,6 +505,10 @@ export class BrowserPageComponent implements OnInit {
 
   toggleAuditHistory(): void {
     this.showAuditHistory.set(!this.showAuditHistory());
+  }
+
+  toggleUnattendedSection(): void {
+    this.showUnattendedSection.set(!this.showUnattendedSection());
   }
 
   formatAuditAction(action: string): string {

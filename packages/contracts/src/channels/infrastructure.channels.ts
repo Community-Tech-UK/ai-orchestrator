@@ -64,6 +64,14 @@ export const INFRASTRUCTURE_CHANNELS = {
   SECURITY_UPDATE_ENV_FILTER_CONFIG: 'security:update-env-filter-config',
   SECURITY_GET_PERMISSION_CONFIG: 'security:get-permission-config',
   SECURITY_SET_PERMISSION_PRESET: 'security:set-permission-preset',
+  PERMISSION_GET_PENDING_BATCH: 'permission:get-pending-batch',
+  PERMISSION_RECORD_BATCH_DECISION: 'permission:record-batch-decision',
+  PERMISSION_RECORD_DECISION: 'permission:record-decision',
+  PERMISSION_GET_LEARNED_PATTERNS: 'permission:get-learned-patterns',
+  PERMISSION_APPROVE_PATTERN: 'permission:approve-pattern',
+  PERMISSION_REJECT_PATTERN: 'permission:reject-pattern',
+  PERMISSION_GET_STATS: 'permission:get-stats',
+  PERMISSION_GET_AUDIT_LOG: 'permission:get-audit-log',
 
   // Cost Tracking
   COST_RECORD_USAGE: 'cost:record-usage',
