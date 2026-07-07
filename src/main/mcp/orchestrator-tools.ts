@@ -7,10 +7,7 @@ import { ChatStore } from '../chats/chat-store';
 import { GitBatchCancelledError, GitBatchService, getGitBatchService } from '../operator/git-batch-service';
 import { OperatorRunStore } from '../operator/operator-run-store';
 import type { McpServerToolDefinition } from './mcp-server-tools';
-import type {
-  WorkerNodeAndroidAutomationSummary,
-  WorkerNodeBrowserAutomationSummary,
-} from '../../shared/types/worker-node.types';
+import type { WorkerAgentBuildSummary, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary } from '../../shared/types/worker-node.types';
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
 import {
   createSettingsToolDefinitions,
@@ -18,6 +15,7 @@ import {
   type SettingsManagerForTools,
   type UpdateNodeConfigFn,
 } from './orchestrator-settings-tools';
+import { createReleaseToolDefinitions, type ReleaseToolDependencies } from './orchestrator-release-tools';
 import type {
   CreateAutomationFn,
   DeleteAutomationFn,
@@ -77,9 +75,12 @@ export interface RemoteNodeToolInfo {
   status: 'connecting' | 'connected' | 'degraded' | 'disconnected'; connected?: boolean;
   platform: string; arch: string; address?: string;
   supportedClis: string[];
+  workerAgent?: WorkerAgentBuildSummary;
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
   browserAutomation?: WorkerNodeBrowserAutomationSummary;
+  hasExtensionRelay?: boolean;
+  extensionRelay?: WorkerNodeExtensionRelaySummary;
   hasAndroidMcp: boolean;
   androidAutomation?: WorkerNodeAndroidAutomationSummary;
   hasDocker: boolean;
@@ -282,6 +283,7 @@ export interface OrchestratorToolRuntimeContext {
   deleteAutomation?: DeleteAutomationFn | null;
   updateAutomation?: UpdateAutomationFn | null;
   postponeAutomation?: PostponeAutomationFn | null;
+  releaseTools?: ReleaseToolDependencies;
 }
 
 const SOURCE_CONTEXT_MESSAGE_LIMIT = 200;
@@ -632,6 +634,7 @@ export function createOrchestratorToolDefinitions(
     },
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),
+    ...createReleaseToolDefinitions(context.releaseTools),
   ];
 }
 

@@ -105,6 +105,7 @@ function buildEntry(
       ? { platform: live?.capabilities.platform ?? session?.platform }
       : {}),
     ...(live?.capabilities.arch ? { arch: live.capabilities.arch } : {}),
+    ...(live?.capabilities.workerAgent ? { workerAgent: live.capabilities.workerAgent } : {}),
     ...(live?.capabilities.browserAutomation
       ? { browserAutomation: live.capabilities.browserAutomation }
       : {}),

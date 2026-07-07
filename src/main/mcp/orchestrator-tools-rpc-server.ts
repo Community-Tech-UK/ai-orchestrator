@@ -435,9 +435,28 @@ export class OrchestratorToolsRpcServer {
         }
         return tool.handler(validated);
       }
+      case 'orchestrator_tools.build_release_operational_readiness_report':
+      case 'orchestrator_tools.build_ios_release_plan':
+      case 'orchestrator_tools.build_android_release_plan':
+      case 'orchestrator_tools.build_new_app_setup_plan':
+      case 'orchestrator_tools.execute_android_play_release':
+      case 'orchestrator_tools.execute_ios_asc_finalization':
+        return this.dispatchSameNameTool(request.method, params);
       default:
         throw new Error(`Unknown orchestrator-tools RPC method: ${request.method}`);
     }
+  }
+
+  private async dispatchSameNameTool(
+    method: string,
+    params: OrchestratorToolsRpcParams,
+  ): Promise<unknown> {
+    const toolName = method.slice('orchestrator_tools.'.length);
+    const tool = this.getToolsForInstance(params.instanceId).find((candidate) => candidate.name === toolName);
+    if (!tool) {
+      throw new Error(`${toolName} tool unavailable`);
+    }
+    return tool.handler(params.payload);
   }
 
   private handleSocket(socket: net.Socket): void {

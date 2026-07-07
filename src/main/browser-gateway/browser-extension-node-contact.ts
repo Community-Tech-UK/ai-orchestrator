@@ -38,7 +38,11 @@ export function withRemoteExtensionStaleFlag(
   deps: RemoteExtensionContactDeps,
 ): BrowserTarget {
   if (target.nodeId && target.driver === 'extension' && !isRemoteExtensionContactFresh(target.nodeId, deps)) {
-    return { ...target, stale: true };
+    return {
+      ...target,
+      stale: true,
+      lastConfirmedAt: target.lastConfirmedAt ?? target.lastSeenAt,
+    };
   }
   return target;
 }

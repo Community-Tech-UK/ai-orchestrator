@@ -33,6 +33,17 @@ export interface WorkerLocalSttCapability {
 }
 
 /**
+ * Non-secret identity of the worker-agent process currently reporting
+ * heartbeats. Used as rollout evidence: a browser-capable node must advertise
+ * the rebuilt worker version and a fresh process start before release readiness
+ * can be considered proven.
+ */
+export interface WorkerAgentBuildSummary {
+  version: string;
+  startedAt: number;
+}
+
+/**
  * Non-secret summary of a node's browser-automation configuration, surfaced in
  * capabilities so the coordinator UI can reflect current settings. Deliberately
  * excludes anything sensitive (no tokens; the profile is the operator's own).
@@ -64,6 +75,8 @@ export interface WorkerNodeExtensionRelaySummary {
   lastRegistrationCheckAt?: number;
   manifestPath?: string;
   registrationError?: string;
+  extensionVersion?: string;
+  extensionReloadedAt?: number;
   lastExtensionContactAt?: number;
 }
 
@@ -99,6 +112,7 @@ export interface WorkerNodeAndroidAutomationSummary {
 }
 
 export interface WorkerNodeCapabilities {
+  workerAgent?: WorkerAgentBuildSummary;
   platform: NodePlatform;
   arch: string;
   cpuCores: number;
@@ -152,6 +166,7 @@ export interface RemoteNodeRosterEntry {
   pairingLabel?: string;
   authMethod?: 'pairing_credential' | 'manual_pairing';
   supportedClis: CanonicalCliType[];
+  workerAgent?: WorkerAgentBuildSummary;
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
   browserAutomation?: WorkerNodeBrowserAutomationSummary;

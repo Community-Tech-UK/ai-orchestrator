@@ -18,6 +18,7 @@ const COMPATIBLE_OVERLAP: Record<TemplateCategory, ReadonlySet<TemplateCategory>
   development: new Set<TemplateCategory>(['review', 'debugging', 'custom']),
   review: new Set<TemplateCategory>(['development', 'debugging', 'custom']),
   debugging: new Set<TemplateCategory>(['development', 'review', 'custom']),
+  release: new Set<TemplateCategory>(),
   custom: new Set<TemplateCategory>(['development', 'review', 'debugging']),
 };
 

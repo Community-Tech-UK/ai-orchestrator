@@ -35,6 +35,7 @@ import type {
 } from '@contracts/types/browser';
 import { BrowserAuditStore, getBrowserAuditStore } from './browser-audit-store';
 import { getBrowserCampaignRuntime } from './browser-campaign-runtime';
+import { getBrowserEscalationService } from './browser-unattended-services';
 import {
   BrowserApprovalStore,
   getBrowserApprovalStore,
@@ -306,6 +307,7 @@ export class BrowserGatewayService {
       grantStore: this.grantStore,
       approvalStore: this.approvalStore,
       autoApproveRequests: (request) => Boolean(this.autoApproveRequests?.(request)),
+      escalations: { raise: (input) => getBrowserEscalationService().raise(input) },
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
       // Campaign budget enforcement: count every mutation executed under a
       // campaign lease; a tripped budget pauses the campaign + revokes leases.
@@ -1499,7 +1501,9 @@ export class BrowserGatewayService {
     try {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
-        await this.existingTabOperations.sendCommand(existingTab, 'click', browserActionTargetPayload(request));
+        await this.existingTabOperations.sendCommand(existingTab, 'click', {
+          ...browserActionTargetPayload(request), ...(request.verify ? { verify: request.verify } : {}),
+        });
       } else {
         await this.driver.click(request.profileId, request.targetId, request.selector!);
       }
@@ -1570,8 +1574,7 @@ export class BrowserGatewayService {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
         await this.existingTabOperations.sendCommand(existingTab, 'type', {
-          ...browserActionTargetPayload(request),
-          value: request.value,
+          ...browserActionTargetPayload(request), value: request.value, ...(request.verify ? { verify: request.verify } : {}),
         });
       } else {
         await this.driver.type(request.profileId, request.targetId, request.selector!, request.value);
@@ -1608,8 +1611,7 @@ export class BrowserGatewayService {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
         await this.existingTabOperations.sendCommand(existingTab, 'select', {
-          ...browserActionTargetPayload(request),
-          value: request.value,
+          ...browserActionTargetPayload(request), value: request.value, ...(request.verify ? { verify: request.verify } : {}),
         });
       } else {
         await this.driver.select(request.profileId, request.targetId, request.selector!, request.value);

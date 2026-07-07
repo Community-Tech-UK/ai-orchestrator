@@ -135,6 +135,20 @@ describe('capability-reporter', () => {
     }));
   }
 
+  it('includes non-secret worker agent build identity for rollout evidence', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
+
+    const caps = await reportCapabilities(['/workspace']);
+    const workerAgent = (caps as { workerAgent?: { version?: unknown; startedAt?: unknown } }).workerAgent;
+
+    expect(workerAgent).toEqual({
+      version: expect.any(String),
+      startedAt: expect.any(Number),
+    });
+    expect(workerAgent?.version).not.toBe('');
+    expect(workerAgent?.startedAt).toBeGreaterThan(0);
+  });
+
   describe('detectLocalModelEndpoints via reportCapabilities', () => {
     it('includes Ollama endpoint when /api/tags responds successfully', async () => {
       const mockModels = [{ name: 'llama3.2:3b' }, { name: 'mistral:7b' }];

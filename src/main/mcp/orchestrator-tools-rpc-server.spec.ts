@@ -316,6 +316,82 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(result).toMatchObject({ instanceId: 'inst-1' });
   });
 
+  it('dispatches release tool methods to the matching tool with validated payload', async () => {
+    const releaseHandler = vi.fn(async (args: unknown) => ({ release: { committed: true }, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'execute_android_play_release',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: releaseHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 16,
+      method: 'orchestrator_tools.execute_android_play_release',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: {
+          appPath: '/repo/app',
+          packageName: 'com.example.app',
+          versionCode: 42,
+          destinationTrack: 'internal',
+          track: 'internal',
+          aabPath: '/repo/app/build/app-release.aab',
+          playServiceAccountJsonPath: '/creds/play.json',
+          keystorePropertiesPath: 'keys/app-upload.keystore.properties',
+        },
+      },
+    });
+
+    expect(releaseHandler).toHaveBeenCalledOnce();
+    expect(releaseHandler.mock.calls[0]?.[0]).toMatchObject({
+      packageName: 'com.example.app',
+      versionCode: 42,
+      track: 'internal',
+    });
+    expect(result).toMatchObject({ release: { committed: true } });
+  });
+
+  it('dispatches release readiness report requests to the matching tool', async () => {
+    const readinessHandler = vi.fn(async (args: unknown) => ({ ready: false, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'build_release_operational_readiness_report',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: readinessHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 17,
+      method: 'orchestrator_tools.build_release_operational_readiness_report',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: {
+          expectedWorkerVersion: '2026.07.07',
+          expectedExtensionVersion: '0.2.1',
+          remoteNodes: [],
+        },
+      },
+    });
+
+    expect(readinessHandler).toHaveBeenCalledOnce();
+    expect(readinessHandler.mock.calls[0]?.[0]).toMatchObject({
+      expectedWorkerVersion: '2026.07.07',
+      remoteNodes: [],
+    });
+    expect(result).toMatchObject({ ready: false });
+  });
+
   it('rejects run_on_node payloads that fail the schema (missing prompt)', async () => {
     const runHandler = vi.fn();
     const { server } = makeServer({

@@ -141,6 +141,7 @@ export class BrowserExtensionTabStore {
       driver: 'extension',
       status: 'selected',
       lastSeenAt: attachment.updatedAt,
+      lastConfirmedAt: attachment.updatedAt,
     };
   }
 

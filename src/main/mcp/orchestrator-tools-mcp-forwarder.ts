@@ -18,9 +18,12 @@ import {
   OrchestratorToolsRpcClient,
   type OrchestratorToolsRpcClientLike,
 } from './orchestrator-tools-rpc-client';
+import { RELEASE_TOOL_SPECS, type ReleaseToolName } from './orchestrator-release-tools';
 
 const REMOTE_NODE_DISCOVERY_HINT =
   'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
+
+const RELEASE_TOOL_NAMES = Object.keys(RELEASE_TOOL_SPECS) as ReleaseToolName[];
 
 /**
  * Build the MCP tool definitions that proxy back to the parent process.
@@ -542,6 +545,17 @@ export function createOrchestratorToolsForwarderTools(
         return client.call('orchestrator_tools.postpone_automation', args as Record<string, unknown>);
       },
     },
+    ...RELEASE_TOOL_NAMES.map((name): McpServerToolDefinition => ({
+      name,
+      description: RELEASE_TOOL_SPECS[name].description,
+      inputSchema: RELEASE_TOOL_SPECS[name].inputSchema,
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error(`${name} args must be an object`);
+        }
+        return client.call(`orchestrator_tools.${name}`, args as Record<string, unknown>);
+      },
+    })),
   ];
 }
 

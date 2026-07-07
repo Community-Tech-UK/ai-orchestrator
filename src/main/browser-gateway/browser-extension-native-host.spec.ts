@@ -203,6 +203,37 @@ describe('browser extension native host', () => {
     });
   });
 
+  it('forwards extension runtime identity with poll requests', async () => {
+    const send = vi.fn().mockResolvedValue(null);
+
+    await expect(handleBrowserExtensionNativeMessage({
+      message: {
+        type: 'poll_command',
+        timeoutMs: 25,
+        extensionVersion: '0.2.1',
+        extensionStartedAt: 1_700_000_000_000,
+      },
+      runtimeConfig: {
+        socketPath: '/tmp/browser.sock',
+        extensionToken: 'native-token',
+        updatedAt: 1,
+      },
+      send,
+    })).resolves.toEqual({
+      type: 'browser_command',
+      command: null,
+    });
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'browser.extension_poll_command',
+      payload: {
+        timeoutMs: 25,
+        extensionVersion: '0.2.1',
+        extensionStartedAt: 1_700_000_000_000,
+      },
+    }));
+  });
+
   it('acks command receipt fire-and-forget without blocking the frame chain', async () => {
     // The RPC never resolves — the reply must still come back immediately,
     // otherwise a stalled coordinator head-of-line blocks the command result

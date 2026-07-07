@@ -16,12 +16,19 @@ import { SqliteVaultOriginBindingStore } from './browser-unattended-sqlite-store
 import {
   getBrowserCampaignService,
   getBrowserCredentialAuthorizationService,
+  maybeAutoUnlockBrowserCredentialVault,
+  watchVaultAutoUnlockSetting,
 } from './browser-unattended-services';
 import {
   initializeBrowserCampaignRuntime,
   stopBrowserCampaignRuntime,
 } from './browser-campaign-runtime';
 import { getBrowserGrantStore } from './browser-grant-store';
+import {
+  applyBrowserAutonomyConfigFromDisk,
+  initializeStandingCampaignRenewal,
+  stopStandingCampaignRenewal,
+} from './browser-autonomy-config';
 import { registerCleanup } from '../util/cleanup-registry';
 import { BrowserEmailCodeReader } from './browser-email-code-reader';
 import { ImapMcpMailboxReader, type ImapMcpServerCommand } from './browser-imap-mailbox-reader';
@@ -61,6 +68,7 @@ export * from './browser-redaction';
 export * from './browser-safe-dto';
 export * from './browser-target-registry';
 export * from './browser-types';
+export * from './browser-autonomy-config';
 export * from './browser-campaign-runtime';
 export * from './browser-imap-mailbox-reader';
 export * from './browser-session-relogin';
@@ -139,6 +147,17 @@ export async function initializeBrowserGatewayRuntime(
   options: BrowserGatewayRuntimeOptions = {},
 ): Promise<void> {
   const credentials = buildCredentialServices();
+  // Operator-owned full-autonomy bootstrap: provision managed profiles,
+  // standing credential authorizations, and campaigns from the config file,
+  // and point the auto-unlock env var at the configured master-password file.
+  // Runs BEFORE auto-unlock so the config's password path is honoured.
+  applyBrowserAutonomyConfigFromDisk();
+  // Hands-free unlock: if the operator opted into browserVaultAutoUnlock and a
+  // master-password file is configured, unlock the vault at startup so
+  // unattended runs never need the UI. Non-blocking; failures leave it locked.
+  // The watcher also unlocks immediately if the flag/path is set post-startup.
+  void maybeAutoUnlockBrowserCredentialVault();
+  watchVaultAutoUnlockSetting();
   // Campaign runtime: budget enforcement for mutations under campaign leases,
   // the ~60min lease renewer, and lease revocation on any campaign stop.
   try {
@@ -149,6 +168,17 @@ export async function initializeBrowserGatewayRuntime(
     registerCleanup(() => stopBrowserCampaignRuntime());
   } catch (error) {
     logger.warn('Browser campaign runtime unavailable (campaign leases disabled)', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  // Standing campaign renewal: re-establish a config-declared standing campaign
+  // once its 14h cap expires, so unattended runs continue without a restart.
+  // No-op unless the operator's autonomy config declares campaigns.
+  try {
+    initializeStandingCampaignRenewal();
+    registerCleanup(() => stopStandingCampaignRenewal());
+  } catch (error) {
+    logger.warn('Standing campaign renewal unavailable', {
       error: error instanceof Error ? error.message : String(error),
     });
   }

@@ -144,6 +144,75 @@ export function lockBrowserCredentialVault(): void {
   getBrowserCredentialSession().lock();
 }
 
+/**
+ * Auto-unlock the vault at gateway startup when the operator has opted into
+ * hands-free unlocking (`browserVaultAutoUnlock`) and a master-password source
+ * is configured. Best-effort and non-blocking: startup never waits on
+ * `bw unlock`, and a failure just leaves the vault locked (browser.fill_credential
+ * reports itself unavailable until an unlock succeeds). Never logs the password
+ * or the session token.
+ */
+export async function maybeAutoUnlockBrowserCredentialVault(): Promise<void> {
+  // Two operator-owned opt-ins, neither agent-writable: the UI-set
+  // `browserVaultAutoUnlock` flag, or the launch env var (which, when set, is
+  // itself the intent to auto-unlock). A tool-call can set neither.
+  const envConfigured = Boolean(process.env['AIO_BW_MASTER_PASSWORD_FILE']?.trim());
+  let flagEnabled = false;
+  try {
+    flagEnabled = getSettingsManager().getAll().browserVaultAutoUnlock === true;
+  } catch {
+    flagEnabled = false;
+  }
+  if (!flagEnabled && !envConfigured) {
+    return;
+  }
+  const status = getBrowserVaultStatus();
+  if (!status.locked) {
+    return;
+  }
+  if (!status.passwordSourceConfigured) {
+    logger.warn('Vault auto-unlock enabled but no master-password source is configured');
+    return;
+  }
+  try {
+    const result = await unlockBrowserCredentialVault();
+    if (result.unlocked) {
+      logger.info('Browser credential vault auto-unlocked');
+    } else {
+      logger.warn('Browser credential vault auto-unlock failed', { reason: result.reason });
+    }
+  } catch (error) {
+    logger.warn('Browser credential vault auto-unlock threw', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Subscribe to settings changes so flipping `browserVaultAutoUnlock` on (or
+ * pointing `browserVaultMasterPasswordFile` at a file while auto-unlock is on)
+ * unlocks the vault immediately — no restart needed. Idempotent: a second call
+ * replaces the prior listener.
+ */
+let autoUnlockUnsubscribe: (() => void) | null = null;
+
+export function watchVaultAutoUnlockSetting(): void {
+  autoUnlockUnsubscribe?.();
+  let manager: ReturnType<typeof getSettingsManager>;
+  try {
+    manager = getSettingsManager();
+  } catch {
+    return;
+  }
+  const listener = (key: string): void => {
+    if (key === 'browserVaultAutoUnlock' || key === 'browserVaultMasterPasswordFile') {
+      void maybeAutoUnlockBrowserCredentialVault();
+    }
+  };
+  manager.on('setting-changed', listener);
+  autoUnlockUnsubscribe = () => manager.off('setting-changed', listener);
+}
+
 export interface BrowserVaultStatus {
   locked: boolean;
   /** Whether a master-password source is configured (env var or setting). */
@@ -165,11 +234,4 @@ export function getBrowserVaultStatus(): BrowserVaultStatus {
     locked: getBrowserCredentialSession().locked,
     passwordSourceConfigured: configured,
   };
-}
-
-export function _resetBrowserUnattendedServicesForTesting(): void {
-  credentialAuthorizationService = null;
-  campaignService = null;
-  escalationService = null;
-  escalationNotify = null;
 }

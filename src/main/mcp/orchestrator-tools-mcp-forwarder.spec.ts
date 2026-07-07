@@ -25,7 +25,109 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'delete_automation',
       'update_automation',
       'postpone_automation',
+      'build_release_operational_readiness_report',
+      'build_ios_release_plan',
+      'build_android_release_plan',
+      'build_new_app_setup_plan',
+      'execute_android_play_release',
+      'execute_ios_asc_finalization',
     ]);
+  });
+
+  it('forwards release tool invocations with canonical method names', async () => {
+    const call = vi.fn(async () => ({ release: { committed: true } }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'execute_android_play_release',
+    );
+
+    const result = await tool!.handler({
+      appPath: '/repo/app',
+      packageName: 'com.example.app',
+      versionCode: 42,
+      destinationTrack: 'internal',
+      track: 'internal',
+      aabPath: '/repo/app/build/app-release.aab',
+      playServiceAccountJsonPath: '/creds/play.json',
+      keystorePropertiesPath: 'keys/app-upload.keystore.properties',
+    });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.execute_android_play_release', {
+      appPath: '/repo/app',
+      packageName: 'com.example.app',
+      versionCode: 42,
+      destinationTrack: 'internal',
+      track: 'internal',
+      aabPath: '/repo/app/build/app-release.aab',
+      playServiceAccountJsonPath: '/creds/play.json',
+      keystorePropertiesPath: 'keys/app-upload.keystore.properties',
+    });
+    expect(result).toEqual({ release: { committed: true } });
+  });
+
+  it('exposes concrete release tool input schemas', () => {
+    const tools = createOrchestratorToolsForwarderTools(stubClient(async () => null));
+    const readinessTool = tools.find((t) => t.name === 'build_release_operational_readiness_report');
+    const androidExecuteTool = tools.find((t) => t.name === 'execute_android_play_release');
+    const iosExecuteTool = tools.find((t) => t.name === 'execute_ios_asc_finalization');
+
+    expect(readinessTool?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        expectedWorkerVersion: { type: 'string' },
+        expectedExtensionVersion: { type: 'string' },
+        remoteNodes: { type: 'array' },
+        nativeHostRecoveryDrill: { type: 'object' },
+        testflightInternalRelease: { type: 'object' },
+        playInternalRelease: { type: 'object' },
+      },
+      required: ['remoteNodes'],
+      additionalProperties: false,
+    });
+    expect(androidExecuteTool?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        appPath: { type: 'string' },
+        packageName: { type: 'string' },
+        playServiceAccountJsonPath: { type: 'string' },
+        keystorePropertiesPath: { type: 'string' },
+      },
+      required: expect.arrayContaining([
+        'appPath',
+        'packageName',
+        'versionCode',
+        'destinationTrack',
+        'aabPath',
+        'playServiceAccountJsonPath',
+        'keystorePropertiesPath',
+      ]),
+      additionalProperties: false,
+    });
+    expect(iosExecuteTool?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        appPath: { type: 'string' },
+        bundleId: { type: 'string' },
+        ascPrivateKeyPath: { type: 'string' },
+        usesNonExemptEncryption: { type: 'boolean' },
+      },
+      required: expect.arrayContaining([
+        'appPath',
+        'bundleId',
+        'archivePath',
+        'exportPath',
+        'exportOptionsPlist',
+        'ipaPath',
+        'buildNumber',
+        'destination',
+        'ascKeyId',
+        'ascIssuerId',
+        'ascPrivateKeyPath',
+        'buildId',
+        'usesNonExemptEncryption',
+      ]),
+      additionalProperties: false,
+    });
   });
 
   it('forwards set_setting invocations with the canonical method name', async () => {

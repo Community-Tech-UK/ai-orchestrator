@@ -85,10 +85,17 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'browserVaultMasterPasswordFile',
     label: 'Credential vault master-password file',
-    description: 'Path to a local file holding the Bitwarden master password used by "Unlock vault" on the Browser screen. Only the path is stored; the password is read at unlock time, kept in memory only, and never logged or shown. Leave empty to disable UI unlock.',
+    description: 'Path to a local file holding the Bitwarden master password used to unlock the browser credential vault. Only the path is stored; the password is read at unlock time, kept in memory only, and never logged or shown. Leave empty to disable unlock.',
     type: 'string',
     category: 'advanced',
     placeholder: 'e.g., /Users/you/secure/bitwarden-master.txt',
+  },
+  {
+    key: 'browserVaultAutoUnlock',
+    label: 'Auto-unlock the credential vault at startup',
+    description: 'Unlock the browser credential vault automatically when the app starts, reading the master-password file above. Turn this on for hands-free unattended runs so you never click "Unlock vault". Needs a readable master-password file to be set. Set only from here or via the AIO_BW_MASTER_PASSWORD_FILE launch env var — not changeable by agents.',
+    type: 'boolean',
+    category: 'advanced',
   },
   {
     key: 'codememEnabled',

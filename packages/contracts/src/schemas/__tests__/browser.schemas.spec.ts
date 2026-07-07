@@ -208,6 +208,7 @@ describe('browser.schemas', () => {
         driver: 'cdp',
         status: 'available',
         lastSeenAt: 3,
+        lastConfirmedAt: 2,
         stale: true,
       }).success,
     ).toBe(true);

@@ -22,6 +22,7 @@ import { runCodememForwarder } from '../codemem/codemem-mcp-forwarder';
 import { runBrowserMcpForwarder } from '../browser-gateway/browser-mcp-stdio-server';
 import { runBrowserExtensionNativeHost } from '../browser-gateway/browser-extension-native-host';
 import { runRemoteNodesCli } from './remote-nodes-cli';
+import { runReleaseReadinessCli } from './release-readiness-cli';
 
 type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
 
@@ -31,6 +32,7 @@ const SUBCOMMANDS = {
   'browser-gateway': (() => runBrowserMcpForwarder()) as AioMcpRunner,
   'native-host': (() => runBrowserExtensionNativeHost()) as AioMcpRunner,
   'remote-nodes': runRemoteNodesCli,
+  'release-readiness': runReleaseReadinessCli,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;
@@ -72,6 +74,7 @@ function formatHelp(): string {
     '  browser-gateway     Stdio MCP forwarder for browser-gateway',
     '  native-host         Chrome native-messaging host for the browser extension',
     '  remote-nodes        Print the safe remote worker roster (--json for JSON)',
+    '  release-readiness   Build release readiness report from evidence JSON',
     '',
   ].join('\n');
 }

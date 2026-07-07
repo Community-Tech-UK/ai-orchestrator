@@ -86,10 +86,6 @@ export function getLoginFingerprintStore(): LoginFingerprintStore {
   return fingerprintStore;
 }
 
-export function _resetLoginFingerprintStoreForTesting(): void {
-  fingerprintStore = null;
-}
-
 // ── check_session operation ────────────────────────────────────────────────
 
 export interface CheckSessionRequest extends BrowserGatewayContext {

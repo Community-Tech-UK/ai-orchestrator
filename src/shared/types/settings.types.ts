@@ -179,12 +179,20 @@ export interface AppSettings {
 
   /**
    * Path to a local file containing the Bitwarden master password used to
-   * unlock the browser credential vault from the UI. The path is stored — the
-   * password itself is read at unlock time, kept in main-process memory only,
-   * and never logged or sent to the renderer/model. Empty = unlock unavailable.
+   * unlock the browser credential vault. The path is stored — the password
+   * itself is read at unlock time, kept in main-process memory only, and never
+   * logged or sent to the renderer/model. Empty = unlock unavailable.
    * Overridable with the AIO_BW_MASTER_PASSWORD_FILE env var.
    */
   browserVaultMasterPasswordFile: string;
+  /**
+   * When true, the browser credential vault auto-unlocks at gateway startup
+   * from the configured master-password file — no UI click needed for
+   * unattended runs. Default OFF: the vault stays locked on launch unless the
+   * operator explicitly opts into hands-free unlocking. Requires a readable
+   * master-password source (setting or AIO_BW_MASTER_PASSWORD_FILE).
+   */
+  browserVaultAutoUnlock: boolean;
 
   // Codebase auto-index (separate, heavier pipeline from codemem: BM25 +
   // vector embeddings + Merkle change detection + hybrid search). Auto-runs
@@ -536,6 +544,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   chromeDevtoolsAttachEnabled: false,
   chromeDevtoolsAttachProfileId: '',
   browserVaultMasterPasswordFile: '',
+  browserVaultAutoUnlock: false,
 
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)
   instanceProviderLimitResumeEnabled: false,

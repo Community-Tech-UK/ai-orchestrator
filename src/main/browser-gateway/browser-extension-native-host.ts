@@ -36,12 +36,17 @@ interface BrowserExtensionCommandReceivedMessage {
   commandId: string;
 }
 
+interface BrowserExtensionRuntimeEvidence {
+  extensionVersion?: string;
+  extensionStartedAt?: number;
+}
+
 type BrowserExtensionNativeMessage =
-  | BrowserExtensionAttachTabMessage
-  | BrowserExtensionTabInventoryMessage
-  | BrowserExtensionPollCommandMessage
-  | BrowserExtensionCommandResultMessage
-  | BrowserExtensionCommandReceivedMessage;
+  | (BrowserExtensionAttachTabMessage & BrowserExtensionRuntimeEvidence)
+  | (BrowserExtensionTabInventoryMessage & BrowserExtensionRuntimeEvidence)
+  | (BrowserExtensionPollCommandMessage & BrowserExtensionRuntimeEvidence)
+  | (BrowserExtensionCommandResultMessage & BrowserExtensionRuntimeEvidence)
+  | (BrowserExtensionCommandReceivedMessage & BrowserExtensionRuntimeEvidence);
 
 // The socket RPC timeout must OUTLIVE every downstream hop or a reply carrying
 // a freshly dequeued command is abandoned mid-flight and the command silently
@@ -136,7 +141,10 @@ export async function handleBrowserExtensionNativeMessage(
           runtimeConfig: input.runtimeConfig,
         }),
         method: 'browser.extension_poll_command',
-        payload: message.timeoutMs === undefined ? {} : { timeoutMs: message.timeoutMs },
+        payload: withExtensionRuntimeEvidence(
+          message.timeoutMs === undefined ? {} : { timeoutMs: message.timeoutMs },
+          message,
+        ),
         timeoutMs: pollWindowMs + NATIVE_POLL_RPC_TIMEOUT_BUFFER_MS,
       });
       return {
@@ -157,7 +165,7 @@ export async function handleBrowserExtensionNativeMessage(
           runtimeConfig: input.runtimeConfig,
         }),
         method: 'browser.extension_command_received',
-        payload: { commandId: message.commandId },
+        payload: withExtensionRuntimeEvidence({ commandId: message.commandId }, message),
       }).catch(() => undefined);
       return {
         ok: true,
@@ -172,7 +180,7 @@ export async function handleBrowserExtensionNativeMessage(
           runtimeConfig: input.runtimeConfig,
         }),
         method: 'browser.extension_command_result',
-        payload: commandResultPayload(message),
+        payload: withExtensionRuntimeEvidence(commandResultPayload(message), message),
       });
       return {
         ok: true,
@@ -251,6 +259,7 @@ function parseBrowserExtensionNativeMessage(
     return {
       type: 'attach_tab',
       tab: message['tab'] as unknown as BrowserAttachExistingTabRequest,
+      ...extensionRuntimeEvidence(message),
     };
   }
   if (message['type'] === 'tab_inventory' && Array.isArray(message['tabs'])) {
@@ -259,6 +268,7 @@ function parseBrowserExtensionNativeMessage(
       tabs: message['tabs']
         .filter(isRecord)
         .map((tab) => tab as unknown as BrowserAttachExistingTabRequest),
+      ...extensionRuntimeEvidence(message),
     };
   }
   if (message['type'] === 'poll_command') {
@@ -269,6 +279,7 @@ function parseBrowserExtensionNativeMessage(
     return {
       type: 'poll_command',
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      ...extensionRuntimeEvidence(message),
     };
   }
   if (
@@ -279,6 +290,7 @@ function parseBrowserExtensionNativeMessage(
     return {
       type: 'command_received',
       commandId: message['commandId'],
+      ...extensionRuntimeEvidence(message),
     };
   }
   if (
@@ -296,6 +308,7 @@ function parseBrowserExtensionNativeMessage(
       ...(typeof message['error'] === 'string' && message['error']
         ? { error: message['error'] }
         : {}),
+      ...extensionRuntimeEvidence(message),
     };
   }
   throw new Error('unsupported_browser_extension_message');
@@ -458,6 +471,32 @@ function commandResultPayload(
       ? { result: message.result }
       : {}),
     ...(message.error ? { error: message.error } : {}),
+  };
+}
+
+function extensionRuntimeEvidence(message: Record<string, unknown>): BrowserExtensionRuntimeEvidence {
+  const extensionVersion = message['extensionVersion'];
+  const extensionStartedAt = message['extensionStartedAt'];
+  return {
+    ...(typeof extensionVersion === 'string' && extensionVersion
+      ? { extensionVersion }
+      : {}),
+    ...(typeof extensionStartedAt === 'number' && Number.isFinite(extensionStartedAt) && extensionStartedAt >= 0
+      ? { extensionStartedAt: Math.floor(extensionStartedAt) }
+      : {}),
+  };
+}
+
+function withExtensionRuntimeEvidence(
+  payload: Record<string, unknown>,
+  message: BrowserExtensionRuntimeEvidence,
+): Record<string, unknown> {
+  return {
+    ...payload,
+    ...(message.extensionVersion ? { extensionVersion: message.extensionVersion } : {}),
+    ...(message.extensionStartedAt !== undefined
+      ? { extensionStartedAt: message.extensionStartedAt }
+      : {}),
   };
 }
 

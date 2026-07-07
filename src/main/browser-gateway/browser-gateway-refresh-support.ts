@@ -48,7 +48,9 @@ export function withRefreshFailureStaleFlag(
   const failed = target.nodeId
     ? state.failedRefreshNodeIds.has(target.nodeId)
     : state.localRefreshFailed;
-  return target.driver === 'extension' && failed ? { ...target, stale: true } : target;
+  return target.driver === 'extension' && failed
+    ? { ...target, stale: true, lastConfirmedAt: target.lastConfirmedAt ?? target.lastSeenAt }
+    : target;
 }
 
 /**

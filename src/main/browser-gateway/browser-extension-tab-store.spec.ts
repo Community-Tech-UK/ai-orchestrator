@@ -40,6 +40,8 @@ describe('BrowserExtensionTabStore', () => {
         driver: 'extension',
         status: 'selected',
         url: 'https://play.google.com/console',
+        lastSeenAt: 1234,
+        lastConfirmedAt: 1234,
       }),
     ]);
   });

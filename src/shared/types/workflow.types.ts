@@ -50,7 +50,7 @@ export interface WorkflowTemplate {
   name: string;
   description: string;
   icon: string;
-  category: 'development' | 'review' | 'debugging' | 'custom';
+  category: 'development' | 'review' | 'debugging' | 'release' | 'custom';
 
   // Trigger configuration
   triggerPatterns: string[];

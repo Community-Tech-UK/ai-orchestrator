@@ -161,6 +161,9 @@ export function createOrchestratorToolsStep(
             totalCount: nodes.length,
             nodes: nodes.map((node) => {
               const capabilities = node.capabilities;
+              const workerAgent = node.workerAgent ?? capabilities.workerAgent;
+              const hasExtensionRelay = node.hasExtensionRelay ?? capabilities.hasExtensionRelay;
+              const extensionRelay = node.extensionRelay ?? capabilities.extensionRelay;
               return {
                 id: node.id,
                 name: node.name,
@@ -170,11 +173,16 @@ export function createOrchestratorToolsStep(
                 arch: node.arch ?? capabilities.arch ?? '',
                 ...(node.address ? { address: node.address } : {}),
                 supportedClis: [...(node.supportedClis ?? capabilities.supportedClis ?? [])],
+                ...(workerAgent ? { workerAgent } : {}),
                 hasBrowserRuntime: node.hasBrowserRuntime ?? capabilities.hasBrowserRuntime,
                 hasBrowserMcp: node.hasBrowserMcp ?? capabilities.hasBrowserMcp,
                 ...(node.browserAutomation ?? capabilities.browserAutomation
                   ? { browserAutomation: node.browserAutomation ?? capabilities.browserAutomation }
                   : {}),
+                ...(hasExtensionRelay !== undefined
+                  ? { hasExtensionRelay }
+                  : {}),
+                ...(extensionRelay ? { extensionRelay } : {}),
                 hasAndroidMcp: node.hasAndroidMcp ?? capabilities.hasAndroidMcp,
                 ...(node.androidAutomation ?? capabilities.androidAutomation
                   ? { androidAutomation: node.androidAutomation ?? capabilities.androidAutomation }

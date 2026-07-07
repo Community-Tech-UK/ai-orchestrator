@@ -18,7 +18,12 @@ import {
   autoApproveBrowserApproval,
   type BrowserAutoApprovePredicate,
 } from './browser-auto-approve';
-import { classifyBrowserAction } from './browser-action-classifier';
+import { classifyBrowserAction, LEGAL_DECLARATION_REASON } from './browser-action-classifier';
+import type { BrowserEscalationService } from './browser-escalation-store';
+import {
+  escalationResultForChallenge,
+  recordDeclarationAutoFireNote,
+} from './browser-gateway-hardstop';
 import {
   actionClassRequiresAutonomy,
   findMatchingBrowserGrant,
@@ -50,6 +55,13 @@ export interface BrowserGatewayActionGuardOptions {
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant'>;
   approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
   autoApproveRequests?: BrowserAutoApprovePredicate;
+  /**
+   * When present, captcha / 2FA hard stops are parked to the batch escalation
+   * queue (and the action stops) instead of raising a blocking per-action
+   * approval an unattended run cannot answer. Omitted → the legacy approval
+   * path is used for every hard stop.
+   */
+  escalations?: Pick<BrowserEscalationService, 'raise'>;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
   /**
    * Fired for every successfully executed guarded mutation with the grant it
@@ -69,6 +81,7 @@ export class BrowserGatewayActionGuard {
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
   private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
+  private readonly escalations?: Pick<BrowserEscalationService, 'raise'>;
   private readonly result: BrowserGatewayActionGuardOptions['result'];
   private readonly onGrantedMutation?: BrowserGatewayActionGuardOptions['onGrantedMutation'];
 
@@ -80,6 +93,7 @@ export class BrowserGatewayActionGuard {
     this.grantStore = options.grantStore;
     this.approvalStore = options.approvalStore;
     this.autoApproveRequests = options.autoApproveRequests;
+    this.escalations = options.escalations;
     this.result = options.result;
     this.onGrantedMutation = options.onGrantedMutation;
   }
@@ -227,6 +241,37 @@ export class BrowserGatewayActionGuard {
     });
 
     if (!match.grant || classification.hardStop) {
+      const escalated = escalationResultForChallenge(
+        { escalations: this.escalations, result: this.result },
+        request,
+        action,
+        toolName,
+        classification,
+        { profileId: profile.id, targetId: target.id, origin: originDecision.origin, url: currentUrl },
+      );
+      if (escalated) {
+        return { result: escalated };
+      }
+      // Legal-declaration auto-fire (operator opted into hands-off submits):
+      // under a valid autonomous campaign grant a binding declaration proceeds
+      // rather than blocking, and is recorded as an audit note. Without such a
+      // grant it falls through to the normal per-action approval below.
+      if (classification.reason === LEGAL_DECLARATION_REASON && match.grant) {
+        recordDeclarationAutoFireNote(
+          { result: this.result },
+          request,
+          action,
+          toolName,
+          { profileId: profile.id, targetId: target.id, origin: originDecision.origin, url: currentUrl },
+          elementContext,
+        );
+        return {
+          grant: match.grant,
+          actionClass: classification.actionClass,
+          origin: originDecision.origin,
+          url: currentUrl,
+        };
+      }
       const approval = this.approvalStore.createRequest({
         instanceId: request.instanceId ?? 'unknown',
         provider: providerFromContext(request.provider),
@@ -466,6 +511,43 @@ export class BrowserGatewayActionGuard {
     });
 
     if (!match.grant || classification.hardStop) {
+      const escalated = escalationResultForChallenge(
+        { escalations: this.escalations, result: this.result },
+        request,
+        action,
+        toolName,
+        classification,
+        {
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          origin: originDecision.origin,
+          url: attachment.url,
+        },
+      );
+      if (escalated) {
+        return { result: escalated };
+      }
+      if (classification.reason === LEGAL_DECLARATION_REASON && match.grant) {
+        recordDeclarationAutoFireNote(
+          { result: this.result },
+          request,
+          action,
+          toolName,
+          {
+            profileId: attachment.profileId,
+            targetId: attachment.targetId,
+            origin: originDecision.origin,
+            url: attachment.url,
+          },
+          elementContext,
+        );
+        return {
+          grant: match.grant,
+          actionClass: classification.actionClass,
+          origin: originDecision.origin,
+          url: attachment.url,
+        };
+      }
       const approval = this.approvalStore.createRequest({
         instanceId: request.instanceId ?? 'unknown',
         provider: providerFromContext(request.provider),

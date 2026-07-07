@@ -182,8 +182,14 @@ export const SETTINGS_TOOL_POLICY = {
   broadRootFileThreshold: open(numberSettingSchema('broadRootFileThreshold')),
   chromeDevtoolsAttachEnabled: readOnly(true),
   chromeDevtoolsAttachProfileId: readOnly(true),
-  // Agents must never repoint or read the vault master-password source.
+  // Authorization anchors for credential-vault unlock. NOT agent-writable — a
+  // tool-call must never repoint the master-password source or enable
+  // hands-free unlock (this tree runs many autonomous agents). The local
+  // operator sets these from the UI/preferences, or via the operator-owned
+  // AIO_BW_MASTER_PASSWORD_FILE launch env var. The path is redacted + excluded
+  // from settings export; the password itself is never stored here or logged.
   browserVaultMasterPasswordFile: secret(),
+  browserVaultAutoUnlock: readOnly(),
   codebaseAutoIndexEnabled: open(z.boolean()),
   instanceProviderLimitResumeEnabled: open(z.boolean()),
   codebaseAutoIndexMaxFiles: open(numberSettingSchema('codebaseAutoIndexMaxFiles')),

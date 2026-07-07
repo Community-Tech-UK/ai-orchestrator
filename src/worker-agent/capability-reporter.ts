@@ -20,6 +20,12 @@ import {
   LOCAL_MODEL_PROBE_TIMEOUT_MS,
 } from './local-model-config';
 
+const WORKER_AGENT_STARTED_AT = Date.now();
+const WORKER_AGENT_VERSION =
+  process.env['AIO_WORKER_AGENT_VERSION']
+  ?? process.env['npm_package_version']
+  ?? '0.1.0';
+
 /**
  * Detect local capabilities (CLIs, browser, GPU, memory) for reporting
  * to the coordinator. Called once on startup and periodically on heartbeat.
@@ -43,6 +49,10 @@ export async function reportCapabilities(
   const hasBrowserRuntime = resolveChromeExecutablePath() !== null;
 
   return {
+    workerAgent: {
+      version: WORKER_AGENT_VERSION,
+      startedAt: WORKER_AGENT_STARTED_AT,
+    },
     platform: process.platform as NodePlatform,
     arch: process.arch,
     cpuCores: os.cpus().length,

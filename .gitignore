@@ -5,6 +5,8 @@ node_modules/
 dist/
 out/
 release/
+!src/main/release/
+!src/main/release/**
 
 # Visual QA screenshot artifacts (docs/visual-qa-checklist.md)
 visual-qa/

@@ -8,12 +8,20 @@ import { featureDevelopmentTemplate } from './feature-development';
 import { issueImplementationTemplate } from './issue-implementation';
 import { prReviewTemplate } from './pr-review';
 import { repoHealthAuditTemplate } from './repo-health-audit';
+import {
+  androidReleaseWorkflowTemplate,
+  iosReleaseWorkflowTemplate,
+  newAppSetupWorkflowTemplate,
+} from './release-workflows';
 
 export const builtInTemplates: WorkflowTemplate[] = [
   featureDevelopmentTemplate,
   issueImplementationTemplate,
   prReviewTemplate,
   repoHealthAuditTemplate,
+  iosReleaseWorkflowTemplate,
+  androidReleaseWorkflowTemplate,
+  newAppSetupWorkflowTemplate,
 ];
 
 export {
@@ -21,4 +29,7 @@ export {
   issueImplementationTemplate,
   prReviewTemplate,
   repoHealthAuditTemplate,
+  iosReleaseWorkflowTemplate,
+  androidReleaseWorkflowTemplate,
+  newAppSetupWorkflowTemplate,
 };

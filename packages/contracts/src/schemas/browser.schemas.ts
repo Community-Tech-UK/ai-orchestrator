@@ -155,6 +155,7 @@ export const BrowserTargetSchema = z
     driver: BrowserTargetDriverSchema,
     status: BrowserTargetStatusSchema,
     lastSeenAt: z.number().int().nonnegative(),
+    lastConfirmedAt: z.number().int().nonnegative().optional(),
     stale: z.boolean().optional(),
   })
   .strict();

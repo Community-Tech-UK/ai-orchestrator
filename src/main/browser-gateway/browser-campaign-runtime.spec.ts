@@ -34,9 +34,10 @@ class FakeGrantStore implements Pick<BrowserGrantStore, 'listGrants' | 'createGr
     return grant;
   }
 
-  listGrants(filter: { profileId?: string; includeExpired?: boolean }): BrowserPermissionGrant[] {
+  listGrants(filter: { profileId?: string; nodeId?: string; includeExpired?: boolean }): BrowserPermissionGrant[] {
     return this.grants.filter((grant) => {
       if (filter.profileId && grant.profileId !== filter.profileId) return false;
+      if (filter.nodeId && grant.nodeId !== filter.nodeId) return false;
       if (!filter.includeExpired) {
         if (grant.decision !== 'allow') return false;
         if (grant.expiresAt <= this.now) return false;
@@ -169,6 +170,48 @@ describe('BrowserCampaignRuntime.claimLease', () => {
     expect(result.granted).toBe(true);
     if (!result.granted) return;
     expect(result.grant.expiresAt).toBe(campaign.expiresAt);
+  });
+
+  it('issues node-scoped leases for existing-tab campaigns so reconnects do not strand authority', () => {
+    const { campaigns, grantStore, nowRef } = makeRuntime();
+    const runtime = new BrowserCampaignRuntime({
+      campaigns,
+      grantStore,
+      now: () => nowRef.now,
+    });
+    const campaign = campaigns.create({
+      label: 'Play setup',
+      profileId: 'existing-tab:n.node-1:7:42',
+      allowedOrigins: ['https://play.google.com'],
+      allowedActionClasses: ['navigate', 'input', 'submit'],
+      budget: {
+        maxActions: 10,
+        maxSubmits: 2,
+        maxNewAccounts: 1,
+        maxUploads: 1,
+        maxDurationMs: 8 * 60 * 60 * 1000,
+      },
+    });
+
+    const first = runtime.claimLease({
+      campaignId: campaign.id,
+      instanceId: 'instance-1',
+      provider: 'codex',
+    });
+    const second = runtime.claimLease({
+      campaignId: campaign.id,
+      instanceId: 'instance-1',
+      provider: 'codex',
+    });
+
+    expect(first.granted && second.granted).toBe(true);
+    if (!first.granted || !second.granted) return;
+    expect(first.grant.nodeId).toBe('node-1');
+    expect(first.grant.profileId).toBeUndefined();
+    expect(first.grant.targetId).toBeUndefined();
+    expect(first.grant.requestedBy).toBe(`${CAMPAIGN_GRANT_REQUESTED_BY_PREFIX}${campaign.id}`);
+    expect(second.grant.id).toBe(first.grant.id);
+    expect(grantStore.grants).toHaveLength(1);
   });
 });
 

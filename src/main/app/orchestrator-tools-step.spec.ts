@@ -169,6 +169,48 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
     });
   });
 
+  it('surfaces worker and extension rollout evidence from list_remote_nodes', async () => {
+    const node = makeNode({
+      hasBrowserMcp: true,
+      workerAgent: {
+        version: '0.1.0',
+        startedAt: 1_700_000_000_000,
+      },
+      extensionRelay: {
+        enabled: true,
+        running: true,
+        extensionVersion: '0.2.1',
+        extensionReloadedAt: 1_700_000_010_000,
+        lastExtensionContactAt: 1_700_000_020_000,
+      },
+    });
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep();
+
+    const result = await captured.initializeOptions?.listRemoteNodes?.();
+
+    expect(result).toMatchObject({
+      nodes: [
+        expect.objectContaining({
+          id: 'node-1',
+          hasBrowserMcp: true,
+          workerAgent: {
+            version: '0.1.0',
+            startedAt: 1_700_000_000_000,
+          },
+          hasExtensionRelay: true,
+          extensionRelay: expect.objectContaining({
+            enabled: true,
+            running: true,
+            extensionVersion: '0.2.1',
+            extensionReloadedAt: 1_700_000_010_000,
+            lastExtensionContactAt: 1_700_000_020_000,
+          }),
+        }),
+      ],
+    });
+  });
+
   it('does not infer platform from fallback capabilities in list_remote_nodes', async () => {
     captured.roster.list.mockReturnValue([
       {
@@ -278,8 +320,20 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
   });
 });
 
-function makeNode(overrides: { hasAndroidMcp?: boolean } = {}) {
+function makeNode(overrides: {
+  hasAndroidMcp?: boolean;
+  hasBrowserMcp?: boolean;
+  workerAgent?: { version: string; startedAt: number };
+  extensionRelay?: {
+    enabled: boolean;
+    running: boolean;
+    extensionVersion?: string;
+    extensionReloadedAt?: number;
+    lastExtensionContactAt?: number;
+  };
+} = {}) {
   const hasAndroidMcp = overrides.hasAndroidMcp ?? false;
+  const hasBrowserMcp = overrides.hasBrowserMcp ?? false;
   return {
     id: 'node-1',
     name: 'windows-pc',
@@ -290,7 +344,14 @@ function makeNode(overrides: { hasAndroidMcp?: boolean } = {}) {
       arch: 'x64',
       supportedClis: ['claude'],
       hasBrowserRuntime: true,
-      hasBrowserMcp: false,
+      hasBrowserMcp,
+      ...(overrides.workerAgent ? { workerAgent: overrides.workerAgent } : {}),
+      ...(overrides.extensionRelay
+        ? {
+            hasExtensionRelay: overrides.extensionRelay.enabled && overrides.extensionRelay.running,
+            extensionRelay: overrides.extensionRelay,
+          }
+        : {}),
       hasAndroidMcp,
       ...(hasAndroidMcp
         ? {

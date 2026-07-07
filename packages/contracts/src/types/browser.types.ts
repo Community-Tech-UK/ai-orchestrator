@@ -99,6 +99,7 @@ export interface BrowserTarget {
   driver: BrowserTargetDriver;
   status: BrowserTargetStatus;
   lastSeenAt: number;
+  lastConfirmedAt?: number;
   stale?: boolean;
 }
 

@@ -10,6 +10,7 @@ import type {
 } from './browser-campaign-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import { providerFromContext } from './browser-gateway-action-guard';
+import { existingTabGrantNodeId } from './browser-grant-scope';
 import { getLogger } from '../logging/logger';
 
 /**
@@ -251,7 +252,7 @@ export class BrowserCampaignRuntime {
 
   private liveChildGrants(campaign: BrowserCampaign): BrowserPermissionGrant[] {
     return this.grantStore
-      .listGrants({ profileId: campaign.profileId })
+      .listGrants(campaignGrantListFilter(campaign))
       .filter((grant) => campaignIdFromGrant(grant) === campaign.id);
   }
 
@@ -271,7 +272,7 @@ export class BrowserCampaignRuntime {
       mode: 'autonomous',
       instanceId,
       provider: providerFromContext(provider),
-      profileId: campaign.profileId,
+      ...campaignGrantScope(campaign),
       allowedOrigins,
       allowedActionClasses: campaign.allowedActionClasses as BrowserActionClass[],
       allowExternalNavigation: false,
@@ -283,6 +284,19 @@ export class BrowserCampaignRuntime {
       expiresAt: Math.min(now + CAMPAIGN_LEASE_MS, campaign.expiresAt),
     });
   }
+}
+
+function campaignGrantScope(
+  campaign: BrowserCampaign,
+): Pick<BrowserPermissionGrant, 'nodeId' | 'profileId'> {
+  const nodeId = existingTabGrantNodeId(campaign.profileId);
+  return nodeId ? { nodeId } : { profileId: campaign.profileId };
+}
+
+function campaignGrantListFilter(
+  campaign: BrowserCampaign,
+): { nodeId?: string; profileId?: string } {
+  return campaignGrantScope(campaign);
 }
 
 let runtime: BrowserCampaignRuntime | null = null;

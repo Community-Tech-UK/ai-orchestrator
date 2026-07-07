@@ -1,4 +1,8 @@
 import * as esbuild from 'esbuild';
+import * as fs from 'node:fs';
+
+const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { version?: string };
+const workerAgentVersion = packageJson.version ?? '0.1.0';
 
 async function build(): Promise<void> {
   await Promise.all([
@@ -11,6 +15,9 @@ async function build(): Promise<void> {
       format: 'cjs',
       external: ['electron', 'better-sqlite3', 'node-pty'],
       tsconfig: 'tsconfig.worker.json',
+      define: {
+        'process.env.AIO_WORKER_AGENT_VERSION': JSON.stringify(workerAgentVersion),
+      },
       banner: {
         js: '#!/usr/bin/env node',
       },

@@ -246,7 +246,7 @@ describe('browser extension assets', () => {
     expect(background).toContain('function flushOutbox');
     expect(background).toContain('function scheduleReconnect');
     expect(background).toContain('RECONNECT_MAX_MS');
-    expect(background).toContain("message?.type === 'poll_command'");
+    expect(background).toContain("stampedMessage?.type === 'poll_command'");
   });
 
   it('starts independent native-port bridges for the legacy and relay hosts', async () => {
@@ -255,14 +255,25 @@ describe('browser extension assets', () => {
 
     expect(harness.chrome.runtime.connectNative).toHaveBeenCalledWith(LEGACY_HOST_NAME);
     expect(harness.chrome.runtime.connectNative).toHaveBeenCalledWith(RELAY_HOST_NAME);
-    expect(harness.ports.get(LEGACY_HOST_NAME)?.postMessage).toHaveBeenCalledWith({
+    expect(harness.ports.get(LEGACY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'poll_command',
       timeoutMs: 10000,
-    });
-    expect(harness.ports.get(RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith({
+    }));
+    expect(harness.ports.get(RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'poll_command',
       timeoutMs: 10000,
-    });
+    }));
+  });
+
+  it('stamps native-port messages with extension runtime identity', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+
+    expect(harness.ports.get(RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'poll_command',
+      extensionVersion: '0.1.0',
+      extensionStartedAt: 1_000_000,
+    }));
   });
 
   it('stays passive at startup when Browser Gateway was turned off', async () => {
@@ -458,10 +469,10 @@ describe('browser extension assets', () => {
 
     expect(harness.chrome.runtime.connectNative).toHaveBeenCalledWith(LEGACY_HOST_NAME);
     expect(harness.chrome.runtime.connectNative).toHaveBeenCalledWith(RELAY_HOST_NAME);
-    expect(legacyPort.postMessage).toHaveBeenCalledWith({
+    expect(legacyPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'poll_command',
       timeoutMs: 10000,
-    });
+    }));
     expect(harness.ports.has(RELAY_HOST_NAME)).toBe(false);
     expect(harness.timers.setTimeout.mock.calls.every(([, delayMs]) => delayMs === 30000)).toBe(true);
 
@@ -469,10 +480,10 @@ describe('browser extension assets', () => {
     emitAlarm(harness, 'browser-gateway-inventory');
     await flushPromises();
 
-    expect(harness.ports.get(RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith({
+    expect(harness.ports.get(RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'poll_command',
       timeoutMs: 10000,
-    });
+    }));
   });
 
   it('recycles a no-reply poll through the watchdog timer', async () => {
@@ -746,14 +757,14 @@ describe('browser extension assets', () => {
     await flushPromises();
 
     expect(response).toEqual(expect.objectContaining({ ok: true }));
-    expect(harness.ports.get(LEGACY_HOST_NAME)?.postMessage).toHaveBeenCalledWith({
+    expect(harness.ports.get(LEGACY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'poll_command',
       timeoutMs: 10000,
-    });
-    expect(harness.ports.get(RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith({
+    }));
+    expect(harness.ports.get(RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'poll_command',
       timeoutMs: 10000,
-    });
+    }));
   });
 
   it('derives toolbar badge severity from bridge outage duration', () => {

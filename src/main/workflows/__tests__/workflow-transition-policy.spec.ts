@@ -128,6 +128,25 @@ describe('evaluateTransition', () => {
     ))).toEqual({ kind: 'allowWithOverlap', maxConcurrent: 2 });
   });
 
+  it('blocks release workflows from overlapping with non-release workflows', () => {
+    const current = makeTemplate('a', 'development');
+    const requested = makeTemplate('b', 'release');
+
+    const result = evaluateTransition(inputs(
+      { execution: makeExecution('a'), template: current },
+      requested,
+    ));
+
+    expect(result).toMatchObject({
+      kind: 'deny',
+      suggestedAction: 'cancel-current',
+    });
+    expect(classifyOverlap(inputs(
+      { execution: makeExecution('a'), template: current },
+      requested,
+    ))).toBe('incompatible');
+  });
+
   it('always allows restore starts', () => {
     const current = makeTemplate('a', 'review');
     const requested = makeTemplate('b', 'review');

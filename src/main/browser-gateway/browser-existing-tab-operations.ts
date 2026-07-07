@@ -35,11 +35,10 @@ import {
 import { providerFromContext } from './browser-gateway-action-guard';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { redactBrowserText } from './browser-redaction';
+import { postTimeoutMutationProbe } from './browser-existing-tab-timeout-probe';
 
 const EXTENSION_COMMAND_RESULT_GRACE_MS = 5_000;
 const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
-const POST_TIMEOUT_PROBE_TIMEOUT_MS = 8_000;
-const POST_TIMEOUT_PROBE_EXECUTION_MS = 6_000;
 
 interface BrowserExistingTabOperationsDeps {
   extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
@@ -245,13 +244,11 @@ export class BrowserExistingTabOperations {
       executionTimeoutMs: timeoutMs,
       undeliveredWaitMs,
     }).catch(async (error: unknown) => {
-      // A command that times out in the user's real Chrome may have ALREADY
-      // applied — the extension performed it, the ack just never came back.
-      // Blind-retrying a non-idempotent mutation then duplicates it (the Webflow
-      // incident's 2-3x sections). Re-tag the bare timeout as maybe-applied so the
-      // surfaced reason tells the caller to verify before retrying. Reads stay a
-      // plain timeout (safe to retry). This is the single choke point every
-      // existing-tab command flows through.
+      // A delivered mutation that times out in the user's real Chrome may have
+      // already applied. Before surfacing the failure, re-read any control state
+      // the command describes so callers get a concrete applied/not-applied/unknown
+      // result instead of a duplicate-prone bare timeout. Reads stay a plain
+      // timeout (safe to retry).
       const message = error instanceof Error ? error.message : String(error);
       if (message.startsWith('browser_extension_command_not_delivered')) {
         // Removed from the queue before rejection: the extension never received
@@ -274,42 +271,16 @@ export class BrowserExistingTabOperations {
       }
       if (message.startsWith('browser_extension_command_timeout') && isMutatingBrowserCommand(command)) {
         throw new Error(
-          `browser_extension_command_timeout_maybe_applied${await this.postTimeoutProbeSuffix(attachment)}`,
+          `browser_extension_command_timeout_${await postTimeoutMutationProbe(
+            command,
+            payload,
+            attachment,
+            (request) => this.deps.extensionCommandStore.sendCommand(request),
+          )}`,
         );
       }
       throw error instanceof Error ? error : new Error(message);
     });
-  }
-
-  /**
-   * After a delivered mutation times out, grab a bounded fresh snapshot so the
-   * "maybe applied" error carries the CURRENT page url/title — often enough
-   * for the caller to resolve applied-vs-not without a second round trip
-   * (e.g. a timed-out navigate whose probe already shows the destination URL).
-   * Probe failures degrade silently to the plain maybe-applied message.
-   */
-  private async postTimeoutProbeSuffix(
-    attachment: BrowserExistingTabAttachment,
-  ): Promise<string> {
-    try {
-      const result = await this.deps.extensionCommandStore.sendCommand({
-        ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
-        command: 'snapshot',
-        target: {
-          profileId: attachment.profileId,
-          targetId: attachment.targetId,
-          tabId: attachment.tabId,
-          windowId: attachment.windowId,
-        },
-        timeoutMs: POST_TIMEOUT_PROBE_TIMEOUT_MS,
-        executionTimeoutMs: POST_TIMEOUT_PROBE_EXECUTION_MS,
-        undeliveredWaitMs: POST_TIMEOUT_PROBE_TIMEOUT_MS,
-      });
-      const tab = extractTabPayload(result);
-      return ` (post-timeout probe: page is now at ${tab.url}${tab.title ? ` — "${tab.title}"` : ''})`;
-    } catch {
-      return '';
-    }
   }
 
   private describeChannel(nodeId: string | undefined): string {

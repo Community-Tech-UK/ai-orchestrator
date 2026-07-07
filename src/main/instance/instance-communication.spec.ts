@@ -299,6 +299,29 @@ describe('InstanceCommunicationManager', () => {
     expect(queueUpdate).not.toHaveBeenCalled();
   });
 
+  it('updates a Claude instance model when Claude reports a safety-route switch', async () => {
+    instance.provider = 'claude';
+    instance.currentModel = 'claude-fable-5';
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit(
+      'output',
+      createMessage(
+        'system',
+        'Fable 5\'s safeguards flagged this message. Switched to Opus 4.8. Send feedback with /feedback.',
+      ),
+    );
+    await flushOutputHandlers();
+
+    expect(instance.currentModel).toBe('claude-opus-4-8');
+    expect(queueUpdate).toHaveBeenCalledWith(
+      instance.id, 'idle', instance.contextUsage,
+      undefined, undefined, undefined, undefined, undefined, undefined, 'claude-opus-4-8',
+    );
+  });
+
   it('preserves provider context diagnostics when forwarding adapter context events', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

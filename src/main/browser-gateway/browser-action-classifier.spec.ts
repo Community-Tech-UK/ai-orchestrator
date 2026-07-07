@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyBrowserAction,
   classifyBrowserFillForm,
+  CAPTCHA_CHALLENGE_REASON,
+  TWO_FACTOR_CHALLENGE_REASON,
+  CREDENTIAL_CHALLENGE_REASON,
 } from './browser-action-classifier';
 
 describe('browser-action-classifier', () => {
@@ -50,6 +53,24 @@ describe('browser-action-classifier', () => {
         hardStop: true,
       });
     }
+  });
+
+  it('gives captcha, 2FA and password distinct reasons so the guard can queue only captcha/2FA', () => {
+    expect(
+      classifyBrowserAction({ toolName: 'browser.type', elementContext: { label: 'CAPTCHA response' } }),
+    ).toMatchObject({ actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON });
+
+    expect(
+      classifyBrowserAction({
+        toolName: 'browser.type',
+        elementContext: { inputName: 'otp', label: 'Two-factor code' },
+      }),
+    ).toMatchObject({ actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON });
+
+    // A real password field keeps the generic reason and the approval path.
+    expect(
+      classifyBrowserAction({ toolName: 'browser.type', elementContext: { inputType: 'password', label: 'Password' } }),
+    ).toMatchObject({ actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON });
   });
 
   it('hard-stops payment fields as a distinct payment class (never a credential)', () => {

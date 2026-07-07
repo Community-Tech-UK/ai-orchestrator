@@ -167,6 +167,27 @@ describe('WorkerExtensionRelay', () => {
     });
   });
 
+  it('records extension version and service-worker start time from authenticated messages', async () => {
+    const { relay } = makeRelay();
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'extension-token',
+        payload: {
+          timeoutMs: 1000,
+          extensionVersion: '0.2.1',
+          extensionStartedAt: 1_700_000_000_000,
+        },
+      },
+    });
+
+    expect(relay.getSummary()).toMatchObject({
+      extensionVersion: '0.2.1',
+      extensionReloadedAt: 1_700_000_000_000,
+    });
+  });
+
   it('logs extension first-contact, contact lost, contact resumed, and poll heartbeats', async () => {
     const { relay, logger, setNow } = makeRelay();
 

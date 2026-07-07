@@ -53,6 +53,8 @@ export class WorkerExtensionRelay {
   private readonly now: () => number;
   private registrationSummary: WorkerExtensionRelayRegistrationSummary | undefined;
   private lastExtensionContactAt: number | undefined;
+  private extensionVersion: string | undefined;
+  private extensionReloadedAt: number | undefined;
   private extensionContactState: 'never' | 'active' | 'lost' = 'never';
   private authenticatedPollCount = 0;
 
@@ -165,6 +167,10 @@ export class WorkerExtensionRelay {
       running: this.isRunning(),
       socketPath: this.getSocketPath(),
       ...(this.registrationSummary ?? {}),
+      ...(this.extensionVersion ? { extensionVersion: this.extensionVersion } : {}),
+      ...(this.extensionReloadedAt !== undefined
+        ? { extensionReloadedAt: this.extensionReloadedAt }
+        : {}),
       ...(this.lastExtensionContactAt !== undefined
         ? { lastExtensionContactAt: this.lastExtensionContactAt }
         : {}),
@@ -173,6 +179,7 @@ export class WorkerExtensionRelay {
 
   async handleExtensionRpcRequest(request: ExtensionRpcRequest): Promise<unknown> {
     const params = this.parseAuthorizedParams(request.params);
+    this.recordExtensionRuntimeEvidence(params.payload);
     switch (request.method) {
       case 'browser.extension_attach_tab':
         this.recordExtensionContact();
@@ -336,6 +343,17 @@ export class WorkerExtensionRelay {
       });
     }
     this.extensionContactState = 'active';
+  }
+
+  private recordExtensionRuntimeEvidence(payload: Record<string, unknown>): void {
+    const version = payload['extensionVersion'];
+    if (typeof version === 'string' && version.length > 0) {
+      this.extensionVersion = version;
+    }
+    const startedAt = payload['extensionStartedAt'];
+    if (typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt >= 0) {
+      this.extensionReloadedAt = Math.floor(startedAt);
+    }
   }
 
   private updateExtensionContactHealth(now: number): void {

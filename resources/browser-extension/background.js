@@ -535,18 +535,19 @@ function postNativeMessage(bridge, message, options = {}) {
   if (!gatewayEnabled) {
     return false;
   }
+  const stampedMessage = stampNativeMessage(message);
   // Poll requests are transient — never buffer/replay them (a stale poll would
   // just confuse the host). Everything else is queued if the channel is down.
-  const isPoll = message?.type === 'poll_command';
+  const isPoll = stampedMessage?.type === 'poll_command';
   try {
     const port = connectNativePort(bridge, options);
     if (!port) {
       if (!isPoll && bridge.state !== 'absent') {
-        enqueueOutbox(bridge, message);
+        enqueueOutbox(bridge, stampedMessage);
       }
       return false;
     }
-    port.postMessage(message);
+    port.postMessage(stampedMessage);
     return true;
   } catch (error) {
     bridge.nativePort = null;
@@ -558,7 +559,7 @@ function postNativeMessage(bridge, message, options = {}) {
       return false;
     }
     if (!isPoll) {
-      enqueueOutbox(bridge, message);
+      enqueueOutbox(bridge, stampedMessage);
     }
     scheduleReconnect(bridge);
     return false;
@@ -582,11 +583,12 @@ function postShareMessage(bridge, message) {
   if (!gatewayEnabled) {
     return false;
   }
+  const stampedMessage = stampNativeMessage(message);
   if (!bridge.nativePort || displayStateForBridge(bridge, Date.now()) !== 'connected') {
     return false;
   }
   try {
-    bridge.nativePort.postMessage(message);
+    bridge.nativePort.postMessage(stampedMessage);
     return true;
   } catch (error) {
     bridge.nativePort = null;
@@ -759,6 +761,23 @@ function getStatusPayload() {
     bridges: snapshots,
     sharedTabs: sharedTabs.slice(),
     badge: deriveToolbarBadgeState(snapshots),
+  };
+}
+
+function extensionRuntimeEvidence() {
+  return {
+    extensionVersion: chrome.runtime.getManifest?.().version ?? 'unknown',
+    extensionStartedAt: SW_STARTED_AT,
+  };
+}
+
+function stampNativeMessage(message) {
+  if (!message || typeof message !== 'object') {
+    return message;
+  }
+  return {
+    ...message,
+    ...extensionRuntimeEvidence(),
   };
 }
 

@@ -145,10 +145,10 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(grants[0].targetId).toBeUndefined();
   });
 
-  it('flags a timed-out existing-tab mutation as maybe-applied so it is not blind-retried', async () => {
+  it('reports timed_out_unknown for a timed-out existing-tab click without a read-back contract', async () => {
     // The extension command timed out: the click may already have applied in the
-    // user's Chrome. The surfaced reason must say maybe-applied (verify-before-retry),
-    // never a bare timeout that invites a duplicate.
+    // user's Chrome. Without an expected post-click state, the gateway must
+    // report the ambiguity explicitly instead of returning a bare timeout.
     const sendCommand = vi.fn(async () => {
       throw new Error('browser_extension_command_timeout');
     });
@@ -193,8 +193,239 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(result).toMatchObject({
       decision: 'allowed',
       outcome: 'failed',
-      reason: 'browser_extension_command_timeout_maybe_applied',
+      reason: 'browser_extension_command_timeout_unknown',
     });
+  });
+
+  it('reports timed_out_applied when a timed-out existing-tab click is proven by explicit verify read-back', async () => {
+    const sendCommand = vi.fn(async (request) => {
+      if (request.command === 'read_control') {
+        return { checked: true };
+      }
+      throw new Error('browser_extension_command_timeout');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['input'],
+        }),
+      ],
+    });
+
+    const result = await service.click({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: '#terms',
+      actionHint: 'Accept terms',
+      verify: { checked: true },
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_command_timeout_timed_out_applied',
+    });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'click',
+      payload: {
+        selector: '#terms',
+        verify: { checked: true },
+      },
+    }));
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'read_control',
+      payload: { selector: '#terms' },
+    }));
+  });
+
+  it('reports timed_out_applied when a timed-out existing-tab type is proven by read-back', async () => {
+    const sendCommand = vi.fn(async (request) => {
+      if (request.command === 'read_control') {
+        return { value: 'Release notes' };
+      }
+      throw new Error('browser_extension_command_timeout');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['input'],
+        }),
+      ],
+    });
+
+    const result = await service.type({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: '#release-notes',
+      value: 'Release notes',
+      actionHint: 'Type release notes',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_command_timeout_timed_out_applied',
+    });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'read_control',
+      payload: { selector: '#release-notes' },
+    }));
+  });
+
+  it('reports timed_out_not_applied when a timed-out existing-tab type mismatches read-back', async () => {
+    const sendCommand = vi.fn(async (request) => {
+      if (request.command === 'read_control') {
+        return { value: '' };
+      }
+      throw new Error('browser_extension_command_timeout');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['input'],
+        }),
+      ],
+    });
+
+    const result = await service.type({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: '#release-notes',
+      value: 'Release notes',
+      actionHint: 'Type release notes',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_command_timeout_timed_out_not_applied',
+    });
+  });
+
+  it('reports timed_out_applied when a timed-out existing-tab select is proven by selected label read-back', async () => {
+    const sendCommand = vi.fn(async (request) => {
+      if (request.command === 'read_control') {
+        return { value: 'prod', selectedLabel: 'Production' };
+      }
+      throw new Error('browser_extension_command_timeout');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['input'],
+        }),
+      ],
+    });
+
+    const result = await service.select({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: '#track',
+      value: 'Production',
+      actionHint: 'Select production track',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_command_timeout_timed_out_applied',
+    });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'read_control',
+      payload: { selector: '#track' },
+    }));
   });
 
   it('leaves a timed-out existing-tab read as a plain (retry-safe) timeout', async () => {

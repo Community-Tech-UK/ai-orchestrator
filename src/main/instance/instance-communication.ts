@@ -72,6 +72,7 @@ import {
   getAccumulatedStreamingContent,
 } from './instance-communication.constants';
 import type { CircuitBreakerState } from './instance-communication.constants';
+import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -1050,6 +1051,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
         message = this.withRuntimeMetadata(message, adapterGenerationAtSubscribe, turnId);
+        reconcileClaudeSafetyRouteModel(instanceId, instance, message, this.deps.queueUpdate);
 
         if (message.type === 'error' && isSessionNotFoundText(message.content)) {
           const firstBlacklist = !instance.sessionResumeBlacklisted;

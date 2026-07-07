@@ -21,19 +21,29 @@ export interface BrowserActionClassification {
   reason?: string;
 }
 
-const CREDENTIAL_WORDS = [
-  'password',
-  'passkey',
-  'token',
-  'secret',
-  'recovery code',
+/**
+ * Reasons for a credential-class hard stop, refined so the action guard can
+ * route captcha and 2FA to the batch escalation queue while a real password
+ * field stays on the per-action approval path. All three keep actionClass
+ * 'credential' + hardStop true, so grant / auto-approve / grant-policy behaviour
+ * is unchanged — only the reason string differs.
+ */
+export const CAPTCHA_CHALLENGE_REASON = 'captcha_challenge';
+export const TWO_FACTOR_CHALLENGE_REASON = 'two_factor_challenge';
+export const CREDENTIAL_CHALLENGE_REASON = 'credential_or_manual_challenge';
+/** A legal declaration / attestation (submit-class hard stop). */
+export const LEGAL_DECLARATION_REASON = 'legal_declaration_requires_human_or_preapproval';
+
+const CAPTCHA_WORDS = ['captcha'];
+const TWO_FACTOR_WORDS = [
   'two-factor',
   'two factor',
   '2fa',
   'otp',
-  'captcha',
   'verification code',
+  'recovery code',
 ];
+const PASSWORD_WORDS = ['password', 'passkey', 'token', 'secret'];
 
 // Payment fields are NEVER automatable, even under an autonomous grant — they
 // hard-stop AND are never grantable (see grant policy). Detected ahead of the
@@ -109,19 +119,25 @@ export function classifyBrowserAction(
     };
   }
 
-  if (hasAny(contextText, CREDENTIAL_WORDS)) {
-    return {
-      actionClass: 'credential',
-      hardStop: true,
-      reason: 'credential_or_manual_challenge',
-    };
+  // Captcha and 2FA are credential-class hard stops (unchanged), but carry
+  // distinct reasons so the action guard can park them to the batch escalation
+  // queue rather than block on a per-action approval. A real password/token
+  // field keeps the generic reason and the per-action approval path.
+  if (hasAny(contextText, CAPTCHA_WORDS)) {
+    return { actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON };
+  }
+  if (hasAny(contextText, TWO_FACTOR_WORDS)) {
+    return { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON };
+  }
+  if (hasAny(contextText, PASSWORD_WORDS)) {
+    return { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON };
   }
 
   if (hasAny(contextText, DECLARATION_WORDS)) {
     return {
       actionClass: 'submit',
       hardStop: true,
-      reason: 'legal_declaration_requires_human_or_preapproval',
+      reason: LEGAL_DECLARATION_REASON,
     };
   }
 
