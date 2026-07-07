@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import * as path from 'node:path';
 import {
   CopilotUsageEndpointProbe,
+  defaultCopilotAppsPaths,
   parseCopilotInternalUserPayload,
   type CopilotAppsReader,
   type CopilotUsageFetch,
@@ -82,5 +84,48 @@ describe('CopilotUsageEndpointProbe', () => {
     const snap = await probe.probe({ signal: new AbortController().signal });
     expect(snap!.ok).toBe(false);
     expect(snap!.error).toMatch(/not signed in|apps\.json/i);
+  });
+
+  it('tries Windows LocalAppData apps.json when the POSIX config path is absent', async () => {
+    const calls: string[] = [];
+    const localAppsPath = path.join('C:\\Users\\u\\AppData\\Local', 'github-copilot', 'apps.json');
+    const fetchUsage: CopilotUsageFetch = async () => ({
+      status: 200,
+      body: {
+        copilot_plan: 'copilot-pro',
+        quota_snapshots: { premium_interactions: { percent_remaining: 50 } },
+      },
+    });
+    const probe = new CopilotUsageEndpointProbe({
+      env: {
+        LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local',
+        APPDATA: 'C:\\Users\\u\\AppData\\Roaming',
+      } as NodeJS.ProcessEnv,
+      readFile: async (p) => {
+        calls.push(p);
+        if (p === localAppsPath) return APPS_JSON;
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      },
+      fetchUsage,
+    });
+
+    const snap = await probe.probe({ signal: new AbortController().signal });
+
+    expect(snap!.ok).toBe(true);
+    expect(calls).toContain(localAppsPath);
+  });
+
+  it('builds de-duplicated platform token path candidates', () => {
+    const paths = defaultCopilotAppsPaths({
+      XDG_CONFIG_HOME: '/home/u/.config',
+      LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local',
+      APPDATA: 'C:\\Users\\u\\AppData\\Roaming',
+    } as NodeJS.ProcessEnv, '/home/u');
+
+    expect(paths).toEqual([
+      path.join('/home/u/.config', 'github-copilot', 'apps.json'),
+      path.join('C:\\Users\\u\\AppData\\Local', 'github-copilot', 'apps.json'),
+      path.join('C:\\Users\\u\\AppData\\Roaming', 'github-copilot', 'apps.json'),
+    ]);
   });
 });

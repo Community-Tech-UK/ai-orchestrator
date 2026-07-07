@@ -1,8 +1,9 @@
 /**
  * CopilotUsageEndpointProbe
  *
- * Reads the GitHub Copilot CLI OAuth token from
- * `~/.config/github-copilot/apps.json` and calls
+ * Reads the GitHub Copilot CLI OAuth token from the platform config locations
+ * (`~/.config/github-copilot/apps.json` on POSIX,
+ * `%LOCALAPPDATA%\github-copilot\apps.json` on Windows) and calls
  * `GET https://api.github.com/copilot_internal/user`, matching
  * token-usage-monitor's percentage source.
  */
@@ -35,7 +36,15 @@ export type CopilotUsageFetch = (
 ) => Promise<{ status: number; body: unknown }>;
 
 export interface CopilotUsageEndpointProbeOptions {
+  /**
+   * Explicit single token file path. Kept for compatibility with existing
+   * tests/callers; `appsPaths` wins when both are supplied.
+   */
   appsPath?: string;
+  /** Ordered token file candidates. The first usable OAuth token wins. */
+  appsPaths?: string[];
+  /** Injected env for platform path discovery. Defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
   readFile?: CopilotAppsReader;
   fetchUsage?: CopilotUsageFetch;
   timeoutMs?: number;
@@ -61,13 +70,15 @@ interface CopilotInternalUserPayload {
 export class CopilotUsageEndpointProbe implements ProviderQuotaProbe {
   readonly provider = 'copilot' as const;
 
-  private readonly appsPath: string;
+  private readonly appsPaths: string[];
   private readonly readFile: CopilotAppsReader;
   private readonly fetchUsage: CopilotUsageFetch;
   private readonly timeoutMs: number;
 
   constructor(opts: CopilotUsageEndpointProbeOptions = {}) {
-    this.appsPath = opts.appsPath ?? path.join(os.homedir(), '.config', 'github-copilot', 'apps.json');
+    this.appsPaths = opts.appsPaths ?? (
+      opts.appsPath ? [opts.appsPath] : defaultCopilotAppsPaths(opts.env)
+    );
     this.readFile = opts.readFile ?? ((p) => fsReadFile(p, 'utf8'));
     this.fetchUsage = opts.fetchUsage ?? defaultFetchUsage;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -118,9 +129,17 @@ export class CopilotUsageEndpointProbe implements ProviderQuotaProbe {
   }
 
   private async readToken(): Promise<string | null> {
+    for (const appsPath of this.appsPaths) {
+      const token = await this.readTokenFromPath(appsPath);
+      if (token) return token;
+    }
+    return null;
+  }
+
+  private async readTokenFromPath(appsPath: string): Promise<string | null> {
     let raw: string;
     try {
-      raw = await this.readFile(this.appsPath);
+      raw = await this.readFile(appsPath);
     } catch {
       return null;
     }
@@ -139,6 +158,19 @@ export class CopilotUsageEndpointProbe implements ProviderQuotaProbe {
     }
     return null;
   }
+}
+
+export function defaultCopilotAppsPaths(
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir = os.homedir(),
+): string[] {
+  const candidates = [
+    env['XDG_CONFIG_HOME'] ? path.join(env['XDG_CONFIG_HOME'], 'github-copilot', 'apps.json') : '',
+    path.join(homeDir, '.config', 'github-copilot', 'apps.json'),
+    env['LOCALAPPDATA'] ? path.join(env['LOCALAPPDATA'], 'github-copilot', 'apps.json') : '',
+    env['APPDATA'] ? path.join(env['APPDATA'], 'github-copilot', 'apps.json') : '',
+  ];
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 export function parseCopilotInternalUserPayload(

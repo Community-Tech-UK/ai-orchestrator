@@ -220,6 +220,10 @@ export function getCliAdditionalPaths(
     // after normal Node locations because the same directory also contains a
     // bundled node.exe used internally by Codex.
     `${localAppData}\\OpenAI\\Codex\\bin`,
+    // Antigravity's Windows installer writes agy.exe here. Packaged Electron
+    // starts with a stripped PATH often enough that relying on the user's shell
+    // PATH misses an otherwise working install.
+    `${localAppData}\\agy\\bin`,
     // Per-user python.org installs (real interpreter + pip), ahead of the
     // WindowsApps Store alias stub below.
     ...getWindowsPythonPaths(env),

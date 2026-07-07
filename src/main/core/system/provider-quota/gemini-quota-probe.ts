@@ -27,23 +27,33 @@
  * via the user's OAuth token, populate `windows` in `parseAccounts()` below.
  */
 
+import { spawn as spawnChild } from 'child_process';
+import { existsSync } from 'fs';
 import { readFile as fsReadFile } from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { ProviderQuotaSnapshot } from '../../../../shared/types/provider-quota.types';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
 import { getLogger } from '../../../logging/logger';
+import { buildCliEnv } from '../../../cli/cli-environment';
+import { CLI_REGISTRY, getCliCandidatePaths } from '../../../cli/cli-registry';
 
 const logger = getLogger('GeminiQuotaProbe');
 
 /** Pluggable file reader — tests inject a fake. */
 export type GeminiFileReader = (filePath: string) => Promise<string>;
+/** Cheap Antigravity CLI auth/health check used when legacy Gemini files are absent. */
+export type AntigravityCliAuthCheck = (opts: { signal?: AbortSignal }) => Promise<boolean>;
 
 export interface GeminiQuotaProbeOptions {
   /** Override for the Gemini config directory. Defaults to `~/.gemini`. */
   configDir?: string;
   /** Injected reader for testability. Defaults to `fs/promises.readFile`. */
   readFile?: GeminiFileReader;
+  /** Injected Antigravity CLI check for testability. Defaults to `agy models`. */
+  checkAntigravityCli?: AntigravityCliAuthCheck;
+  /** Timeout for the default `agy models` fallback. */
+  antigravityCliTimeoutMs?: number;
 }
 
 /** Shape of `~/.gemini/google_accounts.json`. */
@@ -69,22 +79,26 @@ export class GeminiQuotaProbe implements ProviderQuotaProbe {
   private readonly accountsPath: string;
   private readonly settingsPath: string;
   private readonly readFile: GeminiFileReader;
+  private readonly checkAntigravityCli: AntigravityCliAuthCheck;
 
   constructor(opts: GeminiQuotaProbeOptions = {}) {
     const configDir = opts.configDir ?? path.join(os.homedir(), '.gemini');
     this.accountsPath = path.join(configDir, 'google_accounts.json');
     this.settingsPath = path.join(configDir, 'settings.json');
     this.readFile = opts.readFile ?? defaultReader;
+    this.checkAntigravityCli = opts.checkAntigravityCli
+      ?? defaultAntigravityCliAuthCheck(opts.antigravityCliTimeoutMs);
   }
 
-  async probe(): Promise<ProviderQuotaSnapshot | null> {
+  async probe(opts: { signal?: AbortSignal } = {}): Promise<ProviderQuotaSnapshot | null> {
     const takenAt = Date.now();
 
     let accountsRaw: string;
     try {
       accountsRaw = await this.readFile(this.accountsPath);
     } catch (err) {
-      return failedSnapshot(takenAt, classifyReadError(err, 'accounts'));
+      return await this.cliFallbackSnapshot(takenAt, opts.signal)
+        ?? failedSnapshot(takenAt, classifyReadError(err, 'accounts'));
     }
 
     let accounts: GoogleAccountsFile;
@@ -92,11 +106,13 @@ export class GeminiQuotaProbe implements ProviderQuotaProbe {
       accounts = JSON.parse(accountsRaw) as GoogleAccountsFile;
     } catch (err) {
       logger.debug(`Failed to parse google_accounts.json: ${(err as Error).message}`);
-      return failedSnapshot(takenAt, 'Failed to parse Gemini google_accounts.json');
+      return await this.cliFallbackSnapshot(takenAt, opts.signal)
+        ?? failedSnapshot(takenAt, 'Failed to parse Gemini google_accounts.json');
     }
 
     if (!accounts.active || typeof accounts.active !== 'string') {
-      return failedSnapshot(takenAt, 'Gemini CLI is not signed in');
+      return await this.cliFallbackSnapshot(takenAt, opts.signal)
+        ?? failedSnapshot(takenAt, 'Gemini CLI is not signed in');
     }
 
     // Best-effort: read settings.json for the auth type. If it fails, we
@@ -117,6 +133,29 @@ export class GeminiQuotaProbe implements ProviderQuotaProbe {
       source: 'cli-result',
       ok: true,
       plan,
+      windows: [],
+    };
+  }
+
+  private async cliFallbackSnapshot(
+    takenAt: number,
+    signal: AbortSignal | undefined,
+  ): Promise<ProviderQuotaSnapshot | null> {
+    let ok = false;
+    try {
+      ok = await this.checkAntigravityCli({ signal });
+    } catch (err) {
+      logger.debug(`Antigravity CLI fallback auth check failed: ${(err as Error).message}`);
+      ok = false;
+    }
+
+    if (!ok) return null;
+    return {
+      provider: 'antigravity',
+      takenAt,
+      source: 'cli-result',
+      ok: true,
+      plan: 'unknown',
       windows: [],
     };
   }
@@ -163,3 +202,63 @@ function mapSelectedTypeToPlan(selectedType: string | undefined): string {
 const defaultReader: GeminiFileReader = async (filePath) => {
   return fsReadFile(filePath, 'utf8');
 };
+
+function defaultAntigravityCliAuthCheck(timeoutMs = 5_000): AntigravityCliAuthCheck {
+  return async ({ signal }) => {
+    return new Promise<boolean>((resolve) => {
+      const proc = spawnChild(resolveAntigravityCliCommand(), ['models'], {
+        env: buildCliEnv(),
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+      let timer: NodeJS.Timeout | null = null;
+
+      const finish = (ok: boolean): void => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        resolve(ok);
+      };
+
+      const onAbort = (): void => {
+        try {
+          proc.kill();
+        } catch {
+          // Process may already be closed.
+        }
+        finish(false);
+      };
+
+      timer = setTimeout(onAbort, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      signal?.addEventListener('abort', onAbort, { once: true });
+
+      proc.stdout?.on('data', (data) => { stdout += data.toString(); });
+      proc.stderr?.on('data', (data) => { stderr += data.toString(); });
+      proc.on('error', () => finish(false));
+      proc.on('close', (code) => {
+        const output = `${stdout}\n${stderr}`.trim();
+        finish(code === 0 && output.length > 0);
+      });
+    });
+  };
+}
+
+function resolveAntigravityCliCommand(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const config = CLI_REGISTRY.antigravity;
+  const candidate = getCliCandidatePaths(config, env, platform).find((p) => existsSync(p));
+  return candidate ?? config.command;
+}

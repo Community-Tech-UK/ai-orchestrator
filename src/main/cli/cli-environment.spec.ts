@@ -180,6 +180,16 @@ describe('cli-environment', () => {
     expect(codexDesktopIdx).toBeLessThan(windowsAppsIdx);
   });
 
+  it('includes the Antigravity Windows installer bin for stripped Electron PATHs', () => {
+    const env = {
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      ProgramFiles: 'C:\\Program Files',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    expect(getCliAdditionalPaths(env, 'win32')).toContain('C:\\Users\\User\\AppData\\Local\\agy\\bin');
+  });
+
   it('includes core Windows system dirs so a minimal-PATH worker can resolve system tools', () => {
     // Observed live on windows-pc: a detached worker inherited PATH of just
     // `C:\Program Files\PowerShell\7`, so the spawned agent could not run

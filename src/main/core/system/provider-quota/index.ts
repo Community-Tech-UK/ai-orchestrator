@@ -145,7 +145,11 @@ export function registerDefaultQuotaProbes(): void {
     usageMonitor,
   ));
   service.registerProbe(new CompositeQuotaProbe(
-    new FallbackQuotaProbe(new GeminiUsageEndpointProbe(), new GeminiQuotaProbe()),
+    new FallbackQuotaProbe(
+      new GeminiUsageEndpointProbe(),
+      new GeminiQuotaProbe(),
+      { propagatePrimaryReauth: false },
+    ),
     usageMonitor,
   ));
   service.registerProbe(new CompositeQuotaProbe(new CursorUsageSummaryProbe(), usageMonitor));

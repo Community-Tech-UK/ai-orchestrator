@@ -102,6 +102,7 @@ describe('GeminiQuotaProbe', () => {
           'google_accounts.json': ACCOUNTS_LOGGED_OUT,
           'settings.json': SETTINGS_OAUTH,
         }),
+        checkAntigravityCli: async () => false,
       });
       const snap = await probe.probe({ signal: new AbortController().signal });
       expect(snap!.ok).toBe(false);
@@ -114,10 +115,28 @@ describe('GeminiQuotaProbe', () => {
           'google_accounts.json': null,
           'settings.json': SETTINGS_OAUTH,
         }),
+        checkAntigravityCli: async () => false,
       });
       const snap = await probe.probe({ signal: new AbortController().signal });
       expect(snap!.ok).toBe(false);
       expect(snap!.error).toMatch(/not signed in|not installed/i);
+    });
+
+    it('falls back to a working Antigravity CLI when legacy Gemini accounts are absent', async () => {
+      const probe = new GeminiQuotaProbe({
+        readFile: fakeReader({
+          'google_accounts.json': null,
+          'settings.json': SETTINGS_OAUTH,
+        }),
+        checkAntigravityCli: async () => true,
+      });
+      const snap = await probe.probe({ signal: new AbortController().signal });
+      expect(snap).toMatchObject({
+        provider: 'antigravity',
+        ok: true,
+        plan: 'unknown',
+        windows: [],
+      });
     });
 
     it('returns ok=false when active is missing from accounts file', async () => {
@@ -126,6 +145,7 @@ describe('GeminiQuotaProbe', () => {
           'google_accounts.json': JSON.stringify({ old: [] }),
           'settings.json': SETTINGS_OAUTH,
         }),
+        checkAntigravityCli: async () => false,
       });
       const snap = await probe.probe({ signal: new AbortController().signal });
       expect(snap!.ok).toBe(false);
@@ -137,6 +157,7 @@ describe('GeminiQuotaProbe', () => {
       const eacces = Object.assign(new Error('EACCES'), { code: 'EACCES' });
       const probe = new GeminiQuotaProbe({
         readFile: async () => { throw eacces; },
+        checkAntigravityCli: async () => false,
       });
       const snap = await probe.probe({ signal: new AbortController().signal });
       expect(snap!.ok).toBe(false);
@@ -149,6 +170,7 @@ describe('GeminiQuotaProbe', () => {
           'google_accounts.json': 'not json{',
           'settings.json': SETTINGS_OAUTH,
         }),
+        checkAntigravityCli: async () => false,
       });
       const snap = await probe.probe({ signal: new AbortController().signal });
       expect(snap!.ok).toBe(false);

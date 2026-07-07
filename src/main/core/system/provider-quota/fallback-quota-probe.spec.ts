@@ -88,4 +88,23 @@ describe('FallbackQuotaProbe', () => {
     expect(result!.plan).toBe('personal');
     expect(result!.needsReauth).toBe(true);
   });
+
+  it('can let a signed-in fallback clear a stale primary needsReauth flag', async () => {
+    const primary: ProviderQuotaSnapshot = {
+      provider: 'antigravity', takenAt: 1, source: 'admin-api', ok: false,
+      error: 'legacy OAuth file missing', needsReauth: true, windows: [],
+    };
+    const fallback: ProviderQuotaSnapshot = {
+      provider: 'antigravity', takenAt: 2, source: 'cli-result', ok: true, plan: 'unknown', windows: [],
+    };
+
+    const result = await new FallbackQuotaProbe(
+      probe(primary),
+      probe(fallback),
+      { propagatePrimaryReauth: false },
+    ).probe({ signal: signal() });
+
+    expect(result).toBe(fallback);
+    expect(result!.needsReauth).toBeUndefined();
+  });
 });
