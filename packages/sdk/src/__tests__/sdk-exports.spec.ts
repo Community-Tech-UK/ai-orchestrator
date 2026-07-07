@@ -1,20 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import {
-  defineTool,
-  type NotifierPlugin,
-  type OrchestratorHooks,
-  type PluginProviderAdapterDescriptor,
-  type ProviderCapabilities,
-  type ProviderConfig,
-  type ProviderSessionOptions,
-  type ProviderStatus,
-  type SystemMessageConfig,
-  type TrackerPlugin,
-  type ToolContext,
-  type ToolModule,
-} from '@sdk';
+import { defineTool, type ToolContext, type ToolModule } from '@sdk/tools';
+import type { NotifierPlugin, OrchestratorHooks, TrackerPlugin } from '@sdk/plugins';
+import type {
+  ProviderCapabilities,
+  ProviderConfig,
+  ProviderSessionOptions,
+  ProviderStatus,
+  SystemMessageConfig,
+} from '@sdk/providers';
+import type { PluginProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
 
 describe('SDK exports', () => {
   it('exports tool authoring helpers', async () => {

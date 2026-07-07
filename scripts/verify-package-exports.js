@@ -22,7 +22,6 @@ const EXTENSIONS = new Set(['.ts', '.tsx']);
 
 const SKIP_SUFFIXES = [
   'packages/contracts/src/index.ts',
-  'packages/sdk/src/__tests__/sdk-exports.spec.ts',
 ];
 
 const BANNED_PATTERNS = [
@@ -35,6 +34,10 @@ const BANNED_PATTERNS = [
   /require\(\s*['"]@contracts\/types['"]\s*\)/g,
   /require\(\s*['"]@sdk['"]\s*\)/g,
 ];
+
+function toPosixPath(filePath) {
+  return filePath.split(path.sep).join('/');
+}
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -61,8 +64,9 @@ function collectFiles() {
     }
   }
   return files
-    .filter((f) => !SKIP_SUFFIXES.some((suffix) => f.endsWith(suffix)))
-    .map((absPath) => ({ path: path.relative(ROOT, absPath), content: fs.readFileSync(absPath, 'utf8') }));
+    .map((absPath) => ({ absPath, relPath: toPosixPath(path.relative(ROOT, absPath)) }))
+    .filter(({ relPath }) => !SKIP_SUFFIXES.includes(relPath))
+    .map(({ absPath, relPath }) => ({ path: relPath, content: fs.readFileSync(absPath, 'utf8') }));
 }
 
 function lineOf(content, index) {
