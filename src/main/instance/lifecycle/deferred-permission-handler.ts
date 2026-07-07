@@ -18,6 +18,7 @@ import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrom
 import { getLogger } from '../../logging/logger';
 import { planSessionRecovery, computeResumeConfigFingerprint } from './session-recovery';
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
+import { applyProviderSessionDurability } from './provider-session-durability';
 
 const logger = getLogger('DeferredPermissionHandler');
 
@@ -185,7 +186,7 @@ export class DeferredPermissionHandler {
 
       // 3. Build spawn options with resume
       const cliType = await this.ops.resolveCliTypeForInstance(instance);
-      const spawnOptions: UnifiedSpawnOptions = {
+      const spawnOptions: UnifiedSpawnOptions = applyProviderSessionDurability(cliType, instance, {
         instanceId: instance.id,
         sessionId: deferred.sessionId,
         workingDirectory: instance.workingDirectory,
@@ -201,7 +202,7 @@ export class DeferredPermissionHandler {
           cliType,
         ) ?? undefined,
         permissionHookPath: this.ops.getPermissionHookPath(instance.yoloMode),
-      };
+      });
 
       // 4. Create and spawn new adapter
       const adapter = this.ops.createCliAdapter(cliType, spawnOptions, instance.executionLocation);

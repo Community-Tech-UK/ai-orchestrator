@@ -5227,7 +5227,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3416
+      "lines": 3419
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
@@ -5451,7 +5451,7 @@
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1433
+      "lines": 1436
     },
     {
       "path": "src/main/history/history-manager.ts",

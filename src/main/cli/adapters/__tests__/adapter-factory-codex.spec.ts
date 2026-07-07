@@ -99,6 +99,63 @@ describe('adapter factory - codex', () => {
     expect(config.browserGatewayInstanceId).toBe('instance-browser');
   });
 
+  it('converts the inline orchestrator-tools bridge into Codex TOML', () => {
+    const adapter = createCodexAdapter({
+      workingDirectory: '/tmp',
+      mcpConfig: [
+        JSON.stringify({
+          mcpServers: {
+            orchestrator: {
+              command: '/tmp/aio-mcp',
+              args: ['orchestrator-tools'],
+              env: {
+                AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: '/tmp/orchestrator-tools.sock',
+                AI_ORCHESTRATOR_INSTANCE_ID: 'instance-tools',
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    const toml = (adapter as unknown as {
+      cliConfig: { mcpServersConfigToml?: string };
+    }).cliConfig.mcpServersConfigToml ?? '';
+
+    expect(toml).toContain('[mcp_servers.orchestrator]');
+    expect(toml).toContain('command = "/tmp/aio-mcp"');
+    expect(toml).toContain('args = ["orchestrator-tools"]');
+    expect(toml).toContain('[mcp_servers.orchestrator.env]');
+    expect(toml).toContain('AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET = "/tmp/orchestrator-tools.sock"');
+    expect(toml).toContain('AI_ORCHESTRATOR_INSTANCE_ID = "instance-tools"');
+  });
+
+  it('does not duplicate browser-gateway when an inline bridge and dedicated Codex config are both present', () => {
+    const adapter = createCodexAdapter({
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      browserGatewayMcp: {
+        aioMcpCliPath: '/tmp/aio-mcp',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        exists: () => true,
+      },
+      mcpConfig: [
+        JSON.stringify({
+          mcpServers: {
+            'browser-gateway': { command: '/tmp/aio-mcp', args: ['browser-gateway'] },
+          },
+        }),
+      ],
+    });
+
+    const toml = (adapter as unknown as {
+      cliConfig: { mcpServersConfigToml?: string };
+    }).cliConfig.mcpServersConfigToml ?? '';
+
+    expect(toml.match(/\[mcp_servers\."browser-gateway"\]/g)?.length).toBe(1);
+  });
+
   it('injects static config/mcp-servers.json servers (e.g. imap) into the Codex TOML', () => {
     const staticConfig = writeStaticMcpConfig(
       JSON.stringify({

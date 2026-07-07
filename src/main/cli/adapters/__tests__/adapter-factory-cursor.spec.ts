@@ -68,4 +68,50 @@ describe('adapter factory — cursor', () => {
     expect(chromeDevtools?.args).toContain('--browserUrl');
     expect(chromeDevtools?.args).toContain('http://127.0.0.1:31234');
   });
+
+  it('adds inline Orchestrator Tools MCP config to the Cursor ACP mcpServers list', () => {
+    const adapter = createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      mcpConfig: [
+        JSON.stringify({
+          mcpServers: {
+            orchestrator: {
+              command: '/tmp/aio-mcp',
+              args: ['orchestrator-tools'],
+              env: {
+                AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: '/tmp/orchestrator-tools.sock',
+                AI_ORCHESTRATOR_INSTANCE_ID: 'instance-cursor',
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const servers = (adapter as unknown as {
+      acpConfig: {
+        mcpServers?: Array<{
+          name: string;
+          command: string;
+          args?: string[];
+          env?: Array<{ name: string; value: string }>;
+        }>;
+      };
+    }).acpConfig.mcpServers ?? [];
+    const orchestrator = servers.find((server) => server.name === 'orchestrator');
+
+    expect(orchestrator).toMatchObject({
+      name: 'orchestrator',
+      command: '/tmp/aio-mcp',
+      args: ['orchestrator-tools'],
+    });
+    expect(orchestrator?.env).toEqual(
+      expect.arrayContaining([
+        {
+          name: 'AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET',
+          value: '/tmp/orchestrator-tools.sock',
+        },
+        { name: 'AI_ORCHESTRATOR_INSTANCE_ID', value: 'instance-cursor' },
+      ]),
+    );
+  });
 });

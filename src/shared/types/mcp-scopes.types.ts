@@ -20,6 +20,11 @@ export type SupportedProvider = Extract<
   'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot'
 >;
 
+export type OrchestratorRuntimeInjectionProvider = Extract<
+  CanonicalCliType,
+  'claude' | 'codex' | 'copilot' | 'cursor'
+>;
+
 export const ALL_MCP_SCOPES: readonly McpScope[] = [
   'user',
   'project',
@@ -43,6 +48,15 @@ export const SUPPORTED_PROVIDERS: readonly SupportedProvider[] = [
 
 export const ORCHESTRATOR_INJECTION_PROVIDERS: readonly SupportedProvider[] = [
   'claude',
+  'codex',
+  'copilot',
+];
+
+export const ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS: readonly OrchestratorRuntimeInjectionProvider[] = [
+  'claude',
+  'codex',
+  'copilot',
+  'cursor',
 ];
 
 export const PROVIDER_SCOPES: Record<SupportedProvider, readonly ProviderMcpScope[]> = {
@@ -75,6 +89,15 @@ export function isProviderScope(scope: McpScope): scope is ProviderMcpScope {
 
 export function isSupportedProvider(provider: string | undefined): provider is SupportedProvider {
   return Boolean(provider && (SUPPORTED_PROVIDERS as readonly string[]).includes(provider));
+}
+
+export function isOrchestratorRuntimeInjectionProvider(
+  provider: string | undefined,
+): provider is OrchestratorRuntimeInjectionProvider {
+  return Boolean(
+    provider &&
+    (ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS as readonly string[]).includes(provider)
+  );
 }
 
 export function isWritableScope(

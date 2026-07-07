@@ -414,6 +414,67 @@ describe('InterruptRespawnHandler', () => {
     );
   });
 
+  it('uses durable provider sessions for root Codex auto-respawn', async () => {
+    instance = createInstance('respawning');
+    instance.id = 'root-codex-respawn-instance';
+    instance.provider = 'codex';
+    instance.parentId = null;
+    instance.depth = 0;
+    instance.outputBuffer = [];
+
+    const previousAdapter = adapter as unknown as CliAdapter;
+    const replacement = new RespawnReplacementAdapter();
+    replacement.spawn.mockResolvedValue(777);
+    providerRuntime.createAdapter.mockReturnValue(replacement);
+
+    let currentAdapter: CliAdapter | undefined = previousAdapter;
+    const setAdapter = vi.fn((_id: string, next: CliAdapter) => {
+      currentAdapter = next;
+    });
+    const deleteAdapter = vi.fn(() => {
+      currentAdapter = undefined;
+    });
+
+    handler = new InterruptRespawnHandler({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: () => currentAdapter,
+      setAdapter,
+      deleteAdapter,
+      queueUpdate,
+      markInterrupted: vi.fn(),
+      clearInterrupted,
+      addToOutputBuffer,
+      setupAdapterEvents: vi.fn(),
+      transitionState: (target, status) => {
+        target.status = status;
+      },
+      getAdapterRuntimeCapabilities: () => ({
+        supportsResume: false,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+      }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('codex'),
+      getMcpConfig: () => [],
+      getPermissionHookPath: () => undefined,
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
+      buildReplayContinuityMessage: () => 'replay continuity',
+      buildFallbackHistory: vi.fn(),
+      emitOutput,
+    });
+
+    await handler.respawnAfterUnexpectedExit(instance.id);
+
+    expect(providerRuntime.createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cliType: 'codex',
+        options: expect.objectContaining({ ephemeral: false }),
+      }),
+    );
+  });
+
   it('enables resident Claude when respawning an instance with stale rollout state', async () => {
     instance = createInstance('respawning');
     instance.id = 'stale-resident-claude-instance';

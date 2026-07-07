@@ -274,6 +274,76 @@ export function buildCopilotAdditionalMcpConfig(
   });
 }
 
+const DEDICATED_ACP_BRIDGE_SERVERS = new Set([
+  'browser-gateway',
+  'chrome-devtools',
+  'mobile-mcp',
+  'maestro',
+]);
+
+interface InlineJsonMcpServer {
+  command?: unknown;
+  args?: unknown;
+  env?: unknown;
+}
+
+function toAcpMcpServer(name: string, server: InlineJsonMcpServer): AcpMcpServerConfig | null {
+  if (typeof server.command !== 'string' || !server.command.trim()) {
+    return null;
+  }
+  const args = Array.isArray(server.args)
+    ? server.args.filter((arg): arg is string => typeof arg === 'string')
+    : undefined;
+  const env = server.env &&
+    typeof server.env === 'object' &&
+    !Array.isArray(server.env)
+    ? Object.entries(server.env)
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        .map(([envName, value]) => ({ name: envName, value }))
+    : undefined;
+  return {
+    name,
+    command: server.command,
+    ...(args && args.length > 0 ? { args } : {}),
+    ...(env && env.length > 0 ? { env } : {}),
+  };
+}
+
+export function buildInlineMcpServersAcpMcpServers(
+  mcpConfigEntries: string[] | undefined,
+): AcpMcpServerConfig[] {
+  if (!mcpConfigEntries?.length) {
+    return [];
+  }
+
+  const servers = new Map<string, AcpMcpServerConfig>();
+  for (const entry of mcpConfigEntries) {
+    const trimmed = entry.trim();
+    if (!trimmed.startsWith('{')) {
+      continue;
+    }
+
+    let parsed: { mcpServers?: Record<string, InlineJsonMcpServer> };
+    try {
+      parsed = JSON.parse(trimmed) as { mcpServers?: Record<string, InlineJsonMcpServer> };
+    } catch {
+      continue;
+    }
+
+    for (const [name, server] of Object.entries(parsed.mcpServers ?? {})) {
+      if (DEDICATED_ACP_BRIDGE_SERVERS.has(name)) {
+        continue;
+      }
+      const acpServer = toAcpMcpServer(name, server);
+      if (acpServer) {
+        servers.set(name, acpServer);
+      }
+    }
+  }
+
+  return [...servers.values()];
+}
+
 function hasInlineMcpServerConfig(configs: string[], serverName: string): boolean {
   return configs.some((config) => {
     try {

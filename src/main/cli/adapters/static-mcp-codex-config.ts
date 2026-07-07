@@ -6,10 +6,8 @@
  *
  * Codex does not accept `--mcp-config`; its MCP servers are injected through a
  * synthetic CODEX_HOME built from `mcpServersConfigToml` (see
- * codex-cli-adapter). The dynamically-injected bridges (browser-gateway,
- * chrome-devtools, codemem, orchestrator-tools) are handled through their own
- * channels, so this helper deliberately ignores them and converts only the
- * static config file.
+ * codex-cli-adapter). Static config files and selected inline bridge configs
+ * need separate handling so dedicated Codex bridge channels are not duplicated.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -23,6 +21,12 @@ import { CodexTomlEditor, type CodexTomlServer } from '../../mcp/adapters/codex-
  * spawn-config-builder (which pulls in electron `app`).
  */
 const STATIC_MCP_CONFIG_BASENAME = 'mcp-servers.json';
+const DEDICATED_CODEX_BRIDGE_SERVERS = new Set([
+  'browser-gateway',
+  'chrome-devtools',
+  'mobile-mcp',
+  'maestro',
+]);
 
 interface JsonMcpServer {
   command?: string;
@@ -88,6 +92,47 @@ export function buildStaticMcpServersCodexConfigToml(
     }
 
     for (const [name, server] of Object.entries(parsed.mcpServers ?? {})) {
+      toml = editor.upsertMcpServer(toml, name, toCodexServer(server));
+    }
+  }
+
+  const result = toml.trim();
+  return result.length > 0 ? result : null;
+}
+
+/**
+ * Converts inline JSON MCP bridge configs that do not have a dedicated Codex
+ * TOML channel. This carries orchestrator-tools (`run_on_node`) and any other
+ * orchestrator-scoped inline servers through to Codex without duplicating
+ * Browser Gateway / Chrome / Mobile blocks already built elsewhere.
+ */
+export function buildInlineMcpServersCodexConfigToml(
+  mcpConfigEntries: string[] | undefined,
+): string | null {
+  if (!mcpConfigEntries?.length) {
+    return null;
+  }
+
+  const editor = new CodexTomlEditor();
+  let toml = '';
+
+  for (const entry of mcpConfigEntries) {
+    const trimmed = entry.trim();
+    if (!trimmed.startsWith('{')) {
+      continue;
+    }
+
+    let parsed: { mcpServers?: Record<string, JsonMcpServer> };
+    try {
+      parsed = JSON.parse(trimmed) as { mcpServers?: Record<string, JsonMcpServer> };
+    } catch {
+      continue;
+    }
+
+    for (const [name, server] of Object.entries(parsed.mcpServers ?? {})) {
+      if (DEDICATED_CODEX_BRIDGE_SERVERS.has(name)) {
+        continue;
+      }
       toml = editor.upsertMcpServer(toml, name, toCodexServer(server));
     }
   }

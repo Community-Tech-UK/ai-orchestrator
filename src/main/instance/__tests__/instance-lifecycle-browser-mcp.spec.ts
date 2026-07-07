@@ -180,18 +180,40 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('claude');
   });
 
-  it('skips Orchestrator-scoped configs for providers that do not consume mcpConfig', () => {
+  it('adds Orchestrator-scoped inline MCP configs for Codex local instances', () => {
     const builder = makeBuilder();
 
-    builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'codex');
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-codex', 'codex');
 
+    expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
+    expect(configs).toContain('{"mcpServers":{"orchestrator":{}}}');
+    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('codex');
+  });
+
+  it('adds Orchestrator-scoped inline MCP configs for Copilot local instances', () => {
+    const builder = makeBuilder();
+
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-copilot', 'copilot');
+
+    expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
+    expect(configs).toContain('{"mcpServers":{"orchestrator":{}}}');
+    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('copilot');
+  });
+
+  it('adds built-in Orchestrator Tools MCP for Cursor local instances', () => {
+    const builder = makeBuilder();
+
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-cursor', 'cursor');
+
+    expect(configs).toContain('{"mcpServers":{"orchestrator":{}}}');
+    expect(configs).not.toContain('{"mcpServers":{"orchestrator-test":{}}}');
     expect(mcpInjectionMocks.buildBundle).not.toHaveBeenCalled();
   });
 
-  it('skips Orchestrator-scoped configs for unsupported providers', () => {
+  it('skips Orchestrator-scoped configs for providers that do not consume mcpConfig', () => {
     const builder = makeBuilder();
 
-    builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'cursor');
+    builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'gemini');
 
     expect(mcpInjectionMocks.buildBundle).not.toHaveBeenCalled();
   });

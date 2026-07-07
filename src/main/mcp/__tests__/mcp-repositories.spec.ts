@@ -85,7 +85,7 @@ describe('MCP repositories', () => {
     expect(repo.get(saved.record.id)?.record.env).toEqual({ API_KEY: 'hunter2', HOME: '/tmp' });
   });
 
-  it('persists only orchestrator injection targets that are actually consumed', () => {
+  it('persists orchestrator injection targets that are consumed by provider bridges', () => {
     const db = openDb();
     const repo = new OrchestratorMcpRepository(db, storage());
     const saved = repo.upsert({
@@ -93,10 +93,10 @@ describe('MCP repositories', () => {
       scope: 'orchestrator',
       transport: 'stdio',
       command: 'node',
-      injectInto: ['claude', 'codex'],
+      injectInto: ['claude', 'codex', 'copilot'],
     });
 
-    expect(saved.injectInto).toEqual(['claude']);
+    expect(saved.injectInto).toEqual(['claude', 'codex', 'copilot']);
   });
 
   it('upserts and lists shared records', () => {

@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   supervisorUnregister: vi.fn(),
   outputStorageDelete: vi.fn(),
   createAdapter: vi.fn(),
+  resolveCliType: vi.fn().mockResolvedValue('claude'),
   promptHistoryRecord: vi.fn(),
   promptHistoryClear: vi.fn(),
   maybeGenerateTitle: vi.fn().mockResolvedValue(undefined),
@@ -137,7 +138,7 @@ vi.mock('../../indexing/indexed-codebase-context', () => ({
 }));
 
 vi.mock('../../cli/adapters/adapter-factory', () => ({
-  resolveCliType: vi.fn().mockResolvedValue('claude'),
+  resolveCliType: mocks.resolveCliType,
   getCliDisplayName: vi.fn(() => 'Claude'),
 }));
 
@@ -368,6 +369,7 @@ async function createAndAwaitFailure(
 describe('createInstance spawn transaction rollback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.resolveCliType.mockResolvedValue('claude');
     mocks.resolveAgent.mockResolvedValue(getDefaultAgent());
     mocks.supervisorRegister.mockReturnValue({ supervisorNodeId: 'sup-1', workerNodeId: 'worker-1' });
     mocks.maybeGenerateTitle.mockResolvedValue(undefined);
@@ -501,5 +503,29 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.removedEvents).toEqual([]);
     // The initial prompt actually reached the adapter.
     expect(adapter.sendInput).toHaveBeenCalledWith('hello world', undefined);
+  });
+
+  it('creates root Codex adapters with durable provider sessions', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.resolveCliType.mockResolvedValue('codex');
+    mocks.createAdapter.mockReturnValue(adapter);
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'codex',
+      initialPrompt: 'hello world',
+    });
+    await instance.readyPromise;
+
+    expect(mocks.createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cliType: 'codex',
+        options: expect.objectContaining({
+          instanceId: instance.id,
+          ephemeral: false,
+        }),
+      }),
+    );
   });
 });

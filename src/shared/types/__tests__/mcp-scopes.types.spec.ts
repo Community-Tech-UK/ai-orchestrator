@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   ALL_MCP_SCOPES,
   ORCHESTRATOR_INJECTION_PROVIDERS,
+  ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS,
   PROVIDER_SCOPES,
   WRITABLE_SCOPES_BY_PROVIDER,
   isProviderScope,
+  isOrchestratorRuntimeInjectionProvider,
   isSupportedProvider,
   isWritableScope,
 } from '../mcp-scopes.types';
@@ -50,7 +52,18 @@ describe('mcp-scopes.types', () => {
     expect(isSupportedProvider(undefined)).toBe(false);
   });
 
-  it('keeps orchestrator inline injection scoped to providers that consume mcpConfig', () => {
-    expect(ORCHESTRATOR_INJECTION_PROVIDERS).toEqual(['claude']);
+  it('keeps persisted orchestrator injection scoped to managed provider configs', () => {
+    expect(ORCHESTRATOR_INJECTION_PROVIDERS).toEqual(['claude', 'codex', 'copilot']);
+  });
+
+  it('allows runtime orchestrator-tools injection for providers with spawn-time bridges', () => {
+    expect(ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS).toEqual([
+      'claude',
+      'codex',
+      'copilot',
+      'cursor',
+    ]);
+    expect(isOrchestratorRuntimeInjectionProvider('cursor')).toBe(true);
+    expect(isOrchestratorRuntimeInjectionProvider('gemini')).toBe(false);
   });
 });

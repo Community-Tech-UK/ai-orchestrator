@@ -62,6 +62,7 @@ import { getOrCreateTurnSupervisor } from '../../session/session-turn-supervisor
 import { getOrCreateCircuitBreaker } from './respawn-circuit-breaker';
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 import { getLastStopSnapshotIfInitialized } from '../../session/last-stop-snapshot';
+import { applyProviderSessionDurability } from './provider-session-durability';
 
 const logger = getLogger('InterruptRespawn');
 
@@ -238,7 +239,9 @@ export class InterruptRespawnHandler {
     options: UnifiedSpawnOptions,
     executionLocation?: ExecutionLocation,
   ): CliAdapter {
-    return getProviderRuntimeService().createAdapter({ cliType, options, executionLocation });
+    const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
+    const durableOptions = applyProviderSessionDurability(cliType, instance, options);
+    return getProviderRuntimeService().createAdapter({ cliType, options: durableOptions, executionLocation });
   }
 
   private isInterruptRecoveryStatus(status: InstanceStatus): boolean {

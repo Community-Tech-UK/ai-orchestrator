@@ -18,6 +18,7 @@ import * as path from 'path';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import {
   ORCHESTRATOR_INJECTION_PROVIDERS,
+  isOrchestratorRuntimeInjectionProvider,
   isSupportedProvider,
 } from '../../../shared/types/mcp-scopes.types';
 import {
@@ -165,15 +166,15 @@ export class SpawnConfigBuilder {
   }
 
   private getOrchestratorMcpConfigs(provider?: string, instanceId?: string): string[] {
-    if (
-      !isSupportedProvider(provider) ||
-      !ORCHESTRATOR_INJECTION_PROVIDERS.includes(provider)
-    ) {
+    if (!isOrchestratorRuntimeInjectionProvider(provider)) {
       return [];
     }
 
     try {
-      const bundle = getOrchestratorInjectionReader().buildBundle(provider);
+      const bundle = isSupportedProvider(provider) &&
+        ORCHESTRATOR_INJECTION_PROVIDERS.includes(provider)
+        ? getOrchestratorInjectionReader().buildBundle(provider)
+        : { configPaths: [], inlineConfigs: [] };
       const orchestratorToolsOptions = this.getOrchestratorToolsMcpOptions(instanceId);
       const builtInToolsConfig = orchestratorToolsOptions
         ? buildOrchestratorToolsMcpConfig(orchestratorToolsOptions)

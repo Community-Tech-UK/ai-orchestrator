@@ -40,12 +40,16 @@ import {
   buildMobileMcpCodexConfigToml,
 } from '../../browser-gateway/mobile-mcp-config';
 import type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
-import { buildStaticMcpServersCodexConfigToml } from './static-mcp-codex-config';
+import {
+  buildInlineMcpServersCodexConfigToml,
+  buildStaticMcpServersCodexConfigToml,
+} from './static-mcp-codex-config';
 import {
   acpEphemeralInstanceId,
   buildClaudeMcpConfig,
   buildCopilotAdditionalMcpConfig,
   buildCopilotSpawnEnv,
+  buildInlineMcpServersAcpMcpServers,
   extendEnvWithRtk,
   getCopilotOrchestratorHome,
   mergeSpawnEnv,
@@ -202,6 +206,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     options.mobileMcp
       ? buildMobileMcpCodexConfigToml(options.mobileMcp)
       : null,
+    buildInlineMcpServersCodexConfigToml(options.mcpConfig),
     // Static, user-managed servers from config/mcp-servers.json (lsp, imap, …).
     // Claude/Copilot get these via --mcp-config; Codex needs them as TOML.
     buildStaticMcpServersCodexConfigToml(options.mcpConfig),
@@ -329,8 +334,10 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   const mobileMcpServers = options.mobileMcp
     ? buildMobileMcpAcpMcpServers(options.mobileMcp)
     : [];
+  const inlineMcpServers = buildInlineMcpServersAcpMcpServers(options.mcpConfig);
   const copilotMcpServers = [
     ...(options.mcpServers ?? []),
+    ...inlineMcpServers,
     ...browserGatewayMcpServers,
     ...chromeDevtoolsMcpServers,
     ...mobileMcpServers,
@@ -405,6 +412,7 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
   const mobileMcpServers = options.mobileMcp
     ? buildMobileMcpAcpMcpServers(options.mobileMcp)
     : [];
+  const inlineMcpServers = buildInlineMcpServersAcpMcpServers(options.mcpConfig);
   const modelArgs: string[] = [];
   const requestedModel = options.model?.trim();
   if (requestedModel && requestedModel.toLowerCase() !== 'auto') {
@@ -422,6 +430,7 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
     ...(Object.keys(env).length > 0 ? { env } : {}),
     mcpServers: [
       ...(options.mcpServers ?? []),
+      ...inlineMcpServers,
       ...browserGatewayMcpServers,
       ...chromeDevtoolsMcpServers,
       ...mobileMcpServers,

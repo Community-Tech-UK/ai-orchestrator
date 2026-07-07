@@ -216,6 +216,37 @@ describe('adapter factory — copilot', () => {
     }).acpConfig.mcpServers).toEqual([]);
   });
 
+  it('passes inline Orchestrator Tools MCP config to Copilot through --additional-mcp-config', () => {
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      instanceId: 'instance-tools',
+      mcpConfig: [
+        JSON.stringify({
+          mcpServers: {
+            orchestrator: {
+              command: testAioMcp,
+              args: ['orchestrator-tools'],
+              env: {
+                AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: '/tmp/orchestrator-tools.sock',
+                AI_ORCHESTRATOR_INSTANCE_ID: 'instance-tools',
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    const config = readAdditionalMcpConfig(adapter);
+    expect(config.mcpServers.orchestrator).toEqual({
+      command: testAioMcp,
+      args: ['orchestrator-tools'],
+      env: {
+        AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: '/tmp/orchestrator-tools.sock',
+        AI_ORCHESTRATOR_INSTANCE_ID: 'instance-tools',
+      },
+    });
+  });
+
   it('passes chrome-devtools attach config to Copilot through --additional-mcp-config', () => {
     // chrome-devtools' command is `npx` on POSIX and `cmd /c npx` on Windows;
     // pin POSIX so the canonical command is asserted regardless of host.

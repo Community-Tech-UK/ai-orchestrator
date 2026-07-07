@@ -111,6 +111,7 @@ import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
 import { getKnownModelsForCli, isRestoreOrReplayContinuity, requiresFreshConfiguredModelSpawn } from './lifecycle/create-validation-helpers';
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
+import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
 
 const logger = getLogger('InstanceLifecycle');
 
@@ -468,7 +469,9 @@ export class InstanceLifecycleManager extends EventEmitter {
     options: UnifiedSpawnOptions,
     executionLocation?: ExecutionLocation,
   ): CliAdapter {
-    return getProviderRuntimeService().createAdapter({ cliType, options, executionLocation });
+    const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
+    const durableOptions = applyProviderSessionDurability(cliType, instance, options);
+    return getProviderRuntimeService().createAdapter({ cliType, options: durableOptions, executionLocation });
   }
 
   private addAdapterRollback(transaction: SpawnTransaction, instanceId: string, adapter: CliAdapter): void {
