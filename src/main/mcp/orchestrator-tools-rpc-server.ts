@@ -1,18 +1,7 @@
 /**
- * Orchestrator-Tools RPC Server (parent-side).
- *
- * Exposes the orchestrator-tools MCP surface
- * over a per-app Unix-domain socket. Thin stdio forwarders running inside the
- * `aio-mcp` Node SEA dispatch tool invocations here so that all database +
- * git work happens in the parent process — keeping native modules
- * (better-sqlite3 in particular) out of the spawned child runtime and
- * letting us re-disable the `RunAsNode` Electron fuse.
- *
- * Mirrors the established `BrowserGatewayRpcServer` pattern: line-delimited
- * JSON-RPC 2.0 over a 0700 Unix socket (or a Windows named pipe), per-instance
- * auth, payload-size and rate-limit caps. Tool handlers are reused as-is from
- * `createOrchestratorToolDefinitions` so the wire surface is one method per
- * MCP tool.
+ * Parent-side RPC server for the orchestrator-tools MCP surface. Thin stdio
+ * forwarders in `aio-mcp` call this socket so native DB modules stay in the
+ * Electron parent process.
  */
 
 import * as crypto from 'node:crypto';
@@ -42,8 +31,10 @@ import {
   UpdateAutomationArgsSchema,
   type CreateAutomationFn,
   type DeleteAutomationFn,
+  type FileTransferToolContext,
   type ListAutomationsFn,
   type ListRemoteNodesFn,
+  type OrchestratorToolRuntimeContext,
   type PostponeAutomationFn,
   type ReadInstanceOutputFn,
   type TerminateNodeInstancesFn,
@@ -51,6 +42,10 @@ import {
   type UpdateAutomationFn,
 } from './orchestrator-tools';
 import {
+  SettingsPrivilegedGetPayloadSchema,
+  SettingsPrivilegedListPayloadSchema,
+  SettingsPrivilegedResetPayloadSchema,
+  SettingsPrivilegedSetPayloadSchema,
   SettingsToolGetPayloadSchema,
   SettingsToolListPayloadSchema,
   SettingsToolResetPayloadSchema,
@@ -60,21 +55,27 @@ import {
 import type {
   SettingsChangeBroadcaster,
   SettingsManagerForTools,
+  SettingsToolContext,
   UpdateNodeConfigFn,
+} from './orchestrator-settings-tools';
+import {
+  privilegedGetSetting,
+  privilegedListSettings,
+  privilegedResetSetting,
+  privilegedSetSetting,
 } from './orchestrator-settings-tools';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import { createToolsetRegistry } from '../tools/toolsets';
+import {
+  FILE_TRANSFER_RPC_SPECS,
+  FILE_TRANSFER_TOOL_NAMES,
+} from './orchestrator-tools-rpc-file-transfer';
 
 const logger = getLogger('OrchestratorToolsRpcServer');
 
-/**
- * Per-surface tool scoping (claude2_todo #18a/#19): the `-leaf` toolset strips
- * the spawn-capable `run_on_node` so an instance that has already reached the
- * spawn-depth limit cannot recursively spawn further — defense-in-depth
- * alongside the depth guard enforced in the `run_on_node` handler.
- */
+/** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
 ]);
 
@@ -94,7 +95,7 @@ interface OrchestratorToolsRpcParams {
   payload: Record<string, unknown>;
 }
 
-export interface OrchestratorToolsRpcServerOptions {
+export interface OrchestratorToolsRpcServerOptions extends FileTransferToolContext {
   operatorDbPath?: string;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
@@ -104,30 +105,13 @@ export interface OrchestratorToolsRpcServerOptions {
     maxRequests: number;
     windowMs: number;
   };
-  /**
-   * Lists registered remote worker node status and capabilities (backs the
-   * `list_remote_nodes` tool). Injected from main-process startup so this
-   * server never imports remote-node singletons directly.
-   */
+  /** Backs `list_remote_nodes`; injected to avoid importing remote-node singletons. */
   listRemoteNodes?: ListRemoteNodesFn | null;
-  /**
-   * Spawns an AI instance on a remote worker node (backs the `run_on_node`
-   * tool). Injected from main-process startup so this server never imports the
-   * instance manager / remote-node singletons directly. When omitted,
-   * `run_on_node` rejects with an "unavailable" error.
-   */
+  /** Backs `run_on_node`; injected to avoid importing instance/remote-node singletons. */
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
-  /**
-   * Reads a remote-spawned instance's output buffer + status (backs the
-   * `read_node_output` tool). Injected from main-process startup. When omitted,
-   * `read_node_output` rejects with an "unavailable" error.
-   */
+  /** Backs `read_node_output`. */
   readInstanceOutput?: ReadInstanceOutputFn | null;
-  /**
-   * Terminates run_on_node-spawned instances (backs the
-   * `terminate_node_instance` tool). Injected from main-process startup. When
-   * omitted, `terminate_node_instance` rejects with an "unavailable" error.
-   */
+  /** Backs `terminate_node_instance`. */
   terminateNodeInstances?: TerminateNodeInstancesFn | null;
   /** SettingsManager used by settings_* MCP tools. */
   settingsManager?: SettingsManagerForTools | null;
@@ -135,36 +119,15 @@ export interface OrchestratorToolsRpcServerOptions {
   broadcastSettingsChange?: SettingsChangeBroadcaster | null;
   /** Sends service-scoped config.update RPCs for update_node_config. */
   updateNodeConfig?: UpdateNodeConfigFn | null;
-  /**
-   * Creates a scheduled automation (backs the `create_automation` tool).
-   * Injected from main-process startup so this server never imports the
-   * automation store/scheduler singletons directly. When omitted,
-   * `create_automation` rejects with an "unavailable" error.
-   */
+  /** Backs `create_automation`. */
   createAutomation?: CreateAutomationFn | null;
-  /**
-   * Lists configured automations (backs the read-only `list_automations`
-   * tool). Injected from main-process startup. When omitted, `list_automations`
-   * rejects with an "unavailable" error.
-   */
+  /** Backs `list_automations`. */
   listAutomations?: ListAutomationsFn | null;
-  /**
-   * Deletes an automation (backs the `delete_automation` tool). Injected from
-   * main-process startup. When omitted, `delete_automation` rejects with an
-   * "unavailable" error.
-   */
+  /** Backs `delete_automation`. */
   deleteAutomation?: DeleteAutomationFn | null;
-  /**
-   * Updates an automation (backs the `update_automation` tool). Injected from
-   * main-process startup. When omitted, `update_automation` rejects with an
-   * "unavailable" error.
-   */
+  /** Backs `update_automation`. */
   updateAutomation?: UpdateAutomationFn | null;
-  /**
-   * Postpones an automation's next run (backs the `postpone_automation` tool).
-   * Injected from main-process startup. When omitted, `postpone_automation`
-   * rejects with an "unavailable" error.
-   */
+  /** Backs `postpone_automation`. */
   postponeAutomation?: PostponeAutomationFn | null;
   /**
    * Returns whether the given instance may still spawn (i.e. is below the
@@ -174,23 +137,7 @@ export interface OrchestratorToolsRpcServerOptions {
    */
   resolveSpawnEligibility?: (instanceId: string) => boolean;
   /** Inject the tool factory in tests so we can avoid touching the real DB. */
-  toolFactory?: (deps: {
-    db: SqliteDriver;
-    ledger: ConversationLedgerService | null;
-    instanceId: string | null;
-    listRemoteNodes: ListRemoteNodesFn | null;
-    spawnRemoteInstance: SpawnRemoteInstanceFn | null;
-    readInstanceOutput: ReadInstanceOutputFn | null;
-    terminateNodeInstances: TerminateNodeInstancesFn | null;
-    settingsManager: SettingsManagerForTools | null;
-    broadcastSettingsChange: SettingsChangeBroadcaster | null;
-    updateNodeConfig: UpdateNodeConfigFn | null;
-    createAutomation: CreateAutomationFn | null;
-    listAutomations: ListAutomationsFn | null;
-    deleteAutomation: DeleteAutomationFn | null;
-    updateAutomation: UpdateAutomationFn | null;
-    postponeAutomation: PostponeAutomationFn | null;
-  }) => McpServerToolDefinition[];
+  toolFactory?: (deps: OrchestratorToolRuntimeContext) => McpServerToolDefinition[];
 }
 
 export class OrchestratorToolsRpcServer {
@@ -200,6 +147,7 @@ export class OrchestratorToolsRpcServer {
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; windowMs: number };
   private readonly listRemoteNodes: ListRemoteNodesFn | null;
+  private readonly fileTransferTools: FileTransferToolContext;
   private readonly spawnRemoteInstance: SpawnRemoteInstanceFn | null;
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
   private readonly terminateNodeInstances: TerminateNodeInstancesFn | null;
@@ -230,6 +178,14 @@ export class OrchestratorToolsRpcServer {
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
     this.rateLimit = options.rateLimit ?? { maxRequests: 30, windowMs: 10_000 };
     this.listRemoteNodes = options.listRemoteNodes ?? null;
+    this.fileTransferTools = {
+      listNodeFiles: options.listNodeFiles ?? null,
+      findNodeFiles: options.findNodeFiles ?? null,
+      getNodeFileInfo: options.getNodeFileInfo ?? null,
+      downloadFromNode: options.downloadFromNode ?? null,
+      uploadToNode: options.uploadToNode ?? null,
+      collectBrowserDownload: options.collectBrowserDownload ?? null,
+    };
     this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;
     this.readInstanceOutput = options.readInstanceOutput ?? null;
     this.terminateNodeInstances = options.terminateNodeInstances ?? null;
@@ -298,6 +254,10 @@ export class OrchestratorToolsRpcServer {
     }
     this.enforceRateLimit(params.instanceId);
     this.enforcePayloadSize(params.payload);
+    const fileTransferSpec = FILE_TRANSFER_RPC_SPECS.find((spec) => spec.method === request.method);
+    if (fileTransferSpec) {
+      return this.dispatchValidatedTool(fileTransferSpec.toolName, fileTransferSpec.schema, params);
+    }
 
     switch (request.method) {
       case 'orchestrator_tools.git_batch_pull': {
@@ -344,6 +304,22 @@ export class OrchestratorToolsRpcServer {
           throw new Error('terminate_node_instance tool unavailable');
         }
         return tool.handler(validated);
+      }
+      case 'orchestrator_tools.settings.privileged_list': {
+        const validated = SettingsPrivilegedListPayloadSchema.parse(params.payload);
+        return privilegedListSettings(this.getSettingsContext(), validated);
+      }
+      case 'orchestrator_tools.settings.privileged_get': {
+        const validated = SettingsPrivilegedGetPayloadSchema.parse(params.payload);
+        return privilegedGetSetting(this.getSettingsContext(), validated);
+      }
+      case 'orchestrator_tools.settings.privileged_set': {
+        const validated = SettingsPrivilegedSetPayloadSchema.parse(params.payload);
+        return privilegedSetSetting(this.getSettingsContext(), validated);
+      }
+      case 'orchestrator_tools.settings.privileged_reset': {
+        const validated = SettingsPrivilegedResetPayloadSchema.parse(params.payload);
+        return privilegedResetSetting(this.getSettingsContext(), validated);
       }
       case 'orchestrator_tools.settings.list': {
         const validated = SettingsToolListPayloadSchema.parse(params.payload);
@@ -459,6 +435,27 @@ export class OrchestratorToolsRpcServer {
     return tool.handler(params.payload);
   }
 
+  private getSettingsContext(): SettingsToolContext {
+    return {
+      settingsManager: this.settingsManager,
+      broadcastSettingsChange: this.broadcastSettingsChange,
+      updateNodeConfig: this.updateNodeConfig,
+    };
+  }
+
+  private async dispatchValidatedTool(
+    toolName: string,
+    schema: { parse(value: unknown): Record<string, unknown> },
+    params: OrchestratorToolsRpcParams,
+  ): Promise<unknown> {
+    const validated = schema.parse(params.payload);
+    const tool = this.getToolsForInstance(params.instanceId).find((candidate) => candidate.name === toolName);
+    if (!tool) {
+      throw new Error(`${toolName} tool unavailable`);
+    }
+    return tool.handler(validated);
+  }
+
   private handleSocket(socket: net.Socket): void {
     let buffer = '';
     socket.on('data', (chunk) => {
@@ -564,6 +561,7 @@ export class OrchestratorToolsRpcServer {
         ledger: null,
         instanceId,
         listRemoteNodes: this.listRemoteNodes,
+        ...this.fileTransferTools,
         spawnRemoteInstance: this.spawnRemoteInstance,
         readInstanceOutput: this.readInstanceOutput,
         terminateNodeInstances: this.terminateNodeInstances,
@@ -586,6 +584,7 @@ export class OrchestratorToolsRpcServer {
       ledger: this.ledger,
       instanceId,
       listRemoteNodes: this.listRemoteNodes,
+      ...this.fileTransferTools,
       spawnRemoteInstance: this.spawnRemoteInstance,
       readInstanceOutput: this.readInstanceOutput,
       terminateNodeInstances: this.terminateNodeInstances,

@@ -52,6 +52,14 @@ export const SettingsToolResetPayloadSchema = z.object({
   key: SettingsToolKeySchema,
 }).strict();
 
+export const SettingsPrivilegedListPayloadSchema = SettingsToolListPayloadSchema.extend({
+  all: z.boolean().optional(),
+}).strict();
+
+export const SettingsPrivilegedGetPayloadSchema = SettingsToolGetPayloadSchema;
+export const SettingsPrivilegedSetPayloadSchema = SettingsToolSetPayloadSchema;
+export const SettingsPrivilegedResetPayloadSchema = SettingsToolResetPayloadSchema;
+
 const SettingsToolBrowserAutomationConfigSchema = z.object({
   enabled: z.boolean(),
   profileDir: z.string().trim().min(1).max(1024).optional(),
@@ -77,19 +85,36 @@ const SettingsToolExtensionRelayConfigSchema = z.object({
   enabled: z.boolean(),
 }).strict();
 
+const SettingsToolFileTransferRootSchema = z.object({
+  id: z.string().trim().min(1).max(100),
+  label: z.string().trim().min(1).max(200),
+  path: z.string().trim().min(1).max(4096),
+  read: z.boolean(),
+  write: z.boolean(),
+  approvalRequired: z.boolean().optional(),
+}).strict();
+
+const SettingsToolFileTransferConfigSchema = z.object({
+  enabled: z.boolean(),
+  roots: z.array(SettingsToolFileTransferRootSchema).max(64).optional(),
+  maxFileBytes: z.number().int().positive().max(50 * 1024 * 1024).optional(),
+}).strict();
+
 export const SettingsToolUpdateNodeConfigPayloadSchema = z.object({
   nodeId: z.string().trim().min(1).max(200),
   browserAutomation: SettingsToolBrowserAutomationConfigSchema.optional(),
   androidAutomation: SettingsToolAndroidAutomationConfigSchema.optional(),
   extensionRelay: SettingsToolExtensionRelayConfigSchema.optional(),
+  fileTransfer: SettingsToolFileTransferConfigSchema.optional(),
 }).strict().refine(
   (payload) =>
     payload.browserAutomation !== undefined ||
     payload.androidAutomation !== undefined ||
-    payload.extensionRelay !== undefined,
+    payload.extensionRelay !== undefined ||
+    payload.fileTransfer !== undefined,
   {
     message:
-      'Provide at least one config block: browserAutomation, androidAutomation, or extensionRelay.',
+      'Provide at least one config block: browserAutomation, androidAutomation, extensionRelay, or fileTransfer.',
   },
 );
 

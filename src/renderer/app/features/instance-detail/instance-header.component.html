@@ -169,7 +169,17 @@
               {{ remoteNodeName() }}
             </span>
           }
-          @if (availableModels().length > 0) {
+          @if (isLocalModelRuntime()) {
+            <span
+              class="runtime-model-badge"
+              [style.border-color]="modelBtnBorderColor()"
+              [style.background]="modelBtnBgColor()"
+              [style.color]="providerColor()"
+              [title]="'Model: ' + currentModelId()"
+            >
+              {{ currentModelDisplayName() }}
+            </span>
+          } @else if (availableModels().length > 0) {
             <div class="model-selector-inline">
               <button
                 class="model-btn"

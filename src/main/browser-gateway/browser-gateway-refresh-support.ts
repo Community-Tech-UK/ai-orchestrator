@@ -129,6 +129,7 @@ export async function recoverOpenedTabAfterTimeout(input: {
   await refreshBrowserExtensionInventory({
     request: input.nodeId ? { nodeId: input.nodeId } : {},
     commandStore: input.commandStore,
+    localOnly: !input.nodeId,
   });
   const tabs = input.listTabs()
     .filter((tab) => !input.nodeId || tab.nodeId === input.nodeId);

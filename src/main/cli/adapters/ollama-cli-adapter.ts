@@ -15,21 +15,16 @@
 
 import * as http from 'node:http';
 import {
-  BaseCliAdapter,
-  AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
   CliMessage,
   CliResponse,
 } from './base-cli-adapter';
+import {
+  BaseLocalModelChatAdapter,
+  type LocalModelChatMessage,
+} from './local-model-chat-adapter';
 import { getLogger } from '../../logging/logger';
-import type {
-  ContextUsage,
-  FileAttachment,
-  InstanceStatus,
-  OutputMessage,
-} from '../../../shared/types/instance.types';
-import { generateId } from '../../../shared/utils/id-generator';
 import type { CliSpawnMode, CliStatus } from './base-cli-adapter';
 
 const logger = getLogger('OllamaCliAdapter');
@@ -40,10 +35,7 @@ const DEFAULT_MODEL = 'llama3.2';
 
 // ── Ollama API types ───────────────────────────────────────────────────────────
 
-interface OllamaChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
+type OllamaChatMessage = LocalModelChatMessage;
 
 interface OllamaChatRequest {
   model: string;
@@ -95,21 +87,15 @@ export interface OllamaCliConfig {
 
 // ── Adapter ───────────────────────────────────────────────────────────────────
 
-export class OllamaCliAdapter extends BaseCliAdapter {
+export class OllamaCliAdapter extends BaseLocalModelChatAdapter {
   /** B9: Ollama has no local process — it talks to the Ollama REST server. */
   protected override spawnMode: CliSpawnMode = 'http';
 
-  private readonly ollamaConfig: OllamaCliConfig;
   private readonly host: string;
   private readonly port: number;
-  private readonly model: string;
-
-  /** Conversation history for multi-turn sessions. */
-  private history: OllamaChatMessage[] = [];
-  private isSpawned = false;
-  private cumulativeTokensUsed = 0;
 
   constructor(config: OllamaCliConfig = {}) {
+    const model = config.model ?? DEFAULT_MODEL;
     const adapterConfig: CliAdapterConfig = {
       command: 'ollama',
       args: [],
@@ -117,14 +103,17 @@ export class OllamaCliAdapter extends BaseCliAdapter {
       timeout: config.timeout ?? 300_000,
       sessionPersistence: true,
     };
-    super(adapterConfig);
+    super(adapterConfig, {
+      endpointProvider: 'ollama',
+      model,
+      systemPrompt: config.systemPrompt,
+      contextWindow: 131_072,
+      sessionIdPrefix: 'ollama',
+      errorLabel: 'Ollama',
+    });
 
-    this.ollamaConfig = config;
     this.host = config.host ?? DEFAULT_HOST;
     this.port = config.port ?? DEFAULT_PORT;
-    this.model = config.model ?? DEFAULT_MODEL;
-
-    this.sessionId = `ollama-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
   // ── Abstract implementations ──────────────────────────────────────────────
@@ -144,17 +133,6 @@ export class OllamaCliAdapter extends BaseCliAdapter {
       codeExecution: false,
       contextWindow: 131_072, // Common for llama3.2; actual limit is model-dependent
       outputFormats: ['text', 'markdown'],
-    };
-  }
-
-  override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
-    return {
-      supportsResume: false,
-      supportsForkSession: false,
-      supportsNativeCompaction: false,
-      supportsPermissionPrompts: false,
-      supportsDeferPermission: false,
-      selfManagedAutoCompaction: false,
     };
   }
 
@@ -201,24 +179,23 @@ export class OllamaCliAdapter extends BaseCliAdapter {
     let promptEvalCount = 0;
     let evalCount = 0;
 
-    await this.postChatStream(messages, (chunk) => {
-      contentChunks.push(chunk.message.content);
-      if (chunk.done) {
-        promptEvalCount = chunk.prompt_eval_count ?? 0;
-        evalCount = chunk.eval_count ?? 0;
-      }
+    const signal = this.beginLocalModelTurn();
+    try {
+      await this.postChatStream(messages, signal, (chunk) => {
+        contentChunks.push(chunk.message.content);
+        if (chunk.done) {
+          promptEvalCount = chunk.prompt_eval_count ?? 0;
+          evalCount = chunk.eval_count ?? 0;
+        }
 
-      this.emit('output', {
-        id: this.sessionId ?? generateId(),
-        timestamp: Date.now(),
-        type: 'assistant',
-        content: chunk.message.content,
-        metadata: { streaming: true },
-      } satisfies OutputMessage);
-    });
+        this.emitAssistantChunk(chunk.message.content, true);
+      });
+    } finally {
+      this.endLocalModelTurn(signal);
+    }
 
     const fullContent = contentChunks.join('');
-    this.history.push(userMsg, { role: 'assistant', content: fullContent });
+    this.appendAssistantTurn(userMsg, fullContent);
 
     return {
       id: this.generateResponseId(),
@@ -240,21 +217,26 @@ export class OllamaCliAdapter extends BaseCliAdapter {
     const queue: (string | null)[] = [];
     let resolve: (() => void) | null = null;
 
-    this.postChatStream(messages, (chunk) => {
+    const signal = this.beginLocalModelTurn();
+    this.postChatStream(messages, signal, (chunk) => {
       queue.push(chunk.message.content);
       if (chunk.done) queue.push(null);
       resolve?.();
-    }).catch((err) => {
-      queue.push(null);
-      logger.error('Ollama stream error', err instanceof Error ? err : new Error(String(err)));
-      resolve?.();
-    });
+    })
+      .catch((err) => {
+        queue.push(null);
+        logger.error('Ollama stream error', err instanceof Error ? err : new Error(String(err)));
+        resolve?.();
+      })
+      .finally(() => {
+        this.endLocalModelTurn(signal);
+      });
 
     while (true) {
       while (queue.length > 0) {
         const item = queue.shift()!;
         if (item === null) {
-          this.history.push(userMsg, { role: 'assistant', content: chunks.join('') });
+          this.appendAssistantTurn(userMsg, chunks.join(''));
           return;
         }
         chunks.push(item);
@@ -265,53 +247,10 @@ export class OllamaCliAdapter extends BaseCliAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected override async sendInputImpl(message: string, _attachments?: FileAttachment[]): Promise<void> {
-    if (!this.isSpawned) {
-      throw new Error('OllamaCliAdapter: call spawn() before sendInput()');
-    }
-
-    this.emit('status', 'busy' as InstanceStatus);
-
-    try {
-      const cliMessage: CliMessage = { role: 'user', content: message };
-      const response = await this.sendMessage(cliMessage);
-
-      if (response.usage) {
-        const inputTokens = response.usage.inputTokens ?? 0;
-        const outputTokens = response.usage.outputTokens ?? 0;
-        const turnTokens = inputTokens + outputTokens;
-        this.cumulativeTokensUsed += turnTokens;
-        const contextWindow = this.getCapabilities().contextWindow;
-        const contextUsage: ContextUsage = {
-          used: Math.min(turnTokens, contextWindow),
-          total: contextWindow,
-          percentage: contextWindow > 0 ? Math.min((turnTokens / contextWindow) * 100, 100) : 0,
-          cumulativeTokens: this.cumulativeTokensUsed,
-        };
-        this.emit('context', contextUsage);
-      }
-
-      this.emit('status', 'idle' as InstanceStatus);
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      logger.error('Ollama sendInput error', err, { model: this.model });
-      const errorMessage: OutputMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: `Ollama error: ${err.message}`,
-        metadata: { error: err.message },
-      };
-      this.emit('output', errorMessage);
-      this.emit('status', 'error' as InstanceStatus);
-    }
-  }
-
   // ── Spawn / lifecycle ─────────────────────────────────────────────────────
 
   async spawn(): Promise<number> {
-    if (this.isSpawned) {
+    if (this.isRunning()) {
       throw new Error('OllamaCliAdapter already spawned');
     }
 
@@ -338,28 +277,12 @@ export class OllamaCliAdapter extends BaseCliAdapter {
       // Non-fatal; the chat request will fail if the model is truly missing
     }
 
-    // Seed history with system prompt if provided
-    if (this.ollamaConfig.systemPrompt) {
-      this.history = [{ role: 'system', content: this.ollamaConfig.systemPrompt }];
-    }
+    this.seedHistoryFromSystemPrompt();
 
-    this.isSpawned = true;
-    const fakePid = Math.floor(Math.random() * 100_000) + 10_000;
-    this.emit('spawned', fakePid);
-    this.emit('status', 'idle' as InstanceStatus);
+    const fakePid = this.markLocalModelSpawned();
     logger.info('Ollama adapter spawned', { model: this.model, host: this.host, port: this.port });
 
     return fakePid;
-  }
-
-  override async terminate(): Promise<void> {
-    this.isSpawned = false;
-    this.history = [];
-    this.emit('exit', 0, null);
-  }
-
-  override isRunning(): boolean {
-    return this.isSpawned;
   }
 
   // ── HTTP helpers ──────────────────────────────────────────────────────────
@@ -384,6 +307,7 @@ export class OllamaCliAdapter extends BaseCliAdapter {
 
   private postChatStream(
     messages: OllamaChatMessage[],
+    signal: AbortSignal,
     onChunk: (chunk: OllamaChatResponseChunk) => void,
   ): Promise<void> {
     const body = JSON.stringify({
@@ -399,6 +323,7 @@ export class OllamaCliAdapter extends BaseCliAdapter {
           port: this.port,
           path: '/api/chat',
           method: 'POST',
+          signal,
           headers: {
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(body),
@@ -455,9 +380,5 @@ export class OllamaCliAdapter extends BaseCliAdapter {
       req.write(body);
       req.end();
     });
-  }
-
-  private buildMessages(newUserMessage: OllamaChatMessage): OllamaChatMessage[] {
-    return [...this.history, newUserMessage];
   }
 }

@@ -205,6 +205,7 @@ describe('BrowserGatewayRpcServer', () => {
           payload: {
             url: 'https://play.google.com/console',
             titleHint: 'Google Play Console',
+            computer: 'Windows PC',
           },
         },
       }),
@@ -214,6 +215,7 @@ describe('BrowserGatewayRpcServer', () => {
       provider: 'claude',
       url: 'https://play.google.com/console',
       titleHint: 'Google Play Console',
+      computer: 'Windows PC',
     });
 
     await expect(

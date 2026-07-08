@@ -16,6 +16,12 @@ await resolveComponentResources((url) => {
   if (url.endsWith('sidebar-nav.component.scss')) {
     return Promise.resolve(styles);
   }
+  // Angular's resource resolver is global within the shared Vitest worker.
+  // Neighboring specs can leave unrelated component resources pending, so this
+  // spec only owns the sidebar stylesheet and harmlessly resolves the rest.
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 

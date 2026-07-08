@@ -48,6 +48,8 @@ describe('ControlSurfaceShellComponent', () => {
   let router: Router;
 
   beforeEach(async () => {
+    localStorage.clear();
+
     const route = {
       snapshot: { data: {} },
       firstChild: {
@@ -91,5 +93,24 @@ describe('ControlSurfaceShellComponent', () => {
     expect(text).toContain('Automations');
     expect(text).toContain('Settings');
     expect(text).toContain('Browser Gateway');
+  });
+
+  it('remembers when the Control Center navigation is collapsed', () => {
+    const button = fixture.nativeElement.querySelector('.control-nav-toggle') as HTMLButtonElement;
+
+    button.click();
+    fixture.detectChanges();
+
+    expect(localStorage.getItem('aiorch.control.navCollapsed')).toBe('true');
+    expect(fixture.nativeElement.querySelector('.control-shell')?.classList.contains('nav-collapsed')).toBe(true);
+  });
+
+  it('restores the persisted Control Center navigation collapsed state', () => {
+    localStorage.setItem('aiorch.control.navCollapsed', 'true');
+
+    const restored = TestBed.createComponent(ControlSurfaceShellComponent);
+    restored.detectChanges();
+
+    expect(restored.nativeElement.querySelector('.control-shell')?.classList.contains('nav-collapsed')).toBe(true);
   });
 });

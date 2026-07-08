@@ -38,6 +38,12 @@ const AI_TITLE_TIMEOUT = 15_000;
 /** Provider preference order for title generation (fastest first) */
 const FAST_PROVIDER_PREFERENCE = ['antigravity', 'claude', 'codex'] as const;
 
+const GENERATED_TITLE_THINKING_BLOCK_PATTERN =
+  /<\s*(think|thinking|thought|antthinking|reasoning)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
+const GENERATED_TITLE_THINKING_TAG_PATTERN =
+  /<\s*\/?\s*(?:think|thinking|thought|antthinking|reasoning)\b[^>]*>/i;
+const GENERATED_TITLE_BRACKET_THINKING_PATTERN = /\[THINKING\][\s\S]*?\[\/THINKING\]/gi;
+
 /**
  * Derive a short title from the raw first user message.
  * Takes the first line (or first sentence), trims, and truncates. When the
@@ -90,6 +96,30 @@ function deriveInstantTitle(message: string, attachmentNames: readonly string[] 
 
 function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<{ content: string }> } {
   return typeof (adapter as unknown as { sendMessage?: unknown }).sendMessage === 'function';
+}
+
+function sanitizeGeneratedTitle(rawTitle: string | null | undefined): string | null {
+  if (!rawTitle) return null;
+
+  const withoutClosedThinking = rawTitle
+    .replace(GENERATED_TITLE_THINKING_BLOCK_PATTERN, ' ')
+    .replace(GENERATED_TITLE_BRACKET_THINKING_PATTERN, ' ');
+
+  // A remaining thinking tag means the model started exposing reasoning but did
+  // not emit a clean title after it. Reject the AI title so the instant fallback
+  // stays visible instead of stamping raw chain-of-thought into the rail.
+  if (GENERATED_TITLE_THINKING_TAG_PATTERN.test(withoutClosedThinking)) {
+    return null;
+  }
+
+  const cleaned = withoutClosedThinking
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/[.!?]+$/, '')
+    .trim();
+
+  return cleaned || null;
 }
 
 /**
@@ -221,8 +251,8 @@ export class AutoTitleService {
         auxSystemPrompt,
         auxUserPrompt
       );
-      if (auxDecision.source !== 'fallback' && auxTitle.trim()) {
-        const cleaned = auxTitle.trim().replace(/^["']|["']$/g, '').replace(/[.!?]+$/, '').trim();
+      const cleaned = sanitizeGeneratedTitle(auxTitle);
+      if (auxDecision.source !== 'fallback' && cleaned) {
         if (cleaned.length >= 3) {
           logger.debug('Auto-title via auxiliary model', { source: auxDecision.source, model: auxDecision.model });
           return cleaned;
@@ -280,7 +310,7 @@ export class AutoTitleService {
       content: `Summarize this task in 3-6 words for a sidebar tab title. Put the most distinctive, identifying word first so it's recognizable from just the first ~25 characters. If the message text is generic filler with no specific subject, use the attached file name as the subject:\n\n${messageBlock}${attachmentLine}`,
     });
 
-    const title = response.content?.trim();
+    const title = sanitizeGeneratedTitle(response.content);
     if (!title || title.length === 0 || title.length > 80) {
       return null;
     }

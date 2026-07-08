@@ -8,6 +8,7 @@ import type {
   FileAttachment,
   InstanceLaunchMode,
 } from '../../../../../shared/types/instance.types';
+import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 
 export interface CreateInstanceConfig {
@@ -20,6 +21,7 @@ export interface CreateInstanceConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  modelRuntimeTarget?: ModelRuntimeTarget;
   bareMode?: boolean;
   fastMode?: boolean;
   forceNodeId?: string;
@@ -33,6 +35,7 @@ export interface CreateInstanceWithMessageConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;
   bareMode?: boolean;
   fastMode?: boolean;

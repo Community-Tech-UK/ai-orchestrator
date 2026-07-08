@@ -19,6 +19,7 @@ import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
 import type { ExecutionLocation } from '@shared/types/worker-node.types';
 import type { ActivityState } from '@shared/types/activity.types';
 import type { ReasoningEffort } from '@shared/types/provider.types';
+import type { ModelRuntimeTarget } from '@shared/types/local-model-runtime.types';
 
 export type { IpcChannel };
 
@@ -62,6 +63,7 @@ export interface InstanceCreatePayload {
   agentId?: string; // Agent profile ID (defaults to 'build')
   provider?: InstanceProvider; // CLI provider (defaults to 'auto')
   model?: string; // Model override (e.g., for Copilot multi-model support)
+  modelRuntimeTarget?: ModelRuntimeTarget;
   forceNodeId?: string;
 }
 

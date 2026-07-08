@@ -22,6 +22,7 @@ import type { HelpEntry } from '../help/help-content.types';
 
 /** localStorage key remembering whether the Control Center help pane is collapsed. */
 const HELP_COLLAPSED_KEY = 'aiorch.control.helpCollapsed';
+const NAV_COLLAPSED_KEY = 'aiorch.control.navCollapsed';
 
 @Component({
   selector: 'app-control-surface-shell',
@@ -45,6 +46,7 @@ export class ControlSurfaceShellComponent {
 
   /** Whether the contextual help pane is collapsed to a thin rail. */
   protected readonly helpCollapsed = signal(this.readHelpCollapsed());
+  protected readonly controlNavCollapsed = signal(this.readControlNavCollapsed());
 
   /** Help & tips content for the active surface. */
   protected readonly activeHelp = computed<HelpEntry>(
@@ -86,9 +88,27 @@ export class ControlSurfaceShellComponent {
     }
   }
 
+  protected toggleControlNav(): void {
+    const collapsed = !this.controlNavCollapsed();
+    this.controlNavCollapsed.set(collapsed);
+    try {
+      localStorage.setItem(NAV_COLLAPSED_KEY, String(collapsed));
+    } catch {
+      // Storage may be unavailable (private mode, quota); non-fatal.
+    }
+  }
+
   private readHelpCollapsed(): boolean {
     try {
       return localStorage.getItem(HELP_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  private readControlNavCollapsed(): boolean {
+    try {
+      return localStorage.getItem(NAV_COLLAPSED_KEY) === 'true';
     } catch {
       return false;
     }

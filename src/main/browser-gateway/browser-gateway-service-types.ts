@@ -45,6 +45,7 @@ export interface BrowserGatewayScreenshotRequest
 export interface BrowserGatewayListTargetsRequest extends BrowserGatewayContext {
   profileId?: string;
   nodeId?: string;
+  computer?: string;
   refresh?: boolean;
 }
 
@@ -60,6 +61,7 @@ export interface BrowserGatewayFindOrOpenRequest extends BrowserGatewayContext {
   url?: string;
   titleHint?: string;
   nodeId?: string;
+  computer?: string;
 }
 
 export interface BrowserGatewayAttachExistingTabRequest

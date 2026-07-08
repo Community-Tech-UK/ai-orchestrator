@@ -17,6 +17,7 @@ import type {
 } from './instance.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
+import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import { getModelSwitchUnavailableReason } from '../../../../../shared/types/instance-status-policy';
 import {
   fileToAttachments,
@@ -31,6 +32,7 @@ export interface CreateInstanceWithMessageOptions {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;
   bareMode?: boolean;
   fastMode?: boolean;
@@ -144,6 +146,7 @@ export class InstanceListStore {
         agentId: config.agentId,
         provider: config.provider,
         model: config.model,
+        ...(config.modelRuntimeTarget ? { modelRuntimeTarget: config.modelRuntimeTarget } : {}),
         bareMode: config.bareMode,
         fastMode: this.resolveFastModeForCreate(config.fastMode, config.provider),
         forceNodeId: config.forceNodeId,
@@ -203,7 +206,19 @@ export class InstanceListStore {
   async createInstanceWithMessageAndReturnId(
     options: CreateInstanceWithMessageOptions,
   ): Promise<string | null> {
-    const { message, files, workingDirectory, agentId, provider, model, yoloMode, bareMode, fastMode, forceNodeId } = options;
+    const {
+      message,
+      files,
+      workingDirectory,
+      agentId,
+      provider,
+      model,
+      modelRuntimeTarget,
+      yoloMode,
+      bareMode,
+      fastMode,
+      forceNodeId,
+    } = options;
 
     console.log('InstanceListStore: createInstanceWithMessage called with:', {
       message,
@@ -242,6 +257,7 @@ export class InstanceListStore {
         agentId,
         provider: provider === 'auto' ? undefined : provider,
         model,
+        ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
         ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         bareMode,
         fastMode: this.resolveFastModeForCreate(fastMode, provider),
@@ -706,6 +722,9 @@ export class InstanceListStore {
       launchMode: this.isLaunchMode(d['launchMode']) ? d['launchMode'] : 'orchestrated',
       currentModel,
       reasoningEffort,
+      runtimeSummary: this.isRecord(d['runtimeSummary'])
+        ? (d['runtimeSummary'] as unknown as Instance['runtimeSummary'])
+        : undefined,
       outputBuffer: (d['outputBuffer'] as OutputMessage[]) || [],
       restoreMode: d['restoreMode'] as HistoryRestoreMode | undefined,
       diffStats: d['diffStats'] as Instance['diffStats'] | undefined,

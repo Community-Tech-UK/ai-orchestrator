@@ -1,6 +1,10 @@
 import type { AgentProfile } from '../../../shared/types/agent.types';
 import { LIMITS } from '../../../shared/constants/limits';
 import type { Instance, InstanceCreateConfig } from '../../../shared/types/instance.types';
+import type {
+  InstanceRuntimeSummary,
+  ModelRuntimeTarget,
+} from '../../../shared/types/local-model-runtime.types';
 import {
   createDefaultContextInheritance,
   type ContextInheritanceConfig,
@@ -40,6 +44,10 @@ export function buildInstanceRecord(
   const providerKey = config.provider && config.provider in INSTANCE_ID_PREFIXES
     ? config.provider as InstanceProvider
     : 'generic';
+  const localModelTarget = getLocalModelRuntimeTarget(config.modelRuntimeTarget);
+  const runtimeSummary = localModelTarget
+    ? buildLocalModelRuntimeSummary(localModelTarget)
+    : config.runtimeSummary;
 
   return {
     id: generateInstanceId(providerKey),
@@ -88,8 +96,13 @@ export function buildInstanceRecord(
     bareMode: config.bareMode ?? false,
     // Seed from the caller's explicit pick so the renderer chip matches the
     // draft composer before Phase-2 async init resolves settings fallbacks.
-    ...(config.modelOverride?.trim()
-      ? { currentModel: config.modelOverride.trim() }
+    ...(localModelTarget
+      ? { currentModel: localModelTarget.modelId }
+      : config.modelOverride?.trim()
+        ? { currentModel: config.modelOverride.trim() }
+        : {}),
+    ...(runtimeSummary
+      ? { runtimeSummary }
       : {}),
     ...(typeof config.fastModeOverride === 'boolean'
       ? { fastMode: config.fastModeOverride }
@@ -110,6 +123,29 @@ export function buildInstanceRecord(
     errorCount: 0,
     restartCount: 0,
     metadata: config.metadata,
+  };
+}
+
+function getLocalModelRuntimeTarget(
+  target: ModelRuntimeTarget | undefined,
+): Extract<ModelRuntimeTarget, { kind: 'local-model' }> | null {
+  return target?.kind === 'local-model' ? target : null;
+}
+
+function buildLocalModelRuntimeSummary(
+  target: Extract<ModelRuntimeTarget, { kind: 'local-model' }>,
+): InstanceRuntimeSummary {
+  const nodeLabel = target.nodeName ?? target.nodeId;
+  const label = nodeLabel
+    ? `${target.modelId} on ${nodeLabel}`
+    : `${target.modelId} on this device`;
+  return {
+    kind: 'local-model',
+    label,
+    ...(target.nodeId ? { nodeId: target.nodeId } : {}),
+    ...(target.nodeName ? { nodeName: target.nodeName } : {}),
+    endpointProvider: target.endpointProvider,
+    modelId: target.modelId,
   };
 }
 

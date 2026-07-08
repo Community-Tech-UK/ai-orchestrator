@@ -308,6 +308,13 @@ export function createProviderDomain(
       ipcRenderer.invoke(ch.MODELS_UNIFIED_CATALOG),
 
     /**
+     * Read sanitized local model inventory rows from the main process.
+     * Rows intentionally exclude worker-local loopback URLs and credentials.
+     */
+    getLocalModelInventory: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.MODELS_LOCAL_MODEL_INVENTORY),
+
+    /**
      * Push CLI-discovered models from the renderer into the main-process catalog.
      * Call this after `dynamic-model-catalog.service` finishes discovery for a
      * provider so backend services (routing, cost accounting) see live models.
@@ -331,6 +338,17 @@ export function createProviderDomain(
       ) => callback(payload);
       ipcRenderer.on(ch.MODELS_CATALOG_UPDATED, handler);
       return () => ipcRenderer.removeListener(ch.MODELS_CATALOG_UPDATED, handler);
+    },
+
+    onLocalModelInventoryUpdated: (
+      callback: (payload: { models: unknown[] }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: { models: unknown[] }
+      ) => callback(payload);
+      ipcRenderer.on(ch.MODELS_LOCAL_MODEL_INVENTORY_UPDATED, handler);
+      return () => ipcRenderer.removeListener(ch.MODELS_LOCAL_MODEL_INVENTORY_UPDATED, handler);
     },
   };
 }

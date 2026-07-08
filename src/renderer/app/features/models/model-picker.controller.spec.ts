@@ -199,6 +199,37 @@ describe('ModelPickerController', () => {
 
       expect(emitted).toEqual([{ provider: 'codex', model: 'gpt-5.5', reasoning: 'high' }]);
     });
+
+    it('forwards local-model runtime targets in pending-create mode', async () => {
+      const controller = TestBed.inject(ModelPickerController);
+      const modelRuntimeTarget = {
+        kind: 'local-model' as const,
+        source: 'worker-node' as const,
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        nodeId: 'node-win',
+        endpointProvider: 'ollama' as const,
+        endpointId: 'ollama',
+        modelId: 'qwen',
+      };
+      controller.setMode('pending-create');
+      controller.setSelection({ provider: 'claude', model: null, reasoning: null });
+      const emitted: unknown[] = [];
+      controller.setSelectionChangeCallback((s) => emitted.push(s));
+
+      await controller.commitSelection({
+        provider: 'local-model',
+        modelId: modelRuntimeTarget.selectorId,
+        reasoning: null,
+        modelRuntimeTarget,
+      });
+
+      expect(emitted).toEqual([{
+        provider: 'local-model',
+        model: modelRuntimeTarget.selectorId,
+        reasoning: null,
+        modelRuntimeTarget,
+      }]);
+    });
   });
 
   it('mirror effect copies chat into rendering signals', () => {

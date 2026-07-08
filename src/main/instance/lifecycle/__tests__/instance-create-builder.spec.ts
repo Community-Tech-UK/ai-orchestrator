@@ -101,6 +101,36 @@ describe('buildInstanceRecord', () => {
     expect(instance.currentModel).toBe('composer-2.5');
   });
 
+  it('seeds currentModel and runtimeSummary for local-model runtime targets', () => {
+    const instance = buildInstanceRecord(
+      buildConfig({
+        provider: 'claude',
+        modelRuntimeTarget: {
+          kind: 'local-model',
+          source: 'worker-node',
+          selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+          nodeId: 'node-win',
+          nodeName: 'windows-pc',
+          endpointProvider: 'ollama',
+          endpointId: 'ollama',
+          modelId: 'qwen',
+        },
+      }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+
+    expect(instance.currentModel).toBe('qwen');
+    expect(instance.runtimeSummary).toEqual({
+      kind: 'local-model',
+      label: 'qwen on windows-pc',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama',
+      modelId: 'qwen',
+    });
+  });
+
   it('preserves explicit bare mode before async init', () => {
     const instance = buildInstanceRecord(
       buildConfig({ provider: 'claude', bareMode: true }),

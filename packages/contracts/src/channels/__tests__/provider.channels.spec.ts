@@ -22,6 +22,10 @@ describe('PROVIDER_CHANNELS', () => {
   it('has model discovery channels', () => {
     expect(PROVIDER_CHANNELS.MODEL_DISCOVER).toBe('model:discover');
     expect(PROVIDER_CHANNELS.MODEL_SET_OVERRIDE).toBe('model:set-override');
+    expect(PROVIDER_CHANNELS.MODELS_LOCAL_MODEL_INVENTORY).toBe('models:local-model-inventory');
+    expect(PROVIDER_CHANNELS.MODELS_LOCAL_MODEL_INVENTORY_UPDATED).toBe(
+      'models:local-model-inventory-updated',
+    );
   });
 
   it('has model routing channels', () => {

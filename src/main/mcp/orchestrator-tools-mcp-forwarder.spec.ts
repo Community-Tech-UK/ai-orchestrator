@@ -15,6 +15,12 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'run_on_node',
       'read_node_output',
       'terminate_node_instance',
+      'list_node_files',
+      'find_node_files',
+      'get_node_file_info',
+      'download_from_node',
+      'upload_to_node',
+      'collect_browser_download',
       'list_settings',
       'get_setting',
       'set_setting',
@@ -126,6 +132,83 @@ describe('createOrchestratorToolsForwarderTools', () => {
         'buildId',
         'usesNonExemptEncryption',
       ]),
+      additionalProperties: false,
+    });
+  });
+
+  it('advertises browserTargetId and overwrite for collect_browser_download', () => {
+    const tool = createOrchestratorToolsForwarderTools(stubClient(async () => null)).find(
+      (t) => t.name === 'collect_browser_download',
+    );
+
+    expect(tool?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        node: { type: 'string' },
+        profileId: { type: 'string' },
+        browserTargetId: { type: 'string' },
+        overwrite: { type: 'boolean' },
+      },
+      required: ['node'],
+      additionalProperties: false,
+    });
+    expect((tool?.inputSchema.properties as Record<string, unknown>)['targetId']).toBeUndefined();
+  });
+
+  it('advertises localPath as optional for download_from_node', () => {
+    const tool = createOrchestratorToolsForwarderTools(stubClient(async () => null)).find(
+      (t) => t.name === 'download_from_node',
+    );
+
+    expect(tool?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        node: { type: 'string' },
+        remotePath: { type: 'string' },
+        localPath: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(tool?.inputSchema.required).toEqual(['node', 'remotePath']);
+  });
+
+  it('advertises fileTransfer updates for update_node_config', () => {
+    const tool = createOrchestratorToolsForwarderTools(stubClient(async () => null)).find(
+      (t) => t.name === 'update_node_config',
+    );
+
+    expect(tool?.description).toMatch(/fileTransfer/);
+    expect(tool?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        fileTransfer: {
+          type: 'object',
+          properties: {
+            enabled: { type: 'boolean' },
+            roots: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  label: { type: 'string' },
+                  path: { type: 'string' },
+                  read: { type: 'boolean' },
+                  write: { type: 'boolean' },
+                  approvalRequired: { type: 'boolean' },
+                },
+                required: ['id', 'label', 'path', 'read', 'write'],
+                additionalProperties: false,
+              },
+              maxItems: 64,
+            },
+            maxFileBytes: { type: 'integer', minimum: 1, maximum: 50 * 1024 * 1024 },
+          },
+          required: ['enabled'],
+          additionalProperties: false,
+        },
+      },
+      required: ['nodeId'],
       additionalProperties: false,
     });
   });
@@ -337,6 +420,71 @@ describe('createOrchestratorToolsForwarderTools', () => {
       node: 'noahlaptop',
     });
     expect(result).toEqual({ terminated: [{ instanceId: 'inst-1' }], skipped: [] });
+  });
+
+  it('forwards download_from_node invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ ok: true, sha256: 'a'.repeat(64) }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'download_from_node',
+    );
+
+    const result = await tool!.handler({
+      node: 'windows-pc',
+      remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+      localPath: '_scratch/file.docx',
+      overwrite: false,
+    });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.download_from_node', {
+      node: 'windows-pc',
+      remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+      localPath: '_scratch/file.docx',
+      overwrite: false,
+    });
+    expect(result).toEqual({ ok: true, sha256: 'a'.repeat(64) });
+  });
+
+  it('forwards upload_to_node invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ ok: true, sha256: 'b'.repeat(64) }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'upload_to_node',
+    );
+
+    const result = await tool!.handler({
+      node: 'windows-pc',
+      localPath: '_scratch/file.docx',
+      overwrite: false,
+    });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.upload_to_node', {
+      node: 'windows-pc',
+      localPath: '_scratch/file.docx',
+      overwrite: false,
+    });
+    expect(result).toEqual({ ok: true, sha256: 'b'.repeat(64) });
+  });
+
+  it('forwards collect_browser_download invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ ok: false, code: 'no_download_candidates' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'collect_browser_download',
+    );
+
+    const result = await tool!.handler({
+      node: 'windows-pc',
+      fileNameHint: 'invoice',
+      extensions: ['.pdf'],
+    });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.collect_browser_download', {
+      node: 'windows-pc',
+      fileNameHint: 'invoice',
+      extensions: ['.pdf'],
+    });
+    expect(result).toEqual({ ok: false, code: 'no_download_candidates' });
   });
 
   it('rejects malformed run_on_node args before contacting the parent', async () => {

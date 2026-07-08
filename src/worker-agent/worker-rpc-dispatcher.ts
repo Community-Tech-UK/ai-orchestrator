@@ -28,11 +28,16 @@ import {
   AuxiliaryModelGenerateParamsSchema,
   AudioTranscribeParamsSchema,
   ConfigUpdateParamsSchema,
+  LocalModelSessionIdParamsSchema,
+  LocalModelSessionSendInputParamsSchema,
+  LocalModelSessionStartParamsSchema,
 } from '../main/remote-node/rpc-schemas';
+import type { LocalModelSessionManager } from './local-model-session-manager';
 import type {
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeBrowserAutomationSummary,
   WorkerNodeExtensionRelaySummary,
+  WorkerNodeFileTransferSummary,
 } from '../shared/types/worker-node.types';
 import {
   FsRpcError,
@@ -53,6 +58,7 @@ import type {
   WorkerBrowserAutomationConfig,
   WorkerConfig,
   WorkerExtensionRelayConfig,
+  WorkerFileTransferConfig,
 } from './worker-config';
 import type { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import {
@@ -70,6 +76,7 @@ type AudioTranscribeParams = z.infer<typeof AudioTranscribeParamsSchema>;
 interface WorkerRpcDispatcherDeps {
   config: WorkerConfig;
   instanceManager: LocalInstanceManager;
+  localModelSessionManager?: LocalModelSessionManager;
   getFilesystemHandler: () => NodeFilesystemHandler;
   getSyncHandler: () => SyncHandler;
   getTerminalHandler: () => WorkerTerminalHandler;
@@ -77,10 +84,12 @@ interface WorkerRpcDispatcherDeps {
     browserAutomation?: WorkerBrowserAutomationConfig;
     androidAutomation?: WorkerAndroidAutomationConfig;
     extensionRelay?: WorkerExtensionRelayConfig;
+    fileTransfer?: WorkerFileTransferConfig;
   }) => Promise<{
     browserAutomation?: WorkerNodeBrowserAutomationSummary;
     androidAutomation?: WorkerNodeAndroidAutomationSummary;
     extensionRelay?: WorkerNodeExtensionRelaySummary;
+    fileTransfer?: WorkerNodeFileTransferSummary;
   }>;
   getCdpTunnel: () => WorkerCdpTunnel;
   stopManagedBrowser: () => Promise<void>;
@@ -156,6 +165,28 @@ export class WorkerRpcDispatcher {
           await this.deps.instanceManager.wake(params['instanceId'] as string);
           result = { ok: true };
           break;
+        case COORDINATOR_TO_NODE.LOCAL_MODEL_SESSION_START: {
+          const validated = LocalModelSessionStartParamsSchema.parse(params);
+          result = await this.requireLocalModelSessionManager().start(validated);
+          break;
+        }
+        case COORDINATOR_TO_NODE.LOCAL_MODEL_SESSION_SEND_INPUT: {
+          const validated = LocalModelSessionSendInputParamsSchema.parse(params);
+          await this.requireLocalModelSessionManager().sendInput(validated);
+          result = { ok: true };
+          break;
+        }
+        case COORDINATOR_TO_NODE.LOCAL_MODEL_SESSION_TERMINATE: {
+          const validated = LocalModelSessionIdParamsSchema.parse(params);
+          await this.requireLocalModelSessionManager().terminate(validated);
+          result = { ok: true };
+          break;
+        }
+        case COORDINATOR_TO_NODE.LOCAL_MODEL_SESSION_INTERRUPT: {
+          const validated = LocalModelSessionIdParamsSchema.parse(params);
+          result = await this.requireLocalModelSessionManager().interrupt(validated);
+          break;
+        }
         case COORDINATOR_TO_NODE.NODE_PING:
           result = { pong: Date.now() };
           break;
@@ -344,6 +375,7 @@ export class WorkerRpcDispatcher {
             browserAutomation: validated.browserAutomation,
             androidAutomation: validated.androidAutomation,
             extensionRelay: validated.extensionRelay,
+            fileTransfer: validated.fileTransfer,
           });
           result = summary;
           break;
@@ -429,13 +461,13 @@ export class WorkerRpcDispatcher {
     if (provider === 'ollama') {
       const resp = await fetch(`${OLLAMA_LOCAL_BASE_URL}/api/tags`, { method: 'GET' });
       if (!resp.ok) throw new Error(`Ollama list failed: ${resp.status}`);
-      const data = await resp.json() as { models?: Array<{ name: string }> };
+      const data = await resp.json() as { models?: { name: string }[] };
       return (data.models ?? []).map((m) => m.name);
     }
     if (provider === 'openai-compatible') {
       const resp = await fetch(`${LMSTUDIO_LOCAL_BASE_URL}/v1/models`, { method: 'GET' });
       if (!resp.ok) throw new Error(`OpenAI-compatible list failed: ${resp.status}`);
-      const data = await resp.json() as { data?: Array<{ id: string }> };
+      const data = await resp.json() as { data?: { id: string }[] };
       return (data.data ?? []).map((m) => m.id);
     }
     throw new Error(`Unsupported provider: ${provider}`);
@@ -542,6 +574,13 @@ export class WorkerRpcDispatcher {
       return RPC_ERROR_CODES.SPAWN_FAILED;
     }
     return RPC_ERROR_CODES.INTERNAL_ERROR;
+  }
+
+  private requireLocalModelSessionManager(): LocalModelSessionManager {
+    if (!this.deps.localModelSessionManager) {
+      throw new Error('Local model session manager is unavailable on this worker');
+    }
+    return this.deps.localModelSessionManager;
   }
 }
 

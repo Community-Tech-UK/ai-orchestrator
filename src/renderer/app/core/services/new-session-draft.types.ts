@@ -1,4 +1,5 @@
 import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
+import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { ProviderType } from './provider-state.service';
 
@@ -7,6 +8,7 @@ export interface NewSessionDraftState {
   prompt: string;
   provider: ProviderType | null;
   model: string | null;
+  modelRuntimeTarget: ModelRuntimeTarget | null;
   reasoningEffort: ReasoningEffort | null;
   nodeId: string | null;
   yoloMode: boolean | null;
@@ -27,6 +29,7 @@ export interface PersistedNewSessionDraft {
   prompt: string;
   provider: ProviderType | null;
   model: string | null;
+  modelRuntimeTarget?: ModelRuntimeTarget | null;
   reasoningEffort?: ReasoningEffort | null;
   nodeId?: string | null;
   yoloMode?: boolean | null;

@@ -18,10 +18,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ComposerToolbarComponent,
   deriveComposerPickerSelection,
+  formatComposerRuntimeLabel,
   shouldHydrateComposerPickerSelection,
 } from './composer-toolbar.component';
 import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
+import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 
 // Stub out OrchestrationIpcService — we only care about changeModel.
 const ipcStub = {
@@ -198,6 +200,15 @@ describe('ComposerToolbarComponent', () => {
 // vitest setup runs without the Angular compiler, so effect/CD flushing isn't
 // available — see overrideInputs above).
 describe('deriveComposerPickerSelection', () => {
+  const localRuntimeSummary: InstanceRuntimeSummary = {
+    kind: 'local-model',
+    label: 'qwen on windows-pc',
+    nodeId: 'node-win',
+    nodeName: 'windows-pc',
+    endpointProvider: 'ollama',
+    modelId: 'qwen',
+  };
+
   it('derives the picker selection from a Cursor instance', () => {
     expect(deriveComposerPickerSelection('cursor', 'composer-2.5')).toEqual({
       provider: 'cursor',
@@ -237,6 +248,20 @@ describe('deriveComposerPickerSelection', () => {
       reasoning: 'max',
     });
     expect(deriveComposerPickerSelection('claude', 'opus', 'xhigh').reasoning).toBe('xhigh');
+  });
+
+  it('uses local-model runtime summaries for the live toolbar display', () => {
+    expect(formatComposerRuntimeLabel(localRuntimeSummary)).toBe('Local Models - qwen on windows-pc');
+  });
+
+  it('maps local-model runtime summaries to the local-model picker tab', () => {
+    expect(
+      deriveComposerPickerSelection('claude', 'opus', 'max', localRuntimeSummary),
+    ).toEqual({
+      provider: 'local-model',
+      model: 'qwen',
+      reasoning: null,
+    });
   });
 });
 

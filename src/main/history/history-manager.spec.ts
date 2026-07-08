@@ -323,6 +323,40 @@ describe('HistoryManager', () => {
     expect(manualEntry?.isAutomation).toBeUndefined();
   });
 
+  it('persists local-model runtime summaries in history entries and conversation data', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const runtimeSummary = {
+      kind: 'local-model' as const,
+      label: 'qwen on windows-pc',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama' as const,
+      modelId: 'qwen',
+    };
+    const instance = makeInstance({
+      id: 'instance-local-model',
+      historyThreadId: 'thread-local-model',
+      sessionId: 'session-local-model',
+      provider: 'claude',
+      currentModel: 'qwen',
+      runtimeSummary,
+      outputBuffer: [message('m-local', 'user', 'run this on qwen', 10)],
+    });
+
+    await manager.archiveInstance(instance, 'completed');
+
+    const entry = manager.getEntries().find((item) => item.historyThreadId === 'thread-local-model');
+    expect(entry?.runtimeSummary).toEqual(runtimeSummary);
+    if (!entry) {
+      throw new Error('Expected local-model history entry to be archived');
+    }
+
+    const conversation = await manager.loadConversation(entry.id);
+    expect(conversation?.entry.runtimeSummary).toEqual(runtimeSummary);
+  });
+
   it('carries project rail hide provenance from internal worker metadata into the archived entry', async () => {
     const { HistoryManager } = await import('./history-manager');
     const manager = new HistoryManager();

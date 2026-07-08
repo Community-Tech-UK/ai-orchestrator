@@ -12,6 +12,7 @@ import { COORDINATOR_TO_NODE } from '../remote-node/worker-node-rpc';
 import { ConfigUpdateParamsSchema } from '../remote-node/rpc-schemas';
 import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import { sendServiceRpc } from '../remote-node/service-rpc-client';
+import { createRemoteNodeFileTransferImplementations } from '../remote-node/remote-node-file-transfer-mcp-service';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
 import {
   getAutomationRunner,
@@ -149,6 +150,12 @@ export function createOrchestratorToolsStep(
             ? instanceManager.getInstance(callerInstanceId)?.workingDirectory
             : undefined,
       });
+      const fileTransferTools = createRemoteNodeFileTransferImplementations({
+        resolveLocalWorkspace: (callerInstanceId) =>
+          callerInstanceId
+            ? instanceManager.getInstance(callerInstanceId)?.workingDirectory
+            : undefined,
+      });
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
@@ -195,6 +202,9 @@ export function createOrchestratorToolsStep(
                 activeInstances: node.activeInstances,
                 maxConcurrentInstances: node.maxConcurrentInstances ?? capabilities.maxConcurrentInstances,
                 workingDirectories: [...(node.workingDirectories ?? capabilities.workingDirectories ?? [])],
+                ...(node.fileTransfer ?? capabilities.fileTransfer
+                  ? { fileTransfer: node.fileTransfer ?? capabilities.fileTransfer }
+                  : {}),
                 ...(node.connectedAt !== undefined ? { connectedAt: node.connectedAt } : {}),
                 ...(node.lastHeartbeat !== undefined ? { lastHeartbeat: node.lastHeartbeat } : {}),
                 ...(node.lastAuthenticatedAt !== undefined ? { lastAuthenticatedAt: node.lastAuthenticatedAt } : {}),
@@ -447,6 +457,7 @@ export function createOrchestratorToolsStep(
               ? { androidAutomation: args.androidAutomation }
               : {}),
             ...(args.extensionRelay ? { extensionRelay: args.extensionRelay } : {}),
+            ...(args.fileTransfer ? { fileTransfer: args.fileTransfer } : {}),
           });
           const result = await sendServiceRpc(
             node.id,
@@ -468,6 +479,12 @@ export function createOrchestratorToolsStep(
         deleteAutomation: automationTools.deleteAutomation,
         updateAutomation: automationTools.updateAutomation,
         postponeAutomation: automationTools.postponeAutomation,
+        listNodeFiles: fileTransferTools.listNodeFiles,
+        findNodeFiles: fileTransferTools.findNodeFiles,
+        getNodeFileInfo: fileTransferTools.getNodeFileInfo,
+        downloadFromNode: fileTransferTools.downloadFromNode,
+        uploadToNode: fileTransferTools.uploadToNode,
+        collectBrowserDownload: fileTransferTools.collectBrowserDownload,
         // #18a/#19: strip the spawn-capable `run_on_node` tool from instances
         // that have already reached the spawn-depth limit — defense-in-depth
         // alongside the depth guard in the run_on_node handler.

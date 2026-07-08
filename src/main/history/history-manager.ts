@@ -240,6 +240,7 @@ export class HistoryManager {
         nativeResumeFailedAt,
         provider: instance.provider,
         currentModel: instance.currentModel,
+        runtimeSummary: instance.runtimeSummary ?? previousEntries.find((e) => e.runtimeSummary)?.runtimeSummary,
         executionLocation,
         snippets,
         // Net line-change summary for the completed session, shown as the

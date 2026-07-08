@@ -8,6 +8,8 @@ vi.mock('../../../../shared/types/provider.types', async (importOriginal) => ({
   getModelsForProvider: (provider: string) =>
     provider === 'claude'
       ? [{ id: 'opus', name: 'Opus Curated', tier: 'powerful', pinned: true, family: 'Opus' }]
+      : provider === 'local-model'
+        ? [{ id: 'lm://worker-node/node-win/ollama/ollama/qwen', name: 'Wrong Curated', tier: 'powerful' }]
       : [],
 }));
 
@@ -137,6 +139,25 @@ describe('UnifiedCatalogStore', () => {
 
     expect(store.displayModelsForProvider('claude')).toEqual([
       { id: 'claude-override-opus', name: 'Override Opus', tier: 'powerful' },
+    ]);
+  });
+
+  it('uses local-model catalog names directly', async () => {
+    ipc = makeIpc([
+      entry({
+        id: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        provider: 'local-model',
+        name: 'qwen on windows-pc',
+        source: 'local-model',
+        tier: 'balanced',
+      }),
+    ]);
+    const store = setup();
+
+    await store.refresh();
+
+    expect(store.displayModelsForProvider('local-model')).toEqual([
+      { id: 'lm://worker-node/node-win/ollama/ollama/qwen', name: 'qwen on windows-pc', tier: 'balanced' },
     ]);
   });
 

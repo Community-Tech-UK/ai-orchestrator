@@ -34,6 +34,7 @@ import { CompactModelPickerComponent } from '../models/compact-model-picker.comp
 import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type { InstanceProvider, InstanceStatus } from '../../core/state/instance/instance.types';
+import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { getModelSwitchUnavailableReason } from '../../../../shared/types/instance-status-policy';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
@@ -87,7 +88,11 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       </button>
 
       <!-- (b) Model picker -->
-      @if (pickerSelection()) {
+      @if (localRuntimeLabel()) {
+        <span class="runtime-summary-chip" [title]="localRuntimeTitle()">
+          {{ localRuntimeLabel() }}
+        </span>
+      } @else if (pickerSelection()) {
         <app-compact-model-picker
           mode="pending-create"
           [providers]="pickerProviders"
@@ -146,6 +151,24 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       min-width: 26px;
       letter-spacing: 0.02em;
     }
+
+    .runtime-summary-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      max-width: min(100%, 360px);
+      padding: 0 10px;
+      border: 1px solid rgba(20, 184, 166, 0.24);
+      border-radius: 999px;
+      background: rgba(20, 184, 166, 0.1);
+      color: #9ee7dc;
+      font: 10px var(--font-mono, monospace);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   `],
 })
 export class ComposerToolbarComponent {
@@ -171,7 +194,12 @@ export class ComposerToolbarComponent {
       const provider = this.provider();
       const currentModel = this.currentModel();
       const currentReasoning = this.currentReasoningEffort() ?? null;
-      const derived = deriveComposerPickerSelection(provider, currentModel, currentReasoning);
+      const derived = deriveComposerPickerSelection(
+        provider,
+        currentModel,
+        currentReasoning,
+        this.runtimeSummary(),
+      );
       const instanceChanged = instanceId !== this.lastSeededInstanceId;
 
       if (instanceChanged) {
@@ -219,6 +247,10 @@ export class ComposerToolbarComponent {
    * "provider default" (the picker then badges e.g. Claude's High).
    */
   currentReasoningEffort = input<ReasoningEffort | null | undefined>(undefined);
+
+  /** Runtime display metadata from the backend. Local-model sessions use this
+   * label instead of pretending the backing CLI provider/model is the runtime. */
+  runtimeSummary = input<InstanceRuntimeSummary | undefined>(undefined);
 
   /** Live instance status. Drives gating of the picker — the backend only
    * accepts model/reasoning switches while waiting for user input, so the
@@ -268,6 +300,14 @@ export class ComposerToolbarComponent {
   });
 
   readonly pickerSelection = computed<PendingSelection | null>(() => this.pendingSelection());
+  readonly localRuntimeLabel = computed(() => formatComposerRuntimeLabel(this.runtimeSummary()));
+  readonly localRuntimeTitle = computed(() => {
+    const summary = this.runtimeSummary();
+    if (summary?.kind !== 'local-model') {
+      return '';
+    }
+    return summary.modelId ? `Model: ${summary.modelId}` : summary.label;
+  });
 
   async onPickerSelectionChange(sel: PendingSelection): Promise<void> {
     this.pendingSelection.set(sel);
@@ -295,9 +335,27 @@ export function deriveComposerPickerSelection(
   provider: InstanceProvider,
   currentModel: string | undefined,
   reasoning: ReasoningEffort | null = null,
+  runtimeSummary?: InstanceRuntimeSummary,
 ): PendingSelection {
+  if (runtimeSummary?.kind === 'local-model') {
+    return {
+      provider: 'local-model',
+      model: runtimeSummary.modelId ?? currentModel ?? null,
+      reasoning: null,
+    };
+  }
+
   const pickerProvider: PickerProvider = (provider === 'ollama' ? 'claude' : provider) as PickerProvider;
   return { provider: pickerProvider, model: currentModel ?? null, reasoning: reasoning ?? null };
+}
+
+export function formatComposerRuntimeLabel(
+  runtimeSummary: InstanceRuntimeSummary | undefined,
+): string | null {
+  if (runtimeSummary?.kind !== 'local-model') {
+    return null;
+  }
+  return `Local Models - ${runtimeSummary.label}`;
 }
 
 /**

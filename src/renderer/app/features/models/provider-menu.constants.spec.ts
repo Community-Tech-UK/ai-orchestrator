@@ -11,8 +11,15 @@ describe('provider menu constants', () => {
     expect(DEFAULT_CHAT_PROVIDERS).toEqual(['claude', 'codex', 'antigravity', 'copilot']);
   });
 
-  it('keeps the wider instance provider order including cursor', () => {
-    expect(DEFAULT_INSTANCE_PROVIDERS).toEqual(['claude', 'codex', 'antigravity', 'copilot', 'cursor']);
+  it('keeps the wider instance provider order including cursor and local models', () => {
+    expect(DEFAULT_INSTANCE_PROVIDERS).toEqual([
+      'claude',
+      'codex',
+      'antigravity',
+      'copilot',
+      'cursor',
+      'local-model',
+    ]);
   });
 
   it('keeps labels and theme-safe colors available for every picker provider', () => {
@@ -23,7 +30,9 @@ describe('provider menu constants', () => {
       antigravity: 'Antigravity',
       copilot: 'Copilot',
       cursor: 'Cursor',
+      'local-model': 'Local Models',
     });
     expect(PROVIDER_MENU_COLORS.cursor).toBe('var(--text-primary)');
+    expect(PROVIDER_MENU_COLORS['local-model']).toBe('#14b8a6');
   });
 });

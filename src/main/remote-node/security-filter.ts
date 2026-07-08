@@ -4,16 +4,23 @@ const RESTRICTED_PATTERNS = [
   /^\.env(\..+)?$/,          // .env, .env.local, .env.production, etc.
   /^\.ssh$/,                 // .ssh directory
   /^id_(rsa|ed25519|ecdsa|dsa)$/,  // private key files
+  /^\.credentials$/,         // generic credential directory
   /^\.npmrc$/,               // npm credentials
   /^\.netrc$/,               // netrc credentials
   /^\.pypirc$/,              // PyPI credentials
   /^credentials\.json$/,     // Google/other credentials
+  /^credentials?$/,
   /^\.aws$/,                 // AWS config directory
   /^\.kube$/,                // Kubernetes config directory
   /^\.gnupg$/,               // GnuPG directory
   /^token\.json$/,           // OAuth tokens
+  /^tokens?(\..*)?$/,
   /^secrets?$/,              // secrets or secret files/dirs
   /^secrets?\./,             // secrets.* files
+  /^passwords?(\..*)?$/,
+  /^login data$/,
+  /^local state$/,
+  /^keychain/,
   /\.pem$/,                  // PEM certificate/key files
   /\.key$/,                  // .key files
 ];
@@ -34,7 +41,26 @@ const SKIP_DIRECTORIES = new Set([
 
 export class SecurityFilter {
   static isRestricted(name: string): boolean {
-    return RESTRICTED_PATTERNS.some(pattern => pattern.test(name));
+    const normalized = name.toLowerCase();
+    return RESTRICTED_PATTERNS.some(pattern => pattern.test(normalized));
+  }
+
+  static isRestrictedPath(targetPath: string): boolean {
+    const normalized = targetPath.replace(/\\/g, '/').toLowerCase();
+    if (
+      normalized.includes('/google/chrome/user data/') ||
+      normalized.includes('/microsoft/edge/user data/') ||
+      normalized.includes('/mozilla/firefox/profiles/') ||
+      normalized.includes('/library/keychains/') ||
+      normalized.includes('/appdata/local/microsoft/credentials/') ||
+      normalized.includes('/appdata/roaming/microsoft/credentials/')
+    ) {
+      return true;
+    }
+    return normalized
+      .split('/')
+      .filter(Boolean)
+      .some((segment) => this.isRestricted(segment));
   }
 
   static isWithinRoot(targetPath: string, roots: string[]): boolean {

@@ -119,6 +119,7 @@ export class HistoryRestoreCoordinator {
       data.entry.id;
     const restoreProvider = inferConversationHistoryProvider(data.entry);
     const restoreModel = data.entry.currentModel?.trim() || undefined;
+    const restoreRuntimeSummary = data.entry.runtimeSummary;
     const nativeResumeSessionId = opts.forkAs || opts.forceFallback
       ? undefined
       : getNativeResumeSessionId(data.entry, data.messages, restoreProvider);
@@ -164,6 +165,7 @@ export class HistoryRestoreCoordinator {
         restoreTranscriptMessages,
         restoreProvider,
         restoreModel,
+        restoreRuntimeSummary,
         restoreNodeId,
       });
       if (native) {
@@ -191,6 +193,7 @@ export class HistoryRestoreCoordinator {
       restoreTranscriptMessages,
       restoreProvider,
       restoreModel,
+      restoreRuntimeSummary,
       restoreNodeId,
       remoteNodeAvailable,
       canAttemptNativeResume,
@@ -210,6 +213,7 @@ export class HistoryRestoreCoordinator {
     restoreTranscriptMessages: OutputMessage[];
     restoreProvider: Instance['provider'];
     restoreModel?: string;
+    restoreRuntimeSummary?: Instance['runtimeSummary'];
     restoreNodeId?: string;
   }): Promise<HistoryRestoreCoordinatorResult | null> {
     let resumeInstanceId: string | undefined;
@@ -227,6 +231,7 @@ export class HistoryRestoreCoordinator {
         initialOutputBuffer: params.restoreTranscriptMessages,
         provider: params.restoreProvider,
         modelOverride: params.restoreModel,
+        runtimeSummary: params.restoreRuntimeSummary,
         forceNodeId: params.restoreNodeId,
       });
       resumeInstanceId = instance.id;
@@ -371,6 +376,7 @@ export class HistoryRestoreCoordinator {
     restoreTranscriptMessages: OutputMessage[];
     restoreProvider: Instance['provider'];
     restoreModel?: string;
+    restoreRuntimeSummary?: Instance['runtimeSummary'];
     restoreNodeId?: string;
     remoteNodeAvailable: boolean;
     canAttemptNativeResume: boolean;
@@ -395,6 +401,7 @@ export class HistoryRestoreCoordinator {
       initialOutputBuffer: displayMessages,
       provider: params.restoreProvider,
       modelOverride: params.restoreModel,
+      runtimeSummary: params.restoreRuntimeSummary,
       forceNodeId: fallbackNodeId,
     });
 

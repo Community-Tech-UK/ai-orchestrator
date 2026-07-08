@@ -12,6 +12,7 @@ import type {
   ContextInheritanceConfig,
 } from './supervision.types';
 import type { ExecutionLocation, NodePlacementPrefs } from './worker-node.types';
+import type { InstanceRuntimeSummary, ModelRuntimeTarget } from './local-model-runtime.types';
 import { createDefaultContextInheritance } from './supervision.types';
 import { getProviderModelContextWindow, type ReasoningEffort } from './provider.types';
 
@@ -378,6 +379,7 @@ export interface Instance {
   residentClaude?: boolean;
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
   reasoningEffort?: ReasoningEffort; // Optional model thinking/reasoning effort override
+  runtimeSummary?: InstanceRuntimeSummary;
 
   /** Where this instance is executing (local or remote node) */
   executionLocation: ExecutionLocation;
@@ -466,6 +468,8 @@ export interface InstanceCreateConfig {
    */
   fastModeOverride?: boolean;
   provider?: InstanceProvider; // CLI provider to use (defaults to settings.defaultCli)
+  modelRuntimeTarget?: ModelRuntimeTarget;
+  runtimeSummary?: InstanceRuntimeSummary;
 
   // Phase 2: Hierarchical instance options
   terminationPolicy?: TerminationPolicy; // What happens to children when this instance terminates

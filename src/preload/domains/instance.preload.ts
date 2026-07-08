@@ -1,6 +1,7 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
+import type { ModelRuntimeTarget } from '../../shared/types/local-model-runtime.types';
 
 export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
@@ -23,6 +24,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       agentId?: string;
       provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
       model?: string;
+      modelRuntimeTarget?: ModelRuntimeTarget;
       bareMode?: boolean;
       fastMode?: boolean;
       forceNodeId?: string;
@@ -41,6 +43,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       agentId?: string;
       provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
       model?: string;
+      modelRuntimeTarget?: ModelRuntimeTarget;
       yoloMode?: boolean;
       bareMode?: boolean;
       fastMode?: boolean;

@@ -4,6 +4,12 @@ import { getCatalogOverrideSource, type CatalogOverrideEntry } from '../provider
 import { getCodexCliDiscoveryService } from '../providers/codex-cli-discovery-service';
 import { getModelsDevService } from '../providers/models-dev-service';
 import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
+import {
+  getLocalModelInventoryService,
+  LOCAL_MODEL_INVENTORY_UPDATED_EVENT,
+  type LocalModelInventoryUpdatedPayload,
+} from '../local-models/local-model-inventory-service';
+import type { LocalModelInventoryEntry } from '../../shared/types/local-model-runtime.types';
 import type { AppSettings } from '../../shared/types/settings.types';
 
 interface CatalogSettingsManager {
@@ -16,6 +22,10 @@ interface CatalogSettingsManager {
 interface ModelCatalogRuntime {
   attachSettingsManager(settingsManager: CatalogSettingsManager): void;
   attachCatalogOverrideSource(source: CatalogOverrideRuntimeSource): void;
+  onLocalModelInventoryRefreshed?(
+    entries: LocalModelInventoryEntry[],
+    options?: { immediate?: boolean },
+  ): void;
 }
 
 interface CatalogOverrideRuntimeSource {
@@ -36,6 +46,14 @@ interface CodexDiscoveryRuntimeService {
   start(): void;
 }
 
+interface LocalModelInventoryRuntimeService {
+  list(): LocalModelInventoryEntry[];
+  on(
+    event: typeof LOCAL_MODEL_INVENTORY_UPDATED_EVENT,
+    listener: (payload: LocalModelInventoryUpdatedPayload) => void,
+  ): unknown;
+}
+
 interface RuntimeLogger {
   warn(message: string, metadata?: Record<string, unknown>): void;
 }
@@ -47,6 +65,7 @@ export interface UnifiedModelCatalogRuntimeOptions {
   catalogOverrideSource?: CatalogOverrideRuntimeSource;
   modelsDevService?: ModelsDevRuntimeService;
   codexDiscoveryService?: CodexDiscoveryRuntimeService;
+  localModelInventoryService?: LocalModelInventoryRuntimeService;
   logger?: RuntimeLogger;
 }
 
@@ -58,6 +77,7 @@ export async function initializeUnifiedModelCatalogRuntime(
   const catalog = options.catalog ?? getUnifiedModelCatalog();
   const catalogOverrideSource = options.catalogOverrideSource ?? getCatalogOverrideSource();
   const codexDiscoveryService = options.codexDiscoveryService ?? getCodexCliDiscoveryService();
+  const localModelInventoryService = options.localModelInventoryService ?? getLocalModelInventoryService();
   const logger = options.logger ?? getLogger('AppInitialization');
 
   modelsDevService.loadOfflineSnapshot();
@@ -80,6 +100,10 @@ export async function initializeUnifiedModelCatalogRuntime(
   }
 
   catalog.attachCatalogOverrideSource(catalogOverrideSource);
+  catalog.onLocalModelInventoryRefreshed?.(localModelInventoryService.list(), { immediate: true });
+  localModelInventoryService.on(LOCAL_MODEL_INVENTORY_UPDATED_EVENT, (payload) => {
+    catalog.onLocalModelInventoryRefreshed?.(payload.models);
+  });
   codexDiscoveryService.start();
 
   modelsDevService.refresh().catch(() => {

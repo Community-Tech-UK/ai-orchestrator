@@ -6,21 +6,47 @@ import {
 import { classifyPingPongSubjectHeuristic } from './pingpong-intent-classifier';
 
 const runReviewSession = vi.hoisted(() => vi.fn());
+const detectionTestState = vi.hoisted(() => ({
+  availableClis: [
+    { name: 'claude', installed: true },
+    { name: 'codex', installed: true },
+  ],
+}));
 
 vi.mock('./reviewer-session-spawner', () => ({
   getReviewerSessionSpawner: () => ({ runReviewSession }),
 }));
 
 vi.mock('../cli/cli-detection', () => ({
-  detectAvailableClis: vi.fn(async () => [
-    { name: 'claude', installed: true },
-    { name: 'codex', installed: true },
-  ]),
+  detectAvailableClis: vi.fn(async () => detectionTestState.availableClis),
 }));
 
 vi.mock('../review/review-execution-host', () => ({
   resolveReviewerModelOverride: vi.fn(() => undefined),
 }));
+
+function mockApprovedReviewSession(): void {
+  runReviewSession.mockResolvedValueOnce({
+    outcome: 'settled',
+    finalOutput:
+      '```json\n' +
+      JSON.stringify({
+        verdict: 'APPROVED',
+        summary: 'No blocking issues remain.',
+        completeness: {
+          filesInspected: 1,
+          commandsRun: 0,
+          scopeCovered: 'src/widget.ts',
+        },
+        findings: [],
+        ledger: [],
+      }) +
+      '\n```',
+    instanceId: 'rev-1',
+    tokensUsed: 123,
+    costCents: 4,
+  });
+}
 
 describe('parseReviewerJson', () => {
   it('extracts a fenced ```json block', () => {
@@ -52,6 +78,65 @@ describe('parseReviewerJson', () => {
 describe('agenticPingPongReviewer', () => {
   beforeEach(() => {
     runReviewSession.mockReset();
+    detectionTestState.availableClis = [
+      { name: 'claude', installed: true },
+      { name: 'codex', installed: true },
+    ];
+  });
+
+  it('uses Antigravity when a legacy Gemini ping-pong reviewer is configured and agy is detected', async () => {
+    detectionTestState.availableClis = [
+      { name: 'claude', installed: true },
+      { name: 'antigravity', installed: true },
+      { name: 'codex', installed: true },
+    ];
+    mockApprovedReviewSession();
+
+    const result = await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'claude',
+      reviewerProviderSetting: 'gemini',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    expect(result.verdict).toBe('APPROVED');
+    expect(result.reviewerProvider).toBe('antigravity');
+    expect(runReviewSession).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'antigravity',
+    }));
+  });
+
+  it('keeps Claude eligible for auto ping-pong review when Codex is the builder', async () => {
+    mockApprovedReviewSession();
+
+    const result = await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'codex',
+      reviewerProviderSetting: 'auto',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    expect(result.verdict).toBe('APPROVED');
+    expect(result.reviewerProvider).toBe('claude');
+    expect(runReviewSession).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude',
+    }));
   });
 
   it('classifies a Copilot monthly-quota notice as rate-limited without format repair', async () => {

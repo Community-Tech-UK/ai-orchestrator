@@ -95,6 +95,7 @@ export class CompletedFileWatcher {
   private undoneListeners = new Set<(filePath: string) => void>();
   /** Absolute paths of completed files we've seen during the current run. */
   private observedPaths = new Set<string>();
+  private scanTimer: NodeJS.Timeout | null = null;
 
   constructor(
     public readonly workspaceCwd: string,
@@ -127,23 +128,13 @@ export class CompletedFileWatcher {
 
   /** Scan once for an existing match (e.g. immediately after restart). */
   scanOnce(): string | null {
-    try {
-      const re = this.globToRegex(this.pattern);
-      for (const dir of this.watchTargets()) {
-        const entries = fs.readdirSync(dir);
-        for (const e of entries) {
-          if (re.test(e)) return path.join(dir, e);
-        }
-      }
-    } catch (err) {
-      logger.warn('CompletedFileWatcher.scanOnce failed', { error: String(err) });
-    }
-    return null;
+    return this.scanMatches()[0] ?? null;
   }
 
   start(): void {
     if (this.watcher) return;
     const re = this.globToRegex(this.pattern);
+    const initialMatches = new Set(this.scanMatches());
     this.watcher = watch(this.watchTargets(), {
       depth: 0,
       ignoreInitial: true,
@@ -152,22 +143,37 @@ export class CompletedFileWatcher {
     const fire = (filePath: string) => {
       const base = path.basename(filePath);
       if (!re.test(base)) return;
+      if (this.observedPaths.has(filePath)) return;
       this.observed = true;
       this.observedPaths.add(filePath);
       for (const l of this.listeners) {
         try { l(filePath); } catch (err) { logger.warn('CompletedFileWatcher listener threw', { error: String(err) }); }
       }
     };
+    const pruneInitialMatches = () => {
+      for (const filePath of [...initialMatches]) {
+        if (!fs.existsSync(filePath)) initialMatches.delete(filePath);
+      }
+    };
+    const recordCurrentInRunMatches = () => {
+      pruneInitialMatches();
+      for (const currentPath of this.scanMatches()) {
+        if (!initialMatches.has(currentPath)) fire(currentPath);
+      }
+    };
+    const hasObservedPathOnDisk = () =>
+      [...this.observedPaths].some((observedPath) => fs.existsSync(observedPath));
     const fireUndone = (filePath: string) => {
       const base = path.basename(filePath);
       if (!re.test(base)) return;
       // Only meaningful if we'd previously observed this completion. A bare
       // `unlink` event on a file we never saw doesn't represent an undo.
       if (!this.observedPaths.delete(filePath)) return;
-      // Re-scan synchronously so we don't fire on transient mid-rename
-      // states. `mv a_completed.md b_completed.md` issues unlink+add; we
-      // ignore the unlink because scanOnce still sees a matching file.
-      if (this.scanOnce()) return;
+      // Re-scan synchronously so we don't fire on transient mid-rename states.
+      // Only in-run matches count here: stale files present before start()
+      // must not mask deletion of the last completion observed during this run.
+      recordCurrentInRunMatches();
+      if (hasObservedPathOnDisk()) return;
       this.observed = false;
       for (const l of this.undoneListeners) {
         try { l(filePath); } catch (err) { logger.warn('CompletedFileWatcher undone-listener threw', { error: String(err) }); }
@@ -185,11 +191,28 @@ export class CompletedFileWatcher {
     // simple in-place rename (`mv a_completed.md b_completed.md`) doesn't
     // cause a spurious undo notification.
     this.watcher.on('add', fire);
+    // Keep a lightweight scan fallback active while the watcher is running.
+    // Chokidar can miss or delay add events around ready/recursive-watch setup,
+    // especially for additional nested watch roots. The initial snapshot keeps
+    // stale completed files ignored while still catching files created later.
+    this.scanTimer = setInterval(() => {
+      recordCurrentInRunMatches();
+      for (const filePath of [...this.observedPaths]) {
+        if (!fs.existsSync(filePath)) fireUndone(filePath);
+      }
+    }, 250);
+    if (typeof this.scanTimer.unref === 'function') {
+      this.scanTimer.unref();
+    }
+    this.watcher.on('ready', () => {
+      recordCurrentInRunMatches();
+    });
     this.watcher.on('unlink', fireUndone);
   }
 
   async stop(): Promise<void> {
     if (!this.watcher) return;
+    this.clearScanTimer();
     try { await this.watcher.close(); } catch { /* noop */ }
     this.watcher = null;
     this.listeners.clear();
@@ -233,6 +256,34 @@ export class CompletedFileWatcher {
       }
     }
     return [...targets];
+  }
+
+  private scanMatches(): string[] {
+    const re = this.globToRegex(this.pattern);
+    const matches: string[] = [];
+    for (const dir of this.watchTargets()) {
+      try {
+        for (const entry of fs.readdirSync(dir)) {
+          if (re.test(entry)) matches.push(path.join(dir, entry));
+        }
+      } catch (err) {
+        if (err && typeof err === 'object' && 'code' in err) {
+          const code = String((err as NodeJS.ErrnoException).code);
+          if (code === 'ENOENT' || code === 'ENOTDIR') continue;
+        }
+        logger.warn('CompletedFileWatcher.scanMatches failed', {
+          dir,
+          error: String(err),
+        });
+      }
+    }
+    return matches;
+  }
+
+  private clearScanTimer(): void {
+    if (!this.scanTimer) return;
+    clearInterval(this.scanTimer);
+    this.scanTimer = null;
   }
 }
 

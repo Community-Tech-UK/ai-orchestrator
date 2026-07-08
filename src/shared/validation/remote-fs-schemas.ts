@@ -26,6 +26,16 @@ export const FsUnwatchParamsSchema = z.object({
   watchId: z.string().min(1).max(100),
 });
 
+export const FsReadFileParamsSchema = z.object({
+  path: z.string().min(1).max(4096),
+});
+
+export const FsWriteFileParamsSchema = z.object({
+  path: z.string().min(1).max(4096),
+  data: z.string().min(1).max(75 * 1024 * 1024),
+  mkdirp: z.boolean().optional(),
+});
+
 export const FsEventParamsSchema = z.object({
   watchId: z.string(),
   events: z.array(z.object({

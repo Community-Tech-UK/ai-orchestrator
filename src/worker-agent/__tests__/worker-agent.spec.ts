@@ -99,6 +99,7 @@ vi.mock('../worker-config', () => ({
         extensionToken: config.extensionToken ?? 'generated-extension-token',
       }
     : config,
+  normalizeFileTransferConfig: vi.fn((config) => config),
 }));
 
 vi.mock('../extension-relay-native-registration', () => ({
@@ -196,6 +197,7 @@ describe('WorkerAgent', () => {
     discoveryMockState.onUp = null;
     workerConfigMockState.persistConfig.mockClear();
     extensionRegistrationMockState.checkAndRepair.mockClear();
+    vi.mocked(reportCapabilities).mockClear();
     providerDiagnostics.diagnoseProviderRuntime.mockReset();
     agent = new WorkerAgent(mockConfig);
     wsSend = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
@@ -356,6 +358,7 @@ describe('WorkerAgent', () => {
         registration: 'ok',
         lastRegistrationCheckAt: 1234,
       }),
+      undefined,
     );
   });
 

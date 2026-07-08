@@ -142,6 +142,67 @@ describe('WorkerRpcDispatcher config.update', () => {
     expect(sendError).not.toHaveBeenCalled();
   });
 
+  it('accepts fileTransfer updates with service scope', async () => {
+    const summary = {
+      fileTransfer: {
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: 'C:\\Users\\James\\Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      },
+    };
+    const applyConfigUpdate = vi.fn(async () => summary);
+    const { dispatcher, sendResult, sendError } = makeDispatcher(applyConfigUpdate);
+
+    await dispatcher.handleRpcRequest(configUpdateMsg({
+      id: 6,
+      scope: 'service',
+      params: {
+        fileTransfer: {
+          enabled: true,
+          maxFileBytes: 1024,
+          roots: [
+            {
+              id: 'downloads',
+              label: 'Downloads',
+              path: 'C:\\Users\\James\\Downloads',
+              read: true,
+              write: false,
+            },
+          ],
+        },
+      },
+    }));
+
+    expect(applyConfigUpdate).toHaveBeenCalledWith({
+      browserAutomation: undefined,
+      androidAutomation: undefined,
+      extensionRelay: undefined,
+      fileTransfer: {
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: 'C:\\Users\\James\\Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      },
+    });
+    expect(sendResult).toHaveBeenCalledWith(6, summary);
+    expect(sendError).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid params even with service scope', async () => {
     const applyConfigUpdate = vi.fn();
     const { dispatcher, sendError } = makeDispatcher(applyConfigUpdate);

@@ -93,8 +93,17 @@ export class UnifiedCatalogStore {
    * humanised name from their id.
    */
   displayModelsForProvider(provider: string): ModelDisplayInfo[] {
+    const norm = provider.trim().toLowerCase();
+    if (norm === 'local-model') {
+      return this.modelsForProvider(norm).map((entry) => ({
+        id: entry.id,
+        name: entry.name ?? humanizeModelId(entry.id),
+        tier: entry.tier,
+        ...(entry.family ? { family: entry.family } : {}),
+      }));
+    }
     const curated = new Map(getModelsForProvider(provider).map((m) => [m.id, m]));
-    return this.modelsForProvider(provider).map((entry) => {
+    return this.modelsForProvider(norm).map((entry) => {
       const known = curated.get(entry.id);
       return {
         id: entry.id,

@@ -149,6 +149,51 @@ describe('capability-reporter', () => {
     expect(workerAgent?.startedAt).toBeGreaterThan(0);
   });
 
+  it('includes non-secret file transfer capability summaries', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
+
+    const caps = await reportCapabilities(
+      ['/workspace'],
+      10,
+      undefined,
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        maxFileBytes: 50 * 1024 * 1024,
+        roots: [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: '/home/user/Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      },
+    );
+
+    expect((caps as {
+      fileTransfer?: {
+        enabled: boolean;
+        maxFileBytes: number;
+        roots: Array<{ id: string; label: string; path: string; read: boolean; write: boolean }>;
+      };
+    }).fileTransfer).toEqual({
+      enabled: true,
+      maxFileBytes: 50 * 1024 * 1024,
+      roots: [
+        {
+          id: 'downloads',
+          label: 'Downloads',
+          path: '/home/user/Downloads',
+          read: true,
+          write: false,
+        },
+      ],
+    });
+  });
+
   describe('detectLocalModelEndpoints via reportCapabilities', () => {
     it('includes Ollama endpoint when /api/tags responds successfully', async () => {
       const mockModels = [{ name: 'llama3.2:3b' }, { name: 'mistral:7b' }];
@@ -163,6 +208,7 @@ describe('capability-reporter', () => {
       expect(caps.localModelEndpoints).toHaveLength(1);
       const endpoint = caps.localModelEndpoints![0];
       expect(endpoint.provider).toBe('ollama');
+      expect(endpoint.endpointId).toBe('ollama');
       expect(endpoint.baseUrl).toBe('http://127.0.0.1:11434');
       expect(endpoint.models).toEqual(['llama3.2:3b', 'mistral:7b']);
       expect(endpoint.healthy).toBe(true);
@@ -194,6 +240,7 @@ describe('capability-reporter', () => {
       expect(caps.localModelEndpoints).toHaveLength(1);
       const endpoint = caps.localModelEndpoints![0];
       expect(endpoint.provider).toBe('openai-compatible');
+      expect(endpoint.endpointId).toBe('openai-compatible');
       expect(endpoint.baseUrl).toBe('http://127.0.0.1:1234');
       expect(endpoint.models).toEqual(['qwen2.5-coder-7b', 'phi-4']);
       expect(endpoint.healthy).toBe(true);
@@ -291,6 +338,7 @@ describe('capability-reporter', () => {
         expect(caps.localModelEndpoints).toEqual([
           {
             provider: 'openai-compatible',
+            endpointId: 'openai-compatible',
             baseUrl: 'http://127.0.0.1:1234',
             models: [],
             healthy: false,
@@ -320,6 +368,7 @@ describe('capability-reporter', () => {
         expect(caps.localModelEndpoints).toEqual([
           {
             provider: 'openai-compatible',
+            endpointId: 'openai-compatible',
             baseUrl: 'http://127.0.0.1:1234',
             models: [],
             healthy: false,
@@ -346,6 +395,7 @@ describe('capability-reporter', () => {
         expect(caps.localModelEndpoints).toEqual([
           {
             provider: 'ollama',
+            endpointId: 'ollama',
             baseUrl: 'http://127.0.0.1:11434',
             models: [],
             healthy: false,
@@ -503,6 +553,37 @@ describe('capability-reporter', () => {
         hasMaestro: false,
       });
       expect(disabled.hasAndroidMcp).toBe(false);
+    });
+
+    it('reports the non-secret file transfer summary when supplied', async () => {
+      chromeInstalled(false);
+      const caps = await reportCapabilities(['/workspace'], 10, undefined, undefined, undefined, {
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: '/home/james/Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      });
+
+      expect(caps.fileTransfer).toEqual({
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: '/home/james/Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      });
     });
   });
 

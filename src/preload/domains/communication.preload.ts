@@ -197,6 +197,39 @@ export function createCommunicationDomain(
     remoteNodeRunBrowserLogin: (nodeId: string, url?: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_RUN_BROWSER_LOGIN, { nodeId, url }),
 
+    pairBothCoordinatorStart: (payload?: {
+      host?: string;
+      ttlMs?: number;
+    }): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_COORDINATOR_START, payload ?? {}),
+
+    pairBothCoordinatorStop: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_COORDINATOR_STOP),
+
+    pairBothCoordinatorApprove: (sessionId: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_COORDINATOR_APPROVE, { sessionId }),
+
+    pairBothCoordinatorReject: (sessionId: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_COORDINATOR_REJECT, { sessionId }),
+
+    pairBothCoordinatorState: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_COORDINATOR_STATE),
+
+    pairBothWorkerDiscover: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_DISCOVER),
+
+    pairBothWorkerConnect: (candidate: unknown): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_CONNECT, { candidate }),
+
+    pairBothWorkerConfirmCode: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_CONFIRM_CODE),
+
+    pairBothWorkerWaitResult: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_WAIT_RESULT),
+
+    pairBothWorkerApplyManual: (input: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_APPLY_MANUAL, { input }),
+
     onRemoteNodeEvent: (callback: (event: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) =>
         callback(data);

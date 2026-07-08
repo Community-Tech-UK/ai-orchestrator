@@ -4,7 +4,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'crossModelReviewEnabled',
     label: 'Enable cross-model review',
-    description: "Have a second AI model double-check an agent's work (e.g. Gemini or Codex reviewing Claude) to catch mistakes.",
+    description: "Have a second AI model double-check an agent's work (e.g. Antigravity or Codex reviewing Claude) to catch mistakes.",
     type: 'boolean',
     category: 'review',
   },

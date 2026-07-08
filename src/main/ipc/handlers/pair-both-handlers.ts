@@ -1,0 +1,236 @@
+import { ipcMain } from 'electron';
+import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
+import type { IpcResponse } from '../../../shared/types/ipc.types';
+import type { PairBothCandidate } from '../../../shared/types/pair-both.types';
+import type { WorkerConfig } from '../../../worker-agent/worker-config';
+import {
+  PairBothCoordinatorStartPayloadSchema,
+  PairBothManualPairingPayloadSchema,
+  PairBothSessionPayloadSchema,
+  PairBothWorkerConnectPayloadSchema,
+} from '@contracts/schemas/remote-node';
+import { getRemoteAuthService } from '../../auth/remote-auth';
+import { getSettingsManager } from '../../core/config/settings-manager';
+import { getLogger } from '../../logging/logger';
+import {
+  getRemoteNodeConfig,
+  updateRemoteNodeConfig,
+} from '../../remote-node/remote-node-config';
+import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
+import { PairBothRendezvousService } from '../../remote-node/pair-both-rendezvous-service';
+import {
+  getLocalIpv4Addresses,
+  getTailscaleIpv4Address,
+  getTailscaleMagicDnsName,
+} from '../../util/network-addresses';
+import {
+  parsePairingConfigInput,
+  writePairedWorkerConfig,
+} from '../../../worker-agent/cli/pairing-config';
+import { DEFAULT_CONFIG_PATH } from '../../../worker-agent/worker-config';
+
+const logger = getLogger('PairBothHandlers');
+
+let service: PairBothRendezvousService | null = null;
+
+export function registerPairBothHandlers(): void {
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_COORDINATOR_START,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = PairBothCoordinatorStartPayloadSchema.parse(payload);
+        const config = getRemoteNodeConfig();
+        await ensureRemoteNodeServerRunning();
+
+        const coordinatorUrl = buildCoordinatorUrlForWorker(config.serverPort);
+        const state = await getService().startCoordinatorPairing({
+          host: validated?.host ?? config.serverHost,
+          namespace: config.namespace,
+          coordinatorUrl,
+          ...(validated?.ttlMs ? { ttlMs: validated.ttlMs } : {}),
+        });
+        const candidate = getService().getLocalCandidate(
+          state.sessionId,
+          selectReachableHost(config.serverHost),
+        );
+
+        return {
+          success: true,
+          data: {
+            state,
+            candidate,
+            invitation: JSON.stringify(candidate),
+          },
+        };
+      } catch (error) {
+        logger.warn('Failed to start pair-both coordinator session', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return failure('PAIR_BOTH_COORDINATOR_START_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_COORDINATOR_STOP,
+    async (): Promise<IpcResponse> => {
+      try {
+        await getService().shutdown();
+        return { success: true };
+      } catch (error) {
+        return failure('PAIR_BOTH_COORDINATOR_STOP_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_COORDINATOR_APPROVE,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const { sessionId } = PairBothSessionPayloadSchema.parse(payload);
+        const state = await getService().approveCoordinatorPairing(sessionId);
+        return { success: true, data: state };
+      } catch (error) {
+        return failure('PAIR_BOTH_COORDINATOR_APPROVE_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_COORDINATOR_REJECT,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const { sessionId } = PairBothSessionPayloadSchema.parse(payload);
+        return {
+          success: true,
+          data: getService().rejectCoordinatorPairing(sessionId),
+        };
+      } catch (error) {
+        return failure('PAIR_BOTH_COORDINATOR_REJECT_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_COORDINATOR_STATE,
+    async (): Promise<IpcResponse> => {
+      try {
+        return { success: true, data: getService().getCoordinatorState() };
+      } catch (error) {
+        return failure('PAIR_BOTH_COORDINATOR_STATE_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_DISCOVER,
+    async (): Promise<IpcResponse> => {
+      return { success: true, data: [] };
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_CONNECT,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const { candidate } = PairBothWorkerConnectPayloadSchema.parse(payload);
+        const state = await getService().connectWorkerToCandidate(candidate as PairBothCandidate);
+        return { success: true, data: state };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_CONNECT_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_CONFIRM_CODE,
+    async (): Promise<IpcResponse> => {
+      try {
+        await getService().confirmWorkerCode();
+        return { success: true };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_CONFIRM_CODE_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_WAIT_RESULT,
+    async (): Promise<IpcResponse> => {
+      try {
+        const config = await getService().waitForWorkerPairingResult();
+        return { success: true, data: sanitizeWorkerConfig(config) };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_WAIT_RESULT_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_APPLY_MANUAL,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const { input } = PairBothManualPairingPayloadSchema.parse(payload);
+        const parsed = parsePairingConfigInput(input);
+        const config = writePairedWorkerConfig(DEFAULT_CONFIG_PATH, parsed);
+        return { success: true, data: sanitizeWorkerConfig(config) };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_APPLY_MANUAL_FAILED', error);
+      }
+    },
+  );
+}
+
+function getService(): PairBothRendezvousService {
+  service ??= new PairBothRendezvousService({
+    auth: getRemoteAuthService(),
+  });
+  return service;
+}
+
+async function ensureRemoteNodeServerRunning(): Promise<void> {
+  const config = getRemoteNodeConfig();
+  if (!getWorkerNodeConnectionServer().isRunning()) {
+    await getWorkerNodeConnectionServer().start(config.serverPort, config.serverHost);
+  }
+  if (!config.enabled) {
+    updateRemoteNodeConfig({ enabled: true });
+    getSettingsManager().set('remoteNodesEnabled', true);
+  }
+}
+
+function buildCoordinatorUrlForWorker(port: number): string {
+  return `ws://${selectReachableHost(getRemoteNodeConfig().serverHost)}:${port}`;
+}
+
+function selectReachableHost(configuredHost: string): string {
+  if (configuredHost !== '0.0.0.0' && configuredHost !== '::') {
+    return configuredHost;
+  }
+  return getTailscaleMagicDnsName()
+    ?? getTailscaleIpv4Address()
+    ?? getLocalIpv4Addresses()[0]
+    ?? '127.0.0.1';
+}
+
+function sanitizeWorkerConfig(config: WorkerConfig): Record<string, unknown> {
+  return {
+    nodeId: config.nodeId,
+    name: config.name,
+    coordinatorUrl: config.coordinatorUrl,
+    namespace: config.namespace,
+    maxConcurrentInstances: config.maxConcurrentInstances,
+    workingDirectories: config.workingDirectories,
+  };
+}
+
+function failure(code: string, error: unknown): IpcResponse {
+  return {
+    success: false,
+    error: {
+      code,
+      message: error instanceof Error ? error.message : String(error),
+      timestamp: Date.now(),
+    },
+  };
+}

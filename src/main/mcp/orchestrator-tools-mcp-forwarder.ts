@@ -19,6 +19,7 @@ import {
   type OrchestratorToolsRpcClientLike,
 } from './orchestrator-tools-rpc-client';
 import { RELEASE_TOOL_SPECS, type ReleaseToolName } from './orchestrator-release-tools';
+import { createFileTransferForwarderTools } from './orchestrator-file-transfer-forwarder-tools';
 
 const REMOTE_NODE_DISCOVERY_HINT =
   'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
@@ -204,6 +205,7 @@ export function createOrchestratorToolsForwarderTools(
         return client.call('orchestrator_tools.terminate_node_instance', args as Record<string, unknown>);
       },
     },
+    ...createFileTransferForwarderTools(client),
     {
       name: 'list_settings',
       description:
@@ -288,7 +290,7 @@ export function createOrchestratorToolsForwarderTools(
     {
       name: 'update_node_config',
       description:
-        'Push a sensitive per-node worker config.update to a connected remote node using the same service-scoped path as the Settings UI. Supports browserAutomation, androidAutomation, and extensionRelay blocks; call list_remote_nodes first.',
+        'Push a sensitive per-node worker config.update to a connected remote node using the same service-scoped path as the Settings UI. Supports browserAutomation, androidAutomation, extensionRelay, and fileTransfer blocks; call list_remote_nodes first.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -329,6 +331,32 @@ export function createOrchestratorToolsForwarderTools(
             type: 'object',
             properties: {
               enabled: { type: 'boolean' },
+            },
+            required: ['enabled'],
+            additionalProperties: false,
+          },
+          fileTransfer: {
+            type: 'object',
+            properties: {
+              enabled: { type: 'boolean' },
+              roots: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    label: { type: 'string' },
+                    path: { type: 'string' },
+                    read: { type: 'boolean' },
+                    write: { type: 'boolean' },
+                    approvalRequired: { type: 'boolean' },
+                  },
+                  required: ['id', 'label', 'path', 'read', 'write'],
+                  additionalProperties: false,
+                },
+                maxItems: 64,
+              },
+              maxFileBytes: { type: 'integer', minimum: 1, maximum: 50 * 1024 * 1024 },
             },
             required: ['enabled'],
             additionalProperties: false,

@@ -13,6 +13,11 @@ import {
   CATALOG_UPDATED_EVENT,
   type CatalogUpdatedPayload,
 } from '../../providers/unified-model-catalog-service';
+import {
+  getLocalModelInventoryService,
+  LOCAL_MODEL_INVENTORY_UPDATED_EVENT,
+  type LocalModelInventoryUpdatedPayload,
+} from '../../local-models/local-model-inventory-service';
 import type { WindowManager } from '../../window-manager';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
@@ -42,6 +47,7 @@ export function registerProviderHandlers(
 ): void {
   const registry = getProviderInstanceManager();
   const pluginManager = getProviderPluginsManager();
+  const localModelInventory = getLocalModelInventoryService();
 
   // ============================================
   // Provider Handlers
@@ -456,6 +462,30 @@ export function registerProviderHandlers(
     }
   );
 
+  // Read sanitized local model inventory (no endpoint URLs or credentials).
+  ipcMain.handle(
+    IPC_CHANNELS.MODELS_LOCAL_MODEL_INVENTORY,
+    (): IpcResponse => {
+      try {
+        return {
+          success: true,
+          data: {
+            models: localModelInventory.list(),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MODELS_LOCAL_MODEL_INVENTORY_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
   // Push renderer-side CLI-discovered models into the backend catalog.
   // The renderer runs dynamic-model-catalog.service; this bridges its results
   // into the main-process unified catalog so backend services (routing, cost
@@ -500,6 +530,14 @@ export function registerProviderHandlers(
     CATALOG_UPDATED_EVENT,
     (payload: CatalogUpdatedPayload) => {
       deps.windowManager.sendToRenderer(IPC_CHANNELS.MODELS_CATALOG_UPDATED, payload);
+    },
+  );
+
+  localModelInventory.on(
+    LOCAL_MODEL_INVENTORY_UPDATED_EVENT,
+    (payload: LocalModelInventoryUpdatedPayload) => {
+      getUnifiedModelCatalog().onLocalModelInventoryRefreshed(payload.models);
+      deps.windowManager.sendToRenderer(IPC_CHANNELS.MODELS_LOCAL_MODEL_INVENTORY_UPDATED, payload);
     },
   );
 }

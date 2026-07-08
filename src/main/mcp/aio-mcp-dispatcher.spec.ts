@@ -7,6 +7,7 @@ const dispatcherMocks = vi.hoisted(() => ({
   runBrowserExtensionNativeHost: vi.fn(async () => undefined),
   runRemoteNodesCli: vi.fn(async () => undefined),
   runReleaseReadinessCli: vi.fn(async () => undefined),
+  runSettingsCli: vi.fn(async () => undefined),
 }));
 
 vi.mock('./orchestrator-tools-mcp-forwarder', () => ({
@@ -27,6 +28,9 @@ vi.mock('./remote-nodes-cli', () => ({
 vi.mock('./release-readiness-cli', () => ({
   runReleaseReadinessCli: dispatcherMocks.runReleaseReadinessCli,
 }));
+vi.mock('./settings-cli', () => ({
+  runSettingsCli: dispatcherMocks.runSettingsCli,
+}));
 
 import { isAioMcpSubcommand, runAioMcpDispatcher } from './aio-mcp-dispatcher';
 
@@ -43,6 +47,7 @@ describe('aio-mcp-dispatcher', () => {
     expect(isAioMcpSubcommand('native-host')).toBe(true);
     expect(isAioMcpSubcommand('remote-nodes')).toBe(true);
     expect(isAioMcpSubcommand('release-readiness')).toBe(true);
+    expect(isAioMcpSubcommand('settings')).toBe(true);
     expect(isAioMcpSubcommand('something-else')).toBe(false);
     expect(isAioMcpSubcommand(null)).toBe(false);
     expect(isAioMcpSubcommand(undefined)).toBe(false);
@@ -81,6 +86,12 @@ describe('aio-mcp-dispatcher', () => {
   it('routes "release-readiness" to runReleaseReadinessCli with remaining args', async () => {
     const code = await runAioMcpDispatcher(argv('release-readiness', '--evidence', 'release.json'));
     expect(dispatcherMocks.runReleaseReadinessCli).toHaveBeenCalledWith(['--evidence', 'release.json']);
+    expect(code).toBe(0);
+  });
+
+  it('routes "settings" to runSettingsCli with remaining args', async () => {
+    const code = await runAioMcpDispatcher(argv('settings', 'list', '--json'));
+    expect(dispatcherMocks.runSettingsCli).toHaveBeenCalledWith(['list', '--json']);
     expect(code).toBe(0);
   });
 

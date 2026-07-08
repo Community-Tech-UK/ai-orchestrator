@@ -4,11 +4,45 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserGatewayService } from './browser-gateway-service';
 import { makeGrant, makeProfile, makeService, makeTarget } from './browser-gateway-service.test-helpers';
+import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 
 describe('BrowserGatewayService', () => {
   afterEach(() => {
     BrowserGatewayService._resetForTesting();
+    WorkerNodeRegistry._resetForTesting();
   });
+
+  function makeRelayNode(id = 'node-1', name = 'Windows PC'): WorkerNodeInfo {
+    return {
+      id,
+      name,
+      address: '127.0.0.1',
+      status: 'connected',
+      activeInstances: 0,
+      capabilities: {
+        platform: 'win32',
+        arch: 'x64',
+        cpuCores: 8,
+        totalMemoryMB: 16_384,
+        availableMemoryMB: 8_192,
+        supportedClis: ['claude'],
+        hasBrowserRuntime: true,
+        hasBrowserMcp: true,
+        hasExtensionRelay: true,
+        extensionRelay: {
+          enabled: true,
+          running: true,
+        },
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 2,
+        workingDirectories: [],
+        browsableRoots: [],
+        discoveredProjects: [],
+      },
+    };
+  }
 
   it('returns an actionable bootstrap reason when no managed profiles exist', async () => {
     const { service } = makeService({ profile: null, profiles: [] });
@@ -515,6 +549,91 @@ describe('BrowserGatewayService', () => {
         nodeId: 'node-1',
       }),
     ]);
+  });
+
+  it('returns targets reported during the requested inventory refresh', async () => {
+    const refreshedTarget = makeTarget({
+      id: 'existing-tab:7:43:target',
+      profileId: 'existing-tab:7:43',
+      pageId: '43',
+      driverTargetId: 'chrome-tab:7:43',
+      mode: 'existing-tab',
+      driver: 'extension',
+      status: 'selected',
+      title: 'Fresh shared tab',
+      url: 'https://app.emergent.sh/home',
+      origin: 'https://app.emergent.sh',
+      lastSeenAt: 2_000,
+    });
+    let listCalls = 0;
+    const sendCommand = vi.fn(async () => ({ ok: true }));
+    const { service } = makeService({
+      targets: () => {
+        listCalls += 1;
+        return listCalls === 1 ? [] : [refreshedTarget];
+      },
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.listTargets({ refresh: true });
+
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'local',
+      command: 'report_inventory',
+    }));
+    expect(result.data).toEqual([
+      expect.objectContaining({
+        id: refreshedTarget.id,
+        profileId: refreshedTarget.profileId,
+        url: 'https://app.emergent.sh/home',
+      }),
+    ]);
+  });
+
+  it('refreshes only the local extension queue when the requested computer is local', async () => {
+    getWorkerNodeRegistry().registerNode(makeRelayNode());
+    const localTarget = makeTarget({
+      id: 'existing-tab:7:42:target',
+      profileId: 'existing-tab:7:42',
+      pageId: '42',
+      driverTargetId: 'chrome-tab:7:42',
+      mode: 'existing-tab',
+      driver: 'extension',
+      status: 'selected',
+      title: 'Local tab',
+      url: 'https://app.emergent.sh/home',
+      origin: 'https://app.emergent.sh',
+    });
+    const remoteTarget = makeTarget({
+      id: 'existing-tab:n.node-1:8:99:target',
+      profileId: 'existing-tab:n.node-1:8:99',
+      pageId: '99',
+      driverTargetId: 'chrome-tab:8:99',
+      mode: 'existing-tab',
+      driver: 'extension',
+      status: 'selected',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      title: 'Windows tab',
+      url: 'https://app.emergent.sh/home',
+      origin: 'https://app.emergent.sh',
+    });
+    const sendCommand = vi.fn(async () => ({ ok: true }));
+    const { service } = makeService({
+      targets: [localTarget, remoteTarget],
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.listTargets({ refresh: true, computer: 'local' });
+
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'local',
+      command: 'report_inventory',
+    }));
+    expect(result.data).toHaveLength(1);
+    expect(result.data?.[0]).toMatchObject({ id: localTarget.id });
+    expect(result.data?.[0]).not.toHaveProperty('nodeId');
   });
 
   it('marks targets stale and says so when an explicit inventory refresh fails', async () => {

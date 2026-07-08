@@ -90,21 +90,59 @@ describe('CrossModelReviewService headless review', () => {
     });
 
     expect(dispatchReviewerPrompt).toHaveBeenCalledWith(
-      'gemini',
+      'antigravity',
       expect.stringContaining('Review the local diff.'),
       REPO_CWD,
       expect.any(AbortSignal),
     );
     expect(result.reviewers).toEqual([
-      { provider: 'gemini', status: 'used' },
+      { provider: 'antigravity', status: 'used' },
       { provider: 'codex', status: 'failed', reason: 'CLI unavailable' },
     ]);
     expect(result.findings).toContainEqual(expect.objectContaining({
-      title: 'gemini correctness concern',
+      title: 'antigravity correctness concern',
       body: 'Add a null check before reading payload.value.',
       severity: 'medium',
     }));
     expect(result.infrastructureErrors).toEqual([]);
+  });
+
+  it('preserves explicit headless reviewers while aliasing legacy Gemini', async () => {
+    const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('finding'));
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => REPO_CWD,
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt,
+    });
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD',
+      cwd: REPO_CWD,
+      content: 'diff',
+      taskDescription: 'Review',
+      reviewers: ['claude', 'gemini', 'antigravity'],
+    });
+
+    expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(2);
+    expect(dispatchReviewerPrompt).toHaveBeenNthCalledWith(
+      1,
+      'claude',
+      expect.any(String),
+      REPO_CWD,
+      expect.any(AbortSignal),
+    );
+    expect(dispatchReviewerPrompt).toHaveBeenNthCalledWith(
+      2,
+      'antigravity',
+      expect.any(String),
+      REPO_CWD,
+      expect.any(AbortSignal),
+    );
+    expect(result.reviewers).toEqual([
+      { provider: 'claude', status: 'used' },
+      { provider: 'antigravity', status: 'used' },
+    ]);
   });
 
   it('truncates an oversized payload before dispatching to the reviewer', async () => {
@@ -154,7 +192,7 @@ describe('CrossModelReviewService headless review', () => {
     });
 
     expect(result.reviewers).toEqual([
-      { provider: 'gemini', status: 'failed', reason: expect.stringContaining('unparseable output') },
+      { provider: 'antigravity', status: 'failed', reason: expect.stringContaining('unparseable output') },
     ]);
     expect(result.reviewers[0].reason).toMatch(/\d+ chars/);
     expect(result.infrastructureErrors).toHaveLength(1);
@@ -180,13 +218,13 @@ describe('CrossModelReviewService headless review', () => {
     });
 
     expect(dispatchReviewerPrompt).toHaveBeenCalledWith(
-      'gemini',
+      'antigravity',
       expect.any(String),
       process.cwd(),
       expect.any(AbortSignal),
     );
     expect(result.cwd).toBe(process.cwd());
-    expect(result.reviewers).toEqual([{ provider: 'gemini', status: 'used' }]);
+    expect(result.reviewers).toEqual([{ provider: 'antigravity', status: 'used' }]);
   });
 
   it('returns stable JSON-shaped results when no reviewers are available', async () => {

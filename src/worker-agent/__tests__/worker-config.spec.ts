@@ -165,6 +165,90 @@ describe('loadWorkerConfig', () => {
     expect(config.browserAutomation).toEqual({ enabled: true });
   });
 
+  it('enables default file transfer roots with scratch write access and user folders read-only', () => {
+    const homeDir = os.homedir();
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(configPath, JSON.stringify({ token: 't', namespace: 'default' }));
+
+    const config = loadWorkerConfig(configPath);
+    const fileTransfer = (config as {
+      fileTransfer?: {
+        enabled: boolean;
+        maxFileBytes: number;
+        roots: Array<{ id: string; path: string; label: string; read: boolean; write: boolean }>;
+      };
+    }).fileTransfer;
+
+    expect(fileTransfer?.enabled).toBe(true);
+    expect(fileTransfer?.maxFileBytes).toBe(50 * 1024 * 1024);
+    const rootIds = fileTransfer?.roots.map((root) => root.id) ?? [];
+    expect(rootIds).toContain('scratch');
+    if (fs.existsSync(path.join(homeDir, 'Downloads'))) {
+      expect(rootIds).toContain('downloads');
+    }
+    if (fs.existsSync(path.join(homeDir, 'Documents'))) {
+      expect(rootIds).toContain('documents');
+    }
+    if (fs.existsSync(path.join(homeDir, 'Desktop'))) {
+      expect(rootIds).toContain('desktop');
+    }
+    expect(fileTransfer?.roots.find((root) => root.id === 'scratch')).toMatchObject({
+      label: 'AIO Scratch',
+      read: true,
+      write: true,
+    });
+    for (const id of ['downloads', 'documents', 'desktop']) {
+      const root = fileTransfer?.roots.find((candidate) => candidate.id === id);
+      if (root) {
+        expect(root).toMatchObject({ read: true, write: false });
+      }
+    }
+    expect(fs.existsSync(fileTransfer!.roots.find((root) => root.id === 'scratch')!.path)).toBe(true);
+  });
+
+  it('normalizes enabled file transfer roots from config without silently granting write access', () => {
+    const homeDir = os.homedir();
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        token: 't',
+        fileTransfer: {
+          enabled: true,
+          maxFileBytes: 1024,
+          roots: [
+            { id: 'downloads', path: '~/Downloads', label: 'Downloads', read: true },
+            { id: 'drop', path: '~/Drop', label: 'Drop', write: true },
+          ],
+        },
+      }),
+    );
+
+    const config = loadWorkerConfig(configPath);
+    const roots = (config as {
+      fileTransfer?: {
+        roots: Array<{ id: string; path: string; read: boolean; write: boolean }>;
+      };
+    }).fileTransfer?.roots;
+
+    expect(roots).toEqual([
+      {
+        id: 'downloads',
+        path: path.join(homeDir, 'Downloads'),
+        label: 'Downloads',
+        read: true,
+        write: false,
+      },
+      {
+        id: 'drop',
+        path: path.join(homeDir, 'Drop'),
+        label: 'Drop',
+        read: false,
+        write: true,
+      },
+    ]);
+  });
+
   it('generates local extension relay defaults when enabled without secrets', () => {
     const configPath = path.join(tempDir, 'worker-node.json');
     fs.writeFileSync(
@@ -206,6 +290,75 @@ describe('loadWorkerConfig', () => {
 
     expect(config.extensionRelay?.enabled).toBe(true);
     expect(config.extensionRelay?.legacyNameRegistration).toBe(false);
+  });
+
+  it('parses an enabled fileTransfer block with explicit roots', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        token: 't',
+        fileTransfer: {
+          enabled: true,
+          maxFileBytes: 1024,
+          roots: [
+            {
+              id: 'downloads',
+              label: 'Downloads',
+              path: '~/Downloads',
+              read: true,
+              write: false,
+            },
+            {
+              id: 'scratch',
+              label: 'AIO Scratch',
+              path: '~/aio-scratch',
+              read: true,
+              write: true,
+            },
+          ],
+        },
+      }),
+    );
+
+    const config = loadWorkerConfig(configPath);
+
+    expect(config.fileTransfer).toEqual({
+      enabled: true,
+      maxFileBytes: 1024,
+      roots: [
+        {
+          id: 'downloads',
+          label: 'Downloads',
+          path: path.join(os.homedir(), 'Downloads'),
+          read: true,
+          write: false,
+        },
+        {
+          id: 'scratch',
+          label: 'AIO Scratch',
+          path: path.join(os.homedir(), 'aio-scratch'),
+          read: true,
+          write: true,
+        },
+      ],
+    });
+  });
+
+  it('treats fileTransfer enabled:false as off', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ token: 't', fileTransfer: { enabled: false, roots: [{ path: '~/Downloads' }] } }),
+    );
+
+    const config = loadWorkerConfig(configPath);
+
+    expect(config.fileTransfer).toEqual({
+      enabled: false,
+      maxFileBytes: 50 * 1024 * 1024,
+      roots: [],
+    });
   });
 
   it('parses an enabled androidAutomation block with safe defaults', () => {

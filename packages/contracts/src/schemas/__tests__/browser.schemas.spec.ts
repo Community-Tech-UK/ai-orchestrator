@@ -6,6 +6,7 @@ import {
   BrowserCreateProfileRequestSchema,
   BrowserDownloadFileRequestSchema,
   BrowserGatewayResultSchema,
+  BrowserFindOrOpenRequestSchema,
   BrowserPermissionGrantSchema,
   BrowserClickRequestSchema,
   BrowserFillFormRequestSchema,
@@ -177,11 +178,21 @@ describe('browser.schemas', () => {
   it('accepts live-refresh requests when listing browser targets', () => {
     const result = BrowserListTargetsRequestSchema.safeParse({
       nodeId: 'node-1',
+      computer: 'Windows PC',
       refresh: true,
     });
 
     expect(result.success).toBe(true);
     expect(BrowserListTargetsRequestSchema.safeParse({ refresh: 'yes' }).success).toBe(false);
+  });
+
+  it('accepts a computer alias when finding or opening browser targets', () => {
+    const result = BrowserFindOrOpenRequestSchema.safeParse({
+      url: 'https://app.emergent.sh/home',
+      computer: 'windows-pc',
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it('validates profile and target DTOs', () => {

@@ -7,7 +7,14 @@ import type { PickerProvider } from './compact-model-picker.types';
 export const DEFAULT_CHAT_PROVIDERS: PickerProvider[] = ['claude', 'codex', 'antigravity', 'copilot'];
 
 /** Full provider order used by new-session and instance-draft surfaces. */
-export const DEFAULT_INSTANCE_PROVIDERS: PickerProvider[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor'];
+export const DEFAULT_INSTANCE_PROVIDERS: PickerProvider[] = [
+  'claude',
+  'codex',
+  'antigravity',
+  'copilot',
+  'cursor',
+  'local-model',
+];
 
 export const PROVIDER_MENU_LABELS: Record<PickerProvider, string> = {
   claude: 'Claude',
@@ -16,6 +23,7 @@ export const PROVIDER_MENU_LABELS: Record<PickerProvider, string> = {
   antigravity: 'Antigravity',
   copilot: 'Copilot',
   cursor: 'Cursor',
+  'local-model': 'Local Models',
 };
 
 export const PROVIDER_MENU_COLORS: Record<PickerProvider, string> = {
@@ -27,4 +35,5 @@ export const PROVIDER_MENU_COLORS: Record<PickerProvider, string> = {
   // Cursor's mark is monochrome; the theme foreground token stays legible on
   // both dark and light themes when consumed via `[style.color]`.
   cursor: 'var(--text-primary)',
+  'local-model': '#14b8a6',
 };

@@ -52,6 +52,11 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
         @if (node().capabilities.hasDocker) {
           <span class="cap-badge docker">docker</span>
         }
+        @if (localModelCount() > 0) {
+          <span class="cap-badge local-models">
+            {{ localModelCount() }} local model{{ localModelCount() === 1 ? '' : 's' }}
+          </span>
+        }
       </div>
     </div>
   `,
@@ -163,6 +168,11 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
       background: rgba(var(--primary-rgb), 0.15);
       color: var(--color-primary);
     }
+
+    .cap-badge.local-models {
+      background: rgba(var(--success-rgb), 0.14);
+      color: var(--color-success);
+    }
   `],
 })
 export class NodeCardComponent {
@@ -177,4 +187,9 @@ export class NodeCardComponent {
     const used = c.totalMemoryMB - c.availableMemoryMB;
     return `${Math.round(used / 1024)}/${Math.round(c.totalMemoryMB / 1024)} GB`;
   });
+
+  readonly localModelCount = computed(() =>
+    (this.node().capabilities.localModelEndpoints ?? [])
+      .reduce((total, endpoint) => total + endpoint.models.length, 0),
+  );
 }

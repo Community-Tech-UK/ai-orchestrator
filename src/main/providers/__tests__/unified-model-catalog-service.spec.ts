@@ -26,6 +26,7 @@ import {
   type ModelDisplayInfo,
 } from '../../../shared/types/provider.types';
 import type { ModelsDevEntry } from '../models-dev-service';
+import type { LocalModelInventoryEntry } from '../../../shared/types/local-model-runtime.types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -187,6 +188,68 @@ describe('UnifiedModelCatalogService — getCatalogStatus', () => {
     const status = svc.getCatalogStatus();
     expect(status.cliDiscoveryLastRefreshedAt['cursor']).toBeTypeOf('number');
     expect(status.cliDiscoveryLastRefreshedAt['copilot']).toBeUndefined();
+  });
+});
+
+describe('UnifiedModelCatalogService — local model inventory source', () => {
+  it('adds local model inventory rows under the local-model provider', () => {
+    const svc = makeServiceWithMock();
+    const localModelRows: LocalModelInventoryEntry[] = [{
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+      source: 'worker-node',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+      displayName: 'qwen on windows-pc',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      healthy: true,
+      loaded: false,
+      capabilities: {
+        streaming: true,
+        multiTurn: true,
+        toolUse: 'none',
+        vision: 'unknown',
+      },
+      discoveredAt: 1783468800000,
+    }];
+
+    svc.onLocalModelInventoryRefreshed(localModelRows);
+    vi.runAllTimers();
+
+    expect(svc.getModelsByProvider('local-model')).toEqual([
+      expect.objectContaining({
+        id: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        provider: 'local-model',
+        name: 'qwen on windows-pc',
+        source: 'local-model',
+        tier: 'balanced',
+        family: 'Ollama',
+        discoveredAt: 1783468800000,
+      }),
+    ]);
+  });
+
+  it('replaces stale local model rows on refresh', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onLocalModelInventoryRefreshed([{
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/old',
+      source: 'worker-node',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'old',
+      displayName: 'old on windows-pc',
+      healthy: true,
+      loaded: false,
+      capabilities: { streaming: true, multiTurn: true, toolUse: 'none', vision: 'unknown' },
+      discoveredAt: 1,
+    }]);
+    vi.runAllTimers();
+    svc.onLocalModelInventoryRefreshed([]);
+    vi.runAllTimers();
+
+    expect(svc.getModelsByProvider('local-model')).toEqual([]);
   });
 });
 

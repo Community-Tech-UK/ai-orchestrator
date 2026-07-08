@@ -112,6 +112,38 @@ describe('settings.schemas', () => {
       },
     });
 
+    expect(SettingsToolUpdateNodeConfigPayloadSchema.parse({
+      nodeId: 'windows-pc',
+      fileTransfer: {
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: 'C:\\Users\\James\\Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      },
+    })).toEqual({
+      nodeId: 'windows-pc',
+      fileTransfer: {
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: 'C:\\Users\\James\\Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      },
+    });
+
     expect(() =>
       SettingsToolUpdateNodeConfigPayloadSchema.parse({ nodeId: 'node-1' }),
     ).toThrow();

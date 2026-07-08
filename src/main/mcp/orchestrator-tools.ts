@@ -7,7 +7,7 @@ import { ChatStore } from '../chats/chat-store';
 import { GitBatchCancelledError, GitBatchService, getGitBatchService } from '../operator/git-batch-service';
 import { OperatorRunStore } from '../operator/operator-run-store';
 import type { McpServerToolDefinition } from './mcp-server-tools';
-import type { WorkerAgentBuildSummary, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary } from '../../shared/types/worker-node.types';
+import type { WorkerAgentBuildSummary, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary, WorkerNodeFileTransferSummary } from '../../shared/types/worker-node.types';
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
 import {
   createSettingsToolDefinitions,
@@ -16,13 +16,8 @@ import {
   type UpdateNodeConfigFn,
 } from './orchestrator-settings-tools';
 import { createReleaseToolDefinitions, type ReleaseToolDependencies } from './orchestrator-release-tools';
-import type {
-  CreateAutomationFn,
-  DeleteAutomationFn,
-  ListAutomationsFn,
-  PostponeAutomationFn,
-  UpdateAutomationFn,
-} from './orchestrator-automation-tools';
+import { createFileTransferToolDefinitions, type FileTransferToolContext } from './orchestrator-file-transfer-tools';
+import type { CreateAutomationFn, DeleteAutomationFn, ListAutomationsFn, PostponeAutomationFn, UpdateAutomationFn } from './orchestrator-automation-tools';
 
 const ProviderModelIdSchema = z.string().min(1).max(512);
 
@@ -57,6 +52,7 @@ export type {
   PostponeAutomationArgs,
   PostponeAutomationFn,
 } from './orchestrator-automation-tools';
+export * from './orchestrator-file-transfer-tools';
 
 export const GitBatchPullArgsSchema = z.object({
   root: z.string().min(1),
@@ -89,6 +85,7 @@ export interface RemoteNodeToolInfo {
   activeInstances: number;
   maxConcurrentInstances: number;
   workingDirectories: string[];
+  fileTransfer?: WorkerNodeFileTransferSummary;
   connectedAt?: number; lastHeartbeat?: number; lastAuthenticatedAt?: number;
   pairingLabel?: string; authMethod?: 'pairing_credential' | 'manual_pairing'; latencyMs?: number;
 }
@@ -266,7 +263,7 @@ export type ReadInstanceOutputFn = (
   args: ReadNodeOutputArgs,
 ) => Promise<ReadNodeOutputResult | null>;
 
-export interface OrchestratorToolRuntimeContext {
+export interface OrchestratorToolRuntimeContext extends FileTransferToolContext {
   db: SqliteDriver;
   instanceId?: string | null;
   ledger?: ConversationLedgerService | null;
@@ -632,6 +629,7 @@ export function createOrchestratorToolDefinitions(
         return context.terminateNodeInstances(parsed);
       },
     },
+    ...createFileTransferToolDefinitions(context),
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),
     ...createReleaseToolDefinitions(context.releaseTools),

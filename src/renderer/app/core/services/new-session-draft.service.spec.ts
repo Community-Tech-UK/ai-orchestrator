@@ -88,6 +88,34 @@ describe('NewSessionDraftService', () => {
     expect(service.agentId()).toBe('build');
   });
 
+  it('sets and carries a local model runtime target into an empty project draft', () => {
+    const modelRuntimeTarget = {
+      kind: 'local-model' as const,
+      source: 'worker-node' as const,
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen2.5',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen2.5',
+    };
+
+    service.setPrompt('Use the local model');
+    service.setModelRuntimeTarget(modelRuntimeTarget);
+
+    expect(service.provider()).toBe('auto');
+    expect(service.model()).toBe('qwen2.5');
+    expect(service.nodeId()).toBe('node-win');
+    expect(service.modelRuntimeTarget()).toEqual(modelRuntimeTarget);
+
+    service.setWorkingDirectory('/Users/suas/work/orchestrat0r/claude-orchestrator');
+
+    expect(service.provider()).toBe('auto');
+    expect(service.model()).toBe('qwen2.5');
+    expect(service.nodeId()).toBe('node-win');
+    expect(service.modelRuntimeTarget()).toEqual(modelRuntimeTarget);
+  });
+
   it('clears the active composer without discarding scoped provider or model choices', () => {
     const file = new File(['hello'], 'note.txt', { type: 'text/plain' });
 
@@ -355,6 +383,44 @@ describe('NewSessionDraftService', () => {
       const reloaded = createService();
       reloaded.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
       expect(reloaded.launchMode()).toBe('interactive');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('persists local model runtime targets across reload', () => {
+    const modelRuntimeTarget = {
+      kind: 'local-model' as const,
+      source: 'worker-node' as const,
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen2.5',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen2.5',
+    };
+
+    vi.useFakeTimers();
+    try {
+      service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+      service.setModelRuntimeTarget(modelRuntimeTarget);
+      vi.advanceTimersByTime(250);
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          NewSessionDraftService,
+          { provide: ProviderStateService, useClass: StubProviderStateService },
+          { provide: WorkspaceIpcService, useValue: workspaceIpc },
+          { provide: ScratchDirectoryService, useValue: scratchDirectory },
+        ],
+      });
+      const reloaded = createService();
+      reloaded.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+      expect(reloaded.provider()).toBe('auto');
+      expect(reloaded.model()).toBe('qwen2.5');
+      expect(reloaded.nodeId()).toBe('node-win');
+      expect(reloaded.modelRuntimeTarget()).toEqual(modelRuntimeTarget);
     } finally {
       vi.useRealTimers();
     }

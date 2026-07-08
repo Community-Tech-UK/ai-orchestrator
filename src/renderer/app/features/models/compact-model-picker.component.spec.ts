@@ -291,6 +291,43 @@ describe('CompactModelPickerComponent', () => {
     ]);
   });
 
+  it('emits a local-model runtime target when a local-model row is selected', async () => {
+    const selectorId = 'lm://worker-node/node-win/ollama/ollama/qwen';
+    unifiedModelsByProvider['local-model'] = [
+      { id: selectorId, name: 'qwen on windows-pc', tier: 'balanced', family: 'Ollama' },
+    ];
+    fixture.componentRef.setInput('mode', 'pending-create');
+    fixture.componentRef.setInput('providers', ['local-model']);
+    fixture.componentRef.setInput('selection', {
+      provider: 'local-model',
+      model: null,
+      reasoning: null,
+    } satisfies PendingSelection);
+    fixture.detectChanges();
+
+    const emitted: PendingSelection[] = [];
+    fixture.componentInstance.selectionChange.subscribe((s) => emitted.push(s));
+
+    await (fixture.componentInstance as unknown as {
+      onUnifiedSelect: (s: UnifiedSelection) => Promise<void>;
+    }).onUnifiedSelect({ kind: 'model', provider: 'local-model', modelId: selectorId });
+
+    expect(emitted[0]).toMatchObject({
+      provider: 'local-model',
+      model: selectorId,
+      reasoning: null,
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'worker-node',
+        nodeId: 'node-win',
+        nodeName: 'windows-pc',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+      },
+    });
+  });
+
   it('provider-only commit clears reasoning and picks the primary default model', async () => {
     fixture.componentRef.setInput('mode', 'pending-create');
     fixture.componentRef.setInput('selection', {

@@ -96,6 +96,42 @@
   background: var(--bg-secondary);
 }
 
+.control-nav-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 0 0 0.75rem auto;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.control-nav-toggle:hover {
+  background: var(--glass-strong);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.control-nav-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--transition-fast);
+}
+
 .control-nav-group + .control-nav-group {
   margin-top: 1rem;
 }
@@ -163,12 +199,47 @@
   grid-template-columns: minmax(170px, 200px) minmax(0, 1fr) auto;
 }
 
+.control-shell.nav-collapsed .control-body,
+.control-shell.nav-collapsed.layout-wide .control-body,
+.control-shell.nav-collapsed.layout-fullBleed .control-body {
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+}
+
+.control-shell.nav-collapsed .control-nav {
+  padding: 0.65rem 0.35rem;
+  overflow-x: hidden;
+}
+
+.control-shell.nav-collapsed .control-nav-toggle {
+  margin: 0 auto 0.75rem;
+}
+
+.control-shell.nav-collapsed .control-nav-toggle svg {
+  transform: rotate(180deg);
+}
+
+.control-shell.nav-collapsed .control-nav-group h2,
+.control-shell.nav-collapsed .control-nav-item span {
+  display: none;
+}
+
+.control-shell.nav-collapsed .control-nav-group + .control-nav-group {
+  margin-top: 0.45rem;
+}
+
+.control-shell.nav-collapsed .control-nav-item {
+  justify-content: center;
+  min-height: 38px;
+  padding: 0.45rem 0;
+}
+
 @media (max-width: 840px) {
   .control-header {
     align-items: flex-start;
     padding: 0.75rem;
   }
 
+  .control-shell.nav-collapsed .control-body,
   .control-body {
     grid-template-columns: 1fr;
   }
@@ -184,5 +255,9 @@
   .control-nav-group {
     flex: 0 0 auto;
     min-width: 180px;
+  }
+
+  .control-shell.nav-collapsed .control-nav-group {
+    min-width: 0;
   }
 }

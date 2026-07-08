@@ -10,6 +10,7 @@ import {
 import { RemoteNodeStore } from '../../../core/state/remote-node.store';
 import { SettingsStore } from '../../../core/state/settings.store';
 import { isRemoteNodeOnline } from '../../../core/state/remote-node-connectivity';
+import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { RemoteNodeRosterEntry } from '../../../../../shared/types/worker-node.types';
 import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
 
@@ -179,6 +180,7 @@ export class NodePickerComponent {
 
   selectedNodeId = input<string | null>(null);
   selectedCli = input<string>('auto');
+  selectedLocalModelTarget = input<ModelRuntimeTarget | null>(null);
   /**
    * Whether the "Local (this machine)" option is offered. Default true. Set
    * false for surfaces that are remote-only — e.g. the remote terminal drawer,
@@ -236,6 +238,10 @@ export class NodePickerComponent {
 
   isNodeSelectable(node: RemoteNodeRosterEntry): boolean {
     if (!isRemoteNodeOnline(node)) return false;
+    const localModelTarget = this.selectedLocalModelTarget();
+    if (localModelTarget?.kind === 'local-model') {
+      return nodeAdvertisesLocalModelTarget(node, localModelTarget);
+    }
     const cli = this.selectedCli();
     if (cli === 'auto') return true;
     return node.capabilities.supportedClis.includes(cli as never);
@@ -245,6 +251,12 @@ export class NodePickerComponent {
     if (!isRemoteNodeOnline(node)) {
       if (node.status === 'connecting') return 'Node is connecting...';
       return 'Node is disconnected';
+    }
+    const localModelTarget = this.selectedLocalModelTarget();
+    if (localModelTarget?.kind === 'local-model') {
+      return nodeAdvertisesLocalModelTarget(node, localModelTarget)
+        ? ''
+        : `${localModelTarget.modelId} is not available on this node`;
     }
     const cli = this.selectedCli();
     if (cli !== 'auto' && !node.capabilities.supportedClis.includes(cli as never)) {
@@ -268,4 +280,24 @@ export class NodePickerComponent {
     parts.push(`${caps.supportedClis.length} CLI${caps.supportedClis.length !== 1 ? 's' : ''}`);
     return parts.join(' \u00b7 ');
   }
+}
+
+export function nodeAdvertisesLocalModelTarget(
+  node: RemoteNodeRosterEntry,
+  target: Extract<ModelRuntimeTarget, { kind: 'local-model' }>,
+): boolean {
+  if (target.source !== 'worker-node') {
+    return false;
+  }
+  if (target.nodeId && target.nodeId !== node.id) {
+    return false;
+  }
+
+  return (node.capabilities.localModelEndpoints ?? []).some((endpoint) => {
+    const endpointId = endpoint.endpointId ?? endpoint.provider;
+    return endpoint.healthy
+      && endpoint.provider === target.endpointProvider
+      && endpointId === target.endpointId
+      && endpoint.models.includes(target.modelId);
+  });
 }

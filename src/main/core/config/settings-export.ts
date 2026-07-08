@@ -37,6 +37,7 @@ export interface SettingsExportData {
 
 const MACHINE_LOCAL_SETTING_KEYS = new Set<keyof AppSettings>([
   'defaultWorkingDirectory',
+  'workerMode',
   'chromeDevtoolsAttachProfileId',
   'browserVaultMasterPasswordFile',
   'browserVaultAutoUnlock',

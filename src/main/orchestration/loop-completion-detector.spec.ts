@@ -492,6 +492,33 @@ describe('CompletedFileWatcher', () => {
       await watcher.stop();
     }
   });
+
+  it('ignores an initial completed file but observes the same path after recreation', async () => {
+    const completedPath = path.join(tmpDir, 'phase_completed.md');
+    fs.writeFileSync(completedPath, '# Old\n');
+    const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md');
+    const observed = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('timed out waiting for recreated completed file event')), 2_000);
+      watcher.onCompleted((filePath) => {
+        clearTimeout(timeout);
+        resolve(filePath);
+      });
+    });
+
+    watcher.start();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(watcher.isObserved()).toBe(false);
+
+    fs.unlinkSync(completedPath);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    fs.writeFileSync(completedPath, '# New\n');
+
+    try {
+      await expect(observed).resolves.toBe(completedPath);
+    } finally {
+      await watcher.stop();
+    }
+  });
 });
 
 describe('FU-9: CompletedFileWatcher.onUndone', () => {
@@ -515,6 +542,35 @@ describe('FU-9: CompletedFileWatcher.onUndone', () => {
 
     try {
       await expect(undonePath).resolves.toBe(path.join(tmpDir, 'phase_completed.md'));
+      expect(watcher.isObserved()).toBe(false);
+    } finally {
+      await watcher.stop();
+    }
+  });
+
+  it('fires onUndone when the last in-run completed file is deleted while an initial stale completed file remains', async () => {
+    const stalePath = path.join(tmpDir, 'stale_completed.md');
+    const inRunPath = path.join(tmpDir, 'phase_completed.md');
+    fs.writeFileSync(stalePath, '# Old\n');
+    const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md');
+    const undonePath = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('timed out waiting for onUndone with stale initial file')), 3_000);
+      watcher.onUndone((filePath) => {
+        clearTimeout(timeout);
+        resolve(filePath);
+      });
+    });
+
+    watcher.start();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(watcher.isObserved()).toBe(false);
+
+    fs.writeFileSync(inRunPath, '# Done\n');
+    await waitFor(() => watcher.isObserved());
+    fs.unlinkSync(inRunPath);
+
+    try {
+      await expect(undonePath).resolves.toBe(inRunPath);
       expect(watcher.isObserved()).toBe(false);
     } finally {
       await watcher.stop();

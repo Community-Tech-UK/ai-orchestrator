@@ -10,6 +10,7 @@ import { OrchestrationIpcService } from '../../core/services/ipc';
 import { FileAttachmentService } from './file-attachment.service';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
+import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 
 function makeRemoteNode(
@@ -70,6 +71,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     workingDirectory: ReturnType<typeof signal<string | null>>;
     provider: ReturnType<typeof signal<'claude' | null>>;
     model: ReturnType<typeof signal<string | null>>;
+    modelRuntimeTarget: ReturnType<typeof signal<ModelRuntimeTarget | null>>;
     agentId: ReturnType<typeof signal<string>>;
     yoloMode: ReturnType<typeof signal<boolean | null>>;
     launchMode: ReturnType<typeof signal<'orchestrated' | 'interactive' | null>>;
@@ -110,6 +112,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       workingDirectory: signal<string | null>('/repo'),
       provider: signal<'claude' | null>('claude'),
       model: signal<string | null>(null),
+      modelRuntimeTarget: signal<ModelRuntimeTarget | null>(null),
       agentId: signal('build'),
       yoloMode: signal<boolean | null>(null),
       launchMode: signal<'orchestrated' | 'interactive' | null>('orchestrated'),
@@ -270,6 +273,40 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       workingDirectory: '/repo',
       yoloMode: true,
     }));
+  });
+
+  it('passes local model runtime targets through normal welcome session creation', async () => {
+    const modelRuntimeTarget: ModelRuntimeTarget = {
+      kind: 'local-model',
+      source: 'worker-node',
+      selectorId: 'lm://worker-node/node-1/ollama/ollama/qwen',
+      nodeId: 'node-1',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    };
+    newSessionDraft.provider.set(null);
+    newSessionDraft.model.set('qwen');
+    newSessionDraft.modelRuntimeTarget.set(modelRuntimeTarget);
+    remoteNodeStore.nodeById.mockReturnValue(makeRemoteNode('connected', true));
+
+    const launched = await service.onWelcomeSendMessage(
+      'Use the worker model',
+      vi.fn(),
+    );
+
+    expect(launched).toBe(true);
+    expect(store.createInstanceWithMessage).toHaveBeenCalledWith({
+      message: 'Folders:\nplans\n\nUse the worker model',
+      files: [],
+      workingDirectory: '/repo',
+      agentId: 'build',
+      provider: undefined,
+      model: 'qwen',
+      modelRuntimeTarget,
+      launchMode: undefined,
+      forceNodeId: 'node-1',
+    });
   });
 
   it('syncs welcome node selection from the active draft node', async () => {

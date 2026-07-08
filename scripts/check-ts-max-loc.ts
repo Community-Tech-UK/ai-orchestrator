@@ -72,7 +72,7 @@ const ALLOWLIST: Record<string, number> = {
   // CompletionSignalEvidence.openCount, LoopState ledger +
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
   'packages/contracts/src/schemas/loop.schemas.ts': 773,
-  'packages/contracts/src/types/transport.types.ts': 1818,
+  'packages/contracts/src/types/transport.types.ts': 1820,
   // Main process — automations
   'src/main/automations/automation-store.ts': 852,
   // Main process — browser gateway
@@ -107,25 +107,25 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/claude-md-loader.ts': 804,
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
-  'src/main/history/history-manager.ts': 1428,
+  'src/main/history/history-manager.ts': 1429,
   // Main process — indexing
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
   // Raised 2343 -> 2394 for the non-destructive streaming-replace guard.
-  'src/main/instance/instance-communication.ts': 2442,
+  'src/main/instance/instance-communication.ts': 2492,
   'src/main/instance/instance-context.ts': 1260,
-  'src/main/instance/instance-lifecycle.ts': 3415,
+  'src/main/instance/instance-lifecycle.ts': 3450,
   // Raised for context/load-scaled sendInput init-wait budget + timer-leak fix.
-  'src/main/instance/instance-manager.ts': 2635,
+  'src/main/instance/instance-manager.ts': 2662,
   'src/main/instance/instance-orchestration.ts': 1068,
-  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1432,
+  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1435,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
-  'src/main/ipc/handlers/instance-handlers.ts': 1171,
+  'src/main/ipc/handlers/instance-handlers.ts': 1173,
   'src/main/ipc/handlers/mcp-handlers.ts': 925,
-  'src/main/ipc/handlers/session-handlers.ts': 1003,
-  'src/main/ipc/handlers/vcs-handlers.ts': 972,
+  'src/main/ipc/handlers/session-handlers.ts': 1045,
+  'src/main/ipc/handlers/vcs-handlers.ts': 992,
   'src/main/ipc/orchestration-ipc-handler.ts': 1316,
   // Main process — learning
   'src/main/learning/ab-testing.ts': 832,
@@ -135,9 +135,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/learning/preference-store.ts': 676,
   // Main process — MCP
   'src/main/mcp/mcp-manager.ts': 1025,
-  'src/main/mcp/mcp-tool-search.ts': 727,
+  'src/main/mcp/mcp-tool-search.ts': 735,
   // Main process — mobile gateway
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 1495,
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 1519,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,
@@ -148,10 +148,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/memory/unified-controller.ts': 1343,
   // Main process — orchestration
   'src/main/orchestration/child-result-storage.ts': 836,
-  'src/main/orchestration/cli-verification-extension.ts': 988,
+  'src/main/orchestration/cli-verification-extension.ts': 1002,
   'src/main/orchestration/consensus-coordinator.ts': 888,
   'src/main/orchestration/consensus.ts': 759,
-  'src/main/orchestration/cross-model-review-service.ts': 825,
+  'src/main/orchestration/cross-model-review-service.ts': 827,
   'src/main/orchestration/debate-coordinator.ts': 1196,
   // Raised 1613 -> 1670 for Phase 4 TaskPacket child prompt injection and
   // provider-owned tool stream safety evidence in branch invocations.
@@ -167,7 +167,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/loop-coordinator.ts': 3567,
   // Allowlisted at 712 when the D5 more-work-remaining sentinel parser
   // (parseAgentMoreWorkRemaining) tipped it just past 700.
-  'src/main/orchestration/loop-completion-detector.ts': 749,
+  'src/main/orchestration/loop-completion-detector.ts': 796,
   // Allowlisted at 702 when the D5 sentinel prompt guidance tipped it past 700.
   'src/main/orchestration/loop-stage-machine.ts': 725,
   'src/main/orchestration/loop-store.ts': 762,
@@ -179,6 +179,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/plugins/plugin-manager.ts': 1303,
   // Main process — providers
   'src/main/providers/model-discovery.ts': 552,
+  'src/main/providers/unified-model-catalog-service.ts': 727,
   // Main process — remote
   'src/main/remote/observer-server.ts': 864,
   // Main process — repo jobs
@@ -208,8 +209,9 @@ const ALLOWLIST: Record<string, number> = {
   // Renderer — services
   'src/renderer/app/core/services/ipc/memory-ipc.service.ts': 724,
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,
+  'src/renderer/app/core/services/new-session-draft.service.ts': 818,
   // Renderer — stores
-  'src/renderer/app/core/state/instance/instance-list.store.ts': 837,
+  'src/renderer/app/core/state/instance/instance-list.store.ts': 856,
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 794,
   'src/renderer/app/core/state/instance/instance.store.ts': 773,
   'src/renderer/app/core/state/source-control.store.ts': 976,
@@ -220,11 +222,11 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/debate/debate-visualization.component.ts': 993,
   'src/renderer/app/features/debate/enhanced-debate-visualization.component.ts': 821,
   'src/renderer/app/features/editor/editor-page.component.ts': 951,
-  'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1069,
-  'src/renderer/app/features/hooks/hooks-config.component.ts': 1027,
+  'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1096,
+  'src/renderer/app/features/hooks/hooks-config.component.ts': 1035,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1719,
-  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1555,
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1722,
+  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1559,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1266,
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),
@@ -240,7 +242,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/loop/loop-control.component.ts': 1051,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
-  'src/renderer/app/features/models/model-selection-panel.component.ts': 945,
+  'src/renderer/app/features/models/model-selection-panel.component.ts': 946,
   'src/renderer/app/features/models/models-page.component.ts': 768,
   'src/renderer/app/features/observations/observations-page.component.ts': 808,
   'src/renderer/app/features/plan/plan-page.component.ts': 1036,
@@ -253,7 +255,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/rlm/rlm-analytics.component.ts': 702,
   'src/renderer/app/features/semantic-search/semantic-search-page.component.ts': 865,
   'src/renderer/app/features/settings/ecosystem-settings-tab.component.ts': 733,
-  'src/renderer/app/features/settings/permissions-settings-tab.component.ts': 367,
+  'src/renderer/app/features/settings/permissions-settings-tab.component.ts': 413,
   'src/renderer/app/features/skills/skill-browser.component.ts': 766,
   'src/renderer/app/features/stats/stats-page.component.ts': 868,
   'src/renderer/app/features/tasks/tasks-page.component.ts': 994,
@@ -277,7 +279,7 @@ const ALLOWLIST: Record<string, number> = {
   // entry, and PROVIDER_MODEL_LIST row) tipped it just past 700.
   'src/shared/types/provider.types.ts': 724,
   // Worker agent
-  'src/worker-agent/worker-agent.ts': 977,
+  'src/worker-agent/worker-agent.ts': 1027,
 };
 
 function countLines(filePath: string): number {

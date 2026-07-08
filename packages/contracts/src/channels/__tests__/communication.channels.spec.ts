@@ -32,6 +32,13 @@ describe('COMMUNICATION_CHANNELS', () => {
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_UPDATE_ANDROID_AUTOMATION).toBe('remote-node:update-android-automation');
   });
 
+  it('has pair-both onboarding channels', () => {
+    expect(COMMUNICATION_CHANNELS.PAIR_BOTH_COORDINATOR_START).toBe('pair-both:coordinator:start');
+    expect(COMMUNICATION_CHANNELS.PAIR_BOTH_COORDINATOR_APPROVE).toBe('pair-both:coordinator:approve');
+    expect(COMMUNICATION_CHANNELS.PAIR_BOTH_WORKER_CONNECT).toBe('pair-both:worker:connect');
+    expect(COMMUNICATION_CHANNELS.PAIR_BOTH_WORKER_APPLY_MANUAL).toBe('pair-both:worker:apply-manual');
+  });
+
   it('has remote filesystem channels', () => {
     expect(COMMUNICATION_CHANNELS.REMOTE_FS_READ_DIR).toBe('remote-fs:read-dir');
     expect(COMMUNICATION_CHANNELS.REMOTE_FS_UNWATCH).toBe('remote-fs:unwatch');

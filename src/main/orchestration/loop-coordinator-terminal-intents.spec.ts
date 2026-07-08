@@ -18,7 +18,10 @@ beforeEach(() => {
   coordinator = new LoopCoordinator();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const loop of coordinator.getActiveLoops()) {
+    await coordinator.cancelLoop(loop.id);
+  }
   try { rmSync(workspace, { recursive: true, force: true }); } catch { /* noop */ }
 });
 

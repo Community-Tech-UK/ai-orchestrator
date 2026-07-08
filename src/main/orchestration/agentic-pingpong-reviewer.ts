@@ -14,6 +14,10 @@ import {
   getReviewerSessionSpawner,
   type ReviewSessionOutcome,
 } from './reviewer-session-spawner';
+import {
+  normalizeAgenticReviewerCliList,
+  normalizeReviewerCli,
+} from './cross-model-review-service.constants';
 
 const logger = getLogger('AgenticPingPongReviewer');
 
@@ -172,20 +176,22 @@ async function resolveReviewerProvider(
   let installed: string[] = [];
   try {
     const clis = await detectAvailableClis();
-    installed = clis.filter((c) => c.installed).map((c) => c.name);
+    installed = normalizeAgenticReviewerCliList(clis.filter((c) => c.installed).map((c) => c.name));
   } catch (err) {
     logger.warn('Provider detection failed during ping-pong reviewer resolution', {
       error: err instanceof Error ? err.message : String(err),
     });
   }
-  const builder = builderProvider.toLowerCase();
-  const triedSet = new Set(tried.map((p) => p.toLowerCase()));
-  const isEligible = (p: string): boolean =>
-    p.toLowerCase() !== builder &&
-    !triedSet.has(p.toLowerCase()) &&
-    (installed.length === 0 || installed.includes(p));
+  const builder = normalizeReviewerCli(builderProvider);
+  const triedSet = new Set(tried.map((p) => normalizeReviewerCli(p)));
+  const isEligible = (p: string): boolean => {
+    const candidate = normalizeReviewerCli(p);
+    return candidate !== builder &&
+      !triedSet.has(candidate) &&
+      (installed.length === 0 || installed.includes(candidate));
+  };
 
-  const normalized = (setting || 'auto').toLowerCase();
+  const normalized = normalizeReviewerCli(setting || 'auto');
   if (normalized !== 'auto') {
     if (normalized === builder) {
       logger.warn('Ping-pong reviewer provider equals builder — falling back to auto', {

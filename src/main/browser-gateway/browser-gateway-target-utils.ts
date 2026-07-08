@@ -6,29 +6,42 @@ export function findExistingTabCandidate(
   tabs: BrowserExistingTabAttachment[],
   url: string | undefined,
   titleHint: string | undefined,
+  options: { minUpdatedAt?: number } = {},
 ): BrowserExistingTabAttachment | null {
   const parsedUrl = url ? tryParseWebUrl(url) : null;
+  const candidates = tabs
+    .filter((tab) => options.minUpdatedAt === undefined || tab.updatedAt >= options.minUpdatedAt)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 
   if (parsedUrl && url) {
-    const exactOrPrefix = tabs.find((tab) =>
-      tab.url === url || tab.url.startsWith(url),
+    const exactOrPrefix = candidates.find((tab) =>
+      tab.url === url || isSameOriginUrlPrefix(tab.url, parsedUrl),
     );
     if (exactOrPrefix) {
       return exactOrPrefix;
     }
-    const sameOrigin = tabs.find((tab) => tab.origin === parsedUrl.origin);
+    const sameOrigin = candidates.find((tab) => tab.origin === parsedUrl.origin);
     if (sameOrigin) {
       return sameOrigin;
     }
   }
 
   if (titleHint) {
-    return tabs.find((tab) =>
+    return candidates.find((tab) =>
       (tab.title ?? '').toLowerCase().includes(titleHint),
     ) ?? null;
   }
 
   return null;
+}
+
+function isSameOriginUrlPrefix(
+  candidateUrl: string,
+  parsedRequestedUrl: URL,
+): boolean {
+  const parsedCandidateUrl = tryParseWebUrl(candidateUrl);
+  return parsedCandidateUrl?.origin === parsedRequestedUrl.origin
+    && parsedCandidateUrl.href.startsWith(parsedRequestedUrl.href);
 }
 
 export function browserActionTargetLabel(request: { selector?: string; uid?: string }): string {

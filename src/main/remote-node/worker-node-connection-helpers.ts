@@ -18,6 +18,10 @@ export const WORK_DISPATCH_METHODS = new Set<string>([
   COORDINATOR_TO_NODE.INSTANCE_TERMINATE,
   COORDINATOR_TO_NODE.INSTANCE_HIBERNATE,
   COORDINATOR_TO_NODE.INSTANCE_WAKE,
+  COORDINATOR_TO_NODE.LOCAL_MODEL_SESSION_START,
+  COORDINATOR_TO_NODE.LOCAL_MODEL_SESSION_SEND_INPUT,
+  COORDINATOR_TO_NODE.LOCAL_MODEL_SESSION_INTERRUPT,
+  COORDINATOR_TO_NODE.LOCAL_MODEL_SESSION_TERMINATE,
   COORDINATOR_TO_NODE.AUXILIARY_MODEL_GENERATE,
   COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST,
   COORDINATOR_TO_NODE.AUDIO_TRANSCRIBE,
@@ -58,6 +62,10 @@ export function summarizeRpcParams(params: unknown): Record<string, unknown> | u
     'cliType',
     'cwd',
     'workingDirectory',
+    'sessionId',
+    'endpointProvider',
+    'endpointId',
+    'modelId',
     'terminalId',
   ]) {
     const value = p[key];

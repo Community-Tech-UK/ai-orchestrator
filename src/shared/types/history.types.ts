@@ -3,6 +3,7 @@
  */
 
 import type { InstanceProvider, OutputMessage } from './instance.types';
+import type { InstanceRuntimeSummary } from './local-model-runtime.types';
 import type { SessionRecallResult } from './session-recall.types';
 import { deriveAttachmentTaskTitle, extractAttachmentPreamble } from './title-derivation';
 import type { ExecutionLocation } from './worker-node.types';
@@ -122,6 +123,9 @@ export interface ConversationHistoryEntry {
 
   /** Model active when the conversation was archived */
   currentModel?: string;
+
+  /** User-facing runtime label captured at archive time, e.g. local model + worker node. */
+  runtimeSummary?: InstanceRuntimeSummary;
 
   /** Where the instance ran (local or remote node) */
   executionLocation?: ExecutionLocation;

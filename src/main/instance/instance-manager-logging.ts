@@ -22,9 +22,10 @@ export function summarizeLogText(
 }
 
 export function sanitizeCreateConfig(config: InstanceCreateConfig): Partial<InstanceCreateConfig> {
-  const { attachments, initialOutputBuffer, initialPrompt, ...rest } = config;
+  const { attachments, initialOutputBuffer, initialPrompt, modelRuntimeTarget, ...rest } = config;
   return {
     ...rest,
+    modelRuntimeTarget: sanitizeModelRuntimeTarget(modelRuntimeTarget),
     initialPrompt: initialPrompt ? summarizeLogText(initialPrompt, 240) : undefined,
     attachments: attachments?.map((attachment) => ({
       name: attachment.name,
@@ -38,6 +39,30 @@ export function sanitizeCreateConfig(config: InstanceCreateConfig): Partial<Inst
           content: summarizeLogText(message.content, 240) ?? '',
         }))
       : undefined,
+  };
+}
+
+function sanitizeModelRuntimeTarget(
+  target: InstanceCreateConfig['modelRuntimeTarget'],
+): InstanceCreateConfig['modelRuntimeTarget'] {
+  if (!target) {
+    return undefined;
+  }
+  if (target.kind === 'cli') {
+    return {
+      kind: 'cli',
+      ...(target.provider ? { provider: target.provider } : {}),
+    };
+  }
+  return {
+    kind: 'local-model',
+    source: target.source,
+    endpointProvider: target.endpointProvider,
+    endpointId: target.endpointId,
+    modelId: target.modelId,
+    selectorId: target.selectorId,
+    ...(target.nodeId ? { nodeId: target.nodeId } : {}),
+    ...(target.nodeName ? { nodeName: target.nodeName } : {}),
   };
 }
 

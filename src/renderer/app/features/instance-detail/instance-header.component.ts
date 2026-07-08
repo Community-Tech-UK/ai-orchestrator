@@ -31,6 +31,7 @@ import type { ContextUsage, Instance } from '../../core/state/instance.store';
 import { getModelShortName } from '../../../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
+import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 
 interface EditorMenuItem {
   type: string;
@@ -303,12 +304,15 @@ export class InstanceHeaderComponent implements OnInit {
     return `Show source control (${n} changes)`;
   });
 
-  providerDisplayName = computed(() => {
-    return this.getProviderDisplayName(this.instance().provider);
-  });
+  readonly runtimeSummary = computed(() => this.instance().runtimeSummary);
+  readonly isLocalModelRuntime = computed(() => this.runtimeSummary()?.kind === 'local-model');
+
+  providerDisplayName = computed(() =>
+    resolveHeaderProviderDisplayName(this.instance().provider, this.runtimeSummary()),
+  );
 
   providerColor = computed(() => {
-    return this.getProviderColor(this.instance().provider);
+    return this.getProviderColor(this.instance().provider, this.runtimeSummary());
   });
 
   availableModels = computed((): ModelDisplayInfo[] => {
@@ -316,27 +320,29 @@ export class InstanceHeaderComponent implements OnInit {
   });
 
   currentModelId = computed(() => {
+    const runtimeSummary = this.runtimeSummary();
+    if (runtimeSummary?.kind === 'local-model') {
+      return runtimeSummary.modelId || this.currentModel() || '';
+    }
     return this.currentModel() || this.availableModels()[0]?.id || '';
   });
 
   currentModelDisplayName = computed(() => {
-    const modelId = this.currentModelId();
-    // First try dynamic models list
-    const models = this.availableModels();
-    const match = models.find(m => m.id === modelId);
-    if (match) return match.name;
-    // Fall back to static lookup
-    const provider = this.instance().provider;
-    return getModelShortName(modelId, provider);
+    return resolveHeaderModelDisplayName({
+      runtimeSummary: this.runtimeSummary(),
+      currentModel: this.currentModel(),
+      availableModels: this.availableModels(),
+      provider: this.instance().provider,
+    });
   });
 
   modelBtnBorderColor = computed(() => {
-    const color = this.getProviderColor(this.instance().provider);
+    const color = this.getProviderColor(this.instance().provider, this.runtimeSummary());
     return color + '4D'; // 30% opacity hex
   });
 
   modelBtnBgColor = computed(() => {
-    const color = this.getProviderColor(this.instance().provider);
+    const color = this.getProviderColor(this.instance().provider, this.runtimeSummary());
     return color + '26'; // 15% opacity hex
   });
 
@@ -382,7 +388,11 @@ export class InstanceHeaderComponent implements OnInit {
     }
   }
 
-  getProviderColor(provider: string): string {
+  getProviderColor(provider: string, runtimeSummary?: InstanceRuntimeSummary): string {
+    if (runtimeSummary?.kind === 'local-model') {
+      return '#14B8A6';
+    }
+
     switch (provider) {
       case 'claude':
         return '#D97706';
@@ -550,4 +560,46 @@ export class InstanceHeaderComponent implements OnInit {
         return type.charAt(0).toUpperCase() + type.slice(1);
     }
   }
+}
+
+export function resolveHeaderProviderDisplayName(
+  provider: string,
+  runtimeSummary?: InstanceRuntimeSummary,
+): string {
+  if (runtimeSummary?.kind === 'local-model') {
+    return 'Local Models';
+  }
+
+  switch (provider) {
+    case 'claude':
+      return 'Claude';
+    case 'codex':
+      return 'Codex';
+    case 'gemini':
+      return 'Gemini';
+    case 'ollama':
+      return 'Ollama';
+    case 'copilot':
+      return 'Copilot';
+    case 'cursor':
+      return 'Cursor';
+    default:
+      return 'AI';
+  }
+}
+
+export function resolveHeaderModelDisplayName(options: {
+  runtimeSummary?: InstanceRuntimeSummary;
+  currentModel?: string;
+  availableModels: ModelDisplayInfo[];
+  provider: string;
+}): string {
+  if (options.runtimeSummary?.kind === 'local-model') {
+    return options.runtimeSummary.label;
+  }
+
+  const modelId = options.currentModel || options.availableModels[0]?.id || '';
+  const match = options.availableModels.find(m => m.id === modelId);
+  if (match) return match.name;
+  return getModelShortName(modelId, options.provider);
 }

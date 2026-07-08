@@ -42,6 +42,7 @@ export { RecentDirectoriesIpcService } from './recent-directories-ipc.service';
 export { CommIpcService } from './comm-ipc.service';
 export { SessionShareIpcService } from './session-share-ipc.service';
 export { RemoteObserverIpcService } from './remote-observer-ipc.service';
+export { PairBothIpcService } from './pair-both-ipc.service';
 export { ChannelIpcService } from './channel-ipc.service';
 export { IpcEventBusService } from './ipc-event-bus.service';
 export { OperatorIpcService } from './operator-ipc.service';

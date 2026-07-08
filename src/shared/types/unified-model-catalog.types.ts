@@ -7,7 +7,13 @@
  */
 
 /** Which data source contributed an entry to the unified catalog. */
-export type CatalogSource = 'cli-discovered' | 'models-dev' | 'user-custom' | 'catalog-override' | 'static';
+export type CatalogSource =
+  | 'cli-discovered'
+  | 'models-dev'
+  | 'user-custom'
+  | 'catalog-override'
+  | 'local-model'
+  | 'static';
 
 /**
  * A single provider-neutral model entry in the unified catalog.

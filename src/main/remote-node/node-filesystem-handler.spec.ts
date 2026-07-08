@@ -57,6 +57,10 @@ describe('NodeFilesystemHandler', () => {
   const mockRealpath = vi.mocked(fs.realpath);
   const mockReaddir = vi.mocked(fs.readdir);
   const mockStat = vi.mocked(fs.stat);
+  const mockReadFile = vi.mocked(fs.readFile);
+  const mockWriteFile = vi.mocked(fs.writeFile);
+  const mockMkdir = vi.mocked(fs.mkdir);
+  const mockLstat = vi.mocked(fs.lstat);
 
   beforeEach(() => {
     handler = new NodeFilesystemHandler(ROOTS);
@@ -146,6 +150,151 @@ describe('NodeFilesystemHandler', () => {
       const result = await handler.stat({ path: '/home/user/missing' });
 
       expect(result.exists).toBe(false);
+    });
+  });
+
+  describe('file transfer roots', () => {
+    it('allows readFile from a configured readable transfer root outside working directories', async () => {
+      handler = new NodeFilesystemHandler(
+        ROOTS,
+        {},
+        [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: '/home/user/Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      );
+      mockRealpath.mockResolvedValue('/home/user/Downloads/file.pdf' as never);
+      mockStat.mockResolvedValue(makeStat({ isDirectory: false, size: 7 }));
+      mockReadFile.mockResolvedValue(Buffer.from('content') as never);
+
+      const result = await handler.readFile({ path: '/home/user/Downloads/file.pdf' });
+
+      expect(result).toMatchObject({
+        size: 7,
+        mimeType: 'application/pdf',
+      });
+      expect(Buffer.from(result.data, 'base64').toString('utf8')).toBe('content');
+    });
+
+    it('refuses writeFile to a read-only transfer root', async () => {
+      handler = new NodeFilesystemHandler(
+        ROOTS,
+        {},
+        [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: '/home/user/Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      );
+
+      await expect(
+        handler.writeFile({
+          path: '/home/user/Downloads/file.txt',
+          data: Buffer.from('content').toString('base64'),
+        }),
+      ).rejects.toThrow('EOUTOFSCOPE');
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+
+    it('allows writeFile to a writable scratch transfer root outside working directories', async () => {
+      handler = new NodeFilesystemHandler(
+        ROOTS,
+        {},
+        [
+          {
+            id: 'scratch',
+            label: 'AIO Scratch',
+            path: '/home/user/.orchestrator/_scratch/aio-transfers',
+            read: true,
+            write: true,
+          },
+        ],
+      );
+      mockRealpath.mockImplementation(async (filePath: unknown) => String(filePath) as never);
+      mockMkdir.mockResolvedValue(undefined as never);
+      mockLstat.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+      mockWriteFile.mockResolvedValue(undefined as never);
+
+      const result = await handler.writeFile({
+        path: '/home/user/.orchestrator/_scratch/aio-transfers/file.txt',
+        data: Buffer.from('content').toString('base64'),
+      });
+
+      expect(result).toEqual({ ok: true, size: 7 });
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        '/home/user/.orchestrator/_scratch/aio-transfers/file.txt',
+        Buffer.from('content'),
+      );
+    });
+
+    it('refuses writeFile when an existing destination is a symbolic link', async () => {
+      handler = new NodeFilesystemHandler(
+        ROOTS,
+        {},
+        [
+          {
+            id: 'scratch',
+            label: 'AIO Scratch',
+            path: '/home/user/.orchestrator/_scratch/aio-transfers',
+            read: true,
+            write: true,
+          },
+        ],
+      );
+      mockRealpath.mockImplementation(async (filePath: unknown) => String(filePath) as never);
+      mockMkdir.mockResolvedValue(undefined as never);
+      mockLstat.mockResolvedValue({
+        isSymbolicLink: () => true,
+      } as never);
+
+      await expect(
+        handler.writeFile({
+          path: '/home/user/.orchestrator/_scratch/aio-transfers/link.txt',
+          data: Buffer.from('content').toString('base64'),
+        }),
+      ).rejects.toThrow('symbolic link');
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+
+    it('refuses writeFile when an existing parent symlink escapes writable roots', async () => {
+      handler = new NodeFilesystemHandler(
+        ROOTS,
+        {},
+        [
+          {
+            id: 'scratch',
+            label: 'AIO Scratch',
+            path: '/home/user/.orchestrator/_scratch/aio-transfers',
+            read: true,
+            write: true,
+          },
+        ],
+      );
+      mockRealpath.mockImplementation(async (filePath: unknown) => {
+        const value = String(filePath);
+        if (value.endsWith('/escape')) {
+          return '/tmp/outside' as never;
+        }
+        return value as never;
+      });
+
+      await expect(
+        handler.writeFile({
+          path: '/home/user/.orchestrator/_scratch/aio-transfers/escape/file.txt',
+          data: Buffer.from('content').toString('base64'),
+        }),
+      ).rejects.toThrow('outside writable roots');
+      expect(mockMkdir).not.toHaveBeenCalled();
+      expect(mockWriteFile).not.toHaveBeenCalled();
     });
   });
 });

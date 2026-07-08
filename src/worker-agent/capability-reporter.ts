@@ -10,6 +10,7 @@ import type {
   WorkerNodeBrowserAutomationSummary,
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeExtensionRelaySummary,
+  WorkerNodeFileTransferSummary,
 } from '../shared/types/worker-node.types';
 import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
@@ -36,6 +37,7 @@ export async function reportCapabilities(
   browserAutomation?: WorkerNodeBrowserAutomationSummary,
   androidAutomation?: WorkerNodeAndroidAutomationSummary,
   extensionRelay?: WorkerNodeExtensionRelaySummary,
+  fileTransfer?: WorkerNodeFileTransferSummary,
 ): Promise<WorkerNodeCapabilities> {
   const supportedClis = detectClis();
   const gpu = detectGpu();
@@ -75,6 +77,7 @@ export async function reportCapabilities(
     maxConcurrentInstances,
     workingDirectories,
     browsableRoots: workingDirectories,
+    ...(fileTransfer ? { fileTransfer } : {}),
     discoveredProjects: projects,
     localModelEndpoints,
     localSttEndpoints,
@@ -95,6 +98,7 @@ async function detectLocalModelEndpoints(): Promise<WorkerLocalModelCapability[]
     // coordinator can surface it (e.g. "start Ollama") rather than hide it.
     endpoints.push({
       provider: 'ollama',
+      endpointId: endpointIdForLocalModelProvider('ollama'),
       baseUrl: OLLAMA_LOCAL_BASE_URL,
       models: [],
       healthy: false,
@@ -111,6 +115,7 @@ async function detectLocalModelEndpoints(): Promise<WorkerLocalModelCapability[]
   } else if (isLmStudioInstalled()) {
     endpoints.push({
       provider: 'openai-compatible',
+      endpointId: endpointIdForLocalModelProvider('openai-compatible'),
       baseUrl: LMSTUDIO_LOCAL_BASE_URL,
       models: [],
       healthy: false,
@@ -138,6 +143,7 @@ async function probeOllamaCapability(): Promise<WorkerLocalModelCapability | nul
     const data = await response.json() as { models?: { name: string }[] };
     return {
       provider: 'ollama',
+      endpointId: endpointIdForLocalModelProvider('ollama'),
       baseUrl: OLLAMA_LOCAL_BASE_URL,
       models: (data.models ?? []).map((m) => m.name),
       healthy: true,
@@ -162,6 +168,7 @@ async function probeLmStudioCapability(): Promise<WorkerLocalModelCapability | n
     const data = await response.json() as { data?: { id: string }[] };
     return {
       provider: 'openai-compatible',
+      endpointId: endpointIdForLocalModelProvider('openai-compatible'),
       baseUrl: LMSTUDIO_LOCAL_BASE_URL,
       models: (data.data ?? []).map((m) => m.id),
       loadedModels: await probeLmStudioLoadedModels(),
@@ -273,6 +280,12 @@ async function probeLmStudioLoadedModels(): Promise<WorkerLoadedModel[] | undefi
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+function endpointIdForLocalModelProvider(
+  provider: WorkerLocalModelCapability['provider'],
+): string {
+  return provider === 'ollama' ? 'ollama' : 'openai-compatible';
 }
 
 type DetectableCliType = CanonicalCliType | 'ollama';

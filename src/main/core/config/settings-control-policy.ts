@@ -116,6 +116,13 @@ const auxiliarySlotMapSchema = z.object({
   verifyOutputSummary: auxiliarySlotSchema.optional(),
 } satisfies Record<AuxiliaryLlmSlot, z.ZodOptional<typeof auxiliarySlotSchema>>).strict();
 const auxiliarySlotPayloadSchema = jsonBackedObjectSchema(auxiliarySlotMapSchema);
+const workerModeSchema = z.object({
+  role: z.enum(['unset', 'coordinator', 'worker']),
+  startWorkerOnLaunch: z.boolean(),
+  installWorkerService: z.boolean(),
+  lastCoordinatorName: z.string().max(255).optional(),
+  lastCoordinatorUrl: z.string().max(2048).optional(),
+}).strict();
 
 const open = (
   schema: z.ZodType<unknown>,
@@ -228,6 +235,7 @@ export const SETTINGS_TOOL_POLICY = {
   voiceThisDeviceSttApiKeyEnv: open(optionalEnvNameSchema),
   voiceLocalSttMaxSegmentMs: open(z.number().finite().int().min(500).max(60_000)),
   remoteNodesEnabled: readOnly(true),
+  workerMode: open(workerModeSchema, true),
   remoteNodesServerPort: readOnly(true),
   remoteNodesServerHost: readOnly(true),
   remoteNodesEnrollmentToken: secret(),

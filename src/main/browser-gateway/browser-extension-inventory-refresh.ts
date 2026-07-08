@@ -25,8 +25,9 @@ export interface BrowserExtensionInventoryRefreshOutcome {
 export async function refreshBrowserExtensionInventory(input: {
   request: BrowserGatewayListTargetsRequest;
   commandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  localOnly?: boolean;
 }): Promise<BrowserExtensionInventoryRefreshOutcome[]> {
-  const targets = extensionInventoryRefreshTargets(input.request);
+  const targets = extensionInventoryRefreshTargets(input.request, input.localOnly === true);
   return Promise.all(targets.map(async ({ queueKey, nodeId }) => {
     try {
       await input.commandStore.sendCommand({
@@ -49,12 +50,16 @@ export async function refreshBrowserExtensionInventory(input: {
 
 function extensionInventoryRefreshTargets(
   request: BrowserGatewayListTargetsRequest,
+  localOnly: boolean,
 ): Array<{ queueKey: string; nodeId?: string }> {
   if (request.nodeId) {
     return [{ queueKey: browserExtensionQueueKeyForNode(request.nodeId), nodeId: request.nodeId }];
   }
   const targets = new Map<string, { queueKey: string; nodeId?: string }>();
   targets.set('local', { queueKey: 'local' });
+  if (localOnly) {
+    return [...targets.values()];
+  }
   for (const node of getWorkerNodeRegistry().getAllNodes()) {
     if (
       node.capabilities.extensionRelay?.enabled === true

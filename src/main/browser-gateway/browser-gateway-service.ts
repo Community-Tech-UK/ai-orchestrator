@@ -93,9 +93,7 @@ import {
   getBrowserExtensionTabStore,
 } from './browser-extension-tab-store';
 import {
-  BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
   BrowserExtensionCommandStore,
-  browserExtensionQueueKeyForNode,
   getBrowserExtensionCommandStore,
 } from './browser-extension-command-store';
 import {
@@ -105,7 +103,6 @@ import {
 import {
   isRemoteExtensionContactFresh,
   remoteExtensionContactSummary,
-  remoteExtensionUnreachableFindOrOpenInput,
   withRemoteExtensionStaleFlag,
 } from './browser-extension-node-contact';
 import {
@@ -136,7 +133,6 @@ import {
   browserActionTargetLabel,
   browserActionTargetPayload,
   browserFillFieldTargetLabel,
-  findExistingTabCandidate,
   placeholderExistingTabProfileRoot,
 } from './browser-gateway-target-utils';
 import type {
@@ -174,15 +170,7 @@ import {
 } from './browser-upload-verify';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { stageBrowserUploadOnNode } from './browser-remote-upload-staging';
-import { refreshBrowserExtensionInventory } from './browser-extension-inventory-refresh';
-import {
-  collectInventoryRefreshFailures,
-  describeInventoryRefreshFailures,
-  notDeliveredOpenTabMessage,
-  recoveredFindOrOpenResultInput,
-  recoverOpenedTabAfterTimeout,
-  withRefreshFailureStaleFlag,
-} from './browser-gateway-refresh-support';
+import { BrowserTargetDiscoveryOperations } from './browser-target-discovery-operations';
 
 export type {
   BrowserGatewayAttachExistingTabRequest,
@@ -251,6 +239,7 @@ export class BrowserGatewayService {
   private readonly actionGuard: BrowserGatewayActionGuard;
   private readonly resultRecorder: BrowserGatewayResultRecorder;
   private readonly existingTabOperations: BrowserExistingTabOperations;
+  private readonly targetDiscoveryOperations: BrowserTargetDiscoveryOperations;
   private readonly approvalOperations: BrowserGatewayApprovalOperations;
   private readonly manualHandoffOperations: BrowserManualHandoffOperations;
 
@@ -283,6 +272,16 @@ export class BrowserGatewayService {
       approvalStore: this.approvalStore,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
       autoApproveApproval: (approval) => this.autoApproveApproval(approval),
+    });
+    this.targetDiscoveryOperations = new BrowserTargetDiscoveryOperations({
+      targetRegistry: this.targetRegistry,
+      driver: this.driver,
+      extensionTabStore: this.extensionTabStore,
+      extensionCommandStore: this.extensionCommandStore,
+      extensionContactState: this.extensionContactState,
+      getWorkerNodes: () => getWorkerNodeRegistry().getAllNodes(),
+      getWorkerNode: (nodeId) => getWorkerNodeRegistry().getNode(nodeId),
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.manualHandoffOperations = new BrowserManualHandoffOperations({
       approvalStore: this.approvalStore,
@@ -574,178 +573,13 @@ export class BrowserGatewayService {
   async listTargets(
     request: BrowserGatewayListTargetsRequest = {},
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget>[]>> {
-    const refreshFailures = collectInventoryRefreshFailures(
-      request.refresh === true
-        ? await refreshBrowserExtensionInventory({ request, commandStore: this.extensionCommandStore })
-        : [],
-    );
-    const liveTargets = request.profileId
-      ? await this.driver.listTargets(request.profileId).catch(() => null)
-      : null;
-    const targets = (liveTargets ?? this.targetRegistry.listTargets(request.profileId))
-      .filter((target) => !request.nodeId || target.nodeId === request.nodeId)
-      .map((target) => withRemoteExtensionStaleFlag(target, { extensionContactState: this.extensionContactState }))
-      .map((target) => withRefreshFailureStaleFlag(target, refreshFailures))
-      .map((target) => toAgentSafeTarget(target));
-    const refreshFailureSummary = describeInventoryRefreshFailures(
-      refreshFailures,
-      this.extensionContactState,
-      targets,
-    );
-    return this.result({
-      context: request,
-      profileId: request.profileId,
-      action: 'list_targets',
-      toolName: 'browser.list_targets',
-      actionClass: 'read',
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: `Listed ${targets.length} browser targets${refreshFailureSummary ? ` (${refreshFailureSummary})` : ''}`,
-      // `summary` only reaches the audit log; `reason` is what the caller sees
-      // on the result — surface the degraded refresh there so cached targets
-      // are never mistaken for a live channel.
-      ...(refreshFailureSummary ? { reason: refreshFailureSummary } : {}),
-      data: targets,
-    });
+    return this.targetDiscoveryOperations.listTargets(request);
   }
 
   async findOrOpen(
     request: BrowserGatewayFindOrOpenRequest,
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
-    const url = request.url?.trim();
-    const titleHint = request.titleHint?.trim().toLowerCase();
-    const tabs = this.extensionTabStore.listTabs()
-      .filter((tab) => !request.nodeId || tab.nodeId === request.nodeId);
-    const existing = findExistingTabCandidate(tabs, url, titleHint);
-    if (existing) {
-      if (
-        existing.nodeId &&
-        !isRemoteExtensionContactFresh(existing.nodeId, {
-          extensionContactState: this.extensionContactState,
-        })
-      ) {
-        return this.result(remoteExtensionUnreachableFindOrOpenInput({
-          request,
-          profileId: existing.profileId,
-          targetId: existing.targetId,
-          actionClass: 'read',
-          url: existing.url,
-          origin: existing.origin,
-          nodeId: existing.nodeId,
-          deps: { extensionContactState: this.extensionContactState },
-        }));
-      }
-      return this.result({
-        context: request,
-        profileId: existing.profileId,
-        targetId: existing.targetId,
-        action: 'find_or_open',
-        toolName: 'browser.find_or_open',
-        actionClass: 'read',
-        decision: 'allowed',
-        outcome: 'succeeded',
-        summary: 'Selected an existing Chrome tab matching the browser task',
-        origin: existing.origin,
-        url: existing.url,
-        data: safeTargetFromExistingTab(existing),
-      });
-    }
-
-    if (!url) {
-      return this.result({
-        context: request,
-        action: 'find_or_open',
-        toolName: 'browser.find_or_open',
-        actionClass: 'navigate',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'url_required_to_open_tab',
-        summary: 'A URL is required before Browser Gateway can open a new Chrome tab',
-        data: null,
-      });
-    }
-
-    if (
-      request.nodeId &&
-      !isRemoteExtensionContactFresh(request.nodeId, {
-        extensionContactState: this.extensionContactState,
-      })
-    ) {
-      return this.result(remoteExtensionUnreachableFindOrOpenInput({
-        request,
-        actionClass: 'navigate',
-        url,
-        nodeId: request.nodeId,
-        deps: { extensionContactState: this.extensionContactState },
-      }));
-    }
-
-    try {
-      const result = await this.extensionCommandStore.sendCommand({
-        ...(request.nodeId ? { queueKey: browserExtensionQueueKeyForNode(request.nodeId) } : {}),
-        command: 'open_tab',
-        payload: { url },
-        timeoutMs: 30_000,
-        // Ride out one extension service-worker recovery cycle instead of
-        // failing while the command is provably still queued (undelivered ⇒
-        // not applied, so the longer wait is safe).
-        undeliveredWaitMs: BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
-      });
-      const tab = extractTabPayload(result);
-      const node = request.nodeId ? getWorkerNodeRegistry().getNode(request.nodeId) : undefined;
-      const attachment = this.extensionTabStore.attachTab(tab, {
-        ...(request.nodeId ? { nodeId: request.nodeId } : {}),
-        ...(node?.name ? { nodeName: node.name } : {}),
-      });
-      return this.result({
-        context: request,
-        profileId: attachment.profileId,
-        targetId: attachment.targetId,
-        action: 'find_or_open',
-        toolName: 'browser.find_or_open',
-        actionClass: 'navigate',
-        decision: 'allowed',
-        outcome: 'succeeded',
-        summary: 'Opened a new Chrome tab through the Browser Gateway extension',
-        origin: attachment.origin,
-        url: attachment.url,
-        data: safeTargetFromExistingTab(attachment),
-      });
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : String(error);
-      // An open_tab whose ack was lost may still have opened the tab. Refresh
-      // the inventory and re-match before reporting failure — recovering the
-      // tab as a SUCCESS beats telling the caller to go look for it.
-      if (
-        rawMessage.startsWith('browser_extension_command_timeout')
-        || rawMessage.startsWith('browser_extension_command_receipt_missing')
-      ) {
-        const recovered = await recoverOpenedTabAfterTimeout({
-          ...(request.nodeId ? { nodeId: request.nodeId } : {}),
-          url,
-          commandStore: this.extensionCommandStore,
-          listTabs: () => this.extensionTabStore.listTabs(),
-        });
-        if (recovered) {
-          return this.result(recoveredFindOrOpenResultInput(request, recovered));
-        }
-      }
-      const message = rawMessage.startsWith('browser_extension_command_not_delivered')
-        ? notDeliveredOpenTabMessage(request.nodeId, this.extensionContactState)
-        : rawMessage;
-      return this.result({
-        context: request,
-        action: 'find_or_open',
-        toolName: 'browser.find_or_open',
-        actionClass: 'navigate',
-        decision: 'allowed',
-        outcome: 'failed',
-        reason: message,
-        summary: `Chrome extension could not open a tab: ${message}`,
-        url,
-        data: null,
-      });
-    }
+    return this.targetDiscoveryOperations.findOrOpen(request);
   }
 
 

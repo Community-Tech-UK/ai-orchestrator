@@ -83,6 +83,7 @@ import {
   registerParallelWorktreeHandlers,
   registerRemoteObserverHandlers,
   registerRemoteNodeHandlers,
+  registerPairBothHandlers,
   registerImageHandlers,
   registerChannelHandlers,
   registerReactionHandlers,
@@ -417,6 +418,7 @@ export class IpcMainHandler {
 
     // Remote node handlers (worker node management)
     registerRemoteNodeHandlers();
+    registerPairBothHandlers();
 
     // Remote terminal handlers (interactive PTY on a worker node — Piece C)
     registerTerminalHandlers({ windowManager: this.windowManager });

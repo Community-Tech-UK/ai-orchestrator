@@ -1,4 +1,5 @@
 import type { ChatProvider } from '../../../../shared/types/chat.types';
+import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 
 /**
@@ -7,7 +8,7 @@ import type { ReasoningEffort } from '../../../../shared/types/provider.types';
  * even though chats currently don't). Excludes the `auto` sentinel —
  * the picker always pins a concrete provider.
  */
-export type PickerProvider = ChatProvider | 'cursor';
+export type PickerProvider = ChatProvider | 'cursor' | 'local-model';
 
 /**
  * Operating mode of the compact model picker.
@@ -36,6 +37,7 @@ export interface PendingSelection {
   provider: PickerProvider;
   model: string | null;
   reasoning: ReasoningEffort | null;
+  modelRuntimeTarget?: ModelRuntimeTarget | null;
 }
 
 /**
@@ -46,4 +48,5 @@ export interface CommitTarget {
   provider?: PickerProvider;
   modelId?: string | null;
   reasoning?: ReasoningEffort | null;
+  modelRuntimeTarget?: ModelRuntimeTarget | null;
 }

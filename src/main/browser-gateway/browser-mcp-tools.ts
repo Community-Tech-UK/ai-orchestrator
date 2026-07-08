@@ -66,6 +66,12 @@ const nodeIdProp = {
   ...stringProp,
   description: 'Optional remote worker node id. Use to list, match, or open shared Chrome tabs on one specific node.',
 };
+const computerProp = {
+  ...stringProp,
+  description:
+    'Optional computer name or alias. Examples: "Windows PC", "windows-pc", or "local". '
+    + 'Resolves to a Browser Gateway worker node before matching/opening tabs.',
+};
 const selectorProp = {
   ...stringProp,
   description:
@@ -174,6 +180,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
   'browser.list_targets': objectSchema({
     profileId: profileIdProp,
     nodeId: nodeIdProp,
+    computer: computerProp,
     refresh: {
       ...booleanProp,
       description: 'Ask connected Browser Gateway extensions to re-send tab inventory before returning cached targets. Bounded to a short wait.',
@@ -189,6 +196,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       description: 'Optional tab title hint to use when matching an existing Chrome tab.',
     },
     nodeId: nodeIdProp,
+    computer: computerProp,
   }),
   'browser.select_target': targetSchema,
   'browser.navigate': objectSchema({

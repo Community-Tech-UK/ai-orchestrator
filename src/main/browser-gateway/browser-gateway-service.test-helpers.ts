@@ -60,6 +60,7 @@ export function makeService(overrides: {
   profile?: BrowserProfile | null;
   profiles?: BrowserProfile[];
   target?: BrowserTarget;
+  targets?: BrowserTarget[] | ((profileId?: string) => BrowserTarget[]);
   navigate?: () => Promise<void>;
   screenshot?: () => Promise<string>;
   snapshot?: () => Promise<{ title: string; url: string; text: string }>;
@@ -108,10 +109,16 @@ export function makeService(overrides: {
     : (overrides.profile ?? makeProfile());
   const profiles = overrides.profiles ?? (profile ? [profile] : []);
   const target = overrides.target ?? makeTarget();
+  const listTargets = (profileId?: string): BrowserTarget[] => {
+    const targets = typeof overrides.targets === 'function'
+      ? overrides.targets(profileId)
+      : (overrides.targets ?? [target]);
+    return targets.filter((item) => !profileId || profileId === item.profileId);
+  };
   const driver = {
     openProfile: vi.fn(async () => [target]),
     closeProfile: vi.fn(async () => undefined),
-    listTargets: vi.fn(async () => [target]),
+    listTargets: vi.fn(async (profileId?: string) => listTargets(profileId)),
     refreshTarget: vi.fn(overrides.refreshTarget ?? (async () => target)),
     navigate: vi.fn(overrides.navigate ?? (async () => undefined)),
     snapshot: vi.fn(overrides.snapshot ?? (async () => ({
@@ -283,8 +290,7 @@ export function makeService(overrides: {
     profileStore,
     profileRegistry,
     targetRegistry: {
-      listTargets: (profileId?: string) =>
-        !profileId || profileId === target.profileId ? [target] : [],
+      listTargets,
       selectTarget: vi.fn((targetId: string) => ({ ...target, id: targetId, status: 'selected' as const })),
     },
     driver,

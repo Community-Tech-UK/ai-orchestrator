@@ -136,6 +136,8 @@ const MAX_TOOL_DESCRIPTION_LENGTH = 2048;
 const DEFAULT_SERVER_SEARCH_HINT = 'Use MCP tool search for detailed tool descriptions when needed.';
 const ORCHESTRATOR_REMOTE_TOOLS_SEARCH_HINT =
   'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, and other machines, through list_remote_nodes, run_on_node, and read_node_output. If the user names a machine, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For remote browser or Android testing, pass requiresBrowser or requiresAndroid to run_on_node.';
+const BROWSER_GATEWAY_SEARCH_HINT =
+  'Browser Gateway exposes real shared Chrome tabs through browser.list_targets and browser.find_or_open. For browser work, prefer connected remote PCs or another PC when available; use local/Mac shared tabs when the user explicitly says the tab is shared or open on the Mac/local computer.';
 
 /**
  * Truncate a tool description to the maximum allowed length.
@@ -639,7 +641,14 @@ export class MCPToolSearchService extends EventEmitter {
       const name = this.index.tools.get(toolId)?.name;
       return name === 'list_remote_nodes' || name === 'run_on_node';
     });
-    return hasRemoteNodeTools ? ORCHESTRATOR_REMOTE_TOOLS_SEARCH_HINT : DEFAULT_SERVER_SEARCH_HINT;
+    if (hasRemoteNodeTools) {
+      return ORCHESTRATOR_REMOTE_TOOLS_SEARCH_HINT;
+    }
+    const hasBrowserGatewayTools = toolIds.some((toolId) => {
+      const tool = this.index.tools.get(toolId);
+      return tool?.serverId === 'browser-gateway' || tool?.name.startsWith('browser.');
+    });
+    return hasBrowserGatewayTools ? BROWSER_GATEWAY_SEARCH_HINT : DEFAULT_SERVER_SEARCH_HINT;
   }
 
   /**

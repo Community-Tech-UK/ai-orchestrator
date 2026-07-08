@@ -11,6 +11,7 @@ import {
 
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
 export const InstanceLaunchModeSchema = z.enum(['orchestrated', 'interactive']);
+const InstanceCreateProviderSchema = z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']);
 const NodePlacementPrefsSchema = z.object({
   requiresBrowser: z.boolean().optional(),
   requiresAndroid: z.boolean().optional(),
@@ -21,6 +22,22 @@ const NodePlacementPrefsSchema = z.object({
   requiresCli: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   requiresWorkingDirectory: z.string().min(1).max(4096).optional(),
 });
+export const ModelRuntimeTargetSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('cli'),
+    provider: InstanceCreateProviderSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal('local-model'),
+    source: z.enum(['this-device', 'worker-node']),
+    endpointProvider: z.enum(['ollama', 'openai-compatible']),
+    endpointId: z.string().min(1).max(200),
+    modelId: ModelIdSchema,
+    selectorId: z.string().min(1).max(2048),
+    nodeId: z.string().min(1).max(200).optional(),
+    nodeName: z.string().min(1).max(200).optional(),
+  }),
+]);
 
 // ============ Instance Creation ============
 
@@ -34,8 +51,9 @@ export const InstanceCreatePayloadSchema = z.object({
   yoloMode: z.boolean().optional(),
   launchMode: InstanceLaunchModeSchema.optional(),
   agentId: z.string().max(100).optional(),
-  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+  provider: InstanceCreateProviderSchema.optional(),
   model: ModelIdSchema.optional(),
+  modelRuntimeTarget: ModelRuntimeTargetSchema.optional(),
   bareMode: z.boolean().optional(),
   fastMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),
@@ -50,8 +68,9 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
   launchMode: InstanceLaunchModeSchema.optional(),
   agentId: z.string().max(100).optional(),
-  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+  provider: InstanceCreateProviderSchema.optional(),
   model: ModelIdSchema.optional(),
+  modelRuntimeTarget: ModelRuntimeTargetSchema.optional(),
   yoloMode: z.boolean().optional(),
   bareMode: z.boolean().optional(),
   fastMode: z.boolean().optional(),

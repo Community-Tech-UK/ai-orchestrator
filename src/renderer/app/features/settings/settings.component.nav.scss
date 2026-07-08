@@ -13,6 +13,42 @@
   box-shadow: 12px 0 34px color-mix(in srgb, var(--bg-primary) 56%, transparent);
 }
 
+.settings-nav-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: var(--spacing-md) var(--spacing-md) 0 auto;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-sunken-bg) 86%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.settings-nav-toggle:hover {
+  background: var(--settings-nav-bg-hover);
+  border-color: var(--glass-border);
+  color: var(--text-primary);
+}
+
+.settings-nav-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--transition-fast);
+}
+
 .sidebar-search {
   position: relative;
   padding: var(--spacing-lg) var(--spacing-md);
@@ -224,10 +260,59 @@
   color: var(--empty-state-fg);
 }
 
+.settings-sidebar.nav-collapsed {
+  width: 56px;
+  min-width: 56px;
+}
+
+.settings-sidebar.nav-collapsed .settings-nav-toggle {
+  margin: var(--spacing-md) auto var(--spacing-sm);
+}
+
+.settings-sidebar.nav-collapsed .settings-nav-toggle svg {
+  transform: rotate(180deg);
+}
+
+.settings-sidebar.nav-collapsed .sidebar-search {
+  display: none;
+}
+
+.settings-sidebar.nav-collapsed .settings-nav {
+  gap: 4px;
+  padding: 0 6px var(--spacing-md);
+}
+
+.settings-sidebar.nav-collapsed .nav-group-label,
+.settings-sidebar.nav-collapsed .nav-item-label,
+.settings-sidebar.nav-collapsed .nav-recommended,
+.settings-sidebar.nav-collapsed .nav-badge {
+  display: none;
+}
+
+.settings-sidebar.nav-collapsed .nav-item {
+  justify-content: center;
+  min-height: 38px;
+  padding: 6px 0;
+}
+
+.settings-sidebar.nav-collapsed .nav-item-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.settings-sidebar.nav-collapsed .nav-empty {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .settings-sidebar {
     width: 236px;
     min-width: 236px;
+  }
+
+  .settings-sidebar.nav-collapsed {
+    width: 56px;
+    min-width: 56px;
   }
 
   .nav-recommended,

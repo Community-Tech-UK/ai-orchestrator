@@ -37,6 +37,7 @@ import type {
   CatalogSource,
 } from '../../shared/types/unified-model-catalog.types';
 import type { AppSettings } from '../../shared/types/settings.types';
+import type { LocalModelInventoryEntry } from '../../shared/types/local-model-runtime.types';
 
 export type { UnifiedModelEntry, CatalogStatus, CatalogSource };
 
@@ -59,6 +60,7 @@ const CATALOG_SOURCE_PRIORITY: Record<CatalogSource, number> = {
   'catalog-override': 3,
   'user-custom': 4,
   'cli-discovered': 5,
+  'local-model': 6,
 };
 
 export interface CatalogUpdatedPayload {
@@ -96,12 +98,15 @@ export class UnifiedModelCatalogService extends EventEmitter {
   private customModelsByProvider: Record<string, string[]> = {};
   /** User-data / remote catalog override entries. */
   private catalogOverrideEntries: CatalogOverrideEntry[] = [];
+  /** Sanitized local model inventory rows from this coordinator and workers. */
+  private localModelEntries: LocalModelInventoryEntry[] = [];
 
   /** Timestamps tracking per-source refresh. */
   private modelsDevLastRefreshedAt: number | null = null;
   private cliDiscoveryLastRefreshedAt: Record<string, number> = {};
   private customModelsLastRefreshedAt: number | null = null;
   private catalogOverrideLastRefreshedAt: number | null = null;
+  private localModelLastRefreshedAt: number | null = null;
   private catalogLastBuiltAt: number | null = null;
 
   /** Pending debounce timer handle. */
@@ -298,6 +303,22 @@ export class UnifiedModelCatalogService extends EventEmitter {
       return;
     }
     this.scheduleRebuild('catalog-override');
+  }
+
+  onLocalModelInventoryRefreshed(
+    entries: LocalModelInventoryEntry[],
+    options: { immediate?: boolean } = {},
+  ): void {
+    this.localModelEntries = entries;
+    this.localModelLastRefreshedAt = Date.now();
+    logger.debug('Local model inventory notified', {
+      entries: this.localModelEntries.length,
+    });
+    if (options.immediate) {
+      this.rebuildImmediately('local-model');
+      return;
+    }
+    this.scheduleRebuild('local-model');
   }
 
   // ============================================================
@@ -503,6 +524,25 @@ export class UnifiedModelCatalogService extends EventEmitter {
         };
         next.set(catalogKey(provider, m.id), entry);
       }
+    }
+
+    // ---- Layer 6: Local model inventory (distinct provider namespace) ----
+    for (const [key, entry] of next) {
+      if (entry.provider === 'local-model') {
+        next.delete(key);
+      }
+    }
+    for (const entry of this.localModelEntries) {
+      next.set(catalogKey('local-model', entry.selectorId), {
+        id: entry.selectorId,
+        provider: 'local-model',
+        name: entry.displayName,
+        tier: 'balanced',
+        family: entry.endpointProvider === 'ollama' ? 'Ollama' : 'OpenAI-compatible',
+        contextWindow: entry.loadedContextLength ?? entry.advertisedContextLength,
+        source: 'local-model',
+        discoveredAt: entry.discoveredAt || this.localModelLastRefreshedAt || now,
+      });
     }
 
     this.catalog = next;

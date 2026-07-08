@@ -223,6 +223,46 @@ describe('McpManager', () => {
     expect(prompt).toContain('for example "Noah\'s laptop"');
     expect(prompt).toContain('check list_remote_nodes before local filesystem');
   });
+
+  it('surfaces Browser Gateway guidance for shared Mac tabs and remote PC preference', async () => {
+    const search = getMCPToolSearchService();
+    search.registerServer({
+      id: 'browser-gateway',
+      name: 'Browser Gateway',
+      description: 'Shared Chrome tab bridge',
+      uri: 'stdio://aio-mcp/browser-gateway',
+      status: 'connected',
+      tools: [],
+      resources: [],
+      lastSeen: 1,
+      capabilities: {
+        tools: true,
+        resources: false,
+        prompts: false,
+        sampling: false,
+      },
+    });
+    search.indexTool({
+      id: 'browser-gateway:browser.list_targets',
+      name: 'browser.list_targets',
+      description: 'List Browser Gateway shared Chrome tabs.',
+      serverId: 'browser-gateway',
+      serverName: 'Browser Gateway',
+      inputSchema: { type: 'object' },
+      tags: ['browser'],
+      metadata: {},
+    });
+
+    const context = await manager.getRuntimeToolContext({
+      query: 'the tab is open on my Mac and shared',
+      maxTools: 1,
+    });
+    const prompt = manager.formatRuntimeToolContext(context);
+
+    expect(prompt).toContain('prefer connected remote PCs');
+    expect(prompt).toContain('use local/Mac shared tabs when the user explicitly says');
+    expect(prompt).toContain('browser.list_targets');
+  });
 });
 
 async function startHttpMcpServer(

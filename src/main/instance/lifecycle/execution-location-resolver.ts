@@ -10,6 +10,25 @@ const logger = getLogger('InstanceLifecycle');
  * or when placement preferences match an available worker.
  */
 export function resolveExecutionLocation(config: InstanceCreateConfig): ExecutionLocation {
+  const runtimeTarget = config.modelRuntimeTarget;
+  if (runtimeTarget?.kind === 'local-model') {
+    if (runtimeTarget.nodeId) {
+      logger.info('Resolved execution location', {
+        type: 'remote',
+        reason: 'localModelRuntimeTarget',
+        nodeId: runtimeTarget.nodeId,
+      });
+      return { type: 'remote', nodeId: runtimeTarget.nodeId };
+    }
+
+    logger.info('Resolved execution location', {
+      type: 'local',
+      reason: 'localModelRuntimeTarget',
+      source: runtimeTarget.source,
+    });
+    return { type: 'local' };
+  }
+
   if (config.forceNodeId) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports

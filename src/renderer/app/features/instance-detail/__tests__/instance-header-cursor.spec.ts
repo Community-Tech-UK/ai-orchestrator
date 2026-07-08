@@ -8,6 +8,11 @@
  * so we extract the logic directly.
  */
 import { describe, it, expect } from 'vitest';
+import {
+  resolveHeaderModelDisplayName,
+  resolveHeaderProviderDisplayName,
+} from '../instance-header.component';
+import type { InstanceRuntimeSummary } from '../../../../../shared/types/local-model-runtime.types';
 
 // Extract the pure logic mirrors from the component's getProviderDisplayName
 // and getProviderColor methods so we can test them without Angular DI.
@@ -69,5 +74,28 @@ describe('InstanceHeaderComponent — cursor provider', () => {
     expect(getProviderDisplayName('claude')).toBe('Claude');
     expect(getProviderDisplayName('gemini')).toBe('Gemini');
     expect(getProviderDisplayName('unknown')).toBe('AI');
+  });
+});
+
+describe('InstanceHeaderComponent — local model runtime display', () => {
+  const runtimeSummary: InstanceRuntimeSummary = {
+    kind: 'local-model',
+    label: 'qwen on windows-pc',
+    nodeId: 'node-win',
+    nodeName: 'windows-pc',
+    endpointProvider: 'ollama',
+    modelId: 'qwen',
+  };
+
+  it('uses Local Models and the runtime summary label for local-model sessions', () => {
+    expect(resolveHeaderProviderDisplayName('claude', runtimeSummary)).toBe('Local Models');
+    expect(
+      resolveHeaderModelDisplayName({
+        runtimeSummary,
+        currentModel: 'opus',
+        availableModels: [],
+        provider: 'claude',
+      }),
+    ).toBe('qwen on windows-pc');
   });
 });

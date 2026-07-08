@@ -152,6 +152,36 @@ describe('InstanceListStore', () => {
     expect(orchestratorManaged.selfManagesAutoCompaction).toBeUndefined();
   });
 
+  it('preserves runtimeSummary when deserializing instance payloads', () => {
+    const runtimeSummary = {
+      kind: 'local-model' as const,
+      label: 'qwen2.5 on Windows PC',
+      nodeId: 'node-win',
+      nodeName: 'Windows PC',
+      endpointProvider: 'ollama' as const,
+      modelId: 'qwen2.5',
+    };
+
+    const instance = store.deserializeInstance({
+      id: 'instance-runtime-summary',
+      displayName: 'Local model',
+      createdAt: 1,
+      historyThreadId: 'thread-runtime-summary',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      lastActivity: 2,
+      sessionId: 'local-model-session',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      provider: 'claude',
+      runtimeSummary,
+      outputBuffer: [],
+    });
+
+    expect(instance.runtimeSummary).toEqual(runtimeSummary);
+  });
+
   it('infers gemini from restore identifiers when provider and model are missing', () => {
     const instance = store.deserializeInstance({
       id: 'instance-2',
@@ -324,6 +354,31 @@ describe('InstanceListStore', () => {
     expect(stateService.state().selectedInstanceId).toBe('created-instance');
   });
 
+  it('forwards modelRuntimeTarget when creating a blank instance', async () => {
+    const modelRuntimeTarget = {
+      kind: 'local-model' as const,
+      source: 'worker-node' as const,
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen2.5',
+      nodeId: 'node-win',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen2.5',
+    };
+
+    await store.createInstanceAndReturnId({
+      workingDirectory: '/tmp/project',
+      provider: 'auto',
+      model: 'qwen2.5',
+      modelRuntimeTarget,
+    });
+
+    expect(ipc.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'auto',
+      model: 'qwen2.5',
+      modelRuntimeTarget,
+    }));
+  });
+
   it('forwards bare mode when creating an instance with an initial message', async () => {
     const id = await store.createInstanceWithMessageAndReturnId({
       workingDirectory: '/tmp/project',
@@ -355,6 +410,32 @@ describe('InstanceListStore', () => {
       message: 'delete the stale copy',
       provider: 'codex',
       yoloMode: true,
+    }));
+  });
+
+  it('forwards modelRuntimeTarget when creating an instance with an initial message', async () => {
+    const modelRuntimeTarget = {
+      kind: 'local-model' as const,
+      source: 'worker-node' as const,
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen2.5',
+      nodeId: 'node-win',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen2.5',
+    };
+
+    await store.createInstanceWithMessageAndReturnId({
+      workingDirectory: '/tmp/project',
+      message: 'hello',
+      provider: 'auto',
+      model: 'qwen2.5',
+      modelRuntimeTarget,
+    });
+
+    expect(ipc.createInstanceWithMessage).toHaveBeenCalledWith(expect.objectContaining({
+      provider: undefined,
+      model: 'qwen2.5',
+      modelRuntimeTarget,
     }));
   });
 

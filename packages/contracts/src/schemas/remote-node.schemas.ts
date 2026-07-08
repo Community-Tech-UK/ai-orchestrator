@@ -91,6 +91,47 @@ export const RemoteNodeRunBrowserLoginPayloadSchema = z.object({
   url: z.string().trim().max(2048).optional(),
 });
 
+export const PairBothHelloSchema = z.object({
+  protocolVersion: z.string().min(1).max(16),
+  role: z.enum(['coordinator', 'worker']),
+  machineName: z.string().trim().min(1).max(120),
+  nonce: z.string().min(8).max(256),
+  publicKey: z.string().min(16).max(2048),
+  pairingSessionId: z.string().min(1).max(128),
+}).strict();
+
+export const PairBothCandidateSchema = z.object({
+  id: z.string().min(1).max(512),
+  product: z.literal('Harness'),
+  protocol: z.literal('aio-worker-pair-v1'),
+  protocolVersion: z.string().min(1).max(16),
+  pairingSessionId: z.string().min(1).max(128),
+  friendlyName: z.string().trim().min(1).max(120),
+  namespace: z.string().trim().min(1).max(120),
+  port: z.number().int().min(1).max(65535),
+  coordinatorPublicKey: z.string().min(16).max(2048),
+  expiresAt: z.number().int().positive(),
+  host: z.string().trim().min(1).max(255),
+  addresses: z.array(z.string().trim().min(1).max(255)).max(16),
+}).strict();
+
+export const PairBothCoordinatorStartPayloadSchema = z.object({
+  host: z.string().trim().min(1).max(255).optional(),
+  ttlMs: z.number().int().min(10_000).max(15 * 60_000).optional(),
+}).strict().optional();
+
+export const PairBothSessionPayloadSchema = z.object({
+  sessionId: z.string().min(1).max(128),
+}).strict();
+
+export const PairBothWorkerConnectPayloadSchema = z.object({
+  candidate: PairBothCandidateSchema,
+}).strict();
+
+export const PairBothManualPairingPayloadSchema = z.object({
+  input: z.string().trim().min(1).max(20_000),
+}).strict();
+
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;
 export type ValidatedIssuePairingPayload = z.infer<typeof RemoteNodeIssuePairingPayloadSchema>;
 export type ValidatedRevokePayload = z.infer<typeof RemoteNodeRevokePayloadSchema>;

@@ -5,12 +5,12 @@ import {
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
 import { ChatStore } from '../../core/state/chat.store';
-import type { InstanceProvider } from '../../core/state/instance/instance.types';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import type {
   CommitTarget,
   CompactPickerMode,
   PendingSelection,
+  PickerProvider,
 } from './compact-model-picker.types';
 
 export interface ModelPickerReasoningOption {
@@ -40,7 +40,7 @@ export interface ModelPickerReasoningOption {
 export class ModelPickerController {
   private readonly chatStore = inject(ChatStore);
 
-  readonly selectedProviderId = signal<InstanceProvider>('claude');
+  readonly selectedProviderId = signal<PickerProvider>('claude');
   readonly selectedModelId = signal('');
   readonly selectedReasoningEffort = signal<ReasoningEffort | null>(null);
   /** True while a `commitSelection` call is in flight. */
@@ -73,7 +73,7 @@ export class ModelPickerController {
       if (this.pickerMode() !== 'live-instance') return;
       const c = this.chat();
       if (!c) return;
-      const provider = (c.provider ?? 'claude') as InstanceProvider;
+      const provider = (c.provider ?? 'claude') as PickerProvider;
       this.selectedProviderId.set(provider);
       this.selectedModelId.set(c.model ?? this.defaultModelForProvider(provider));
       this.selectedReasoningEffort.set(c.reasoningEffort);
@@ -85,7 +85,7 @@ export class ModelPickerController {
       if (this.pickerMode() !== 'pending-create') return;
       const sel = this.pendingSelection();
       if (!sel) return;
-      const provider = sel.provider as InstanceProvider;
+      const provider = sel.provider;
       this.selectedProviderId.set(provider);
       this.selectedModelId.set(sel.model ?? this.defaultModelForProvider(provider));
       this.selectedReasoningEffort.set(sel.reasoning);
@@ -165,6 +165,15 @@ export class ModelPickerController {
         provider: target.provider ?? current.provider,
         model: target.modelId !== undefined ? target.modelId : current.model,
         reasoning: target.reasoning !== undefined ? target.reasoning : current.reasoning,
+        ...(
+          target.modelRuntimeTarget !== undefined
+            ? { modelRuntimeTarget: target.modelRuntimeTarget }
+            : target.provider === undefined
+              && target.modelId === undefined
+              && current.modelRuntimeTarget !== undefined
+              ? { modelRuntimeTarget: current.modelRuntimeTarget }
+              : {}
+        ),
       };
       this.pendingSelection.set(next);
       this.pendingSelectionChange?.(next);
@@ -181,7 +190,7 @@ export class ModelPickerController {
         // wider `PickerProvider` is for the instance-draft surface; on chat
         // surfaces the menu only renders the 4 chat providers, so a cursor
         // value here would be a programming error. Guard at runtime.
-        if (target.provider === 'cursor') return false;
+        if (target.provider === 'cursor' || target.provider === 'local-model') return false;
         await this.chatStore.setProvider(c.id, target.provider);
       }
       if (target.modelId !== undefined && target.modelId !== c.model) {
@@ -245,7 +254,7 @@ export class ModelPickerController {
     return [];
   }
 
-  private defaultModelForProvider(provider: InstanceProvider): string {
+  private defaultModelForProvider(provider: PickerProvider): string {
     return getModelsForProvider(provider)[0]?.id ?? '';
   }
 }

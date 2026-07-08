@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PairBothCandidateSchema,
   RemoteNodeIssuePairingPayloadSchema,
   RemoteNodeRepairCommandPayloadSchema,
   RemoteNodeRepairDiagnosePayloadSchema,
@@ -32,6 +33,29 @@ describe('remote-node.schemas', () => {
     expect(RemoteNodeRepairCommandPayloadSchema.safeParse({
       nodeId,
       operatorConfirmedPlatform: true,
+    }).success).toBe(false);
+  });
+
+  it('validates pair-both candidates without accepting credentials', () => {
+    const candidate = {
+      id: 'pair-both:session:127.0.0.1:49152',
+      product: 'Harness',
+      protocol: 'aio-worker-pair-v1',
+      protocolVersion: '1',
+      pairingSessionId: 'session',
+      friendlyName: 'James MacBook',
+      namespace: 'default',
+      port: 49152,
+      coordinatorPublicKey: 'public-key-material',
+      expiresAt: Date.now() + 60_000,
+      host: '127.0.0.1',
+      addresses: ['127.0.0.1'],
+    };
+
+    expect(PairBothCandidateSchema.safeParse(candidate).success).toBe(true);
+    expect(PairBothCandidateSchema.safeParse({
+      ...candidate,
+      authToken: 'secret-token',
     }).success).toBe(false);
   });
 });

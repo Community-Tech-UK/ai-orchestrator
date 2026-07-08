@@ -11,6 +11,8 @@ export interface WorkerLoadedModel {
 
 export interface WorkerLocalModelCapability {
   provider: 'ollama' | 'openai-compatible';
+  /** Stable non-secret endpoint identity scoped to the provider on this worker. */
+  endpointId?: string;
   baseUrl: string;
   /** All models the server advertises (downloaded/available), loaded or not. */
   models: string[];
@@ -111,6 +113,21 @@ export interface WorkerNodeAndroidAutomationSummary {
   mobileMcpVersion?: string;
 }
 
+export interface WorkerNodeFileTransferRoot {
+  id: string;
+  label: string;
+  path: string;
+  read: boolean;
+  write: boolean;
+  approvalRequired?: boolean;
+}
+
+export interface WorkerNodeFileTransferSummary {
+  enabled: boolean;
+  maxFileBytes: number;
+  roots: WorkerNodeFileTransferRoot[];
+}
+
 export interface WorkerNodeCapabilities {
   workerAgent?: WorkerAgentBuildSummary;
   platform: NodePlatform;
@@ -134,6 +151,7 @@ export interface WorkerNodeCapabilities {
   maxConcurrentInstances: number;
   workingDirectories: string[];
   browsableRoots: string[];
+  fileTransfer?: WorkerNodeFileTransferSummary;
   discoveredProjects: DiscoveredProject[];
   localModelEndpoints?: WorkerLocalModelCapability[];
   localSttEndpoints?: WorkerLocalSttCapability[];
@@ -180,6 +198,7 @@ export interface RemoteNodeRosterEntry {
   activeInstances: number;
   maxConcurrentInstances: number;
   workingDirectories: string[];
+  fileTransfer?: WorkerNodeFileTransferSummary;
   latencyMs?: number;
   /**
    * Backward-compatible non-secret capability block for existing renderer
@@ -223,7 +242,7 @@ export interface RemoteWorkerRepairDiagnostic {
     | 'check_connectivity'
     | 'configure_tls'
     | 're_pair';
-  availableActions: Array<'check_service_status'>;
+  availableActions: 'check_service_status'[];
   summary: string;
 }
 

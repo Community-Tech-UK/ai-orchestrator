@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildRemoteNodeRoster } from './remote-node-roster-service';
+import { NodeRegisterParamsSchema } from './rpc-schemas';
 import type {
   NodeIdentity,
   WorkerNodeCapabilities,
@@ -140,5 +141,54 @@ describe('buildRemoteNodeRoster', () => {
     expect(roster[0]).not.toHaveProperty('transportToken');
     expect(roster[0]).not.toHaveProperty('recoveryToken');
     expect(roster[0]).not.toHaveProperty('token');
+  });
+
+  it('preserves local model endpoint identity and loaded model context', () => {
+    const localModelEndpoints = [{
+      provider: 'openai-compatible',
+      endpointId: 'lm-studio',
+      baseUrl: 'http://127.0.0.1:1234',
+      models: ['qwen2.5-coder-32b-instruct'],
+      loadedModels: [{ id: 'qwen2.5-coder-32b-instruct', contextLength: 32768 }],
+      healthy: true,
+    }] as unknown as WorkerNodeCapabilities['localModelEndpoints'];
+    const parsed = NodeRegisterParamsSchema.parse({
+      nodeId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      name: 'windows-pc',
+      capabilities: makeCapabilities({ localModelEndpoints }),
+    });
+    const parsedEndpoint = parsed.capabilities.localModelEndpoints?.[0];
+
+    expect(parsedEndpoint).toMatchObject({
+      endpointId: 'lm-studio',
+      loadedModels: [{ id: 'qwen2.5-coder-32b-instruct', contextLength: 32768 }],
+    });
+
+    const roster = buildRemoteNodeRoster([
+      makeNode({ capabilities: parsed.capabilities as WorkerNodeCapabilities }),
+    ], []);
+    expect(roster[0].capabilities.localModelEndpoints?.[0]).toMatchObject({
+      endpointId: 'lm-studio',
+      loadedModels: [{ id: 'qwen2.5-coder-32b-instruct', contextLength: 32768 }],
+    });
+  });
+
+  it('preserves file transfer capability summaries', () => {
+    const fileTransfer = {
+      enabled: true,
+      maxFileBytes: 1024,
+      roots: [{
+        id: 'scratch',
+        label: 'Scratch',
+        path: '/tmp/aio-transfers',
+        read: true,
+        write: true,
+      }],
+    };
+    const roster = buildRemoteNodeRoster([
+      makeNode({ capabilities: makeCapabilities({ fileTransfer }) }),
+    ], []);
+
+    expect(roster[0].fileTransfer).toEqual(fileTransfer);
   });
 });

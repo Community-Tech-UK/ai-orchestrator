@@ -34,6 +34,8 @@ import {
   type ModelDisplayInfo,
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
+import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
+import { decodeLocalModelSelector } from '../../../../shared/utils/local-model-selector';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import type {
   CompactPickerMode,
@@ -352,8 +354,7 @@ export class CompactModelPickerComponent {
    * new-session/instance-draft surface accepts cursor.
    */
   protected readonly selectedPickerProvider = computed<PickerProvider>(() => {
-    const p = this.controller.selectedProviderId();
-    return (p === 'ollama' ? 'claude' : p) as PickerProvider;
+    return this.controller.selectedProviderId();
   });
 
   /**
@@ -436,20 +437,24 @@ export class CompactModelPickerComponent {
         this.modelsForProviderFn(selection.provider)[0]?.id
         ?? getPrimaryModelForProvider(selection.provider)
         ?? null;
+      const modelRuntimeTarget = this.modelRuntimeTargetForSelection(selection.provider, newDefaultModel);
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: newDefaultModel,
         reasoning: getDefaultReasoningEffort(selection.provider),
+        ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
       });
       if (ok) this.flashStatus(`Provider: ${PROVIDER_MENU_LABELS[selection.provider]}`);
       return;
     }
 
     if (selection.kind === 'model') {
+      const modelRuntimeTarget = this.modelRuntimeTargetForSelection(selection.provider, selection.modelId);
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: selection.modelId,
         reasoning: getDefaultReasoningEffort(selection.provider),
+        ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
       });
       if (ok) {
         const label =
@@ -462,10 +467,12 @@ export class CompactModelPickerComponent {
     }
 
     // selection.kind === 'reasoning' — commit provider+model+reasoning.
+    const modelRuntimeTarget = this.modelRuntimeTargetForSelection(selection.provider, selection.modelId);
     const ok = await this.controller.commitSelection({
       provider: selection.provider,
       modelId: selection.modelId,
       reasoning: selection.level,
+      ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
     });
     if (ok) {
       const label =
@@ -491,6 +498,47 @@ export class CompactModelPickerComponent {
       this.statusPill.set(null);
       this.statusTimer = null;
     }, 2000);
+  }
+
+  private modelRuntimeTargetForSelection(
+    provider: PickerProvider,
+    modelId: string | null,
+  ): ModelRuntimeTarget | null {
+    if (provider !== 'local-model' || !modelId) {
+      return null;
+    }
+
+    try {
+      const decoded = decodeLocalModelSelector(modelId);
+      const nodeName = this.localModelNodeNameForSelection(modelId, decoded.modelId);
+      return {
+        kind: 'local-model',
+        source: decoded.source,
+        endpointProvider: decoded.endpointProvider,
+        endpointId: decoded.endpointId,
+        modelId: decoded.modelId,
+        selectorId: modelId,
+        ...(decoded.nodeId ? { nodeId: decoded.nodeId } : {}),
+        ...(nodeName ? { nodeName } : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private localModelNodeNameForSelection(
+    selectorId: string,
+    modelId: string,
+  ): string | undefined {
+    const displayName = this.modelsForProviderFn('local-model')
+      .find((model) => model.id === selectorId)
+      ?.name;
+    const prefix = `${modelId} on `;
+    if (!displayName?.startsWith(prefix)) {
+      return undefined;
+    }
+
+    return displayName.slice(prefix.length).trim() || undefined;
   }
 }
 

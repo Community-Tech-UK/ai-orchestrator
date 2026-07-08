@@ -42,7 +42,7 @@ const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
 
 interface BrowserExistingTabOperationsDeps {
   extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
-  extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab'>;
+  extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab' | 'detachTab'>;
   isRemoteExtensionContactFresh: (nodeId: string) => boolean;
   describeRemoteExtensionContact: (nodeId: string) => string;
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant'>;
@@ -250,6 +250,10 @@ export class BrowserExistingTabOperations {
       // result instead of a duplicate-prone bare timeout. Reads stay a plain
       // timeout (safe to retry).
       const message = error instanceof Error ? error.message : String(error);
+      if (isMissingExtensionTabError(message)) {
+        this.deps.extensionTabStore.detachTab(attachment.profileId, attachment.targetId);
+        throw error instanceof Error ? error : new Error(message);
+      }
       if (message.startsWith('browser_extension_command_not_delivered')) {
         // Removed from the queue before rejection: the extension never received
         // it, so it certainly did not run — even a mutation is safe to retry.
@@ -542,6 +546,10 @@ function extensionCommandCallerTimeoutMs(executionTimeoutMs: number): number {
     ? EXTENSION_COMMAND_RESULT_GRACE_MS
     : SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS;
   return executionTimeoutMs + graceMs;
+}
+
+function isMissingExtensionTabError(message: string): boolean {
+  return /\bno tab with id\b/i.test(message);
 }
 
 function extractScreenshotBase64(result: unknown): string {

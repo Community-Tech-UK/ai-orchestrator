@@ -383,6 +383,100 @@ describe('orchestrator MCP tools', () => {
     await expect(runOnNode!.handler({ prompt: 'do a thing' })).rejects.toThrow(/unavailable/);
   });
 
+  it('download_from_node allows the implementation to choose a default local destination', async () => {
+    const db = createDb();
+    const calls: { args: unknown; meta: unknown }[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: 'caller-inst',
+      downloadFromNode: async (args: unknown, meta: unknown) => {
+        calls.push({ args, meta });
+        return {
+          ok: true,
+          nodeId: 'node-1',
+          nodeName: 'windows-pc',
+          remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+          localPath: '/repo/_scratch/file.docx',
+          size: 11,
+          sha256: 'a'.repeat(64),
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        };
+      },
+    } as Parameters<typeof createOrchestratorToolDefinitions>[0] & {
+      downloadFromNode: (args: unknown, meta: unknown) => Promise<unknown>;
+    });
+    const tool = tools.find((t) => t.name === 'download_from_node');
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({
+      node: 'windows-pc',
+      remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+      overwrite: false,
+    });
+
+    expect(calls).toEqual([
+      {
+        args: {
+          node: 'windows-pc',
+          remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+          overwrite: false,
+        },
+        meta: { callerInstanceId: 'caller-inst' },
+      },
+    ]);
+    expect(result).toMatchObject({ ok: true, size: 11, sha256: 'a'.repeat(64) });
+  });
+
+  it('collect_browser_download forwards candidate search args to the injected transfer implementation', async () => {
+    const db = createDb();
+    const calls: { args: unknown; meta: unknown }[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      collectBrowserDownload: async (args: unknown, meta: unknown) => {
+        calls.push({ args, meta });
+        return {
+          ok: false,
+          code: 'multiple_download_candidates',
+          candidates: [
+            {
+              path: 'C:\\Users\\James\\Downloads\\a.pdf',
+              name: 'a.pdf',
+              size: 10,
+              modifiedAt: 123,
+              extension: '.pdf',
+              rootLabel: 'Downloads',
+            },
+          ],
+        };
+      },
+    } as Parameters<typeof createOrchestratorToolDefinitions>[0] & {
+      collectBrowserDownload: (args: unknown, meta: unknown) => Promise<unknown>;
+    });
+    const tool = tools.find((t) => t.name === 'collect_browser_download');
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({
+      node: 'windows-pc',
+      fileNameHint: 'invoice',
+      extensions: ['.pdf'],
+      modifiedWithinMinutes: 15,
+    });
+
+    expect(calls).toEqual([
+      {
+        args: {
+          node: 'windows-pc',
+          fileNameHint: 'invoice',
+          extensions: ['.pdf'],
+          modifiedWithinMinutes: 15,
+        },
+        meta: { callerInstanceId: null },
+      },
+    ]);
+    expect(result).toMatchObject({ ok: false, code: 'multiple_download_candidates' });
+  });
+
   it('run_on_node requires a prompt', async () => {
     const db = createDb();
     const tools = createOrchestratorToolDefinitions({

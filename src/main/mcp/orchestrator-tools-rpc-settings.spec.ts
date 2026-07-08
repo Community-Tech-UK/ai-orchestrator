@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as os from 'node:os';
 
+const loggerMocks = vi.hoisted(() => ({
+  info: vi.fn(),
+}));
+
 vi.mock('electron', () => ({
   app: { getPath: () => os.tmpdir() },
 }));
@@ -9,7 +13,7 @@ vi.mock('../logging/logger', () => ({
   getLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),
-    info: vi.fn(),
+    info: loggerMocks.info,
     warn: vi.fn(),
   }),
 }));
@@ -58,6 +62,7 @@ function makeSettingsManager(initial: Partial<AppSettings> = {}) {
 
 describe('OrchestratorToolsRpcServer settings integration', () => {
   afterEach(() => {
+    loggerMocks.info.mockClear();
     _resetOrchestratorToolsRpcServerForTesting();
   });
 
@@ -94,6 +99,201 @@ describe('OrchestratorToolsRpcServer settings integration', () => {
       key: 'theme',
       oldValue: 'dark',
       newValue: 'light',
+    });
+  });
+
+  it('privileged_list exposes all settings with safe redaction and accepts --all payloads', async () => {
+    const settingsManager = makeSettingsManager({
+      remoteNodesEnrollmentToken: 'redaction-test-value',
+      theme: 'dark',
+    });
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager,
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'orchestrator_tools.settings.privileged_list',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { category: 'remote-nodes', all: true },
+      },
+    }) as {
+      settings: Array<{ key: keyof AppSettings; value: unknown; policyTier: string }>;
+    };
+
+    expect(result.settings.find((setting) => setting.key === 'remoteNodesEnrollmentToken'))
+      .toMatchObject({
+        value: '[redacted]',
+        policyTier: 'secret',
+      });
+    expect(JSON.stringify(result)).not.toContain('redaction-test-value');
+  });
+
+  it('privileged_get refuses secret keys instead of returning their value', async () => {
+    const settingsManager = makeSettingsManager({
+      remoteNodesEnrollmentToken: 'redaction-test-value',
+    });
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager,
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'orchestrator_tools.settings.privileged_get',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { key: 'remoteNodesEnrollmentToken' },
+        },
+      }),
+    ).rejects.toThrow(/secret setting/);
+  });
+
+  it('privileged_set can update read-only safe-MCP keys through renderer-compatible coercion', async () => {
+    const settingsManager = makeSettingsManager({ remoteNodesEnabled: false });
+    const broadcastSettingsChange = vi.fn();
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager,
+      broadcastSettingsChange,
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'orchestrator_tools.settings.privileged_set',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { key: 'remoteNodesEnabled', value: true },
+      },
+    });
+
+    expect(settingsManager.set).toHaveBeenCalledWith('remoteNodesEnabled', true);
+    expect(broadcastSettingsChange).toHaveBeenCalledWith({
+      key: 'remoteNodesEnabled',
+      value: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      key: 'remoteNodesEnabled',
+      oldValue: false,
+      newValue: true,
+      restartRequired: true,
+    });
+  });
+
+  it('privileged_set validates payloads before invoking SettingsManager', async () => {
+    const settingsManager = makeSettingsManager({ theme: 'dark' });
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager,
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'orchestrator_tools.settings.privileged_set',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { key: 'theme', value: 'light', extra: true },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(settingsManager.set).not.toHaveBeenCalled();
+  });
+
+  it('privileged_set redacts secret old and new values in results and logs', async () => {
+    const settingsManager = makeSettingsManager({
+      remoteNodesEnrollmentToken: 'previous-redaction-test-value',
+    });
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager,
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 6,
+      method: 'orchestrator_tools.settings.privileged_set',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { key: 'remoteNodesEnrollmentToken', value: 'replacement-redaction-test-value' },
+      },
+    });
+
+    expect(settingsManager.set).toHaveBeenCalledWith(
+      'remoteNodesEnrollmentToken',
+      'replacement-redaction-test-value',
+    );
+    expect(result).toEqual({
+      ok: true,
+      key: 'remoteNodesEnrollmentToken',
+      oldValue: '[redacted]',
+      newValue: '[redacted]',
+      restartRequired: false,
+    });
+    expect(loggerMocks.info).toHaveBeenCalledWith('Setting changed via privileged settings CLI', {
+      source: 'privileged-settings-cli',
+      action: 'privileged_set',
+      key: 'remoteNodesEnrollmentToken',
+      oldValue: '[redacted]',
+      newValue: '[redacted]',
+      restartRequired: false,
+    });
+    expect(JSON.stringify(loggerMocks.info.mock.calls)).not.toContain('previous-redaction-test-value');
+    expect(JSON.stringify(loggerMocks.info.mock.calls)).not.toContain('replacement-redaction-test-value');
+  });
+
+  it('privileged_reset can reset secret keys while reporting only redacted values', async () => {
+    const settingsManager = makeSettingsManager({
+      remoteNodesEnrollmentToken: 'previous-redaction-test-value',
+    });
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager,
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'orchestrator_tools.settings.privileged_reset',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { key: 'remoteNodesEnrollmentToken' },
+      },
+    });
+
+    expect(settingsManager.resetOne).toHaveBeenCalledWith('remoteNodesEnrollmentToken');
+    expect(result).toEqual({
+      ok: true,
+      key: 'remoteNodesEnrollmentToken',
+      oldValue: '[redacted]',
+      newValue: '[redacted]',
+      restartRequired: false,
     });
   });
 });

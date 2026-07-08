@@ -111,6 +111,20 @@ export class SettingsStore {
   );
 
   // Remote Nodes
+  readonly workerMode = computed(() => this._settings().workerMode ?? DEFAULT_SETTINGS.workerMode);
+  readonly harnessRole = computed(() => this.workerMode().role);
+  readonly workerModeStartWorkerOnLaunch = computed(
+    () => this.workerMode().startWorkerOnLaunch,
+  );
+  readonly workerModeInstallWorkerService = computed(
+    () => this.workerMode().installWorkerService,
+  );
+  readonly workerModeLastCoordinatorName = computed(
+    () => this.workerMode().lastCoordinatorName ?? '',
+  );
+  readonly workerModeLastCoordinatorUrl = computed(
+    () => this.workerMode().lastCoordinatorUrl ?? '',
+  );
   readonly remoteNodesEnabled = computed(() => this._settings().remoteNodesEnabled);
   readonly remoteNodesServerPort = computed(() => this._settings().remoteNodesServerPort);
   readonly remoteNodesServerHost = computed(() => this._settings().remoteNodesServerHost);

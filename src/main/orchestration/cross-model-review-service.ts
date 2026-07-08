@@ -39,7 +39,9 @@ import {
   MAX_REVIEW_HISTORY,
   RATE_LIMIT_CHECK_INTERVAL_MS,
   AVAILABILITY_REFRESH_INTERVAL_MS,
-  SUPPORTED_REVIEWER_CLIS,
+  normalizeAgenticReviewerCliList,
+  normalizeReviewerCli,
+  normalizeReviewerCliList,
 } from './cross-model-review-service.constants';
 import { extractJson, resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
 
@@ -214,11 +216,12 @@ export class CrossModelReviewService extends EventEmitter {
     }
 
     await this.refreshAvailability();
+    const preferredReviewers = normalizeReviewerCliList(settings.crossModelReviewProviders as string[]);
     const selectedReviewers = this.reviewerPool.selectReviewers(
-      buffer.primaryProvider,
+      normalizeReviewerCli(buffer.primaryProvider),
       settings.crossModelReviewMaxReviewers,
       [],
-      settings.crossModelReviewProviders as string[],
+      preferredReviewers,
     );
 
     if (selectedReviewers.length === 0) {
@@ -292,14 +295,14 @@ export class CrossModelReviewService extends EventEmitter {
   ): Promise<ReviewResult[]> {
     const attempted = new Set<string>();
     const successful: ReviewResult[] = [];
-    let candidates = [...reviewerClis];
-    const desiredCount = reviewerClis.length;
+    let candidates = normalizeAgenticReviewerCliList(reviewerClis);
+    const desiredCount = candidates.length;
     // Honour the user's configured reviewer order when picking fallbacks too,
     // so a failed active reviewer is replaced by the next one in priority order.
-    const preferredOrder = getSettingsManager().getAll().crossModelReviewProviders as string[];
+    const preferredOrder = normalizeReviewerCliList(getSettingsManager().getAll().crossModelReviewProviders as string[]);
 
     while (candidates.length > 0 && successful.length < desiredCount) {
-      for (const cliType of candidates) attempted.add(cliType);
+      for (const cliType of candidates) attempted.add(normalizeReviewerCli(cliType));
 
       const results = await Promise.allSettled(
         candidates.map(cliType => this.executeOneReview(request, cliType, timeoutSeconds, signal))
@@ -315,7 +318,7 @@ export class CrossModelReviewService extends EventEmitter {
       if (remaining <= 0) break;
 
       candidates = this.reviewerPool.selectReviewers(
-        request.primaryProvider,
+        normalizeReviewerCli(request.primaryProvider),
         remaining,
         Array.from(attempted),
         preferredOrder,
@@ -327,7 +330,8 @@ export class CrossModelReviewService extends EventEmitter {
 
   private async executeOneReview(request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal): Promise<ReviewResult | null> {
     const startTime = Date.now();
-    const breaker = getCircuitBreakerRegistry().getBreaker(`cross-review-${cliType}`, {
+    const reviewerCli = normalizeReviewerCli(cliType);
+    const breaker = getCircuitBreakerRegistry().getBreaker(`cross-review-${reviewerCli}`, {
       failureThreshold: 3,
       resetTimeoutMs: 60000,
     });
@@ -338,17 +342,17 @@ export class CrossModelReviewService extends EventEmitter {
     // only, and give it a codex-specific timeout floor; other reviewers keep
     // the configured depth and timeout. Declared in the outer scope so the
     // parse below uses the same depth the adapter was prompted with.
-    const isCodex = cliType === 'codex';
+    const isCodex = reviewerCli === 'codex';
     const effectiveDepth: 'structured' | 'tiered' = isCodex ? 'structured' : request.reviewDepth;
-    const timeoutMs = resolveReviewerTimeoutMs(cliType, timeoutSeconds);
+    const timeoutMs = resolveReviewerTimeoutMs(reviewerCli, timeoutSeconds);
 
     try {
       const response = await breaker.execute(async () => {
         if (signal.aborted) throw new Error('Review cancelled');
         if (this.isPaused || getPauseCoordinator().isPaused()) throw new Error('Review skipped while orchestrator is paused');
 
-        const resolvedCli = await resolveCliType(cliType as SettingsCliType);
-        const reviewerModel = resolveReviewerModelOverride(cliType);
+        const resolvedCli = await resolveCliType(reviewerCli as SettingsCliType);
+        const reviewerModel = resolveReviewerModelOverride(reviewerCli);
         const adapter = getProviderRuntimeService().createAdapter({
           cliType: resolvedCli,
           options: {
@@ -364,7 +368,7 @@ export class CrossModelReviewService extends EventEmitter {
 
         try {
           if (!isCliAdapterLike(adapter)) {
-            throw new Error(`CLI adapter "${cliType}" does not support sendMessage`);
+            throw new Error(`CLI adapter "${reviewerCli}" does not support sendMessage`);
           }
 
           if (signal.aborted || this.isPaused || getPauseCoordinator().isPaused()) {
@@ -383,7 +387,7 @@ export class CrossModelReviewService extends EventEmitter {
           if (isTerminableAdapter(adapter)) {
             await adapter.terminate(false).catch((cleanupError: unknown) => {
               logger.warn('Review adapter cleanup failed', {
-                cliType,
+                cliType: reviewerCli,
                 error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
               });
             });
@@ -391,22 +395,22 @@ export class CrossModelReviewService extends EventEmitter {
         }
       });
 
-      const parsed = this.parseReviewResponse(cliType, response.content, effectiveDepth, Date.now() - startTime);
+      const parsed = this.parseReviewResponse(reviewerCli, response.content, effectiveDepth, Date.now() - startTime);
       if (!parsed) {
-        logger.warn('Skipping unparseable reviewer response', { cliType, reviewId: request.id });
+        logger.warn('Skipping unparseable reviewer response', { cliType: reviewerCli, reviewId: request.id });
         return null;
       }
 
-      this.reviewerPool.recordSuccess(cliType);
+      this.reviewerPool.recordSuccess(reviewerCli);
       return parsed;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('429') || message.toLowerCase().includes('rate limit') || message.toLowerCase().includes('quota')) {
-        this.reviewerPool.markRateLimited(cliType);
+        this.reviewerPool.markRateLimited(reviewerCli);
       } else {
-        this.reviewerPool.recordFailure(cliType);
+        this.reviewerPool.recordFailure(reviewerCli);
       }
-      logger.warn('Review failed', { cliType, error: message });
+      logger.warn('Review failed', { cliType: reviewerCli, error: message });
       throw err;
     }
   }
@@ -537,16 +541,17 @@ export class CrossModelReviewService extends EventEmitter {
 
   private async resolveHeadlessReviewers(request: HeadlessReviewRequest): Promise<string[]> {
     if (request.reviewers) {
-      return request.reviewers;
+      return normalizeAgenticReviewerCliList(request.reviewers);
     }
 
     await this.refreshAvailability();
     const settings = getSettingsManager().getAll();
+    const preferredReviewers = normalizeReviewerCliList(settings.crossModelReviewProviders as string[]);
     return this.reviewerPool.selectReviewers(
-      request.primaryProvider ?? 'claude',
+      normalizeReviewerCli(request.primaryProvider ?? 'claude'),
       settings.crossModelReviewMaxReviewers,
       [],
-      settings.crossModelReviewProviders as string[],
+      preferredReviewers,
     );
   }
 
@@ -747,12 +752,9 @@ export class CrossModelReviewService extends EventEmitter {
     try {
       const detection = CliDetectionService.getInstance();
       const result = await detection.detectAll();
-      const available = result.available
-        .map(c => c.name)
-        .filter(cliType => SUPPORTED_REVIEWER_CLIS.has(cliType));
+      const available = normalizeReviewerCliList(result.available.map(c => c.name));
       const settings = getSettingsManager().getAll();
-      const configured = (settings.crossModelReviewProviders as string[])
-        .filter(cliType => SUPPORTED_REVIEWER_CLIS.has(cliType));
+      const configured = normalizeReviewerCliList(settings.crossModelReviewProviders as string[]);
       const effectiveList = configured.length > 0
         ? configured.filter(p => available.includes(p))
         : available;

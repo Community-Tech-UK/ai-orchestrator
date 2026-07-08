@@ -47,6 +47,9 @@ export const LAST_TAB_KEY = 'aiorch.settings.lastTab';
 /** localStorage key used to remember the help pane collapsed state. */
 export const HELP_COLLAPSED_KEY = 'aiorch.settings.helpCollapsed';
 
+/** localStorage key used to remember the settings nav collapsed state. */
+export const NAV_COLLAPSED_KEY = 'aiorch.settings.navCollapsed';
+
 /** Tone for a live nav badge. */
 export type NavBadgeStatus = 'ok' | 'warn' | 'error' | 'info';
 

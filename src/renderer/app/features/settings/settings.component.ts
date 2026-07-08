@@ -60,6 +60,7 @@ import { SETTINGS_TAB_HELP } from './help/settings-help';
 import {
   HELP_COLLAPSED_KEY,
   LAST_TAB_KEY,
+  NAV_COLLAPSED_KEY,
   NAV_ITEMS,
   WIDE_TABS,
   isSettingsTab,
@@ -122,6 +123,8 @@ export class SettingsComponent {
 
   readonly activeTab = signal<SettingsTab>('general');
   readonly searchQuery = signal('');
+  /** Whether the settings section tree is collapsed to an icon rail. */
+  readonly navCollapsed = signal(this.readNavCollapsed());
   /** Whether the contextual help/preview pane is collapsed (item 13). */
   readonly helpCollapsed = signal(this.readHelpCollapsed());
 
@@ -443,6 +446,15 @@ export class SettingsComponent {
     this.persistHelpCollapsed(collapsed);
   }
 
+  toggleNav(): void {
+    const collapsed = !this.navCollapsed();
+    if (collapsed) {
+      this.searchQuery.set('');
+    }
+    this.navCollapsed.set(collapsed);
+    this.persistNavCollapsed(collapsed);
+  }
+
   private readStoredTab(): SettingsTab | null {
     try {
       const stored = localStorage.getItem(LAST_TAB_KEY);
@@ -468,9 +480,25 @@ export class SettingsComponent {
     }
   }
 
+  private readNavCollapsed(): boolean {
+    try {
+      return localStorage.getItem(NAV_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
   private persistHelpCollapsed(collapsed: boolean): void {
     try {
       localStorage.setItem(HELP_COLLAPSED_KEY, String(collapsed));
+    } catch {
+      // Storage may be unavailable (private mode, quota); non-fatal.
+    }
+  }
+
+  private persistNavCollapsed(collapsed: boolean): void {
+    try {
+      localStorage.setItem(NAV_COLLAPSED_KEY, String(collapsed));
     } catch {
       // Storage may be unavailable (private mode, quota); non-fatal.
     }

@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { RemoteNodeRosterEntry } from '../../../../../shared/types/worker-node.types';
 import { RemoteNodeStore } from '../../../core/state/remote-node.store';
 import { SettingsStore } from '../../../core/state/settings.store';
@@ -9,6 +10,7 @@ import { NodePickerComponent } from './node-picker.component';
 function makeNode(
   status: RemoteNodeRosterEntry['status'],
   connected: boolean,
+  overrides: Partial<RemoteNodeRosterEntry['capabilities']> = {},
 ): RemoteNodeRosterEntry {
   const capabilities: RemoteNodeRosterEntry['capabilities'] = {
     platform: 'win32',
@@ -25,6 +27,7 @@ function makeNode(
     workingDirectories: ['C:\\repo'],
     browsableRoots: [],
     discoveredProjects: [],
+    ...overrides,
   };
 
   return {
@@ -83,6 +86,35 @@ describe('NodePickerComponent', () => {
 
   it('allows degraded nodes when the live socket is still connected', () => {
     const node = makeNode('degraded', true);
+
+    expect(component.isNodeSelectable(node)).toBe(true);
+    expect(component.nodeDisabledReason(node)).toBe('');
+  });
+
+  it('allows a node with the selected healthy local model even when the active CLI is absent', () => {
+    const target: ModelRuntimeTarget = {
+      kind: 'local-model',
+      source: 'worker-node',
+      selectorId: 'lm://worker-node/node-1/ollama/ollama/qwen',
+      nodeId: 'node-1',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    };
+    const node = makeNode('connected', true, {
+      supportedClis: [],
+      localModelEndpoints: [
+        {
+          provider: 'ollama',
+          endpointId: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models: ['qwen'],
+          healthy: true,
+        },
+      ],
+    });
+    (component as unknown as Record<string, unknown>)['selectedCli'] = () => 'claude';
+    (component as unknown as Record<string, unknown>)['selectedLocalModelTarget'] = () => target;
 
     expect(component.isNodeSelectable(node)).toBe(true);
     expect(component.nodeDisabledReason(node)).toBe('');

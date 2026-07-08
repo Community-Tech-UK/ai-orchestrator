@@ -14,6 +14,11 @@ import {
   AuxiliaryModelListParamsSchema,
   AuxiliaryModelGenerateParamsSchema,
   ConfigUpdateParamsSchema,
+  FsReadFileParamsSchema,
+  FsWriteFileParamsSchema,
+  LocalModelSessionIdParamsSchema,
+  LocalModelSessionSendInputParamsSchema,
+  LocalModelSessionStartParamsSchema,
   BrowserExtAttachTabParamsSchema,
   BrowserExtPollCommandParamsSchema,
   BrowserExtCommandResultParamsSchema,
@@ -110,6 +115,77 @@ describe('rpc-schemas', () => {
               healthy: true,
             },
           ],
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts file transfer capability summaries', () => {
+      const result = NodeRegisterParamsSchema.safeParse({
+        nodeId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        name: 'windows-files',
+        capabilities: {
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 16,
+          totalMemoryMB: 96000,
+          availableMemoryMB: 64000,
+          supportedClis: ['claude'],
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 10,
+          workingDirectories: ['C:\\work'],
+          fileTransfer: {
+            enabled: true,
+            maxFileBytes: 1024,
+            roots: [
+              {
+                id: 'downloads',
+                label: 'Downloads',
+                path: 'C:\\Users\\James\\Downloads',
+                read: true,
+                write: false,
+              },
+            ],
+          },
+        },
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts non-secret file transfer capability summaries', () => {
+      const result = NodeRegisterParamsSchema.safeParse({
+        nodeId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        name: 'windows-files',
+        capabilities: {
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 16,
+          totalMemoryMB: 96000,
+          availableMemoryMB: 64000,
+          supportedClis: ['claude'],
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 10,
+          workingDirectories: ['C:\\work'],
+          fileTransfer: {
+            enabled: true,
+            maxFileBytes: 50 * 1024 * 1024,
+            roots: [
+              {
+                id: 'downloads',
+                label: 'Downloads',
+                path: 'C:\\Users\\James\\Downloads',
+                read: true,
+                write: false,
+              },
+            ],
+          },
         },
       });
       expect(result.success).toBe(true);
@@ -237,6 +313,40 @@ describe('rpc-schemas', () => {
 
     it('registers provider.diagnose in the coordinator->node schema map', () => {
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['provider.diagnose']).toBe(ProviderDiagnoseParamsSchema);
+    });
+  });
+
+  describe('file transfer schemas', () => {
+    it('accepts fs.readFile and fs.writeFile coordinator payloads', () => {
+      expect(FsReadFileParamsSchema.safeParse({ path: '/tmp/file.pdf' }).success).toBe(true);
+      expect(FsWriteFileParamsSchema.safeParse({
+        path: '/tmp/file.pdf',
+        data: Buffer.from('bytes').toString('base64'),
+        mkdirp: true,
+      }).success).toBe(true);
+    });
+
+    it('registers fs.readFile and fs.writeFile in the coordinator->node schema map', () => {
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['fs.readFile']).toBe(FsReadFileParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['fs.writeFile']).toBe(FsWriteFileParamsSchema);
+    });
+
+    it('accepts fileTransfer in service config.update payloads', () => {
+      expect(ConfigUpdateParamsSchema.safeParse({
+        fileTransfer: {
+          enabled: true,
+          maxFileBytes: 1024,
+          roots: [
+            {
+              id: 'scratch',
+              label: 'AIO Scratch',
+              path: '/home/user/.orchestrator/_scratch/aio-transfers',
+              read: true,
+              write: true,
+            },
+          ],
+        },
+      }).success).toBe(true);
     });
   });
 
@@ -392,6 +502,50 @@ describe('rpc-schemas', () => {
 
     it('registers auxiliaryModel.generate in the coordinator->node schema map', () => {
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['auxiliaryModel.generate']).toBe(AuxiliaryModelGenerateParamsSchema);
+    });
+  });
+
+  describe('local model session schemas', () => {
+    const validStart = {
+      sessionId: 'local-model-session-1',
+      endpointProvider: 'openai-compatible',
+      endpointId: 'openai-compatible',
+      modelId: 'qwen2.5-coder-14b',
+      workingDirectory: '/workspace',
+      systemPrompt: 'You are concise.',
+    };
+
+    it('accepts bounded local model session start payloads', () => {
+      expect(LocalModelSessionStartParamsSchema.safeParse(validStart).success).toBe(true);
+      expect(LocalModelSessionStartParamsSchema.safeParse({
+        ...validStart,
+        endpointProvider: 'claude',
+      }).success).toBe(false);
+    });
+
+    it('accepts local model send-input payloads with attachments', () => {
+      expect(LocalModelSessionSendInputParamsSchema.safeParse({
+        sessionId: 'local-model-session-1',
+        message: 'Summarize this file',
+        attachments: [{ name: 'notes.txt', type: 'text/plain', size: 5, data: 'hello' }],
+      }).success).toBe(true);
+    });
+
+    it('accepts local model session id payloads', () => {
+      expect(LocalModelSessionIdParamsSchema.safeParse({ sessionId: 'local-model-session-1' }).success)
+        .toBe(true);
+      expect(LocalModelSessionIdParamsSchema.safeParse({ sessionId: '' }).success).toBe(false);
+    });
+
+    it('registers local model session methods in coordinator->node schema map', () => {
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.start'])
+        .toBe(LocalModelSessionStartParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.sendInput'])
+        .toBe(LocalModelSessionSendInputParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.terminate'])
+        .toBe(LocalModelSessionIdParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.interrupt'])
+        .toBe(LocalModelSessionIdParamsSchema);
     });
   });
 

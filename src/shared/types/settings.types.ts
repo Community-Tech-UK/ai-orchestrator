@@ -8,6 +8,7 @@
  */
 
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
+import type { WorkerModeSettings } from './pair-both.types';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type DisplayDensity = 'comfortable' | 'compact';
@@ -284,7 +285,7 @@ export interface AppSettings {
   crossModelReviewTypes: string[];
   /**
    * Optional per-reviewer-CLI model override for cross-model review.
-   * Keys are reviewer CLI names (e.g. 'copilot', 'gemini', 'codex', 'cursor').
+   * Keys are reviewer CLI names (e.g. 'copilot', 'antigravity', 'codex', 'cursor').
    * A missing entry, an empty string, or 'auto' means "let that provider's CLI
    * decide" — we pass no model and the CLI uses its own default/auto routing
    * (e.g. Copilot auto-routes to a GPT model). A concrete model id is forwarded
@@ -297,9 +298,10 @@ export interface AppSettings {
   /**
    * Default reviewer provider for ping-pong mode. `'auto'` pairs Claude ⇄ Codex:
    * the reviewer is always the *other* member of that pair from the builder
-   * (Claude builds → Codex reviews, and vice versa). No third model is pulled in
-   * on `'auto'`; to review with gemini/copilot/etc. set an explicit provider
-   * here. A per-run override exists in the loop control.
+   * (Claude builds → Codex reviews, and vice versa) before widening to another
+   * installed non-builder provider if the pair is unavailable. To prefer
+   * Antigravity/Copilot/etc., set an explicit provider here. A per-run override
+   * exists in the loop control.
    */
   pingPongReviewerProvider: CanonicalCliType;
   /** Default hard cap on ping-pong rounds (clamped 1..20). */
@@ -316,6 +318,7 @@ export interface AppSettings {
   voiceLocalSttMaxSegmentMs: number;
 
   // Remote Nodes
+  workerMode: WorkerModeSettings;
   remoteNodesEnabled: boolean;
   remoteNodesServerPort: number;
   remoteNodesServerHost: string;
@@ -588,6 +591,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   voiceLocalSttMaxSegmentMs: 5000,
 
   // Remote Nodes
+  workerMode: { role: 'unset', startWorkerOnLaunch: true, installWorkerService: false },
   remoteNodesEnabled: false,
   remoteNodesServerPort: 4878,
   remoteNodesServerHost: '0.0.0.0',

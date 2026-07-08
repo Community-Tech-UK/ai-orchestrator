@@ -336,6 +336,53 @@ describe('AutoTitleService', () => {
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Session-limit retry bug', 'ai');
   });
 
+  it('discards an auxiliary title that is only unfinished <think> reasoning', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+    mockAuxGenerate.mockResolvedValue({
+      text: '<think> Alright, I need to help the user summarize this tab title.',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: false,
+      },
+    });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the tab renaming bug and strip raw reasoning tags.',
+      applyTitle,
+      false,
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith(
+      'instance-1',
+      'Investigate the tab renaming bug and strip raw reasoning...',
+      'instant',
+    );
+    expect(applyTitle).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('<think>'), 'ai');
+    expect(applyTitle).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), 'ai');
+  });
+
+  it('strips closed <think> reasoning before accepting a CLI-generated title', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    mockSendMessage.mockResolvedValue({
+      content: '<think>Need a short title.</think>\nTab rename sanitizer',
+    });
+
+    const title = await AutoTitleService.getInstance().generateTitle(
+      'Investigate the tab renaming bug and strip raw reasoning tags.',
+    );
+
+    expect(title).toBe('Tab rename sanitizer');
+  });
+
   it('passes attachment names to the AI title prompt', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
       installed: type === 'claude',

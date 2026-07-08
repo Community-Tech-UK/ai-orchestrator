@@ -49,6 +49,7 @@ import {
   type AndroidAutomationConfigDraft,
 } from './remote-node-android-config.component';
 import { RemoteNodeRepairPanelComponent } from './remote-node-repair-panel.component';
+import { CoordinatorPairingComponent } from './coordinator-pairing.component';
 import {
   buildCanonicalConnectionConfig,
   buildNodeDiagnostics,
@@ -74,6 +75,7 @@ import {
     DangerZoneComponent,
     RemoteNodeAndroidConfigComponent,
     RemoteNodeRepairPanelComponent,
+    CoordinatorPairingComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './remote-nodes-settings-tab.component.html',

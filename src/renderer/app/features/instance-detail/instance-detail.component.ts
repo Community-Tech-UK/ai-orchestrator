@@ -23,6 +23,7 @@ import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service
 import { DraftService } from '../../core/services/draft.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import { PROVIDER_MODEL_LIST } from '../../../../shared/types/provider.types';
 import { OutputStreamComponent } from './output-stream.component';
 import { InputPanelComponent } from './input-panel.component';
@@ -83,6 +84,7 @@ interface HistoryPreviewView {
   subtitle: string;
   provider: InstanceProvider;
   currentModel?: string;
+  runtimeSummary?: InstanceRuntimeSummary;
   messages: OutputMessage[];
   restoring: boolean;
   error: string | null;
@@ -176,6 +178,7 @@ export class InstanceDetailComponent {
       subtitle: getHistoryPreviewSubtitle(entry, provider),
       provider,
       currentModel: entry.currentModel,
+      runtimeSummary: entry.runtimeSummary,
       messages: [
         ...(conversation.messages as OutputMessage[]),
         ...(this.historyPreviewPendingRestoreMessages()[entry.id] ?? []),
@@ -338,6 +341,7 @@ export class InstanceDetailComponent {
   welcomePendingFolders = this.welcomeCoordinator.pendingFolders;
   welcomeWorkingDirectory = this.welcomeCoordinator.workingDirectory;
   welcomeSelectedNodeId = this.welcomeCoordinator.welcomeSelectedNodeId;
+  welcomeModelRuntimeTarget = this.welcomeCoordinator.modelRuntimeTarget;
   remoteBrowseOpen = this.welcomeCoordinator.remoteBrowseOpen;
   remoteBrowseNodeId = this.welcomeCoordinator.remoteBrowseNodeId;
   welcomeSelectedCli = this.welcomeCoordinator.selectedCli;

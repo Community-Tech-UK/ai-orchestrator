@@ -5,16 +5,19 @@ import * as path from 'path';
 import { reportCapabilities } from './capability-reporter';
 import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager } from './local-instance-manager';
+import { LocalModelSessionManager } from './local-model-session-manager';
 import { nextReconnectDelayMs, shouldResetReconnectAttempt } from './reconnect-backoff';
 import type {
   WorkerAndroidAutomationConfig,
   WorkerBrowserAutomationConfig,
   WorkerConfig,
   WorkerExtensionRelayConfig,
+  WorkerFileTransferConfig,
 } from './worker-config';
 import {
   defaultExtensionRelaySocketPath,
   ensureExtensionRelayDefaults,
+  normalizeFileTransferConfig,
   persistConfig,
 } from './worker-config';
 import type {
@@ -22,6 +25,7 @@ import type {
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeCapabilities,
   WorkerNodeExtensionRelaySummary,
+  WorkerNodeFileTransferSummary,
 } from '../shared/types/worker-node.types';
 import type { FsEventNotification } from '../shared/types/remote-fs.types';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
@@ -52,7 +56,7 @@ const CONNECT_TIMEOUT_MS = 8_000;
 const REDISCOVERY_TIMEOUT_MS = 4_000;
 const EXTENSION_RELAY_REGISTRATION_CHECK_INTERVAL_MS = 60_000;
 
-type PendingCoordinatorRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout>; method: string };
+interface PendingCoordinatorRequest { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout>; method: string }
 
 /**
  * Ordered, de-duplicated list of coordinator URLs to try: the most recently
@@ -75,6 +79,7 @@ export function buildCoordinatorCandidates(
 export class WorkerAgent extends EventEmitter {
   private ws: WebSocket | null = null;
   private readonly instanceManager: LocalInstanceManager;
+  private readonly localModelSessionManager: LocalModelSessionManager;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private capabilities: WorkerNodeCapabilities | null = null;
@@ -132,6 +137,9 @@ export class WorkerAgent extends EventEmitter {
       this.browserManager,
       this.androidManager
     );
+    this.localModelSessionManager = new LocalModelSessionManager({
+      maxSessions: config.maxConcurrentInstances,
+    });
     this.notifier = new WorkerInstanceNotifier({
       getSocket: () => this.ws,
       getToken: () => this.config.nodeToken ?? this.config.authToken,
@@ -139,6 +147,7 @@ export class WorkerAgent extends EventEmitter {
     this.rpcDispatcher = new WorkerRpcDispatcher({
       config: this.config,
       instanceManager: this.instanceManager,
+      localModelSessionManager: this.localModelSessionManager,
       getFilesystemHandler: () => this.fsHandler!,
       getSyncHandler: () => this.getSyncHandler(),
       getTerminalHandler: () => this.getTerminalHandler(),
@@ -175,10 +184,12 @@ export class WorkerAgent extends EventEmitter {
         this.browserManager.getSummary(),
         await this.androidManager.getSummary(),
         this.extensionRelay.getSummary(),
+        this.fileTransferSummary(),
       );
       this.fsHandler = new NodeFilesystemHandler(
         this.config.workingDirectories,
-        { onFsEvent: (event) => this.sendFsEvent(event) }
+        { onFsEvent: (event) => this.sendFsEvent(event) },
+        this.fileTransferRoots(),
       );
       this.startContinuousDiscovery();
 
@@ -331,6 +342,7 @@ export class WorkerAgent extends EventEmitter {
     this.notifier.flushOutputBuffer();
     this.rejectPendingRequests('worker_shutting_down');
     await this.instanceManager.terminateAll();
+    await this.localModelSessionManager.terminateAll();
     this.fsHandler?.cleanupAllWatchers();
     this.terminalHandler?.killAll();
     this.cdpTunnel.closeAll();
@@ -471,7 +483,6 @@ export class WorkerAgent extends EventEmitter {
     }
   }
 
-  /** Refresh capabilities (memory/browser config change over time) and send. */
   private async sendHeartbeat(): Promise<void> {
     this.checkExtensionRelayRegistration();
     this.capabilities = await reportCapabilities(
@@ -480,6 +491,7 @@ export class WorkerAgent extends EventEmitter {
       this.browserManager.getSummary(),
       await this.androidManager.getSummary(),
       this.extensionRelay.getSummary(),
+      this.fileTransferSummary(),
     );
     this.notifier.send({
       jsonrpc: '2.0',
@@ -493,25 +505,18 @@ export class WorkerAgent extends EventEmitter {
     });
   }
 
-  /**
-   * Apply a coordinator `config.update` at runtime. Merges the browser-automation
-   * block into the persisted config, reconfigures the managed Chrome, and pushes
-   * a fresh heartbeat so the coordinator reflects the new capabilities promptly.
-   * Returns the resulting non-secret summary.
-   */
   async applyConfigUpdate(update: {
     browserAutomation?: WorkerBrowserAutomationConfig;
     androidAutomation?: WorkerAndroidAutomationConfig;
     extensionRelay?: WorkerExtensionRelayConfig;
+    fileTransfer?: WorkerFileTransferConfig;
   }): Promise<{
     browserAutomation?: WorkerNodeBrowserAutomationSummary;
     androidAutomation?: WorkerNodeAndroidAutomationSummary;
     extensionRelay?: WorkerNodeExtensionRelaySummary;
+    fileTransfer?: WorkerNodeFileTransferSummary;
   }> {
     if (update.browserAutomation) {
-      // Merge onto the existing block so a partial update (e.g. just toggling
-      // headless) doesn't wipe profileDir/chromePath. `enabled` is always present
-      // in the incoming payload, so the merged result is well-formed.
       const merged: WorkerBrowserAutomationConfig = {
         ...this.config.browserAutomation,
         ...update.browserAutomation,
@@ -542,8 +547,15 @@ export class WorkerAgent extends EventEmitter {
       await this.runExtensionRelayStep('reconfigure', () => this.extensionRelay.reconfigure(merged));
       this.checkExtensionRelayRegistration({ force: true });
     }
-    // Only push a heartbeat when connected; otherwise the next reconnect reports
-    // the updated capabilities.
+    if (update.fileTransfer) {
+      this.config.fileTransfer = normalizeFileTransferConfig(update.fileTransfer);
+      persistConfig(this.configPath, this.config);
+      this.fsHandler = new NodeFilesystemHandler(
+        this.config.workingDirectories,
+        { onFsEvent: (event) => this.sendFsEvent(event) },
+        this.fileTransferRoots(),
+      );
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       await this.sendHeartbeat();
     }
@@ -551,7 +563,25 @@ export class WorkerAgent extends EventEmitter {
       browserAutomation: this.browserManager.getSummary(),
       androidAutomation: await this.androidManager.getSummary(),
       extensionRelay: this.extensionRelay.getSummary(),
+      fileTransfer: this.fileTransferSummary(),
     };
+  }
+
+  private fileTransferSummary(): WorkerNodeFileTransferSummary | undefined {
+    const config = this.config.fileTransfer;
+    if (!config) {
+      return undefined;
+    }
+    return {
+      enabled: config.enabled,
+      maxFileBytes: config.maxFileBytes ?? 50 * 1024 * 1024,
+      roots: config.enabled ? [...(config.roots ?? [])] : [],
+    };
+  }
+
+  private fileTransferRoots(): WorkerNodeFileTransferSummary['roots'] {
+    const summary = this.fileTransferSummary();
+    return summary?.enabled ? summary.roots : [];
   }
 
   private stopHeartbeat(): void {
@@ -940,49 +970,54 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private wireInstanceEvents(): void {
-    this.instanceManager.on(
+    this.wireInstanceEventSource(this.instanceManager);
+    this.wireInstanceEventSource(this.localModelSessionManager);
+  }
+
+  private wireInstanceEventSource(source: EventEmitter): void {
+    source.on(
       'instance:output',
       (instanceId: string, message: unknown) => {
         this.notifier.sendOutputNotification(instanceId, message);
       }
     );
 
-    this.instanceManager.on(
+    source.on(
       'instance:heartbeat',
       (instanceId: string) => {
         this.notifier.sendHeartbeatNotification(instanceId);
       }
     );
 
-    this.instanceManager.on(
+    source.on(
       'instance:complete',
       (instanceId: string, response: unknown) => {
         this.notifier.sendCompleteNotification(instanceId, response);
       }
     );
 
-    this.instanceManager.on(
+    source.on(
       'instance:stateChange',
       (instanceId: string, state: unknown, info?: unknown) => {
         this.notifier.sendStateChange(instanceId, state, info);
       }
     );
 
-    this.instanceManager.on(
+    source.on(
       'instance:exit',
       (instanceId: string, info: unknown) => {
         this.notifier.sendExit(instanceId, info);
       }
     );
 
-    this.instanceManager.on(
+    source.on(
       'instance:permissionRequest',
       (instanceId: string, permission: unknown) => {
         this.notifier.sendPermissionRequest(instanceId, permission);
       }
     );
 
-    this.instanceManager.on(
+    source.on(
       'instance:context',
       (instanceId: string, usage: unknown) => {
         this.notifier.sendContextNotification(instanceId, usage);

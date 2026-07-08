@@ -17,8 +17,13 @@ import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 import { AntigravityCliAdapter, AntigravityCliConfig } from './antigravity-cli-adapter';
 import { OllamaCliAdapter } from './ollama-cli-adapter';
+import {
+  OpenAICompatibleChatAdapter,
+  type OpenAICompatibleChatConfig,
+} from './openai-compatible-chat-adapter';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
+import { RemoteLocalModelAdapter } from './remote-local-model-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
@@ -466,6 +471,24 @@ export function createOllamaAdapter(options: UnifiedSpawnOptions): OllamaCliAdap
   });
 }
 
+export function createOpenAICompatibleLocalModelAdapter(
+  options: UnifiedSpawnOptions & Pick<
+    OpenAICompatibleChatConfig,
+    'apiKey' | 'baseUrl' | 'contextWindow' | 'endpointId'
+  >,
+): OpenAICompatibleChatAdapter {
+  return new OpenAICompatibleChatAdapter({
+    baseUrl: options.baseUrl,
+    endpointId: options.endpointId,
+    apiKey: options.apiKey,
+    contextWindow: options.contextWindow,
+    model: options.model,
+    systemPrompt: options.systemPrompt,
+    workingDir: options.workingDirectory,
+    timeout: options.timeout,
+  });
+}
+
 /**
  * Creates a CLI adapter for the specified type
  * Returns a ClaudeCliAdapter for Claude, or the appropriate adapter for other types
@@ -476,11 +499,38 @@ export function createCliAdapter(
   executionLocation?: ExecutionLocation,
 ): CliAdapter {
   const effectiveOptions = withBrowserGatewaySystemPrompt(options);
+  const runtimeTarget = effectiveOptions.modelRuntimeTarget;
   if (effectiveOptions.launchMode === 'interactive') {
     if (cliType !== 'claude') {
       throw new Error('Interactive launch mode is only supported for Claude.');
     }
     throw new Error(INTERACTIVE_RUNTIME_UNAVAILABLE);
+  }
+
+  if (runtimeTarget?.kind === 'local-model') {
+    if (executionLocation?.type === 'remote') {
+      if (runtimeTarget.source !== 'worker-node' || !runtimeTarget.nodeId) {
+        throw new Error('Remote local-model execution requires a worker-node runtime target.');
+      }
+      const connection = getWorkerNodeConnectionServer();
+      return new RemoteLocalModelAdapter(connection, {
+        ...runtimeTarget,
+        source: 'worker-node',
+        nodeId: executionLocation.nodeId,
+      }, effectiveOptions);
+    }
+
+    const localOptions = {
+      ...effectiveOptions,
+      model: runtimeTarget.modelId,
+    };
+    if (runtimeTarget.endpointProvider === 'ollama') {
+      return createOllamaAdapter(localOptions);
+    }
+    return createOpenAICompatibleLocalModelAdapter({
+      ...localOptions,
+      endpointId: runtimeTarget.endpointId,
+    });
   }
 
   // If remote, create a RemoteCliAdapter regardless of CLI type

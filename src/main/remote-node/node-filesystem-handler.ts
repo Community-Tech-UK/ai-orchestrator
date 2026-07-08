@@ -22,7 +22,7 @@ import type {
   FsChangeEvent,
   FsEventNotification
 } from '../../shared/types/remote-fs.types';
-import type { NodePlatform } from '../../shared/types/worker-node.types';
+import type { NodePlatform, WorkerNodeFileTransferRoot } from '../../shared/types/worker-node.types';
 
 const logger = getLogger('NodeFilesystemHandler');
 
@@ -108,6 +108,7 @@ interface NodeFilesystemHandlerOptions {
 
 export class NodeFilesystemHandler {
   private readonly roots: string[];
+  private readonly transferRoots: WorkerNodeFileTransferRoot[];
   private readonly platform: NodePlatform;
   private readonly discovery: ProjectDiscovery;
   private readonly watchers = new Map<string, WatcherEntry>();
@@ -115,9 +116,11 @@ export class NodeFilesystemHandler {
 
   constructor(
     browsableRoots: string[] = [],
-    private readonly options: NodeFilesystemHandlerOptions = {}
+    private readonly options: NodeFilesystemHandlerOptions = {},
+    transferRoots: WorkerNodeFileTransferRoot[] = [],
   ) {
     this.roots = browsableRoots.length > 0 ? browsableRoots : [os.homedir()];
+    this.transferRoots = transferRoots;
     this.platform = process.platform as NodePlatform;
     this.discovery = new ProjectDiscovery();
   }
@@ -128,6 +131,10 @@ export class NodeFilesystemHandler {
 
   getRoots(): string[] {
     return this.roots;
+  }
+
+  getTransferRoots(): WorkerNodeFileTransferRoot[] {
+    return [...this.transferRoots];
   }
 
   // -------------------------------------------------------------------------
@@ -146,7 +153,7 @@ export class NodeFilesystemHandler {
       );
     }
 
-    if (!SecurityFilter.isWithinRoot(resolved, this.roots)) {
+    if (!SecurityFilter.isWithinRoot(resolved, this.readableRoots())) {
       throw new FsRpcError(
         'EOUTOFSCOPE',
         resolved,
@@ -157,6 +164,88 @@ export class NodeFilesystemHandler {
     }
 
     return resolved;
+  }
+
+  private readableRoots(): string[] {
+    return [
+      ...this.roots,
+      ...this.transferRoots
+        .filter((root) => root.read)
+        .map((root) => root.path),
+    ];
+  }
+
+  private matchingTransferRoot(targetPath: string): WorkerNodeFileTransferRoot | undefined {
+    return this.transferRoots
+      .filter((root) => SecurityFilter.isWithinRoot(targetPath, [root.path]))
+      .sort((left, right) => right.path.length - left.path.length)[0];
+  }
+
+  private isWritablePath(targetPath: string): boolean {
+    const transferRoot = this.matchingTransferRoot(targetPath);
+    if (transferRoot) {
+      return transferRoot.write;
+    }
+    return SecurityFilter.isWithinRoot(targetPath, this.roots);
+  }
+
+  private writableRoots(): string[] {
+    return [
+      ...this.roots,
+      ...this.transferRoots
+        .filter((root) => root.write)
+        .map((root) => root.path),
+    ];
+  }
+
+  private async validateWritableParent(targetPath: string): Promise<void> {
+    const parentPath = path.dirname(targetPath);
+    const existingParent = await this.realpathClosestExisting(parentPath);
+    if (!SecurityFilter.isWithinRoot(existingParent, this.writableRoots())) {
+      throw new FsRpcError(
+        'EOUTOFSCOPE',
+        existingParent,
+        `EOUTOFSCOPE: parent path '${existingParent}' is outside writable roots`,
+        false,
+        'Only paths within configured writable roots can be written.'
+      );
+    }
+  }
+
+  private async assertRealParentStillWritable(targetPath: string): Promise<void> {
+    const parentPath = path.dirname(targetPath);
+    const realParent = await fs.realpath(parentPath);
+    if (!SecurityFilter.isWithinRoot(realParent, this.writableRoots())) {
+      throw new FsRpcError(
+        'EOUTOFSCOPE',
+        realParent,
+        `EOUTOFSCOPE: parent path '${realParent}' is outside writable roots`,
+        false,
+        'Only paths within configured writable roots can be written.'
+      );
+    }
+  }
+
+  private async realpathClosestExisting(targetPath: string): Promise<string> {
+    let current = path.resolve(targetPath);
+    while (true) {
+      try {
+        return await fs.realpath(current);
+      } catch (error) {
+        if (!isNotFoundError(error)) {
+          throw error;
+        }
+        const parent = path.dirname(current);
+        if (parent === current) {
+          throw new FsRpcError(
+            'ENOENT',
+            targetPath,
+            `ENOENT: no existing parent for '${targetPath}'`
+          );
+        }
+        current = parent;
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -216,7 +305,7 @@ export class NodeFilesystemHandler {
 
     const withinBrowsableRoot = SecurityFilter.isWithinRoot(
       resolved,
-      this.roots
+      this.readableRoots()
     );
 
     let statResult: import('node:fs').Stats;
@@ -372,7 +461,7 @@ export class NodeFilesystemHandler {
         'Use streaming transfer for files larger than 50 MB.'
       );
     }
-    if (SecurityFilter.isRestricted(path.basename(resolvedPath))) {
+    if (SecurityFilter.isRestrictedPath(resolvedPath)) {
       throw new FsRpcError(
         'EACCES',
         resolvedPath,
@@ -410,7 +499,7 @@ export class NodeFilesystemHandler {
 
     // Validate target is within allowed roots (use resolve instead of realpath
     // since the file may not exist yet)
-    if (!SecurityFilter.isWithinRoot(targetPath, this.roots)) {
+    if (!this.isWritablePath(targetPath)) {
       throw new FsRpcError(
         'EOUTOFSCOPE',
         targetPath,
@@ -420,7 +509,7 @@ export class NodeFilesystemHandler {
       );
     }
 
-    if (SecurityFilter.isRestricted(path.basename(targetPath))) {
+    if (SecurityFilter.isRestrictedPath(targetPath)) {
       throw new FsRpcError(
         'EACCES',
         targetPath,
@@ -431,10 +520,22 @@ export class NodeFilesystemHandler {
     }
 
     const buffer = Buffer.from(params.data, 'base64');
+    await this.validateWritableParent(targetPath);
 
     // Create parent directories if needed
     if (params.mkdirp !== false) {
       await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    }
+    await this.assertRealParentStillWritable(targetPath);
+    const existingStat = await lstatOrNull(targetPath);
+    if (existingStat?.isSymbolicLink()) {
+      throw new FsRpcError(
+        'EACCES',
+        targetPath,
+        `EACCES: cannot write through symbolic link '${path.basename(targetPath)}'`,
+        false,
+        'Symbolic link destinations are refused for remote file writes.'
+      );
     }
 
     await fs.writeFile(targetPath, buffer);
@@ -444,4 +545,19 @@ export class NodeFilesystemHandler {
     return { ok: true, size: buffer.length };
   }
 
+}
+
+async function lstatOrNull(filePath: string): Promise<import('node:fs').Stats | null> {
+  try {
+    return await fs.lstat(filePath);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }

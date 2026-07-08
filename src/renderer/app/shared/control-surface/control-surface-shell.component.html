@@ -3,6 +3,7 @@
   [class.layout-standard]="activeSurface().layout === 'standard'"
   [class.layout-wide]="activeSurface().layout === 'wide'"
   [class.layout-fullBleed]="activeSurface().layout === 'fullBleed'"
+  [class.nav-collapsed]="controlNavCollapsed()"
 >
   <header class="control-header">
     <button class="control-back" type="button" (click)="backToDashboard()" aria-label="Back to dashboard">
@@ -23,7 +24,20 @@
   </header>
 
   <div class="control-body">
-    <aside class="control-nav" aria-label="Control Center navigation">
+    <aside id="control-center-navigation" class="control-nav" aria-label="Control Center navigation">
+      <button
+        class="control-nav-toggle"
+        type="button"
+        (click)="toggleControlNav()"
+        aria-controls="control-center-navigation"
+        [attr.aria-label]="controlNavCollapsed() ? 'Expand Control Center navigation' : 'Collapse Control Center navigation'"
+        [attr.aria-expanded]="!controlNavCollapsed()"
+        [title]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+      </button>
       @for (group of navGroups; track group.id) {
         <section class="control-nav-group">
           <h2>{{ group.label }}</h2>
@@ -33,6 +47,8 @@
               [routerLink]="item.path"
               routerLinkActive="active"
               [routerLinkActiveOptions]="{ exact: isExactNavMatch(item.path) }"
+              [title]="item.label"
+              [attr.aria-label]="item.label"
             >
               <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="item.icon"></svg>
               <span>{{ item.label }}</span>

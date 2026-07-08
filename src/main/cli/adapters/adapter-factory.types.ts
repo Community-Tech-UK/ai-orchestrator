@@ -11,8 +11,10 @@ import type { CodexCliAdapter } from './codex-cli-adapter';
 import type { GeminiCliAdapter } from './gemini-cli-adapter';
 import type { AntigravityCliAdapter } from './antigravity-cli-adapter';
 import type { OllamaCliAdapter } from './ollama-cli-adapter';
+import type { OpenAICompatibleChatAdapter } from './openai-compatible-chat-adapter';
 import type { AcpCliAdapter } from './acp-cli-adapter';
 import type { RemoteCliAdapter } from './remote-cli-adapter';
+import type { RemoteLocalModelAdapter } from './remote-local-model-adapter';
 import type { CliAdapterWorkerProxy } from '../spawn-worker/cli-adapter-worker-proxy';
 import type { InstanceLaunchMode } from '../../../shared/types/instance.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
@@ -20,6 +22,7 @@ import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrom
 import type { MobileMcpConfigOptions } from '../../browser-gateway/mobile-mcp-config';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
 import type { NodePlacementPrefs } from '../../../shared/types/worker-node.types';
+import type { ModelRuntimeTarget } from '../../../shared/types/local-model-runtime.types';
 
 /**
  * Unified spawn options that work across all adapters
@@ -104,6 +107,8 @@ export interface UnifiedSpawnOptions {
   childId?: string;
   /** Forwarded to remote workers so spawn-time tool injection can honor routing intent. */
   nodePlacement?: NodePlacementPrefs;
+  /** Optional explicit runtime target selected from the unified model picker. */
+  modelRuntimeTarget?: ModelRuntimeTarget;
 }
 
 /**
@@ -115,6 +120,8 @@ export type CliAdapter =
   | GeminiCliAdapter
   | AntigravityCliAdapter
   | OllamaCliAdapter
+  | OpenAICompatibleChatAdapter
   | AcpCliAdapter
   | RemoteCliAdapter
+  | RemoteLocalModelAdapter
   | CliAdapterWorkerProxy;

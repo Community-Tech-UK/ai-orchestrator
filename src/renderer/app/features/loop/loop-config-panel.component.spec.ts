@@ -88,6 +88,27 @@ describe('LoopConfigPanelComponent', () => {
     });
   });
 
+  it('offers Antigravity, not legacy Gemini, as an explicit ping-pong reviewer', () => {
+    const options = Array.from(
+      fixture.nativeElement.querySelectorAll('#loop-cfg-pp-reviewer option'),
+      (option: Element) => ({
+        label: (option as HTMLOptionElement).textContent?.trim(),
+        value: (option as HTMLOptionElement).value,
+      }),
+    );
+
+    expect(options).toContainEqual({ label: 'Antigravity', value: 'antigravity' });
+    expect(options).not.toContainEqual({ label: 'Gemini', value: 'gemini' });
+  });
+
+  it('emits the canonical Antigravity provider for ping-pong review', () => {
+    component.pingPongReviewerProvider.set('antigravity');
+
+    const config = component.buildConfig();
+
+    expect(config?.completion?.crossModelReview?.pingPong?.reviewerProvider).toBe('antigravity');
+  });
+
   it('can opt out of ping-pong review', () => {
     component.pingPongEnabled.set(false);
     fixture.detectChanges();

@@ -182,12 +182,14 @@ export class LoopConfigPanelComponent {
   /** Ping-pong mode: a different-provider agentic reviewer reviews every
    *  builder done-declaration until both models agree (or a backstop fires). */
   pingPongEnabled = signal(true);
-  pingPongReviewerProvider = signal<'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor'>('auto');
+  pingPongReviewerProvider = signal<'auto' | 'claude' | 'codex' | 'antigravity' | 'copilot' | 'cursor'>('auto');
   pingPongSubject = signal<'auto' | 'plan' | 'impl'>('auto');
   pingPongMaxRounds = signal(15);
   providerOptions = computed<PickerProvider[]>(() => {
-    const providers = this.availableProvidersSignal();
-    return providers.length > 0 ? providers : DEFAULT_INSTANCE_PROVIDERS;
+    const providers = this.availableProvidersSignal().filter((provider) => provider !== 'local-model');
+    return providers.length > 0
+      ? providers
+      : DEFAULT_INSTANCE_PROVIDERS.filter((provider) => provider !== 'local-model');
   });
   private providerManuallyOverridden = false;
   /**
@@ -419,6 +421,8 @@ export class LoopConfigPanelComponent {
    */
   buildConfig(): LoopStartConfigInput | null {
     if (!this.canSubmit()) return null;
+    const provider = this.provider();
+    if (provider === 'local-model') return null;
     const planFile = this.planFile().trim() || undefined;
     const maxDollars = this.maxDollars();
     const quickVerifyCommand = this.quickVerifyCommand().trim();
@@ -426,7 +430,7 @@ export class LoopConfigPanelComponent {
       initialPrompt: this.prompt().trim(),
       workspaceCwd: this.workspaceCwd(),
       planFile,
-      provider: this.provider(),
+      provider,
       reviewStyle: this.reviewStyle(),
       contextStrategy: this.contextStrategy(),
       initialStage: this.initialStage(),

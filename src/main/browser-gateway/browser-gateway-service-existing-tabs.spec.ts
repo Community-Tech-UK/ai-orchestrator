@@ -871,6 +871,122 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('uses the requested computer name to choose a remote tab over a same-origin local tab', async () => {
+    const sendCommand = vi.fn();
+    const localTab = {
+      profileId: 'existing-tab:1:10',
+      targetId: 'existing-tab:1:10:target',
+      tabId: 10,
+      windowId: 1,
+      title: 'Emergent on Mac',
+      url: 'https://app.emergent.sh/home',
+      origin: 'https://app.emergent.sh',
+      allowedOrigins: [{
+        scheme: 'https' as const,
+        hostPattern: 'app.emergent.sh',
+        includeSubdomains: false,
+      }],
+      attachedAt: 1,
+      updatedAt: 10,
+    };
+    const windowsTab = {
+      profileId: 'existing-tab:n.node-1:2:20',
+      targetId: 'existing-tab:n.node-1:2:20:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 20,
+      windowId: 2,
+      title: 'Emergent on Windows',
+      url: 'https://app.emergent.sh/home',
+      origin: 'https://app.emergent.sh',
+      allowedOrigins: localTab.allowedOrigins,
+      attachedAt: 2,
+      updatedAt: Date.now() + 1000,
+    };
+    const { extensionTabStore, service } = makeService({
+      profile: null,
+      profiles: [],
+      extensionCommandStore: { sendCommand },
+    });
+    extensionTabStore.listTabs.mockReturnValue([localTab, windowsTab]);
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      url: 'https://app.emergent.sh/home',
+      computer: 'Windows PC',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        id: windowsTab.targetId,
+        profileId: windowsTab.profileId,
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+      },
+    });
+  });
+
+  it('refreshes a requested remote computer before returning a matching cached tab id', async () => {
+    const staleTab = {
+      profileId: 'existing-tab:n.node-1:2:20',
+      targetId: 'existing-tab:n.node-1:2:20:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 20,
+      windowId: 2,
+      title: 'Emergent stale',
+      url: 'https://app.emergent.sh/home',
+      origin: 'https://app.emergent.sh',
+      allowedOrigins: [{
+        scheme: 'https' as const,
+        hostPattern: 'app.emergent.sh',
+        includeSubdomains: false,
+      }],
+      attachedAt: 1,
+      updatedAt: 100,
+    };
+    const freshTab = {
+      ...staleTab,
+      profileId: 'existing-tab:n.node-1:2:21',
+      targetId: 'existing-tab:n.node-1:2:21:target',
+      tabId: 21,
+      title: 'Emergent fresh',
+      updatedAt: Date.now() + 1000,
+    };
+    const sendCommand = vi.fn(async () => ({ ok: true }));
+    const { extensionTabStore, service } = makeService({
+      profile: null,
+      profiles: [],
+      extensionCommandStore: { sendCommand },
+    });
+    extensionTabStore.listTabs
+      .mockReturnValueOnce([staleTab])
+      .mockReturnValueOnce([staleTab, freshTab]);
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      url: 'https://app.emergent.sh/home',
+      computer: 'Windows PC',
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'node:node-1',
+      command: 'report_inventory',
+    }));
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        id: freshTab.targetId,
+        profileId: freshTab.profileId,
+      },
+    });
+  });
+
   it('fails find_or_open fast when the requested remote extension node is silent', async () => {
     const sendCommand = vi.fn();
     const { service } = makeService({
@@ -1006,6 +1122,51 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       queueKey: 'node:node-1',
       command: 'snapshot',
     }));
+  });
+
+  it('detaches a stale existing-tab handle when the extension no longer has that tab id', async () => {
+    const sendCommand = vi.fn(async () => {
+      throw new Error('No tab with id: 42');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example',
+      url: 'https://example.com/page',
+      origin: 'https://example.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { extensionTabStore, service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.snapshot({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'No tab with id: 42',
+    });
+    expect(extensionTabStore.detachTab).toHaveBeenCalledWith(
+      existingTab.profileId,
+      existingTab.targetId,
+    );
   });
 
   it('preserves remote node metadata when refreshing a remote existing-tab snapshot', async () => {

@@ -18,6 +18,7 @@ import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import { SettingsComponent } from './settings.component';
+import { NAV_COLLAPSED_KEY } from './settings-navigation';
 import type {
   StartupCapabilityCheck,
   StartupCapabilityCheckStatus,
@@ -265,6 +266,35 @@ describe('SettingsComponent', () => {
 
     expect(component.helpCollapsed()).toBe(true);
     expect(localStorage.getItem('aiorch.settings.helpCollapsed')).toBe('true');
+  });
+
+  it('defaults the settings navigation tree to expanded', () => {
+    expect(component.navCollapsed()).toBe(false);
+  });
+
+  it('remembers the settings navigation collapsed state', () => {
+    component.toggleNav();
+
+    expect(component.navCollapsed()).toBe(true);
+    expect(localStorage.getItem(NAV_COLLAPSED_KEY)).toBe('true');
+  });
+
+  it('clears search when collapsing the settings navigation so the compact rail stays navigable', () => {
+    component.searchQuery.set('zzzz-no-results');
+
+    component.toggleNav();
+
+    expect(component.navCollapsed()).toBe(true);
+    expect(component.searchQuery()).toBe('');
+    expect(component.hasResults()).toBe(true);
+  });
+
+  it('restores the persisted settings navigation collapsed state for a freshly created instance', () => {
+    localStorage.setItem(NAV_COLLAPSED_KEY, 'true');
+
+    const restored = TestBed.createComponent(SettingsComponent).componentInstance;
+
+    expect(restored.navCollapsed()).toBe(true);
   });
 
   it('restores the persisted collapsed state for a freshly created instance', () => {

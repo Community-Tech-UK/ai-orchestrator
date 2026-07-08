@@ -264,6 +264,7 @@ export interface BrowserProfileRequest {
 export interface BrowserListTargetsRequest {
   profileId?: string;
   nodeId?: string;
+  computer?: string;
   refresh?: boolean;
 }
 
@@ -271,6 +272,7 @@ export interface BrowserFindOrOpenRequest {
   url?: string;
   titleHint?: string;
   nodeId?: string;
+  computer?: string;
 }
 
 export interface BrowserTargetRequest {

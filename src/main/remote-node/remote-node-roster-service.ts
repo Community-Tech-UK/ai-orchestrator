@@ -116,6 +116,7 @@ function buildEntry(
     ...(live?.capabilities.androidAutomation
       ? { androidAutomation: live.capabilities.androidAutomation }
       : {}),
+    ...(live?.capabilities.fileTransfer ? { fileTransfer: live.capabilities.fileTransfer } : {}),
     ...(live?.capabilities.gpuName ? { gpuName: live.capabilities.gpuName } : {}),
     ...(live?.capabilities.gpuMemoryMB ? { gpuMemoryMB: live.capabilities.gpuMemoryMB } : {}),
   };

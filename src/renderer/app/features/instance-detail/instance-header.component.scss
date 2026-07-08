@@ -137,6 +137,7 @@
       }
 
       .model-btn,
+      .runtime-model-badge,
       .mode-badge,
       .yolo-badge,
       .skills-badge,
@@ -157,6 +158,14 @@
         border: 1px solid;
         cursor: pointer;
         transition: filter var(--transition-fast), opacity var(--transition-fast);
+      }
+
+      .runtime-model-badge {
+        max-width: min(360px, 100%);
+        border: 1px solid;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .model-btn:hover:not(:disabled) {

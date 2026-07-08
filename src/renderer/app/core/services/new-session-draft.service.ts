@@ -7,6 +7,7 @@ import {
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
 import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
+import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
 import { ProviderStateService, type ProviderType } from './provider-state.service';
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
@@ -38,6 +39,7 @@ export class NewSessionDraftService {
   readonly prompt = computed(() => this.activeDraft().prompt);
   readonly provider = computed(() => this.activeDraft().provider);
   readonly model = computed(() => this.activeDraft().model);
+  readonly modelRuntimeTarget = computed(() => this.activeDraft().modelRuntimeTarget);
   readonly reasoningEffort = computed(() => this.activeDraft().reasoningEffort);
   readonly pendingFolders = computed(() => this.activeDraft().pendingFolders);
   readonly yoloMode = computed(() => this.activeDraft().yoloMode);
@@ -101,8 +103,12 @@ export class NewSessionDraftService {
           ...nextDraft,
           prompt: currentDraft.prompt,
           provider: currentDraft.provider,
-          model: this.normalizeDraftModel(currentDraft.provider, currentDraft.model),
+          model: currentDraft.modelRuntimeTarget?.kind === 'local-model'
+            ? currentDraft.modelRuntimeTarget.modelId
+            : this.normalizeDraftModel(currentDraft.provider, currentDraft.model),
+          modelRuntimeTarget: currentDraft.modelRuntimeTarget,
           reasoningEffort: currentDraft.reasoningEffort,
+          nodeId: currentDraft.nodeId,
           yoloMode: currentDraft.yoloMode,
           launchMode: currentDraft.launchMode,
           agentId: currentDraft.agentId,
@@ -114,7 +120,9 @@ export class NewSessionDraftService {
           prompt: '',
           provider: null,
           model: null,
+          modelRuntimeTarget: null,
           reasoningEffort: null,
+          nodeId: null,
           yoloMode: null,
           launchMode: null,
           agentId: getDefaultAgent().id,
@@ -160,7 +168,12 @@ export class NewSessionDraftService {
       // Copilot+Opus → Claude+Sonnet → Copilot restore Opus instead of
       // resetting to gemini-3.1-pro-preview every time.
       let nextModel: string | null;
-      if (draft.provider === provider) {
+      const nextRuntimeTarget = provider === 'auto'
+        ? draft.modelRuntimeTarget
+        : null;
+      if (provider === 'auto' && nextRuntimeTarget?.kind === 'local-model') {
+        nextModel = nextRuntimeTarget.modelId;
+      } else if (draft.provider === provider) {
         nextModel = this.normalizeDraftModel(provider, draft.model);
       } else if (provider && provider !== 'auto') {
         const remembered = this.providerState.getLastModelForProvider(provider);
@@ -178,6 +191,7 @@ export class NewSessionDraftService {
       if (
         sameProvider
         && draft.model === nextModel
+        && draft.modelRuntimeTarget === nextRuntimeTarget
         && draft.reasoningEffort === nextReasoning
         && draft.launchMode === nextLaunchMode
       ) {
@@ -188,6 +202,7 @@ export class NewSessionDraftService {
         ...draft,
         provider,
         model: nextModel,
+        modelRuntimeTarget: nextRuntimeTarget,
         reasoningEffort: nextReasoning,
         launchMode: nextLaunchMode,
         updatedAt: Date.now(),
@@ -197,7 +212,16 @@ export class NewSessionDraftService {
 
   setModel(model: string | null): void {
     this.updateActiveDraft((draft) => {
-      const nextModel = this.normalizeDraftModel(draft.provider, model);
+      const trimmedLocalModel = typeof model === 'string' ? model.trim() : '';
+      const localModelTarget = draft.modelRuntimeTarget?.kind === 'local-model'
+        ? draft.modelRuntimeTarget
+        : null;
+      const nextModel = localModelTarget
+        ? (trimmedLocalModel || localModelTarget.modelId)
+        : this.normalizeDraftModel(draft.provider, model);
+      const nextRuntimeTarget = localModelTarget && nextModel === localModelTarget.modelId
+        ? localModelTarget
+        : null;
       if (draft.model === nextModel) {
         return draft;
       }
@@ -214,6 +238,30 @@ export class NewSessionDraftService {
       return {
         ...draft,
         model: nextModel,
+        modelRuntimeTarget: nextRuntimeTarget,
+        updatedAt: Date.now(),
+      };
+    });
+  }
+
+  setModelRuntimeTarget(target: ModelRuntimeTarget | null): void {
+    this.updateActiveDraft((draft) => {
+      if (target?.kind === 'local-model') {
+        return {
+          ...draft,
+          provider: 'auto',
+          model: target.modelId,
+          modelRuntimeTarget: target,
+          nodeId: target.nodeId ?? null,
+          reasoningEffort: null,
+          launchMode: null,
+          updatedAt: Date.now(),
+        };
+      }
+
+      return {
+        ...draft,
+        modelRuntimeTarget: target,
         updatedAt: Date.now(),
       };
     });
@@ -233,11 +281,20 @@ export class NewSessionDraftService {
   }
 
   setNodeId(nodeId: string | null): void {
-    this.updateActiveDraft((draft) => ({
-      ...draft,
-      nodeId,
-      updatedAt: Date.now(),
-    }));
+    this.updateActiveDraft((draft) => {
+      const nextRuntimeTarget =
+        draft.modelRuntimeTarget?.kind === 'local-model'
+          && draft.modelRuntimeTarget.nodeId
+          && draft.modelRuntimeTarget.nodeId !== nodeId
+          ? null
+          : draft.modelRuntimeTarget;
+      return {
+        ...draft,
+        nodeId,
+        modelRuntimeTarget: nextRuntimeTarget,
+        updatedAt: Date.now(),
+      };
+    });
   }
 
   setYoloMode(yoloMode: boolean | null): void {
@@ -472,6 +529,7 @@ export class NewSessionDraftService {
     const provider = this.isProviderType(draft?.provider) ? draft.provider : null;
     const rawModel = typeof draft?.model === 'string' ? draft.model.trim() : '';
     const persistedModel = rawModel.length > 0 ? rawModel : null;
+    const modelRuntimeTarget = this.hydrateModelRuntimeTarget(draft?.modelRuntimeTarget);
     seedProviderModelIntoKnownCatalog(provider, persistedModel);
     const persistedAgentId = typeof draft?.agentId === 'string' ? draft.agentId.trim() : '';
     const isKnownAgent = persistedAgentId.length > 0
@@ -480,10 +538,13 @@ export class NewSessionDraftService {
       workingDirectory: this.normalizePath(draft?.workingDirectory),
       prompt: typeof draft?.prompt === 'string' ? draft.prompt : '',
       provider,
-      model: this.normalizeDraftModel(
-        provider,
-        persistedModel,
-      ),
+      model: modelRuntimeTarget?.kind === 'local-model'
+        ? modelRuntimeTarget.modelId
+        : this.normalizeDraftModel(
+            provider,
+            persistedModel,
+          ),
+      modelRuntimeTarget,
       reasoningEffort: this.isReasoningEffort(draft?.reasoningEffort) ? draft.reasoningEffort : null,
       nodeId: typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0 ? draft.nodeId : null,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
@@ -572,6 +633,7 @@ export class NewSessionDraftService {
       prompt: '',
       provider: null,
       model: null,
+      modelRuntimeTarget: null,
       reasoningEffort: null,
       nodeId: null,
       yoloMode: null,
@@ -610,6 +672,7 @@ export class NewSessionDraftService {
   private draftHasContent(draft: NewSessionDraftState): boolean {
     return (
       draft.prompt.trim().length > 0 ||
+      draft.modelRuntimeTarget !== null ||
       draft.pendingFolders.length > 0
     );
   }
@@ -696,5 +759,60 @@ export class NewSessionDraftService {
       value === 'copilot' ||
       value === 'cursor' ||
       value === 'auto';
+  }
+
+  private hydrateModelRuntimeTarget(value: unknown): ModelRuntimeTarget | null {
+    if (!this.isRecord(value) || typeof value['kind'] !== 'string') {
+      return null;
+    }
+
+    if (value['kind'] === 'cli') {
+      return {
+        kind: 'cli',
+        provider: this.isProviderType(value['provider']) ? value['provider'] : undefined,
+      };
+    }
+
+    if (
+      value['kind'] !== 'local-model' ||
+      !this.isLocalModelSource(value['source']) ||
+      !this.isLocalModelEndpointProvider(value['endpointProvider']) ||
+      !this.isNonEmptyString(value['endpointId']) ||
+      !this.isNonEmptyString(value['modelId']) ||
+      !this.isNonEmptyString(value['selectorId'])
+    ) {
+      return null;
+    }
+
+    const nodeId = this.isNonEmptyString(value['nodeId']) ? value['nodeId'].trim() : undefined;
+    const nodeName = this.isNonEmptyString(value['nodeName']) ? value['nodeName'].trim() : undefined;
+    return {
+      kind: 'local-model',
+      source: value['source'],
+      endpointProvider: value['endpointProvider'],
+      endpointId: value['endpointId'].trim(),
+      modelId: value['modelId'].trim(),
+      selectorId: value['selectorId'].trim(),
+      ...(nodeId ? { nodeId } : {}),
+      ...(nodeName ? { nodeName } : {}),
+    };
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  private isLocalModelSource(value: unknown): value is 'this-device' | 'worker-node' {
+    return value === 'this-device' || value === 'worker-node';
+  }
+
+  private isLocalModelEndpointProvider(
+    value: unknown,
+  ): value is 'ollama' | 'openai-compatible' {
+    return value === 'ollama' || value === 'openai-compatible';
   }
 }

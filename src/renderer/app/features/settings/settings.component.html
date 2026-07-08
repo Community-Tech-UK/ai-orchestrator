@@ -1,6 +1,19 @@
 <div class="settings-page" (keydown)="onKeydown($event)" tabindex="0">
   <!-- Left nav rail -->
-  <aside class="settings-sidebar">
+  <aside class="settings-sidebar" [class.nav-collapsed]="navCollapsed()">
+    <button
+      class="settings-nav-toggle"
+      type="button"
+      (click)="toggleNav()"
+      aria-controls="settings-section-navigation"
+      [attr.aria-label]="navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation'"
+      [attr.aria-expanded]="!navCollapsed()"
+      [title]="navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation'"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6" />
+      </svg>
+    </button>
     <div class="sidebar-search">
       <span class="search-icon"><app-settings-nav-icon name="search" /></span>
       <input
@@ -24,13 +37,15 @@
       }
     </div>
 
-    <nav class="settings-nav">
+    <nav id="settings-section-navigation" class="settings-nav">
       @for (item of ungroupedItems(); track item.id) {
         <button
           class="nav-item"
           type="button"
           [class.active]="activeTab() === item.id"
           (click)="selectTab(item.id)"
+          [title]="item.label"
+          [attr.aria-label]="item.label"
         >
           <span class="nav-item-icon"><app-settings-nav-icon [name]="item.id" /></span>
           <span class="nav-item-label">{{ item.label }}</span>
@@ -50,6 +65,8 @@
             type="button"
             [class.active]="activeTab() === item.id"
             (click)="selectTab(item.id)"
+            [title]="item.label"
+            [attr.aria-label]="item.label"
           >
             <span class="nav-item-icon"><app-settings-nav-icon [name]="item.id" /></span>
             <span class="nav-item-label">{{ item.label }}</span>

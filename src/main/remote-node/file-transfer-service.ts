@@ -15,12 +15,16 @@ export interface CopyToRemoteParams {
   localPath: string;
   remotePath: string;
   nodeId: string;
+  expectedSha256?: string;
+  overwrite?: boolean;
 }
 
 export interface CopyFromRemoteParams {
   remotePath: string;
   localPath: string;
   nodeId: string;
+  expectedSha256?: string;
+  overwrite?: boolean;
 }
 
 export interface FileTransferResult {
@@ -28,6 +32,8 @@ export interface FileTransferResult {
   size: number;
   from: string;
   to: string;
+  sha256: string;
+  mimeType?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +81,10 @@ export class FileTransferService {
     }
 
     const buffer = await fs.readFile(resolvedLocal);
+    const digest = sha256(buffer);
+    if (params.expectedSha256 && digest !== params.expectedSha256.toLowerCase()) {
+      throw new Error('integrity_mismatch');
+    }
     const data = buffer.toString('base64');
 
     logger.info('copyToRemote: sending file', {
@@ -100,7 +110,7 @@ export class FileTransferService {
     if (
       readback.size !== buffer.length ||
       remoteBuffer.length !== buffer.length ||
-      sha256(remoteBuffer) !== sha256(buffer)
+      sha256(remoteBuffer) !== digest
     ) {
       throw new Error('copy_to_remote_integrity_mismatch');
     }
@@ -116,7 +126,9 @@ export class FileTransferService {
       ok: true,
       size: buffer.length,
       from: resolvedLocal,
-      to: `${node.name ?? nodeId}:${remotePath}`
+      to: `${node.name ?? nodeId}:${remotePath}`,
+      sha256: digest,
+      mimeType: readback.mimeType,
     };
   }
 
@@ -150,9 +162,36 @@ export class FileTransferService {
 
     // Write locally
     const resolvedLocal = path.resolve(localPath);
+    if (params.overwrite !== true) {
+      try {
+        await fs.stat(resolvedLocal);
+        throw new Error(`destination_exists: ${resolvedLocal}`);
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('destination_exists:')) {
+          throw error;
+        }
+        if (!isNotFoundError(error)) {
+          throw error;
+        }
+      }
+    }
     await fs.mkdir(path.dirname(resolvedLocal), { recursive: true });
     const buffer = Buffer.from(result.data, 'base64');
     await fs.writeFile(resolvedLocal, buffer);
+    const localBuffer = await fs.readFile(resolvedLocal);
+    const digest = sha256(localBuffer);
+    if (
+      result.size !== buffer.length ||
+      localBuffer.length !== buffer.length ||
+      digest !== sha256(buffer)
+    ) {
+      await fs.rm(resolvedLocal, { force: true });
+      throw new Error('copy_from_remote_integrity_mismatch');
+    }
+    if (params.expectedSha256 && digest !== params.expectedSha256.toLowerCase()) {
+      await fs.rm(resolvedLocal, { force: true });
+      throw new Error('integrity_mismatch');
+    }
 
     logger.info('copyFromRemote: complete', {
       remotePath,
@@ -165,7 +204,9 @@ export class FileTransferService {
       ok: true,
       size: buffer.length,
       from: `${node.name ?? nodeId}:${remotePath}`,
-      to: resolvedLocal
+      to: resolvedLocal,
+      sha256: digest,
+      mimeType: result.mimeType,
     };
   }
 }
@@ -176,4 +217,8 @@ export function getFileTransferService(): FileTransferService {
 
 function sha256(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }

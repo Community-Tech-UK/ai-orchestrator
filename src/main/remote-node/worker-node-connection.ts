@@ -17,6 +17,7 @@ import { getRemoteNodeConfig } from './remote-node-config';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import { getWorkerNodeRegistry } from './worker-node-registry';
 import { getRemoteNodeRosterService } from './remote-node-roster-service';
+import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from './rpc-schemas';
 import { getRemoteWorkerRepairTracker } from './remote-worker-repair-tracker';
@@ -208,6 +209,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send(IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, nodes);
       }
+      getLocalModelInventoryService().refresh();
     } catch {
       // Not in Electron context (e.g., tests)
     }

@@ -507,6 +507,210 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(listHandler).not.toHaveBeenCalled();
   });
 
+  it('dispatches download_from_node to the matching tool with validated payload', async () => {
+    const downloadHandler = vi.fn(async (args: unknown) => ({ ok: true, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'download_from_node',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: downloadHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 51,
+      method: 'orchestrator_tools.download_from_node',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: {
+          node: 'windows-pc',
+          remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+          localPath: '_scratch/file.docx',
+          overwrite: false,
+        },
+      },
+    });
+
+    expect(downloadHandler).toHaveBeenCalledOnce();
+    expect(downloadHandler.mock.calls[0]?.[0]).toEqual({
+      node: 'windows-pc',
+      remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+      localPath: '_scratch/file.docx',
+      overwrite: false,
+    });
+    expect(result).toEqual({
+      ok: true,
+      echoed: {
+        node: 'windows-pc',
+        remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+        localPath: '_scratch/file.docx',
+        overwrite: false,
+      },
+    });
+  });
+
+  it('dispatches download_from_node without localPath so the tool can choose a workspace artifact path', async () => {
+    const downloadHandler = vi.fn(async (args: unknown) => ({ ok: true, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'download_from_node',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: downloadHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 59,
+      method: 'orchestrator_tools.download_from_node',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: {
+          node: 'windows-pc',
+          remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+        },
+      },
+    });
+
+    expect(downloadHandler).toHaveBeenCalledOnce();
+    expect(downloadHandler.mock.calls[0]?.[0]).toEqual({
+      node: 'windows-pc',
+      remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+    });
+    expect(result).toEqual({
+      ok: true,
+      echoed: {
+        node: 'windows-pc',
+        remotePath: 'C:\\Users\\James\\Downloads\\file.docx',
+      },
+    });
+  });
+
+  it('rejects download_from_node payloads without a remotePath before invoking the tool', async () => {
+    const downloadHandler = vi.fn();
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'download_from_node',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: downloadHandler,
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 52,
+        method: 'orchestrator_tools.download_from_node',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { node: 'windows-pc', localPath: '_scratch/file.docx' },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(downloadHandler).not.toHaveBeenCalled();
+  });
+
+  it('dispatches file transfer helper tools to the matching tool with validated payloads', async () => {
+    const listHandler = vi.fn(async (args: unknown) => ({ tool: 'list', args }));
+    const findHandler = vi.fn(async (args: unknown) => ({ tool: 'find', args }));
+    const infoHandler = vi.fn(async (args: unknown) => ({ tool: 'info', args }));
+    const uploadHandler = vi.fn(async (args: unknown) => ({ tool: 'upload', args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        { name: 'list_node_files', description: 'test tool', inputSchema: { type: 'object' }, handler: listHandler },
+        { name: 'find_node_files', description: 'test tool', inputSchema: { type: 'object' }, handler: findHandler },
+        { name: 'get_node_file_info', description: 'test tool', inputSchema: { type: 'object' }, handler: infoHandler },
+        { name: 'upload_to_node', description: 'test tool', inputSchema: { type: 'object' }, handler: uploadHandler },
+      ],
+    });
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 54,
+      method: 'orchestrator_tools.list_node_files',
+      params: { instanceId: KNOWN_INSTANCE, payload: { node: 'windows-pc', path: 'C:\\Users\\James\\Downloads' } },
+    });
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 55,
+      method: 'orchestrator_tools.find_node_files',
+      params: { instanceId: KNOWN_INSTANCE, payload: { node: 'windows-pc', extensions: ['.pdf'], limit: 5 } },
+    });
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 56,
+      method: 'orchestrator_tools.get_node_file_info',
+      params: { instanceId: KNOWN_INSTANCE, payload: { node: 'windows-pc', path: 'C:\\Users\\James\\Downloads\\a.pdf' } },
+    });
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 57,
+      method: 'orchestrator_tools.upload_to_node',
+      params: { instanceId: KNOWN_INSTANCE, payload: { node: 'windows-pc', localPath: '_scratch/a.pdf' } },
+    });
+
+    expect(listHandler).toHaveBeenCalledWith({ node: 'windows-pc', path: 'C:\\Users\\James\\Downloads' });
+    expect(findHandler).toHaveBeenCalledWith({ node: 'windows-pc', extensions: ['.pdf'], limit: 5 });
+    expect(infoHandler).toHaveBeenCalledWith({
+      node: 'windows-pc',
+      path: 'C:\\Users\\James\\Downloads\\a.pdf',
+    });
+    expect(uploadHandler).toHaveBeenCalledWith({ node: 'windows-pc', localPath: '_scratch/a.pdf' });
+  });
+
+  it('dispatches collect_browser_download to the matching tool with validated payload', async () => {
+    const collectHandler = vi.fn(async (args: unknown) => ({ ok: false, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'collect_browser_download',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: collectHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 53,
+      method: 'orchestrator_tools.collect_browser_download',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: {
+          node: 'windows-pc',
+          fileNameHint: 'invoice',
+          extensions: ['.pdf'],
+        },
+      },
+    });
+
+    expect(collectHandler).toHaveBeenCalledOnce();
+    expect(collectHandler.mock.calls[0]?.[0]).toEqual({
+      node: 'windows-pc',
+      fileNameHint: 'invoice',
+      extensions: ['.pdf'],
+    });
+    expect(result).toEqual({
+      ok: false,
+      echoed: {
+        node: 'windows-pc',
+        fileNameHint: 'invoice',
+        extensions: ['.pdf'],
+      },
+    });
+  });
+
   it('dispatches settings.set to the matching tool with validated payload', async () => {
     const setHandler = vi.fn(async (args: unknown) => ({ ok: true, echoed: args }));
     const { server } = makeServer({

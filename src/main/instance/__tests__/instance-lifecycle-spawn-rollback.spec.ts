@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   promptHistoryRecord: vi.fn(),
   promptHistoryClear: vi.fn(),
   maybeGenerateTitle: vi.fn().mockResolvedValue(undefined),
+  localModelInventory: [] as unknown[],
 }));
 
 vi.mock('electron', () => ({
@@ -171,6 +172,12 @@ vi.mock('../auto-title-service', () => ({
 
 vi.mock('../../observability/lifecycle-trace', () => ({
   recordLifecycleTrace: vi.fn(),
+}));
+
+vi.mock('../../local-models/local-model-inventory-service', () => ({
+  getLocalModelInventoryService: () => ({
+    list: () => mocks.localModelInventory,
+  }),
 }));
 
 vi.mock('../warm-codemem', () => ({
@@ -373,6 +380,7 @@ describe('createInstance spawn transaction rollback', () => {
     mocks.resolveAgent.mockResolvedValue(getDefaultAgent());
     mocks.supervisorRegister.mockReturnValue({ supervisorNodeId: 'sup-1', workerNodeId: 'worker-1' });
     mocks.maybeGenerateTitle.mockResolvedValue(undefined);
+    mocks.localModelInventory.length = 0;
   });
 
   it('rolls back Phase-1 registrations when RLM init fails (before any adapter exists)', async () => {
@@ -527,5 +535,83 @@ describe('createInstance spawn transaction rollback', () => {
         }),
       }),
     );
+  });
+
+  it('passes local-model runtime targets to adapter creation with resolved remote execution', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const runtimeTarget = {
+      kind: 'local-model' as const,
+      source: 'worker-node' as const,
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    };
+    mocks.localModelInventory.push({
+      selectorId: runtimeTarget.selectorId,
+      source: 'worker-node',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+      healthy: true,
+    });
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      modelRuntimeTarget: runtimeTarget,
+    });
+    await instance.readyPromise;
+
+    expect(instance.executionLocation).toEqual({ type: 'remote', nodeId: 'node-win' });
+    expect(instance.currentModel).toBe('qwen');
+    expect(instance.runtimeSummary).toMatchObject({
+      kind: 'local-model',
+      label: 'qwen on windows-pc',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+    });
+    expect(mocks.createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cliType: 'claude',
+        executionLocation: { type: 'remote', nodeId: 'node-win' },
+        options: expect.objectContaining({
+          model: 'qwen',
+          modelRuntimeTarget: runtimeTarget,
+        }),
+      }),
+    );
+  });
+
+  it('fails local-model launches clearly when the selected worker model is no longer healthy', async () => {
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    const runtimeTarget = {
+      kind: 'local-model' as const,
+      source: 'worker-node' as const,
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    };
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      modelRuntimeTarget: runtimeTarget,
+    });
+
+    await expect(instance.readyPromise).rejects.toThrow(
+      'qwen is no longer available on windows-pc. Pick another model or start the endpoint on that worker.',
+    );
+    expect(mocks.createAdapter).not.toHaveBeenCalled();
   });
 });

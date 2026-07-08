@@ -13,6 +13,7 @@ import { FileAttachmentService } from './file-attachment.service';
 import { normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
+import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 export interface WelcomeProjectContext {
@@ -31,6 +32,7 @@ interface WelcomeLaunchConfig {
   agentId: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
   forceNodeId?: string;
@@ -95,6 +97,7 @@ export class WelcomeCoordinatorService {
   readonly pendingFiles = this.newSessionDraft.pendingFiles;
   readonly pendingFolders = this.newSessionDraft.pendingFolders;
   readonly workingDirectory = this.newSessionDraft.workingDirectory;
+  readonly modelRuntimeTarget = this.newSessionDraft.modelRuntimeTarget;
 
   // ---------------------------------------------------------------------------
   // Computed values
@@ -210,6 +213,7 @@ export class WelcomeCoordinatorService {
       agentId: plan.config.agentId,
       provider: plan.config.provider,
       model: plan.config.model,
+      ...(plan.config.modelRuntimeTarget ? { modelRuntimeTarget: plan.config.modelRuntimeTarget } : {}),
       ...(typeof plan.config.yoloMode === 'boolean' ? { yoloMode: plan.config.yoloMode } : {}),
       launchMode: plan.config.launchMode,
       forceNodeId: plan.forceNodeId,
@@ -286,17 +290,24 @@ export class WelcomeCoordinatorService {
 
   private prepareWelcomeLaunch(message: string): WelcomeLaunchPlan | null {
     const workingDir = this.workingDirectory() || '.';
+    const modelRuntimeTarget = this.newSessionDraft.modelRuntimeTarget() ?? undefined;
+    const localModelTarget = modelRuntimeTarget?.kind === 'local-model'
+      ? modelRuntimeTarget
+      : undefined;
     const selectedProvider =
-      this.newSessionDraft.provider() ??
-      this.providerState.getProviderForCreation();
+      localModelTarget
+        ? 'auto'
+        : (this.newSessionDraft.provider() ?? this.providerState.getProviderForCreation());
     const provider = selectedProvider === 'auto' ? undefined : selectedProvider;
     const requestedModel =
       this.newSessionDraft.model() ??
       this.providerState.getModelForCreation();
-    const model = provider
-      ? normalizeModelForProvider(provider, requestedModel)
-      : undefined;
-    const launchMode = provider === 'claude'
+    const model = localModelTarget
+      ? localModelTarget.modelId
+      : provider
+        ? normalizeModelForProvider(provider, requestedModel)
+        : undefined;
+    const launchMode = provider === 'claude' && !modelRuntimeTarget
       ? (this.newSessionDraft.launchMode() ?? this.providerState.getLaunchModeForProvider('claude'))
       : undefined;
     const yoloMode = this.newSessionDraft.yoloMode();
@@ -305,7 +316,7 @@ export class WelcomeCoordinatorService {
       message,
       pendingFolders,
     );
-    const forceNodeId = this.welcomeSelectedNodeId() ?? undefined;
+    const forceNodeId = this.welcomeSelectedNodeId() ?? localModelTarget?.nodeId ?? undefined;
 
     let effectiveWorkingDir = workingDir;
     if (forceNodeId) {
@@ -344,6 +355,7 @@ export class WelcomeCoordinatorService {
         agentId: this.newSessionDraft.agentId(),
         provider,
         model,
+        ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
         ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         launchMode,
         forceNodeId,

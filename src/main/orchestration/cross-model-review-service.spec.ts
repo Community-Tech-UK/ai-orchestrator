@@ -9,6 +9,7 @@ import type { CliType } from '../cli/cli-detection';
 
 type TestReviewService = CrossModelReviewService & {
   reviewerPool: ReviewerPool;
+  refreshAvailability: () => Promise<void>;
   parseReviewResponse: (reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number) => ReviewResult | null;
   collectSuccessfulReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult[]>;
   executeOneReview: (request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult | null>;
@@ -82,11 +83,15 @@ vi.mock('../providers/provider-runtime-service', () => ({
   getProviderRuntimeService: vi.fn(),
 }));
 
+const detectionTestState = vi.hoisted(() => ({
+  availableClis: ['gemini', 'codex', 'copilot'] as string[],
+}));
+
 vi.mock('../cli/cli-detection', () => ({
   CliDetectionService: {
     getInstance: () => ({
       detectAll: vi.fn().mockResolvedValue({
-        available: [{ name: 'gemini' }, { name: 'codex' }, { name: 'copilot' }],
+        available: detectionTestState.availableClis.map((name) => ({ name })),
       }),
     }),
   },
@@ -107,6 +112,8 @@ vi.mock('../instance/instance-manager', () => ({
 // beforeEach. vi.hoisted lets the (hoisted) vi.mock factory reference it.
 const reviewTestState = vi.hoisted(() => ({
   modelByProvider: {} as Record<string, string>,
+  providers: [] as string[],
+  maxReviewers: 2,
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -114,8 +121,8 @@ vi.mock('../core/config/settings-manager', () => ({
     getAll: () => ({
       crossModelReviewEnabled: true,
       crossModelReviewDepth: 'structured',
-      crossModelReviewMaxReviewers: 2,
-      crossModelReviewProviders: [],
+      crossModelReviewMaxReviewers: reviewTestState.maxReviewers,
+      crossModelReviewProviders: reviewTestState.providers,
       crossModelReviewTimeout: 30,
       crossModelReviewTypes: ['code', 'plan', 'architecture'],
       crossModelReviewModelByProvider: reviewTestState.modelByProvider,
@@ -135,6 +142,9 @@ describe('CrossModelReviewService', () => {
   beforeEach(() => {
     CrossModelReviewService._resetForTesting();
     reviewTestState.modelByProvider = {};
+    reviewTestState.providers = [];
+    reviewTestState.maxReviewers = 2;
+    detectionTestState.availableClis = ['gemini', 'codex', 'copilot'];
     vi.mocked(resolveCliType).mockImplementation(async (cli) => {
       if (!cli || cli === 'auto' || cli === 'openai') return 'codex';
       return cli as CliType;
@@ -190,6 +200,45 @@ describe('CrossModelReviewService', () => {
     expect(status.pendingReviews).toBe(0);
   });
 
+  it('uses Antigravity when a legacy Gemini reviewer is configured and agy is detected', async () => {
+    detectionTestState.availableClis = ['antigravity', 'codex'];
+    reviewTestState.providers = ['gemini', 'codex'];
+    reviewTestState.maxReviewers = 1;
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    service.setInstanceManager(makeInstanceManager({
+      displayName: 'Local instance',
+      workingDirectory: process.cwd(),
+      outputBuffer: [{ type: 'user', content: 'Implement the review service carefully.' }],
+      executionLocation: { type: 'local' },
+    }) as never);
+
+    const adapterCliTypes: string[] = [];
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ cliType }) => {
+      adapterCliTypes.push(cliType);
+      return {
+        sendMessage: async () => ({
+          content: JSON.stringify({
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+            overall_verdict: 'APPROVE',
+            summary: 'approved',
+          }),
+        }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    const reviewResult = new Promise((resolve) => service.once('review:result', resolve));
+    service.bufferMessage('inst-legacy-gemini-reviewer', 'assistant', REVIEWABLE_CONTENT);
+
+    await service.onInstanceIdle('inst-legacy-gemini-reviewer');
+    await reviewResult;
+
+    expect(adapterCliTypes).toEqual(['antigravity']);
+  });
+
   it('skips unparsable reviewer responses instead of surfacing concerns', () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
     expect(service.parseReviewResponse('gemini', 'not valid json', 'structured', 42)).toBeNull();
@@ -217,13 +266,13 @@ describe('CrossModelReviewService', () => {
 
   it('uses failover reviewers when an initially selected reviewer fails', async () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
-    service.reviewerPool.setAvailable(['gemini', 'codex', 'copilot']);
+    service.reviewerPool.setAvailable(['antigravity', 'codex', 'copilot']);
 
     vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ cliType, options }) => ({
       sendMessage: async ({ content }: { content: string }) => {
         expect(options.workingDirectory).toBe('/tmp/review-context');
         expect(content).toContain('Implement the review service carefully.');
-        if (cliType === 'gemini') {
+        if (cliType === 'antigravity') {
           throw new Error('rate limit');
         }
         return {
@@ -239,7 +288,7 @@ describe('CrossModelReviewService', () => {
       },
     }));
 
-    const results = await service.collectSuccessfulReviews(makeRequest(), ['gemini', 'codex'], 30, new AbortController().signal);
+    const results = await service.collectSuccessfulReviews(makeRequest(), ['antigravity', 'codex'], 30, new AbortController().signal);
 
     expect(results).toHaveLength(2);
     expect(results.map((result) => result.reviewerId)).toEqual(expect.arrayContaining(['codex', 'copilot']));

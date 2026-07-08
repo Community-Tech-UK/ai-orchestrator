@@ -23,6 +23,7 @@ import { runBrowserMcpForwarder } from '../browser-gateway/browser-mcp-stdio-ser
 import { runBrowserExtensionNativeHost } from '../browser-gateway/browser-extension-native-host';
 import { runRemoteNodesCli } from './remote-nodes-cli';
 import { runReleaseReadinessCli } from './release-readiness-cli';
+import { runSettingsCli } from './settings-cli';
 
 type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
 
@@ -33,6 +34,7 @@ const SUBCOMMANDS = {
   'native-host': (() => runBrowserExtensionNativeHost()) as AioMcpRunner,
   'remote-nodes': runRemoteNodesCli,
   'release-readiness': runReleaseReadinessCli,
+  settings: runSettingsCli,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;
@@ -75,6 +77,7 @@ function formatHelp(): string {
     '  native-host         Chrome native-messaging host for the browser extension',
     '  remote-nodes        Print the safe remote worker roster (--json for JSON)',
     '  release-readiness   Build release readiness report from evidence JSON',
+    '  settings            Inspect and repair app settings through the parent app',
     '',
   ].join('\n');
 }

@@ -71,6 +71,16 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_NODE_UPDATE_BROWSER_AUTOMATION: 'remote-node:update-browser-automation',
   REMOTE_NODE_UPDATE_ANDROID_AUTOMATION: 'remote-node:update-android-automation',
   REMOTE_NODE_RUN_BROWSER_LOGIN: 'remote-node:run-browser-login',
+  PAIR_BOTH_COORDINATOR_START: 'pair-both:coordinator:start',
+  PAIR_BOTH_COORDINATOR_STOP: 'pair-both:coordinator:stop',
+  PAIR_BOTH_COORDINATOR_APPROVE: 'pair-both:coordinator:approve',
+  PAIR_BOTH_COORDINATOR_REJECT: 'pair-both:coordinator:reject',
+  PAIR_BOTH_COORDINATOR_STATE: 'pair-both:coordinator:state',
+  PAIR_BOTH_WORKER_DISCOVER: 'pair-both:worker:discover',
+  PAIR_BOTH_WORKER_CONNECT: 'pair-both:worker:connect',
+  PAIR_BOTH_WORKER_CONFIRM_CODE: 'pair-both:worker:confirm-code',
+  PAIR_BOTH_WORKER_WAIT_RESULT: 'pair-both:worker:wait-result',
+  PAIR_BOTH_WORKER_APPLY_MANUAL: 'pair-both:worker:apply-manual',
 
   // Remote Filesystem operations
   REMOTE_FS_READ_DIR: 'remote-fs:read-dir',

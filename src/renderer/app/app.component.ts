@@ -25,6 +25,9 @@ import { FirstRunService } from './core/services/first-run.service';
 import { ScratchDirectoryService } from './core/services/scratch-directory.service';
 import { RemoteNodeStore } from './core/state/remote-node.store';
 import { getControlSurface } from './shared/control-surface/control-surface-nav';
+import { RoleChoiceComponent } from './features/worker-mode/role-choice.component';
+import { WorkerModeComponent } from './features/worker-mode/worker-mode.component';
+import type { HarnessRole } from '../../shared/types/pair-both.types';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -71,6 +74,8 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     PauseBannerComponent,
     PauseDetectorErrorModalComponent,
     TerminalDrawerComponent,
+    RoleChoiceComponent,
+    WorkerModeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',
@@ -144,6 +149,13 @@ export class AppComponent implements OnInit, OnDestroy {
 
   protected toggleTerminal(): void {
     this.terminalOpen.update((open) => !open);
+  }
+
+  protected async selectHarnessRole(role: Exclude<HarnessRole, 'unset'>): Promise<void> {
+    await this.settingsStore.set('workerMode', {
+      ...this.settingsStore.workerMode(),
+      role,
+    });
   }
 
   constructor() {

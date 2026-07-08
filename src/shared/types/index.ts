@@ -40,3 +40,5 @@ export * from './provider-doctor.types';
 export * from './workflow-lifecycle.types';
 export * from './thin-client-event.types';
 export * from './campaign.types';
+export * from './local-model-runtime.types';
+export * from './pair-both.types';

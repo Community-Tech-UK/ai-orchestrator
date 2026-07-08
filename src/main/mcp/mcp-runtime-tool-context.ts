@@ -31,6 +31,13 @@ export interface McpRuntimeToolContextSelection {
   query: string | null;
 }
 
+const BROWSER_GATEWAY_SERVER_ID = 'browser-gateway';
+const BROWSER_GATEWAY_FRONT_DOOR_TOOL_NAMES = [
+  'browser.list_targets',
+  'browser.find_or_open',
+  'browser.health',
+] as const;
+
 function highlight(text: string, query: string): string {
   const regex = new RegExp(`(${query})`, 'gi');
   return text.replace(regex, '**$1**');
@@ -183,7 +190,7 @@ export function buildMcpRuntimeToolContextSelection(
   const maxTools = options.maxTools ?? 6;
   const query = options.query?.trim() ? options.query.trim() : undefined;
 
-  const selectedToolIds = query
+  const searchSelectedToolIds = query
     ? searchMcpToolsSnapshot(snapshot, {
         query,
         includeDeprecated: false,
@@ -192,6 +199,11 @@ export function buildMcpRuntimeToolContextSelection(
         minScore: 0.15,
       }).map((result) => result.tool.id)
     : snapshot.loadedToolIds.slice(0, maxTools);
+  const selectedToolIds = mergePinnedToolIds(
+    pinnedToolIdsForQuery(snapshot, query),
+    searchSelectedToolIds,
+    maxTools,
+  );
 
   return {
     serverSummaries: snapshot.serverSummaries,
@@ -199,4 +211,53 @@ export function buildMcpRuntimeToolContextSelection(
     deferredToolCount: Math.max(0, snapshot.tools.length - selectedToolIds.length),
     query: query ?? null,
   };
+}
+
+function pinnedToolIdsForQuery(
+  snapshot: MCPToolSearchSnapshot,
+  query: string | undefined,
+): string[] {
+  if (!query || !isBrowserGatewayFrontDoorQuery(query)) {
+    return [];
+  }
+
+  const browserGatewayTools = new Map(
+    snapshot.tools
+      .filter((tool) => tool.serverId === BROWSER_GATEWAY_SERVER_ID)
+      .map((tool) => [tool.name, tool.id]),
+  );
+  return BROWSER_GATEWAY_FRONT_DOOR_TOOL_NAMES
+    .map((name) => browserGatewayTools.get(name))
+    .filter((toolId): toolId is string => Boolean(toolId));
+}
+
+function isBrowserGatewayFrontDoorQuery(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (/\bbrowser\s+gateway\b/.test(normalized)) {
+    return true;
+  }
+
+  const mentionsBrowserSurface =
+    /\b(browser|chrome|tab|url|web\s*page|website|login|logged[-\s]*in|form)\b/.test(normalized);
+  const mentionsSharedOrComputer =
+    /\b(shared|share|open|current|mac|local|windows[-\s]*pc|pc|computer)\b/.test(normalized);
+  return mentionsBrowserSurface && mentionsSharedOrComputer;
+}
+
+function mergePinnedToolIds(
+  pinnedToolIds: string[],
+  selectedToolIds: string[],
+  maxTools: number,
+): string[] {
+  const merged: string[] = [];
+  for (const toolId of [...pinnedToolIds, ...selectedToolIds]) {
+    if (merged.includes(toolId)) {
+      continue;
+    }
+    merged.push(toolId);
+    if (merged.length >= maxTools) {
+      break;
+    }
+  }
+  return merged;
 }

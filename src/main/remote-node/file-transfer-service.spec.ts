@@ -1,4 +1,5 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -75,5 +76,32 @@ describe('FileTransferService', () => {
       remotePath: '/work/_scratch/app.aab',
       nodeId: 'node-1',
     })).rejects.toThrow('copy_to_remote_integrity_mismatch');
+  });
+
+  it('returns SHA-256 and MIME metadata for copied remote files', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'aio-transfer-'));
+    const localPath = join(tempDir, 'downloaded.pdf');
+    const data = Buffer.from('remote pdf bytes');
+    sendRpc.mockResolvedValueOnce({
+      data: data.toString('base64'),
+      size: data.length,
+      mimeType: 'application/pdf',
+    });
+
+    const result = await new FileTransferService().copyFromRemote({
+      remotePath: 'C:\\Users\\James\\Downloads\\downloaded.pdf',
+      localPath,
+      nodeId: 'node-1',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      size: data.length,
+      from: 'builder:C:\\Users\\James\\Downloads\\downloaded.pdf',
+      to: localPath,
+      sha256: createHash('sha256').update(data).digest('hex'),
+      mimeType: 'application/pdf',
+    });
+    expect(readFileSync(localPath)).toEqual(data);
   });
 });

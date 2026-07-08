@@ -9,6 +9,7 @@ import type {
   UnifiedModelEntry,
   CatalogStatus,
 } from '../../../../../shared/types/unified-model-catalog.types';
+import type { LocalModelInventoryEntry } from '../../../../../shared/types/local-model-runtime.types';
 
 export interface UnifiedCatalogSnapshot {
   models: UnifiedModelEntry[];
@@ -18,6 +19,10 @@ export interface UnifiedCatalogSnapshot {
 export interface CatalogUpdatedPushPayload {
   totalEntries: number;
   sources: string[];
+}
+
+export interface LocalModelInventorySnapshot {
+  models: LocalModelInventoryEntry[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -152,6 +157,21 @@ export class ProviderIpcService {
     }>;
   }
 
+  async getLocalModelInventory(): Promise<{
+    success: boolean;
+    data?: LocalModelInventorySnapshot;
+    error?: { message: string };
+  }> {
+    if (!this.api?.getLocalModelInventory) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.getLocalModelInventory() as Promise<{
+      success: boolean;
+      data?: LocalModelInventorySnapshot;
+      error?: { message: string };
+    }>;
+  }
+
   /**
    * Subscribe to unified-catalog refreshes (main -> renderer). Returns an
    * unsubscribe function; a no-op outside Electron.
@@ -159,6 +179,13 @@ export class ProviderIpcService {
   onModelsCatalogUpdated(callback: (payload: CatalogUpdatedPushPayload) => void): () => void {
     if (!this.api?.onModelsCatalogUpdated) return () => { /* no-op outside Electron */ };
     return this.api.onModelsCatalogUpdated(callback);
+  }
+
+  onLocalModelInventoryUpdated(callback: (payload: LocalModelInventorySnapshot) => void): () => void {
+    if (!this.api?.onLocalModelInventoryUpdated) return () => { /* no-op outside Electron */ };
+    return this.api.onLocalModelInventoryUpdated((payload) => {
+      callback(payload as LocalModelInventorySnapshot);
+    });
   }
 
   // ============================================

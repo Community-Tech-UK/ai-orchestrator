@@ -15,6 +15,7 @@ import { InputPanelComponent } from './input-panel.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
 import { NodePickerComponent } from '../../shared/components/node-picker/node-picker.component';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
+import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 
 interface WelcomeProjectContext {
   branch: string | null;
@@ -129,6 +130,7 @@ interface WelcomeProjectContext {
           <app-node-picker
             [selectedNodeId]="selectedNodeId()"
             [selectedCli]="selectedCli()"
+            [selectedLocalModelTarget]="selectedLocalModelTarget()"
             (nodeSelected)="onNodeSelected($event)"
           />
 
@@ -433,6 +435,7 @@ export class InstanceWelcomeComponent {
   projectContext = input<WelcomeProjectContext | null>(null);
   isProjectContextLoading = input(false);
   selectedCli = input<string>('auto');
+  selectedLocalModelTarget = input<ModelRuntimeTarget | null>(null);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
   canShowSourceControl = input(false);

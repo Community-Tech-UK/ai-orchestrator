@@ -112,6 +112,7 @@ import { getKnownModelsForCli, isRestoreOrReplayContinuity, requiresFreshConfigu
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
 import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
+import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 
 const logger = getLogger('InstanceLifecycle');
 
@@ -201,6 +202,32 @@ export class InstanceLifecycleManager extends EventEmitter {
       timeoutMs: 2500,
       logger,
     });
+  }
+
+  private assertLocalModelRuntimeAvailable(target: InstanceCreateConfig['modelRuntimeTarget']): void {
+    if (target?.kind !== 'local-model' || target.source !== 'worker-node') {
+      return;
+    }
+
+    const entry = getLocalModelInventoryService().list().find((candidate) =>
+      candidate.selectorId === target.selectorId ||
+      (
+        candidate.source === 'worker-node' &&
+        candidate.nodeId === target.nodeId &&
+        candidate.endpointProvider === target.endpointProvider &&
+        candidate.endpointId === target.endpointId &&
+        candidate.modelId === target.modelId
+      )
+    );
+    if (entry?.healthy) {
+      return;
+    }
+
+    const nodeName = entry?.nodeName ?? target.nodeName ?? target.nodeId ?? 'that worker';
+    throw new Error(
+      `${target.modelId} is no longer available on ${nodeName}. ` +
+      'Pick another model or start the endpoint on that worker.',
+    );
   }
 
   constructor(deps: LifecycleDependencies) {
@@ -1332,6 +1359,9 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // Resolve CLI provider type
         const settingsAll = this.settings.getAll();
+        const localModelTarget = config.modelRuntimeTarget?.kind === 'local-model'
+          ? config.modelRuntimeTarget
+          : null;
         logger.debug('Resolving provider', {
           requested: config.provider,
           default: settingsAll.defaultCli
@@ -1356,15 +1386,15 @@ export class InstanceLifecycleManager extends EventEmitter {
         // per-provider map here makes a backend spawn start on the same model the
         // picker pre-selects for this provider.
         const settingsModel = settingsAll.defaultModel;
-        let resolvedModel = resolveInitialModel({
-          configModelOverride: config.modelOverride,
-          agentModelOverride: resolvedAgent.modelOverride,
-          provider: resolvedCliType,
-          defaultModelByProvider: settingsAll.defaultModelByProvider,
-          defaultModel: settingsModel,
-        });
+        let resolvedModel = localModelTarget?.modelId ?? resolveInitialModel({
+            configModelOverride: config.modelOverride,
+            agentModelOverride: resolvedAgent.modelOverride,
+            provider: resolvedCliType,
+            defaultModelByProvider: settingsAll.defaultModelByProvider,
+            defaultModel: settingsModel,
+          });
 
-        if (resolvedModel) {
+        if (resolvedModel && !localModelTarget) {
           if (isModelTier(resolvedModel)) {
             const tierResolved = resolveModelForTier(resolvedModel, resolvedCliType);
             logger.info('Resolved model tier to provider-specific model', {
@@ -1453,6 +1483,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           nodePlacement: instance.nodePlacement,
           permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+          modelRuntimeTarget: config.modelRuntimeTarget,
         };
 
         // Check for a pre-warmed adapter before spawning fresh.
@@ -1468,7 +1499,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         // ignore the user's model pick. `auto`/unset is fine: it intentionally
         // means "let the CLI pick".
         const wantsExplicitConfiguredModel = requiresFreshConfiguredModelSpawn(resolvedCliType, spawnOptions.model);
-        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || spawnOptions.browserGatewayMcp || wantsExplicitConfiguredModel || instance.bareMode === true)
+        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || config.modelRuntimeTarget || spawnOptions.browserGatewayMcp || wantsExplicitConfiguredModel || instance.bareMode === true)
           ? null
           : (this.deps.warmStartManager?.consume(resolvedCliType, instance.workingDirectory) as CliAdapter | null ?? null);
 
@@ -1537,6 +1568,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         } else {
           const executionLocation = resolveExecutionLocation(config);
           instance.executionLocation = executionLocation;
+          this.assertLocalModelRuntimeAvailable(config.modelRuntimeTarget);
           // Clear local MCP config for remote instances — paths don't exist on workers
           if (executionLocation.type === 'remote') {
             spawnOptions.mcpConfig = [];

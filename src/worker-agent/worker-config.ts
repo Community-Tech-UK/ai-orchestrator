@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import type { WorkerNodeFileTransferRoot } from '../shared/types/worker-node.types';
 
 /**
  * Opt-in browser automation for a worker node. When enabled, the worker owns a
@@ -80,6 +81,13 @@ export interface WorkerExtensionRelayConfig {
   extensionToken?: string;
 }
 
+export interface WorkerFileTransferConfig {
+  /** Master switch. Default true for new installs. */
+  enabled: boolean;
+  roots?: WorkerNodeFileTransferRoot[];
+  maxFileBytes?: number;
+}
+
 export interface WorkerConfig {
   nodeId: string;
   name: string;
@@ -104,6 +112,8 @@ export interface WorkerConfig {
   androidAutomation?: WorkerAndroidAutomationConfig;
   /** Opt-in remote existing-tab relay through the Chrome extension (default disabled). */
   extensionRelay?: WorkerExtensionRelayConfig;
+  /** Allowlisted roots for coordinator-worker file transfer. */
+  fileTransfer?: WorkerFileTransferConfig;
 }
 
 interface PairingConfigFile {
@@ -180,6 +190,8 @@ const DEFAULTS: WorkerConfig = {
   heartbeatIntervalMs: 10_000,
 };
 
+const DEFAULT_FILE_TRANSFER_MAX_BYTES = 50 * 1024 * 1024;
+
 /**
  * Load worker config from disk. Creates a default config file on first run.
  * CLI flags override file values: --coordinator, --name, --token.
@@ -204,6 +216,7 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
     merged.extensionRelay,
     defaultExtensionRelaySocketPath,
   );
+  merged.fileTransfer = normalizeFileTransferConfig(merged.fileTransfer);
 
   // Apply CLI overrides
   const args = parseCliArgs(process.argv.slice(2));
@@ -283,6 +296,7 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
   normalized.browserAutomation = normalizeBrowserAutomation(fileConfig.browserAutomation);
   normalized.androidAutomation = normalizeAndroidAutomation(fileConfig.androidAutomation);
   normalized.extensionRelay = normalizeExtensionRelay(fileConfig.extensionRelay);
+  normalized.fileTransfer = normalizeFileTransferConfig(fileConfig.fileTransfer);
 
   return normalized;
 }
@@ -413,6 +427,111 @@ function normalizeExtensionRelay(
     result.extensionToken = obj['extensionToken'];
   }
   return result;
+}
+
+export function normalizeFileTransferConfig(
+  raw: unknown,
+  homedir: string = os.homedir(),
+): WorkerFileTransferConfig {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      enabled: true,
+      maxFileBytes: DEFAULT_FILE_TRANSFER_MAX_BYTES,
+      roots: defaultFileTransferRoots(homedir),
+    };
+  }
+  const obj = raw as Record<string, unknown>;
+  const enabled = obj['enabled'] !== false;
+  const maxFileBytes = normalizeMaxFileBytes(obj['maxFileBytes']);
+  if (!enabled) {
+    return { enabled: false, maxFileBytes, roots: [] };
+  }
+  const roots = Array.isArray(obj['roots'])
+    ? normalizeFileTransferRoots(obj['roots'], homedir)
+    : [];
+  return {
+    enabled: true,
+    maxFileBytes,
+    roots: roots.length > 0 ? roots : defaultFileTransferRoots(homedir),
+  };
+}
+
+function normalizeFileTransferRoots(
+  rawRoots: unknown[],
+  homedir: string,
+): WorkerNodeFileTransferRoot[] {
+  const seen = new Set<string>();
+  const roots: WorkerNodeFileTransferRoot[] = [];
+  for (const rawRoot of rawRoots) {
+    if (!rawRoot || typeof rawRoot !== 'object') {
+      continue;
+    }
+    const root = rawRoot as Record<string, unknown>;
+    const id = typeof root['id'] === 'string' && root['id'].trim()
+      ? root['id'].trim()
+      : 'custom';
+    const rawPath = typeof root['path'] === 'string' ? root['path'].trim() : '';
+    if (!rawPath) {
+      continue;
+    }
+    const resolvedPath = expandHomePath(rawPath, homedir);
+    if (seen.has(resolvedPath)) {
+      continue;
+    }
+    const read = root['read'] === true;
+    const write = root['write'] === true;
+    if (!read && !write) {
+      continue;
+    }
+    seen.add(resolvedPath);
+    roots.push({
+      id,
+      label: typeof root['label'] === 'string' && root['label'].trim()
+        ? root['label'].trim()
+        : id,
+      path: resolvedPath,
+      read,
+      write,
+      ...(root['approvalRequired'] === true ? { approvalRequired: true } : {}),
+    });
+  }
+  return roots;
+}
+
+function defaultFileTransferRoots(homedir: string): WorkerNodeFileTransferRoot[] {
+  const scratchPath = defaultFileTransferScratchPath(homedir);
+  fs.mkdirSync(scratchPath, { recursive: true });
+  const roots: WorkerNodeFileTransferRoot[] = [
+    {
+      id: 'scratch',
+      label: 'AIO Scratch',
+      path: scratchPath,
+      read: true,
+      write: true,
+    },
+  ];
+  for (const [id, label, folder] of [
+    ['downloads', 'Downloads', 'Downloads'],
+    ['documents', 'Documents', 'Documents'],
+    ['desktop', 'Desktop', 'Desktop'],
+  ] as const) {
+    const folderPath = path.join(homedir, folder);
+    if (fs.existsSync(folderPath)) {
+      roots.push({ id, label, path: folderPath, read: true, write: false });
+    }
+  }
+  return roots;
+}
+
+function defaultFileTransferScratchPath(homedir: string): string {
+  return path.join(homedir, '.orchestrator', '_scratch', 'aio-transfers');
+}
+
+function normalizeMaxFileBytes(value: unknown): number {
+  if (!isValidPositiveInteger(value)) {
+    return DEFAULT_FILE_TRANSFER_MAX_BYTES;
+  }
+  return Math.min(value, DEFAULT_FILE_TRANSFER_MAX_BYTES);
 }
 
 export function ensureExtensionRelayDefaults(

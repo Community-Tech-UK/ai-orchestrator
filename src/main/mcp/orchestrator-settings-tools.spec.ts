@@ -66,7 +66,7 @@ describe('orchestrator settings MCP tools', () => {
 
   it('redacts secret settings in list_settings and marks read-only keys unwritable', async () => {
     const { tool } = toolByName('list_settings', makeSettingsManager({
-      remoteNodesEnrollmentToken: 'super-secret-token',
+      remoteNodesEnrollmentToken: 'redaction-test-value',
       defaultYoloMode: false,
       theme: 'light',
     }));
@@ -150,7 +150,7 @@ describe('orchestrator settings MCP tools', () => {
 
   it('refuses to read secret settings', async () => {
     const { tool } = toolByName('get_setting', makeSettingsManager({
-      remoteNodesEnrollmentToken: 'secret-token',
+      remoteNodesEnrollmentToken: 'redaction-test-value',
     }));
 
     await expect(tool.handler({ key: 'remoteNodesEnrollmentToken' })).rejects.toThrow(
@@ -166,7 +166,7 @@ describe('orchestrator settings MCP tools', () => {
       /read-only/,
     );
     await expect(
-      tool.handler({ key: 'remoteNodesEnrollmentToken', value: 'new-secret' }),
+      tool.handler({ key: 'remoteNodesEnrollmentToken', value: 'redaction-test-value' }),
     ).rejects.toThrow(/secret setting/);
     expect(settings.set).not.toHaveBeenCalled();
   });

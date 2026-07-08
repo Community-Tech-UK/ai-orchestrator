@@ -9,6 +9,10 @@
 
 import type { z } from 'zod';
 import {
+  SettingsPrivilegedGetPayloadSchema,
+  SettingsPrivilegedListPayloadSchema,
+  SettingsPrivilegedResetPayloadSchema,
+  SettingsPrivilegedSetPayloadSchema,
   SettingsToolGetPayloadSchema,
   SettingsToolListPayloadSchema,
   SettingsToolResetPayloadSchema,
@@ -23,6 +27,7 @@ import {
 import {
   assertReadableSetting,
   assertWritableSetting,
+  coerceRendererSettingValue,
   coerceWritableSettingValue,
   getSettingsToolPolicy,
   requireKnownSettingsToolKey,
@@ -41,6 +46,10 @@ export type SettingsToolListArgs = z.infer<typeof SettingsToolListPayloadSchema>
 export type SettingsToolGetArgs = z.infer<typeof SettingsToolGetPayloadSchema>;
 export type SettingsToolSetArgs = z.infer<typeof SettingsToolSetPayloadSchema>;
 export type SettingsToolResetArgs = z.infer<typeof SettingsToolResetPayloadSchema>;
+export type SettingsPrivilegedListArgs = z.infer<typeof SettingsPrivilegedListPayloadSchema>;
+export type SettingsPrivilegedGetArgs = z.infer<typeof SettingsPrivilegedGetPayloadSchema>;
+export type SettingsPrivilegedSetArgs = z.infer<typeof SettingsPrivilegedSetPayloadSchema>;
+export type SettingsPrivilegedResetArgs = z.infer<typeof SettingsPrivilegedResetPayloadSchema>;
 export type SettingsToolUpdateNodeConfigArgs = z.infer<
   typeof SettingsToolUpdateNodeConfigPayloadSchema
 >;
@@ -79,6 +88,19 @@ export interface SettingsToolListItem {
   policyTier: SettingsToolPolicyTier;
 }
 
+export interface SettingsToolListResult {
+  count: number;
+  settings: SettingsToolListItem[];
+}
+
+export interface SettingsToolGetResult {
+  key: keyof AppSettings;
+  value: unknown;
+  restartRequired: boolean;
+  writable: boolean;
+  policyTier: SettingsToolPolicyTier;
+}
+
 export interface SettingsToolSetResult {
   ok: true;
   key: keyof AppSettings;
@@ -111,13 +133,7 @@ export function createSettingsToolDefinitions(
       },
       handler: async (args) => {
         const parsed = SettingsToolListPayloadSchema.parse(args ?? {});
-        const manager = requireSettingsManager(context);
-        const current = manager.getAll();
-        const all = Object.keys(DEFAULT_SETTINGS) as (keyof AppSettings)[];
-        const settings = all
-          .map((key): SettingsToolListItem => describeSetting(key, current[key]))
-          .filter((item) => !parsed.category || item.category === parsed.category);
-        return { count: settings.length, settings };
+        return listSettingsForTools(context, parsed);
       },
     },
     {
@@ -134,16 +150,7 @@ export function createSettingsToolDefinitions(
       },
       handler: async (args) => {
         const parsed = SettingsToolGetPayloadSchema.parse(args);
-        const key = requireKnownSettingsToolKey(parsed.key);
-        const policy = getSettingsToolPolicy(key);
-        assertReadableSetting(key, policy);
-        return {
-          key,
-          value: settingsValueForTool(key, requireSettingsManager(context).get(key), policy),
-          restartRequired: policy.restartRequired,
-          writable: policy.tier === 'open',
-          policyTier: policy.tier,
-        };
+        return getSettingForTools(context, parsed);
       },
     },
     {
@@ -161,17 +168,7 @@ export function createSettingsToolDefinitions(
       },
       handler: async (args) => {
         const parsed = SettingsToolSetPayloadSchema.parse(args);
-        const { key, value: nextRaw, policy } = coerceWritableSettingValue(
-          parsed.key,
-          parsed.value,
-        );
-        const manager = requireSettingsManager(context);
-        const oldRaw = manager.get(key);
-        manager.set(key, nextRaw);
-        const persistedRaw = manager.get(key);
-        context.broadcastSettingsChange?.({ key, value: persistedRaw });
-        logSettingMutation('set_setting', key, oldRaw, persistedRaw, policy);
-        return mutationResult(key, oldRaw, persistedRaw, policy);
+        return setSettingForTools(context, parsed);
       },
     },
     {
@@ -188,22 +185,13 @@ export function createSettingsToolDefinitions(
       },
       handler: async (args) => {
         const parsed = SettingsToolResetPayloadSchema.parse(args);
-        const key = requireKnownSettingsToolKey(parsed.key);
-        const policy = getSettingsToolPolicy(key);
-        assertWritableSetting(key, policy);
-        const manager = requireSettingsManager(context);
-        const oldRaw = manager.get(key);
-        manager.resetOne(key);
-        const nextRaw = manager.get(key);
-        context.broadcastSettingsChange?.({ key, value: nextRaw });
-        logSettingMutation('reset_setting', key, oldRaw, nextRaw, policy);
-        return mutationResult(key, oldRaw, nextRaw, policy);
+        return resetSettingForTools(context, parsed);
       },
     },
     {
       name: 'update_node_config',
       description:
-        'Push a sensitive per-node worker config.update to a connected remote node using the same service-scoped path as the Settings UI. Supports browserAutomation, androidAutomation, and extensionRelay blocks; call list_remote_nodes first to find the node.',
+        'Push a sensitive per-node worker config.update to a connected remote node using the same service-scoped path as the Settings UI. Supports browserAutomation, androidAutomation, extensionRelay, and fileTransfer blocks; call list_remote_nodes first to find the node.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -249,6 +237,32 @@ export function createSettingsToolDefinitions(
             required: ['enabled'],
             additionalProperties: false,
           },
+          fileTransfer: {
+            type: 'object',
+            properties: {
+              enabled: { type: 'boolean' },
+              roots: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    label: { type: 'string' },
+                    path: { type: 'string' },
+                    read: { type: 'boolean' },
+                    write: { type: 'boolean' },
+                    approvalRequired: { type: 'boolean' },
+                  },
+                  required: ['id', 'label', 'path', 'read', 'write'],
+                  additionalProperties: false,
+                },
+                maxItems: 64,
+              },
+              maxFileBytes: { type: 'integer', minimum: 1, maximum: 50 * 1024 * 1024 },
+            },
+            required: ['enabled'],
+            additionalProperties: false,
+          },
         },
         required: ['nodeId'],
         additionalProperties: false,
@@ -269,6 +283,113 @@ export function createSettingsToolDefinitions(
       },
     },
   ];
+}
+
+export function listSettingsForTools(
+  context: SettingsToolContext,
+  args: SettingsToolListArgs,
+): SettingsToolListResult {
+  const manager = requireSettingsManager(context);
+  const current = manager.getAll();
+  const all = Object.keys(DEFAULT_SETTINGS) as (keyof AppSettings)[];
+  const settings = all
+    .map((key): SettingsToolListItem => describeSetting(key, current[key]))
+    .filter((item) => !args.category || item.category === args.category);
+  return { count: settings.length, settings };
+}
+
+export function getSettingForTools(
+  context: SettingsToolContext,
+  args: SettingsToolGetArgs,
+): SettingsToolGetResult {
+  const key = requireKnownSettingsToolKey(args.key);
+  const policy = getSettingsToolPolicy(key);
+  assertReadableSetting(key, policy);
+  return {
+    key,
+    value: settingsValueForTool(key, requireSettingsManager(context).get(key), policy),
+    restartRequired: policy.restartRequired,
+    writable: policy.tier === 'open',
+    policyTier: policy.tier,
+  };
+}
+
+export function setSettingForTools(
+  context: SettingsToolContext,
+  args: SettingsToolSetArgs,
+): SettingsToolSetResult {
+  const { key, value: nextRaw, policy } = coerceWritableSettingValue(
+    args.key,
+    args.value,
+  );
+  const manager = requireSettingsManager(context);
+  const oldRaw = manager.get(key);
+  manager.set(key, nextRaw);
+  const persistedRaw = manager.get(key);
+  context.broadcastSettingsChange?.({ key, value: persistedRaw });
+  logSettingMutation('set_setting', 'mcp-tool', key, oldRaw, persistedRaw, policy);
+  return mutationResult(key, oldRaw, persistedRaw, policy);
+}
+
+export function resetSettingForTools(
+  context: SettingsToolContext,
+  args: SettingsToolResetArgs,
+): SettingsToolSetResult {
+  const key = requireKnownSettingsToolKey(args.key);
+  const policy = getSettingsToolPolicy(key);
+  assertWritableSetting(key, policy);
+  const manager = requireSettingsManager(context);
+  const oldRaw = manager.get(key);
+  manager.resetOne(key);
+  const nextRaw = manager.get(key);
+  context.broadcastSettingsChange?.({ key, value: nextRaw });
+  logSettingMutation('reset_setting', 'mcp-tool', key, oldRaw, nextRaw, policy);
+  return mutationResult(key, oldRaw, nextRaw, policy);
+}
+
+export function privilegedListSettings(
+  context: SettingsToolContext,
+  args: SettingsPrivilegedListArgs,
+): SettingsToolListResult {
+  void args.all;
+  return listSettingsForTools(context, args);
+}
+
+export function privilegedGetSetting(
+  context: SettingsToolContext,
+  args: SettingsPrivilegedGetArgs,
+): SettingsToolGetResult {
+  return getSettingForTools(context, args);
+}
+
+export function privilegedSetSetting(
+  context: SettingsToolContext,
+  args: SettingsPrivilegedSetArgs,
+): SettingsToolSetResult {
+  const { key, value } = coerceRendererSettingValue(args.key, args.value);
+  const policy = getSettingsToolPolicy(key);
+  const manager = requireSettingsManager(context);
+  const oldRaw = manager.get(key);
+  setManagerValue(manager, key, value);
+  const persistedRaw = manager.get(key);
+  context.broadcastSettingsChange?.({ key, value: persistedRaw });
+  logSettingMutation('privileged_set', 'privileged-settings-cli', key, oldRaw, persistedRaw, policy);
+  return mutationResult(key, oldRaw, persistedRaw, policy);
+}
+
+export function privilegedResetSetting(
+  context: SettingsToolContext,
+  args: SettingsPrivilegedResetArgs,
+): SettingsToolSetResult {
+  const key = requireKnownSettingsToolKey(args.key);
+  const policy = getSettingsToolPolicy(key);
+  const manager = requireSettingsManager(context);
+  const oldRaw = manager.get(key);
+  manager.resetOne(key);
+  const nextRaw = manager.get(key);
+  context.broadcastSettingsChange?.({ key, value: nextRaw });
+  logSettingMutation('privileged_reset', 'privileged-settings-cli', key, oldRaw, nextRaw, policy);
+  return mutationResult(key, oldRaw, nextRaw, policy);
 }
 
 function describeSetting(
@@ -300,6 +421,14 @@ function requireSettingsManager(context: SettingsToolContext): SettingsManagerFo
   return context.settingsManager;
 }
 
+function setManagerValue<K extends keyof AppSettings>(
+  manager: SettingsManagerForTools,
+  key: K,
+  value: AppSettings[K],
+): void {
+  manager.set(key, value);
+}
+
 function mutationResult(
   key: keyof AppSettings,
   oldRaw: AppSettings[keyof AppSettings],
@@ -316,14 +445,17 @@ function mutationResult(
 }
 
 function logSettingMutation(
-  action: 'set_setting' | 'reset_setting',
+  action: 'set_setting' | 'reset_setting' | 'privileged_set' | 'privileged_reset',
+  source: 'mcp-tool' | 'privileged-settings-cli',
   key: keyof AppSettings,
   oldRaw: AppSettings[keyof AppSettings],
   newRaw: AppSettings[keyof AppSettings],
   policy: SettingsToolPolicy,
 ): void {
-  logger.info('Setting changed via MCP tool', {
-    source: 'mcp-tool',
+  logger.info(source === 'mcp-tool'
+    ? 'Setting changed via MCP tool'
+    : 'Setting changed via privileged settings CLI', {
+    source,
     action,
     key,
     oldValue: settingsValueForTool(key, oldRaw, policy),

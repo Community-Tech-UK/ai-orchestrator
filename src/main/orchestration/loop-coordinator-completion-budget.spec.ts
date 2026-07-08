@@ -37,9 +37,25 @@ beforeEach(() => {
   coordinator = new LoopCoordinator();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const loop of coordinator.getActiveLoops()) {
+    await coordinator.cancelLoop(loop.id).catch(() => undefined);
+  }
   try { rmSync(workspace, { recursive: true, force: true }); } catch { /* noop */ }
 });
+
+async function waitForCondition(
+  predicate: () => boolean,
+  description: string,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for ${description}`);
+}
 
 function makeChildResultThatClaimsDone(): LoopChildResult {
   return {
@@ -97,10 +113,10 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
       (coordinator as unknown as {
         active: Map<string, { status: string; endReason?: string; completionAttempts: number; lastCompletionOutcome?: string }>;
       }).active.get(state.id);
-    for (let i = 0; i < 60 && !needsReview && live()?.status === 'running'; i++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    if (live()?.status === 'running') coordinator.cancelLoop(state.id);
+    await waitForCondition(
+      () => needsReview !== null && live()?.status === 'completed-needs-review',
+      'completion-attempt budget to stop as completed-needs-review',
+    );
 
     expect(needsReview).not.toBeNull();
     expect(needsReview!.acceptedByOperator).toBe(false);
@@ -148,10 +164,10 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
 
     const live = () =>
       (coordinator as unknown as { active: Map<string, { status: string }> }).active.get(state.id);
-    for (let i = 0; i < 80 && live()?.status === 'running'; i++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    if (live()?.status === 'running') coordinator.cancelLoop(state.id);
+    await waitForCondition(
+      () => live()?.status === 'completed-needs-review',
+      'verified-done no-progress case to stop as completed-needs-review',
+    );
 
     expect(pausedForNoProgress).toBe(false);
     expect(live()?.status).toBe('completed-needs-review');

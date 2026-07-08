@@ -21,10 +21,15 @@ import { resolveReviewerModels } from './reviewer-model-options';
  */
 const REVIEWER_PROVIDERS: { id: string; label: string }[] = [
   { id: 'cursor', label: 'Cursor CLI' },
-  { id: 'gemini', label: 'Gemini CLI' },
+  { id: 'antigravity', label: 'Antigravity' },
   { id: 'codex', label: 'OpenAI Codex CLI' },
   { id: 'copilot', label: 'GitHub Copilot' },
 ];
+
+function normalizeReviewerProviderId(provider: string): string {
+  const normalized = provider.trim().toLowerCase();
+  return normalized === 'gemini' ? 'antigravity' : normalized;
+}
 
 interface ReviewerProviderView {
   id: string;
@@ -249,10 +254,14 @@ export class ReviewSettingsTabComponent {
     if (!Array.isArray(value)) return [];
     const seen = new Set<string>();
     const providerById = this.providerById();
-    return value.filter((id): id is string => {
-      if (typeof id !== 'string' || seen.has(id) || !providerById.has(id)) return false;
+    const providers: string[] = [];
+    for (const rawId of value) {
+      if (typeof rawId !== 'string') continue;
+      const id = normalizeReviewerProviderId(rawId);
+      if (seen.has(id) || !providerById.has(id)) continue;
       seen.add(id);
-      return true;
-    });
+      providers.push(id);
+    }
+    return providers;
   }
 }

@@ -69,6 +69,7 @@ describe('browser-mcp-tools', () => {
 
   it('exposes concrete input schemas for provider-facing browser tools', () => {
     const tools = createBrowserMcpTools({ call: vi.fn() });
+    const listTargets = tools.find((tool) => tool.name === 'browser.list_targets');
     const findOrOpen = tools.find((tool) => tool.name === 'browser.find_or_open');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
     const click = tools.find((tool) => tool.name === 'browser.click');
@@ -76,11 +77,22 @@ describe('browser-mcp-tools', () => {
     const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
     const pauseForManualStep = tools.find((tool) => tool.name === 'browser.pause_for_manual_step');
 
+    expect(listTargets?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        profileId: { type: 'string' },
+        nodeId: { type: 'string' },
+        computer: { type: 'string' },
+        refresh: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    });
     expect(findOrOpen?.inputSchema).toMatchObject({
       type: 'object',
       properties: {
         url: { type: 'string' },
         titleHint: { type: 'string' },
+        computer: { type: 'string' },
       },
       additionalProperties: false,
     });

@@ -76,7 +76,13 @@
   }
 
   <main class="app-main">
-    <router-outlet />
+    @if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'unset') {
+      <app-role-choice (roleSelected)="selectHarnessRole($event)" />
+    } @else if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'worker') {
+      <app-worker-mode />
+    } @else {
+      <router-outlet />
+    }
   </main>
 
   @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {

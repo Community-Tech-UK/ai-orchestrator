@@ -400,6 +400,7 @@ export const BrowserListTargetsRequestSchema = z
   .object({
     profileId: idSchema.optional(),
     nodeId: idSchema.optional(),
+    computer: z.string().min(1).max(120).optional(),
     refresh: z.boolean().optional(),
   })
   .strict();
@@ -412,6 +413,7 @@ export const BrowserFindOrOpenRequestSchema = z
     url: webUrlSchema.optional(),
     titleHint: z.string().min(1).max(500).optional(),
     nodeId: idSchema.optional(),
+    computer: z.string().min(1).max(120).optional(),
   })
   .strict();
 export type BrowserFindOrOpenRequest = z.infer<

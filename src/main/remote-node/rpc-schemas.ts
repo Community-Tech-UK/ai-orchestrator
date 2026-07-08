@@ -6,16 +6,35 @@ import {
   FsWatchParamsSchema,
   FsUnwatchParamsSchema,
   FsEventParamsSchema,
+  FsReadFileParamsSchema,
+  FsWriteFileParamsSchema,
 } from '../../shared/validation/remote-fs-schemas';
 import { FileAttachmentSchema } from '@contracts/schemas/common';
 import { BrowserAttachExistingTabRequestSchema } from '@contracts/schemas/browser';
+
+export { FsReadFileParamsSchema, FsWriteFileParamsSchema };
 
 export const BROWSER_CDP_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 export const WORKER_NODE_WS_MAX_PAYLOAD_BYTES = BROWSER_CDP_MAX_FRAME_BYTES + 16 * 1024 * 1024;
 export const WORKER_NODE_WS_BACKPRESSURE_BYTES = 32 * 1024 * 1024;
 const ProviderModelIdSchema = z.string().max(512);
+const LocalModelEndpointProviderSchema = z.enum(['ollama', 'openai-compatible']);
 
 // -- Shared sub-schemas -------------------------------------------------------
+
+const WorkerLoadedLocalModelSchema = z.object({
+  id: z.string().min(1).max(256),
+  contextLength: z.number().int().nonnegative().max(10_000_000),
+});
+
+const WorkerLocalModelCapabilitySchema = z.object({
+  provider: z.enum(['ollama', 'openai-compatible']),
+  endpointId: z.string().min(1).max(128).optional(),
+  baseUrl: z.string().min(1).max(2048),
+  models: z.array(z.string().min(1).max(256)).max(512),
+  loadedModels: z.array(WorkerLoadedLocalModelSchema).max(64).optional(),
+  healthy: z.boolean(),
+});
 
 const WorkerNodeCapabilitiesSchema = z.object({
   platform: z.enum(['darwin', 'win32', 'linux']),
@@ -74,17 +93,24 @@ const WorkerNodeCapabilitiesSchema = z.object({
   maxConcurrentInstances: z.number().int().positive(),
   workingDirectories: z.array(z.string()),
   browsableRoots: z.array(z.string()).default([]),
+  fileTransfer: z.object({
+    enabled: z.boolean(),
+    maxFileBytes: z.number().int().positive().max(50 * 1024 * 1024),
+    roots: z.array(z.object({
+      id: z.string().min(1).max(100),
+      label: z.string().min(1).max(200),
+      path: z.string().min(1).max(4096),
+      read: z.boolean(),
+      write: z.boolean(),
+      approvalRequired: z.boolean().optional(),
+    })).max(64),
+  }).optional(),
   discoveredProjects: z.array(z.object({
     path: z.string(),
     name: z.string(),
     markers: z.array(z.string()),
   })).default([]),
-  localModelEndpoints: z.array(z.object({
-    provider: z.enum(['ollama', 'openai-compatible']),
-    baseUrl: z.string(),
-    models: z.array(z.string()),
-    healthy: z.boolean(),
-  })).optional(),
+  localModelEndpoints: z.array(WorkerLocalModelCapabilitySchema).optional(),
   localSttEndpoints: z.array(z.object({
     provider: z.enum(['openai-compatible', 'whisper-cli']),
     baseUrl: z.string(),
@@ -265,10 +291,26 @@ export const ExtensionRelayConfigSchema = z.object({
   enabled: z.boolean(),
 });
 
+export const FileTransferRootConfigSchema = z.object({
+  id: z.string().trim().min(1).max(100),
+  label: z.string().trim().min(1).max(200),
+  path: z.string().trim().min(1).max(4096),
+  read: z.boolean(),
+  write: z.boolean(),
+  approvalRequired: z.boolean().optional(),
+}).strict();
+
+export const FileTransferConfigSchema = z.object({
+  enabled: z.boolean(),
+  roots: z.array(FileTransferRootConfigSchema).max(64).optional(),
+  maxFileBytes: z.number().int().positive().max(50 * 1024 * 1024).optional(),
+}).strict();
+
 export const ConfigUpdateParamsSchema = z.object({
   browserAutomation: BrowserAutomationConfigSchema.optional(),
   androidAutomation: AndroidAutomationConfigSchema.optional(),
   extensionRelay: ExtensionRelayConfigSchema.optional(),
+  fileTransfer: FileTransferConfigSchema.optional(),
 });
 
 // -- Remote browser CDP tunnel (Path 2; privileged: scope=service) ------------
@@ -376,6 +418,25 @@ export const AudioTranscribeParamsSchema = z.discriminatedUnion('provider', [
   }),
 ]);
 
+export const LocalModelSessionStartParamsSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  endpointProvider: LocalModelEndpointProviderSchema,
+  endpointId: z.string().min(1).max(128),
+  modelId: ProviderModelIdSchema.min(1),
+  workingDirectory: z.string().min(1).max(4096).optional(),
+  systemPrompt: z.string().max(200_000).optional(),
+});
+
+export const LocalModelSessionSendInputParamsSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  message: z.string().min(1).max(1_000_000),
+  attachments: z.array(FileAttachmentSchema.extend({ data: z.string() })).max(64).optional(),
+});
+
+export const LocalModelSessionIdParamsSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+});
+
 // -- Schema map for method-based lookup ---------------------------------------
 
 export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
@@ -396,11 +457,17 @@ export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'instance.interrupt': InstanceIdParamsSchema,
   'instance.hibernate': InstanceIdParamsSchema,
   'instance.wake': InstanceIdParamsSchema,
+  'localModel.session.start': LocalModelSessionStartParamsSchema,
+  'localModel.session.sendInput': LocalModelSessionSendInputParamsSchema,
+  'localModel.session.terminate': LocalModelSessionIdParamsSchema,
+  'localModel.session.interrupt': LocalModelSessionIdParamsSchema,
   'fs.readDirectory': FsReadDirectoryParamsSchema,
   'fs.stat': FsStatParamsSchema,
   'fs.search': FsSearchParamsSchema,
   'fs.watch': FsWatchParamsSchema,
   'fs.unwatch': FsUnwatchParamsSchema,
+  'fs.readFile': FsReadFileParamsSchema,
+  'fs.writeFile': FsWriteFileParamsSchema,
   'fs.event': FsEventParamsSchema,
 };
 
@@ -418,11 +485,17 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'instance.interrupt': InstanceIdParamsSchema,
   'instance.hibernate': InstanceIdParamsSchema,
   'instance.wake': InstanceIdParamsSchema,
+  'localModel.session.start': LocalModelSessionStartParamsSchema,
+  'localModel.session.sendInput': LocalModelSessionSendInputParamsSchema,
+  'localModel.session.terminate': LocalModelSessionIdParamsSchema,
+  'localModel.session.interrupt': LocalModelSessionIdParamsSchema,
   'terminal.create': TerminalCreateParamsSchema,
   'terminal.input': TerminalInputParamsSchema,
   'terminal.resize': TerminalResizeParamsSchema,
   'terminal.kill': TerminalKillParamsSchema,
   'provider.diagnose': ProviderDiagnoseParamsSchema,
+  'fs.readFile': FsReadFileParamsSchema,
+  'fs.writeFile': FsWriteFileParamsSchema,
   'config.update': ConfigUpdateParamsSchema,
   'browser.cdp.open': BrowserCdpOpenParamsSchema,
   'browser.cdp.send': BrowserCdpSendParamsSchema,

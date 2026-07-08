@@ -1,5 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
+import type {
+  RemoteNodeRosterEntry,
+  WorkerLocalModelCapability,
+} from '../../../../shared/types/worker-node.types';
 import { NodeServicePanelComponent } from './node-service-panel/node-service-panel.component';
 
 @Component({
@@ -56,6 +59,29 @@ import { NodeServicePanelComponent } from './node-service-panel/node-service-pan
             <li>{{ workingDirectory }}</li>
           }
         </ul>
+      </div>
+
+      <div class="detail-section">
+        <h4>Local Models</h4>
+        @if (localModelEndpoints().length > 0) {
+          <div class="local-model-endpoints">
+            @for (endpoint of localModelEndpoints(); track endpoint.endpointId ?? endpoint.provider) {
+              <section class="local-model-endpoint">
+                <h5>
+                  {{ localModelProviderLabel(endpoint.provider) }}
+                  <span>{{ endpoint.healthy ? 'Running' : 'Unavailable' }}</span>
+                </h5>
+                <ul>
+                  @for (model of endpoint.models; track model) {
+                    <li>{{ model }}{{ loadedContextLabel(endpoint, model) }}</li>
+                  }
+                </ul>
+              </section>
+            }
+          </div>
+        } @else {
+          <p class="muted">No local model endpoints advertised by this node.</p>
+        }
       </div>
 
       <div class="detail-section">
@@ -157,6 +183,35 @@ import { NodeServicePanelComponent } from './node-service-panel/node-service-pan
       color: var(--color-text-secondary);
       font-size: 13px;
     }
+
+    .local-model-endpoints {
+      display: grid;
+      gap: 10px;
+    }
+
+    .local-model-endpoint {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .local-model-endpoint h5 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 0 8px;
+      color: var(--color-text-primary);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .local-model-endpoint h5 span {
+      color: var(--color-text-secondary);
+      font-size: 11px;
+      font-weight: 500;
+    }
   `],
 })
 export class NodeDetailComponent {
@@ -167,4 +222,17 @@ export class NodeDetailComponent {
       .map((project) => project.path)
       .filter((projectPath, index, all) => all.indexOf(projectPath) === index),
   );
+
+  readonly localModelEndpoints = computed(() =>
+    this.node().capabilities.localModelEndpoints ?? [],
+  );
+
+  localModelProviderLabel(provider: WorkerLocalModelCapability['provider']): string {
+    return provider === 'ollama' ? 'Ollama' : 'LM Studio';
+  }
+
+  loadedContextLabel(endpoint: WorkerLocalModelCapability, modelId: string): string {
+    const loaded = endpoint.loadedModels?.find((model) => model.id === modelId);
+    return loaded ? ` · ${loaded.contextLength} ctx` : '';
+  }
 }

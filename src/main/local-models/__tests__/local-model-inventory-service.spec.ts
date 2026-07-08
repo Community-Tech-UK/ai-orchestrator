@@ -1,0 +1,123 @@
+import { describe, expect, it, vi } from 'vitest';
+import { LocalModelInventoryService } from '../local-model-inventory-service';
+import type { RemoteNodeRosterEntry } from '../../../shared/types/worker-node.types';
+
+function makeWorker(
+  overrides: Partial<RemoteNodeRosterEntry> = {},
+): RemoteNodeRosterEntry {
+  return {
+    id: 'node-win',
+    name: 'windows-pc',
+    status: 'connected',
+    platform: 'win32',
+    arch: 'x64',
+    address: '100.64.0.2',
+    connected: true,
+    supportedClis: ['claude'],
+    hasBrowserRuntime: false,
+    hasBrowserMcp: false,
+    hasAndroidMcp: false,
+    hasDocker: false,
+    activeInstances: 0,
+    maxConcurrentInstances: 4,
+    workingDirectories: ['C:\\work'],
+    capabilities: {
+      platform: 'win32',
+      arch: 'x64',
+      cpuCores: 16,
+      totalMemoryMB: 32768,
+      availableMemoryMB: 22000,
+      supportedClis: ['claude'],
+      hasBrowserRuntime: false,
+      hasBrowserMcp: false,
+      hasAndroidMcp: false,
+      hasDocker: false,
+      maxConcurrentInstances: 4,
+      workingDirectories: ['C:\\work'],
+      browsableRoots: ['C:\\work'],
+      discoveredProjects: [],
+      localModelEndpoints: [{
+        provider: 'ollama',
+        endpointId: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434',
+        models: ['qwen2.5-coder:14b'],
+        loadedModels: [{ id: 'qwen2.5-coder:14b', contextLength: 32768 }],
+        healthy: true,
+      }],
+    },
+    ...overrides,
+  };
+}
+
+function fakeRoster(nodes: RemoteNodeRosterEntry[]): { list(): RemoteNodeRosterEntry[] } {
+  return { list: () => nodes };
+}
+
+describe('LocalModelInventoryService', () => {
+  it('builds one inventory row per worker model without exposing baseUrl', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1783468800000);
+    const svc = new LocalModelInventoryService({ roster: fakeRoster([makeWorker()]) });
+
+    const rows = svc.list();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen2.5-coder%3A14b',
+      source: 'worker-node',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen2.5-coder:14b',
+      displayName: 'qwen2.5-coder:14b on windows-pc',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      platform: 'win32',
+      healthy: true,
+      loaded: true,
+      loadedContextLength: 32768,
+      capabilities: {
+        streaming: true,
+        multiTurn: true,
+        toolUse: 'none',
+        vision: 'unknown',
+      },
+      discoveredAt: 1783468800000,
+    });
+    expect(JSON.stringify(rows)).not.toContain('127.0.0.1');
+  });
+
+  it('resolves a healthy worker model into a runtime target', () => {
+    const svc = new LocalModelInventoryService({ roster: fakeRoster([makeWorker()]) });
+    const target = svc.resolveTarget(svc.list()[0].selectorId);
+
+    expect(target).toMatchObject({
+      kind: 'local-model',
+      source: 'worker-node',
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen2.5-coder%3A14b',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen2.5-coder:14b',
+    });
+  });
+
+  it('rejects unavailable worker model targets', () => {
+    const worker = makeWorker({
+      capabilities: {
+        ...makeWorker().capabilities,
+        localModelEndpoints: [{
+          provider: 'openai-compatible',
+          endpointId: 'openai-compatible',
+          baseUrl: 'http://127.0.0.1:1234',
+          models: ['qwen'],
+          healthy: false,
+        }],
+      },
+    });
+    const svc = new LocalModelInventoryService({ roster: fakeRoster([worker]) });
+
+    expect(() => svc.resolveTarget(svc.list()[0].selectorId)).toThrow(
+      'Local model is no longer available',
+    );
+  });
+});

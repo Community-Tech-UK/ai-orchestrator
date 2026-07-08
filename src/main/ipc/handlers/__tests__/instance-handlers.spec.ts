@@ -245,6 +245,32 @@ describe('instance-handlers', () => {
       );
     });
 
+    it('forwards local-model runtime targets from INSTANCE_CREATE payloads', async () => {
+      const fakeInstance = { id: 'inst-local-model', communicationTokens: undefined };
+      const modelRuntimeTarget = {
+        kind: 'local-model' as const,
+        source: 'worker-node' as const,
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        nodeId: 'node-win',
+        endpointProvider: 'ollama' as const,
+        endpointId: 'ollama',
+        modelId: 'qwen',
+      };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE, {
+        workingDirectory: '/projects/my-app',
+        provider: 'auto',
+        modelRuntimeTarget,
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ modelRuntimeTarget }),
+      );
+    });
+
     it('falls back to process.cwd() when workingDirectory is "."', async () => {
       const fakeInstance = { id: 'inst-cwd', communicationTokens: undefined };
       vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
@@ -346,6 +372,33 @@ describe('instance-handlers', () => {
 
       expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
         expect.objectContaining({ yoloMode: true }),
+      );
+    });
+
+    it('forwards local-model runtime targets from create-with-message payloads', async () => {
+      const fakeInstance = { id: 'inst-with-message-local-model', communicationTokens: undefined };
+      const modelRuntimeTarget = {
+        kind: 'local-model' as const,
+        source: 'worker-node' as const,
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        nodeId: 'node-win',
+        endpointProvider: 'ollama' as const,
+        endpointId: 'ollama',
+        modelId: 'qwen',
+      };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE, {
+        workingDirectory: '/projects/my-app',
+        message: 'hello',
+        provider: 'auto',
+        modelRuntimeTarget,
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ modelRuntimeTarget }),
       );
     });
   });

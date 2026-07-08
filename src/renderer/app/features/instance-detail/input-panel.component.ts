@@ -43,7 +43,7 @@ import type {
   PendingSelection,
   PickerProvider,
 } from '../models/compact-model-picker.types';
-import { ProviderStateService } from '../../core/services/provider-state.service';
+import { ProviderStateService, type ProviderType } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { SettingsStore } from '../../core/state/settings.store';
 import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
@@ -74,6 +74,7 @@ import type {
   InstanceStatus,
   OutputMessage,
 } from '../../core/state/instance/instance.types';
+import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import {
@@ -165,6 +166,7 @@ export class InputPanelComponent implements OnDestroy {
   provider = input<InstanceProvider>('claude');
   currentModel = input<string | undefined>(undefined);
   currentReasoningEffort = input<ReasoningEffort | null | undefined>(undefined);
+  runtimeSummary = input<InstanceRuntimeSummary | undefined>(undefined);
   workingDirectory = input<string | null>(null);
   loopChatId = input<string | null>(null);
   contextUsage = input<ContextUsage | undefined>(undefined);
@@ -505,6 +507,16 @@ export class InputPanelComponent implements OnDestroy {
    * `onCompactPickerSelectionChange`.
    */
   readonly draftPickerSelection = computed<PendingSelection>(() => {
+    const modelRuntimeTarget = this.newSessionDraft.modelRuntimeTarget();
+    if (modelRuntimeTarget?.kind === 'local-model') {
+      return {
+        provider: 'local-model',
+        model: modelRuntimeTarget.selectorId,
+        reasoning: null,
+        modelRuntimeTarget,
+      };
+    }
+
     const provider = this.newSessionDraft.provider();
     const pickerProvider: PickerProvider = (provider && provider !== 'auto')
       ? (provider as PickerProvider)
@@ -528,10 +540,19 @@ export class InputPanelComponent implements OnDestroy {
   );
 
   onCompactPickerSelectionChange(selection: PendingSelection): void {
+    this.newSessionDraft.setModelRuntimeTarget(selection.modelRuntimeTarget ?? null);
+    if (selection.provider === 'local-model') {
+      if (selection.modelRuntimeTarget?.kind === 'local-model' && selection.modelRuntimeTarget.nodeId) {
+        this.newSessionDraft.setNodeId(selection.modelRuntimeTarget.nodeId);
+      }
+      this.newSessionDraft.setReasoningEffort(null);
+      return;
+    }
+
     // Order matters: setProvider clears model+reasoning to per-provider
     // remembered defaults. Apply provider first, then overwrite model and
     // reasoning with the picker's chosen values.
-    this.newSessionDraft.setProvider(selection.provider);
+    this.newSessionDraft.setProvider(selection.provider as ProviderType);
     this.newSessionDraft.setModel(selection.model);
     this.newSessionDraft.setReasoningEffort(selection.reasoning);
   }
