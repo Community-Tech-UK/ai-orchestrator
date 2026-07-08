@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { EventEmitter } from 'events';
 import * as path from 'path';
 
 // ---------------------------------------------------------------------------
@@ -93,9 +94,14 @@ function createMockWorkTreeWatcher(
 
 import {
   GitStatusWatcher,
+  WorkerBackedGitStatusWatcher,
   resolveGitDirs,
   type GitStatusChangedEvent,
 } from './git-status-watcher';
+import type {
+  GitStatusWatcherWorkerInboundMsg,
+  GitStatusWatcherWorkerOutboundMsg,
+} from './git-status-watcher-protocol';
 
 beforeEach(() => {
   createdWatchers.length = 0;
@@ -456,5 +462,91 @@ describe('GitStatusWatcher', () => {
     await new Promise(r => setTimeout(r, 5));
 
     expect(events.filter(e => e.reason === 'worktree').length).toBe(0);
+  });
+});
+
+describe('WorkerBackedGitStatusWatcher', () => {
+  class FakeWorker extends EventEmitter {
+    readonly messages: GitStatusWatcherWorkerInboundMsg[] = [];
+    readonly postMessage = vi.fn((message: GitStatusWatcherWorkerInboundMsg) => {
+      this.messages.push(message);
+    });
+    readonly terminate = vi.fn(async () => 0);
+
+    reply(message: GitStatusWatcherWorkerOutboundMsg): void {
+      this.emit('message', message);
+    }
+  }
+
+  function setupWorkerBackedWatcher(opts: { rpcTimeoutMs?: number } = {}) {
+    const workers: FakeWorker[] = [];
+    const watcher = new WorkerBackedGitStatusWatcher({
+      rpcTimeoutMs: opts.rpcTimeoutMs ?? 50,
+      registerCleanup: vi.fn(),
+      workerFactory: () => {
+        const worker = new FakeWorker();
+        workers.push(worker);
+        return worker as never;
+      },
+    });
+    return { watcher, workers };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('updates watched repos from worker responses', async () => {
+    const { watcher, workers } = setupWorkerBackedWatcher();
+
+    const pending = watcher.setRepos([workPath('A')]);
+    const message = workers[0].messages[0];
+    expect(message).toMatchObject({ type: 'set-repos', repoPaths: [workPath('A')] });
+    workers[0].reply({
+      type: 'response',
+      id: message.id,
+      ok: true,
+      watchedRepos: [workPath('A')],
+    });
+    await pending;
+
+    expect(watcher.watchedRepos()).toEqual([workPath('A')]);
+    await watcher.stop();
+  });
+
+  it('relays status-changed events from the worker', async () => {
+    const { watcher, workers } = setupWorkerBackedWatcher();
+    const events: GitStatusChangedEvent[] = [];
+    watcher.on('status-changed', event => events.push(event));
+
+    const pending = watcher.setRepos([workPath('A')]);
+    const message = workers[0].messages[0];
+    workers[0].reply({
+      type: 'response',
+      id: message.id,
+      ok: true,
+      watchedRepos: [workPath('A')],
+    });
+    await pending;
+
+    const event: GitStatusChangedEvent = {
+      repoPath: workPath('A'),
+      reason: 'worktree',
+      timestamp: Date.now(),
+    };
+    workers[0].reply({ type: 'status-changed', event });
+
+    expect(events).toEqual([event]);
+    await watcher.stop();
+  });
+
+  it('terminates a stuck worker on setRepos timeout', async () => {
+    const { watcher, workers } = setupWorkerBackedWatcher({ rpcTimeoutMs: 5 });
+
+    await watcher.setRepos([]);
+
+    expect(workers[0].terminate).toHaveBeenCalledOnce();
+    expect(watcher.watchedRepos()).toEqual([]);
+    await watcher.stop();
   });
 });

@@ -1,10 +1,13 @@
 /**
- * GitStatusWatcher — main-process side of Phase 2b auto-refresh.
+ * GitStatusWatcher — source-control auto-refresh watcher core.
  *
  * Watches a configurable set of git repositories and emits a debounced
  * `status-changed` event whenever the state visible to `git status` could
  * have changed. The Source Control panel subscribes via IPC and triggers
  * a targeted refresh of the affected repo.
+ *
+ * Production uses WorkerBackedGitStatusWatcher below so macOS filesystem
+ * watcher teardown cannot block the Electron main thread.
  *
  * Three trigger surfaces (per the Phase 2 plan, item 4 rev2):
  *
@@ -34,7 +37,20 @@ import * as path from 'path';
 import { promisify } from 'util';
 import * as chokidar from 'chokidar';
 import { getLogger } from '../../logging/logger';
+import { registerCleanup as registerGlobalCleanup } from '../../util/cleanup-registry';
+import {
+  createIsolatedWorkerProcess,
+  type IsolatedWorkerProcess,
+} from '../../runtime/isolated-worker-process';
 import { isPathPrunedByDefault } from '../watcher/watch-ignore';
+import type {
+  GitStatusChangedEvent,
+  GitStatusWatcherWorkerInboundMsg,
+  GitStatusWatcherWorkerOutboundMsg,
+  StatusChangeReason,
+} from './git-status-watcher-protocol';
+
+export type { GitStatusChangedEvent, StatusChangeReason } from './git-status-watcher-protocol';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('GitStatusWatcher');
@@ -44,20 +60,6 @@ const logger = getLogger('GitStatusWatcher');
  * re-fetch (e.g. ahead/behind chips only need a refetch on `remotes` /
  * `refs` / `packed-refs`; the file list needs a refetch on any reason).
  */
-export type StatusChangeReason =
-  | 'index'        // <gitdir>/index — staged changes (git add / git restore --staged)
-  | 'head'         // <gitdir>/HEAD or logs/HEAD — branch checkout / commit
-  | 'refs'         // <commonDir>/refs/heads/* — branch creation/move
-  | 'remotes'      // <commonDir>/refs/remotes/* — fetch landed
-  | 'packed-refs'  // <commonDir>/packed-refs — pack rewrite
-  | 'worktree';    // working tree file — unstaged edit
-
-export interface GitStatusChangedEvent {
-  repoPath: string;
-  reason: StatusChangeReason;
-  timestamp: number;
-}
-
 interface RepoWatch {
   repoPath: string;
   gitDir: string;
@@ -83,6 +85,7 @@ type WorkTreeWatchFactory = (
  * user.
  */
 const DEFAULT_DEBOUNCE_MS = 250;
+const DEFAULT_WORKER_RPC_TIMEOUT_MS = 5_000;
 
 export interface GitStatusWatcherOptions {
   /** Override the per-(repo, reason) debounce window. */
@@ -96,6 +99,12 @@ export interface GitStatusWatcherOptions {
    * gets the live `resolveGitDirs` implementation.
    */
   resolveGitDirs?: (repoPath: string) => Promise<{ gitDir: string; commonDir: string } | null>;
+}
+
+export interface GitStatusWatcherPort extends EventEmitter {
+  setRepos(repoPaths: string[]): Promise<void>;
+  stop(): Promise<void>;
+  watchedRepos(): string[];
 }
 
 /**
@@ -349,18 +358,206 @@ export class GitStatusWatcher extends EventEmitter {
   }
 }
 
+type GitStatusWatcherWorkerProcess =
+  IsolatedWorkerProcess<GitStatusWatcherWorkerInboundMsg, GitStatusWatcherWorkerOutboundMsg>;
+
+interface PendingWorkerRpc {
+  resolve: (watchedRepos: string[]) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+}
+
+export interface WorkerBackedGitStatusWatcherOptions {
+  rpcTimeoutMs?: number;
+  workerFactory?: () => GitStatusWatcherWorkerProcess;
+  registerCleanup?: (cleanup: () => void | Promise<void>) => void | (() => void);
+}
+
+export class WorkerBackedGitStatusWatcher extends EventEmitter implements GitStatusWatcherPort {
+  private worker: GitStatusWatcherWorkerProcess | null = null;
+  private pending = new Map<number, PendingWorkerRpc>();
+  private rpcId = 0;
+  private readonly rpcTimeoutMs: number;
+  private readonly workerFactory: () => GitStatusWatcherWorkerProcess;
+  private readonly desiredRepos = new Set<string>();
+  private currentRepos: string[] = [];
+  private stopping = false;
+
+  constructor(options: WorkerBackedGitStatusWatcherOptions = {}) {
+    super();
+    this.rpcTimeoutMs = options.rpcTimeoutMs ?? DEFAULT_WORKER_RPC_TIMEOUT_MS;
+    this.workerFactory = options.workerFactory ?? makeGitStatusWatcherWorker;
+    const register = options.registerCleanup ?? registerGlobalCleanup;
+    register(() => this.stop());
+  }
+
+  async setRepos(repoPaths: string[]): Promise<void> {
+    this.desiredRepos.clear();
+    for (const repoPath of repoPaths) {
+      this.desiredRepos.add(repoPath);
+    }
+    this.currentRepos = [...this.desiredRepos];
+
+    const worker = this.ensureWorker();
+    const id = this.nextId();
+    try {
+      const watchedRepos = await this.postRpc(worker, {
+        type: 'set-repos',
+        id,
+        repoPaths: this.currentRepos,
+      });
+      this.currentRepos = watchedRepos;
+    } catch (error) {
+      logger.warn('git status watcher worker setRepos failed; restarting worker', {
+        error: errorMessage(error),
+      });
+      this.restartWorker();
+      this.resyncWorkerFireAndForget();
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.stopping = true;
+    this.failAllPending(new Error('git status watcher stopped'));
+    const worker = this.worker;
+    this.worker = null;
+    if (worker) {
+      await worker.terminate().catch(err =>
+        logger.warn('git status watcher worker terminate failed', { error: errorMessage(err) }),
+      );
+    }
+    this.currentRepos = [];
+    this.desiredRepos.clear();
+  }
+
+  watchedRepos(): string[] {
+    return [...this.currentRepos];
+  }
+
+  private ensureWorker(): GitStatusWatcherWorkerProcess {
+    if (this.worker) {
+      return this.worker;
+    }
+    this.stopping = false;
+    const worker = this.workerFactory();
+    this.worker = worker;
+    worker.on('message', message => this.handleWorkerMessage(message));
+    worker.on('error', error => {
+      logger.warn('git status watcher worker error', { error: errorMessage(error) });
+      if (this.worker === worker) {
+        this.restartWorker();
+      }
+    });
+    worker.on('exit', (code, signal) => {
+      if (this.worker !== worker) return;
+      this.worker = null;
+      this.failAllPending(new Error(`git status watcher worker exited (${code ?? 'null'} ${signal ?? 'null'})`));
+      if (!this.stopping && this.desiredRepos.size > 0) {
+        logger.warn('git status watcher worker exited; restarting', { code, signal });
+        this.resyncWorkerFireAndForget();
+      }
+    });
+    return worker;
+  }
+
+  private handleWorkerMessage(message: GitStatusWatcherWorkerOutboundMsg): void {
+    if (message.type === 'status-changed') {
+      this.emit('status-changed', message.event);
+      return;
+    }
+
+    const pending = this.pending.get(message.id);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeout);
+    this.pending.delete(message.id);
+    if (message.ok) {
+      pending.resolve(message.watchedRepos);
+    } else {
+      pending.reject(new Error(message.error));
+    }
+  }
+
+  private postRpc(
+    worker: GitStatusWatcherWorkerProcess,
+    message: GitStatusWatcherWorkerInboundMsg,
+  ): Promise<string[]> {
+    return new Promise<string[]>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(message.id);
+        reject(new Error(`git status watcher worker RPC timed out after ${this.rpcTimeoutMs}ms`));
+      }, this.rpcTimeoutMs);
+      timeout.unref();
+      this.pending.set(message.id, { resolve, reject, timeout });
+      try {
+        worker.postMessage(message);
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pending.delete(message.id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private restartWorker(): void {
+    const worker = this.worker;
+    this.worker = null;
+    this.failAllPending(new Error('git status watcher worker restarting'));
+    if (worker) {
+      void worker.terminate().catch(err =>
+        logger.warn('git status watcher worker terminate failed', { error: errorMessage(err) }),
+      );
+    }
+  }
+
+  private resyncWorkerFireAndForget(): void {
+    if (this.stopping || this.desiredRepos.size === 0) {
+      return;
+    }
+    const repoPaths = [...this.desiredRepos];
+    queueMicrotask(() => {
+      void this.setRepos(repoPaths);
+    });
+  }
+
+  private failAllPending(error: Error): void {
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    this.pending.clear();
+  }
+
+  private nextId(): number {
+    this.rpcId += 1;
+    return this.rpcId;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Singleton accessor (matches the codebase pattern: lazy getter +
 // reset hook for tests)
 // ---------------------------------------------------------------------------
 
-let watcherInstance: GitStatusWatcher | null = null;
+let watcherInstance: GitStatusWatcherPort | null = null;
 
-export function getGitStatusWatcher(): GitStatusWatcher {
+export function getGitStatusWatcher(): GitStatusWatcherPort {
   if (!watcherInstance) {
-    watcherInstance = new GitStatusWatcher();
+    watcherInstance = new WorkerBackedGitStatusWatcher();
   }
   return watcherInstance;
+}
+
+function makeGitStatusWatcherWorker(): GitStatusWatcherWorkerProcess {
+  const jsEntry = path.join(__dirname, 'git-status-watcher-worker-main.js');
+  const entry = fs.existsSync(jsEntry)
+    ? jsEntry
+    : path.join(__dirname, 'git-status-watcher-worker-main.ts');
+  return createIsolatedWorkerProcess<GitStatusWatcherWorkerInboundMsg, GitStatusWatcherWorkerOutboundMsg>({
+    name: 'git status watcher worker',
+    entrypoint: entry,
+  });
 }
 
 function errorMessage(err: unknown): string {
