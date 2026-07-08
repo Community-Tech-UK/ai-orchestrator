@@ -232,4 +232,42 @@ describe('InstanceTerminationCoordinator', () => {
       },
     );
   });
+
+  it('mines transcripts during forced termination by default', async () => {
+    const instance = makeInstance({
+      outputBuffer: [
+        makeMessage('1', 'user', 'A'.repeat(60)),
+        makeMessage('2', 'assistant', 'B'.repeat(60)),
+        makeMessage('3', 'assistant', 'C'.repeat(60)),
+        makeMessage('4', 'user', 'D'.repeat(60)),
+      ],
+    });
+    instances.set(instance.id, instance);
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+    expect(deps.importTranscript).toHaveBeenCalled();
+    expect(deps.deleteInstance).toHaveBeenCalledWith(instance.id);
+  });
+
+  it('can skip transcript mining during bulk shutdown while still archiving history', async () => {
+    const instance = makeInstance({
+      outputBuffer: [
+        makeMessage('1', 'user', 'A'.repeat(60)),
+        makeMessage('2', 'assistant', 'B'.repeat(60)),
+        makeMessage('3', 'assistant', 'C'.repeat(60)),
+        makeMessage('4', 'user', 'D'.repeat(60)),
+      ],
+    });
+    instances.set(instance.id, instance);
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false, { skipTranscriptMining: true });
+
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+    expect(deps.importTranscript).not.toHaveBeenCalled();
+    expect(deps.deleteInstance).toHaveBeenCalledWith(instance.id);
+  });
 });

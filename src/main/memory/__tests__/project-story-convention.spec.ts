@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import {
   ensureProjectStoryDir,
   appendToStoryFile,
+  isProjectStoryRootCandidate,
   readStoryFile,
 } from '../project-story-convention';
 
@@ -46,5 +47,10 @@ describe('project-story-convention', () => {
 
   it('readStoryFile returns null when no file', () => {
     expect(readStoryFile('decisions.md', { projectRoot: tmpDir })).toBeNull();
+  });
+
+  it('does not treat the filesystem root as a project-story root', () => {
+    expect(isProjectStoryRootCandidate(path.parse(tmpDir).root)).toBe(false);
+    expect(isProjectStoryRootCandidate(tmpDir)).toBe(true);
   });
 });

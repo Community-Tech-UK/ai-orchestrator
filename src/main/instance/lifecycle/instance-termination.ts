@@ -30,6 +30,10 @@ export interface TranscriptImportOptions {
   sourceFile: string;
 }
 
+export interface TerminateInstanceOptions {
+  skipTranscriptMining?: boolean;
+}
+
 export interface InstanceTerminationDeps {
   getAdapter: (instanceId: string) => CliAdapter | undefined;
   getInstance: (instanceId: string) => Instance | undefined;
@@ -62,7 +66,11 @@ export interface InstanceTerminationDeps {
 export class InstanceTerminationCoordinator {
   constructor(private readonly deps: InstanceTerminationDeps) {}
 
-  async terminateInstance(instanceId: string, graceful = true): Promise<void> {
+  async terminateInstance(
+    instanceId: string,
+    graceful = true,
+    options: TerminateInstanceOptions = {},
+  ): Promise<void> {
     const adapter = this.deps.getAdapter(instanceId);
     const instance = this.deps.getInstance(instanceId);
 
@@ -101,7 +109,11 @@ export class InstanceTerminationCoordinator {
 
     await this.archiveRootConversation(instanceId, instance);
     await this.maybeMergeSessionBranch(instanceId, instance, graceful, finishedCleanlyOnEntry);
-    this.mineTranscript(instanceId, instance, 'terminate');
+    // Bulk app shutdown has already archived the transcript above; skip only
+    // the secondary RLM mining work on that latency-sensitive path.
+    if (!options.skipTranscriptMining) {
+      this.mineTranscript(instanceId, instance, 'terminate');
+    }
     this.markTerminated(instance);
     instance.processId = null;
 

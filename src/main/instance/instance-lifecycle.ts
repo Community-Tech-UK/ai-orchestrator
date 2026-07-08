@@ -1729,7 +1729,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.deps.forEachInstance((_, id) => instanceIds.push(id));
 
     const promises = instanceIds.map((id) =>
-      this.terminateInstance(id, false)
+      this.terminator.terminateInstance(id, false, { skipTranscriptMining: true })
     );
     await Promise.all(promises);
   }

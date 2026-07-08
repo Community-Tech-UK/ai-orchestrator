@@ -53,6 +53,24 @@ export interface StoryConventionOptions {
   skipExisting?: boolean;
 }
 
+export function isProjectStoryRootCandidate(projectRoot: string): boolean {
+  const resolvedRoot = path.resolve(projectRoot);
+  if (resolvedRoot === path.parse(resolvedRoot).root) {
+    return false;
+  }
+
+  try {
+    const stats = fs.statSync(resolvedRoot);
+    if (!stats.isDirectory()) {
+      return false;
+    }
+    fs.accessSync(resolvedRoot, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Ensures the `.aio/` directory and skeleton files exist.
  * Returns the absolute path to the `.aio/` directory.
