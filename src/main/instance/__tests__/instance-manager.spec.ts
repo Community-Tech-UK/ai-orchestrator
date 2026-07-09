@@ -37,6 +37,8 @@ const {
   mockIsModelTier,
   mockLooksLikeCodexModelId,
   mockResolveModelForTier,
+  mockLocalModelInventory,
+  mockLocalModelRefresh,
 } = vi.hoisted(() => ({
   mockCreateCliAdapter: vi.fn(),
   mockCommandExecuteCommandString: vi.fn().mockResolvedValue(null),
@@ -90,6 +92,8 @@ const {
   mockIsModelTier: vi.fn(),
   mockLooksLikeCodexModelId: vi.fn(),
   mockResolveModelForTier: vi.fn(),
+  mockLocalModelInventory: [] as unknown[],
+  mockLocalModelRefresh: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -279,6 +283,13 @@ vi.mock('../../cli/adapters/adapter-factory', () => ({
   createCliAdapter: mockCreateCliAdapter,
   resolveCliType: vi.fn().mockResolvedValue('claude'),
   getCliDisplayName: vi.fn(() => 'Claude Code'),
+}));
+
+vi.mock('../../local-models/local-model-inventory-service', () => ({
+  getLocalModelInventoryService: () => ({
+    list: () => mockLocalModelInventory,
+    refresh: mockLocalModelRefresh,
+  }),
 }));
 
 vi.mock('../../cli/hooks/hook-path-resolver', () => ({
@@ -845,6 +856,19 @@ function registerWindowsWorkerNode(): void {
   });
 }
 
+function seedThisDeviceLocalModel(modelId = 'qwen'): void {
+  mockLocalModelInventory.length = 0;
+  mockLocalModelInventory.push({
+    selectorId: `lm://this-device/ollama/ollama/${modelId}`,
+    source: 'this-device',
+    endpointProvider: 'ollama',
+    endpointId: 'ollama',
+    modelId,
+    healthy: true,
+  });
+  mockLocalModelRefresh.mockResolvedValue(mockLocalModelInventory);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -970,6 +994,9 @@ describe('InstanceManager', () => {
     mockResolveModelForTier.mockReset();
     mockResolveModelForTier.mockReturnValue(undefined);
     mockResourceGovernorGetCreationBlockReason.mockReturnValue(null);
+    mockLocalModelInventory.length = 0;
+    mockLocalModelRefresh.mockReset();
+    mockLocalModelRefresh.mockResolvedValue(mockLocalModelInventory);
     WorkerNodeRegistry._resetForTesting();
 
     manager = createManager();
@@ -2235,6 +2262,52 @@ describe('InstanceManager', () => {
         expect.objectContaining({
           model: 'sonnet[1m]',
           reasoningEffort: 'high',
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('respawns with a local-model runtime target when changing to a local model', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      mockCreateCliAdapter.mockClear();
+
+      const modelRuntimeTarget = {
+        kind: 'local-model' as const,
+        source: 'this-device' as const,
+        selectorId: 'lm://this-device/ollama/ollama/qwen',
+        endpointProvider: 'ollama' as const,
+        endpointId: 'ollama',
+        modelId: 'qwen',
+      };
+      seedThisDeviceLocalModel(modelRuntimeTarget.modelId);
+      const updated = await (manager as InstanceManager & {
+        changeModel: (
+          instanceId: string,
+          newModel: string,
+          reasoningEffort: undefined,
+          modelRuntimeTarget: typeof modelRuntimeTarget,
+        ) => Promise<typeof instance>;
+      }).changeModel(instance.id, modelRuntimeTarget.modelId, undefined, modelRuntimeTarget);
+
+      expect(updated.currentModel).toBe('qwen');
+      expect(updated.runtimeSummary).toEqual({
+        kind: 'local-model',
+        label: 'qwen on this device',
+        source: 'this-device',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+        selectorId: modelRuntimeTarget.selectorId,
+      });
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'claude',
+        expect.objectContaining({
+          model: 'qwen',
+          modelRuntimeTarget,
         }),
         expect.anything(),
       );

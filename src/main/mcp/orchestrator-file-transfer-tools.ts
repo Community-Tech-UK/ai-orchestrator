@@ -221,7 +221,7 @@ export function createFileTransferToolDefinitions(
     {
       name: 'collect_browser_download',
       description:
-        'Find a recent browser download on a worker node and download it locally when exactly one strong candidate matches. Returns candidates when ambiguous.',
+        'Find a recent browser download on a worker node, preferring browserDownloads from the managed Chrome profile before user Downloads, and download it locally when exactly one strong candidate matches. Returns candidates when ambiguous.',
       inputSchema: {
         type: 'object',
         properties: {

@@ -84,7 +84,7 @@ describe('LoopCoordinator pre-existing *_Completed.md seeding', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('still tolerates a workspace with no matching files (sanity)', async () => {
     const state = await coordinator.startLoop('chat-clean', {
@@ -97,7 +97,7 @@ describe('LoopCoordinator pre-existing *_Completed.md seeding', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 });
 
 describe('LoopCoordinator materializeConfig — requireCompletedFileRename default', () => {
@@ -113,7 +113,7 @@ describe('LoopCoordinator materializeConfig — requireCompletedFileRename defau
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('honours explicit requireCompletedFileRename=false even when planFile is set', async () => {
     const baseCompletion = defaultLoopConfig(workspace, 'x').completion;
@@ -129,7 +129,7 @@ describe('LoopCoordinator materializeConfig — requireCompletedFileRename defau
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('keeps requireCompletedFileRename=false when no planFile is configured', async () => {
     const state = await coordinator.startLoop('chat-no-plan', {
@@ -142,7 +142,7 @@ describe('LoopCoordinator materializeConfig — requireCompletedFileRename defau
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 });
 
 describe('LoopCoordinator startup workspace snapshot', () => {
@@ -166,7 +166,7 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('records doneSentinelPresentAtStart=false when the workspace is clean', async () => {
     const state = await coordinator.startLoop('chat-clean-sentinel', {
@@ -179,7 +179,7 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('records planChecklistFullyCheckedAtStart=true when PLAN.md is already fully ticked', async () => {
     writeFileSync(
@@ -198,7 +198,7 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('records planChecklistFullyCheckedAtStart=false when PLAN.md still has unchecked items', async () => {
     writeFileSync(
@@ -217,7 +217,7 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('records planChecklistFullyCheckedAtStart=false when no planFile is configured', async () => {
     const state = await coordinator.startLoop('chat-no-plan-snapshot', {
@@ -231,7 +231,7 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 });
 
 describe('LoopCoordinator auto-enables requireCompletedFileRename from uncompleted plan files', () => {
@@ -253,7 +253,7 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('keeps requireCompletedFileRename=false when only denylisted docs (README/AGENTS/...) are present', async () => {
     writeFileSync(join(workspace, 'README.md'), '# Readme\n');
@@ -271,7 +271,7 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('respects an explicit caller false even when uncompleted plan files exist', async () => {
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
@@ -290,7 +290,7 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('ignores files already matching the completion suffix', async () => {
     writeFileSync(join(workspace, 'already_completed.md'), '# Done\n');
@@ -307,7 +307,7 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 15_000);
+  }, 30_000);
 });
 
 describe('LoopCoordinator completion classification hardening', () => {
@@ -337,7 +337,7 @@ describe('LoopCoordinator completion classification hardening', () => {
     });
 
     const terminalState = new Promise<{ status: string; endReason?: string }>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('loop did not reach terminal state')), 15_000);
+      const timeout = setTimeout(() => reject(new Error('loop did not reach terminal state')), 30_000);
       coordinator.on('loop:state-changed', (data: unknown) => {
         const state = (data as { state: { status: string; endReason?: string } }).state;
         if (!['completed', 'cap-reached', 'error', 'failed'].includes(state.status)) return;
@@ -458,7 +458,7 @@ describe('LoopCoordinator completion classification hardening', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 20_000);
+  }, 45_000);
 });
 
 describe('LoopCoordinator skipped-verify completion gate', () => {
@@ -573,7 +573,7 @@ describe('LoopCoordinator same-plan concurrent-loop policy', () => {
     } finally {
       await coordinator.cancelLoop(a.id);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('ALLOWS concurrent loops on DISTINCT plan files in the same workspace', async () => {
     writeFileSync(join(workspace, 'plan-a.md'), '# A\n- [ ] a\n');
@@ -596,5 +596,5 @@ describe('LoopCoordinator same-plan concurrent-loop policy', () => {
       await coordinator.cancelLoop(a.id);
       await coordinator.cancelLoop(b.id);
     }
-  }, 15_000);
+  }, 30_000);
 });

@@ -379,6 +379,7 @@ export interface Instance {
   residentClaude?: boolean;
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
   reasoningEffort?: ReasoningEffort; // Optional model thinking/reasoning effort override
+  modelRuntimeTarget?: ModelRuntimeTarget;
   runtimeSummary?: InstanceRuntimeSummary;
 
   /** Where this instance is executing (local or remote node) */

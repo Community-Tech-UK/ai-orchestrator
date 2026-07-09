@@ -13,8 +13,37 @@ interface SessionRow {
   status: string;
   pendingApprovalCount: number;
   hasUnreadCompletion: boolean;
+  isLooping: boolean;
   live: boolean;
   lastActivity: number;
+  chip: SessionRowChip;
+}
+
+export type SessionRowChipKind = 'attention' | 'loop' | 'past' | 'status';
+
+export interface SessionRowChip {
+  kind: SessionRowChipKind;
+  label: string;
+}
+
+export interface SessionChipInput {
+  live: boolean;
+  isLooping: boolean;
+  status: string;
+  pendingApprovalCount: number;
+}
+
+export function sessionChipForRow(row: SessionChipInput): SessionRowChip {
+  if (row.pendingApprovalCount > 0) {
+    return { kind: 'attention', label: 'Awaiting approval' };
+  }
+  if (!row.live) {
+    return { kind: 'past', label: 'past' };
+  }
+  if (row.isLooping) {
+    return { kind: 'loop', label: 'Loop' };
+  }
+  return { kind: 'status', label: statusLabel(row.status) };
 }
 
 export const SESSION_PAGE_SIZE = 10;
@@ -56,8 +85,12 @@ export function sessionsShowMoreLabel(
       <ul class="list">
         @for (s of visibleSessions(); track s.id) {
           <li>
-            <button class="row" (click)="open(s)">
-              <span class="dot lg" [style.background]="color(s.status)"></span>
+            <button class="row" [class.looping]="s.chip.kind === 'loop'" (click)="open(s)">
+              <span
+                class="dot lg"
+                [class.looping]="s.chip.kind === 'loop'"
+                [style.background]="color(s.status)"
+              ></span>
               <span class="info">
                 <span class="name">
                   {{ s.name }}
@@ -65,13 +98,11 @@ export function sessionsShowMoreLabel(
                 </span>
                 <span class="meta">{{ s.provider }}{{ s.model ? ' · ' + s.model : '' }}</span>
               </span>
-              @if (s.pendingApprovalCount > 0) {
-                <span class="chip attention">Awaiting approval</span>
-              } @else if (!s.live) {
-                <span class="chip">past</span>
-              } @else {
-                <span class="chip">{{ label(s.status) }}</span>
-              }
+              <span
+                class="chip"
+                [class.attention]="s.chip.kind === 'attention'"
+                [class.loop]="s.chip.kind === 'loop'"
+              >{{ s.chip.label }}</span>
               <span class="chevron">›</span>
             </button>
           </li>
@@ -99,7 +130,12 @@ export function sessionsShowMoreLabel(
         width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 4px;
         background: transparent; border: none; color: var(--text); text-align: left;
       }
+      .row.looping { color: var(--text); }
       .dot.lg { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+      .dot.lg.looping {
+        background: #a78bfa !important;
+        box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.22);
+      }
       .info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
       .name { font-size: 17px; display: flex; align-items: center; gap: 6px; }
       .unread { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-action); }
@@ -109,6 +145,11 @@ export function sessionsShowMoreLabel(
         padding: 4px 10px; border-radius: var(--radius-pill); text-transform: capitalize; white-space: nowrap;
       }
       .chip.attention { color: var(--accent-attention); background: rgba(255, 159, 10, 0.15); }
+      .chip.loop {
+        color: #d8b4fe;
+        background: rgba(167, 139, 250, 0.16);
+        box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.3);
+      }
       .chevron { color: var(--text-secondary); font-size: 20px; }
       .show-more {
         width: 100%; background: transparent; border: none; color: var(--accent-action);
@@ -130,7 +171,6 @@ export class SessionsComponent {
 
   protected readonly online = this.gateway.online;
   protected readonly color = statusColor;
-  protected readonly label = statusLabel;
 
   /** Show the most recent sessions first; reveal the rest in pages via "Show more". */
   protected readonly visibleCount = signal(SESSION_PAGE_SIZE);
@@ -140,17 +180,21 @@ export class SessionsComponent {
 
     const live: SessionRow[] = (this.gateway.snapshot()?.instances ?? [])
       .filter((i) => (i.workingDirectory || '__no_workspace__') === key)
-      .map((i) => ({
-        id: i.id,
-        name: i.displayName,
-        provider: i.provider,
-        model: i.model,
-        status: i.status,
-        pendingApprovalCount: i.pendingApprovalCount,
-        hasUnreadCompletion: i.hasUnreadCompletion,
-        live: true,
-        lastActivity: i.lastActivity,
-      }));
+      .map((i) => {
+        const row = {
+          id: i.id,
+          name: i.displayName,
+          provider: i.provider,
+          model: i.model,
+          status: i.status,
+          pendingApprovalCount: i.pendingApprovalCount,
+          hasUnreadCompletion: i.hasUnreadCompletion,
+          isLooping: i.isLooping === true,
+          live: true,
+          lastActivity: i.lastActivity,
+        };
+        return { ...row, chip: sessionChipForRow(row) };
+      });
 
     // Persisted (closed) sessions for this project. A history session that is
     // still live is already represented by the live instance above, so skip it.
@@ -159,17 +203,21 @@ export class SessionsComponent {
       .historySessions()
       .filter((h) => (h.workingDirectory || '__no_workspace__') === key)
       .filter((h) => !(h.live && h.instanceId && liveHistoryHandled.has(h.instanceId)))
-      .map((h) => ({
-        id: h.id,
-        name: h.name,
-        provider: h.provider ?? 'session',
-        model: h.model ?? undefined,
-        status: 'idle',
-        pendingApprovalCount: 0,
-        hasUnreadCompletion: false,
-        live: false,
-        lastActivity: h.lastActiveAt,
-      }));
+      .map((h) => {
+        const row = {
+          id: h.id,
+          name: h.name,
+          provider: h.provider ?? 'session',
+          model: h.model ?? undefined,
+          status: 'idle',
+          pendingApprovalCount: 0,
+          hasUnreadCompletion: false,
+          isLooping: false,
+          live: false,
+          lastActivity: h.lastActiveAt,
+        };
+        return { ...row, chip: sessionChipForRow(row) };
+      });
 
     return [...live, ...past].sort((a, b) => {
       if (a.live !== b.live) return a.live ? -1 : 1;

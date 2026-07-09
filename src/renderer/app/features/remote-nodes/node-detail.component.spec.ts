@@ -1,4 +1,4 @@
-import { Component, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { Component, input, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { NodeDetailComponent } from './node-detail.component';
@@ -18,7 +18,9 @@ await resolveComponentResources((url) => {
   standalone: true,
   template: '',
 })
-class StubNodeServicePanelComponent {}
+class StubNodeServicePanelComponent {
+  readonly nodeId = input<string>();
+}
 
 function makeNode(): RemoteNodeRosterEntry {
   const capabilities: RemoteNodeRosterEntry['capabilities'] = {
@@ -105,5 +107,72 @@ describe('NodeDetailComponent', () => {
     expect(text).toContain('LM Studio');
     expect(text).toContain('qwen2.5-coder-32b-instruct');
     expect(text).toContain('32768 ctx');
+  });
+
+  it('labels unhealthy advertised local model endpoints as installed but not running', async () => {
+    const node = makeNode();
+    node.capabilities.localModelEndpoints = [{
+      provider: 'ollama',
+      endpointId: 'ollama',
+      baseUrl: 'http://127.0.0.1:11434',
+      models: [],
+      healthy: false,
+    }];
+    await TestBed.configureTestingModule({
+      imports: [NodeDetailComponent],
+      providers: [{
+        provide: RemoteNodesStore,
+        useValue: {
+          serviceStatuses: vi.fn(() => ({})),
+          refreshServiceStatus: vi.fn(),
+          restartService: vi.fn(),
+          stopService: vi.fn(),
+          uninstallService: vi.fn(),
+        },
+      }],
+    })
+      .overrideComponent(NodeDetailComponent, {
+        remove: { imports: [NodeServicePanelComponent] },
+        add: { imports: [StubNodeServicePanelComponent] },
+      })
+      .compileComponents();
+    fixture = TestBed.createComponent(NodeDetailComponent);
+    Object.defineProperty(fixture.componentInstance, 'node', { value: () => node });
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Ollama');
+    expect(text).toContain('Installed but not running');
+  });
+
+  it('labels local model endpoints on disconnected nodes as unavailable', async () => {
+    const node = makeNode();
+    node.status = 'disconnected';
+    node.connected = false;
+    await TestBed.configureTestingModule({
+      imports: [NodeDetailComponent],
+      providers: [{
+        provide: RemoteNodesStore,
+        useValue: {
+          serviceStatuses: vi.fn(() => ({})),
+          refreshServiceStatus: vi.fn(),
+          restartService: vi.fn(),
+          stopService: vi.fn(),
+          uninstallService: vi.fn(),
+        },
+      }],
+    })
+      .overrideComponent(NodeDetailComponent, {
+        remove: { imports: [NodeServicePanelComponent] },
+        add: { imports: [StubNodeServicePanelComponent] },
+      })
+      .compileComponents();
+    fixture = TestBed.createComponent(NodeDetailComponent);
+    Object.defineProperty(fixture.componentInstance, 'node', { value: () => node });
+    fixture.detectChanges();
+
+    const headings = [...(fixture.nativeElement as HTMLElement).querySelectorAll('.local-model-endpoint h5')]
+      .map((heading) => heading.textContent ?? '');
+    expect(headings.some((heading) => heading.includes('Ollama') && heading.includes('Unavailable'))).toBe(true);
   });
 });

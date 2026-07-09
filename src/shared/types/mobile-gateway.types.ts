@@ -69,6 +69,8 @@ export interface MobileInstanceDto {
   parentId?: string;
   pendingApprovalCount: number;
   hasUnreadCompletion: boolean;
+  /** True when this live session has an active Loop Mode run. */
+  isLooping?: boolean;
   /** 0–100 context window usage, when known. */
   contextPercentage?: number;
 }

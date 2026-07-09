@@ -19,9 +19,11 @@ import type {
   FileAttachment,
   InstanceCreateConfig,
 } from '../../shared/types/instance.types';
+import type { LoopState } from '../../shared/types/loop.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type {
   MobileGatewayStatus,
+  MobileInstanceDto,
   MobileMessagesResumeDto,
   MobilePauseDto,
   MobilePromptDto,
@@ -66,6 +68,8 @@ import {
   handleApnsTokenRequest,
   handleLiveActivityTokenRequest,
 } from './mobile-gateway-device-token-handlers';
+import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
+import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 
 export {
   buildProjects,
@@ -107,6 +111,10 @@ export interface GatewayPauseSource extends EmitterLike {
   toPayload(): MobilePauseDto;
   addReason(reason: 'user', meta?: Record<string, unknown>): void;
   removeReason(reason: 'user'): void;
+}
+
+export interface GatewayLoopSource extends EmitterLike {
+  getActiveLoops(): Pick<LoopState, 'chatId' | 'status' | 'endedAt'>[];
 }
 
 /** Minimal recent-directories surface the gateway uses. */
@@ -151,6 +159,8 @@ export interface MobileGatewayDeps {
   chatHistory?: GatewayChatHistorySource;
   /** Persistent archive of closed instance sessions. Defaults to the HistoryManager. */
   instanceHistory?: GatewayInstanceHistorySource;
+  /** Runtime loop state. Defaults to the main LoopCoordinator singleton. */
+  loopCoordinator?: GatewayLoopSource;
   apnsSender?: MobileApnsSender;
   modelCatalog?: MobileModelCatalogSource;
   listDynamicModels?: MobileModelLister;
@@ -225,6 +235,7 @@ export class MobileGatewayServer {
   /** The orchestration handler we attached to, for clean detach on stop. */
   private orchestration: EmitterLike | null = null;
   private attachedPause: GatewayPauseSource | null = null;
+  private attachedLoop: GatewayLoopSource | null = null;
 
   // Stable listener refs so we can detach exactly what we attached.
   private readonly onInstanceCreated = () => this.scheduleSnapshotBroadcast();
@@ -238,6 +249,7 @@ export class MobileGatewayServer {
   private readonly onUserAction = (request: unknown) => this.handleUserAction(request);
   private readonly onPauseChange = () =>
     this.broadcast({ type: 'pause-state', data: this.pauseState() });
+  private readonly onLoopStateChanged = () => this.scheduleSnapshotBroadcast();
 
   static getInstance(): MobileGatewayServer {
     if (!this.instance) {
@@ -267,6 +279,10 @@ export class MobileGatewayServer {
 
   private get recentDirs(): GatewayRecentDirsSource {
     return this.deps?.recentDirs ?? getRecentDirectoriesManager();
+  }
+
+  private get loopCoordinator(): GatewayLoopSource | null {
+    return this.deps?.loopCoordinator ?? getLoopCoordinator();
   }
 
   /**
@@ -558,6 +574,15 @@ export class MobileGatewayServer {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+
+    try {
+      this.attachedLoop = this.loopCoordinator;
+      this.attachedLoop?.on('loop:state-changed', this.onLoopStateChanged);
+    } catch (err) {
+      logger.warn('Could not attach loop listener', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private detachListeners(): void {
@@ -573,6 +598,8 @@ export class MobileGatewayServer {
     this.orchestration = null;
     this.attachedPause?.removeListener('change', this.onPauseChange);
     this.attachedPause = null;
+    this.attachedLoop?.removeListener('loop:state-changed', this.onLoopStateChanged);
+    this.attachedLoop = null;
   }
 
   private handleInstanceRemoved(instanceId: string): void {
@@ -817,9 +844,10 @@ export class MobileGatewayServer {
     for (const prompt of this.prompts.values()) {
       promptCounts.set(prompt.instanceId, (promptCounts.get(prompt.instanceId) ?? 0) + 1);
     }
+    const activeLoopChatIds = this.activeLoopChatIds();
     const instances = (this.deps?.instanceManager.getAllInstances() ?? [])
       .filter((instance) => instance.status !== 'terminated')
-      .map(serializeInstance)
+      .map((instance) => this.serializeMobileInstance(instance, activeLoopChatIds))
       .map((dto) => {
         const pending = promptCounts.get(dto.id);
         const unread = this.unreadCompletions.has(dto.id);
@@ -838,6 +866,23 @@ export class MobileGatewayServer {
       prompts: [...this.prompts.values()],
       pause: this.pauseState(),
     };
+  }
+
+  private activeLoopChatIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const loop of this.loopCoordinator?.getActiveLoops() ?? []) {
+      if (loop.chatId && isActiveLoopRuntimeState(loop)) {
+        ids.add(loop.chatId);
+      }
+    }
+    return ids;
+  }
+
+  private serializeMobileInstance(
+    instance: Instance,
+    activeLoopChatIds = this.activeLoopChatIds(),
+  ): MobileInstanceDto {
+    return serializeInstance(instance, { isLooping: activeLoopChatIds.has(instance.id) });
   }
 
   private scheduleSnapshotBroadcast(): void {
@@ -1088,6 +1133,7 @@ export class MobileGatewayServer {
       instanceManager: this.source(),
       modelCatalog: this.deps?.modelCatalog ?? getUnifiedModelCatalog(),
       listDynamicModels: this.deps?.listDynamicModels,
+      serializeInstance: (instance: Instance) => this.serializeMobileInstance(instance),
       logger,
     };
   }
@@ -1436,7 +1482,7 @@ export class MobileGatewayServer {
       forceNodeId,
     };
     const instance = await this.source().createInstance(config);
-    this.sendJson(res, 200, serializeInstance(instance));
+    this.sendJson(res, 200, this.serializeMobileInstance(instance));
   }
 
   private async handleSetPause(req: IncomingMessage, res: ServerResponse): Promise<void> {

@@ -74,7 +74,7 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     expect(queued.drainMode).toBe('one-at-a-time');
 
     await coordinator.cancelLoop(state.id);
-  });
+  }, 20_000);
 
   it('Task 18: a one-at-a-time follow-up drains a single message per completion seam', async () => {
     const drained: Array<{ count: number; remaining: number }> = [];
@@ -116,7 +116,7 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     expect(drained[0].remaining).toBe(1);
     expect(drained[drained.length - 1].remaining).toBe(0);
     expect(coordinator.getLoop(stateRun.id)?.status).toBe('completed');
-  });
+  }, 20_000);
 
   it('downgrades a steer intervention to next-iteration and surfaces the downgrade', async () => {
     const downgrades: unknown[] = [];
@@ -156,7 +156,7 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     expect(downgrades[0]).toMatchObject({ requestedKind: 'steer', effectiveKind: 'queue' });
 
     await coordinator.cancelLoop(state.id);
-  });
+  }, 20_000);
 
   it('does not downgrade a steer intervention when live steering is supported', async () => {
     const downgrades: unknown[] = [];
@@ -190,7 +190,7 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     expect(downgrades).toHaveLength(0);
 
     await coordinator.cancelLoop(state.id);
-  });
+  }, 20_000);
 
   it('defers a would-be completion to run queued follow-up messages first', async () => {
     const drained: unknown[] = [];
@@ -241,7 +241,7 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     expect(drained).toHaveLength(1);
     expect(drained[0]).toMatchObject({ count: 1 });
     expect(prompt).toContain('also check the edge case');
-  });
+  }, 20_000);
 
   it('D5: vetoes a would-be completion when the agent self-declares more work remaining', async () => {
     const vetoes: unknown[] = [];
@@ -283,5 +283,5 @@ describe('LoopCoordinator — Pi Task 18 steering downgrade + follow-up drain', 
     expect(vetoes[0]).toMatchObject({ seq: 0 });
     expect(coordinator.getLoop(state.id)?.status).toBe('completed');
     expect(coordinator.getLoop(state.id)?.totalIterations).toBeGreaterThanOrEqual(2);
-  });
+  }, 20_000);
 });

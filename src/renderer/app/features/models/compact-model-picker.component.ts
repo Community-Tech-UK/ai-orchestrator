@@ -210,6 +210,7 @@ export class CompactModelPickerComponent {
   private readonly _hasMessages = signal(false);
   private readonly _selection = signal<PendingSelection | null>(null);
   private readonly _providers = signal<PickerProvider[] | null>(null);
+  private readonly _selectedLocalModelNodeId = signal<string | null>(null);
   protected readonly _disabledReason = signal<string | null>(null);
 
   @Input() set mode(value: CompactPickerMode) {
@@ -237,6 +238,10 @@ export class CompactModelPickerComponent {
   @Input() set selection(value: PendingSelection | null | undefined) {
     this._selection.set(value ?? null);
     if (value) this.controller.setSelection(value);
+  }
+  @Input() set selectedLocalModelNodeId(value: string | null | undefined) {
+    const trimmed = value?.trim();
+    this._selectedLocalModelNodeId.set(trimmed ? trimmed : null);
   }
   /**
    * When set, the picker trigger is disabled and the menu cannot be opened; the
@@ -279,7 +284,11 @@ export class CompactModelPickerComponent {
     // Prefer the unified catalog (static, models.dev, override, custom, and
     // CLI-discovered rows). Fall back to static data only until it has loaded.
     const unified = this.unifiedCatalog.displayModelsForProvider(provider);
-    return unified.length > 0 ? unified : getModelsForProvider(provider);
+    const models = unified.length > 0 ? unified : getModelsForProvider(provider);
+    if (provider !== 'local-model') {
+      return models;
+    }
+    return filterLocalModelsForSelectedNode(models, this._selectedLocalModelNodeId());
   };
 
   /** Bound `[reasoningOptionsForProvider]` callback for the selection panel. */
@@ -551,4 +560,22 @@ function formatAgo(at: number): string {
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
   return `${Math.round(minutes / 60)}h ago`;
+}
+
+export function filterLocalModelsForSelectedNode(
+  models: ModelDisplayInfo[],
+  selectedNodeId: string | null,
+): ModelDisplayInfo[] {
+  if (!selectedNodeId) {
+    return models;
+  }
+
+  return models.filter((model) => {
+    try {
+      const decoded = decodeLocalModelSelector(model.id);
+      return decoded.source === 'worker-node' && decoded.nodeId === selectedNodeId;
+    } catch {
+      return false;
+    }
+  });
 }

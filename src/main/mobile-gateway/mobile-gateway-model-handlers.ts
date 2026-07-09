@@ -3,6 +3,7 @@ import type { SubsystemLogger } from '../logging/logger';
 import { getIdempotencyStore, IdempotencyStore } from '../transport/idempotency-store';
 import type { Instance } from '../../shared/types/instance.types';
 import type {
+  MobileInstanceDto,
   MobileModelCatalog,
   MobileModelDto,
 } from '../../shared/types/mobile-gateway.types';
@@ -37,6 +38,7 @@ interface MobileModelHandlerDeps {
   instanceManager: GatewayModelInstanceSource;
   modelCatalog?: MobileModelCatalogSource;
   listDynamicModels?: MobileModelLister;
+  serializeInstance?: (instance: Instance) => MobileInstanceDto;
   logger: SubsystemLogger;
 }
 
@@ -113,7 +115,7 @@ async function handleChangeModel(
 
   try {
     const updated = await deps.instanceManager.changeModel(instanceId, model);
-    sendJsonResponse(res, 200, serializeInstance(updated));
+    sendJsonResponse(res, 200, (deps.serializeInstance ?? serializeInstance)(updated));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('not found')) {

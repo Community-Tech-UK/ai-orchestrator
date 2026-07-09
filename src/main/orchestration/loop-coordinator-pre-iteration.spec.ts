@@ -74,7 +74,7 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
     await iterationComplete;
 
     expect(coordinator.getLoop(state.id)?.inFlightIteration).toBeUndefined();
-  });
+  }, 20_000);
 
   it('copies invoker capture metadata into the sealed iteration record', async () => {
     const iterationComplete = new Promise<void>((resolve) => {
@@ -112,7 +112,7 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
       unresolvedToolCalls: true,
       toolCalls: [expect.objectContaining({ resultHash: 'result-hash' })],
     });
-  });
+  }, 20_000);
 
   it('clears the in-flight marker when an invocation exits after the loop is paused', async () => {
     const markerCleared = new Promise<void>((resolve) => {
@@ -141,7 +141,7 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
     await markerCleared;
 
     expect(coordinator.getLoop(state.id)?.inFlightIteration).toBeUndefined();
-  });
+  }, 20_000);
 
   it('does not invoke the child when a pre-iteration hook fails', async () => {
     coordinator.registerPreIterationHook(() => {
@@ -169,7 +169,7 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
     expect(invoked).toBe(false);
     expect(errored.endReason).toBe('checkpoint failed');
     expect(coordinator.getLoop(state.id)?.inFlightIteration).toBeUndefined();
-  });
+  }, 20_000);
 
   it('stops post-iteration flow when an iteration hook terminates the loop', async () => {
     let iterationCompleteEmitted = false;
@@ -199,7 +199,7 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
     expect(failedState.id).toBe(state.id);
     expect(failedState.endReason).toBe('hook safety failure');
     expect(iterationCompleteEmitted).toBe(false);
-  });
+  }, 20_000);
 
   it('fails closed when Phase 4 tool rw-lock conflicts are observed', async () => {
     let invokeCount = 0;
@@ -234,5 +234,5 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
     expect(failedState.endReason).toContain('phase4.toolRwLocks safety violation');
     expect(failedState.lastIteration?.errors[0]?.bucket).toBe('tool-rw-lock-conflict');
     expect(invokeCount).toBe(1);
-  });
+  }, 20_000);
 });

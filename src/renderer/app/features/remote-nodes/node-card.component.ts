@@ -52,10 +52,19 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
         @if (node().capabilities.hasDocker) {
           <span class="cap-badge docker">docker</span>
         }
-        @if (localModelCount() > 0) {
+        @if (localModelEndpoints().length > 0) {
           <span class="cap-badge local-models">
             {{ localModelCount() }} local model{{ localModelCount() === 1 ? '' : 's' }}
           </span>
+          @for (endpoint of localModelEndpoints(); track endpoint.endpointId ?? endpoint.provider) {
+            <span
+              class="cap-badge local-model-endpoint"
+              [class.unhealthy]="localModelHealthLabel(endpoint) === 'Installed but not running'"
+              [class.unavailable]="localModelHealthLabel(endpoint) === 'Unavailable'"
+            >
+              {{ localModelProviderLabel(endpoint.provider) }} · {{ localModelHealthLabel(endpoint) }}
+            </span>
+          }
         }
       </div>
     </div>
@@ -173,6 +182,21 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
       background: rgba(var(--success-rgb), 0.14);
       color: var(--color-success);
     }
+
+    .cap-badge.local-model-endpoint {
+      background: rgba(var(--info-rgb), 0.12);
+      color: var(--color-info);
+    }
+
+    .cap-badge.local-model-endpoint.unhealthy {
+      background: rgba(var(--warning-rgb), 0.14);
+      color: var(--color-warning);
+    }
+
+    .cap-badge.local-model-endpoint.unavailable {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--color-text-secondary);
+    }
   `],
 })
 export class NodeCardComponent {
@@ -192,4 +216,19 @@ export class NodeCardComponent {
     (this.node().capabilities.localModelEndpoints ?? [])
       .reduce((total, endpoint) => total + endpoint.models.length, 0),
   );
+
+  readonly localModelEndpoints = computed(() =>
+    this.node().capabilities.localModelEndpoints ?? [],
+  );
+
+  localModelProviderLabel(provider: 'ollama' | 'openai-compatible'): string {
+    return provider === 'ollama' ? 'Ollama' : 'LM Studio';
+  }
+
+  localModelHealthLabel(endpoint: { healthy: boolean }): string {
+    if (!this.node().connected || this.node().status === 'disconnected') {
+      return 'Unavailable';
+    }
+    return endpoint.healthy ? 'Running' : 'Installed but not running';
+  }
 }

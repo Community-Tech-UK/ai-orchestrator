@@ -67,4 +67,38 @@ describe('NodeCardComponent', () => {
 
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('2 local models');
   });
+
+  it('renders installed-but-not-running local model endpoints even with no models', async () => {
+    const node = makeNode();
+    node.capabilities.localModelEndpoints = [{
+      provider: 'ollama',
+      endpointId: 'ollama',
+      baseUrl: 'http://127.0.0.1:11434',
+      models: [],
+      healthy: false,
+    }];
+    await TestBed.configureTestingModule({ imports: [NodeCardComponent] }).compileComponents();
+    fixture = TestBed.createComponent(NodeCardComponent);
+    Object.defineProperty(fixture.componentInstance, 'node', { value: () => node });
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('0 local models');
+    expect(text).toContain('Ollama');
+    expect(text).toContain('Installed but not running');
+  });
+
+  it('labels local model endpoints on disconnected nodes as unavailable', async () => {
+    const node = makeNode();
+    node.status = 'disconnected';
+    node.connected = false;
+    await TestBed.configureTestingModule({ imports: [NodeCardComponent] }).compileComponents();
+    fixture = TestBed.createComponent(NodeCardComponent);
+    Object.defineProperty(fixture.componentInstance, 'node', { value: () => node });
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Ollama');
+    expect(text).toContain('Unavailable');
+  });
 });

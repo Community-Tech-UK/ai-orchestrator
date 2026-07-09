@@ -1356,8 +1356,9 @@ export class InstanceManager extends EventEmitter {
     instanceId: string,
     newModel: string,
     reasoningEffort?: Instance['reasoningEffort'] | null,
+    modelRuntimeTarget?: Instance['modelRuntimeTarget'],
   ): Promise<Instance> {
-    return this.lifecycle.changeModel(instanceId, newModel, reasoningEffort);
+    return this.lifecycle.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget);
   }
 
   interruptInstance(instanceId: string): boolean {

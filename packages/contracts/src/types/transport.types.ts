@@ -19,7 +19,10 @@ import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
 import type { ExecutionLocation } from '@shared/types/worker-node.types';
 import type { ActivityState } from '@shared/types/activity.types';
 import type { ReasoningEffort } from '@shared/types/provider.types';
-import type { ModelRuntimeTarget } from '@shared/types/local-model-runtime.types';
+import type {
+  InstanceRuntimeSummary,
+  ModelRuntimeTarget,
+} from '@shared/types/local-model-runtime.types';
 
 export type { IpcChannel };
 
@@ -83,6 +86,7 @@ export interface InstanceStateUpdatePayload {
    * Optional because most state updates don't change it.
    */
   currentModel?: string;
+  runtimeSummary?: InstanceRuntimeSummary | null;
   reasoningEffort?: ReasoningEffort | null;
   launchMode?: InstanceLaunchMode;
   executionLocation?: ExecutionLocation;
@@ -158,6 +162,7 @@ export interface InstanceRenamePayload {
 export interface InstanceChangeModelPayload {
   instanceId: string;
   model: string;
+  modelRuntimeTarget?: ModelRuntimeTarget;
   /**
    * Undefined preserves the current override, null clears to provider default,
    * and a value respawns the adapter with that thinking/reasoning effort.

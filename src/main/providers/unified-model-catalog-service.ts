@@ -533,6 +533,9 @@ export class UnifiedModelCatalogService extends EventEmitter {
       }
     }
     for (const entry of this.localModelEntries) {
+      if (!entry.healthy) {
+        continue;
+      }
       next.set(catalogKey('local-model', entry.selectorId), {
         id: entry.selectorId,
         provider: 'local-model',

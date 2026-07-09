@@ -17,7 +17,7 @@ import { GatewayClient } from '../../core/gateway-client.service';
 import { HapticsService } from '../../core/haptics.service';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
 import { VoiceInputService } from '../../core/voice-input.service';
-import { isWorking, statusColor, statusLabel } from '../../core/status';
+import { displayStatusColor, displayStatusLabel, isWorkingOrLooping } from '../../core/status';
 import type { MobileAttachmentDto, MobileModelCatalog } from '../../core/models';
 import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
@@ -45,14 +45,14 @@ import {
       <header class="top">
         <button class="back" (click)="back()">‹</button>
         <div class="title">
-          <span class="dot" [style.background]="color(status())"></span>
+          <span class="dot" [style.background]="activityColor()"></span>
           <span class="name">{{ instance()?.displayName ?? 'Session' }}</span>
         </div>
         <button class="menu" (click)="menuOpen.set(!menuOpen())" aria-label="More">⋯</button>
       </header>
 
       <div class="subheader">
-        <span class="status-text">{{ label(status()) }}</span>
+        <span class="status-text">{{ activityLabel() }}</span>
         @if (instance()?.contextPercentage !== undefined) {
           <span class="ctx">· context {{ instance()?.contextPercentage }}%</span>
         }
@@ -265,8 +265,6 @@ export class ConversationComponent {
   protected readonly modelsError = signal<string | null>(null);
   protected readonly modelCatalog = signal<MobileModelCatalog | null>(null);
   protected readonly online = this.gateway.online;
-  protected readonly color = statusColor;
-  protected readonly label = statusLabel;
   protected readonly renderMarkdown = renderMobileMarkdown;
   protected readonly isLoopTranscriptMessage = isLoopTranscriptMessage;
   protected readonly toolLabel = toolLabel;
@@ -289,8 +287,9 @@ export class ConversationComponent {
   protected readonly instance = computed(() =>
     this.gateway.snapshot()?.instances.find((i) => i.id === this.instanceId()),
   );
-  protected readonly status = computed(() => this.instance()?.status ?? 'idle');
-  protected readonly working = computed(() => isWorking(this.status()));
+  protected readonly activityColor = computed(() => displayStatusColor(this.instance()));
+  protected readonly activityLabel = computed(() => displayStatusLabel(this.instance()));
+  protected readonly working = computed(() => isWorkingOrLooping(this.instance()));
   protected readonly messages = computed(() => this.gateway.messagesFor(this.instanceId()));
   protected readonly modelsForProvider = computed(() => {
     const provider = this.instance()?.provider;

@@ -211,10 +211,16 @@ export class InstanceIpcService {
   async changeModel(
     instanceId: string,
     model: string,
-    reasoningEffort?: ReasoningEffort | null
+    reasoningEffort?: ReasoningEffort | null,
+    modelRuntimeTarget?: ModelRuntimeTarget,
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.changeModel({ instanceId, model, reasoningEffort });
+    return this.api.changeModel({
+      instanceId,
+      model,
+      reasoningEffort,
+      ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
+    });
   }
 
   /**

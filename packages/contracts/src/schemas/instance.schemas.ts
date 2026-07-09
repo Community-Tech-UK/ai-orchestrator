@@ -36,8 +36,104 @@ export const ModelRuntimeTargetSchema = z.discriminatedUnion('kind', [
     selectorId: z.string().min(1).max(2048),
     nodeId: z.string().min(1).max(200).optional(),
     nodeName: z.string().min(1).max(200).optional(),
+  }).superRefine((target, ctx) => {
+    const decoded = decodeLocalModelSelectorForSchema(target.selectorId);
+    if (!decoded) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['selectorId'],
+        message: 'Invalid local model selector',
+      });
+      return;
+    }
+
+    if (
+      decoded.source !== target.source ||
+      decoded.endpointProvider !== target.endpointProvider ||
+      decoded.endpointId !== target.endpointId ||
+      decoded.modelId !== target.modelId
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['selectorId'],
+        message: 'local-model selector does not match target fields',
+      });
+    }
+
+    const nodeId = target.nodeId?.trim();
+    if (target.source === 'worker-node' && !nodeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['nodeId'],
+        message: 'worker-node local-model runtime targets require nodeId',
+      });
+    }
+    if (target.source === 'worker-node' && nodeId && decoded.nodeId !== nodeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['nodeId'],
+        message: 'worker-node local-model nodeId must match selector',
+      });
+    }
+    if (target.source === 'this-device' && target.nodeId !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['nodeId'],
+        message: 'this-device local-model runtime targets cannot include nodeId',
+      });
+    }
   }),
 ]);
+
+function decodeLocalModelSelectorForSchema(value: string): {
+  source: 'this-device' | 'worker-node';
+  nodeId?: string;
+  endpointProvider: 'ollama' | 'openai-compatible';
+  endpointId: string;
+  modelId: string;
+} | null {
+  try {
+    const parts = value.split('/');
+    if (parts[0] !== 'lm:' || parts[1] !== '') {
+      return null;
+    }
+    if (parts[2] === 'worker-node' && parts.length === 7) {
+      const nodeId = decodeURIComponent(parts[3]);
+      const endpointProvider = parseLocalModelEndpointProvider(parts[4]);
+      if (!nodeId || !endpointProvider) {
+        return null;
+      }
+      return {
+        source: 'worker-node',
+        nodeId,
+        endpointProvider,
+        endpointId: decodeURIComponent(parts[5]),
+        modelId: decodeURIComponent(parts[6]),
+      };
+    }
+    if (parts[2] === 'this-device' && parts.length === 6) {
+      const endpointProvider = parseLocalModelEndpointProvider(parts[3]);
+      if (!endpointProvider) {
+        return null;
+      }
+      return {
+        source: 'this-device',
+        endpointProvider,
+        endpointId: decodeURIComponent(parts[4]),
+        modelId: decodeURIComponent(parts[5]),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseLocalModelEndpointProvider(
+  value: string,
+): 'ollama' | 'openai-compatible' | null {
+  return value === 'ollama' || value === 'openai-compatible' ? value : null;
+}
 
 // ============ Instance Creation ============
 
@@ -153,6 +249,7 @@ export const InstanceChangeModelPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   model: RequiredModelIdSchema,
   reasoningEffort: ReasoningEffortSchema.nullable().optional(),
+  modelRuntimeTarget: ModelRuntimeTargetSchema.optional(),
 });
 
 export type InstanceChangeModelPayload = z.infer<typeof InstanceChangeModelPayloadSchema>;

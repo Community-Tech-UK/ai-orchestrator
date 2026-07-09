@@ -216,12 +216,8 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter {
     const models = Array.isArray(status.metadata?.['models'])
       ? status.metadata['models'].filter((model): model is string => typeof model === 'string')
       : [];
-    if (models.length > 0 && !models.includes(this.model)) {
-      logger.warn('Requested OpenAI-compatible local model was not advertised by endpoint', {
-        model: this.model,
-        endpointId: this.endpointId,
-        available: models,
-      });
+    if (!models.includes(this.model)) {
+      throw new Error(`${this.model} is no longer available from OpenAI-compatible endpoint.`);
     }
 
     this.seedHistoryFromSystemPrompt();

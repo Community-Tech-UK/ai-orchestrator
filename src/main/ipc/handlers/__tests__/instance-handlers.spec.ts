@@ -404,6 +404,43 @@ describe('instance-handlers', () => {
   });
 
   // ----------------------------------------------------------
+  // INSTANCE_CHANGE_MODEL
+  // ----------------------------------------------------------
+
+  describe('INSTANCE_CHANGE_MODEL', () => {
+    it('forwards local-model runtime targets from change-model payloads', async () => {
+      const fakeInstance = { id: 'inst-local-model-change', communicationTokens: undefined };
+      const modelRuntimeTarget = {
+        kind: 'local-model' as const,
+        source: 'worker-node' as const,
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        nodeId: 'node-win',
+        endpointProvider: 'ollama' as const,
+        endpointId: 'ollama',
+        modelId: 'qwen',
+      };
+      vi.mocked(mockInstanceManager.changeModel).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.changeModel>>
+      );
+
+      const result = await invoke(IPC_CHANNELS.INSTANCE_CHANGE_MODEL, {
+        instanceId: 'inst-1',
+        model: modelRuntimeTarget.modelId,
+        reasoningEffort: null,
+        modelRuntimeTarget,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.changeModel).toHaveBeenCalledWith(
+        'inst-1',
+        modelRuntimeTarget.modelId,
+        null,
+        modelRuntimeTarget,
+      );
+    });
+  });
+
+  // ----------------------------------------------------------
   // INSTANCE_LIST
   // ----------------------------------------------------------
 
@@ -478,7 +515,6 @@ describe('instance-handlers', () => {
     });
   });
 
-  // ----------------------------------------------------------
   // INSTANCE_SEND_INPUT
   // ----------------------------------------------------------
 

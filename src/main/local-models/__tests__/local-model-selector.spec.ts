@@ -52,4 +52,19 @@ describe('local model selector helpers', () => {
       'Invalid local model selector',
     );
   });
+
+  it('rejects worker local model selectors without a node id', () => {
+    expect(() => decodeLocalModelSelector('lm://worker-node//ollama/ollama/qwen')).toThrow(
+      'Invalid local model selector',
+    );
+  });
+
+  it('rejects encoding worker local model selectors without a node id', () => {
+    expect(() => encodeLocalModelSelector({
+      source: 'worker-node',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    })).toThrow('Invalid local model selector');
+  });
 });

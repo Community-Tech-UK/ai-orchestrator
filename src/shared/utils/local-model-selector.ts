@@ -12,25 +12,29 @@ export interface DecodedLocalModelSelector {
 }
 
 export function encodeLocalModelSelector(input: DecodedLocalModelSelector): string {
-  const parts = input.source === 'worker-node'
-    ? [
-        'lm:',
-        '',
-        'worker-node',
-        encode(input.nodeId ?? ''),
-        input.endpointProvider,
-        encode(input.endpointId),
-        encode(input.modelId),
-      ]
-    : [
-        'lm:',
-        '',
-        'this-device',
-        input.endpointProvider,
-        encode(input.endpointId),
-        encode(input.modelId),
-      ];
-  return parts.join('/');
+  if (input.source === 'worker-node') {
+    const nodeId = input.nodeId;
+    if (!nodeId) {
+      throw new Error('Invalid local model selector');
+    }
+    return [
+      'lm:',
+      '',
+      'worker-node',
+      encode(nodeId),
+      input.endpointProvider,
+      encode(input.endpointId),
+      encode(input.modelId),
+    ].join('/');
+  }
+  return [
+    'lm:',
+    '',
+    'this-device',
+    input.endpointProvider,
+    encode(input.endpointId),
+    encode(input.modelId),
+  ].join('/');
 }
 
 export function decodeLocalModelSelector(value: string): DecodedLocalModelSelector {
@@ -39,9 +43,13 @@ export function decodeLocalModelSelector(value: string): DecodedLocalModelSelect
     throw new Error('Invalid local model selector');
   }
   if (parts[2] === 'worker-node' && parts.length === 7) {
+    const nodeId = decode(parts[3]);
+    if (!nodeId) {
+      throw new Error('Invalid local model selector');
+    }
     return {
       source: 'worker-node',
-      nodeId: decode(parts[3]),
+      nodeId,
       endpointProvider: parseEndpointProvider(parts[4]),
       endpointId: decode(parts[5]),
       modelId: decode(parts[6]),

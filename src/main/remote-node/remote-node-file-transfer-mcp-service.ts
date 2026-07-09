@@ -52,6 +52,7 @@ import type {
 const logger = getLogger('RemoteNodeFileTransferMcpService');
 const DEFAULT_FIND_LIMIT = 20;
 const DEFAULT_DOWNLOAD_MINUTES = 30;
+const FIND_DIRECTORY_ENTRY_LIMIT = 1000;
 const BROWSER_DOWNLOADS_ROOT_ID = 'browserDownloads';
 const COLLECT_BROWSER_DOWNLOAD_ROOT_IDS = [BROWSER_DOWNLOADS_ROOT_ID, 'downloads'];
 
@@ -155,7 +156,7 @@ class RemoteNodeFileTransferMcpService {
       const tree = await this.sendRpc<FsReadDirectoryResult>(
         resolved.node.id,
         COORDINATOR_TO_NODE.FS_READ_DIRECTORY,
-        { path: root.path, depth: 3, includeHidden: false, limit: 1000 },
+        { path: root.path, depth: 3, includeHidden: false, limit: FIND_DIRECTORY_ENTRY_LIMIT },
       );
       candidates.push(
         ...flattenEntries(tree.entries)
@@ -327,16 +328,18 @@ class RemoteNodeFileTransferMcpService {
 
   async collectBrowserDownload(args: CollectBrowserDownloadArgs, meta: FileTransferToolMeta = {}): Promise<unknown> {
     const resolved = this.resolveNode(args.node);
+    const roots = this.collectBrowserDownloadRootIds(resolved.fileTransfer);
     const findResult = await this.findNodeFiles({
       node: args.node,
       query: args.fileNameHint,
-      roots: this.collectBrowserDownloadRootIds(resolved.fileTransfer),
+      roots,
       extensions: args.extensions,
       modifiedWithinDays: Math.ceil((args.modifiedWithinMinutes ?? DEFAULT_DOWNLOAD_MINUTES) / (24 * 60)),
-      limit: 10,
+      limit: roots.length * FIND_DIRECTORY_ENTRY_LIMIT,
     }, meta) as { nodeId?: string; nodeName?: string; candidates: RemoteCandidate[] };
     const cutoff = Date.now() - (args.modifiedWithinMinutes ?? DEFAULT_DOWNLOAD_MINUTES) * 60_000;
-    const candidates = findResult.candidates.filter((candidate) => candidate.modifiedAt >= cutoff);
+    const recentCandidates = findResult.candidates.filter((candidate) => candidate.modifiedAt >= cutoff);
+    const candidates = this.firstPreferredRootCandidates(recentCandidates, roots);
     if (candidates.length === 0) {
       return {
         ok: false,
@@ -509,6 +512,19 @@ class RemoteNodeFileTransferMcpService {
       readable.has(rootId.toLowerCase()),
     );
     return matchedRootIds.length > 0 ? matchedRootIds : COLLECT_BROWSER_DOWNLOAD_ROOT_IDS;
+  }
+
+  private firstPreferredRootCandidates(
+    candidates: RemoteCandidate[],
+    rootIds: string[],
+  ): RemoteCandidate[] {
+    for (const rootId of rootIds) {
+      const matches = candidates.filter((candidate) => candidate.rootId.toLowerCase() === rootId.toLowerCase());
+      if (matches.length > 0) {
+        return matches;
+      }
+    }
+    return candidates;
   }
 
   private toCandidate(entry: FsEntry, root: WorkerNodeFileTransferRoot): RemoteCandidate {

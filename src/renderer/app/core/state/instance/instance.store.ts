@@ -31,6 +31,7 @@ import type { InstanceStatus, CreateInstanceConfig, OutputMessage } from './inst
 import type { CreateInstanceWithMessageOptions } from './instance-list.store';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
+import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import {
   isActiveTurnStatus,
   isInterruptRecoveryStatus,
@@ -306,6 +307,8 @@ export class InstanceStore implements OnDestroy {
           // later lifecycle hop that resolves the model). Falls back to the
           // existing value so status-only updates don't wipe it.
           currentModel: update.currentModel ?? inst.currentModel,
+          runtimeSummary:
+            update.runtimeSummary !== undefined ? (update.runtimeSummary ?? undefined) : inst.runtimeSummary,
           reasoningEffort:
             update.reasoningEffort === null
               ? undefined
@@ -402,6 +405,8 @@ export class InstanceStore implements OnDestroy {
               update.diffStats !== undefined ? update.diffStats ?? undefined : instance.diffStats,
             // Same Phase 2 propagation rationale as in applyUpdate above.
             currentModel: update.currentModel ?? instance.currentModel,
+            runtimeSummary:
+              update.runtimeSummary !== undefined ? (update.runtimeSummary ?? undefined) : instance.runtimeSummary,
             reasoningEffort:
               update.reasoningEffort === null
                 ? undefined
@@ -676,9 +681,10 @@ export class InstanceStore implements OnDestroy {
   async changeModel(
     instanceId: string,
     newModel: string,
-    reasoningEffort?: ReasoningEffort | null
+    reasoningEffort?: ReasoningEffort | null,
+    modelRuntimeTarget?: ModelRuntimeTarget,
   ): Promise<void> {
-    return this.listStore.changeModel(instanceId, newModel, reasoningEffort);
+    return this.listStore.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget);
   }
 
   /** Clear error state */

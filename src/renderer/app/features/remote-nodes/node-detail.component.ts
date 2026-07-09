@@ -69,7 +69,7 @@ import { NodeServicePanelComponent } from './node-service-panel/node-service-pan
               <section class="local-model-endpoint">
                 <h5>
                   {{ localModelProviderLabel(endpoint.provider) }}
-                  <span>{{ endpoint.healthy ? 'Running' : 'Unavailable' }}</span>
+                  <span>{{ localModelHealthLabel(endpoint) }}</span>
                 </h5>
                 <ul>
                   @for (model of endpoint.models; track model) {
@@ -229,6 +229,13 @@ export class NodeDetailComponent {
 
   localModelProviderLabel(provider: WorkerLocalModelCapability['provider']): string {
     return provider === 'ollama' ? 'Ollama' : 'LM Studio';
+  }
+
+  localModelHealthLabel(endpoint: WorkerLocalModelCapability): string {
+    if (!this.node().connected || this.node().status === 'disconnected') {
+      return 'Unavailable';
+    }
+    return endpoint.healthy ? 'Running' : 'Installed but not running';
   }
 
   loadedContextLabel(endpoint: WorkerLocalModelCapability, modelId: string): string {

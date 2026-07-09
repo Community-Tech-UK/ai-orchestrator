@@ -1,4 +1,5 @@
 import type { InstanceCreateConfig } from '../../../shared/types/instance.types';
+import { decodeLocalModelSelector } from '../../../shared/utils/local-model-selector';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { getLogger } from '../../logging/logger';
 
@@ -12,13 +13,32 @@ const logger = getLogger('InstanceLifecycle');
 export function resolveExecutionLocation(config: InstanceCreateConfig): ExecutionLocation {
   const runtimeTarget = config.modelRuntimeTarget;
   if (runtimeTarget?.kind === 'local-model') {
-    if (runtimeTarget.nodeId) {
+    const decodedSelector = decodeLocalModelSelector(runtimeTarget.selectorId);
+    if (
+      decodedSelector.source !== runtimeTarget.source ||
+      decodedSelector.endpointProvider !== runtimeTarget.endpointProvider ||
+      decodedSelector.endpointId !== runtimeTarget.endpointId ||
+      decodedSelector.modelId !== runtimeTarget.modelId
+    ) {
+      throw new Error('Local model runtime target does not match its selector');
+    }
+    const nodeId = runtimeTarget.nodeId?.trim();
+    if (runtimeTarget.source === 'worker-node' && !nodeId) {
+      throw new Error('Worker local-model runtime targets require a nodeId');
+    }
+    if (runtimeTarget.source === 'worker-node' && decodedSelector.nodeId !== nodeId) {
+      throw new Error('Local model runtime target does not match its selector');
+    }
+    if (runtimeTarget.source === 'this-device' && runtimeTarget.nodeId !== undefined) {
+      throw new Error('this-device local-model runtime targets cannot include nodeId');
+    }
+    if (nodeId) {
       logger.info('Resolved execution location', {
         type: 'remote',
         reason: 'localModelRuntimeTarget',
-        nodeId: runtimeTarget.nodeId,
+        nodeId,
       });
-      return { type: 'remote', nodeId: runtimeTarget.nodeId };
+      return { type: 'remote', nodeId };
     }
 
     logger.info('Resolved execution location', {

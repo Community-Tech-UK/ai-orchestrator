@@ -9,7 +9,7 @@ import {
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
-import { statusColor, statusLabel } from '../../core/status';
+import { displayStatusColor, displayStatusLabel } from '../../core/status';
 import type { MobileInstanceDto, MobileProjectDto, MobileRecentDirDto } from '../../core/models';
 
 type OrganizeMode = 'project' | 'chronological';
@@ -86,10 +86,10 @@ type OrganizeMode = 'project' | 'chronological';
           @for (s of chronological(); track s.id) {
             <li>
               <button class="row" (click)="openSession(s)">
-                <span class="dot lg" [style.background]="color(s.status)"></span>
+                <span class="dot lg" [style.background]="color(s)"></span>
                 <span class="info">
                   <span class="name">{{ s.displayName }}</span>
-                  <span class="meta">{{ s.projectName }} · {{ label(s.status) }}</span>
+                  <span class="meta">{{ s.projectName }} · {{ label(s) }}</span>
                 </span>
                 @if (s.pendingApprovalCount > 0) {
                   <span class="badge attention">⚠</span>
@@ -163,8 +163,8 @@ export class ProjectsComponent implements OnInit {
   protected readonly online = this.gateway.online;
   protected readonly mode = signal<OrganizeMode>('project');
   protected readonly menuOpen = signal(false);
-  protected readonly color = statusColor;
-  protected readonly label = statusLabel;
+  protected readonly color = displayStatusColor;
+  protected readonly label = displayStatusLabel;
 
   /** The host's recent directories, so projects with no live session still show. */
   protected readonly recentDirs = signal<MobileRecentDirDto[]>([]);

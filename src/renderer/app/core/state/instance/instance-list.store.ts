@@ -440,7 +440,8 @@ export class InstanceListStore {
   async changeModel(
     instanceId: string,
     newModel: string,
-    reasoningEffort?: ReasoningEffort | null
+    reasoningEffort?: ReasoningEffort | null,
+    modelRuntimeTarget?: ModelRuntimeTarget,
   ): Promise<void> {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
@@ -450,6 +451,7 @@ export class InstanceListStore {
         ? instance.reasoningEffort
         : reasoningEffort ?? undefined;
     if (
+      !modelRuntimeTarget &&
       instance.currentModel === newModel &&
       instance.reasoningEffort === nextReasoningEffort
     ) {
@@ -462,17 +464,21 @@ export class InstanceListStore {
       return;
     }
 
-    const response = await this.ipc.changeModel(instanceId, newModel, reasoningEffort);
+    const response = modelRuntimeTarget
+      ? await this.ipc.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget)
+      : await this.ipc.changeModel(instanceId, newModel, reasoningEffort);
 
     if (response.success && 'data' in response && response.data) {
       const data = response.data as {
         currentModel?: string;
         reasoningEffort?: ReasoningEffort | null;
+        runtimeSummary?: Instance['runtimeSummary'] | null;
         status?: string;
       };
       this.stateService.updateInstance(instanceId, {
         currentModel: data.currentModel || newModel,
         reasoningEffort: data.reasoningEffort ?? nextReasoningEffort,
+        runtimeSummary: data.runtimeSummary ?? undefined,
         status: (data.status as InstanceStatus) || 'idle',
       });
     } else if ('error' in response) {

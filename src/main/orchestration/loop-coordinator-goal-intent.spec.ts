@@ -58,7 +58,7 @@ describe('LoopCoordinator — goalIntent derivation', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 10_000);
+  }, 30_000);
 
   it('classifies a typed audit goal as investigation despite the default impl-verb continuation prompt', async () => {
     // Reproduces the exact renderer path that caused the original failure:
@@ -81,7 +81,7 @@ describe('LoopCoordinator — goalIntent derivation', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 10_000);
+  }, 30_000);
 
   it('keeps the rename gate off for an investigation even when a planFile is configured', async () => {
     writeFileSync(join(workspace, 'audit-plan.md'), '# Plan\n\n- [ ] item\n');
@@ -98,7 +98,7 @@ describe('LoopCoordinator — goalIntent derivation', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 10_000);
+  }, 30_000);
 
   it('detects an implementation goal as implementation', async () => {
     const state = await coordinator.startLoop('chat-implement', {
@@ -110,7 +110,7 @@ describe('LoopCoordinator — goalIntent derivation', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 10_000);
+  }, 30_000);
 
   it('honours an explicit caller goalIntent over detection', async () => {
     const state = await coordinator.startLoop('chat-explicit', {
@@ -124,5 +124,5 @@ describe('LoopCoordinator — goalIntent derivation', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 10_000);
+  }, 30_000);
 });

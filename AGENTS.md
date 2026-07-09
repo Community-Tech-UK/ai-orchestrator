@@ -84,6 +84,14 @@ For detailed architecture, domain map, and subsystem docs, read `docs/architectu
 
 Key directories: `src/main/` (Electron/Node), `src/renderer/` (Angular), `src/shared/` (types), `src/preload/` (IPC bridge).
 
+## Harness CLI Repair Surface
+
+For the bundled `aio-mcp` CLI, read `docs/AIO_MCP_CLI.md`. Spawned local agents
+that need to inspect or repair Harness settings should read
+`docs/llm/AIO_MCP_CLI_REFERENCE.md` and use `$AIO_MCP settings ...` instead of
+editing settings files directly. Never print the injected socket, instance id,
+or secret/redacted setting values.
+
 ## Bigchange Implementation Process
 
 When implementing features from `bigchange_*.md` files:

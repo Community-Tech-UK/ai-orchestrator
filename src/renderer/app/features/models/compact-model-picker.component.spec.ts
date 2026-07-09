@@ -1,7 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { CompactModelPickerComponent } from './compact-model-picker.component';
+import {
+  CompactModelPickerComponent,
+  filterLocalModelsForSelectedNode,
+} from './compact-model-picker.component';
 import { InstanceStore } from '../../core/state/instance.store';
 import { ChatStore } from '../../core/state/chat.store';
 import { ProviderStateService } from '../../core/services/provider-state.service';
@@ -326,6 +329,26 @@ describe('CompactModelPickerComponent', () => {
         modelId: 'qwen',
       },
     });
+  });
+
+  it('filters local-model rows to the selected draft node when provided', () => {
+    const nodeWinSelector = 'lm://worker-node/node-win/ollama/ollama/qwen';
+    const nodeMacSelector = 'lm://worker-node/node-mac/ollama/ollama/qwen';
+    const localSelector = 'lm://this-device/ollama/ollama/llama3';
+    const models: ModelDisplayInfo[] = [
+      { id: nodeWinSelector, name: 'qwen on windows-pc', tier: 'balanced', family: 'Ollama' },
+      { id: nodeMacSelector, name: 'qwen on mac-mini', tier: 'balanced', family: 'Ollama' },
+      { id: localSelector, name: 'llama3 on This device', tier: 'balanced', family: 'Ollama' },
+    ];
+
+    expect(filterLocalModelsForSelectedNode(models, null).map((model) => model.id)).toEqual([
+      nodeWinSelector,
+      nodeMacSelector,
+      localSelector,
+    ]);
+    expect(filterLocalModelsForSelectedNode(models, 'node-mac').map((model) => model.id)).toEqual([
+      nodeMacSelector,
+    ]);
   });
 
   it('provider-only commit clears reasoning and picks the primary default model', async () => {

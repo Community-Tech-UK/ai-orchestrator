@@ -61,7 +61,10 @@ import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { createSpawnTransaction, type SpawnTransaction } from './lifecycle/spawn-transaction';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
-import { buildInstanceRecord } from './lifecycle/instance-create-builder';
+import {
+  buildInstanceRecord,
+  buildLocalModelRuntimeSummary,
+} from './lifecycle/instance-create-builder';
 import { resolveInitialModel } from './lifecycle/resolve-initial-model';
 import { createModelSelectionDegradationNotice, resolveAvailableModelSelection, type ModelSelectionDegradation } from './lifecycle/model-selection-degradation';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
@@ -113,8 +116,23 @@ import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-con
 import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
 import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
+import type {
+  LocalModelInventoryEntry,
+  ModelRuntimeTarget,
+} from '../../shared/types/local-model-runtime.types';
 
 const logger = getLogger('InstanceLifecycle');
+
+function localModelInventoryEntryMatchesTarget(
+  entry: LocalModelInventoryEntry,
+  target: Extract<ModelRuntimeTarget, { kind: 'local-model' }>,
+): boolean {
+  return entry.source === target.source
+    && entry.endpointProvider === target.endpointProvider
+    && entry.endpointId === target.endpointId
+    && entry.modelId === target.modelId
+    && (target.source !== 'worker-node' || entry.nodeId === target.nodeId);
+}
 
 /**
  * How long create-time prompt enrichers (observation memory, MCP tool context)
@@ -204,29 +222,26 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
   }
 
-  private assertLocalModelRuntimeAvailable(target: InstanceCreateConfig['modelRuntimeTarget']): void {
-    if (target?.kind !== 'local-model' || target.source !== 'worker-node') {
+  private async assertLocalModelRuntimeAvailable(target: InstanceCreateConfig['modelRuntimeTarget']): Promise<void> {
+    if (target?.kind !== 'local-model') {
       return;
     }
 
-    const entry = getLocalModelInventoryService().list().find((candidate) =>
-      candidate.selectorId === target.selectorId ||
-      (
-        candidate.source === 'worker-node' &&
-        candidate.nodeId === target.nodeId &&
-        candidate.endpointProvider === target.endpointProvider &&
-        candidate.endpointId === target.endpointId &&
-        candidate.modelId === target.modelId
-      )
-    );
-    if (entry?.healthy) {
+    const inventoryService = getLocalModelInventoryService();
+    const inventory = await inventoryService.refresh();
+    const entry = inventory.find((candidate) => candidate.selectorId === target.selectorId)
+      ?? inventory.find((candidate) => localModelInventoryEntryMatchesTarget(candidate, target));
+    if (entry?.healthy && localModelInventoryEntryMatchesTarget(entry, target)) {
       return;
     }
 
-    const nodeName = entry?.nodeName ?? target.nodeName ?? target.nodeId ?? 'that worker';
+    const locationLabel = target.source === 'this-device'
+      ? 'this device'
+      : entry?.nodeName ?? target.nodeName ?? target.nodeId ?? 'that worker';
+    const endpointLocation = target.source === 'this-device' ? 'this device' : 'that worker';
     throw new Error(
-      `${target.modelId} is no longer available on ${nodeName}. ` +
-      'Pick another model or start the endpoint on that worker.',
+      `${target.modelId} is no longer available on ${locationLabel}. ` +
+      `Pick another model or start the endpoint on ${endpointLocation}.`,
     );
   }
 
@@ -1577,7 +1592,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         } else {
           const executionLocation = resolveExecutionLocation(config);
           instance.executionLocation = executionLocation;
-          this.assertLocalModelRuntimeAvailable(config.modelRuntimeTarget);
+          await this.assertLocalModelRuntimeAvailable(config.modelRuntimeTarget);
           // Clear local MCP config for remote instances — paths don't exist on workers
           if (executionLocation.type === 'remote') {
             spawnOptions.mcpConfig = [];
@@ -3038,6 +3053,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     instanceId: string,
     newModel: string,
     reasoningEffort?: Instance['reasoningEffort'] | null,
+    modelRuntimeTarget?: Instance['modelRuntimeTarget'],
   ): Promise<Instance> {
     const instance = this.deps.getInstance(instanceId);
     if (!instance) {
@@ -3053,6 +3069,9 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
       const oldModel = instance.currentModel || 'default';
       const oldReasoningEffort = instance.reasoningEffort;
+      const localModelTarget = modelRuntimeTarget?.kind === 'local-model'
+        ? modelRuntimeTarget
+        : null;
       const nextReasoningEffort =
         reasoningEffort === undefined
           ? instance.reasoningEffort
@@ -3065,6 +3084,15 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         nextReasoningEffort,
         adapterExists: !!this.deps.getAdapter(instanceId)
       });
+
+      let nextExecutionLocation = instance.executionLocation;
+      if (localModelTarget) {
+        await this.assertLocalModelRuntimeAvailable(localModelTarget);
+        nextExecutionLocation = resolveExecutionLocation({
+          workingDirectory: instance.workingDirectory,
+          modelRuntimeTarget: localModelTarget,
+        });
+      }
 
       // Check if there's a conversation to resume
       const hasConversation = instance.outputBuffer.some(
@@ -3098,19 +3126,20 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       const shouldResume =
         hasConversation
         && oldAdapterCapabilities.supportsResume
-        && cliType !== 'claude';
+        && cliType !== 'claude'
+        && !localModelTarget;
       const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
 
       // Validate model against provider before passing it
-      let validatedModel: string | undefined = newModel;
-      if (isModelTier(newModel)) {
+      let validatedModel: string | undefined = localModelTarget?.modelId ?? newModel;
+      if (!localModelTarget && isModelTier(newModel)) {
         validatedModel = resolveModelForTier(newModel, cliType);
       }
 
       // Mirrors spawn-time validation against CLI discovery + unified catalog snapshot.
-      const knownModelIds = await getKnownModelsForCli(cliType);
       const modelToValidate = validatedModel;
-      if (modelToValidate !== undefined) {
+      if (!localModelTarget && modelToValidate !== undefined) {
+        const knownModelIds = await getKnownModelsForCli(cliType);
         const selection = resolveAvailableModelSelection({
           provider: cliType,
           requestedModel: modelToValidate,
@@ -3138,6 +3167,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
       instance.currentModel = validatedModel;
       instance.reasoningEffort = nextReasoningEffort;
+      instance.executionLocation = nextExecutionLocation;
+      if (localModelTarget) {
+        instance.modelRuntimeTarget = localModelTarget;
+        instance.runtimeSummary = buildLocalModelRuntimeSummary(localModelTarget);
+      } else {
+        instance.modelRuntimeTarget = undefined;
+        instance.runtimeSummary = undefined;
+      }
       const contextTotal = getProviderModelContextWindow(cliType, validatedModel);
       instance.contextUsage = {
         ...instance.contextUsage,
@@ -3173,6 +3210,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
         rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+        ...(localModelTarget ? { modelRuntimeTarget: localModelTarget } : {}),
       };
 
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -3250,7 +3288,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         undefined,
         undefined,
         undefined,
-        undefined,
+        instance.executionLocation,
         undefined,
         undefined,
         instance.currentModel,

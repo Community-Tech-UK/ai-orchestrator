@@ -9,6 +9,10 @@ import {
 import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
+import {
+  decodeLocalModelSelector,
+  type DecodedLocalModelSelector,
+} from '../../../../shared/utils/local-model-selector';
 import { ProviderStateService, type ProviderType } from './provider-state.service';
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
 import { ScratchDirectoryService } from './scratch-directory.service';
@@ -282,10 +286,15 @@ export class NewSessionDraftService {
 
   setNodeId(nodeId: string | null): void {
     this.updateActiveDraft((draft) => {
+      const localModelTarget = draft.modelRuntimeTarget?.kind === 'local-model'
+        ? draft.modelRuntimeTarget
+        : null;
       const nextRuntimeTarget =
-        draft.modelRuntimeTarget?.kind === 'local-model'
-          && draft.modelRuntimeTarget.nodeId
-          && draft.modelRuntimeTarget.nodeId !== nodeId
+        localModelTarget
+          && (
+            (nodeId !== null && localModelTarget.nodeId !== nodeId)
+            || (nodeId === null && localModelTarget.nodeId)
+          )
           ? null
           : draft.modelRuntimeTarget;
       return {
@@ -529,7 +538,11 @@ export class NewSessionDraftService {
     const provider = this.isProviderType(draft?.provider) ? draft.provider : null;
     const rawModel = typeof draft?.model === 'string' ? draft.model.trim() : '';
     const persistedModel = rawModel.length > 0 ? rawModel : null;
+    const hadPersistedLocalModelTarget = this.isPersistedLocalModelTarget(draft?.modelRuntimeTarget);
     const modelRuntimeTarget = this.hydrateModelRuntimeTarget(draft?.modelRuntimeTarget);
+    const persistedNodeId = typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0
+      ? draft.nodeId.trim()
+      : null;
     seedProviderModelIntoKnownCatalog(provider, persistedModel);
     const persistedAgentId = typeof draft?.agentId === 'string' ? draft.agentId.trim() : '';
     const isKnownAgent = persistedAgentId.length > 0
@@ -546,7 +559,9 @@ export class NewSessionDraftService {
           ),
       modelRuntimeTarget,
       reasoningEffort: this.isReasoningEffort(draft?.reasoningEffort) ? draft.reasoningEffort : null,
-      nodeId: typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0 ? draft.nodeId : null,
+      nodeId: modelRuntimeTarget?.kind === 'local-model'
+        ? modelRuntimeTarget.nodeId ?? null
+        : hadPersistedLocalModelTarget ? null : persistedNodeId,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
       launchMode: this.resolveDraftLaunchMode(provider, draft?.launchMode),
       agentId: isKnownAgent ? persistedAgentId : getDefaultAgent().id,
@@ -784,18 +799,53 @@ export class NewSessionDraftService {
       return null;
     }
 
+    const source = value['source'];
+    const endpointProvider = value['endpointProvider'];
+    const endpointId = value['endpointId'].trim();
+    const modelId = value['modelId'].trim();
+    const selectorId = value['selectorId'].trim();
+    const decodedSelector = this.decodePersistedLocalModelSelector(selectorId);
+    if (
+      !decodedSelector ||
+      decodedSelector.source !== source ||
+      decodedSelector.endpointProvider !== endpointProvider ||
+      decodedSelector.endpointId !== endpointId ||
+      decodedSelector.modelId !== modelId
+    ) {
+      return null;
+    }
+
     const nodeId = this.isNonEmptyString(value['nodeId']) ? value['nodeId'].trim() : undefined;
+    if (source === 'worker-node' && (!nodeId || decodedSelector.nodeId !== nodeId)) {
+      return null;
+    }
+    if (source === 'this-device' && value['nodeId'] !== undefined) {
+      return null;
+    }
+
     const nodeName = this.isNonEmptyString(value['nodeName']) ? value['nodeName'].trim() : undefined;
     return {
       kind: 'local-model',
-      source: value['source'],
-      endpointProvider: value['endpointProvider'],
-      endpointId: value['endpointId'].trim(),
-      modelId: value['modelId'].trim(),
-      selectorId: value['selectorId'].trim(),
+      source,
+      endpointProvider,
+      endpointId,
+      modelId,
+      selectorId,
       ...(nodeId ? { nodeId } : {}),
       ...(nodeName ? { nodeName } : {}),
     };
+  }
+
+  private decodePersistedLocalModelSelector(selectorId: string): DecodedLocalModelSelector | null {
+    try {
+      return decodeLocalModelSelector(selectorId);
+    } catch {
+      return null;
+    }
+  }
+
+  private isPersistedLocalModelTarget(value: unknown): boolean {
+    return this.isRecord(value) && value['kind'] === 'local-model';
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

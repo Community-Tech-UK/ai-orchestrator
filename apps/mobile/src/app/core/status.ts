@@ -32,6 +32,13 @@ export function statusLabel(status: string): string {
   return status.replace(/[_-]/g, ' ');
 }
 
+const LOOP_STATUS_COLOR = '#a78bfa';
+
+interface SessionStatusView {
+  status?: string;
+  isLooping?: boolean;
+}
+
 export function needsAttention(status: string): boolean {
   return status === 'waiting_for_permission' || status === 'waiting_for_input';
 }
@@ -52,3 +59,31 @@ export function isWorking(status: string): boolean {
   }
 }
 
+export function displayStatusLabel(session: SessionStatusView | null | undefined): string {
+  const status = session?.status ?? 'idle';
+  if (needsAttention(status)) return statusLabel(status);
+  if (session?.isLooping === true) return 'loop';
+  return statusLabel(status);
+}
+
+export function displayStatusColor(session: SessionStatusView | null | undefined): string {
+  const status = session?.status ?? 'idle';
+  if (needsAttention(status)) return statusColor(status);
+  if (session?.isLooping === true) return LOOP_STATUS_COLOR;
+  return statusColor(status);
+}
+
+export function isWorkingOrLooping(session: SessionStatusView | null | undefined): boolean {
+  return session?.isLooping === true || isWorking(session?.status ?? 'idle');
+}
+
+export function isLiveActivityCandidate(session: SessionStatusView): boolean {
+  return needsAttention(session.status ?? 'idle') || isWorkingOrLooping(session);
+}
+
+export function liveActivityStatusLabel(session: SessionStatusView): string {
+  const status = session.status ?? 'idle';
+  if (needsAttention(status)) return 'needs approval';
+  if (session.isLooping === true) return 'looping';
+  return 'working';
+}

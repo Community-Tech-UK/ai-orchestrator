@@ -89,6 +89,7 @@
             mode="pending-create"
             [providers]="draftPickerProviders"
             [selection]="draftPickerSelection()"
+            [selectedLocalModelNodeId]="draftSelectedNodeId()"
             (selectionChange)="onCompactPickerSelectionChange($event)"
           />
           <app-agent-selector

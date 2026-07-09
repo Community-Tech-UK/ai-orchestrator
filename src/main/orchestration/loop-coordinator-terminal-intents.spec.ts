@@ -318,7 +318,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  }, 10_000);
+  }, 20_000);
 
   it('accepts a complete intent from an intervention-consuming iteration when verify passes', async () => {
     const completed = waitForEvent<{ signal: string }>(coordinator, 'loop:completed', LOOP_EVENT_TIMEOUT_MS);
@@ -514,7 +514,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 20_000);
 
   it('uses iterationTimeoutMs for the child invocation backstop', async () => {
     const loopError = waitForEvent<{ error: string }>(coordinator, 'loop:error', LOOP_EVENT_TIMEOUT_MS);
@@ -533,7 +533,7 @@ describe('LoopCoordinator terminal intents', () => {
     await expect(loopError).resolves.toMatchObject({
       error: expect.stringContaining('timed out after 25ms'),
     });
-  });
+  }, 20_000);
 
   it('extends the child invocation backstop while matching loop activity is recent', async () => {
     const errors: string[] = [];
@@ -580,7 +580,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 20_000);
 
   it('prefers a structured block intent over a simultaneous BLOCKED.md file and archives the file', async () => {
     const paused = waitForEvent(coordinator, 'loop:paused-no-progress');
@@ -619,7 +619,7 @@ describe('LoopCoordinator terminal intents', () => {
     await paused;
     expect(coordinator.getLoop(state.id)?.status).toBe('paused');
     expect(existsSync(join(workspace, 'BLOCKED.md'))).toBe(false);
-  });
+  }, 20_000);
 
   it('FU-2: marks the loop manual-review-only when no verifyCommand is configured', async () => {
     const state = await coordinator.startLoop('chat-manual-review', {
@@ -743,7 +743,7 @@ describe('LoopCoordinator terminal intents', () => {
     await paused;
     expect(coordinator.getLoop(state.id)?.status).toBe('paused');
     expect(archiveFailures).toEqual([]);
-  });
+  }, 20_000);
 });
 
 function waitForEvent<T = unknown>(

@@ -80,7 +80,14 @@ export interface GatewayInstanceHistorySource {
   loadConversation(entryId: string): Promise<{ messages: OutputMessage[] } | null>;
 }
 
-export function serializeInstance(instance: Instance): MobileInstanceDto {
+export interface SerializeInstanceOptions {
+  isLooping?: boolean;
+}
+
+export function serializeInstance(
+  instance: Instance,
+  options: SerializeInstanceOptions = {},
+): MobileInstanceDto {
   const workingDirectory = instance.workingDirectory || '';
   return {
     id: instance.id,
@@ -98,6 +105,7 @@ export function serializeInstance(instance: Instance): MobileInstanceDto {
     // Status heuristic; the snapshot overrides this with the real prompt count.
     pendingApprovalCount: WAITING_STATUSES.has(instance.status) ? 1 : 0,
     hasUnreadCompletion: false,
+    isLooping: options.isLooping === true,
     contextPercentage: instance.contextUsage?.percentage,
   };
 }
@@ -132,7 +140,7 @@ export function buildProjects(instances: MobileInstanceDto[]): MobileProjectDto[
       map.set(key, proj);
     }
     proj.sessionCount += 1;
-    if (WORKING_STATUSES.has(inst.status)) proj.busyCount += 1;
+    if (inst.isLooping === true || WORKING_STATUSES.has(inst.status)) proj.busyCount += 1;
     proj.pendingApprovalCount += inst.pendingApprovalCount;
     proj.lastActivity = Math.max(proj.lastActivity, inst.lastActivity);
   }

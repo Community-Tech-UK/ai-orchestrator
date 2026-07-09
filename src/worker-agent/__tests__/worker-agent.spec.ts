@@ -414,6 +414,54 @@ describe('WorkerAgent', () => {
     );
   });
 
+  it('keeps browserDownloads pointed at the managed browser profile when a configured root reuses the id', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      browserAutomation: {
+        enabled: true,
+        profileDir: '/tmp/aio-auto-profile',
+      },
+      fileTransfer: {
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'browserDownloads',
+            label: 'Custom Downloads',
+            path: '/tmp/other-profile/Downloads',
+            read: true,
+            write: true,
+          },
+          {
+            id: 'scratch',
+            label: 'AIO Scratch',
+            path: '/tmp/aio-transfers',
+            read: true,
+            write: true,
+          },
+        ],
+      },
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+
+    const fileTransfer = vi.mocked(reportCapabilities).mock.calls.at(-1)?.[5];
+
+    expect(fileTransfer?.roots.filter((root) => root.id === 'browserDownloads')).toEqual([
+      {
+        id: 'browserDownloads',
+        label: 'Browser Downloads',
+        path: '/tmp/aio-auto-profile/Downloads',
+        read: true,
+        write: false,
+      },
+    ]);
+  });
+
   it('does not recheck extension relay native-host registration before the 60 second repair interval', async () => {
     const config: WorkerConfig = {
       ...mockConfig,
@@ -726,6 +774,55 @@ describe('WorkerAgent', () => {
           sdkPath: '/android/sdk',
         },
       }),
+    );
+  });
+
+  it('rebuilds filesystem transfer roots when browser automation adds managed downloads', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      browserAutomation: { enabled: false },
+      fileTransfer: {
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'scratch',
+            label: 'AIO Scratch',
+            path: '/tmp/aio-transfers',
+            read: true,
+            write: true,
+          },
+        ],
+      },
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+
+    const getTransferRoots = () =>
+      (agent as unknown as {
+        fsHandler: { getTransferRoots: () => Array<{ id: string; path: string }> };
+      }).fsHandler.getTransferRoots();
+
+    expect(getTransferRoots().map((root) => root.id)).not.toContain('browserDownloads');
+
+    await agent.applyConfigUpdate({
+      browserAutomation: {
+        enabled: true,
+        profileDir: '/tmp/aio-auto-profile',
+      },
+    });
+
+    expect(getTransferRoots()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'browserDownloads',
+          path: '/tmp/aio-auto-profile/Downloads',
+        }),
+      ]),
     );
   });
 

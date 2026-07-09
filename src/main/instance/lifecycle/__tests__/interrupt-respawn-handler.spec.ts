@@ -414,6 +414,77 @@ describe('InterruptRespawnHandler', () => {
     );
   });
 
+  it('passes local-model runtime targets to replacement adapters during auto-respawn', async () => {
+    instance = createInstance('respawning');
+    instance.id = 'local-model-respawn-instance';
+    instance.provider = 'claude';
+    instance.parentId = null;
+    instance.outputBuffer = [];
+    instance.currentModel = 'qwen';
+    instance.modelRuntimeTarget = {
+      kind: 'local-model',
+      source: 'this-device',
+      selectorId: 'lm://this-device/ollama/ollama/qwen',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    };
+
+    const previousAdapter = adapter as unknown as CliAdapter;
+    const replacement = new RespawnReplacementAdapter();
+    replacement.spawn.mockResolvedValue(777);
+    providerRuntime.createAdapter.mockReturnValue(replacement);
+
+    let currentAdapter: CliAdapter | undefined = previousAdapter;
+    const setAdapter = vi.fn((_id: string, next: CliAdapter) => {
+      currentAdapter = next;
+    });
+    const deleteAdapter = vi.fn(() => {
+      currentAdapter = undefined;
+    });
+
+    handler = new InterruptRespawnHandler({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: () => currentAdapter,
+      setAdapter,
+      deleteAdapter,
+      queueUpdate,
+      markInterrupted: vi.fn(),
+      clearInterrupted,
+      addToOutputBuffer,
+      setupAdapterEvents: vi.fn(),
+      transitionState: (target, status) => {
+        target.status = status;
+      },
+      getAdapterRuntimeCapabilities: () => ({
+        supportsResume: false,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+      }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude'),
+      getMcpConfig: () => [],
+      getPermissionHookPath: () => undefined,
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
+      buildReplayContinuityMessage: () => 'replay continuity',
+      buildFallbackHistory: vi.fn(),
+      emitOutput,
+    });
+
+    await handler.respawnAfterUnexpectedExit(instance.id);
+
+    expect(providerRuntime.createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          model: 'qwen',
+          modelRuntimeTarget: instance.modelRuntimeTarget,
+        }),
+      }),
+    );
+  });
+
   it('passes harness CLI env to replacement adapters during auto-respawn', async () => {
     instance = createInstance('respawning');
     instance.id = 'harness-env-respawn-instance';

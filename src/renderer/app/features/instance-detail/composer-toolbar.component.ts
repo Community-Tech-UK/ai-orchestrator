@@ -34,7 +34,10 @@ import { CompactModelPickerComponent } from '../models/compact-model-picker.comp
 import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type { InstanceProvider, InstanceStatus } from '../../core/state/instance/instance.types';
-import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
+import type {
+  InstanceRuntimeSummary,
+  ModelRuntimeTarget,
+} from '../../../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { getModelSwitchUnavailableReason } from '../../../../shared/types/instance-status-policy';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
@@ -88,11 +91,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       </button>
 
       <!-- (b) Model picker -->
-      @if (localRuntimeLabel()) {
-        <span class="runtime-summary-chip" [title]="localRuntimeTitle()">
-          {{ localRuntimeLabel() }}
-        </span>
-      } @else if (pickerSelection()) {
+      @if (pickerSelection()) {
         <app-compact-model-picker
           mode="pending-create"
           [providers]="pickerProviders"
@@ -266,7 +265,6 @@ export class ComposerToolbarComponent {
     getModelSwitchUnavailableReason(this.instanceStatus()),
   );
 
-  /** Provider list for the picker — same wide list used by new-session. */
   readonly pickerProviders = DEFAULT_INSTANCE_PROVIDERS;
 
   /** Holds the user's pending selection in the picker. Initialised in ngOnInit. */
@@ -300,14 +298,6 @@ export class ComposerToolbarComponent {
   });
 
   readonly pickerSelection = computed<PendingSelection | null>(() => this.pendingSelection());
-  readonly localRuntimeLabel = computed(() => formatComposerRuntimeLabel(this.runtimeSummary()));
-  readonly localRuntimeTitle = computed(() => {
-    const summary = this.runtimeSummary();
-    if (summary?.kind !== 'local-model') {
-      return '';
-    }
-    return summary.modelId ? `Model: ${summary.modelId}` : summary.label;
-  });
 
   async onPickerSelectionChange(sel: PendingSelection): Promise<void> {
     this.pendingSelection.set(sel);
@@ -320,7 +310,14 @@ export class ComposerToolbarComponent {
     // instance's current effort rather than forcing a default.
     const reasoningEffort = sel.reasoning ?? undefined;
 
-    await this.ipc.changeModel(this.instanceId(), sel.model, reasoningEffort);
+    const model = sel.modelRuntimeTarget?.kind === 'local-model'
+      ? sel.modelRuntimeTarget.modelId
+      : sel.model;
+    if (sel.modelRuntimeTarget) {
+      await this.ipc.changeModel(this.instanceId(), model, reasoningEffort, sel.modelRuntimeTarget);
+      return;
+    }
+    await this.ipc.changeModel(this.instanceId(), model, reasoningEffort);
   }
 }
 
@@ -338,10 +335,12 @@ export function deriveComposerPickerSelection(
   runtimeSummary?: InstanceRuntimeSummary,
 ): PendingSelection {
   if (runtimeSummary?.kind === 'local-model') {
+    const modelRuntimeTarget = localModelRuntimeTargetFromSummary(runtimeSummary);
     return {
       provider: 'local-model',
-      model: runtimeSummary.modelId ?? currentModel ?? null,
+      model: modelRuntimeTarget?.selectorId ?? runtimeSummary.modelId ?? currentModel ?? null,
       reasoning: null,
+      ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
     };
   }
 
@@ -349,13 +348,30 @@ export function deriveComposerPickerSelection(
   return { provider: pickerProvider, model: currentModel ?? null, reasoning: reasoning ?? null };
 }
 
-export function formatComposerRuntimeLabel(
-  runtimeSummary: InstanceRuntimeSummary | undefined,
-): string | null {
-  if (runtimeSummary?.kind !== 'local-model') {
+function localModelRuntimeTargetFromSummary(
+  summary: InstanceRuntimeSummary,
+): Extract<ModelRuntimeTarget, { kind: 'local-model' }> | null {
+  if (
+    summary.kind !== 'local-model'
+    || !summary.source
+    || !summary.endpointProvider
+    || !summary.endpointId
+    || !summary.modelId
+    || !summary.selectorId
+  ) {
     return null;
   }
-  return `Local Models - ${runtimeSummary.label}`;
+
+  return {
+    kind: 'local-model',
+    source: summary.source,
+    endpointProvider: summary.endpointProvider,
+    endpointId: summary.endpointId,
+    modelId: summary.modelId,
+    selectorId: summary.selectorId,
+    ...(summary.nodeId ? { nodeId: summary.nodeId } : {}),
+    ...(summary.nodeName ? { nodeName: summary.nodeName } : {}),
+  };
 }
 
 /**

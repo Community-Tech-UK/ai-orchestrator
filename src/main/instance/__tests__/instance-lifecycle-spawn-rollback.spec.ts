@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   promptHistoryClear: vi.fn(),
   maybeGenerateTitle: vi.fn().mockResolvedValue(undefined),
   localModelInventory: [] as unknown[],
+  localModelRefresh: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -177,6 +178,7 @@ vi.mock('../../observability/lifecycle-trace', () => ({
 vi.mock('../../local-models/local-model-inventory-service', () => ({
   getLocalModelInventoryService: () => ({
     list: () => mocks.localModelInventory,
+    refresh: mocks.localModelRefresh,
   }),
 }));
 
@@ -268,6 +270,14 @@ interface FakeAdapter {
   terminate: ReturnType<typeof vi.fn>;
   removeAllListeners: ReturnType<typeof vi.fn>;
   getName: () => string;
+  getRuntimeCapabilities: () => {
+    supportsResume: boolean;
+    supportsForkSession: boolean;
+    supportsNativeCompaction: boolean;
+    supportsPermissionPrompts: boolean;
+    supportsDeferPermission: boolean;
+    selfManagedAutoCompaction: boolean;
+  };
   on: ReturnType<typeof vi.fn>;
 }
 
@@ -278,6 +288,14 @@ function makeFakeAdapter(): FakeAdapter {
     terminate: vi.fn().mockResolvedValue(undefined),
     removeAllListeners: vi.fn(),
     getName: () => 'claude',
+    getRuntimeCapabilities: () => ({
+      supportsResume: true,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
+      selfManagedAutoCompaction: false,
+    }),
     on: vi.fn(),
   };
 }
@@ -382,6 +400,7 @@ describe('createInstance spawn transaction rollback', () => {
     mocks.supervisorRegister.mockReturnValue({ supervisorNodeId: 'sup-1', workerNodeId: 'worker-1' });
     mocks.maybeGenerateTitle.mockResolvedValue(undefined);
     mocks.localModelInventory.length = 0;
+    mocks.localModelRefresh.mockResolvedValue(mocks.localModelInventory);
   });
 
   it('rolls back Phase-1 registrations when RLM init fails (before any adapter exists)', async () => {
@@ -614,5 +633,112 @@ describe('createInstance spawn transaction rollback', () => {
       'qwen is no longer available on windows-pc. Pick another model or start the endpoint on that worker.',
     );
     expect(mocks.createAdapter).not.toHaveBeenCalled();
+  });
+
+  it('refreshes local-model inventory before launch and blocks a disappeared model', async () => {
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    const runtimeTarget = {
+      kind: 'local-model' as const,
+      source: 'worker-node' as const,
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    };
+    mocks.localModelInventory.push({
+      selectorId: runtimeTarget.selectorId,
+      source: 'worker-node',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+      healthy: true,
+    });
+    mocks.localModelRefresh.mockImplementation(async () => {
+      mocks.localModelInventory.length = 0;
+      return mocks.localModelInventory;
+    });
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      modelRuntimeTarget: runtimeTarget,
+    });
+
+    await expect(instance.readyPromise).rejects.toThrow(
+      'qwen is no longer available on windows-pc. Pick another model or start the endpoint on that worker.',
+    );
+    expect(mocks.localModelRefresh).toHaveBeenCalledOnce();
+    expect(mocks.createAdapter).not.toHaveBeenCalled();
+  });
+
+  it('does not terminate the current adapter when a local-model change target is unavailable', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+    });
+    await instance.readyPromise;
+    adapter.terminate.mockClear();
+    mocks.createAdapter.mockClear();
+    const runtimeTarget = {
+      kind: 'local-model' as const,
+      source: 'worker-node' as const,
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    };
+
+    await expect(
+      harness.manager.changeModel(instance.id, runtimeTarget.modelId, undefined, runtimeTarget),
+    ).rejects.toThrow(
+      'qwen is no longer available on windows-pc. Pick another model or start the endpoint on that worker.',
+    );
+
+    expect(adapter.terminate).not.toHaveBeenCalled();
+    expect(harness.adapters.get(instance.id)).toBe(adapter);
+    expect(mocks.createAdapter).not.toHaveBeenCalled();
+    expect(instance.currentModel).not.toBe('qwen');
+  });
+
+  it('does not terminate the current adapter when a this-device local-model target is unavailable', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+    });
+    await instance.readyPromise;
+    adapter.terminate.mockClear();
+    mocks.createAdapter.mockClear();
+    const runtimeTarget = {
+      kind: 'local-model' as const,
+      source: 'this-device' as const,
+      selectorId: 'lm://this-device/ollama/ollama/qwen',
+      endpointProvider: 'ollama' as const,
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    };
+
+    await expect(
+      harness.manager.changeModel(instance.id, runtimeTarget.modelId, undefined, runtimeTarget),
+    ).rejects.toThrow(
+      'qwen is no longer available on this device. Pick another model or start the endpoint on this device.',
+    );
+
+    expect(adapter.terminate).not.toHaveBeenCalled();
+    expect(harness.adapters.get(instance.id)).toBe(adapter);
+    expect(mocks.createAdapter).not.toHaveBeenCalled();
+    expect(instance.currentModel).not.toBe('qwen');
   });
 });

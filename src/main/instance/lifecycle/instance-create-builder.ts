@@ -104,6 +104,9 @@ export function buildInstanceRecord(
     ...(runtimeSummary
       ? { runtimeSummary }
       : {}),
+    ...(localModelTarget
+      ? { modelRuntimeTarget: localModelTarget }
+      : {}),
     ...(typeof config.fastModeOverride === 'boolean'
       ? { fastMode: config.fastModeOverride }
       : {}),
@@ -132,7 +135,7 @@ function getLocalModelRuntimeTarget(
   return target?.kind === 'local-model' ? target : null;
 }
 
-function buildLocalModelRuntimeSummary(
+export function buildLocalModelRuntimeSummary(
   target: Extract<ModelRuntimeTarget, { kind: 'local-model' }>,
 ): InstanceRuntimeSummary {
   const nodeLabel = target.nodeName ?? target.nodeId;
@@ -142,10 +145,13 @@ function buildLocalModelRuntimeSummary(
   return {
     kind: 'local-model',
     label,
+    source: target.source,
     ...(target.nodeId ? { nodeId: target.nodeId } : {}),
     ...(target.nodeName ? { nodeName: target.nodeName } : {}),
     endpointProvider: target.endpointProvider,
+    endpointId: target.endpointId,
     modelId: target.modelId,
+    selectorId: target.selectorId,
   };
 }
 

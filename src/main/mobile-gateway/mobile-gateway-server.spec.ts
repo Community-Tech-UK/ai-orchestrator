@@ -22,6 +22,7 @@ import { MobileDeviceRegistry, type MobileDevicePersistence } from './mobile-dev
 import { MobileApnsSender } from './mobile-apns-sender';
 import { _resetIdempotencyStoreForTesting } from '../transport/idempotency-store';
 import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
+import type { LoopState } from '../../shared/types/loop.types';
 import type { MobileMessageDto, MobileMessagesResumeDto, MobilePauseDto } from '../../shared/types/mobile-gateway.types';
 
 function inst(partial: Partial<Instance>): Instance {
@@ -95,6 +96,14 @@ class FakePause extends EventEmitter implements GatewayPauseSource {
   removeReason(): void {
     this.state = { isPaused: false, reasons: [], pausedAt: null, lastChange: 300 };
     this.emit('change');
+  }
+}
+
+class FakeLoopSource extends EventEmitter {
+  loops: Pick<LoopState, 'chatId' | 'status' | 'endedAt'>[] = [];
+
+  getActiveLoops(): LoopState[] {
+    return this.loops as LoopState[];
   }
 }
 
@@ -192,19 +201,26 @@ async function nextOfType(
 describe('serializeInstance / buildProjects', () => {
   it('derives approval from status and groups by working directory', () => {
     const instances = [
-      inst({ id: 'a', workingDirectory: '/repo/alpha', status: 'busy' }),
-      inst({ id: 'b', workingDirectory: '/repo/alpha', status: 'waiting_for_permission' }),
-      inst({ id: 'c', workingDirectory: '/repo/beta', status: 'idle', lastActivity: 99 }),
-    ].map(serializeInstance);
+      serializeInstance(inst({ id: 'a', workingDirectory: '/repo/alpha', status: 'busy' })),
+      serializeInstance(inst({ id: 'b', workingDirectory: '/repo/alpha', status: 'waiting_for_permission' })),
+      serializeInstance(inst({ id: 'c', workingDirectory: '/repo/beta', status: 'idle', lastActivity: 99 })),
+      serializeInstance(inst({ id: 'd', workingDirectory: '/repo/gamma', status: 'idle' }), {
+        isLooping: true,
+      }),
+    ];
 
     expect(instances[0].projectName).toBe('alpha');
     expect(instances[1].pendingApprovalCount).toBe(1);
+    expect(instances[2].isLooping).toBe(false);
+    expect(instances[3].isLooping).toBe(true);
 
     const projectsList = buildProjects(instances);
     const alpha = projectsList.find((p) => p.path === '/repo/alpha');
+    const gamma = projectsList.find((p) => p.path === '/repo/gamma');
     expect(alpha?.sessionCount).toBe(2);
     expect(alpha?.busyCount).toBe(1);
     expect(alpha?.pendingApprovalCount).toBe(1);
+    expect(gamma?.busyCount).toBe(1);
     // beta has the most recent activity, so it sorts first
     expect(projectsList[0].path).toBe('/repo/beta');
   });
@@ -293,6 +309,7 @@ describe('MobileGatewayServer', () => {
   let source: FakeInstanceSource;
   let registry: MobileDeviceRegistry;
   let pause: FakePause;
+  let loopSource: FakeLoopSource;
   let port: number;
 
   function initServer(apnsConfigured = false): { posts: { deviceToken: string; payload: string }[] } {
@@ -303,6 +320,7 @@ describe('MobileGatewayServer', () => {
       pauseCoordinator: pause,
       recentDirs: fakeRecentDirs,
       apnsSender: sender,
+      loopCoordinator: loopSource,
     });
     return { posts };
   }
@@ -313,6 +331,7 @@ describe('MobileGatewayServer', () => {
     source.instances = [inst({ id: 'a', status: 'busy' })];
     registry = new MobileDeviceRegistry(memPersistence());
     pause = new FakePause();
+    loopSource = new FakeLoopSource();
     server = new MobileGatewayServer();
     initServer(false);
     const status = await server.start({ port: 0, bindInterface: 'all' });
@@ -370,6 +389,57 @@ describe('MobileGatewayServer', () => {
     expect(res.status).toBe(200);
     const instances = (await res.json()) as { id: string }[];
     expect(instances.map((i) => i.id)).toEqual(['a']);
+  });
+
+  it('marks live instances as looping when an active loop targets their chat id', async () => {
+    source.instances = [
+      inst({ id: 'a', status: 'idle', workingDirectory: '/repo/alpha' }),
+      inst({ id: 'b', status: 'idle', workingDirectory: '/repo/alpha' }),
+      inst({ id: 'c', status: 'idle', workingDirectory: '/repo/alpha' }),
+    ];
+    loopSource.loops = [
+      { chatId: 'a', status: 'running', endedAt: null },
+      { chatId: 'b', status: 'provider-limit', endedAt: null },
+      { chatId: 'c', status: 'completed', endedAt: 123 },
+    ];
+
+    const token = await pairToken();
+    const res = await authed(token, '/api/snapshot');
+    const snapshot = (await res.json()) as {
+      instances: { id: string; isLooping?: boolean }[];
+      projects: { path: string; busyCount: number }[];
+    };
+
+    expect(snapshot.instances.find((i) => i.id === 'a')?.isLooping).toBe(true);
+    expect(snapshot.instances.find((i) => i.id === 'b')?.isLooping).toBe(true);
+    expect(snapshot.instances.find((i) => i.id === 'c')?.isLooping).toBe(false);
+    expect(snapshot.projects.find((p) => p.path === '/repo/alpha')?.busyCount).toBe(2);
+  });
+
+  it('broadcasts a refreshed snapshot when loop state changes', async () => {
+    source.instances = [inst({ id: 'a', status: 'idle' })];
+    const token = await pairToken();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+    const messages = collectMessages(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+
+    try {
+      const initial = await nextOfType(messages, 'snapshot');
+      expect(((initial.data as { instances: { id: string; isLooping?: boolean }[] })
+        .instances.find((i) => i.id === 'a')?.isLooping)).toBe(false);
+
+      loopSource.loops = [{ chatId: 'a', status: 'paused', endedAt: null }];
+      loopSource.emit('loop:state-changed', { loopRunId: 'loop-a' });
+
+      const refreshed = await nextOfType(messages, 'snapshot');
+      expect(((refreshed.data as { instances: { id: string; isLooping?: boolean }[] })
+        .instances.find((i) => i.id === 'a')?.isLooping)).toBe(true);
+    } finally {
+      ws.close();
+    }
   });
 
   it('reports push as unconfigured in status', async () => {

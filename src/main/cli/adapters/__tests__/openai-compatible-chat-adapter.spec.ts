@@ -195,6 +195,28 @@ describe('OpenAICompatibleChatAdapter', () => {
     });
   });
 
+  it('fails spawn when the requested model is no longer advertised by the endpoint', async () => {
+    const server = await startServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ data: [{ id: 'llama3.2' }] }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+
+    const adapter = new OpenAICompatibleChatAdapter({
+      baseUrl: server.baseUrl,
+      model: 'qwen2.5-coder-32b-instruct',
+    });
+
+    await expect(adapter.spawn()).rejects.toThrow(
+      'qwen2.5-coder-32b-instruct is no longer available from OpenAI-compatible endpoint.',
+    );
+  });
+
   it('enforces the configured timeout during chat requests', async () => {
     vi.stubGlobal('fetch', vi.fn((url: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(url);

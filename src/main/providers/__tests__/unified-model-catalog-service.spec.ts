@@ -251,6 +251,28 @@ describe('UnifiedModelCatalogService — local model inventory source', () => {
 
     expect(svc.getModelsByProvider('local-model')).toEqual([]);
   });
+
+  it('does not publish unhealthy local model rows to the picker catalog', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onLocalModelInventoryRefreshed([{
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+      source: 'worker-node',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+      displayName: 'qwen on windows-pc',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      healthy: false,
+      loaded: false,
+      capabilities: { streaming: true, multiTurn: true, toolUse: 'none', vision: 'unknown' },
+      discoveredAt: 1783468800000,
+    }]);
+    vi.runAllTimers();
+
+    expect(svc.getModelsByProvider('local-model')).toEqual([]);
+  });
 });
 
 describe('UnifiedModelCatalogService — precedence: models.dev pricing overlay', () => {

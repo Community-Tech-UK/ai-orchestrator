@@ -864,6 +864,7 @@ export class InterruptRespawnHandler {
         residentClaude: residentClaudeForSpawn(instance),
         resume: shouldResume,
         forkSession: shouldForkSession,
+        ...(instance.modelRuntimeTarget ? { modelRuntimeTarget: instance.modelRuntimeTarget } : {}),
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id, cliType),
         chromeDevtoolsMcp: this.deps.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.deps.getBrowserGatewayMcpOptions?.(
@@ -1246,6 +1247,7 @@ export class InterruptRespawnHandler {
         residentClaude: residentClaudeForSpawn(instance),
         resume: shouldResume,
         forkSession: shouldForkSession,
+        ...(instance.modelRuntimeTarget ? { modelRuntimeTarget: instance.modelRuntimeTarget } : {}),
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id, cliType),
         chromeDevtoolsMcp: this.deps.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.deps.getBrowserGatewayMcpOptions?.(

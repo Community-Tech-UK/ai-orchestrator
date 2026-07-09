@@ -2,7 +2,7 @@ import { Injectable, effect, inject } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { GatewayClient } from './gateway-client.service';
 import { HostStore } from './host-store';
-import { isWorking, needsAttention } from './status';
+import { isLiveActivityCandidate, liveActivityStatusLabel, needsAttention } from './status';
 import type { MobileInstanceDto } from './models';
 
 interface LiveActivityPlugin {
@@ -77,7 +77,7 @@ export class LiveActivityService {
   /** Pick the session worth a lock-screen presence, if any. */
   private hero(instances: MobileInstanceDto[]): MobileInstanceDto | null {
     const candidates = instances
-      .filter((i) => isWorking(i.status) || needsAttention(i.status))
+      .filter(isLiveActivityCandidate)
       .sort((a, b) => {
         // Needs-you beats working; then most recent activity.
         const attention = Number(needsAttention(b.status)) - Number(needsAttention(a.status));
@@ -88,7 +88,7 @@ export class LiveActivityService {
   }
 
   private statusLabel(instance: MobileInstanceDto): string {
-    return needsAttention(instance.status) ? 'needs approval' : 'working';
+    return liveActivityStatusLabel(instance);
   }
 
   private async reconcile(instances: MobileInstanceDto[]): Promise<void> {

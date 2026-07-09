@@ -97,7 +97,7 @@ const FILE_TRANSFER_FORWARDER_TOOLS: {
   {
     name: 'collect_browser_download',
     description:
-      'Find a recent browser download on a worker node and transfer it when exactly one strong candidate matches.',
+      'Find a recent browser download on a worker node, preferring browserDownloads from the managed Chrome profile before user Downloads, and transfer it when exactly one strong candidate matches.',
     inputSchema: {
       type: 'object',
       properties: {

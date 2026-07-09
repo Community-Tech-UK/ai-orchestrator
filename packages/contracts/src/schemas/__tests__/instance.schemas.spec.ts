@@ -29,6 +29,25 @@ describe('instance.schemas', () => {
     }).reasoningEffort).toBeNull();
   });
 
+  it('accepts local model runtime targets on model change payloads', () => {
+    const modelRuntimeTarget = {
+      kind: 'local-model',
+      source: 'worker-node',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen2.5',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      modelId: 'qwen2.5',
+    } as const;
+
+    expect(InstanceChangeModelPayloadSchema.parse({
+      instanceId: 'instance-1',
+      model: 'qwen2.5',
+      modelRuntimeTarget,
+    }).modelRuntimeTarget).toEqual(modelRuntimeTarget);
+  });
+
   it('accepts bare mode on instance creation payloads', () => {
     expect(InstanceCreatePayloadSchema.parse({
       workingDirectory: '/repo',
@@ -64,6 +83,106 @@ describe('instance.schemas', () => {
         nodeId: 'node-win',
         endpointProvider: 'ollama',
         endpointId: 'ollama',
+        modelId: 'qwen',
+      },
+    }).success).toBe(false);
+  });
+
+  it('rejects worker local-model runtime targets without nodeId', () => {
+    expect(InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'worker-node',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        modelId: 'qwen',
+      },
+    }).success).toBe(false);
+
+    expect(InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      message: 'hello',
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'worker-node',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        modelId: 'qwen',
+      },
+    }).success).toBe(false);
+  });
+
+  it('rejects worker local-model runtime targets whose selector disagrees with target fields', () => {
+    expect(InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'worker-node',
+        nodeId: 'node-other',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        modelId: 'qwen',
+      },
+    }).success).toBe(false);
+
+    expect(InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      message: 'hello',
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'worker-node',
+        nodeId: 'node-win',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        modelId: 'other-model',
+      },
+    }).success).toBe(false);
+  });
+
+  it('rejects whitespace-only worker local-model node ids', () => {
+    expect(InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'worker-node',
+        nodeId: '   ',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        modelId: 'qwen',
+      },
+    }).success).toBe(false);
+  });
+
+  it('rejects this-device local-model runtime targets with nodeId', () => {
+    expect(InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'this-device',
+        nodeId: 'node-win',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        selectorId: 'lm://this-device/ollama/ollama/qwen',
+        modelId: 'qwen',
+      },
+    }).success).toBe(false);
+
+    expect(InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/repo',
+      message: 'hello',
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'this-device',
+        nodeId: 'node-win',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        selectorId: 'lm://this-device/ollama/ollama/qwen',
         modelId: 'qwen',
       },
     }).success).toBe(false);

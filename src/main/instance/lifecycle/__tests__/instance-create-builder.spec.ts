@@ -121,13 +121,26 @@ describe('buildInstanceRecord', () => {
     );
 
     expect(instance.currentModel).toBe('qwen');
+    expect(instance.modelRuntimeTarget).toEqual({
+      kind: 'local-model',
+      source: 'worker-node',
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+    });
     expect(instance.runtimeSummary).toEqual({
       kind: 'local-model',
       label: 'qwen on windows-pc',
       nodeId: 'node-win',
       nodeName: 'windows-pc',
+      source: 'worker-node',
       endpointProvider: 'ollama',
+      endpointId: 'ollama',
       modelId: 'qwen',
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
     });
   });
 

@@ -530,6 +530,7 @@ export class InputPanelComponent implements OnDestroy {
 
   /** Provider list shown in the compact picker on the new-session surface. */
   readonly draftPickerProviders: PickerProvider[] = DEFAULT_INSTANCE_PROVIDERS;
+  readonly draftSelectedNodeId = computed(() => this.newSessionDraft.nodeId());
   readonly loopProviderOptions: PickerProvider[] = DEFAULT_INSTANCE_PROVIDERS;
   readonly loopDefaultProvider = computed<PickerProvider>(() =>
     toLoopPickerProvider(

@@ -48,8 +48,11 @@ export type ModelRuntimeTarget =
 export interface InstanceRuntimeSummary {
   kind: 'cli' | 'local-model';
   label: string;
+  source?: LocalModelSource;
   nodeId?: string;
   nodeName?: string;
   endpointProvider?: LocalModelEndpointProvider;
+  endpointId?: string;
   modelId?: string;
+  selectorId?: LocalModelSelectorId;
 }

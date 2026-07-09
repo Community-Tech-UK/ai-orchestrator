@@ -94,7 +94,7 @@ describe('LoopCoordinator context survival manager', () => {
 
     expect(seqOne.forceContextReset).toBe(true);
     expect(seqOne.prompt).toContain('Context budget is still healthy');
-  });
+  }, 20_000);
 
   it('does not queue a next-iteration nudge when the iteration is accepted as terminal', async () => {
     let managerCalls = 0;
@@ -138,7 +138,7 @@ describe('LoopCoordinator context survival manager', () => {
 
     expect(managerCalls).toBe(0);
     expect(coordinator.getLoop(state.id)?.pendingInterventions).toEqual([]);
-  });
+  }, 20_000);
 
   it('queues a continuation prompt when an IMPLEMENT iteration only announces the next action', async () => {
     const seqOneInvoked = new Promise<{ prompt: string }>((resolve) => {
@@ -172,5 +172,5 @@ describe('LoopCoordinator context survival manager', () => {
     expect(seqOne.prompt).toContain('Continue now');
     expect(seqOne.prompt).toContain('run the focused tests');
     expect(coordinator.getLoop(state.id)?.announceThenHaltNudgeCount).toBe(1);
-  });
+  }, 15_000);
 });

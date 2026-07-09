@@ -173,4 +173,32 @@ describe('OllamaCliAdapter', () => {
       { name: 'file.txt', type: 'text/plain', size: 5, data: 'aGVsbG8=' },
     ])).rejects.toThrow('Ollama does not currently support attachments in orchestrator mode.');
   });
+
+  it('fails spawn when the requested model is no longer advertised by Ollama', async () => {
+    const server = await startServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/api/version') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ version: '0.7.0' }));
+        return;
+      }
+      if (req.method === 'GET' && req.url === '/api/tags') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ models: [{ name: 'llama3.2:latest' }] }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+
+    const adapter = new OllamaCliAdapter({
+      host: '127.0.0.1',
+      port: server.port,
+      model: 'qwen2.5-coder:14b',
+    });
+
+    await expect(adapter.spawn()).rejects.toThrow(
+      'qwen2.5-coder:14b is no longer available from Ollama.',
+    );
+  });
 });

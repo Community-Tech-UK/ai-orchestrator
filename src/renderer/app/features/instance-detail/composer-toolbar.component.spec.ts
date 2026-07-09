@@ -18,12 +18,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ComposerToolbarComponent,
   deriveComposerPickerSelection,
-  formatComposerRuntimeLabel,
   shouldHydrateComposerPickerSelection,
 } from './composer-toolbar.component';
 import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
-import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
+import type {
+  InstanceRuntimeSummary,
+  ModelRuntimeTarget,
+} from '../../../../shared/types/local-model-runtime.types';
 
 // Stub out OrchestrationIpcService — we only care about changeModel.
 const ipcStub = {
@@ -176,6 +178,33 @@ describe('ComposerToolbarComponent', () => {
     expect(ipcStub.changeModel).not.toHaveBeenCalled();
   });
 
+  it('passes a local-model runtime target through changeModel', async () => {
+    const modelRuntimeTarget: ModelRuntimeTarget = {
+      kind: 'local-model',
+      source: 'worker-node',
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+    };
+
+    await component.onPickerSelectionChange({
+      provider: 'local-model',
+      model: modelRuntimeTarget.selectorId,
+      reasoning: null,
+      modelRuntimeTarget,
+    });
+
+    expect(ipcStub.changeModel).toHaveBeenCalledWith(
+      'inst-1',
+      'qwen',
+      undefined,
+      modelRuntimeTarget,
+    );
+  });
+
   // ── 9. Picker gating mirrors the backend changeModel precondition ────────
 
   it('allows the picker when the instance is waiting for user input', () => {
@@ -188,6 +217,10 @@ describe('ComposerToolbarComponent', () => {
     overrideInputs(component, {});
     (component as unknown as Record<string, unknown>)['instanceStatus'] = () => 'processing';
     expect(component.modelSwitchDisabledReason()).toContain('waiting for user input');
+  });
+
+  it('exposes Local Models in the live picker for runtime-target switching', () => {
+    expect(component.pickerProviders).toContain('local-model');
   });
 });
 
@@ -205,8 +238,11 @@ describe('deriveComposerPickerSelection', () => {
     label: 'qwen on windows-pc',
     nodeId: 'node-win',
     nodeName: 'windows-pc',
+    source: 'worker-node',
     endpointProvider: 'ollama',
+    endpointId: 'ollama',
     modelId: 'qwen',
+    selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
   };
 
   it('derives the picker selection from a Cursor instance', () => {
@@ -250,17 +286,23 @@ describe('deriveComposerPickerSelection', () => {
     expect(deriveComposerPickerSelection('claude', 'opus', 'xhigh').reasoning).toBe('xhigh');
   });
 
-  it('uses local-model runtime summaries for the live toolbar display', () => {
-    expect(formatComposerRuntimeLabel(localRuntimeSummary)).toBe('Local Models - qwen on windows-pc');
-  });
-
   it('maps local-model runtime summaries to the local-model picker tab', () => {
     expect(
       deriveComposerPickerSelection('claude', 'opus', 'max', localRuntimeSummary),
     ).toEqual({
       provider: 'local-model',
-      model: 'qwen',
+      model: 'lm://worker-node/node-win/ollama/ollama/qwen',
       reasoning: null,
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'worker-node',
+        nodeId: 'node-win',
+        nodeName: 'windows-pc',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+      },
     });
   });
 });

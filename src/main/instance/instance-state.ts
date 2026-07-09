@@ -20,6 +20,7 @@ import type {
   BatchUpdatePayload,
   ErrorInfo
 } from '../../shared/types/ipc.types';
+import type { InstanceRuntimeSummary } from '../../shared/types/local-model-runtime.types';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import type { ActivityState } from '../../shared/types/activity.types';
 import { LIMITS } from '../../shared/constants/limits';
@@ -237,6 +238,10 @@ export class InstanceStateManager extends EventEmitter {
     waitReason?: InstanceWaitReason | null,
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
+    const runtimeSummary: InstanceRuntimeSummary | null | undefined =
+      currentModel !== undefined
+        ? this.instances.get(instanceId)?.runtimeSummary ?? null
+        : existing?.runtimeSummary;
     this.pendingUpdates.set(instanceId, {
       instanceId,
       status,
@@ -247,6 +252,7 @@ export class InstanceStateManager extends EventEmitter {
       error: error ?? existing?.error,
       executionLocation: executionLocation ?? existing?.executionLocation,
       currentModel: currentModel ?? existing?.currentModel,
+      runtimeSummary,
       providerSessionId: sessionState?.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: sessionState?.restartEpoch ?? existing?.restartEpoch,
       adapterGeneration: sessionState?.adapterGeneration ?? existing?.adapterGeneration,

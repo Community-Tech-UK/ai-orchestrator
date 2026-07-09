@@ -259,22 +259,14 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter {
       throw new Error(`Ollama not available: ${status.error}`);
     }
 
-    // Verify the requested model is available; log a warning if not
-    try {
-      const tagsJson = await this.httpGet('/api/tags', 5_000);
-      const tags = JSON.parse(tagsJson) as OllamaTagsResponse;
-      const modelNames = tags.models.map((m) => m.name);
-      const modelAvailable = modelNames.some(
-        (name) => name === this.model || name.startsWith(`${this.model}:`),
-      );
-      if (!modelAvailable) {
-        logger.warn('Requested Ollama model not found locally', {
-          model: this.model,
-          available: modelNames,
-        });
-      }
-    } catch {
-      // Non-fatal; the chat request will fail if the model is truly missing
+    const tagsJson = await this.httpGet('/api/tags', 5_000);
+    const tags = JSON.parse(tagsJson) as OllamaTagsResponse;
+    const modelNames = tags.models.map((m) => m.name);
+    const modelAvailable = modelNames.some(
+      (name) => name === this.model || name.startsWith(`${this.model}:`),
+    );
+    if (!modelAvailable) {
+      throw new Error(`${this.model} is no longer available from Ollama.`);
     }
 
     this.seedHistoryFromSystemPrompt();

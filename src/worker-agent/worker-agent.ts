@@ -189,11 +189,7 @@ export class WorkerAgent extends EventEmitter {
         this.extensionRelay.getSummary(),
         this.fileTransferSummary(),
       );
-      this.fsHandler = new NodeFilesystemHandler(
-        this.config.workingDirectories,
-        { onFsEvent: (event) => this.sendFsEvent(event) },
-        this.fileTransferRoots(),
-      );
+      this.rebuildFilesystemHandler();
       this.startContinuousDiscovery();
 
       // Resolve the addresses to try. Prefer the configured/discovered
@@ -527,6 +523,7 @@ export class WorkerAgent extends EventEmitter {
       this.config.browserAutomation = merged;
       persistConfig(this.configPath, this.config);
       await this.browserManager.reconfigure(merged);
+      this.rebuildFilesystemHandler();
     }
     if (update.androidAutomation) {
       const merged: WorkerAndroidAutomationConfig = {
@@ -553,11 +550,7 @@ export class WorkerAgent extends EventEmitter {
     if (update.fileTransfer) {
       this.config.fileTransfer = normalizeFileTransferConfig(update.fileTransfer);
       persistConfig(this.configPath, this.config);
-      this.fsHandler = new NodeFilesystemHandler(
-        this.config.workingDirectories,
-        { onFsEvent: (event) => this.sendFsEvent(event) },
-        this.fileTransferRoots(),
-      );
+      this.rebuildFilesystemHandler();
     }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       await this.sendHeartbeat();
@@ -588,20 +581,26 @@ export class WorkerAgent extends EventEmitter {
     return summary?.enabled ? summary.roots : [];
   }
 
+  private rebuildFilesystemHandler(): void {
+    this.fsHandler?.cleanupAllWatchers();
+    this.fsHandler = new NodeFilesystemHandler(
+      this.config.workingDirectories,
+      { onFsEvent: (event) => this.sendFsEvent(event) },
+      this.fileTransferRoots(),
+    );
+  }
+
   private fileTransferRootsForSummary(
     configuredRoots: WorkerNodeFileTransferRoot[],
   ): WorkerNodeFileTransferRoot[] {
-    const roots = [...configuredRoots];
     const browserDownloads = this.browserDownloadsTransferRoot();
     if (!browserDownloads) {
-      return roots;
+      return [...configuredRoots];
     }
-    const browserDownloadsPath = normalizedPathKey(browserDownloads.path);
-    const alreadyAdvertised = roots.some((root) =>
-      root.id.toLowerCase() === BROWSER_DOWNLOADS_TRANSFER_ROOT_ID.toLowerCase() ||
-      normalizedPathKey(root.path) === browserDownloadsPath
+    const roots = configuredRoots.filter(
+      (root) => root.id.toLowerCase() !== BROWSER_DOWNLOADS_TRANSFER_ROOT_ID.toLowerCase(),
     );
-    return alreadyAdvertised ? roots : [browserDownloads, ...roots];
+    return [browserDownloads, ...roots];
   }
 
   private browserDownloadsTransferRoot(): WorkerNodeFileTransferRoot | null {
@@ -1068,8 +1067,4 @@ export class WorkerAgent extends EventEmitter {
       }
     );
   }
-}
-
-function normalizedPathKey(value: string): string {
-  return path.resolve(value).toLowerCase();
 }

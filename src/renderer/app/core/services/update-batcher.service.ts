@@ -7,6 +7,7 @@ import type { ExecutionLocation } from '../../../../shared/types/worker-node.typ
 import type { ActivityState } from '../../../../shared/types/activity.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
+import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 
 export interface StateUpdate {
   instanceId: string;
@@ -31,6 +32,7 @@ export interface StateUpdate {
    * without polling. Optional because most state updates don't change it.
    */
   currentModel?: string;
+  runtimeSummary?: InstanceRuntimeSummary | null;
   reasoningEffort?: ReasoningEffort | null;
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
@@ -92,6 +94,9 @@ export class UpdateBatcherService {
       // createInstance emits a single update with this field; intervening
       // status-only updates must not wipe it out.
       currentModel: update.currentModel ?? existing?.currentModel,
+      runtimeSummary: update.runtimeSummary !== undefined
+        ? update.runtimeSummary
+        : existing?.runtimeSummary,
       reasoningEffort: update.reasoningEffort !== undefined
         ? update.reasoningEffort
         : existing?.reasoningEffort,

@@ -4,7 +4,7 @@ A high-performance desktop application for managing, monitoring, and coordinatin
 
 ## Features
 
-- **Multi-Instance Management** - Create, monitor, and coordinate multiple Claude CLI instances
+- **Multi-Instance Management** - Create, monitor, and coordinate multiple AI CLI instances
 - **Hierarchical Supervision** - Erlang OTP-inspired supervisor trees with configurable restart strategies
 - **Multi-Agent Verification** - Spawn multiple agents to verify responses with semantic clustering
 - **Debate System** - Multi-round debates between agents with critique, defense, and consensus synthesis
@@ -15,15 +15,15 @@ A high-performance desktop application for managing, monitoring, and coordinatin
 
 - **Frontend**: Angular 21 with signals-based state management
 - **Backend**: Electron (Node.js) with TypeScript
-- **CLI Integration**: Claude CLI adapters for spawning AI instances
+- **CLI Integration**: Multi-provider CLI adapters for spawning AI instances
 - **Build**: Angular CLI + Electron Builder
 - **Testing**: Vitest
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - npm 10+
-- Claude CLI installed and configured
+- At least one supported AI CLI installed and configured, such as Claude, Codex, Gemini/Antigravity, Copilot, or Cursor
 
 ## Installation
 
@@ -56,10 +56,10 @@ npx tsc --noEmit
 ## Project Structure
 
 ```
-claude-orchestrator/
+ai-orchestrator/
 ├── src/
 │   ├── main/           # Electron main process (Node.js)
-│   │   ├── cli/        # Claude CLI adapter layer
+│   │   ├── cli/        # Multi-provider CLI adapter layer
 │   │   ├── instance/   # Instance state management
 │   │   ├── ipc/        # IPC event handlers
 │   │   ├── orchestration/ # Multi-agent coordination
@@ -80,6 +80,8 @@ claude-orchestrator/
 - [CLAUDE.md](./CLAUDE.md) - Development conventions and architecture notes
 - [DESIGN.md](./DESIGN.md) - Detailed design document and roadmap
 - [DEVELOPMENT.md](./DEVELOPMENT.md) - Development guide
+- [aio-mcp CLI](./docs/AIO_MCP_CLI.md) - Human guide for the bundled Harness CLI and repair commands
+- [aio-mcp LLM reference](./docs/llm/AIO_MCP_CLI_REFERENCE.md) - Compact command reference for spawned agents
 
 ## License
 
