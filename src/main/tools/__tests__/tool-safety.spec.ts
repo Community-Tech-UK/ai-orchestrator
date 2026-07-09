@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('electron', () => ({
-  app: { getPath: vi.fn(() => '/tmp') },
-}));
+const electronHarness = vi.hoisted(() => {
+  // require(+.ts) avoids ESM TDZ: vi.hoisted runs before import bindings initialize
+  const { createElectronHarness } =
+    require('../../testing/electron-mock.ts') as typeof import('../../testing/electron-mock');
+  return createElectronHarness({ userDataPath: '/tmp' });
+});
+vi.mock('electron', () => electronHarness.module);
 
-import { vi } from 'vitest';
 import { getToolSafety, type ToolSafetyMetadata } from '../tool-registry';
 import type { ToolModule } from '../tool-registry';
 

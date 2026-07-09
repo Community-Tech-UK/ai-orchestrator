@@ -77,6 +77,7 @@ export function toLoopPickerProvider(
     || provider === 'antigravity'
     || provider === 'copilot'
     || provider === 'cursor'
+    || provider === 'grok'
     ? provider
     : 'claude';
 }

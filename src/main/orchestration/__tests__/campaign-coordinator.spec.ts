@@ -38,8 +38,28 @@ function buildDb(): SqliteDriver {
   return db;
 }
 
-function flushAsyncWork(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
+async function flushAsyncWork(rounds = 1): Promise<void> {
+  for (let i = 0; i < rounds; i++) {
+    // Drain both microtasks and the next macrotask turn. Under the node
+    // Vitest project (no zone.js), nested awaits from recovery/advance need
+    // more than a single setImmediate to settle.
+    await Promise.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+/** Poll until `predicate` is true or `timeoutMs` elapses. */
+async function waitUntil(
+  predicate: () => boolean,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error('waitUntil timed out');
+    }
+    await flushAsyncWork();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -622,8 +642,7 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
     );
 
     await coordinator.recoverInterruptedCampaigns();
-    await flushAsyncWork();
-    await flushAsyncWork();
+    await waitUntil(() => coordinator.getCampaign(spec.id)?.status === 'running');
 
     const recovered = coordinator.getCampaign(spec.id);
     expect(recovered?.status).toBe('running');

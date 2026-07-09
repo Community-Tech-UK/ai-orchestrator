@@ -209,7 +209,7 @@ const ALLOWLIST: Record<string, number> = {
   // Renderer — services
   'src/renderer/app/core/services/ipc/memory-ipc.service.ts': 724,
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,
-  'src/renderer/app/core/services/new-session-draft.service.ts': 818,
+  'src/renderer/app/core/services/new-session-draft.service.ts': 869,
   // Renderer — stores
   'src/renderer/app/core/state/instance/instance-list.store.ts': 856,
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 794,
@@ -242,7 +242,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/loop/loop-control.component.ts': 1051,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
-  'src/renderer/app/features/models/model-selection-panel.component.ts': 946,
+  // Raised 946 -> 957 for hybrid usage-based row ordering in Favorites/provider tabs.
+  'src/renderer/app/features/models/model-selection-panel.component.ts': 957,
   'src/renderer/app/features/models/models-page.component.ts': 768,
   'src/renderer/app/features/observations/observations-page.component.ts': 808,
   'src/renderer/app/features/plan/plan-page.component.ts': 1036,
@@ -277,7 +278,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/shared/types/loop.types.ts': 780,
   // Allowlisted when Claude Fable 5 was re-added (pinned id, API pricing
   // entry, and PROVIDER_MODEL_LIST row) tipped it just past 700.
-  'src/shared/types/provider.types.ts': 724,
+  'src/shared/types/provider.types.ts': 737,
   // Worker agent
   'src/worker-agent/worker-agent.ts': 1027,
 };

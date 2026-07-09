@@ -15,7 +15,7 @@ import type { UnifiedModelEntry } from '../../shared/types/unified-model-catalog
 import { readJsonBody, sendJsonResponse } from './mobile-gateway-http-utils';
 import { serializeInstance } from './mobile-gateway-serializers';
 
-const MODEL_PROVIDERS = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'] as const;
+const MODEL_PROVIDERS = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'] as const;
 const DYNAMIC_MODEL_PROVIDERS = new Set<string>(['copilot', 'cursor']);
 const MODEL_CACHE_TTL_MS = 5 * 60_000;
 

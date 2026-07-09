@@ -190,6 +190,18 @@ describe('cli-environment', () => {
     expect(getCliAdditionalPaths(env, 'win32')).toContain('C:\\Users\\User\\AppData\\Local\\agy\\bin');
   });
 
+  it('includes the Grok Build Windows bin for stripped Electron PATHs', () => {
+    const env = {
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      ProgramFiles: 'C:\\Program Files',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    const paths = getCliAdditionalPaths(env, 'win32');
+    expect(paths).toContain('C:\\Users\\User\\.grok\\bin');
+    expect(paths).toContain('C:\\Users\\User\\AppData\\Local\\grok\\bin');
+  });
+
   it('includes core Windows system dirs so a minimal-PATH worker can resolve system tools', () => {
     // Observed live on windows-pc: a detached worker inherited PATH of just
     // `C:\Program Files\PowerShell\7`, so the spawned agent could not run
@@ -226,6 +238,7 @@ describe('cli-environment', () => {
         '/usr/local/bin',
         '/opt/homebrew/bin',
         '/Users/alice/.local/bin',
+        '/Users/alice/.grok/bin',
       ]),
     );
     expect(buildCliPath(env, 'darwin')).toContain(':/usr/bin:/bin');

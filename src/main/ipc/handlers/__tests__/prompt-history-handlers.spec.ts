@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: vi.fn(),
-  },
-}));
+const electronHarness = vi.hoisted(() => {
+  // require(+.ts) avoids ESM TDZ: vi.hoisted runs before import bindings initialize
+  const { createElectronHarness } =
+    require('../../../testing/electron-mock.ts') as typeof import('../../../testing/electron-mock');
+  return createElectronHarness({ ipc: true });
+});
+vi.mock('electron', () => electronHarness.module);
 
 vi.mock('../../../logging/logger', () => ({
   getLogger: vi.fn(() => ({

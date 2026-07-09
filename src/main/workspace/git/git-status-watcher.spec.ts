@@ -112,6 +112,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** Flush a debounceMs: 0 `setTimeout(fn, 0)` emission under fake timers. */
+async function flushZeroDebounce(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(1);
+}
+
 // ---------------------------------------------------------------------------
 // resolveGitDirs
 // ---------------------------------------------------------------------------
@@ -258,13 +263,18 @@ describe('GitStatusWatcher', () => {
     const repoPath = process.cwd();
     await watcher.setRepos([repoPath]);
 
-    createdWorkTreeWatchers[0].fireChange();
-    // 0ms debounce: event fires asynchronously through setTimeout.
-    await new Promise(r => setTimeout(r, 5));
+    vi.useFakeTimers();
+    try {
+      createdWorkTreeWatchers[0].fireChange();
+      // 0ms debounce: event fires asynchronously through setTimeout(fn, 0).
+      await flushZeroDebounce();
 
-    expect(events.length).toBeGreaterThanOrEqual(1);
-    const matching = events.filter(e => e.reason === 'worktree' && e.repoPath === repoPath);
-    expect(matching.length).toBe(1);
+      expect(events.length).toBeGreaterThanOrEqual(1);
+      const matching = events.filter(e => e.reason === 'worktree' && e.repoPath === repoPath);
+      expect(matching.length).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('emits status-changed with reason="index" when the gitdir index changes', async () => {
@@ -277,12 +287,17 @@ describe('GitStatusWatcher', () => {
     const indexPath = gitDirWatcher.watchedPaths.find(p => path.basename(p) === 'index');
     expect(indexPath).toBeDefined();
 
-    gitDirWatcher.emit('change', indexPath!);
-    await new Promise(r => setTimeout(r, 5));
+    vi.useFakeTimers();
+    try {
+      gitDirWatcher.emit('change', indexPath!);
+      await flushZeroDebounce();
 
-    const indexEvents = events.filter(e => e.reason === 'index');
-    expect(indexEvents.length).toBe(1);
-    expect(indexEvents[0].repoPath).toBe(repoPath);
+      const indexEvents = events.filter(e => e.reason === 'index');
+      expect(indexEvents.length).toBe(1);
+      expect(indexEvents[0].repoPath).toBe(repoPath);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('emits status-changed with reason="head" when HEAD changes', async () => {
@@ -296,27 +311,36 @@ describe('GitStatusWatcher', () => {
     );
     expect(headPath).toBeDefined();
 
-    gitDirWatcher.emit('change', headPath!);
-    await new Promise(r => setTimeout(r, 5));
+    vi.useFakeTimers();
+    try {
+      gitDirWatcher.emit('change', headPath!);
+      await flushZeroDebounce();
 
-    expect(events.filter(e => e.reason === 'head').length).toBe(1);
+      expect(events.filter(e => e.reason === 'head').length).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('debounces rapid same-reason events on the same repo', async () => {
     setupWatcher({ debounceMs: 50 });
-    vi.useFakeTimers();
     const repoPath = process.cwd();
     await watcher.setRepos([repoPath]);
 
-    // Fire 5 events in rapid succession
-    for (let i = 0; i < 5; i++) createdWorkTreeWatchers[0].fireChange();
+    vi.useFakeTimers();
+    try {
+      // Fire 5 events in rapid succession
+      for (let i = 0; i < 5; i++) createdWorkTreeWatchers[0].fireChange();
 
-    // No emission yet
-    expect(events.filter(e => e.reason === 'worktree').length).toBe(0);
+      // No emission yet
+      expect(events.filter(e => e.reason === 'worktree').length).toBe(0);
 
-    // Advance past the debounce window
-    vi.advanceTimersByTime(60);
-    expect(events.filter(e => e.reason === 'worktree').length).toBe(1);
+      // Advance past the debounce window
+      await vi.advanceTimersByTimeAsync(60);
+      expect(events.filter(e => e.reason === 'worktree').length).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('stop() drains the setReposChain so no watchers leak past teardown', async () => {
@@ -445,11 +469,16 @@ describe('GitStatusWatcher', () => {
     expect(repoAWatcher).toBeDefined();
     expect(repoBWatcher).toBeDefined();
 
-    repoBWatcher!.fireChange(path.join(repoB, 'src', 'file.ts'));
-    await new Promise(r => setTimeout(r, 5));
+    vi.useFakeTimers();
+    try {
+      repoBWatcher!.fireChange(path.join(repoB, 'src', 'file.ts'));
+      await flushZeroDebounce();
 
-    expect(events.filter(e => e.reason === 'worktree' && e.repoPath === repoB).length).toBe(1);
-    expect(events.filter(e => e.repoPath === repoA).length).toBe(0);
+      expect(events.filter(e => e.reason === 'worktree' && e.repoPath === repoB).length).toBe(1);
+      expect(events.filter(e => e.repoPath === repoA).length).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('ignores pruned generated/dependency paths from worktree events', async () => {
@@ -457,11 +486,16 @@ describe('GitStatusWatcher', () => {
     const repoPath = process.cwd();
     await watcher.setRepos([repoPath]);
 
-    createdWorkTreeWatchers[0].fireChange(path.join(repoPath, 'node_modules', 'pkg', 'index.js'));
-    createdWorkTreeWatchers[0].fireChange(path.join(repoPath, 'release', 'mac-arm64', 'app'));
-    await new Promise(r => setTimeout(r, 5));
+    vi.useFakeTimers();
+    try {
+      createdWorkTreeWatchers[0].fireChange(path.join(repoPath, 'node_modules', 'pkg', 'index.js'));
+      createdWorkTreeWatchers[0].fireChange(path.join(repoPath, 'release', 'mac-arm64', 'app'));
+      await flushZeroDebounce();
 
-    expect(events.filter(e => e.reason === 'worktree').length).toBe(0);
+      expect(events.filter(e => e.reason === 'worktree').length).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

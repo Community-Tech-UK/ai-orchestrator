@@ -660,6 +660,7 @@ export function providerFromContext(provider: string | undefined): BrowserProvid
     provider === 'antigravity' ||
     provider === 'copilot' ||
     provider === 'cursor' ||
+    provider === 'grok' ||
     provider === 'orchestrator'
     ? provider
     : 'orchestrator';

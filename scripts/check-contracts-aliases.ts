@@ -6,7 +6,9 @@ export const REQUIRED_SYNC_POINTS = [
   'tsconfig.json',
   'tsconfig.electron.json',
   'src/main/register-aliases.ts',
-  'vitest.config.ts',
+  // Vitest aliases live in the shared module imported by vitest.config.ts /
+  // vitest.slow.config.ts — check the source of truth, not the thin wrapper.
+  'vitest.aliases.ts',
 ] as const;
 
 export interface AliasSyncFile {

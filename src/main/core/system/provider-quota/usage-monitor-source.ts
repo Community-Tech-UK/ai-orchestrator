@@ -59,7 +59,15 @@ const logger = getLogger('UsageMonitorSource');
 const DEFAULT_MAX_AGE_MS = 20 * 60_000;
 
 /** Provider keys we'll accept from state.json. Mirrors token-usage-monitor. */
-const KNOWN_PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'];
+const KNOWN_PROVIDERS: readonly ProviderId[] = [
+  'claude',
+  'codex',
+  'gemini',
+  'antigravity',
+  'copilot',
+  'cursor',
+  'grok',
+];
 
 /**
  * Legacy state.json keys a provider may also be sourced from. The standalone

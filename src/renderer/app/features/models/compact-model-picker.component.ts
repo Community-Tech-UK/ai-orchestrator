@@ -463,6 +463,7 @@ export class CompactModelPickerComponent {
         provider: selection.provider,
         modelId: selection.modelId,
         reasoning: getDefaultReasoningEffort(selection.provider),
+        trackUsage: true,
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
       });
       if (ok) {
@@ -481,6 +482,7 @@ export class CompactModelPickerComponent {
       provider: selection.provider,
       modelId: selection.modelId,
       reasoning: selection.level,
+      trackUsage: true,
       ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
     });
     if (ok) {

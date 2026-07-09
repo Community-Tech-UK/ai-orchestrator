@@ -55,7 +55,7 @@ export interface LoopStartConfigInput {
   iterationPrompt?: string;
   workspaceCwd: string;
   planFile?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
   reviewStyle?: 'single' | 'debate' | 'star-chamber';
   contextStrategy?: 'fresh-child' | 'hybrid' | 'same-session';
   caps?: Partial<{
@@ -87,7 +87,7 @@ export interface LoopStartConfigInput {
       reviewDepth: 'structured' | 'tiered';
       pingPong?: {
         enabled: boolean;
-        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
+        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
         subject?: 'auto' | 'plan' | 'impl';
         maxRounds?: number;
         freshReviewerEachRound?: boolean;

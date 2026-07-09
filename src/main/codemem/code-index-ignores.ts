@@ -18,6 +18,8 @@ export const DEFAULT_CODE_INDEX_IGNORES = [
   '.venv/',
   '_archive/',
   '_scratch/',
+  // Linked git worktrees are full checkouts; never index them from the parent workspace.
+  '.worktrees/',
   'build/',
   'cache/',
   'coverage/',

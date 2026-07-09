@@ -1101,6 +1101,7 @@ export class InstanceManager extends EventEmitter {
       case 'antigravity':
       case 'copilot':
       case 'cursor':
+      case 'grok':
         return instanceProvider;
       case 'auto':
       case undefined:

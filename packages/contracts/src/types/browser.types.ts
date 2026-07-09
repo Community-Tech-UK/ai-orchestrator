@@ -51,6 +51,7 @@ export type BrowserProvider =
   | 'antigravity'
   | 'copilot'
   | 'cursor'
+  | 'grok'
   | 'orchestrator';
 
 export interface BrowserAllowedOrigin {

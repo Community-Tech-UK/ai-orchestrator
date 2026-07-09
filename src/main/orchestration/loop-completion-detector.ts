@@ -23,6 +23,7 @@ import { spawn } from 'child_process';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as fs from 'fs';
+import { setTimeout as rawSetTimeout } from 'node:timers';
 import { watch, type FSWatcher } from 'chokidar';
 import { getLogger } from '../logging/logger';
 import { parsePlanChecklist, LOOP_TASKS_FILE, INVESTIGATION_REPORT_FILE } from './loop-stage-machine';
@@ -135,10 +136,19 @@ export class CompletedFileWatcher {
     if (this.watcher) return;
     const re = this.globToRegex(this.pattern);
     const initialMatches = new Set(this.scanMatches());
+    // Vitest loads zone.js for the main project. Under that + macOS FSEvents
+    // pressure, chokidar's native close() can stall long enough to trip
+    // afterEach/hookTimeout during pre-push. Polling keeps rename detection
+    // correct in tests without pinning the kernel watcher.
+    const usePolling = process.env.VITEST === 'true'
+      || process.env.AIO_LOOP_WATCH_POLLING === '1';
     this.watcher = watch(this.watchTargets(), {
       depth: 0,
       ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
+      usePolling,
+      ...(usePolling
+        ? { interval: 50, binaryInterval: 100 }
+        : { awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 } }),
     });
     const fire = (filePath: string) => {
       const base = path.basename(filePath);
@@ -210,14 +220,31 @@ export class CompletedFileWatcher {
     this.watcher.on('unlink', fireUndone);
   }
 
-  async stop(): Promise<void> {
+  async stop(timeoutMs = 2_000): Promise<void> {
     if (!this.watcher) return;
     this.clearScanTimer();
-    try { await this.watcher.close(); } catch { /* noop */ }
+    const watcher = this.watcher;
     this.watcher = null;
     this.listeners.clear();
     this.undoneListeners.clear();
     this.observedPaths.clear();
+    // Chokidar close() can stall under FSEvents pressure (large worktrees /
+    // Spotlight storms). Bound the wait so cancel/test teardown can't hang
+    // the process indefinitely waiting on the kernel watcher. Use the raw
+    // Node timer — zone.js patches global setTimeout in the main Vitest
+    // project and has been observed to delay/starve the race under load.
+    try {
+      watcher.removeAllListeners();
+      await Promise.race([
+        watcher.close().catch(() => undefined),
+        new Promise<void>((resolve) => {
+          const timer = rawSetTimeout(resolve, Math.max(1, timeoutMs));
+          if (typeof timer.unref === 'function') timer.unref();
+        }),
+      ]);
+    } catch {
+      /* noop */
+    }
   }
 
   private globToRegex(glob: string): RegExp {

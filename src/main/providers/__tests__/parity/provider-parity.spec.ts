@@ -89,6 +89,23 @@ vi.mock('../../../cli/adapters/cursor-cli-adapter', () => ({
   CursorCliAdapter: vi.fn().mockImplementation(() => new FakeCursorAdapter()),
 }));
 
+// --- Grok (ACP via createGrokAdapter) ---
+class FakeGrokAdapter extends EventEmitter {
+  async spawn(): Promise<void> { /* no-op */ }
+  getSessionId(): string { return 'sess-grok'; }
+  getPid(): number | null { return null; }
+  async terminate(): Promise<void> { /* no-op */ }
+  async sendInput(): Promise<void> { /* no-op */ }
+}
+
+vi.mock('../../../cli/adapters/adapter-factory', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../cli/adapters/adapter-factory')>();
+  return {
+    ...actual,
+    createGrokAdapter: vi.fn().mockImplementation(() => new FakeGrokAdapter()),
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Provider imports — after vi.mock hoisting resolves the factories above.
 // ---------------------------------------------------------------------------
@@ -97,6 +114,7 @@ import { CodexCliProvider } from '../../codex-cli-provider';
 import { GeminiCliProvider } from '../../gemini-cli-provider';
 import { CopilotCliProvider } from '../../copilot-cli-provider';
 import { CursorCliProvider } from '../../cursor-cli-provider';
+import { GrokCliProvider } from '../../grok-cli-provider';
 
 // ---------------------------------------------------------------------------
 // Fixture type: constructs a provider+adapter pair with instanceId 'i-parity'.
@@ -149,6 +167,16 @@ const PROVIDERS: Record<ProviderName, ParityFixture> = {
   cursor: {
     setup: async () => {
       const provider = new CursorCliProvider({ type: 'cursor', name: 'Cursor CLI', enabled: true });
+      const envelopes: ProviderRuntimeEventEnvelope[] = [];
+      provider.events$.subscribe(e => envelopes.push(e));
+      await provider.initialize({ workingDirectory: '/tmp', instanceId: 'i-parity' });
+      const adapter = (provider as unknown as { adapter: EventEmitter }).adapter;
+      return { provider, adapter, envelopes };
+    },
+  },
+  grok: {
+    setup: async () => {
+      const provider = new GrokCliProvider({ type: 'grok', name: 'Grok Build', enabled: true });
       const envelopes: ProviderRuntimeEventEnvelope[] = [];
       provider.events$.subscribe(e => envelopes.push(e));
       await provider.initialize({ workingDirectory: '/tmp', instanceId: 'i-parity' });

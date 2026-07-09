@@ -87,6 +87,8 @@ export class MessageFormatService {
         return 'Ollama';
       case 'cursor':
         return 'Cursor';
+      case 'grok':
+        return 'Grok';
       default:
         return 'AI';
     }

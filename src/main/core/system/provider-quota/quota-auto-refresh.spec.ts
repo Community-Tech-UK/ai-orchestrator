@@ -37,6 +37,10 @@ describe('mapProviderTypeToQuotaId', () => {
     expect(mapProviderTypeToQuotaId('cursor')).toBe('cursor');
   });
 
+  it('maps grok to "grok"', () => {
+    expect(mapProviderTypeToQuotaId('grok')).toBe('grok');
+  });
+
   it('returns null for providers without a quota probe', () => {
     expect(mapProviderTypeToQuotaId('ollama')).toBeNull();
     expect(mapProviderTypeToQuotaId('amazon-bedrock')).toBeNull();

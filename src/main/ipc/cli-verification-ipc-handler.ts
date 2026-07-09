@@ -170,6 +170,7 @@ export function registerCliVerificationHandlers(
           antigravity: 'antigravity',
           copilot: 'copilot',
           cursor: 'cursor',
+          grok: 'grok',
           ollama: 'ollama',
         };
 

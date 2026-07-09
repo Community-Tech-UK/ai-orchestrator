@@ -24,6 +24,7 @@ const KNOWN_PROVIDERS = new Set([
   'antigravity',
   'copilot',
   'cursor',
+  'grok',
 ]);
 
 /** Short, chip-matching provider labels for the phone caption. */
@@ -34,6 +35,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   antigravity: 'Antigravity',
   copilot: 'Copilot',
   cursor: 'Cursor',
+  grok: 'Grok',
   ollama: 'Ollama',
 };
 

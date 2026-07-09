@@ -408,7 +408,7 @@ export class LoopConfigPanelComponent {
   }
 
   private resolveProvider(value: string | null | undefined, providers: PickerProvider[]): PickerProvider {
-    const provider = value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot' || value === 'cursor'
+    const provider = value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot' || value === 'cursor' || value === 'grok'
       ? value
       : 'claude';
     return providers.includes(provider) ? provider : (providers[0] ?? 'claude');

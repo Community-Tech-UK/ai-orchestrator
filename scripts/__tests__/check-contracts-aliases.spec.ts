@@ -57,14 +57,14 @@ describe('contracts schema alias sync auditor', () => {
     ]);
   });
 
-  it('detects a missing alias in vitest.config.ts', () => {
+  it('detects a missing alias in vitest.aliases.ts', () => {
     const alias = '@contracts/schemas/foo';
     const files = filesWithAlias(alias).map((file) =>
-      file.path === 'vitest.config.ts' ? { ...file, content: '{}' } : file,
+      file.path === 'vitest.aliases.ts' ? { ...file, content: '{}' } : file,
     );
 
     expect(findMissingAliases(['foo'], files)).toEqual([
-      expect.objectContaining({ file: 'vitest.config.ts', expected: alias }),
+      expect.objectContaining({ file: 'vitest.aliases.ts', expected: alias }),
     ]);
   });
 

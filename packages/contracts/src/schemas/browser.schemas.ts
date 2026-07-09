@@ -104,6 +104,7 @@ export const BrowserProviderSchema = z.enum([
   'antigravity',
   'copilot',
   'cursor',
+  'grok',
   'orchestrator',
 ]);
 

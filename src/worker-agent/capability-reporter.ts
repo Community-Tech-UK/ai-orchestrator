@@ -297,6 +297,7 @@ function detectClis(): CanonicalCliType[] {
     { name: 'antigravity', command: 'agy' },
     { name: 'copilot', command: 'gh' },
     { name: 'cursor', command: 'cursor-agent' },
+    { name: 'grok', command: 'grok' },
     { name: 'ollama', command: 'ollama' },
   ];
 

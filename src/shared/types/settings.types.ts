@@ -9,71 +9,52 @@
 
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 import { DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS, type DesktopComputerUseSettings } from './desktop-gateway-settings.types';
+import type { ModelUsageEntry } from './model-usage.types';
 import type { WorkerModeSettings } from './pair-both.types';
+
+export type { ModelUsageEntry } from './model-usage.types';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type DisplayDensity = 'comfortable' | 'compact';
 export type SidebarStyle = 'standard' | 'compact';
-export type CanonicalCliType = 'claude' | 'gemini' | 'antigravity' | 'codex' | 'copilot' | 'auto' | 'cursor';
+export type CanonicalCliType = 'claude' | 'gemini' | 'antigravity' | 'codex' | 'copilot' | 'auto' | 'cursor' | 'grok';
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';
 export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type PauseReachabilityProbeMode = 'disabled' | 'reachable-means-vpn' | 'unreachable-means-vpn';
 export type VoiceSttRoutingMode = 'auto' | 'this-device' | 'worker-node' | 'cloud' | 'this-device-or-cloud';
 export type ProjectPluginTrust = 'trusted' | 'untrusted' | 'ask';
-/**
- * How Harness handles newer versions of the CLI providers it wraps:
- * - `'off'`    — don't check; hide the update pill.
- * - `'notify'` — check + surface the pill/one-click update (t3code parity). Default.
- * - `'auto'`   — additionally apply *safe* updates automatically (npm/self-update
- *                only, never while a session is running). See cli-auto-update-service.
- */
+/** CLI update policy: off | notify (default) | auto (safe updates only). */
 export type CliUpdatePolicy = 'off' | 'notify' | 'auto';
 
-/**
- * Application settings that are persisted to disk
- */
+/** Application settings that are persisted to disk. */
 export interface AppSettings extends DesktopComputerUseSettings {
   // General
   defaultYoloMode: boolean;
   defaultWorkingDirectory: string;
   defaultCli: CliType;
   /**
-   * Last-selected model when no per-provider memory exists. Kept for
-   * backward compatibility with existing reads; the source of truth for
-   * "what model should this provider start with" is `defaultModelByProvider`.
-   * On changes, both fields are kept in sync for the currently-selected
-   * provider so older code paths that still read `defaultModel` keep working.
+   * Legacy last-selected model. Source of truth is `defaultModelByProvider`;
+   * kept in sync for older readers.
    */
   defaultModel: string;
   /**
-   * Last-selected model per CLI provider, so switching from
-   * Claude → Copilot → Claude restores Claude's previous selection
-   * instead of forcing the user to re-pick. Keys are `CanonicalCliType`
-   * values minus 'auto' (auto has no concrete model). Missing entries
-   * fall back to `getPrimaryModelForProvider(provider)`.
+   * Last-selected model per CLI provider (keys: CanonicalCliType minus 'auto').
+   * Missing entries fall back to `getPrimaryModelForProvider(provider)`.
    */
   defaultModelByProvider: Record<string, string>;
   /**
-   * Default "fast mode" preference for newly-spawned instances when no
-   * per-provider entry exists. Fast mode trades some capability for faster
-   * output: Claude sets the CLI `fastMode` settings key (Opus-only, needs a
-   * paid subscription/credits); Codex requests the `priority` service tier
-   * (~1.5x speed). Providers that don't support it ignore the flag.
+   * Global fast-mode default when no per-provider entry exists. Claude uses
+   * CLI `fastMode`; Codex uses priority tier; others ignore.
    */
   defaultFastMode: boolean;
-  /**
-   * Last-selected fast-mode preference per CLI provider, so the toggle is
-   * remembered across provider switches (mirrors `defaultModelByProvider`).
-   * Keys are `CanonicalCliType` values minus 'auto'. Missing entries fall back
-   * to `defaultFastMode`.
-   */
+  /** Per-provider fast-mode memory; falls back to `defaultFastMode`. */
   defaultFastModeByProvider: Record<string, boolean>;
+  /** Hybrid picker usage memory (`provider:modelId` → count/lastUsedAt). */
+  modelUsageByKey: Record<string, ModelUsageEntry>;
   /**
-   * Enable the resident-session interrupt path for Claude.
-   * When true, the Claude adapter sends `control_request{interrupt}` to stdin instead
-   * of SIGINT, keeping the process alive across turns.
-   * Default true: steering should abort the turn, not respawn the process.
+   * Resident Claude interrupt via stdin `control_request` instead of SIGINT.
+   * Default true so steering aborts the turn without respawning.
    */
   residentClaudeSession: boolean;
   theme: ThemeMode;
@@ -496,6 +477,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultModelByProvider: {},
   defaultFastMode: false,
   defaultFastModeByProvider: {},
+  modelUsageByKey: {},
   residentClaudeSession: true,
   theme: 'dark',
 

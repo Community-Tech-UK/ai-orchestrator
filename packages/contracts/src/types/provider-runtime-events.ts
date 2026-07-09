@@ -27,7 +27,8 @@ export type BuiltInProviderName =
   | 'antigravity'
   | 'copilot'
   | 'anthropic-api'
-  | 'cursor';
+  | 'cursor'
+  | 'grok';
 
 /**
  * Worker-isolated plugin providers use a reserved namespace so they cannot

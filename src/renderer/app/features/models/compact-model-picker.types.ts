@@ -8,7 +8,7 @@ import type { ReasoningEffort } from '../../../../shared/types/provider.types';
  * even though chats currently don't). Excludes the `auto` sentinel —
  * the picker always pins a concrete provider.
  */
-export type PickerProvider = ChatProvider | 'cursor' | 'local-model';
+export type PickerProvider = ChatProvider | 'cursor' | 'grok' | 'local-model';
 
 /**
  * Operating mode of the compact model picker.
@@ -49,4 +49,10 @@ export interface CommitTarget {
   modelId?: string | null;
   reasoning?: ReasoningEffort | null;
   modelRuntimeTarget?: ModelRuntimeTarget | null;
+  /**
+   * When true, a successful model change updates hybrid picker usage memory.
+   * Set for explicit model/reasoning row picks; omit for provider-rail switches
+   * so default models are not inflated.
+   */
+  trackUsage?: boolean;
 }

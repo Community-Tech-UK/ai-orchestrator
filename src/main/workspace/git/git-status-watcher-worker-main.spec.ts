@@ -14,9 +14,20 @@ function processWithParentPort(): NodeJS.Process & { parentPort?: ElectronParent
   return process as NodeJS.Process & { parentPort?: ElectronParentPort };
 }
 
-async function flushMicrotasks(times = 4): Promise<void> {
-  for (let i = 0; i < times; i++) {
-    await Promise.resolve();
+/** Wait until parentPort.postMessage has been called `count` times. */
+async function waitForPostMessages(
+  parentPort: ElectronParentPort,
+  count: number,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (parentPort.postMessage.mock.calls.length < count) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `timed out waiting for ${count} postMessage call(s); got ${parentPort.postMessage.mock.calls.length}`,
+      );
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 }
 
@@ -48,7 +59,7 @@ describe('git-status-watcher-worker-main', () => {
       repoPaths: [],
     };
     parentPort.emit('message', { data: setReposMessage });
-    await flushMicrotasks();
+    await waitForPostMessages(parentPort, 1);
 
     expect(parentPort.start).toHaveBeenCalledOnce();
     expect(parentPort.postMessage).toHaveBeenCalledWith({
@@ -63,7 +74,7 @@ describe('git-status-watcher-worker-main', () => {
       id: 2,
     };
     parentPort.emit('message', { data: shutdownMessage });
-    await flushMicrotasks();
+    await waitForPostMessages(parentPort, 2);
 
     expect(parentPort.postMessage).toHaveBeenCalledWith({
       type: 'response',

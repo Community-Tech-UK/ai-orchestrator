@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as path from 'node:path';
 
-vi.mock('electron', () => ({
-  app: {
-    getPath: vi.fn(() => '/tmp/orchestrator-user-data'),
-  },
-}));
+const electronHarness = vi.hoisted(() => {
+  // require(+.ts) avoids ESM TDZ: vi.hoisted runs before import bindings initialize
+  const { createElectronHarness } =
+    require('../testing/electron-mock.ts') as typeof import('../testing/electron-mock');
+  return createElectronHarness({ userDataPath: '/tmp/orchestrator-user-data' });
+});
+vi.mock('electron', () => electronHarness.module);
 
 import { ProjectStoragePaths } from './project-storage-paths';
 

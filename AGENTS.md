@@ -40,6 +40,16 @@ npm run test                # Run tests (uses vitest)
   slower full-gate preflight.
 - **Reserve the full suite for a final gate** once the targeted spec is green —
   not mid-investigation.
+- **Slow tier** (`*.e2e.spec.ts`, `**/soak.spec.ts`) is excluded from the default
+  suite. Run with `npm run test:slow` (also a CI job). Load/bench stay on
+  `test:load` / `bench`.
+- **Cache** is on by default for warm re-runs. Force a cold cache after mass
+  deletes/renames with `AIO_TEST_NO_CACHE=1` or `--no-cache`.
+- **CI shards** with `npm run test -- --shard=N/4`. Locally you usually want the
+  unsharded default suite.
+- **Vitest projects**: `renderer` (jsdom + Angular TestBed) and `main` (jsdom +
+  zone, no Angular). Both stay `singleFork` until an isolation audit unlocks
+  parallel forks; CI sharding is the multi-core path today.
 - On failure, `test:quiet` adds a TL;DR from a **local** model (Ollama / LM Studio)
   if one is reachable — zero cloud tokens. Point it at a LAN box with
   `AIO_AUX_LLM_URL=http://<host>:11434`, or it reads the endpoint configured in

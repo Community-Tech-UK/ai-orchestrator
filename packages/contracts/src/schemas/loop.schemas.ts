@@ -51,7 +51,7 @@ export const LoopCompletionOutcomeSchema = z.enum([
 ]);
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
 export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra']);
-export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']);
+export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
 export const LoopReviewStyleSchema = z.enum(['single', 'debate', 'star-chamber']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
 export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'I', 'BLOCKED']);
@@ -139,7 +139,7 @@ export const LoopReviewSeveritySchema = z.enum(['critical', 'high', 'medium', 'l
 export const LoopPingPongConfigSchema = z.object({
   enabled: z.boolean(),
   reviewerProvider: z
-    .enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'])
+    .enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'])
     .optional(),
   subject: z.enum(['auto', 'plan', 'impl']).optional(),
   maxRounds: z.number().int().min(1).max(20).optional(),

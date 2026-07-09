@@ -98,7 +98,7 @@ describe('ProviderQuotaSettingsTabComponent', () => {
     it('shows one row per provider', () => {
       fixture.detectChanges();
       const rows = fixture.nativeElement.querySelectorAll('tbody tr');
-      expect(rows.length).toBe(5);
+      expect(rows.length).toBe(6);
     });
 
     it('shows "—" state for providers with no snapshot', () => {

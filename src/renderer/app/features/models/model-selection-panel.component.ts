@@ -8,6 +8,7 @@ import {
   Output,
   ViewChild,
   computed,
+  inject,
   signal,
 } from '@angular/core';
 import type {
@@ -23,6 +24,11 @@ import {
   PROVIDER_MENU_COLORS,
   PROVIDER_MENU_LABELS,
 } from './provider-menu.constants';
+import {
+  orderFavoriteRowsByUsage,
+  orderProviderRowsByUsage,
+} from './model-usage-memory';
+import { ModelUsageMemoryService } from './model-usage-memory.service';
 
 type ActiveModelTab = 'favorites' | PickerProvider;
 type ProviderLabelMap = Partial<Record<PickerProvider, string>>;
@@ -601,6 +607,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 })
 export class ModelSelectionPanelComponent implements AfterViewInit {
   private readonly storedFavorites = loadFavoriteKeys();
+  private readonly modelUsageMemory = inject(ModelUsageMemoryService);
 
   protected readonly activeTab = signal<ActiveModelTab>('favorites');
   protected readonly searchTerm = signal('');
@@ -728,14 +735,16 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
 
   protected readonly visibleRows = computed<ModelPickerRow[]>(() => {
     const active = this.activeTab();
-    const favoriteKeys = this.favoriteKeySet();
     const term = this.searchTerm().trim().toLowerCase();
+    const usageByKey = this.modelUsageMemory.usageByKey();
+    const allRows = this.allRows();
 
-    const scopedRows = this.allRows().filter((row) =>
-      active === 'favorites'
-        ? favoriteKeys.has(row.key)
-        : row.provider === active,
-    );
+    const scopedRows = active === 'favorites'
+      ? orderFavoriteRowsByUsage(allRows, this.effectiveFavoriteKeys(), usageByKey)
+      : orderProviderRowsByUsage(
+        allRows.filter((row) => row.provider === active),
+        usageByKey,
+      );
 
     const filteredRows = term
       ? scopedRows.filter((row) => row.searchText.includes(term))
@@ -859,6 +868,8 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
         return 'M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12Z';
       case 'cursor':
         return 'M12 2 20 7v10l-8 5-8-5V7l8-5Zm0 2.35L6 8.1v7.8l6 3.75 6-3.75V8.1l-6-3.75Z';
+      case 'grok':
+        return 'M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2Zm0 2.5A7.5 7.5 0 1 0 19.5 12 7.5 7.5 0 0 0 12 4.5Zm-3.25 4.25h2.1l1.15 3.4 1.15-3.4h2.1l-2.2 5.5h-2.1l-2.2-5.5Z';
       case 'local-model':
         return 'M4 6.5 12 2l8 4.5v9L12 20l-8-4.5v-9Zm2 1.18v6.64l6 3.38 6-3.38V7.68L12 4.3 6 7.68Zm6 1.1 3.5-1.97 1.5.84-5 2.82-5-2.82 1.5-.84L12 8.78Zm-5 3.03 5 2.82 5-2.82v1.72l-5 2.82-5-2.82v-1.72Z';
     }

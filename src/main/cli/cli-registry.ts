@@ -12,10 +12,10 @@ import { getCliAdditionalPaths } from './cli-environment';
  * data / older remote nodes); its live successor is `antigravity` (the `agy`
  * CLI). Legacy `gemini` is normalized to `antigravity` in mapSettingsToDetectionType.
  */
-export type CliType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'ollama' | 'cursor';
+export type CliType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'ollama' | 'cursor' | 'grok';
 
 /** CLIs surfaced in CLI Health. `gemini` is excluded — superseded by `antigravity`. */
-export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'ollama', 'cursor'];
+export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'ollama', 'cursor', 'grok'];
 
 /**
  * Registry entry for a CLI tool
@@ -150,6 +150,30 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       '~/.local/bin/cursor-agent',
       '~/.cursor/bin/cursor-agent'
     ]
+  },
+  grok: {
+    name: 'grok',
+    command: 'grok',
+    displayName: 'Grok Build',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: [
+      'streaming',
+      'tool-use',
+      'file-access',
+      'shell',
+      'multi-turn',
+      'mcp-servers',
+    ],
+    alternativePaths: [
+      '~/.grok/bin/grok',
+      '~/.grok/bin/grok.exe',
+      '/opt/homebrew/bin/grok',
+      '/usr/local/bin/grok',
+      '~/.local/bin/grok',
+      '%LOCALAPPDATA%\\grok\\bin\\grok.exe',
+      '%USERPROFILE%\\.grok\\bin\\grok.exe',
+    ],
   },
   ollama: {
     name: 'ollama',

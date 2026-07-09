@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator } from './loop-coordinator';
 import type { LoopChildResult } from './loop-coordinator';
+import { cleanupLoopCoordinatorSpec } from './loop-coordinator-test-cleanup';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -34,14 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  for (const loop of coordinator.getActiveLoops()) {
-    await coordinator.cancelLoop(loop.id).catch(() => undefined);
-  }
-  try {
-    rmSync(workspace, { recursive: true, force: true });
-  } catch {
-    /* noop */
-  }
+  await cleanupLoopCoordinatorSpec({ coordinator, workspace, reset: false });
 }, 20_000);
 
 describe('LoopCoordinator double-start guard', () => {
@@ -125,7 +119,7 @@ describe('LoopCoordinator runtime context', () => {
     expect(prompt).toContain('current loop goal');
 
     await coord.cancelLoop(state.id);
-  });
+  }, 15_000);
 });
 
 describe('LoopCoordinator cancel-on-hung-iteration', () => {

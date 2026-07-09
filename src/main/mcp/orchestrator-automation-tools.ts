@@ -41,7 +41,7 @@ export const CreateAutomationArgsSchema = z
     /** Optional human-readable description. */
     description: z.string().max(2000).optional(),
     /** CLI provider to run with (defaults to the app default). */
-    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
     /** Whether the automation is active immediately. Defaults to true. */
     enabled: z.boolean().optional(),
   })
@@ -173,7 +173,7 @@ export const UpdateAutomationArgsSchema = z
     /** New absolute working directory. Omit to leave unchanged. */
     workingDirectory: z.string().min(1).max(10_000).optional(),
     /** New CLI provider. Omit to leave unchanged. */
-    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
     /** New model override for the spawned agent. Omit to leave unchanged. */
     model: ModelIdSchema.refine((value) => value.length > 0, {
       message: 'String must contain at least 1 character(s)',
@@ -308,7 +308,7 @@ export function createAutomationToolDefinitions(
           description: { type: 'string', description: 'Optional human-readable description.' },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
             description: 'CLI provider to run with (defaults to the app default).',
           },
           enabled: {
@@ -409,7 +409,7 @@ export function createAutomationToolDefinitions(
           },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
             description: 'New CLI provider. Omit to leave unchanged.',
           },
           model: {

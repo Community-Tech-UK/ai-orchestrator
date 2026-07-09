@@ -10,6 +10,7 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
+import { setTimeout as rawSetTimeout } from 'node:timers';
 import { getLogger } from '../logging/logger';
 import {
   defaultCrossModelReviewConfig,
@@ -627,8 +628,16 @@ export class LoopCoordinator extends EventEmitter {
    * `cancelLoop` and external callers (graceful app shutdown) that
    * need to wait until child processes are torn down.
    */
-  awaitTerminalCleanup(loopRunId: string): Promise<void> {
-    return this.terminalCleanupPromises.get(loopRunId) ?? Promise.resolve();
+  awaitTerminalCleanup(loopRunId: string, timeoutMs = 5_000): Promise<void> {
+    const pending = this.terminalCleanupPromises.get(loopRunId);
+    if (!pending) return Promise.resolve();
+    return Promise.race([
+      pending,
+      new Promise<void>((resolve) => {
+        const timer = rawSetTimeout(resolve, Math.max(1, timeoutMs));
+        if (typeof timer.unref === 'function') timer.unref();
+      }),
+    ]);
   }
 
   /**
@@ -3468,10 +3477,7 @@ export class LoopCoordinator extends EventEmitter {
       store: this.loopMemoryStore,
     });
     const watcher = this.watchers.get(state.id);
-    if (watcher) {
-      void watcher.stop();
-      this.watchers.delete(state.id);
-    }
+    this.watchers.delete(state.id);
     this.runtimeContexts.delete(state.id);
     this.nextObjectivePlanners.delete(state.id);
     this.convergenceNotes.delete(state.id);
@@ -3501,29 +3507,34 @@ export class LoopCoordinator extends EventEmitter {
     // is per-loop-run and only consumed within the run (contradiction
     // detection); a terminated run never resumes under the same id. Fail-soft.
     this.evidenceStore?.deleteForLoop(state.id);
-    // FU-8: kick off the adapter-cleanup hook (CLI child teardown) and
-    // remember the promise so `awaitTerminalCleanup` / `cancelLoop`
-    // callers can wait on real shutdown. Hook errors are swallowed —
-    // they're logged here so we don't propagate cleanup failures into
-    // already-terminal loop control flow.
+    // FU-8: kick off terminal cleanup (watcher close + optional adapter
+    // teardown) and remember the promise so `awaitTerminalCleanup` /
+    // `cancelLoop` callers can wait for real shutdown before deleting the
+    // workspace. Watcher close is load-bearing under FSEvents pressure —
+    // leaving it fire-and-forget let `rmSync` hang in test teardown.
     const adapterCleanupHook = this.adapterCleanupHook;
-    if (adapterCleanupHook) {
-      const loopRunId = state.id;
-      const cleanupPromise = Promise.resolve()
-        .then(() => adapterCleanupHook(loopRunId))
-        .catch((err) => {
-          logger.warn('Loop adapter cleanup hook threw', {
-            loopRunId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        })
-        .finally(() => {
-          if (this.terminalCleanupPromises.get(loopRunId) === cleanupPromise) {
-            this.terminalCleanupPromises.delete(loopRunId);
-          }
+    const loopRunId = state.id;
+    const cleanupPromise = Promise.resolve()
+      .then(async () => {
+        if (watcher) {
+          await watcher.stop();
+        }
+        if (adapterCleanupHook) {
+          await adapterCleanupHook(loopRunId);
+        }
+      })
+      .catch((err) => {
+        logger.warn('Loop terminal cleanup threw', {
+          loopRunId,
+          error: err instanceof Error ? err.message : String(err),
         });
-      this.terminalCleanupPromises.set(loopRunId, cleanupPromise);
-    }
+      })
+      .finally(() => {
+        if (this.terminalCleanupPromises.get(loopRunId) === cleanupPromise) {
+          this.terminalCleanupPromises.delete(loopRunId);
+        }
+      });
+    this.terminalCleanupPromises.set(loopRunId, cleanupPromise);
   }
 
   private maybeRegeneratePlanOnStall(state: LoopState, seq: number): boolean {

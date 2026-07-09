@@ -31,6 +31,8 @@
     "test:unit:run": "vitest run",
     "test:staged": "node scripts/test-staged.js",
     "test:quiet": "node scripts/run-tests-quiet.js",
+    "test:slow": "node scripts/run-tests-slow.js",
+    "test:shard": "node scripts/run-tests-quiet.js",
     "test:coverage": "vitest --coverage",
     "bench": "vitest bench",
     "bench:indexing": "vitest bench src/main/indexing/benchmarks/indexing.bench.ts",

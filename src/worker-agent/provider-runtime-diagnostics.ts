@@ -70,7 +70,7 @@ export async function diagnoseProviderRuntime(
 
 export function isDiagnosableProvider(value: unknown): value is DiagnosableProvider {
   return typeof value === 'string'
-    && ['claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor'].includes(value);
+    && ['claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor', 'grok'].includes(value);
 }
 
 async function diagnoseIdentity(

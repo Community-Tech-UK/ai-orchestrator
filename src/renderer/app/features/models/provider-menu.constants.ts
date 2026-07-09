@@ -13,6 +13,7 @@ export const DEFAULT_INSTANCE_PROVIDERS: PickerProvider[] = [
   'antigravity',
   'copilot',
   'cursor',
+  'grok',
   'local-model',
 ];
 
@@ -23,6 +24,7 @@ export const PROVIDER_MENU_LABELS: Record<PickerProvider, string> = {
   antigravity: 'Antigravity',
   copilot: 'Copilot',
   cursor: 'Cursor',
+  grok: 'Grok',
   'local-model': 'Local Models',
 };
 
@@ -35,5 +37,6 @@ export const PROVIDER_MENU_COLORS: Record<PickerProvider, string> = {
   // Cursor's mark is monochrome; the theme foreground token stays legible on
   // both dark and light themes when consumed via `[style.color]`.
   cursor: 'var(--text-primary)',
+  grok: '#1da1f2',
   'local-model': '#14b8a6',
 };

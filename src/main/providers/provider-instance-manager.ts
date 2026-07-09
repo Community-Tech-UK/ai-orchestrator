@@ -30,6 +30,7 @@ import { DEFAULT_CODEX_CONFIG } from './codex-cli-provider';
 import { DEFAULT_GEMINI_CONFIG } from './gemini-cli-provider';
 import { DEFAULT_COPILOT_CONFIG } from './copilot-cli-provider';
 import { DEFAULT_CURSOR_CONFIG } from './cursor-cli-provider';
+import { DEFAULT_GROK_CONFIG } from './grok-cli-provider';
 import { AnthropicApiProvider } from './anthropic-api-provider';
 import { CliDetectionService, CliInfo } from '../cli/cli-detection';
 import { providerAdapterRegistry } from './provider-adapter-registry';
@@ -67,6 +68,7 @@ export const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
   'google': DEFAULT_GEMINI_CONFIG,
   'copilot': DEFAULT_COPILOT_CONFIG,
   'cursor': DEFAULT_CURSOR_CONFIG,
+  'grok': DEFAULT_GROK_CONFIG,
   'amazon-bedrock': {
     type: 'amazon-bedrock',
     name: 'Amazon Bedrock',
@@ -87,6 +89,7 @@ const REGISTRY_PROVIDER_BY_TYPE: Partial<Record<ProviderType, BuiltInProviderNam
   'google': 'gemini',
   'copilot': 'copilot',
   'cursor': 'cursor',
+  'grok': 'grok',
 };
 
 /**

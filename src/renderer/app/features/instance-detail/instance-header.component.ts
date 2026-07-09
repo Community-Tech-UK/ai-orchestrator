@@ -383,6 +383,8 @@ export class InstanceHeaderComponent implements OnInit {
         return 'Copilot';
       case 'cursor':
         return 'Cursor';
+      case 'grok':
+        return 'Grok';
       default:
         return 'AI';
     }
@@ -408,6 +410,8 @@ export class InstanceHeaderComponent implements OnInit {
         // Cursor's mark is monochrome; use a light neutral so it stays visible
         // on dark surfaces rather than rendering black-on-black.
         return '#E5E7EB';
+      case 'grok':
+        return '#1DA1F2';
       default:
         return '#888888';
     }
@@ -583,6 +587,8 @@ export function resolveHeaderProviderDisplayName(
       return 'Copilot';
     case 'cursor':
       return 'Cursor';
+    case 'grok':
+      return 'Grok';
     default:
       return 'AI';
   }

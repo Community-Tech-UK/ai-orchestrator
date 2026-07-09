@@ -3,12 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatStore } from '../../core/state/chat.store';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import { ModelPickerController } from './model-picker.controller';
+import { ModelUsageMemoryService } from './model-usage-memory.service';
 
 describe('ModelPickerController', () => {
   const chatStore = {
     setProvider: vi.fn(async () => undefined),
     setModel: vi.fn(async () => undefined),
     setReasoning: vi.fn(async () => undefined),
+  };
+  const modelUsageMemory = {
+    record: vi.fn(),
   };
 
   beforeEach(() => {
@@ -17,6 +21,7 @@ describe('ModelPickerController', () => {
       providers: [
         ModelPickerController,
         { provide: ChatStore, useValue: chatStore },
+        { provide: ModelUsageMemoryService, useValue: modelUsageMemory },
       ],
     });
   });
@@ -119,11 +124,17 @@ describe('ModelPickerController', () => {
       controller.setMode('live-instance');
       controller.setChat(chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: null }), false);
 
-      await controller.commitSelection({ provider: 'codex', modelId: 'gpt-5.5', reasoning: 'high' });
+      await controller.commitSelection({
+        provider: 'codex',
+        modelId: 'gpt-5.5',
+        reasoning: 'high',
+        trackUsage: true,
+      });
 
       expect(chatStore.setProvider).toHaveBeenCalledWith('chat-1', 'codex');
       expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'gpt-5.5');
       expect(chatStore.setReasoning).toHaveBeenCalledWith('chat-1', 'high');
+      expect(modelUsageMemory.record).toHaveBeenCalledWith('codex', 'gpt-5.5');
     });
 
     it('model-only target does not call setProvider or setReasoning', async () => {
@@ -131,11 +142,12 @@ describe('ModelPickerController', () => {
       controller.setMode('live-instance');
       controller.setChat(chatRecord({ provider: 'claude', model: 'sonnet' }), false);
 
-      await controller.commitSelection({ modelId: 'opus' });
+      await controller.commitSelection({ modelId: 'opus', trackUsage: true });
 
       expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'opus');
       expect(chatStore.setProvider).not.toHaveBeenCalled();
       expect(chatStore.setReasoning).not.toHaveBeenCalled();
+      expect(modelUsageMemory.record).toHaveBeenCalledWith('claude', 'opus');
     });
 
     it('reasoning-only target does not call setProvider or setModel', async () => {
@@ -148,6 +160,7 @@ describe('ModelPickerController', () => {
       expect(chatStore.setReasoning).toHaveBeenCalledWith('chat-1', 'high');
       expect(chatStore.setProvider).not.toHaveBeenCalled();
       expect(chatStore.setModel).not.toHaveBeenCalled();
+      expect(modelUsageMemory.record).not.toHaveBeenCalled();
     });
 
     it('skips chatStore calls when target field already matches the chat', async () => {
@@ -155,10 +168,23 @@ describe('ModelPickerController', () => {
       controller.setMode('live-instance');
       controller.setChat(chatRecord({ provider: 'claude', model: 'sonnet' }), false);
 
-      await controller.commitSelection({ provider: 'claude', modelId: 'sonnet' });
+      await controller.commitSelection({ provider: 'claude', modelId: 'sonnet', trackUsage: true });
 
       expect(chatStore.setProvider).not.toHaveBeenCalled();
       expect(chatStore.setModel).not.toHaveBeenCalled();
+      expect(modelUsageMemory.record).not.toHaveBeenCalled();
+    });
+
+    it('does not record usage for provider switches without trackUsage', async () => {
+      const controller = TestBed.inject(ModelPickerController);
+      controller.setMode('live-instance');
+      controller.setChat(chatRecord({ provider: 'claude', model: 'sonnet' }), false);
+
+      await controller.commitSelection({ provider: 'codex', modelId: 'gpt-5.5' });
+
+      expect(chatStore.setProvider).toHaveBeenCalledWith('chat-1', 'codex');
+      expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'gpt-5.5');
+      expect(modelUsageMemory.record).not.toHaveBeenCalled();
     });
 
     it('refuses a disabled target without calling backend', async () => {
@@ -181,11 +207,12 @@ describe('ModelPickerController', () => {
       const emitted: { provider: string; model: string | null; reasoning: string | null }[] = [];
       controller.setSelectionChangeCallback((s) => emitted.push(s));
 
-      await controller.commitSelection({ modelId: 'opus', reasoning: 'high' });
+      await controller.commitSelection({ modelId: 'opus', reasoning: 'high', trackUsage: true });
 
       expect(emitted).toEqual([{ provider: 'claude', model: 'opus', reasoning: 'high' }]);
       expect(chatStore.setModel).not.toHaveBeenCalled();
       expect(chatStore.setReasoning).not.toHaveBeenCalled();
+      expect(modelUsageMemory.record).toHaveBeenCalledWith('claude', 'opus');
     });
 
     it('partial target merges with current selection', async () => {
@@ -198,6 +225,7 @@ describe('ModelPickerController', () => {
       await controller.commitSelection({ reasoning: 'high' });
 
       expect(emitted).toEqual([{ provider: 'codex', model: 'gpt-5.5', reasoning: 'high' }]);
+      expect(modelUsageMemory.record).not.toHaveBeenCalled();
     });
 
     it('forwards local-model runtime targets in pending-create mode', async () => {

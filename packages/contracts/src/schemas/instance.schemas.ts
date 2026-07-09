@@ -11,7 +11,7 @@ import {
 
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
 export const InstanceLaunchModeSchema = z.enum(['orchestrated', 'interactive']);
-const InstanceCreateProviderSchema = z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']);
+const InstanceCreateProviderSchema = z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
 const NodePlacementPrefsSchema = z.object({
   requiresBrowser: z.boolean().optional(),
   requiresAndroid: z.boolean().optional(),
@@ -19,7 +19,7 @@ const NodePlacementPrefsSchema = z.object({
   requiresGpu: z.boolean().optional(),
   preferPlatform: z.enum(['darwin', 'win32', 'linux']).optional(),
   preferNodeId: z.string().optional(),
-  requiresCli: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+  requiresCli: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
   requiresWorkingDirectory: z.string().min(1).max(4096).optional(),
 });
 export const ModelRuntimeTargetSchema = z.discriminatedUnion('kind', [

@@ -116,7 +116,7 @@ export const RunOnNodeArgsSchema = z.object({
    */
   workingDirectory: z.string().min(1).optional(),
   /** CLI provider to use on the node (defaults to the node/app default). */
-  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
   /** Optional model override. */
   model: ProviderModelIdSchema.optional(),
   /**
@@ -510,7 +510,7 @@ export function createOrchestratorToolDefinitions(
           },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
             description: 'CLI provider to use on the node (defaults to the node/app default).',
           },
           model: {

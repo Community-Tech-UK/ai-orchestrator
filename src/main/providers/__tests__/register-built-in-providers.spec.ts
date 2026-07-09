@@ -7,9 +7,17 @@ describe('registerBuiltInProviders', () => {
   let registry: ProviderAdapterRegistryImpl;
   beforeEach(() => { registry = new ProviderAdapterRegistryImpl(); });
 
-  it('registers all six built-in adapters', () => {
+  it('registers all seven built-in adapters', () => {
     registerBuiltInProviders(registry);
-    expect(registry.list().map(d => d.provider).sort()).toEqual(['antigravity', 'claude', 'codex', 'copilot', 'cursor', 'gemini']);
+    expect(registry.list().map(d => d.provider).sort()).toEqual([
+      'antigravity',
+      'claude',
+      'codex',
+      'copilot',
+      'cursor',
+      'gemini',
+      'grok',
+    ]);
   });
 
   it('creating an adapter returns an instance that implements ProviderAdapter', () => {
@@ -24,6 +32,14 @@ describe('registerBuiltInProviders', () => {
     registerBuiltInProviders(registry);
 
     expect(() => registerBuiltInProviders(registry)).not.toThrow();
-    expect(registry.list().map(d => d.provider).sort()).toEqual(['antigravity', 'claude', 'codex', 'copilot', 'cursor', 'gemini']);
+    expect(registry.list().map(d => d.provider).sort()).toEqual([
+      'antigravity',
+      'claude',
+      'codex',
+      'copilot',
+      'cursor',
+      'gemini',
+      'grok',
+    ]);
   });
 });

@@ -12,6 +12,7 @@ import type {
   PendingSelection,
   PickerProvider,
 } from './compact-model-picker.types';
+import { ModelUsageMemoryService } from './model-usage-memory.service';
 
 export interface ModelPickerReasoningOption {
   id: 'default' | ReasoningEffort;
@@ -39,6 +40,7 @@ export interface ModelPickerReasoningOption {
 @Injectable({ providedIn: 'root' })
 export class ModelPickerController {
   private readonly chatStore = inject(ChatStore);
+  private readonly modelUsageMemory = inject(ModelUsageMemoryService);
 
   readonly selectedProviderId = signal<PickerProvider>('claude');
   readonly selectedModelId = signal('');
@@ -177,6 +179,9 @@ export class ModelPickerController {
       };
       this.pendingSelection.set(next);
       this.pendingSelectionChange?.(next);
+      if (target.trackUsage) {
+        this.recordModelUsageIfChanged(current.provider, current.model, next.provider, next.model);
+      }
       return true;
     }
 
@@ -190,7 +195,7 @@ export class ModelPickerController {
         // wider `PickerProvider` is for the instance-draft surface; on chat
         // surfaces the menu only renders the 4 chat providers, so a cursor
         // value here would be a programming error. Guard at runtime.
-        if (target.provider === 'cursor' || target.provider === 'local-model') return false;
+        if (target.provider === 'cursor' || target.provider === 'grok' || target.provider === 'local-model') return false;
         await this.chatStore.setProvider(c.id, target.provider);
       }
       if (target.modelId !== undefined && target.modelId !== c.model) {
@@ -199,10 +204,26 @@ export class ModelPickerController {
       if (target.reasoning !== undefined && target.reasoning !== c.reasoningEffort) {
         await this.chatStore.setReasoning(c.id, target.reasoning);
       }
+      if (target.trackUsage) {
+        const nextProvider = target.provider ?? c.provider;
+        const nextModel = target.modelId !== undefined ? target.modelId : c.model;
+        this.recordModelUsageIfChanged(c.provider, c.model, nextProvider, nextModel);
+      }
       return true;
     } finally {
       this.applying.set(false);
     }
+  }
+
+  private recordModelUsageIfChanged(
+    previousProvider: string | null | undefined,
+    previousModel: string | null | undefined,
+    nextProvider: string | null | undefined,
+    nextModel: string | null | undefined,
+  ): void {
+    if (!nextProvider || !nextModel) return;
+    if (nextProvider === previousProvider && nextModel === previousModel) return;
+    this.modelUsageMemory.record(nextProvider, nextModel);
   }
 
   readonly reasoningOptions = computed<ModelPickerReasoningOption[]>(() =>

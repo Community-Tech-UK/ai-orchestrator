@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('electron', () => ({
-  powerMonitor: {
-    on: vi.fn(),
-    off: vi.fn(),
-  },
-}));
+const electronHarness = vi.hoisted(() => {
+  // require(+.ts) avoids ESM TDZ: vi.hoisted runs before import bindings initialize
+  const { createElectronHarness } =
+    require('../testing/electron-mock.ts') as typeof import('../testing/electron-mock');
+  return createElectronHarness({ powerMonitor: 'stub' });
+});
+vi.mock('electron', () => electronHarness.module);
 
 import { HibernationManager } from './hibernation-manager';
 import { JitterScheduler } from '../tasks/jitter-scheduler';

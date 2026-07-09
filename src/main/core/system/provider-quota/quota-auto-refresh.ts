@@ -49,6 +49,8 @@ export function mapProviderTypeToQuotaId(type: ProviderType): ProviderId | null 
       return 'copilot';
     case 'cursor':
       return 'cursor';
+    case 'grok':
+      return 'grok';
     case 'ollama':
     case 'amazon-bedrock':
     case 'azure':

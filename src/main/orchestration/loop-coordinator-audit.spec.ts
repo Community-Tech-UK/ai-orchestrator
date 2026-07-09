@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultLoopConfig, type ProgressSignalEvidence } from '../../shared/types/loop.types';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { loopStateFile, resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { cleanupLoopCoordinatorSpec } from './loop-coordinator-test-cleanup';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -19,12 +20,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  for (const loop of coordinator.getActiveLoops()) {
-    await coordinator.cancelLoop(loop.id).catch(() => undefined);
-  }
-  rmSync(workspace, { recursive: true, force: true });
-  LoopCoordinator._resetForTesting();
-});
+  await cleanupLoopCoordinatorSpec({ coordinator, workspace });
+}, 20_000);
 
 describe('LoopCoordinator audit integration', () => {
   it('blocks before the first iteration when preflight verify is red', async () => {

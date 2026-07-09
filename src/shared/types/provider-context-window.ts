@@ -33,6 +33,12 @@ export function getProviderModelContextWindow(
   }
 
   if (!isClaudeProvider) {
+    if (
+      normalizedProvider === 'grok' ||
+      normalizedModel.startsWith('grok-')
+    ) {
+      return 500000;
+    }
     return 200000;
   }
 

@@ -297,6 +297,7 @@ export function normalizeDiagnosisProvider(provider: string): ProviderRuntimePro
       return 'anthropic-api';
     case 'copilot':
     case 'cursor':
+    case 'grok':
     case 'ollama':
       return provider;
     default:

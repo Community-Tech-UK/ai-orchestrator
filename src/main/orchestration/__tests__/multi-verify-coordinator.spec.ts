@@ -503,8 +503,14 @@ describe('MultiVerifyCoordinator', () => {
       const agentInvocations: unknown[] = [];
       coordinator.on('verification:invoke-agent', (p) => agentInvocations.push(p));
 
+      // Register before start: cache hits emit in the same microtask batch as
+      // startVerification's returned promise, so a post-start wait can miss them.
+      const completedPromise = waitForEvent<{ fromCache?: boolean }>(
+        coordinator,
+        'verification:completed',
+      );
       const id = await coordinator.startVerification('instance-1', 'cached prompt');
-      const completed = await waitForEvent<{ fromCache?: boolean }>(coordinator, 'verification:completed');
+      const completed = await completedPromise;
 
       expect(completed.fromCache).toBe(true);
       expect(agentInvocations).toHaveLength(0);
@@ -542,8 +548,10 @@ describe('MultiVerifyCoordinator', () => {
       let invokeCount = 0;
       coordinator.on('verification:invoke-agent', () => { invokeCount++; });
 
+      // Register before start — see cache-hit test above for why.
+      const completedPromise = waitForEvent(coordinator, 'verification:completed');
       await coordinator.startVerification('instance-1', 'repeat');
-      await waitForEvent(coordinator, 'verification:completed');
+      await completedPromise;
 
       expect(invokeCount).toBe(0);
     });

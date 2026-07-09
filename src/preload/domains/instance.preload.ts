@@ -22,7 +22,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       yoloMode?: boolean;
       launchMode?: 'orchestrated' | 'interactive';
       agentId?: string;
-      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
+      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
       model?: string;
       modelRuntimeTarget?: ModelRuntimeTarget;
       bareMode?: boolean;
@@ -41,7 +41,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       attachments?: unknown[];
       launchMode?: 'orchestrated' | 'interactive';
       agentId?: string;
-      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
+      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
       model?: string;
       modelRuntimeTarget?: ModelRuntimeTarget;
       yoloMode?: boolean;

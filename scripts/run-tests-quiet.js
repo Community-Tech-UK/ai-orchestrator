@@ -39,6 +39,11 @@
  *   node scripts/run-tests-quiet.js                      # full suite (+ preflight)
  *   node scripts/run-tests-quiet.js src/main/foo.spec.ts # targeted (skips preflight)
  *   npm run test:quiet -- src/main/foo.spec.ts
+ *   AIO_TEST_NO_CACHE=1 npm run test:quiet               # force fresh Vitest cache
+ *   npm run test:quiet -- --shard=1/4                    # CI shard (1 of 4)
+ *
+ * Cache: Vitest's result cache is ON by default for faster warm re-runs.
+ * Pass --no-cache or set AIO_TEST_NO_CACHE=1 after large delete/rename batches.
  *
  * Exit code mirrors vitest's, so CI / agents still see real pass/fail.
  */
@@ -63,6 +68,9 @@ const passthroughArgs = process.argv.slice(2);
 // A "targeted" run names specific files/paths; skip the slower full-gate preflight.
 const isTargetedRun = passthroughArgs.some((a) => !a.startsWith('-'));
 const hasExplicitCacheFlag = passthroughArgs.some((a) => a === '--cache' || a === '--no-cache');
+// Opt into a cold cache after mass deletes/renames, or when debugging flaky cache hits.
+const forceNoCache =
+  process.env.AIO_TEST_NO_CACHE === '1' || process.env.AIO_TEST_NO_CACHE === 'true';
 
 function log(line = '') {
   process.stdout.write(`${line}\n`);
@@ -106,9 +114,9 @@ function runVitest() {
     const args = [
       'run',
       ...passthroughArgs,
-      // Avoid stale Vitest result-cache file lists after large delete/rename
-      // batches. Callers can still opt back in with an explicit cache flag.
-      ...(hasExplicitCacheFlag ? [] : ['--no-cache']),
+      // Cache is on by default (warm re-runs). Force cold with AIO_TEST_NO_CACHE=1
+      // or an explicit --no-cache; --cache is a no-op when already default-on.
+      ...(forceNoCache && !hasExplicitCacheFlag ? ['--no-cache'] : []),
       // NB: no --silent. The child's stdout/stderr is redirected to the log FILE
       // (not the user's console), so in-test console output never floods context
       // but IS preserved in the log for genuine drill-down. --silent would drop it.

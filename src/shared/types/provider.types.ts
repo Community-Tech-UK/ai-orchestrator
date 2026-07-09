@@ -30,7 +30,8 @@ export type ProviderType =
   | 'copilot'         // GitHub Copilot CLI (multi-LLM router via `copilot` binary)
   | 'amazon-bedrock'  // AWS Bedrock
   | 'azure'           // Azure OpenAI
-  | 'cursor';         // Cursor AI editor CLI
+  | 'cursor'          // Cursor AI editor CLI
+  | 'grok';           // xAI Grok Build CLI
 
 export type ProviderConfigType = ProviderType | PluginProviderName;
 
@@ -158,6 +159,7 @@ export type ReasoningEffort = typeof REASONING_EFFORTS[number];
 export function getDefaultReasoningEffort(provider: string | null | undefined): ReasoningEffort | null {
   if (provider === 'claude') return 'high';
   if (provider === 'codex') return 'xhigh';
+  if (provider === 'grok') return 'high';
   return null;
 }
 
@@ -282,6 +284,10 @@ export const CURSOR_MODELS = {
   AUTO: 'auto',
 } as const;
 
+export const GROK_MODELS = {
+  GROK_45: 'grok-4.5',
+} as const;
+
 /**
  * Default models for each provider
  */
@@ -313,6 +319,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT55,
   cursor: CURSOR_MODELS.AUTO,
+  grok: GROK_MODELS.GROK_45,
 };
 
 /**
@@ -363,6 +370,8 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   [GOOGLE_MODELS.GEMINI_3_FLASH]: { input: 0.15, output: 0.60 },
   [GOOGLE_MODELS.GEMINI_25_PRO]: { input: 1.25, output: 10.0 },
   [GOOGLE_MODELS.GEMINI_25_FLASH]: { input: 0.15, output: 0.60 },
+  // Grok Build / xAI (subscription-backed CLI; rates are approximate API list prices)
+  [GROK_MODELS.GROK_45]: { input: 2.0, output: 10.0 },
 };
 
 /**
@@ -503,6 +512,9 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: 'gpt-5.3-codex', name: 'Codex 5.3', tier: 'balanced', pinned: true, family: 'Codex' },
     { id: 'gpt-5.5-high', name: 'GPT 5.5 High', tier: 'balanced', pinned: true, family: 'GPT' },
     // cursor-models:generated:end
+  ],
+  grok: [
+    { id: GROK_MODELS.GROK_45, name: 'Grok 4.5', tier: 'powerful', pinned: true, family: 'Grok' },
   ],
 };
 
@@ -711,6 +723,7 @@ const CLI_TO_PROVIDER_TYPE: Record<string, ProviderType> = {
   copilot: 'copilot',
   ollama: 'ollama',
   cursor: 'cursor',
+  grok: 'grok',
 };
 
 /**

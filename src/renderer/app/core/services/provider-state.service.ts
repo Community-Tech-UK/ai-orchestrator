@@ -25,11 +25,11 @@ import type { InstanceLaunchMode } from '../../../../shared/types/instance.types
 import { SettingsStore } from '../state/settings.store';
 import { SettingsIpcService } from './ipc/settings-ipc.service';
 
-export type ProviderType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
+export type ProviderType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
 
 function normalizeProvider(value: unknown): ProviderType {
   if (value === 'openai') return 'codex';
-  if (value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot' || value === 'cursor' || value === 'auto') {
+  if (value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot' || value === 'cursor' || value === 'grok' || value === 'auto') {
     return value;
   }
   return 'claude';

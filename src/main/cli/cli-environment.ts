@@ -201,6 +201,10 @@ export function getCliAdditionalPaths(
     ...nvmVersionBinPaths,
     `${homeDir}/.local/bin`,
     `${homeDir}/.npm-global/bin`,
+    // Grok Build installer writes the `grok` binary here and appends this dir
+    // to the user's shell profile. Packaged Electron often starts with a
+    // stripped PATH, so include it explicitly (mirrors Cursor/Ollama).
+    `${homeDir}/.grok/bin`,
     '/usr/local/bin',
     '/opt/homebrew/bin',
     '/usr/bin',
@@ -224,6 +228,11 @@ export function getCliAdditionalPaths(
     // starts with a stripped PATH often enough that relying on the user's shell
     // PATH misses an otherwise working install.
     `${localAppData}\\agy\\bin`,
+    // Grok Build installer writes grok.exe under %USERPROFILE%\.grok\bin (same
+    // layout as macOS/Linux ~/.grok/bin). Also cover a possible LocalAppData
+    // install path. Packaged Electron often starts with a stripped PATH.
+    `${homeDir}\\.grok\\bin`,
+    `${localAppData}\\grok\\bin`,
     // Per-user python.org installs (real interpreter + pip), ahead of the
     // WindowsApps Store alias stub below.
     ...getWindowsPythonPaths(env),

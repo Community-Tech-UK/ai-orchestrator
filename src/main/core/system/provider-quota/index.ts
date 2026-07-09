@@ -16,6 +16,7 @@ import { CodexUsageEndpointProbe } from './codex-usage-endpoint-probe';
 import { CursorUsageSummaryProbe } from './cursor-usage-summary-probe';
 import { GeminiQuotaProbe } from './gemini-quota-probe';
 import { GeminiUsageEndpointProbe } from './gemini-usage-endpoint-probe';
+import { GrokBillingProbe } from './grok-billing-probe';
 import { CompositeQuotaProbe } from './composite-quota-probe';
 import { FallbackQuotaProbe } from './fallback-quota-probe';
 import { UsageMonitorSource } from './usage-monitor-source';
@@ -85,6 +86,13 @@ export type {
   CursorUsageSummaryProbeOptions,
 } from './cursor-usage-summary-probe';
 
+export { GrokBillingProbe, parseGrokBillingPayload } from './grok-billing-probe';
+export type {
+  GrokAuthFileReader,
+  GrokBillingFetch,
+  GrokBillingProbeOptions,
+} from './grok-billing-probe';
+
 export { GeminiQuotaProbe } from './gemini-quota-probe';
 export type {
   GeminiFileReader,
@@ -153,4 +161,5 @@ export function registerDefaultQuotaProbes(): void {
     usageMonitor,
   ));
   service.registerProbe(new CompositeQuotaProbe(new CursorUsageSummaryProbe(), usageMonitor));
+  service.registerProbe(new CompositeQuotaProbe(new GrokBillingProbe(), usageMonitor));
 }

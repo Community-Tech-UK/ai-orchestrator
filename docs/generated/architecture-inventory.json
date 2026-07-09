@@ -5218,7 +5218,7 @@
     ]
   },
   "providers": {
-    "fileCount": 8,
+    "fileCount": 9,
     "files": [
       "src/main/providers/anthropic-api-provider.ts",
       "src/main/providers/antigravity-cli-provider.ts",
@@ -5227,6 +5227,7 @@
       "src/main/providers/copilot-cli-provider.ts",
       "src/main/providers/cursor-cli-provider.ts",
       "src/main/providers/gemini-cli-provider.ts",
+      "src/main/providers/grok-cli-provider.ts",
       "src/main/providers/provider-runtime-service.ts"
     ]
   },
@@ -5271,7 +5272,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3568
+      "lines": 3579
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -5331,7 +5332,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2664
+      "lines": 2665
     },
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
@@ -5350,14 +5351,6 @@
       "lines": 2493
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 2449
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 2379
-    },
-    {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
       "lines": 2372
     },
@@ -5372,10 +5365,6 @@
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
       "lines": 2278
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 2277
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5490,6 +5479,10 @@
       "lines": 1517
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
+      "lines": 1492
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
     },
@@ -5516,6 +5509,10 @@
     {
       "path": "src/main/history/history-manager.ts",
       "lines": 1430
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
+      "lines": 1419
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
@@ -5582,6 +5579,10 @@
       "lines": 1278
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
+      "lines": 1276
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
       "lines": 1268
     },
@@ -5604,6 +5605,10 @@
     {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan.md",
       "lines": 1257
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
+      "lines": 1256
     },
     {
       "path": "src/main/chats/chat-service.spec.ts",
@@ -5638,12 +5643,12 @@
       "lines": 1215
     },
     {
-      "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
-      "lines": 1203
+      "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
+      "lines": 1215
     },
     {
-      "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
-      "lines": 1196
+      "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
+      "lines": 1203
     },
     {
       "path": "src/main/orchestration/debate-coordinator.ts",
@@ -5698,6 +5703,10 @@
       "lines": 1145
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.thread-recovery.spec.ts",
+      "lines": 1145
+    },
+    {
       "path": "src/main/security/permission-manager.ts",
       "lines": 1145
     },
@@ -5740,6 +5749,10 @@
     {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
       "lines": 1097
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
+      "lines": 1091
     },
     {
       "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
@@ -5882,16 +5895,16 @@
       "lines": 958
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 958
+    },
+    {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 957
     },
     {
       "path": "src/main/plugins/plugin-manager.spec.ts",
       "lines": 950
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 947
     },
     {
       "path": "src/main/history/history-manager.spec.ts",
@@ -5906,6 +5919,10 @@
       "lines": 935
     },
     {
+      "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
+      "lines": 932
+    },
+    {
       "path": "src/main/orchestration/loop-store.spec.ts",
       "lines": 932
     },
@@ -5916,10 +5933,6 @@
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 925
-    },
-    {
-      "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
-      "lines": 924
     },
     {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
@@ -5979,7 +5992,7 @@
     },
     {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
-      "lines": 869
+      "lines": 870
     },
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
@@ -5995,7 +6008,7 @@
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 863
+      "lines": 864
     },
     {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
@@ -6079,6 +6092,10 @@
     },
     {
       "path": "src/main/learning/ab-testing.ts",
+      "lines": 824
+    },
+    {
+      "path": "src/main/orchestration/loop-completion-detector.ts",
       "lines": 824
     },
     {

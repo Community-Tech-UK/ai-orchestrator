@@ -166,7 +166,7 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     },
     browserCreateGrant: (payload: BrowserGrantProposalPayload & {
       instanceId: string;
-      provider: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'orchestrator';
+      provider: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'orchestrator';
       profileId?: string;
       targetId?: string;
       requestedBy: string;

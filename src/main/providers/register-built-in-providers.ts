@@ -11,6 +11,7 @@ import { GeminiCliProvider, GEMINI_DESCRIPTOR } from './gemini-cli-provider';
 import { AntigravityCliProvider, ANTIGRAVITY_DESCRIPTOR } from './antigravity-cli-provider';
 import { CopilotCliProvider, COPILOT_DESCRIPTOR } from './copilot-cli-provider';
 import { CursorCliProvider, CURSOR_DESCRIPTOR } from './cursor-cli-provider';
+import { GrokCliProvider, GROK_DESCRIPTOR } from './grok-cli-provider';
 
 export function registerBuiltInProviders(registry: ProviderAdapterRegistry): void {
   const builtIns = [
@@ -20,6 +21,7 @@ export function registerBuiltInProviders(registry: ProviderAdapterRegistry): voi
     [ANTIGRAVITY_DESCRIPTOR, (config: typeof ANTIGRAVITY_DESCRIPTOR.defaultConfig) => new AntigravityCliProvider(config)],
     [COPILOT_DESCRIPTOR, (config: typeof COPILOT_DESCRIPTOR.defaultConfig) => new CopilotCliProvider(config)],
     [CURSOR_DESCRIPTOR, (config: typeof CURSOR_DESCRIPTOR.defaultConfig) => new CursorCliProvider(config)],
+    [GROK_DESCRIPTOR, (config: typeof GROK_DESCRIPTOR.defaultConfig) => new GrokCliProvider(config)],
   ] as const;
 
   for (const [descriptor, factory] of builtIns) {

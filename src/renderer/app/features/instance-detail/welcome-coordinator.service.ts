@@ -30,7 +30,7 @@ interface WelcomeLaunchConfig {
   files: File[];
   workingDirectory: string;
   agentId: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
   model?: string;
   modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;

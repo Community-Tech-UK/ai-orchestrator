@@ -15,6 +15,7 @@ import {
 import type { BrowserExtensionCommandStore } from './browser-extension-command-store';
 import type { BrowserGatewayHealthReport } from './browser-health-service';
 import type { BrowserAutoApprovePredicate } from './browser-auto-approve';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 
 export function makeProfile(overrides: Partial<BrowserProfile> = {}): BrowserProfile {
   return {
@@ -429,3 +430,35 @@ export function makeGrant(overrides: Partial<BrowserPermissionGrant> = {}): Brow
     ...overrides,
   };
 }
+
+export function makeRelayNode(id = 'node-1', name = 'Windows PC'): WorkerNodeInfo {
+  return {
+    id,
+    name,
+    address: '127.0.0.1',
+    status: 'connected',
+    activeInstances: 0,
+    capabilities: {
+      platform: 'win32',
+      arch: 'x64',
+      cpuCores: 8,
+      totalMemoryMB: 16_384,
+      availableMemoryMB: 8_192,
+      supportedClis: ['claude'],
+      hasBrowserRuntime: true,
+      hasBrowserMcp: true,
+      hasExtensionRelay: true,
+      extensionRelay: {
+        enabled: true,
+        running: true,
+      },
+      hasAndroidMcp: false,
+      hasDocker: false,
+      maxConcurrentInstances: 2,
+      workingDirectories: [],
+      browsableRoots: [],
+      discoveredProjects: [],
+    },
+  };
+}
+

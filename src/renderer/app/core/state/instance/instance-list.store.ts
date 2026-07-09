@@ -30,7 +30,7 @@ export interface CreateInstanceWithMessageOptions {
   files?: File[];
   workingDirectory?: string;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
   model?: string;
   modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;
@@ -828,7 +828,8 @@ export class InstanceListStore {
       || value === 'antigravity'
       || value === 'copilot'
       || value === 'ollama'
-      || value === 'cursor';
+      || value === 'cursor'
+      || value === 'grok';
   }
 
   private isLaunchMode(value: unknown): value is Instance['launchMode'] {

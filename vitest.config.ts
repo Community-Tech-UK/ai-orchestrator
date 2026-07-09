@@ -1,16 +1,88 @@
 import { defineConfig } from 'vitest/config';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { aliases } from './vitest.aliases';
 
-const configDir = dirname(fileURLToPath(import.meta.url));
+/** Slow / wall-clock specs — excluded from the default suite; run via `test:slow`. */
+const slowTestGlobs = [
+  'src/**/*.e2e.spec.ts',
+  'src/**/*.e2e.test.ts',
+  'src/**/soak.spec.ts',
+  'src/**/soak.test.ts',
+];
+
+const defaultExcludes = [
+  'src/**/*.bench.ts',
+  'src/**/*.load.ts',
+  ...slowTestGlobs,
+];
 
 export default defineConfig({
   test: {
     globals: true,
-    environment: 'jsdom',
-    include: ['src/**/*.spec.ts', 'src/**/*.test.ts', 'packages/**/*.spec.ts', 'packages/**/*.test.ts', 'scripts/**/*.spec.ts'],
-    exclude: ['src/**/*.bench.ts', 'src/**/*.load.ts'],
-    setupFiles: ['src/test-setup.ts'],
+    // Multi-project: renderer gets Angular TestBed; everything else skips it
+    // but still uses jsdom + zone.js (Worker/MessagePort + microtask fidelity).
+    // Both stay singleFork until a dedicated isolation audit unlocks parallel
+    // forks safely. CI still shards across jobs for wall-clock speed.
+    projects: [
+      {
+        resolve: { alias: aliases },
+        test: {
+          name: 'renderer',
+          globals: true,
+          environment: 'jsdom',
+          include: [
+            'src/renderer/**/*.spec.ts',
+            'src/renderer/**/*.test.ts',
+            // Cross-layer smoke that boots Angular TestBed from scripts/.
+            'scripts/__tests__/cross-wave-smoke.spec.ts',
+          ],
+          exclude: defaultExcludes,
+          setupFiles: ['src/test-setup.ts'],
+          pool: 'forks',
+          poolOptions: {
+            forks: {
+              singleFork: true,
+            },
+          },
+        },
+      },
+      {
+        resolve: { alias: aliases },
+        test: {
+          name: 'main',
+          globals: true,
+          // jsdom (not node): plugin Worker hosts and several EventEmitter
+          // recovery paths depend on jsdom/zone scheduling. Skipping Angular
+          // TestBed is the main per-file setup win for this project.
+          environment: 'jsdom',
+          include: [
+            'src/main/**/*.spec.ts',
+            'src/main/**/*.test.ts',
+            'src/shared/**/*.spec.ts',
+            'src/shared/**/*.test.ts',
+            'src/preload/**/*.spec.ts',
+            'src/preload/**/*.test.ts',
+            'src/worker-agent/**/*.spec.ts',
+            'src/worker-agent/**/*.test.ts',
+            'packages/**/*.spec.ts',
+            'packages/**/*.test.ts',
+            'scripts/**/*.spec.ts',
+            'scripts/**/*.test.ts',
+          ],
+          exclude: [
+            ...defaultExcludes,
+            // Owned by the renderer project (needs Angular TestBed).
+            'scripts/__tests__/cross-wave-smoke.spec.ts',
+          ],
+          setupFiles: ['src/test-setup-node.ts'],
+          pool: 'forks',
+          poolOptions: {
+            forks: {
+              singleFork: true,
+            },
+          },
+        },
+      },
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -24,13 +96,6 @@ export default defineConfig({
         'src/renderer/**/*',
       ],
     },
-    // Avoid re-initializing TestBed for each file
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
-    // Benchmark configuration (used when running `vitest bench`)
     benchmark: {
       include: ['src/**/*.bench.ts'],
       exclude: ['node_modules'],
@@ -39,55 +104,6 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@shared': resolve(configDir, './src/shared'),
-      '@contracts/schemas/common':          resolve(configDir, './packages/contracts/src/schemas/common.schemas'),
-      '@contracts/schemas/command':         resolve(configDir, './packages/contracts/src/schemas/command.schemas'),
-      '@contracts/schemas/prompt-history':  resolve(configDir, './packages/contracts/src/schemas/prompt-history.schemas'),
-      '@contracts/schemas/workflow':        resolve(configDir, './packages/contracts/src/schemas/workflow.schemas'),
-      '@contracts/schemas/pause':           resolve(configDir, './packages/contracts/src/schemas/pause.schemas'),
-      '@contracts/schemas/instance':        resolve(configDir, './packages/contracts/src/schemas/instance.schemas'),
-      '@contracts/schemas/session':         resolve(configDir, './packages/contracts/src/schemas/session.schemas'),
-      '@contracts/schemas/provider':        resolve(configDir, './packages/contracts/src/schemas/provider.schemas'),
-      '@contracts/schemas/orchestration':   resolve(configDir, './packages/contracts/src/schemas/orchestration.schemas'),
-      '@contracts/schemas/verification':    resolve(configDir, './packages/contracts/src/schemas/verification.schemas'),
-      '@contracts/schemas/settings':        resolve(configDir, './packages/contracts/src/schemas/settings.schemas'),
-      '@contracts/schemas/file-operations': resolve(configDir, './packages/contracts/src/schemas/file-operations.schemas'),
-      '@contracts/schemas/security':        resolve(configDir, './packages/contracts/src/schemas/security.schemas'),
-      '@contracts/schemas/observability':   resolve(configDir, './packages/contracts/src/schemas/observability.schemas'),
-      '@contracts/schemas/workspace-tools': resolve(configDir, './packages/contracts/src/schemas/workspace-tools.schemas'),
-      '@contracts/schemas/knowledge':       resolve(configDir, './packages/contracts/src/schemas/knowledge.schemas'),
-      '@contracts/schemas/remote-node':     resolve(configDir, './packages/contracts/src/schemas/remote-node.schemas'),
-      '@contracts/schemas/plugin':          resolve(configDir, './packages/contracts/src/schemas/plugin.schemas'),
-      '@contracts/schemas/image':           resolve(configDir, './packages/contracts/src/schemas/image.schemas'),
-      '@contracts/schemas/automation':      resolve(configDir, './packages/contracts/src/schemas/automation.schemas'),
-      '@contracts/schemas/webhook':         resolve(configDir, './packages/contracts/src/schemas/webhook.schemas'),
-      '@contracts/schemas/quota':           resolve(configDir, './packages/contracts/src/schemas/quota.schemas'),
-      '@contracts/schemas/voice':           resolve(configDir, './packages/contracts/src/schemas/voice.schemas'),
-      '@contracts/schemas/browser':         resolve(configDir, './packages/contracts/src/schemas/browser.schemas'),
-      '@contracts/schemas/browser-unattended': resolve(configDir, './packages/contracts/src/schemas/browser-unattended.schemas'),
-      '@contracts/schemas/conversation-ledger': resolve(configDir, './packages/contracts/src/schemas/conversation-ledger.schemas'),
-      '@contracts/schemas/operator':        resolve(configDir, './packages/contracts/src/schemas/operator.schemas'),
-      '@contracts/schemas/chat':            resolve(configDir, './packages/contracts/src/schemas/chat.schemas'),
-      '@contracts/schemas/mcp-multi-provider': resolve(configDir, './packages/contracts/src/schemas/mcp-multi-provider.schemas'),
-      '@contracts/schemas/provider-runtime-events': resolve(configDir, './packages/contracts/src/schemas/provider-runtime-events.schemas'),
-      '@contracts/schemas/loop':            resolve(configDir, './packages/contracts/src/schemas/loop.schemas'),
-      '@contracts/schemas/campaign':        resolve(configDir, './packages/contracts/src/schemas/campaign.schemas'),
-      '@contracts/channels/automation':     resolve(configDir, './packages/contracts/src/channels/automation.channels'),
-      '@contracts/channels/campaign':       resolve(configDir, './packages/contracts/src/channels/campaign.channels'),
-      '@contracts/channels/pause':          resolve(configDir, './packages/contracts/src/channels/pause.channels'),
-      '@contracts/channels/voice':          resolve(configDir, './packages/contracts/src/channels/voice.channels'),
-      '@contracts/channels/browser':        resolve(configDir, './packages/contracts/src/channels/browser.channels'),
-      '@contracts/channels/conversation-ledger': resolve(configDir, './packages/contracts/src/channels/conversation-ledger.channels'),
-      '@contracts/channels/operator':       resolve(configDir, './packages/contracts/src/channels/operator.channels'),
-      '@contracts/channels/chat':           resolve(configDir, './packages/contracts/src/channels/chat.channels'),
-      '@contracts/channels/loop':           resolve(configDir, './packages/contracts/src/channels/loop.channels'),
-      '@contracts/types/instance-events':   resolve(configDir, './packages/contracts/src/types/instance-events'),
-      '@contracts/types/provider-runtime-events': resolve(configDir, './packages/contracts/src/types/provider-runtime-events'),
-      '@contracts/types/transport':         resolve(configDir, './packages/contracts/src/types/transport.types'),
-      '@contracts/types/browser':           resolve(configDir, './packages/contracts/src/types/browser.types'),
-      '@contracts': resolve(configDir, './packages/contracts/src'),
-      '@sdk': resolve(configDir, './packages/sdk/src'),
-    },
+    alias: aliases,
   },
 });

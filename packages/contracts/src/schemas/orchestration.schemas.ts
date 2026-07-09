@@ -17,7 +17,7 @@ export const SpawnChildPayloadSchema = z.object({
   name: z.string().max(200).optional(),
   agentId: z.string().max(100).optional(),
   model: ModelIdSchema.optional(),
-  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
   node: z.string().max(200).optional(),
 });
 
@@ -539,7 +539,7 @@ export const ReactionSetAutoMergePayloadSchema = z.object({
 // ============ Consensus Payloads ============
 
 export const ConsensusProviderSpecSchema = z.object({
-  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']),
+  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']),
   model: ModelIdSchema.optional(),
   weight: z.number().optional(),
 });

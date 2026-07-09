@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { cleanupLoopCoordinatorSpec } from './loop-coordinator-test-cleanup';
 
 function childResult(): LoopChildResult {
   return {
@@ -30,12 +31,8 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
   });
 
   afterEach(async () => {
-    for (const loop of coordinator.getActiveLoops()) {
-      await coordinator.cancelLoop(loop.id).catch(() => undefined);
-    }
-    rmSync(workspace, { recursive: true, force: true });
-    LoopCoordinator._resetForTesting();
-  });
+    await cleanupLoopCoordinatorSpec({ coordinator, workspace });
+  }, 20_000);
 
   it('sets an in-flight idempotency marker before invoking the child and clears it after sealing the iteration', async () => {
     const preIterationStates: LoopState[] = [];

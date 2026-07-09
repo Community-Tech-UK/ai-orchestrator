@@ -158,7 +158,7 @@ vi.mock('../android/worker-android-manager', () => ({
 vi.mock('../provider-runtime-diagnostics', () => ({
   diagnoseProviderRuntime: providerDiagnostics.diagnoseProviderRuntime,
   isDiagnosableProvider: (value: unknown) =>
-    typeof value === 'string' && ['claude', 'codex', 'gemini', 'copilot', 'cursor'].includes(value),
+    typeof value === 'string' && ['claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok'].includes(value),
 }));
 
 import { WorkerAgent, buildCoordinatorCandidates } from '../worker-agent';

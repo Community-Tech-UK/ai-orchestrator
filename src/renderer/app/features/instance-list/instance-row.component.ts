@@ -99,6 +99,16 @@ import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
                   <path d="M12 2 L20 7 L20 17 L12 22 L4 17 L4 7 Z"/>
                 </svg>
               }
+              @case ('grok') {
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+              }
+              @default {
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8"/>
+                </svg>
+              }
             }
           @if (needsAttention()) {
             <span class="attention-overlay-dot" [title]="activityLabel()"></span>
@@ -285,6 +295,10 @@ export class InstanceRowComponent {
       case 'cursor':
         // Light neutral keeps Cursor's monochrome mark visible on dark surfaces.
         return { icon: 'cursor', color: '#E5E7EB', label: 'Cursor' } as const;
+      case 'grok':
+        return { icon: 'grok', color: '#1DA1F2', label: 'Grok' } as const;
+      default:
+        return { icon: 'default', color: '#9CA3AF', label: 'Provider' } as const;
     }
   });
   readonly needsAttention = computed(() =>

@@ -24,7 +24,7 @@ import type {
 } from '../../core/models';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 
-const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as const;
+const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok'] as const;
 const DRAFT_KEY = 'new-session';
 
 /**

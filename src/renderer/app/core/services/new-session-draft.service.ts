@@ -773,6 +773,7 @@ export class NewSessionDraftService {
       value === 'antigravity' ||
       value === 'copilot' ||
       value === 'cursor' ||
+      value === 'grok' ||
       value === 'auto';
   }
 

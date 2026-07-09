@@ -263,7 +263,7 @@ export const TerminalExitParamsSchema = z.object({
 });
 
 export const ProviderDiagnoseParamsSchema = z.object({
-  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']),
+  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']),
 });
 
 // -- Node config update (privileged: scope=service) ---------------------------

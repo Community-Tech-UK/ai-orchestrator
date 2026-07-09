@@ -9,6 +9,7 @@ export const BuiltInProviderNameSchema = z.enum([
   'copilot',
   'anthropic-api',
   'cursor',
+  'grok',
 ]);
 
 export const PluginProviderNameSchema = z

@@ -15,6 +15,8 @@ export function providerDisplayName(provider: string): string {
       return 'Copilot';
     case 'cursor':
       return 'Cursor';
+    case 'grok':
+      return 'Grok';
     default:
       return 'AI';
   }

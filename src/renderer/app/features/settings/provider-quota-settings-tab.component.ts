@@ -43,6 +43,7 @@ const PROVIDERS: { id: ProviderId; label: string }[] = [
   { id: 'gemini', label: 'Google Gemini' },
   { id: 'copilot', label: 'GitHub Copilot' },
   { id: 'cursor', label: 'Cursor' },
+  { id: 'grok', label: 'Grok' },
 ];
 
 const INTERVAL_OPTIONS: IntervalOption[] = [
@@ -60,6 +61,7 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
   antigravity: 'Antigravity (agy) does not expose quota numbers from a background check — usage figures are only available inside an interactive session.',
   copilot: 'GitHub Copilot does not report account limits outside an active coding session. Sign-in status is available but usage totals are not.',
   cursor: 'Cursor usage is available when Harness can read Cursor’s macOS Keychain session token, or when the standalone token-usage-monitor has written a fresh snapshot.',
+  grok: 'Grok Build billing from ~/.grok/auth.json (monthly / on-demand USD). Sign in with `grok login` if the chip shows reauth.',
 };
 
 @Component({
@@ -152,7 +154,7 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
   readonly intervalOptions = INTERVAL_OPTIONS;
 
   readonly intervals = signal<Record<ProviderId, number>>({
-    claude: 0, codex: 0, gemini: 0, antigravity: 0, copilot: 0, cursor: 0,
+    claude: 0, codex: 0, gemini: 0, antigravity: 0, copilot: 0, cursor: 0, grok: 0,
   });
 
   readonly lastWarning = this.store.lastWarning;

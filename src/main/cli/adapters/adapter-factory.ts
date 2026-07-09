@@ -93,6 +93,8 @@ export function mapSettingsToDetectionType(settingsType: SettingsCliType | CliTy
       return 'copilot';
     case 'cursor':
       return 'cursor';
+    case 'grok':
+      return 'grok';
     case 'ollama':
       return 'ollama';
     case 'auto':
@@ -143,7 +145,7 @@ export async function resolveCliType(
   }
 
   // Fall back to first available CLI.
-  const priority: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'ollama'];
+  const priority: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok', 'ollama'];
   logger.debug('Falling back to auto-detect', { priority });
 
   for (const cli of priority) {
@@ -459,6 +461,77 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
 }
 
 /**
+ * Creates a Grok Build CLI adapter via ACP (`grok agent stdio`).
+ *
+ * Model and reasoning effort are global flags on `grok agent` (before the
+ * `stdio` subcommand). `--always-approve` matches yolo / unattended runs so
+ * `session/request_permission` does not block the turn.
+ */
+export function createGrokAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
+  const browserGatewayMcpServers = options.browserGatewayMcp
+    ? buildBrowserGatewayAcpMcpServers(
+        withBrowserGatewayProvider(options.browserGatewayMcp, 'grok'),
+      )
+    : [];
+  const chromeDevtoolsMcpServers = options.chromeDevtoolsMcp
+    ? buildChromeDevtoolsAcpMcpServers(options.chromeDevtoolsMcp)
+    : [];
+  const mobileMcpServers = options.mobileMcp
+    ? buildMobileMcpAcpMcpServers(options.mobileMcp)
+    : [];
+  const inlineMcpServers = buildInlineMcpServersAcpMcpServers(options.mcpConfig);
+  const agentArgs: string[] = ['agent'];
+  const requestedModel = options.model?.trim();
+  if (requestedModel && requestedModel.toLowerCase() !== 'auto') {
+    agentArgs.push('-m', requestedModel);
+  }
+  const effort = options.reasoningEffort?.trim();
+  if (effort && effort !== 'none' && effort !== 'workflow') {
+    const mapped =
+      effort === 'minimal' ? 'low'
+        : effort === 'xhigh' || effort === 'max' ? 'high'
+          : effort;
+    if (mapped === 'low' || mapped === 'medium' || mapped === 'high') {
+      agentArgs.push('--reasoning-effort', mapped);
+    }
+  }
+  if (options.yoloMode !== false) {
+    agentArgs.push('--always-approve');
+  }
+  agentArgs.push('stdio');
+  const env = mergeSpawnEnv(options);
+  extendEnvWithRtk(env, options.rtk);
+  return new AcpCliAdapter({
+    adapterName: 'grok-acp',
+    command: 'grok',
+    args: agentArgs,
+    workingDirectory: options.workingDirectory ?? process.cwd(),
+    sessionId: options.sessionId,
+    resume: options.resume,
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+    mcpServers: [
+      ...(options.mcpServers ?? []),
+      ...inlineMcpServers,
+      ...browserGatewayMcpServers,
+      ...chromeDevtoolsMcpServers,
+      ...mobileMcpServers,
+    ],
+    model: options.model,
+    systemPrompt: options.systemPrompt,
+    rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
+    timeout: options.timeout,
+    permissionRegistry: getPermissionRegistry(),
+    permissionContext: {
+      instanceId: options.instanceId ?? acpEphemeralInstanceId('grok'),
+      childId: options.childId,
+    },
+    concurrencyLimiter: getProviderConcurrencyLimiter(),
+    concurrencyKey: 'grok',
+    concurrencyAcquireTimeoutMs: 60_000,
+  });
+}
+
+/**
  * Creates an Ollama adapter that communicates with the local Ollama REST API.
  * Requires a running Ollama daemon (ollama serve or Ollama.app).
  */
@@ -560,6 +633,9 @@ export function createCliAdapter(
     case 'cursor':
       return createCursorAdapter(effectiveOptions);
 
+    case 'grok':
+      return createGrokAdapter(effectiveOptions);
+
     case 'ollama':
       return createOllamaAdapter(effectiveOptions);
 
@@ -585,6 +661,8 @@ export function getCliDisplayName(cliType: CliType): string {
       return 'GitHub Copilot';
     case 'cursor':
       return 'Cursor CLI';
+    case 'grok':
+      return 'Grok Build';
     case 'ollama':
       return 'Ollama';
     default:

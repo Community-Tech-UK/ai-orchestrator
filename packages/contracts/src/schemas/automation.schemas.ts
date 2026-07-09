@@ -60,7 +60,7 @@ export const AutomationScheduleSchema = z.discriminatedUnion('type', [
 export const AutomationActionSchema = z.object({
   prompt: z.string().min(1).max(500000),
   workingDirectory: WorkingDirectorySchema,
-  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
   model: ModelIdSchema.optional(),
   agentId: z.string().max(100).optional(),
   yoloMode: z.boolean().optional(),
@@ -153,7 +153,7 @@ export const AutomationMarkSeenPayloadSchema = z.object({
 export const AutomationPreflightPayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
   prompt: z.string().min(1).max(500000),
-  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
+  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
   model: ModelIdSchema.optional(),
   yoloMode: z.boolean().optional(),
   expectedUnattended: z.boolean().optional(),

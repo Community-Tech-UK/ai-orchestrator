@@ -42,7 +42,7 @@ const SECRET_KEY_PATTERN = /token|secret|key|cert|password/i;
 const REDACTED = '[redacted]';
 const metadataByKey = new Map(SETTINGS_METADATA.map((metadata) => [metadata.key, metadata]));
 
-const cliSchema = z.enum(['auto', 'claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor', 'openai']);
+const cliSchema = z.enum(['auto', 'claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor', 'grok', 'openai']);
 const themeSchema = z.enum(['dark', 'light', 'system']);
 const displayDensitySchema = z.enum(['comfortable', 'compact']);
 const sidebarStyleSchema = z.enum(['standard', 'compact']);
@@ -87,6 +87,13 @@ const customModelsByProviderSchema = z.record(
   z.array(customModelIdSchema).max(200),
 );
 const fastModeByProviderSchema = z.record(shortStringSchema, z.boolean());
+const modelUsageEntrySchema = z.object({
+  count: z.number().finite().int().min(1).max(1_000_000),
+  lastUsedAt: z.number().finite().int().min(0),
+}).strict();
+// Keys are `provider:modelId`; local-model selector ids can be long.
+const modelUsageKeySchema = z.string().min(1).max(768);
+const modelUsageByKeySchema = z.record(modelUsageKeySchema, modelUsageEntrySchema);
 const auxiliarySlotSchema = z.object({
   enabled: z.boolean(),
   provider: auxiliaryProviderSchema.optional(),
@@ -152,6 +159,7 @@ export const SETTINGS_TOOL_POLICY = {
   defaultModelByProvider: open(modelByProviderSchema),
   defaultFastMode: open(z.boolean()),
   defaultFastModeByProvider: open(fastModeByProviderSchema),
+  modelUsageByKey: open(modelUsageByKeySchema),
   residentClaudeSession: readOnly(),
   theme: open(themeSchema),
   maxChildrenPerParent: open(numberSettingSchema('maxChildrenPerParent')),
