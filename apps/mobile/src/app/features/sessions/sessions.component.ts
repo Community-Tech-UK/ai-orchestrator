@@ -17,6 +17,25 @@ interface SessionRow {
   lastActivity: number;
 }
 
+export const SESSION_PAGE_SIZE = 10;
+
+export function nextSessionsPageSize(
+  hiddenCount: number,
+  pageSize = SESSION_PAGE_SIZE,
+): number {
+  return Math.max(0, Math.min(hiddenCount, pageSize));
+}
+
+export function sessionsShowMoreLabel(
+  hiddenCount: number,
+  pageSize = SESSION_PAGE_SIZE,
+): string {
+  const nextCount = nextSessionsPageSize(hiddenCount, pageSize);
+  if (nextCount <= 0) return 'Show more';
+  if (hiddenCount > nextCount) return `Show ${nextCount} more (${hiddenCount} remaining)`;
+  return `Show ${nextCount} more`;
+}
+
 @Component({
   standalone: true,
   selector: 'app-sessions',
@@ -60,7 +79,7 @@ interface SessionRow {
       </ul>
 
       @if (hiddenCount() > 0) {
-        <button class="show-more" (click)="showMore()">Show more ({{ hiddenCount() }})</button>
+        <button class="show-more" (click)="showMore()">{{ showMoreLabel() }}</button>
       }
 
       <button class="fab" (click)="newSession()">＋ New</button>
@@ -114,8 +133,7 @@ export class SessionsComponent {
   protected readonly label = statusLabel;
 
   /** Show the most recent sessions first; reveal the rest in pages via "Show more". */
-  private static readonly PAGE = 10;
-  protected readonly visibleCount = signal(SessionsComponent.PAGE);
+  protected readonly visibleCount = signal(SESSION_PAGE_SIZE);
 
   protected readonly sessions = computed<SessionRow[]>(() => {
     const key = this.projectKey();
@@ -168,9 +186,11 @@ export class SessionsComponent {
   protected readonly hiddenCount = computed(() =>
     Math.max(0, this.sessions().length - this.visibleCount()),
   );
+  protected readonly nextPageSize = computed(() => nextSessionsPageSize(this.hiddenCount()));
+  protected readonly showMoreLabel = computed(() => sessionsShowMoreLabel(this.hiddenCount()));
 
   protected showMore(): void {
-    this.visibleCount.update((n) => n + SessionsComponent.PAGE);
+    this.visibleCount.update((n) => n + this.nextPageSize());
   }
 
   protected readonly projectName = computed(() => {

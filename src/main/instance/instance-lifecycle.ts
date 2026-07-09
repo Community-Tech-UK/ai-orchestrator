@@ -372,6 +372,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       getAdapterRuntimeCapabilities: (adapter) => this.getAdapterRuntimeCapabilities(adapter),
       resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance),
       getMcpConfig: (loc, instanceId, provider) => this.spawnConfigBuilder.getMcpConfig(loc, instanceId, provider),
+      getHarnessCliEnv: (loc, instanceId, baseEnv) => this.spawnConfigBuilder.getHarnessCliEnv(loc, instanceId, baseEnv),
       getBrowserGatewayMcpOptions: (loc, instanceId, provider) =>
         this.spawnConfigBuilder.getBrowserGatewayMcpOptions(loc, instanceId, provider),
       getChromeDevtoolsMcpOptions: (loc) => this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(loc),
@@ -497,7 +498,15 @@ export class InstanceLifecycleManager extends EventEmitter {
     executionLocation?: ExecutionLocation,
   ): CliAdapter {
     const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
-    const durableOptions = applyProviderSessionDurability(cliType, instance, options);
+    const harnessCliEnv = this.spawnConfigBuilder.getHarnessCliEnv(
+      executionLocation,
+      options.instanceId,
+      options.env,
+    );
+    const durableOptions = applyProviderSessionDurability(cliType, instance, {
+      ...options,
+      ...(harnessCliEnv ? { env: harnessCliEnv } : {}),
+    });
     return getProviderRuntimeService().createAdapter({ cliType, options: durableOptions, executionLocation });
   }
 

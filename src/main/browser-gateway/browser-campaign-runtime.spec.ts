@@ -251,7 +251,47 @@ describe('BrowserCampaignRuntime.recordGrantedMutation', () => {
 
     runtime.recordGrantedMutation({ grant: lease, actionClass: 'submit' });
     runtime.recordGrantedMutation({ grant: lease, actionClass: 'submit' });
-    runtime.recordGrantedMutation({ grant: lease, actionClass: 'submit' }); // over maxSubmits=2
+
+    expect(campaigns.get(campaign.id)?.status).toBe('paused');
+    expect(grantStore.grants.every((grant) => grant.revokedAt)).toBe(true);
+  });
+});
+
+describe('BrowserCampaignRuntime.recordNewAccount', () => {
+  it('counts a successful account creation against the matching campaign lease', () => {
+    const { runtime, campaigns, campaign } = makeRuntime();
+    const claim = runtime.claimLease({
+      campaignId: campaign.id,
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+    expect(claim.granted).toBe(true);
+
+    runtime.recordNewAccount({
+      profileId: 'profile-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+
+    expect(campaigns.getCounters(campaign.id)).toMatchObject({
+      newAccounts: 1,
+    });
+  });
+
+  it('pauses the campaign and revokes leases when the new-account budget trips', () => {
+    const { runtime, campaigns, grantStore, campaign } = makeRuntime();
+    const claim = runtime.claimLease({
+      campaignId: campaign.id,
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+    expect(claim.granted).toBe(true);
+
+    runtime.recordNewAccount({
+      profileId: 'profile-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
 
     expect(campaigns.get(campaign.id)?.status).toBe('paused');
     expect(grantStore.grants.every((grant) => grant.revokedAt)).toBe(true);

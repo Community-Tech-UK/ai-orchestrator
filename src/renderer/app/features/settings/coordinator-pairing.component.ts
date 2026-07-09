@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, inject, signal } from '@angular/core';
+import QRCode from 'qrcode';
 import {
   PairBothIpcService,
   type PairBothCoordinatorStartResult,
@@ -6,7 +7,13 @@ import {
 import type { PairBothSessionState } from '../../../../shared/types/pair-both.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
-type CoordinatorPairingUiState = 'idle' | 'waiting' | 'confirming' | 'completed' | 'error';
+type CoordinatorPairingUiState =
+  | 'idle'
+  | 'waiting'
+  | 'confirming'
+  | 'approved-waiting'
+  | 'completed'
+  | 'error';
 
 @Component({
   standalone: true,
@@ -36,6 +43,9 @@ type CoordinatorPairingUiState = 'idle' | 'waiting' | 'confirming' | 'completed'
           <span>Pairing expires {{ formatExpiry(activePairing.state.expiresAt) }}.</span>
         </div>
         <div class="invitation-box">
+          @if (qrCodeDataUrl()) {
+            <img class="invitation-qr" [src]="qrCodeDataUrl()" alt="Pairing invitation QR code">
+          }
           <textarea class="invitation-text" readonly [value]="activePairing.invitation"></textarea>
           <button class="btn btn-secondary small" type="button" (click)="copyInvitation()">Copy Invitation</button>
         </div>
@@ -51,6 +61,13 @@ type CoordinatorPairingUiState = 'idle' | 'waiting' | 'confirming' | 'completed'
             </button>
             <button class="btn btn-secondary" type="button" (click)="reject(sessionState.sessionId)">Reject</button>
           </div>
+        </div>
+      }
+
+      @if (uiState() === 'approved-waiting' && session(); as sessionState) {
+        <div class="pair-notice">
+          <strong>Approved {{ sessionState.workerHello?.machineName ?? 'worker' }}.</strong>
+          <span>Waiting for {{ sessionState.workerHello?.machineName ?? 'the worker' }} to confirm the code.</span>
         </div>
       }
 
@@ -161,6 +178,16 @@ type CoordinatorPairingUiState = 'idle' | 'waiting' | 'confirming' | 'completed'
       gap: 0.625rem;
     }
 
+    .invitation-qr {
+      width: 176px;
+      height: 176px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: #fff;
+      padding: 8px;
+      object-fit: contain;
+    }
+
     .invitation-text {
       min-height: 84px;
       resize: vertical;
@@ -187,6 +214,7 @@ export class CoordinatorPairingComponent implements OnDestroy {
   protected readonly active = signal<PairBothCoordinatorStartResult | null>(null);
   protected readonly session = signal<PairBothSessionState | null>(null);
   protected readonly error = signal<string | null>(null);
+  protected readonly qrCodeDataUrl = signal('');
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   ngOnDestroy(): void {
@@ -199,6 +227,7 @@ export class CoordinatorPairingComponent implements OnDestroy {
       const active = await this.pairBoth.startCoordinatorPairing();
       this.active.set(active);
       this.session.set(active.state);
+      await this.generateInvitationQr(active.invitation);
       this.uiState.set('waiting');
       this.startPoll();
     } catch (error) {
@@ -211,6 +240,7 @@ export class CoordinatorPairingComponent implements OnDestroy {
     await this.pairBoth.stopCoordinatorPairing();
     this.active.set(null);
     this.session.set(null);
+    this.qrCodeDataUrl.set('');
     this.uiState.set('idle');
   }
 
@@ -224,9 +254,9 @@ export class CoordinatorPairingComponent implements OnDestroy {
   protected async approve(sessionId: string): Promise<void> {
     this.error.set(null);
     try {
-      this.session.set(await this.pairBoth.approveCoordinatorPairing(sessionId));
-      this.uiState.set('completed');
-      this.clearPoll();
+      const latest = await this.pairBoth.approveCoordinatorPairing(sessionId);
+      this.session.set(latest);
+      this.applySessionUiState(latest);
     } catch (error) {
       this.showError(error);
     }
@@ -236,6 +266,7 @@ export class CoordinatorPairingComponent implements OnDestroy {
     this.error.set(null);
     try {
       this.session.set(await this.pairBoth.rejectCoordinatorPairing(sessionId));
+      this.qrCodeDataUrl.set('');
       this.uiState.set('idle');
       this.clearPoll();
     } catch (error) {
@@ -261,13 +292,7 @@ export class CoordinatorPairingComponent implements OnDestroy {
       return;
     }
     this.session.set(latest);
-    if (latest.shortCode && latest.workerHello && latest.status === 'confirming') {
-      this.uiState.set('confirming');
-    }
-    if (latest.status === 'completed') {
-      this.uiState.set('completed');
-      this.clearPoll();
-    }
+    this.applySessionUiState(latest);
   }
 
   private clearPoll(): void {
@@ -280,5 +305,30 @@ export class CoordinatorPairingComponent implements OnDestroy {
   private showError(error: unknown): void {
     this.error.set(error instanceof Error ? error.message : String(error));
     this.uiState.set('error');
+  }
+
+  private async generateInvitationQr(invitation: string): Promise<void> {
+    try {
+      this.qrCodeDataUrl.set(await QRCode.toDataURL(invitation, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 176,
+      }));
+    } catch {
+      this.qrCodeDataUrl.set('');
+    }
+  }
+
+  private applySessionUiState(latest: PairBothSessionState): void {
+    if (latest.status === 'completed' || latest.payloadDelivered) {
+      this.uiState.set('completed');
+      this.clearPoll();
+      return;
+    }
+    if (latest.status === 'confirming' && latest.shortCode && latest.workerHello) {
+      this.uiState.set(
+        latest.coordinatorApproved && !latest.workerConfirmed ? 'approved-waiting' : 'confirming',
+      );
+    }
   }
 }

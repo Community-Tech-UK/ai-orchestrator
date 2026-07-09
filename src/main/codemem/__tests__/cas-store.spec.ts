@@ -2,7 +2,9 @@ import Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
+import { vacuumFreelistPages } from '../cas-workspace-index-maintenance';
 import type { Chunk } from '../types';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 
 const sampleChunk = (overrides: Partial<Chunk> = {}): Chunk => ({
   contentHash: 'a'.repeat(64),
@@ -35,12 +37,42 @@ describe('CasStore', () => {
       SELECT name
       FROM sqlite_master
       WHERE type IN ('table', 'virtual')
-    `).all() as Array<{ name: string }>;
+    `).all() as { name: string }[];
     const names = tableNames.map((row) => row.name);
 
     expect(names).toContain('workspace_chunks');
     expect(names).toContain('code_fts');
     expect(names).toContain('code_index_status');
+  });
+
+  it('enables incremental vacuum for new codemem databases', () => {
+    const vacuumDb = new Database(':memory:');
+    migrate(vacuumDb);
+
+    expect(vacuumDb.pragma('auto_vacuum', { simple: true })).toBe(2);
+
+    vacuumDb.close();
+  });
+
+  it('runs full VACUUM once for legacy codemem databases before incremental vacuum can work', () => {
+    const calls: string[] = [];
+    const legacyDb = {
+      pragma: (source: string) => {
+        calls.push(`pragma:${source}`);
+        return source === 'auto_vacuum' ? 0 : [];
+      },
+      exec: (sql: string) => {
+        calls.push(`exec:${sql}`);
+      },
+    } as unknown as SqliteDriver;
+
+    vacuumFreelistPages(legacyDb);
+
+    expect(calls).toEqual([
+      'pragma:auto_vacuum',
+      'pragma:auto_vacuum = INCREMENTAL',
+      'exec:VACUUM',
+    ]);
   });
 
   it('clears stale unknown primary languages when migrating from schema version 3', () => {
@@ -473,5 +505,45 @@ describe('CasStore', () => {
     expect(store.countManifestEntries('workspace-a')).toBe(0);
     expect(store.getChunk('c1')).toEqual(expect.objectContaining({ rawText: 'shared chunk' }));
     expect(store.searchWorkspaceChunks('workspace-a', 'shared', 5)).toHaveLength(0);
+  });
+
+  it('prunes unreferenced chunks and legacy merkle rows without deleting live chunks', () => {
+    const liveHash = 'f'.repeat(64);
+    const orphanHash = '0'.repeat(64);
+    store.upsertChunk(sampleChunk({
+      contentHash: liveHash,
+      name: 'liveChunk',
+      rawText: 'export function liveChunk() { return true; }',
+    }));
+    store.upsertChunk(sampleChunk({
+      contentHash: orphanHash,
+      name: 'orphanChunk',
+      rawText: 'export function orphanChunk() { return false; }',
+    }));
+    store.replaceWorkspaceChunksForFile('workspace-a', 'src/live.ts', [{
+      workspaceHash: 'workspace-a',
+      pathFromRoot: 'src/live.ts',
+      chunkIndex: 0,
+      contentHash: liveHash,
+      startLine: 1,
+      endLine: 1,
+      language: 'typescript',
+      chunkType: 'function',
+      name: 'liveChunk',
+      updatedAt: 1,
+    }]);
+    db.prepare(
+      'INSERT INTO merkle_nodes (node_hash, kind, children_json) VALUES (?, ?, ?)',
+    ).run('legacy-node', 'file', '[]');
+
+    expect(store.pruneUnreferencedChunks()).toBe(1);
+    expect(store.clearLegacyMerkleNodes()).toBe(1);
+
+    expect(store.getChunk(liveHash)).toEqual(expect.objectContaining({ name: 'liveChunk' }));
+    expect(store.getChunk(orphanHash)).toBeNull();
+    expect(store.searchWorkspaceChunks('workspace-a', 'liveChunk', 5)).toHaveLength(1);
+    expect(
+      db.prepare('SELECT COUNT(*) AS count FROM merkle_nodes').get(),
+    ).toEqual({ count: 0 });
   });
 });

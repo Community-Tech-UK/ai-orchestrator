@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MobileMessageDto } from '../core/models';
-import { buildDisplayItems, toolLabel } from './transcript-items';
+import { buildDisplayItems, isLoopTranscriptMessage, toolLabel } from './transcript-items';
 
 function msg(overrides: Partial<MobileMessageDto>): MobileMessageDto {
   return {
@@ -21,6 +21,21 @@ describe('toolLabel', () => {
   it('falls back to content, then a generic label', () => {
     expect(toolLabel(msg({ content: 'ls -la' }))).toBe('ls -la');
     expect(toolLabel(msg({}))).toBe('tool');
+  });
+});
+
+describe('isLoopTranscriptMessage', () => {
+  it('identifies loop transcript system and assistant messages from metadata', () => {
+    expect(isLoopTranscriptMessage(msg({ metadata: { kind: 'loop-iteration' } }))).toBe(true);
+    expect(isLoopTranscriptMessage(msg({ metadata: { kind: 'loop-summary' } }))).toBe(true);
+    expect(isLoopTranscriptMessage(msg({ metadata: { kind: 'loop-start' } }))).toBe(true);
+    expect(isLoopTranscriptMessage(msg({ metadata: { kind: 'loop-intervene' } }))).toBe(true);
+  });
+
+  it('does not classify ordinary transcript messages as loop output', () => {
+    expect(isLoopTranscriptMessage(msg({ metadata: { kind: 'permission' } }))).toBe(false);
+    expect(isLoopTranscriptMessage(msg({ metadata: {} }))).toBe(false);
+    expect(isLoopTranscriptMessage(msg({}))).toBe(false);
   });
 });
 

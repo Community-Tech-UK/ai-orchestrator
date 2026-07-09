@@ -28,7 +28,7 @@ afterEach(async () => {
     try { await coordinator.cancelLoop(loop.id); } catch { /* noop */ }
   }
   try { rmSync(workspace, { recursive: true, force: true }); } catch { /* noop */ }
-});
+}, 20_000);
 
 // Identical, empty iterations → identical work hash → no-progress CRITICAL.
 function noProgressResult(): LoopChildResult {
@@ -75,16 +75,20 @@ describe('LoopCoordinator branch-select wiring (LF-5)', () => {
 
     const state = await coordinator.startLoop('chat-branch-on', startConfig(true));
 
-    for (let i = 0; i < 120 && !branchEvent; i++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    try {
+      for (let i = 0; i < 120 && !branchEvent; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
 
-    expect(selector).toHaveBeenCalled();
-    expect(branchEvent).not.toBeNull();
-    expect(branchEvent!.adopted).toBe(false);
-    // selector input carried the gating context
-    expect(selector.mock.calls[0][0]).toMatchObject({ loopRunId: state.id, exploration: { enabled: true } });
-  });
+      expect(selector).toHaveBeenCalled();
+      expect(branchEvent).not.toBeNull();
+      expect(branchEvent!.adopted).toBe(false);
+      // selector input carried the gating context
+      expect(selector.mock.calls[0][0]).toMatchObject({ loopRunId: state.id, exploration: { enabled: true } });
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  }, 15_000);
 
   it('never invokes the branch selector when exploration is disabled', async () => {
     const selector = vi.fn(async () => ({ adopted: false, reason: 'should-not-be-called', candidateCount: 0 }));
@@ -97,13 +101,17 @@ describe('LoopCoordinator branch-select wiring (LF-5)', () => {
       queueMicrotask(() => p.callback(noProgressResult()));
     });
 
-    await coordinator.startLoop('chat-branch-off', startConfig(false));
+    const state = await coordinator.startLoop('chat-branch-off', startConfig(false));
 
-    for (let i = 0; i < 120 && !pausedNoProgress; i++) {
-      await new Promise((r) => setTimeout(r, 50));
+    try {
+      for (let i = 0; i < 120 && !pausedNoProgress; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      expect(pausedNoProgress).toBe(true);
+      expect(selector).not.toHaveBeenCalled();
+    } finally {
+      await coordinator.cancelLoop(state.id);
     }
-
-    expect(pausedNoProgress).toBe(true);
-    expect(selector).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 });

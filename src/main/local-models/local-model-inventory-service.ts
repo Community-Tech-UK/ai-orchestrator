@@ -18,6 +18,7 @@ interface RosterLike {
 
 export interface LocalModelInventoryServiceOptions {
   roster?: RosterLike;
+  thisDeviceProbe?: () => Promise<WorkerLocalModelCapability[]>;
 }
 
 export interface LocalModelInventoryUpdatedPayload {
@@ -25,13 +26,22 @@ export interface LocalModelInventoryUpdatedPayload {
 }
 
 export class LocalModelInventoryService extends EventEmitter {
+  private thisDeviceEndpoints: WorkerLocalModelCapability[] = [];
+  private thisDeviceDiscoveredAt = 0;
+
   constructor(private readonly options: LocalModelInventoryServiceOptions = {}) {
     super();
   }
 
   list(): LocalModelInventoryEntry[] {
     const now = Date.now();
-    return this.roster().list().flatMap((node) => entriesForNode(node, now));
+    return [
+      ...entriesForThisDevice(
+        this.thisDeviceEndpoints,
+        this.thisDeviceDiscoveredAt || now,
+      ),
+      ...this.roster().list().flatMap((node) => entriesForNode(node, now)),
+    ];
   }
 
   resolveTarget(selectorId: string): ModelRuntimeTarget {
@@ -51,7 +61,9 @@ export class LocalModelInventoryService extends EventEmitter {
     };
   }
 
-  refresh(): LocalModelInventoryEntry[] {
+  async refresh(): Promise<LocalModelInventoryEntry[]> {
+    this.thisDeviceEndpoints = await this.thisDeviceProbe();
+    this.thisDeviceDiscoveredAt = Date.now();
     const models = this.list();
     this.emit(LOCAL_MODEL_INVENTORY_UPDATED_EVENT, { models });
     return models;
@@ -60,6 +72,144 @@ export class LocalModelInventoryService extends EventEmitter {
   private roster(): RosterLike {
     return this.options.roster ?? getRemoteNodeRosterService();
   }
+
+  private thisDeviceProbe(): Promise<WorkerLocalModelCapability[]> {
+    return this.options.thisDeviceProbe
+      ? this.options.thisDeviceProbe()
+      : detectThisDeviceLocalModelEndpoints();
+  }
+}
+
+const THIS_DEVICE_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+const THIS_DEVICE_LMSTUDIO_BASE_URL = 'http://127.0.0.1:1234';
+const THIS_DEVICE_PROBE_TIMEOUT_MS = 2_000;
+
+async function detectThisDeviceLocalModelEndpoints(): Promise<WorkerLocalModelCapability[]> {
+  const endpoints = await Promise.all([
+    probeThisDeviceOllama(),
+    probeThisDeviceLmStudio(),
+  ]);
+  return endpoints.filter((endpoint): endpoint is WorkerLocalModelCapability => endpoint !== null);
+}
+
+async function probeThisDeviceOllama(): Promise<WorkerLocalModelCapability | null> {
+  const data = await fetchJson<{ models?: Array<{ name?: unknown }> }>(
+    `${THIS_DEVICE_OLLAMA_BASE_URL}/api/tags`,
+  );
+  if (!data) {
+    return null;
+  }
+  return {
+    provider: 'ollama',
+    endpointId: 'ollama',
+    baseUrl: THIS_DEVICE_OLLAMA_BASE_URL,
+    models: (data.models ?? [])
+      .map((model) => model.name)
+      .filter((name): name is string => typeof name === 'string' && name.length > 0),
+    healthy: true,
+  };
+}
+
+async function probeThisDeviceLmStudio(): Promise<WorkerLocalModelCapability | null> {
+  const data = await fetchJson<{ data?: Array<{ id?: unknown }> }>(
+    `${THIS_DEVICE_LMSTUDIO_BASE_URL}/v1/models`,
+  );
+  if (!data) {
+    return null;
+  }
+  return {
+    provider: 'openai-compatible',
+    endpointId: 'openai-compatible',
+    baseUrl: THIS_DEVICE_LMSTUDIO_BASE_URL,
+    models: (data.data ?? [])
+      .map((model) => model.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    loadedModels: await probeThisDeviceLmStudioLoadedModels(),
+    healthy: true,
+  };
+}
+
+async function probeThisDeviceLmStudioLoadedModels() {
+  const data = await fetchJson<{ data?: Array<{
+    id?: unknown;
+    state?: unknown;
+    loaded_context_length?: unknown;
+  }> }>(`${THIS_DEVICE_LMSTUDIO_BASE_URL}/api/v0/models`);
+  if (!data) {
+    return undefined;
+  }
+  return (data.data ?? [])
+    .filter((model) => model.state === 'loaded' && typeof model.id === 'string')
+    .map((model) => ({
+      id: model.id as string,
+      contextLength: typeof model.loaded_context_length === 'number'
+        ? model.loaded_context_length
+        : 0,
+    }));
+}
+
+async function fetchJson<T>(url: string): Promise<T | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), THIS_DEVICE_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json() as T;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function entriesForThisDevice(
+  endpoints: WorkerLocalModelCapability[],
+  discoveredAt: number,
+): LocalModelInventoryEntry[] {
+  return endpoints.flatMap((endpoint) => entriesForThisDeviceEndpoint(endpoint, discoveredAt));
+}
+
+function entriesForThisDeviceEndpoint(
+  endpoint: WorkerLocalModelCapability,
+  discoveredAt: number,
+): LocalModelInventoryEntry[] {
+  const endpointId = endpoint.endpointId ?? endpoint.provider;
+  const loadedById = new Map((endpoint.loadedModels ?? []).map((model) => [
+    model.id,
+    model.contextLength,
+  ]));
+
+  return endpoint.models.map((modelId) => {
+    const loadedContextLength = loadedById.get(modelId);
+    return {
+      selectorId: encodeLocalModelSelector({
+        source: 'this-device',
+        endpointProvider: endpoint.provider,
+        endpointId,
+        modelId,
+      }),
+      source: 'this-device',
+      endpointProvider: endpoint.provider,
+      endpointId,
+      modelId,
+      displayName: `${modelId} on This device`,
+      healthy: endpoint.healthy,
+      loaded: loadedContextLength !== undefined,
+      ...(loadedContextLength !== undefined ? { loadedContextLength } : {}),
+      capabilities: {
+        streaming: true,
+        multiTurn: true,
+        toolUse: 'none',
+        vision: 'unknown',
+      },
+      discoveredAt,
+    };
+  });
 }
 
 function entriesForNode(

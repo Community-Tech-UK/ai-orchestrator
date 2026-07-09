@@ -17,6 +17,15 @@
 /** Maximum length of a rail-visible title before truncation. */
 export const MAX_FALLBACK_TITLE_LENGTH = 60;
 
+const GENERATED_TITLE_THINKING_BLOCK_PATTERN =
+  /<\s*(think|thinking|thought|antthinking|reasoning)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
+const GENERATED_TITLE_THINKING_TAG_PATTERN =
+  /<\s*\/?\s*(?:think|thinking|thought|antthinking|reasoning)\b[^>]*>/i;
+const GENERATED_TITLE_BRACKET_THINKING_BLOCK_PATTERN =
+  /\[\s*THINKING\s*\][\s\S]*?\[\s*\/\s*THINKING\s*\]/gi;
+const GENERATED_TITLE_BRACKET_THINKING_TAG_PATTERN =
+  /\[\s*\/?\s*THINKING\s*\]/i;
+
 /**
  * Canonical header that {@link renderAttachmentBlock} (loop-attachments) emits
  * at the top of an attachment preamble. Shared so the producer and the title
@@ -83,6 +92,38 @@ export function titleFromAttachments(labels: readonly string[]): string | null {
   if (labels.length === 0) return null;
   if (labels.length === 1) return labels[0];
   return `${labels[0]} +${labels.length - 1} more`;
+}
+
+/**
+ * Convert model-generated title output into a display-safe title.
+ *
+ * Reasoning models can leak raw chain-of-thought into low-token helper calls,
+ * often as `<think>...</think>` or `[THINKING]...[/THINKING]`. Closed thinking
+ * blocks are removed; unfinished thinking tags cause the generated title to be
+ * rejected so callers can fall back to a deterministic first-message title.
+ */
+export function sanitizeGeneratedTitle(rawTitle: string | null | undefined): string | null {
+  if (!rawTitle) return null;
+
+  const withoutClosedThinking = rawTitle
+    .replace(GENERATED_TITLE_THINKING_BLOCK_PATTERN, ' ')
+    .replace(GENERATED_TITLE_BRACKET_THINKING_BLOCK_PATTERN, ' ');
+
+  if (
+    GENERATED_TITLE_THINKING_TAG_PATTERN.test(withoutClosedThinking) ||
+    GENERATED_TITLE_BRACKET_THINKING_TAG_PATTERN.test(withoutClosedThinking)
+  ) {
+    return null;
+  }
+
+  const cleaned = withoutClosedThinking
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/[.!?]+$/, '')
+    .trim();
+
+  return cleaned || null;
 }
 
 export function stripGenericQualityTail(value: string): string {

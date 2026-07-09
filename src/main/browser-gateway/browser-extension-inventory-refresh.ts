@@ -1,4 +1,5 @@
 import {
+  BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
   browserExtensionQueueKeyForNode,
   type BrowserExtensionCommandStore,
 } from './browser-extension-command-store';
@@ -35,6 +36,7 @@ export async function refreshBrowserExtensionInventory(input: {
         command: 'report_inventory',
         timeoutMs: EXTENSION_INVENTORY_REFRESH_TIMEOUT_MS,
         executionTimeoutMs: EXTENSION_INVENTORY_REFRESH_EXECUTION_MS,
+        undeliveredWaitMs: BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
       });
       return { queueKey, ...(nodeId ? { nodeId } : {}), ok: true };
     } catch (error) {

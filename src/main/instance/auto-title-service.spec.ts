@@ -367,6 +367,37 @@ describe('AutoTitleService', () => {
     expect(applyTitle).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), 'ai');
   });
 
+  it('discards an auxiliary title that is only unfinished bracket thinking', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+    mockAuxGenerate.mockResolvedValue({
+      text: '[THINKING] I should produce a concise tab title.',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: false,
+      },
+    });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the tab renaming bug and strip raw reasoning tags.',
+      applyTitle,
+      false,
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith(
+      'instance-1',
+      'Investigate the tab renaming bug and strip raw reasoning...',
+      'instant',
+    );
+    expect(applyTitle).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('[THINKING]'), 'ai');
+    expect(applyTitle).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), 'ai');
+  });
+
   it('strips closed <think> reasoning before accepting a CLI-generated title', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
       installed: type === 'claude',

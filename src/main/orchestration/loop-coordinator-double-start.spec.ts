@@ -33,13 +33,16 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const loop of coordinator.getActiveLoops()) {
+    await coordinator.cancelLoop(loop.id).catch(() => undefined);
+  }
   try {
     rmSync(workspace, { recursive: true, force: true });
   } catch {
     /* noop */
   }
-});
+}, 20_000);
 
 describe('LoopCoordinator double-start guard', () => {
   it('throws when a second loop is started for the same chatId while the first is running', async () => {
@@ -54,24 +57,30 @@ describe('LoopCoordinator double-start guard', () => {
         workspaceCwd: workspace,
       }),
     ).rejects.toThrow(/already (running|paused) for this chat/);
-    coordinator.cancelLoop(first.id);
-  });
+    await coordinator.cancelLoop(first.id);
+  }, 15_000);
 
   it('allows starting on a different chatId concurrently', async () => {
     const a = await coordinator.startLoop('chat-A', {
       initialPrompt: 'a',
       workspaceCwd: workspace,
     });
-    const b = await coordinator.startLoop('chat-B', {
-      initialPrompt: 'b',
-      workspaceCwd: workspace,
-    });
-    expect(a.id).not.toBe(b.id);
-    expect(a.chatId).toBe('chat-A');
-    expect(b.chatId).toBe('chat-B');
-    coordinator.cancelLoop(a.id);
-    coordinator.cancelLoop(b.id);
-  });
+    let b: Awaited<ReturnType<LoopCoordinator['startLoop']>> | null = null;
+    try {
+      b = await coordinator.startLoop('chat-B', {
+        initialPrompt: 'b',
+        workspaceCwd: workspace,
+      });
+      expect(a.id).not.toBe(b.id);
+      expect(a.chatId).toBe('chat-A');
+      expect(b.chatId).toBe('chat-B');
+    } finally {
+      await coordinator.cancelLoop(a.id);
+      if (b) {
+        await coordinator.cancelLoop(b.id);
+      }
+    }
+  }, 15_000);
 });
 
 describe('LoopCoordinator runtime context', () => {

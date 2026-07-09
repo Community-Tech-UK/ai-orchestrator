@@ -226,6 +226,7 @@ vi.mock('../lifecycle/spawn-config-builder', () => ({
     getMcpConfig(): string[] { return []; }
     getChromeDevtoolsMcpOptions(): null { return null; }
     getBrowserGatewayMcpOptions(): null { return null; }
+    getHarnessCliEnv(): undefined { return undefined; }
     getPermissionHookPath(): undefined { return undefined; }
     getRtkSpawnConfig(): undefined { return undefined; }
   },

@@ -30,6 +30,19 @@ export interface MobileModelDto {
 
 export type MobileModelCatalog = Record<string, MobileModelDto[]>;
 
+/**
+ * Preview of what a new session will actually start with (resolved on the host).
+ * Mirrors MobileSessionPlan in src/shared/types/mobile-gateway.types.ts.
+ */
+export interface MobileSessionPlan {
+  provider: string;
+  providerLabel: string;
+  model: string | null;
+  modelLabel: string | null;
+  reasoningEffort: string | null;
+  reasoningEffortLabel: string | null;
+}
+
 export interface MobileProjectDto {
   key: string;
   path: string;

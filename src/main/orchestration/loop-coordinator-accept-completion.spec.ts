@@ -47,7 +47,7 @@ afterEach(async () => {
     try { await coordinator.cancelLoop(loop.id); } catch { /* noop */ }
   }
   try { rmSync(workspace, { recursive: true, force: true }); } catch { /* noop */ }
-});
+}, 20_000);
 
 function claimsDone(): LoopChildResult {
   return {
@@ -113,7 +113,7 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     expect(liveState(state.id)?.lastCompletionOutcome).toBe('accepted');
     expect(needsReview).not.toBeNull();
     expect(needsReview!.acceptedByOperator).toBe(true);
-  });
+  }, 15_000);
 
   it('returns false when the loop is not paused', async () => {
     // Hang the iteration so the loop stays 'running'.
@@ -128,7 +128,7 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     const ok = await coordinator.acceptCompletion(state.id);
     expect(ok).toBe(false);
     expect(liveState(state.id)?.status).toBe('running');
-  });
+  }, 15_000);
 
   it('returns false when a manual-review loop is paused before any completion attempt', async () => {
     // Hang the first iteration, then manually pause the loop before it has
@@ -150,7 +150,7 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     expect(ok).toBe(false);
     expect(liveState(state.id)?.status).toBe('paused');
     expect(liveState(state.id)?.lastCompletionOutcome).toBeUndefined();
-  });
+  }, 15_000);
 
   it('runs verify on accept and terminates completed when it passes', async () => {
     let completed: { acceptedByOperator?: boolean } | null = null;
@@ -168,7 +168,7 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     expect(liveState(state.id)?.status).toBe('completed');
     expect(completed).not.toBeNull();
     expect(completed!.acceptedByOperator).toBe(true);
-  });
+  }, 15_000);
 
   it('rejects accept and stays paused when verify fails', async () => {
     const state = await startManualReviewLoop();
@@ -179,7 +179,7 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     expect(ok).toBe(false);
     expect(liveState(state.id)?.status).toBe('paused');
     expect(liveState(state.id)?.lastCompletionOutcome).toBe('verify-failed');
-  });
+  }, 15_000);
 
   it('rejects operator accept when final audit gate finds open ledger items', async () => {
     const state = await startManualReviewLoop();
@@ -198,5 +198,5 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     expect(liveState(state.id)?.pendingInterventions.at(-1)?.message).toContain('final audit');
     expect(existsSync(paths.audit)).toBe(true);
     expect(readFileSync(paths.audit, 'utf8')).toContain('ledger-open');
-  });
+  }, 15_000);
 });

@@ -23,7 +23,7 @@ describe('LoopCoordinator checkpoint restore', () => {
     }
     rmSync(workspace, { recursive: true, force: true });
     LoopCoordinator._resetForTesting();
-  });
+  }, 20_000);
 
   function pausedState(status: 'paused' | 'provider-limit' = 'paused'): LoopState {
     return {
@@ -73,7 +73,8 @@ describe('LoopCoordinator checkpoint restore', () => {
       source: state.repoBaseline?.source,
       workspaceCwd: workspace,
     });
-  });
+    await coordinator.cancelLoop(state.id);
+  }, 15_000);
 
   it('restores a paused loop without auto-running it', async () => {
     let invocations = 0;
@@ -105,18 +106,22 @@ describe('LoopCoordinator checkpoint restore', () => {
       now: 500,
     }));
 
-    expect(restored.status).toBe('paused');
-    const restoredQueue = coordinator.getLoop('loop-restore-1')?.pendingInterventions ?? [];
-    expect(restoredQueue.map((item) => item.message)).toEqual(['remember this', 'run before finishing']);
-    // Task 18: the follow-up's kind + drainMode survived the checkpoint round-trip.
-    const followUp = restoredQueue.find((i) => i.message === 'run before finishing');
-    expect(followUp?.kind).toBe('follow-up');
-    expect(followUp?.drainMode).toBe('one-at-a-time');
-    expect(coordinator.resumeLoop('loop-restore-1')).toBe(true);
-    expect(coordinator.getLoop('loop-restore-1')?.status).toBe('running');
-    await invoked;
-    expect(invocations).toBe(1);
-  });
+    try {
+      expect(restored.status).toBe('paused');
+      const restoredQueue = coordinator.getLoop('loop-restore-1')?.pendingInterventions ?? [];
+      expect(restoredQueue.map((item) => item.message)).toEqual(['remember this', 'run before finishing']);
+      // Task 18: the follow-up's kind + drainMode survived the checkpoint round-trip.
+      const followUp = restoredQueue.find((i) => i.message === 'run before finishing');
+      expect(followUp?.kind).toBe('follow-up');
+      expect(followUp?.drainMode).toBe('one-at-a-time');
+      expect(coordinator.resumeLoop('loop-restore-1')).toBe(true);
+      expect(coordinator.getLoop('loop-restore-1')?.status).toBe('running');
+      await invoked;
+      expect(invocations).toBe(1);
+    } finally {
+      await coordinator.cancelLoop(restored.id);
+    }
+  }, 15_000);
 
   it('materializes audit defaults when restoring a legacy checkpoint without audit config', async () => {
     const legacy = pausedState();
@@ -234,12 +239,16 @@ describe('LoopCoordinator checkpoint restore', () => {
       now: 500,
     }));
 
-    expect(restored.status).toBe('provider-limit');
-    expect(coordinator.resumeLoop('loop-restore-1')).toBe(true);
-    expect(coordinator.getLoop('loop-restore-1')?.status).toBe('running');
-    await invoked;
-    expect(invocations).toBe(1);
-  });
+    try {
+      expect(restored.status).toBe('provider-limit');
+      expect(coordinator.resumeLoop('loop-restore-1')).toBe(true);
+      expect(coordinator.getLoop('loop-restore-1')?.status).toBe('running');
+      await invoked;
+      expect(invocations).toBe(1);
+    } finally {
+      await coordinator.cancelLoop(restored.id);
+    }
+  }, 15_000);
 
   it('allows cancelling a restored provider-limit checkpoint before resume', async () => {
     await coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({

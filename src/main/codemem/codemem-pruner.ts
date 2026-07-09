@@ -6,6 +6,13 @@ export interface CodememPrunerStore {
   deleteWorkspaceIndex(workspaceHash: WorkspaceHash): void;
 }
 
+export interface CodememMaintenanceStore extends CodememPrunerStore {
+  pruneUnreferencedChunks(): number;
+  clearLegacyMerkleNodes(): number;
+  optimizeSearchIndex(): void;
+  vacuumFreelistPages(): void;
+}
+
 export interface CodememPruneOptions {
   maxWorkspaces: number;
   maxManifestEntriesPerWorkspace: number;
@@ -14,6 +21,11 @@ export interface CodememPruneOptions {
 export interface CodememPruneResult {
   deletedWorkspaceHashes: WorkspaceHash[];
   retainedWorkspaceHashes: WorkspaceHash[];
+}
+
+export interface CodememMaintenanceResult extends CodememPruneResult {
+  deletedOrphanChunks: number;
+  deletedLegacyMerkleNodes: number;
 }
 
 export function pruneCodememWorkspaces(
@@ -46,5 +58,21 @@ export function pruneCodememWorkspaces(
     retainedWorkspaceHashes: stats
       .map((row) => row.workspaceHash)
       .filter((workspaceHash) => !deleteSet.has(workspaceHash)),
+  };
+}
+
+export function runCodememMaintenance(
+  store: CodememMaintenanceStore,
+  options: CodememPruneOptions,
+): CodememMaintenanceResult {
+  const pruneResult = pruneCodememWorkspaces(store, options);
+  const deletedOrphanChunks = store.pruneUnreferencedChunks();
+  const deletedLegacyMerkleNodes = store.clearLegacyMerkleNodes();
+  store.optimizeSearchIndex();
+  store.vacuumFreelistPages();
+  return {
+    ...pruneResult,
+    deletedOrphanChunks,
+    deletedLegacyMerkleNodes,
   };
 }

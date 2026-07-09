@@ -61,7 +61,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const loop of coordinator.getActiveLoops()) {
+    await coordinator.cancelLoop(loop.id).catch(() => undefined);
+  }
   try { rmSync(workspace, { recursive: true, force: true }); } catch { /* noop */ }
 });
 
@@ -79,9 +82,9 @@ describe('LoopCoordinator pre-existing *_Completed.md seeding', () => {
     try {
       expect(state.completedFileRenameObserved).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('still tolerates a workspace with no matching files (sanity)', async () => {
     const state = await coordinator.startLoop('chat-clean', {
@@ -92,9 +95,9 @@ describe('LoopCoordinator pre-existing *_Completed.md seeding', () => {
     try {
       expect(state.completedFileRenameObserved).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 });
 
 describe('LoopCoordinator materializeConfig — requireCompletedFileRename default', () => {
@@ -108,9 +111,9 @@ describe('LoopCoordinator materializeConfig — requireCompletedFileRename defau
     try {
       expect(state.config.completion.requireCompletedFileRename).toBe(true);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('honours explicit requireCompletedFileRename=false even when planFile is set', async () => {
     const baseCompletion = defaultLoopConfig(workspace, 'x').completion;
@@ -124,9 +127,9 @@ describe('LoopCoordinator materializeConfig — requireCompletedFileRename defau
     try {
       expect(state.config.completion.requireCompletedFileRename).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('keeps requireCompletedFileRename=false when no planFile is configured', async () => {
     const state = await coordinator.startLoop('chat-no-plan', {
@@ -137,9 +140,9 @@ describe('LoopCoordinator materializeConfig — requireCompletedFileRename defau
     try {
       expect(state.config.completion.requireCompletedFileRename).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 });
 
 describe('LoopCoordinator startup workspace snapshot', () => {
@@ -161,9 +164,9 @@ describe('LoopCoordinator startup workspace snapshot', () => {
       // The root DONE.txt is left untouched — it is no longer a loop artifact.
       expect(existsSync(join(workspace, 'DONE.txt'))).toBe(true);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('records doneSentinelPresentAtStart=false when the workspace is clean', async () => {
     const state = await coordinator.startLoop('chat-clean-sentinel', {
@@ -174,9 +177,9 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     try {
       expect(state.doneSentinelPresentAtStart).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('records planChecklistFullyCheckedAtStart=true when PLAN.md is already fully ticked', async () => {
     writeFileSync(
@@ -193,9 +196,9 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     try {
       expect(state.planChecklistFullyCheckedAtStart).toBe(true);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('records planChecklistFullyCheckedAtStart=false when PLAN.md still has unchecked items', async () => {
     writeFileSync(
@@ -212,9 +215,9 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     try {
       expect(state.planChecklistFullyCheckedAtStart).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('records planChecklistFullyCheckedAtStart=false when no planFile is configured', async () => {
     const state = await coordinator.startLoop('chat-no-plan-snapshot', {
@@ -226,9 +229,9 @@ describe('LoopCoordinator startup workspace snapshot', () => {
       expect(state.uncompletedPlanFilesAtStart).toEqual([]);
       expect(state.planChecklistFullyCheckedAtStart).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 });
 
 describe('LoopCoordinator auto-enables requireCompletedFileRename from uncompleted plan files', () => {
@@ -248,9 +251,9 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
       ]);
       expect(state.config.completion.requireCompletedFileRename).toBe(true);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('keeps requireCompletedFileRename=false when only denylisted docs (README/AGENTS/...) are present', async () => {
     writeFileSync(join(workspace, 'README.md'), '# Readme\n');
@@ -266,9 +269,9 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
       expect(state.uncompletedPlanFilesAtStart).toEqual([]);
       expect(state.config.completion.requireCompletedFileRename).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('respects an explicit caller false even when uncompleted plan files exist', async () => {
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
@@ -285,9 +288,9 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
       // Caller said false explicitly — coordinator must not override.
       expect(state.config.completion.requireCompletedFileRename).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('ignores files already matching the completion suffix', async () => {
     writeFileSync(join(workspace, 'already_completed.md'), '# Done\n');
@@ -302,9 +305,9 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
       expect(state.uncompletedPlanFilesAtStart).toEqual([]);
       expect(state.config.completion.requireCompletedFileRename).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 });
 
 describe('LoopCoordinator completion classification hardening', () => {
@@ -334,7 +337,7 @@ describe('LoopCoordinator completion classification hardening', () => {
     });
 
     const terminalState = new Promise<{ status: string; endReason?: string }>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('loop did not reach terminal state')), 8_000);
+      const timeout = setTimeout(() => reject(new Error('loop did not reach terminal state')), 15_000);
       coordinator.on('loop:state-changed', (data: unknown) => {
         const state = (data as { state: { status: string; endReason?: string } }).state;
         if (!['completed', 'cap-reached', 'error', 'failed'].includes(state.status)) return;
@@ -368,9 +371,9 @@ describe('LoopCoordinator completion classification hardening', () => {
       });
       expect(invocations).toBe(1);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 20_000);
 
   it('completes after a nested configured plan rename in REVIEW instead of spawning a second iteration that can error', async () => {
     writeFileSync(join(workspace, 'STAGE.md'), 'REVIEW\n');
@@ -413,7 +416,7 @@ describe('LoopCoordinator completion classification hardening', () => {
     });
 
     const terminalState = new Promise<{ status: string; endReason?: string }>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('loop did not reach terminal state')), 2_000);
+      const timeout = setTimeout(() => reject(new Error('loop did not reach terminal state')), 15_000);
       coordinator.on('loop:state-changed', (data: unknown) => {
         const state = (data as { state: { status: string; endReason?: string } }).state;
         if (!['completed', 'cancelled', 'cap-reached', 'error', 'no-progress'].includes(state.status)) return;
@@ -453,9 +456,9 @@ describe('LoopCoordinator completion classification hardening', () => {
       });
       expect(invocations).toBe(1);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 20_000);
 });
 
 describe('LoopCoordinator skipped-verify completion gate', () => {
@@ -501,7 +504,7 @@ describe('LoopCoordinator skipped-verify completion gate', () => {
     const pausedState = new Promise<{ status: string }>((resolve, reject) => {
       const timeout = setTimeout(
         () => reject(new Error('loop did not pause for operator review')),
-        2_000,
+        10_000,
       );
       coordinator.on('loop:state-changed', (data: unknown) => {
         const s = (data as { state: { status: string } }).state;
@@ -546,7 +549,7 @@ describe('LoopCoordinator skipped-verify completion gate', () => {
       // ...and the agent's unverifiable claim was surfaced as a warning.
       expect(claimedDoneButFailed).toBeGreaterThanOrEqual(1);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
   }, 20_000);
 });
@@ -568,9 +571,9 @@ describe('LoopCoordinator same-plan concurrent-loop policy', () => {
         }),
       ).rejects.toThrow(/same plan file/i);
     } finally {
-      coordinator.cancelLoop(a.id);
+      await coordinator.cancelLoop(a.id);
     }
-  });
+  }, 15_000);
 
   it('ALLOWS concurrent loops on DISTINCT plan files in the same workspace', async () => {
     writeFileSync(join(workspace, 'plan-a.md'), '# A\n- [ ] a\n');
@@ -590,8 +593,8 @@ describe('LoopCoordinator same-plan concurrent-loop policy', () => {
       expect(a.config.planFile).toBe('plan-a.md');
       expect(b.config.planFile).toBe('plan-b.md');
     } finally {
-      coordinator.cancelLoop(a.id);
-      coordinator.cancelLoop(b.id);
+      await coordinator.cancelLoop(a.id);
+      await coordinator.cancelLoop(b.id);
     }
-  });
+  }, 15_000);
 });

@@ -8,6 +8,7 @@
  */
 
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
+import { DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS, type DesktopComputerUseSettings } from './desktop-gateway-settings.types';
 import type { WorkerModeSettings } from './pair-both.types';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -32,7 +33,7 @@ export type CliUpdatePolicy = 'off' | 'notify' | 'auto';
 /**
  * Application settings that are persisted to disk
  */
-export interface AppSettings {
+export interface AppSettings extends DesktopComputerUseSettings {
   // General
   defaultYoloMode: boolean;
   defaultWorkingDirectory: string;
@@ -374,7 +375,6 @@ export interface AppSettings {
   mcpCleanupBackupsOnQuit: boolean;
   mcpDisableProviderBackups: boolean;
   mcpAllowWorldWritableParent: boolean;
-
   // RTK (Rust Token Killer) — compresses LLM-bound shell command output 60–90%.
   // See bigchange_rtk_integration.md for details. On by default; users can opt out
   // via the RTK Savings settings tab.
@@ -639,7 +639,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpCleanupBackupsOnQuit: true,
   mcpDisableProviderBackups: false,
   mcpAllowWorldWritableParent: false,
-
+  ...DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS,
   // RTK
   rtkEnabled: true,
   rtkBundledOnly: false,

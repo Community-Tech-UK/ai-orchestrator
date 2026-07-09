@@ -143,6 +143,11 @@ export interface InterruptRespawnDeps {
     instanceId?: string,
     provider?: CliType,
   ) => string[];
+  getHarnessCliEnv?: (
+    location?: ExecutionLocation,
+    instanceId?: string,
+    baseEnv?: Record<string, string>,
+  ) => Record<string, string> | undefined;
   getBrowserGatewayMcpOptions?: (
     location?: ExecutionLocation,
     instanceId?: string,
@@ -240,7 +245,15 @@ export class InterruptRespawnHandler {
     executionLocation?: ExecutionLocation,
   ): CliAdapter {
     const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
-    const durableOptions = applyProviderSessionDurability(cliType, instance, options);
+    const harnessCliEnv = this.deps.getHarnessCliEnv?.(
+      executionLocation,
+      options.instanceId,
+      options.env,
+    );
+    const durableOptions = applyProviderSessionDurability(cliType, instance, {
+      ...options,
+      ...(harnessCliEnv ? { env: harnessCliEnv } : {}),
+    });
     return getProviderRuntimeService().createAdapter({ cliType, options: durableOptions, executionLocation });
   }
 

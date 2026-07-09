@@ -40,6 +40,12 @@ describe('codemem index worker main', () => {
     getIndexStatus: ReturnType<typeof vi.fn>;
     requestCancel: ReturnType<typeof vi.fn>;
     clearCancel: ReturnType<typeof vi.fn>;
+    listWorkspaceIndexStats: ReturnType<typeof vi.fn>;
+    deleteWorkspaceIndex: ReturnType<typeof vi.fn>;
+    pruneUnreferencedChunks: ReturnType<typeof vi.fn>;
+    clearLegacyMerkleNodes: ReturnType<typeof vi.fn>;
+    optimizeSearchIndex: ReturnType<typeof vi.fn>;
+    vacuumFreelistPages: ReturnType<typeof vi.fn>;
   };
   let indexManager: EventEmitter & {
     coldIndex: ReturnType<typeof vi.fn>;
@@ -61,6 +67,12 @@ describe('codemem index worker main', () => {
       getIndexStatus: vi.fn(() => null),
       requestCancel: vi.fn(),
       clearCancel: vi.fn(),
+      listWorkspaceIndexStats: vi.fn(() => []),
+      deleteWorkspaceIndex: vi.fn(),
+      pruneUnreferencedChunks: vi.fn(() => 0),
+      clearLegacyMerkleNodes: vi.fn(() => 0),
+      optimizeSearchIndex: vi.fn(),
+      vacuumFreelistPages: vi.fn(),
     };
     indexManager = Object.assign(new EventEmitter(), {
       coldIndex: vi.fn().mockResolvedValue(undefined),
@@ -185,6 +197,35 @@ describe('codemem index worker main', () => {
     expect(rpcResult(2)).toEqual(expect.objectContaining({ indexed: true, absPath: repoB }));
   });
 
+  it('runs codemem maintenance in the index worker', async () => {
+    store.pruneUnreferencedChunks.mockReturnValue(3);
+    store.clearLegacyMerkleNodes.mockReturnValue(2);
+
+    await importWorker();
+    store.pruneUnreferencedChunks.mockClear();
+    store.clearLegacyMerkleNodes.mockClear();
+    store.optimizeSearchIndex.mockClear();
+    store.vacuumFreelistPages.mockClear();
+    parentPort.emit('message', {
+      type: 'run-maintenance',
+      id: 77,
+    });
+    await flushMicrotasks();
+
+    expect(store.pruneUnreferencedChunks).toHaveBeenCalledTimes(1);
+    expect(store.clearLegacyMerkleNodes).toHaveBeenCalledTimes(1);
+    expect(store.optimizeSearchIndex).toHaveBeenCalledTimes(1);
+    expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(1);
+    expect(parentPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'rpc-response',
+      id: 77,
+      result: expect.objectContaining({
+        deletedOrphanChunks: 3,
+        deletedLegacyMerkleNodes: 2,
+      }),
+    }));
+  });
+
   it('accepts child-process IPC when launched outside worker_threads', async () => {
     vi.resetModules();
     vi.doMock('node:worker_threads', () => ({
@@ -199,7 +240,7 @@ describe('codemem index worker main', () => {
     }));
 
     const send = vi.fn();
-    const messageHandlers: Array<(message: unknown) => void> = [];
+    const messageHandlers: ((message: unknown) => void)[] = [];
     const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
     const originalOn = process.on.bind(process);
     Object.defineProperty(process, 'send', {

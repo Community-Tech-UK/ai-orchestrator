@@ -16,6 +16,7 @@ import * as path from 'node:path';
 import { createIsolatedWorkerProcess, type IsolatedWorkerProcess } from '../runtime/isolated-worker-process';
 import type {
   CodeIndexStatusSnapshot,
+  CodememMaintenanceSnapshot,
   IndexWorkerInboundMsg,
   IndexWorkerOutboundMsg,
   WarmWorkspaceResult,
@@ -25,6 +26,7 @@ import type { WorkspaceChunkSearchResponse } from './workspace-chunk-search';
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+const DEFAULT_MAINTENANCE_TIMEOUT_MS = 10 * 60 * 1000;
 // Searches sit on the create/send hot path — bound them tightly so a busy or
 // degraded worker never holds up prompt assembly; the caller falls back to ripgrep.
 const DEFAULT_SEARCH_TIMEOUT_MS = 2_500;
@@ -249,6 +251,20 @@ export class IndexWorkerGateway extends EventEmitter {
     } catch (error) {
       this.metrics.lastError = error instanceof Error ? error.message : String(error);
       return degradedResult;
+    }
+  }
+
+  async runMaintenance(timeoutMs: number = DEFAULT_MAINTENANCE_TIMEOUT_MS): Promise<CodememMaintenanceSnapshot | null> {
+    if (this.isDegraded || !this.worker) {
+      return null;
+    }
+    const id = this.nextId();
+    try {
+      const result = await this.postRpc({ type: 'run-maintenance', id }, timeoutMs);
+      return (result as CodememMaintenanceSnapshot | null) ?? null;
+    } catch (error) {
+      this.metrics.lastError = error instanceof Error ? error.message : String(error);
+      return null;
     }
   }
 

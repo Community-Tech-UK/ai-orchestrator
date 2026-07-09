@@ -54,6 +54,7 @@ import {
   type MobileModelCatalogSource,
   type MobileModelLister,
 } from './mobile-gateway-model-handlers';
+import { resolveMobileSessionPlan } from './mobile-gateway-session-plan';
 import {
   sendBrowserEscalationPush,
   sendMobileCompletionPush,
@@ -987,6 +988,9 @@ export class MobileGatewayServer {
       // /api/...
       if (segments[0] === 'api') {
         if (await handleMobileModelRoutes(this.modelDeps(), req, res, segments, method)) return;
+        if (segments[1] === 'session-plan' && segments.length === 2 && method === 'GET') {
+          return await this.handleSessionPlan(res, url);
+        }
         // /api/instances ...
         if (segments[1] === 'instances') {
           if (segments.length === 2) {
@@ -1363,6 +1367,18 @@ export class MobileGatewayServer {
     }
     this.source().renameInstance(instanceId, displayName.slice(0, 200));
     this.sendJson(res, 200, { ok: true });
+  }
+
+  /**
+   * Preview what a new session would actually start with for a chosen provider
+   * ('auto' or specific) + optional model override, so the phone can show the
+   * resolved model and thinking level before the session is created. Read-only.
+   */
+  private async handleSessionPlan(res: ServerResponse, url: URL): Promise<void> {
+    const provider = url.searchParams.get('provider') ?? undefined;
+    const model = url.searchParams.get('model') ?? undefined;
+    const plan = await resolveMobileSessionPlan({ provider, model });
+    this.sendJson(res, 200, plan);
   }
 
   private async handleCreateInstance(req: IncomingMessage, res: ServerResponse): Promise<void> {

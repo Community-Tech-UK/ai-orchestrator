@@ -49,6 +49,7 @@ interface BrowserExistingTabOperationsDeps {
   approvalStore: Pick<BrowserApprovalStore, 'createRequest'>;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
   autoApproveApproval: (approval: BrowserApprovalRequest) => BrowserPermissionGrant | null;
+  onNavigateSucceeded?: (request: BrowserGatewayNavigateRequest) => void;
 }
 
 export class BrowserExistingTabOperations {
@@ -170,6 +171,7 @@ export class BrowserExistingTabOperations {
       if (grant?.mode === 'per_action') {
         this.deps.grantStore.consumeGrant(grant.id);
       }
+      this.deps.onNavigateSucceeded?.(request);
       return this.deps.result({
         context: request,
         profileId: attachment.profileId,

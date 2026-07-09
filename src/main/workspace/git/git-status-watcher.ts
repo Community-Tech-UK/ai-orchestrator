@@ -396,7 +396,7 @@ export class WorkerBackedGitStatusWatcher extends EventEmitter implements GitSta
     for (const repoPath of repoPaths) {
       this.desiredRepos.add(repoPath);
     }
-    this.currentRepos = [...this.desiredRepos];
+    const desiredRepoPaths = [...this.desiredRepos];
 
     const worker = this.ensureWorker();
     const id = this.nextId();
@@ -404,7 +404,7 @@ export class WorkerBackedGitStatusWatcher extends EventEmitter implements GitSta
       const watchedRepos = await this.postRpc(worker, {
         type: 'set-repos',
         id,
-        repoPaths: this.currentRepos,
+        repoPaths: desiredRepoPaths,
       });
       this.currentRepos = watchedRepos;
     } catch (error) {
@@ -441,11 +441,12 @@ export class WorkerBackedGitStatusWatcher extends EventEmitter implements GitSta
     this.stopping = false;
     const worker = this.workerFactory();
     this.worker = worker;
-    worker.on('message', message => this.handleWorkerMessage(message));
+    worker.on('message', message => this.handleWorkerMessage(worker, message));
     worker.on('error', error => {
       logger.warn('git status watcher worker error', { error: errorMessage(error) });
       if (this.worker === worker) {
         this.restartWorker();
+        this.resyncWorkerFireAndForget();
       }
     });
     worker.on('exit', (code, signal) => {
@@ -460,7 +461,14 @@ export class WorkerBackedGitStatusWatcher extends EventEmitter implements GitSta
     return worker;
   }
 
-  private handleWorkerMessage(message: GitStatusWatcherWorkerOutboundMsg): void {
+  private handleWorkerMessage(
+    worker: GitStatusWatcherWorkerProcess,
+    message: GitStatusWatcherWorkerOutboundMsg,
+  ): void {
+    if (this.worker !== worker) {
+      return;
+    }
+
     if (message.type === 'status-changed') {
       this.emit('status-changed', message.event);
       return;
@@ -517,7 +525,9 @@ export class WorkerBackedGitStatusWatcher extends EventEmitter implements GitSta
     }
     const repoPaths = [...this.desiredRepos];
     queueMicrotask(() => {
-      void this.setRepos(repoPaths);
+      void this.setRepos(repoPaths).catch(error => {
+        logger.warn('git status watcher worker resync failed', { error: errorMessage(error) });
+      });
     });
   }
 

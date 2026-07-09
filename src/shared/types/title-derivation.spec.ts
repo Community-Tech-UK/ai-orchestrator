@@ -3,6 +3,7 @@ import {
   ATTACHMENT_PREAMBLE_HEADER,
   deriveAttachmentTaskTitle,
   extractAttachmentPreamble,
+  sanitizeGeneratedTitle,
   titleFromAttachments,
 } from './title-derivation';
 
@@ -77,5 +78,21 @@ describe('titleFromAttachments', () => {
     expect(titleFromAttachments(['only.md'])).toBe('only.md');
     expect(titleFromAttachments(['a.md', 'b.md', 'c.md'])).toBe('a.md +2 more');
     expect(titleFromAttachments([])).toBeNull();
+  });
+});
+
+describe('sanitizeGeneratedTitle', () => {
+  it('removes closed XML and bracket thinking blocks', () => {
+    expect(sanitizeGeneratedTitle('<think>reasoning</think>\nTab rename sanitizer')).toBe(
+      'Tab rename sanitizer',
+    );
+    expect(sanitizeGeneratedTitle('[thinking]reasoning[/thinking]\nTab rename sanitizer')).toBe(
+      'Tab rename sanitizer',
+    );
+  });
+
+  it('rejects unfinished thinking tags', () => {
+    expect(sanitizeGeneratedTitle('<think>reasoning only')).toBeNull();
+    expect(sanitizeGeneratedTitle('[THINKING]reasoning only')).toBeNull();
   });
 });

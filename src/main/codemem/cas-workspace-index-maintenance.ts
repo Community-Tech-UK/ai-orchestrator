@@ -74,3 +74,36 @@ export function deleteWorkspaceIndex(db: SqliteDriver, workspaceHash: WorkspaceH
   });
   tx();
 }
+
+export function pruneUnreferencedChunks(db: SqliteDriver): number {
+  const result = db.prepare(`
+    DELETE FROM chunks
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM workspace_chunks
+      WHERE workspace_chunks.content_hash = chunks.content_hash
+    )
+  `).run();
+  return result.changes;
+}
+
+export function clearLegacyMerkleNodes(db: SqliteDriver): number {
+  return db.prepare('DELETE FROM merkle_nodes').run().changes;
+}
+
+export function optimizeSearchIndex(db: SqliteDriver): void {
+  db.prepare("INSERT INTO code_fts(code_fts) VALUES('optimize')").run();
+}
+
+export function vacuumFreelistPages(db: SqliteDriver): void {
+  const mode = Number(db.pragma('auto_vacuum', { simple: true }) ?? 0);
+  if (mode === 0) {
+    db.pragma('auto_vacuum = INCREMENTAL');
+    db.exec('VACUUM');
+    return;
+  }
+  if (mode !== 2) {
+    return;
+  }
+  db.pragma('incremental_vacuum');
+}

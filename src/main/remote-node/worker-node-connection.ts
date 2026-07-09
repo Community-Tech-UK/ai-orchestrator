@@ -209,7 +209,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send(IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, nodes);
       }
-      getLocalModelInventoryService().refresh();
+      void getLocalModelInventoryService().refresh().catch((error) => logger.warn('Local model inventory refresh failed after worker roster update', { error: error instanceof Error ? error.message : String(error) }));
     } catch {
       // Not in Electron context (e.g., tests)
     }

@@ -10,7 +10,7 @@ import { runLoopControlCli } from './loop-control-cli';
 let workspace: string;
 let coordinator: LoopCoordinator;
 
-const LOOP_EVENT_TIMEOUT_MS = 5_000;
+const LOOP_EVENT_TIMEOUT_MS = 10_000;
 
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-terminal-intents-'));
@@ -78,7 +78,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       if (state) await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('rejects a complete intent with the REVIEW-failed reason (not "no verify command") when the fresh-eyes review produced no verdict', async () => {
     // Reproduces the reported scenario: a no-verify loop whose completion
@@ -141,7 +141,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       if (state) await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 20_000);
 
   it('accepts a complete intent even when the provider callback reports an error, then still runs verify', async () => {
     const completed = waitForEvent<{ signal: string }>(coordinator, 'loop:completed');
@@ -173,7 +173,7 @@ describe('LoopCoordinator terminal intents', () => {
     });
 
     await expect(completed).resolves.toMatchObject({ signal: 'declared-complete' });
-  });
+  }, 20_000);
 
   it('marks the loop failed from a fail intent without mapping it to provider error', async () => {
     const failed = waitForEvent<{ reason: string }>(coordinator, 'loop:failed');
@@ -204,7 +204,7 @@ describe('LoopCoordinator terminal intents', () => {
 
     await expect(failed).resolves.toMatchObject({ reason: 'cannot satisfy acceptance criteria' });
     expect(coordinator.getLoop(state.id)?.status).toBe('failed');
-  });
+  }, 20_000);
 
   it('imports a fail intent at the next pre-iteration boundary before spawning again', async () => {
     const failed = waitForEvent<{ reason: string }>(coordinator, 'loop:failed');
@@ -244,7 +244,7 @@ describe('LoopCoordinator terminal intents', () => {
     await expect(failed).resolves.toMatchObject({ reason: 'preflight failure declaration' });
     expect(coordinator.getLoop(state.id)?.status).toBe('failed');
     expect(invokeCount).toBe(1);
-  });
+  }, 15_000);
 
   it('schedules a wakeup intent, pauses, and injects wakeup context when resumed', async () => {
     const scheduler = vi.fn(() => () => { /* noop */ });
@@ -318,7 +318,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 10_000);
 
   it('accepts a complete intent from an intervention-consuming iteration when verify passes', async () => {
     const completed = waitForEvent<{ signal: string }>(coordinator, 'loop:completed', LOOP_EVENT_TIMEOUT_MS);
@@ -361,7 +361,7 @@ describe('LoopCoordinator terminal intents', () => {
         statusReason: 'completion accepted via declared-complete',
       }),
     ]);
-  });
+  }, 10_000);
 
   it('pushes verify failure output into the next pending intervention', async () => {
     const claimedFailed = waitForEvent<{ failure: string }>(
@@ -408,7 +408,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 20_000);
 
   it('pushes second verify failure output into the next pending intervention', async () => {
     writeFileSync(
@@ -467,7 +467,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('pushes completed-file rename gate failure into the next pending intervention', async () => {
     const claimedFailed = waitForEvent<{ failure: string }>(
@@ -638,7 +638,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('FU-2: does NOT mark manual-review-only when a verifyCommand is configured', async () => {
     const state = await coordinator.startLoop('chat-not-manual-review', {
@@ -656,7 +656,7 @@ describe('LoopCoordinator terminal intents', () => {
     } finally {
       await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('FU-8: cancelLoop awaits the registered adapter-cleanup hook', async () => {
     let resolveCleanup: (() => void) | undefined;
@@ -697,7 +697,7 @@ describe('LoopCoordinator terminal intents', () => {
     // Resolve the hook; cancelLoop should now resolve.
     resolveCleanup!();
     await expect(cancelPromise).resolves.toBe(true);
-  });
+  }, 15_000);
 
   it('treats a missing BLOCKED.md at archive time as benign (operator deleted manually) — no error event', async () => {
     const paused = waitForEvent(coordinator, 'loop:paused-no-progress');

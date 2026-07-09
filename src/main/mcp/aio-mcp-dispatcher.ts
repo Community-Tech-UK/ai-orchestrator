@@ -8,6 +8,7 @@
  *   `aio-mcp orchestrator-tools`   thin stdio forwarder → OrchestratorToolsRpcServer
  *   `aio-mcp codemem`              thin stdio forwarder → CodememRpcServer
  *   `aio-mcp browser-gateway`      thin stdio forwarder → BrowserGatewayRpcServer
+ *   `aio-mcp computer-use`         thin stdio forwarder → DesktopGatewayRpcServer
  *   `aio-mcp native-host`          Chrome native-messaging host → BrowserGatewayRpcServer
  *
  * None of these forwarders import `better-sqlite3` (or any other native
@@ -20,6 +21,7 @@
 import { runOrchestratorToolsForwarder } from './orchestrator-tools-mcp-forwarder';
 import { runCodememForwarder } from '../codemem/codemem-mcp-forwarder';
 import { runBrowserMcpForwarder } from '../browser-gateway/browser-mcp-stdio-server';
+import { runDesktopMcpForwarder } from '../desktop-gateway/desktop-mcp-stdio-server';
 import { runBrowserExtensionNativeHost } from '../browser-gateway/browser-extension-native-host';
 import { runRemoteNodesCli } from './remote-nodes-cli';
 import { runReleaseReadinessCli } from './release-readiness-cli';
@@ -31,6 +33,7 @@ const SUBCOMMANDS = {
   'orchestrator-tools': (() => runOrchestratorToolsForwarder()) as AioMcpRunner,
   codemem: (() => runCodememForwarder()) as AioMcpRunner,
   'browser-gateway': (() => runBrowserMcpForwarder()) as AioMcpRunner,
+  'computer-use': (() => runDesktopMcpForwarder()) as AioMcpRunner,
   'native-host': (() => runBrowserExtensionNativeHost()) as AioMcpRunner,
   'remote-nodes': runRemoteNodesCli,
   'release-readiness': runReleaseReadinessCli,
@@ -74,6 +77,7 @@ function formatHelp(): string {
     '  orchestrator-tools  Stdio MCP forwarder for orchestrator-tools (git_batch_pull)',
     '  codemem             Stdio MCP forwarder for codemem (LSP/symbol search)',
     '  browser-gateway     Stdio MCP forwarder for browser-gateway',
+    '  computer-use        Stdio MCP forwarder for desktop Computer Use',
     '  native-host         Chrome native-messaging host for the browser extension',
     '  remote-nodes        Print the safe remote worker roster (--json for JSON)',
     '  release-readiness   Build release readiness report from evidence JSON',

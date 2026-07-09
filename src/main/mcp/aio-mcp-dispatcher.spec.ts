@@ -4,6 +4,7 @@ const dispatcherMocks = vi.hoisted(() => ({
   runOrchestratorToolsForwarder: vi.fn(async () => undefined),
   runCodememForwarder: vi.fn(async () => undefined),
   runBrowserMcpForwarder: vi.fn(async () => undefined),
+  runDesktopMcpForwarder: vi.fn(async () => undefined),
   runBrowserExtensionNativeHost: vi.fn(async () => undefined),
   runRemoteNodesCli: vi.fn(async () => undefined),
   runReleaseReadinessCli: vi.fn(async () => undefined),
@@ -18,6 +19,9 @@ vi.mock('../codemem/codemem-mcp-forwarder', () => ({
 }));
 vi.mock('../browser-gateway/browser-mcp-stdio-server', () => ({
   runBrowserMcpForwarder: dispatcherMocks.runBrowserMcpForwarder,
+}));
+vi.mock('../desktop-gateway/desktop-mcp-stdio-server', () => ({
+  runDesktopMcpForwarder: dispatcherMocks.runDesktopMcpForwarder,
 }));
 vi.mock('../browser-gateway/browser-extension-native-host', () => ({
   runBrowserExtensionNativeHost: dispatcherMocks.runBrowserExtensionNativeHost,
@@ -44,6 +48,7 @@ describe('aio-mcp-dispatcher', () => {
     expect(isAioMcpSubcommand('orchestrator-tools')).toBe(true);
     expect(isAioMcpSubcommand('codemem')).toBe(true);
     expect(isAioMcpSubcommand('browser-gateway')).toBe(true);
+    expect(isAioMcpSubcommand('computer-use')).toBe(true);
     expect(isAioMcpSubcommand('native-host')).toBe(true);
     expect(isAioMcpSubcommand('remote-nodes')).toBe(true);
     expect(isAioMcpSubcommand('release-readiness')).toBe(true);
@@ -68,6 +73,12 @@ describe('aio-mcp-dispatcher', () => {
   it('routes "browser-gateway" to runBrowserMcpForwarder', async () => {
     const code = await runAioMcpDispatcher(argv('browser-gateway'));
     expect(dispatcherMocks.runBrowserMcpForwarder).toHaveBeenCalledOnce();
+    expect(code).toBe(0);
+  });
+
+  it('routes "computer-use" to runDesktopMcpForwarder', async () => {
+    const code = await runAioMcpDispatcher(argv('computer-use'));
+    expect(dispatcherMocks.runDesktopMcpForwarder).toHaveBeenCalledOnce();
     expect(code).toBe(0);
   });
 

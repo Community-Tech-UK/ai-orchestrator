@@ -465,12 +465,12 @@ export function registerProviderHandlers(
   // Read sanitized local model inventory (no endpoint URLs or credentials).
   ipcMain.handle(
     IPC_CHANNELS.MODELS_LOCAL_MODEL_INVENTORY,
-    (): IpcResponse => {
+    async (): Promise<IpcResponse> => {
       try {
         return {
           success: true,
           data: {
-            models: localModelInventory.list(),
+            models: await localModelInventory.refresh(),
           },
         };
       } catch (error) {

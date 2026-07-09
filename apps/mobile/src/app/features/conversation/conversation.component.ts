@@ -23,7 +23,12 @@ import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 import { renderMobileMarkdown } from '../../shared/mobile-markdown';
-import { buildDisplayItems, toolLabel, type DisplayItem } from '../../shared/transcript-items';
+import {
+  buildDisplayItems,
+  isLoopTranscriptMessage,
+  toolLabel,
+  type DisplayItem,
+} from '../../shared/transcript-items';
 
 /**
  * One agent's live conversation: transcript (replayed history + live stream),
@@ -94,8 +99,16 @@ import { buildDisplayItems, toolLabel, type DisplayItem } from '../../shared/tra
                 }
               </div>
             } @else {
-              <div class="msg" [class]="'t-' + item.message.type">
-                <div class="bubble markdown-body" [innerHTML]="renderMarkdown(item.message.content)"></div>
+              <div
+                class="msg"
+                [class]="'t-' + item.message.type"
+                [class.loop-output]="isLoopTranscriptMessage(item.message)"
+              >
+                <div
+                  class="bubble markdown-body"
+                  [class.loop-output]="isLoopTranscriptMessage(item.message)"
+                  [innerHTML]="renderMarkdown(item.message.content)"
+                ></div>
                 @if (item.message.hasAttachments) {
                   <span class="attach-flag">📎 photo attached</span>
                 }
@@ -255,6 +268,7 @@ export class ConversationComponent {
   protected readonly color = statusColor;
   protected readonly label = statusLabel;
   protected readonly renderMarkdown = renderMobileMarkdown;
+  protected readonly isLoopTranscriptMessage = isLoopTranscriptMessage;
   protected readonly toolLabel = toolLabel;
 
   /** Scroll-position flags driving the floating up/down buttons + auto-follow. */

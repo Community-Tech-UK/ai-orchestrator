@@ -183,6 +183,28 @@ describe('IndexWorkerGateway', () => {
     }));
   });
 
+  it('sends run-maintenance RPCs to the worker', async () => {
+    const promise = gateway.runMaintenance();
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number; type: string };
+    expect(posted.type).toBe('run-maintenance');
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: posted.id,
+      result: {
+        deletedWorkspaceHashes: [],
+        retainedWorkspaceHashes: [],
+        deletedOrphanChunks: 3,
+        deletedLegacyMerkleNodes: 2,
+      },
+    });
+
+    await expect(promise).resolves.toEqual(expect.objectContaining({
+      deletedOrphanChunks: 3,
+      deletedLegacyMerkleNodes: 2,
+    }));
+  });
+
   it('emits code-index:changed when the worker reports changed indexed files', async () => {
     const listener = vi.fn();
     gateway.on('code-index:changed', listener);

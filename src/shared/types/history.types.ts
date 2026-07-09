@@ -5,7 +5,7 @@
 import type { InstanceProvider, OutputMessage } from './instance.types';
 import type { InstanceRuntimeSummary } from './local-model-runtime.types';
 import type { SessionRecallResult } from './session-recall.types';
-import { deriveAttachmentTaskTitle, extractAttachmentPreamble } from './title-derivation';
+import { deriveAttachmentTaskTitle, extractAttachmentPreamble, sanitizeGeneratedTitle } from './title-derivation';
 import type { ExecutionLocation } from './worker-node.types';
 
 /**
@@ -164,6 +164,10 @@ export interface ConversationData {
 
 function normalizeHistoryTitlePart(value: string | null | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeGeneratedHistoryTitlePart(value: string | null | undefined): string {
+  return sanitizeGeneratedTitle(value) ?? '';
 }
 
 /**
@@ -357,10 +361,10 @@ export function getConversationHistoryTitle(
   }
 
   const candidates = [
-    normalizeHistoryTitlePart(entry.aiTitle),
+    normalizeGeneratedHistoryTitlePart(entry.aiTitle),
     frontLoadTitle(entry.firstUserMessage),
     frontLoadTitle(entry.lastUserMessage),
-    normalizeHistoryTitlePart(entry.displayName),
+    normalizeGeneratedHistoryTitlePart(entry.displayName),
   ].filter(Boolean);
 
   return candidates[0] || 'Untitled thread';
@@ -372,9 +376,8 @@ export function getConversationHistoryTitle(
  * resolver ensures the two views never drift out of sync.
  *
  * Priority:
- *   1. The live `instance.displayName` when it has meaningful content.
- *      Covers both user-renamed sessions (`isRenamed` is irrelevant — rename
- *      just mutates `displayName`) and auto-titled sessions.
+ *   1. The live `instance.displayName` when it has meaningful content. Manual
+ *      renames win verbatim; generated titles are sanitized before display.
  *   2. The matching history entry's derived title — only used as a fallback
  *      when the live `displayName` is empty/whitespace, so the rail still
  *      shows something sensible.
@@ -387,11 +390,18 @@ export function resolveEffectiveInstanceTitle(
     'displayName' | 'isRenamed' | 'aiTitle' | 'firstUserMessage' | 'lastUserMessage'
   >
 ): string {
-  // Live displayName wins whenever it has content. Auto-title (phase 1 + 2)
-  // and manual rename both flow into displayName, so a single check covers
-  // both cases — and it stays in sync with what the header is bound to.
+  // Live displayName wins whenever it has content. Manual renames are user text;
+  // generated names are cleaned before display so stale reasoning tags cannot
+  // leak into the rail/header.
   if (instance.displayName.trim()) {
-    return instance.displayName;
+    if (instance.isRenamed) {
+      return instance.displayName;
+    }
+
+    const generatedTitle = sanitizeGeneratedTitle(instance.displayName);
+    if (generatedTitle) {
+      return generatedTitle;
+    }
   }
 
   if (matchingHistoryEntry) {

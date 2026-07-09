@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { reportCapabilities } from './capability-reporter';
@@ -25,6 +26,7 @@ import type {
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeCapabilities,
   WorkerNodeExtensionRelaySummary,
+  WorkerNodeFileTransferRoot,
   WorkerNodeFileTransferSummary,
 } from '../shared/types/worker-node.types';
 import type { FsEventNotification } from '../shared/types/remote-fs.types';
@@ -55,6 +57,7 @@ const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-nod
 const CONNECT_TIMEOUT_MS = 8_000;
 const REDISCOVERY_TIMEOUT_MS = 4_000;
 const EXTENSION_RELAY_REGISTRATION_CHECK_INTERVAL_MS = 60_000;
+const BROWSER_DOWNLOADS_TRANSFER_ROOT_ID = 'browserDownloads';
 
 interface PendingCoordinatorRequest { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout>; method: string }
 
@@ -572,16 +575,57 @@ export class WorkerAgent extends EventEmitter {
     if (!config) {
       return undefined;
     }
+    const roots = config.enabled ? this.fileTransferRootsForSummary(config.roots ?? []) : [];
     return {
       enabled: config.enabled,
       maxFileBytes: config.maxFileBytes ?? 50 * 1024 * 1024,
-      roots: config.enabled ? [...(config.roots ?? [])] : [],
+      roots,
     };
   }
 
   private fileTransferRoots(): WorkerNodeFileTransferSummary['roots'] {
     const summary = this.fileTransferSummary();
     return summary?.enabled ? summary.roots : [];
+  }
+
+  private fileTransferRootsForSummary(
+    configuredRoots: WorkerNodeFileTransferRoot[],
+  ): WorkerNodeFileTransferRoot[] {
+    const roots = [...configuredRoots];
+    const browserDownloads = this.browserDownloadsTransferRoot();
+    if (!browserDownloads) {
+      return roots;
+    }
+    const browserDownloadsPath = normalizedPathKey(browserDownloads.path);
+    const alreadyAdvertised = roots.some((root) =>
+      root.id.toLowerCase() === BROWSER_DOWNLOADS_TRANSFER_ROOT_ID.toLowerCase() ||
+      normalizedPathKey(root.path) === browserDownloadsPath
+    );
+    return alreadyAdvertised ? roots : [browserDownloads, ...roots];
+  }
+
+  private browserDownloadsTransferRoot(): WorkerNodeFileTransferRoot | null {
+    const browserSummary = this.browserManager.getSummary();
+    if (!browserSummary.enabled) {
+      return null;
+    }
+    const downloadsPath = path.join(browserSummary.profileDir, 'Downloads');
+    try {
+      fs.mkdirSync(downloadsPath, { recursive: true });
+    } catch (error) {
+      console.warn('[WorkerAgent] Could not prepare browser downloads transfer root', {
+        downloadsPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+    return {
+      id: BROWSER_DOWNLOADS_TRANSFER_ROOT_ID,
+      label: 'Browser Downloads',
+      path: downloadsPath,
+      read: true,
+      write: false,
+    };
   }
 
   private stopHeartbeat(): void {
@@ -1024,4 +1068,8 @@ export class WorkerAgent extends EventEmitter {
       }
     );
   }
+}
+
+function normalizedPathKey(value: string): string {
+  return path.resolve(value).toLowerCase();
 }

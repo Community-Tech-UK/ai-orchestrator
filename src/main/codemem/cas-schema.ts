@@ -122,6 +122,7 @@ const VERSIONED_DATA_MIGRATIONS: Record<number, string[]> = {
 };
 
 export function migrate(db: SqliteDriver): void {
+  db.pragma('auto_vacuum = INCREMENTAL');
   db.pragma('journal_mode = WAL');
   for (const statements of Object.values(MIGRATIONS)) {
     for (const statement of statements) {

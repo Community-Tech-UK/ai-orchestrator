@@ -29,6 +29,11 @@ import {
   resolveChromeDevtoolsBrowserUrl,
   type ChromeDevtoolsMcpConfigOptions,
 } from '../../browser-gateway';
+import {
+  buildComputerUseMcpConfigJson,
+  getDesktopGatewayRpcSocketPath,
+  type ComputerUseMcpConfigOptions,
+} from '../../desktop-gateway';
 import { ensureHookScript, ensureRtkDeferHookScript } from '../../cli/hooks/hook-path-resolver';
 import { getRtkRuntime } from '../../cli/rtk/rtk-runtime';
 import {
@@ -143,6 +148,23 @@ export class SpawnConfigBuilder {
       }
     }
 
+    const computerUseOptions = this.getComputerUseMcpOptions(
+      executionLocation,
+      instanceId,
+      provider,
+    );
+    if (computerUseOptions) {
+      const computerUseConfig = buildComputerUseMcpConfigJson(computerUseOptions);
+      if (computerUseConfig) {
+        configs.push(computerUseConfig);
+      } else {
+        logger.warn('Computer Use MCP bridge entrypoint not found — child sessions will not expose computer.* tools', {
+          currentDir: __dirname,
+          isPackaged: app.isPackaged,
+        });
+      }
+    }
+
     // chrome-devtools attach (Claude consumes inline JSON via --mcp-config;
     // other providers receive it through UnifiedSpawnOptions.chromeDevtoolsMcp).
     const chromeDevtoolsOptions = this.getChromeDevtoolsMcpOptions(executionLocation);
@@ -163,6 +185,37 @@ export class SpawnConfigBuilder {
     }
 
     return configs;
+  }
+
+  /**
+   * Environment exposed to local spawned CLI processes so their shell tools can
+   * call `$AIO_MCP settings ...` directly. MCP server configs carry the same
+   * socket/auth values for tool calls, but shell commands do not inherit MCP
+   * server process env, so the CLI repair path needs explicit spawn env.
+   */
+  getHarnessCliEnv(
+    executionLocation?: ExecutionLocation,
+    instanceId?: string,
+    baseEnv: Record<string, string> = {},
+  ): Record<string, string> | undefined {
+    if (executionLocation?.type === 'remote' || !instanceId) {
+      return undefined;
+    }
+    const aioMcpCliPath = resolveAioMcpCliPath();
+    if (!aioMcpCliPath) {
+      return undefined;
+    }
+    const socketPath = getOrchestratorToolsRpcSocketPath();
+    if (!socketPath) {
+      return undefined;
+    }
+    return {
+      ...baseEnv,
+      AIO_MCP: aioMcpCliPath,
+      AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: socketPath,
+      AI_ORCHESTRATOR_INSTANCE_ID: instanceId,
+      PATH: prependPath(path.dirname(aioMcpCliPath), baseEnv['PATH'] ?? process.env['PATH'] ?? ''),
+    };
   }
 
   private getOrchestratorMcpConfigs(provider?: string, instanceId?: string): string[] {
@@ -236,6 +289,33 @@ export class SpawnConfigBuilder {
       return null;
     }
     const socketPath = getBrowserGatewayRpcSocketPath();
+    if (!socketPath) {
+      return null;
+    }
+    const aioMcpCliPath = resolveAioMcpCliPath();
+    if (!aioMcpCliPath) {
+      return null;
+    }
+    return {
+      aioMcpCliPath,
+      socketPath,
+      instanceId,
+      ...(provider ? { provider } : {}),
+    };
+  }
+
+  getComputerUseMcpOptions(
+    executionLocation?: ExecutionLocation,
+    instanceId?: string,
+    provider?: string,
+  ): ComputerUseMcpConfigOptions | null {
+    if (executionLocation?.type === 'remote' || !instanceId) {
+      return null;
+    }
+    if (!this.settings.getAll().computerUseEnabled) {
+      return null;
+    }
+    const socketPath = getDesktopGatewayRpcSocketPath();
     if (!socketPath) {
       return null;
     }
@@ -334,4 +414,12 @@ export class SpawnConfigBuilder {
     if (!runtime.isAvailable()) return undefined;
     return { enabled: true, binaryPath: runtime.binaryPath() };
   }
+}
+
+function prependPath(directory: string, currentPath: string): string {
+  const separator = process.platform === 'win32' ? ';' : ':';
+  const parts = currentPath
+    ? currentPath.split(separator).filter((part) => part && part !== directory)
+    : [];
+  return [directory, ...parts].join(separator);
 }

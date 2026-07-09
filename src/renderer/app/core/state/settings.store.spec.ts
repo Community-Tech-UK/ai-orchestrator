@@ -123,7 +123,7 @@ describe('SettingsStore system theme listener', () => {
     expect(mql.removeEventListener).toHaveBeenCalled();
   });
 
-  it('exposes MCP safety settings with backup cleanup enabled by default', () => {
+  it('exposes MCP settings with backup cleanup enabled by default', () => {
     expect(DEFAULT_SETTINGS.mcpCleanupBackupsOnQuit).toBe(true);
     expect(DEFAULT_SETTINGS.mcpDisableProviderBackups).toBe(false);
     expect(DEFAULT_SETTINGS.mcpAllowWorldWritableParent).toBe(false);
@@ -131,6 +131,11 @@ describe('SettingsStore system theme listener', () => {
       'mcpCleanupBackupsOnQuit',
       'mcpDisableProviderBackups',
       'mcpAllowWorldWritableParent',
+      'computerUseEnabled',
+      'computerUseAllowedAppsJson',
+      'computerUseDeniedAppsJson',
+      'computerUseRequireApprovalForInput',
+      'computerUseStoreScreenshotsForEscalations',
     ]);
   });
 });

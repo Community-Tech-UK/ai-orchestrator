@@ -8,6 +8,7 @@ import type {
   MobileInstanceDto,
   MobileModelCatalog,
   MobileMessageDto,
+  MobileSessionPlan,
   MobilePauseDto,
   MobilePromptDto,
   MobileRecentDirDto,
@@ -23,6 +24,8 @@ const RECONNECT_MS = 3000;
 /** Pairing must reach the host over Tailscale; bound it so the UI can't hang forever. */
 const PAIR_TIMEOUT_MS = 10000;
 const EMPTY_PAUSE: MobilePauseDto = { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 };
+const LOCAL_MESSAGE_ID_PREFIX = 'local-';
+const LOCAL_ECHO_REPLACE_WINDOW_MS = 2 * 60_000;
 
 /**
  * Maintains a live WebSocket to the active host and exposes the latest snapshot,
@@ -227,9 +230,13 @@ export class GatewayClient {
     const map = this._transcripts();
     const list = map[instanceId] ?? [];
     const existing = list.findIndex((m) => m.id === message.id);
-    const next = existing >= 0
-      ? list.map((m, i) => (i === existing ? message : m))
-      : [...list, message];
+    const optimisticEcho =
+      existing >= 0 ? -1 : findOptimisticUserEchoIndex(list, message);
+    const replaceIndex = existing >= 0 ? existing : optimisticEcho;
+    const next =
+      replaceIndex >= 0
+        ? list.map((m, i) => (i === replaceIndex ? message : m))
+        : [...list, message];
     this._transcripts.set({ ...map, [instanceId]: next });
   }
 
@@ -327,7 +334,7 @@ export class GatewayClient {
   ): Promise<void> {
     // Optimistic echo so the user sees their message immediately.
     this.appendMessage(instanceId, {
-      id: `local-${Date.now()}`,
+      id: `${LOCAL_MESSAGE_ID_PREFIX}${Date.now()}`,
       timestamp: Date.now(),
       type: 'user',
       content: message,
@@ -428,6 +435,17 @@ export class GatewayClient {
     return this.request<MobileInstanceDto>('POST', '/api/instances', body);
   }
 
+  /**
+   * Preview which provider/model/thinking a new session would start with, given
+   * the chosen provider ('auto' or specific) and optional model override. The
+   * host resolves it because it depends on the host's installed CLIs + settings.
+   */
+  async sessionPlan(provider: string, model?: string): Promise<MobileSessionPlan> {
+    const params = new URLSearchParams({ provider });
+    if (model) params.set('model', model);
+    return this.request<MobileSessionPlan>('GET', `/api/session-plan?${params.toString()}`);
+  }
+
   async recentDirs(): Promise<MobileRecentDirDto[]> {
     return this.request<MobileRecentDirDto[]>('GET', '/api/recent-dirs');
   }
@@ -515,4 +533,39 @@ export class GatewayClient {
       expiresAt: number;
     };
   }
+}
+
+function findOptimisticUserEchoIndex(
+  messages: MobileMessageDto[],
+  incoming: MobileMessageDto,
+): number {
+  if (incoming.id.startsWith(LOCAL_MESSAGE_ID_PREFIX) || incoming.type !== 'user') {
+    return -1;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (isOptimisticEchoOf(messages[index], incoming)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function isOptimisticEchoOf(local: MobileMessageDto, incoming: MobileMessageDto): boolean {
+  if (!local.id.startsWith(LOCAL_MESSAGE_ID_PREFIX) || local.type !== 'user') {
+    return false;
+  }
+  if (local.content !== incoming.content) {
+    return false;
+  }
+  if (Boolean(local.hasAttachments) !== Boolean(incoming.hasAttachments)) {
+    return false;
+  }
+  return timestampsAreClose(local.timestamp, incoming.timestamp);
+}
+
+function timestampsAreClose(localTimestamp: number, incomingTimestamp: number): boolean {
+  if (!Number.isFinite(localTimestamp) || !Number.isFinite(incomingTimestamp)) {
+    return true;
+  }
+  return Math.abs(localTimestamp - incomingTimestamp) <= LOCAL_ECHO_REPLACE_WINDOW_MS;
 }

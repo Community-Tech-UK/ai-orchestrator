@@ -9,7 +9,7 @@ const FILE_TRANSFER_FORWARDER_TOOLS: {
   {
     name: 'list_node_files',
     description:
-      'Browse allowlisted file-transfer roots on a remote worker node, or list the roots when path is omitted.',
+      'Browse allowlisted file-transfer roots on a remote worker node, or list the roots when path is omitted. Common roots include browserDownloads, downloads, documents, desktop, and scratch.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -27,7 +27,7 @@ const FILE_TRANSFER_FORWARDER_TOOLS: {
   {
     name: 'find_node_files',
     description:
-      'Find likely files under a worker node file-transfer root by name, root label, extension, age, and size.',
+      'Find likely files under a worker node file-transfer root by name, root label, extension, age, and size. Use browserDownloads for managed Chrome profile downloads.',
     inputSchema: {
       type: 'object',
       properties: {

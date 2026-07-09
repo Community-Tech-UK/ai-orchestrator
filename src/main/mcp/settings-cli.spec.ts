@@ -99,8 +99,28 @@ describe('settings-cli', () => {
       'orchestrator_tools.settings.privileged_list',
       {},
     );
-    const parsed = JSON.parse(stdoutText(stdout)) as { settings: Array<{ value: unknown }> };
+    const parsed = JSON.parse(stdoutText(stdout)) as { settings: { value: unknown }[] };
     expect(parsed.settings[0]?.value).toBe('[redacted]');
+  });
+
+  it('validates privileged_list results before printing JSON output', async () => {
+    const stdout = vi.fn();
+    const client = clientReturning({ count: 1, settings: 'not-an-array' });
+
+    await expect(runSettingsCli(['list', '--json'], { client, stdout })).rejects.toThrow(
+      /privileged_list returned an invalid result/,
+    );
+    expect(stdout).not.toHaveBeenCalled();
+  });
+
+  it('validates privileged_get results before printing JSON output', async () => {
+    const stdout = vi.fn();
+    const client = clientReturning({ key: 'theme', value: 'dark' });
+
+    await expect(runSettingsCli(['get', 'theme', '--json'], { client, stdout })).rejects.toThrow(
+      /privileged_get returned an invalid result/,
+    );
+    expect(stdout).not.toHaveBeenCalled();
   });
 
   it('calls privileged_get for a single key and prints JSON when requested', async () => {
@@ -179,6 +199,21 @@ describe('settings-cli', () => {
     const output = stdoutText(stdout);
     expect(output).toContain('[redacted]');
     expect(output).not.toContain('redaction-test-value');
+  });
+
+  it('validates mutation results before printing JSON output', async () => {
+    const stdout = vi.fn();
+    const client = clientReturning({
+      ok: true,
+      key: 'theme',
+      oldValue: 'dark',
+      newValue: 'light',
+    });
+
+    await expect(
+      runSettingsCli(['set', 'theme', 'light', '--json'], { client, stdout }),
+    ).rejects.toThrow(/settings mutation returned an invalid result/);
+    expect(stdout).not.toHaveBeenCalled();
   });
 
   it('calls privileged_reset for a single key', async () => {

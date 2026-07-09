@@ -103,7 +103,6 @@ import {
 import {
   isRemoteExtensionContactFresh,
   remoteExtensionContactSummary,
-  withRemoteExtensionStaleFlag,
 } from './browser-extension-node-contact';
 import {
   BrowserGatewayActionGuard,
@@ -113,7 +112,6 @@ import { autoApproveBrowserApproval } from './browser-auto-approve';
 import { HEAVY_DOM_COMMAND_TIMEOUT_MS } from './browser-mutation-safety';
 import {
   defaultManualStepPrompt,
-  extractTabPayload,
   manualStepActionClass,
   primaryActionClass,
   proposedUploadRoots,
@@ -272,6 +270,7 @@ export class BrowserGatewayService {
       approvalStore: this.approvalStore,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
       autoApproveApproval: (approval) => this.autoApproveApproval(approval),
+      onNavigateSucceeded: (request) => getBrowserCampaignRuntime()?.recordNavigation(request),
     });
     this.targetDiscoveryOperations = new BrowserTargetDiscoveryOperations({
       targetRegistry: this.targetRegistry,
@@ -717,6 +716,7 @@ export class BrowserGatewayService {
 
     try {
       await this.driver.navigate(profile.id, target.id, request.url);
+      getBrowserCampaignRuntime()?.recordNavigation(request);
       return this.result({
         context: request,
         profileId: profile.id,
@@ -1342,25 +1342,7 @@ export class BrowserGatewayService {
         await this.driver.click(request.profileId, request.targetId, request.selector!);
       }
       await this.verifyMutationReadback(request, request.verify, request.selector, existingTab ?? undefined);
-      if (prepared.grant.mode === 'per_action') {
-        this.grantStore.consumeGrant(prepared.grant.id);
-      }
-      return this.result({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'click',
-        toolName: 'browser.click',
-        actionClass: prepared.actionClass,
-        decision: 'allowed',
-        outcome: 'succeeded',
-        summary: 'Executed browser click under approved grant',
-        origin: prepared.origin,
-        url: prepared.url,
-        grantId: prepared.grant.id,
-        autonomous: prepared.grant.autonomous,
-        data: null,
-      });
+      return this.actionGuard.mutationSucceeded(request, 'click', 'browser.click', prepared);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return this.result({
@@ -1490,6 +1472,7 @@ export class BrowserGatewayService {
       ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
       ...(this.credentialAuthorizations ? { credentialAuthorizations: this.credentialAuthorizations } : {}),
       ...(this.emailCodeReader ? { emailCodeReader: this.emailCodeReader } : {}),
+      recordNewAccount: (request) => getBrowserCampaignRuntime()?.recordNewAccount(request),
     };
   }
 
@@ -1750,6 +1733,7 @@ export class BrowserGatewayService {
           timeoutMs: request.timeoutMs ?? 60_000,
         });
 
+      this.actionGuard.recordMutationSucceeded(prepared);
       return this.result({
         context: request,
         profileId: request.profileId,

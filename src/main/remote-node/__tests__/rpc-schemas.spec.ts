@@ -156,6 +156,49 @@ describe('rpc-schemas', () => {
       expect(result.success).toBe(true);
     });
 
+    it('preserves non-secret worker and extension rollout evidence', () => {
+      const result = NodeHeartbeatParamsSchema.parse({
+        nodeId: 'node-1',
+        capabilities: {
+          workerAgent: {
+            version: '0.1.0',
+            startedAt: 1_700_000_000_000,
+          },
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 16,
+          totalMemoryMB: 96000,
+          availableMemoryMB: 64000,
+          supportedClis: ['claude'],
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+          hasExtensionRelay: true,
+          extensionRelay: {
+            enabled: true,
+            running: true,
+            extensionVersion: '0.2.1',
+            extensionReloadedAt: 1_700_000_010_000,
+            lastExtensionContactAt: 1_700_000_020_000,
+          },
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 10,
+          workingDirectories: ['/tmp'],
+        },
+        activeInstances: 0,
+      });
+
+      expect(result.capabilities.workerAgent).toEqual({
+        version: '0.1.0',
+        startedAt: 1_700_000_000_000,
+      });
+      expect(result.capabilities.extensionRelay).toMatchObject({
+        extensionVersion: '0.2.1',
+        extensionReloadedAt: 1_700_000_010_000,
+        lastExtensionContactAt: 1_700_000_020_000,
+      });
+    });
+
     it('accepts non-secret file transfer capability summaries', () => {
       const result = NodeRegisterParamsSchema.safeParse({
         nodeId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',

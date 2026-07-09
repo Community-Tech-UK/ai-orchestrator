@@ -124,7 +124,7 @@ describe('OrchestratorToolsRpcServer settings integration', () => {
         payload: { category: 'remote-nodes', all: true },
       },
     }) as {
-      settings: Array<{ key: keyof AppSettings; value: unknown; policyTier: string }>;
+      settings: { key: keyof AppSettings; value: unknown; policyTier: string }[];
     };
 
     expect(result.settings.find((setting) => setting.key === 'remoteNodesEnrollmentToken'))

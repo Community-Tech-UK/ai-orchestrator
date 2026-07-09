@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { pruneCodememWorkspaces } from './codemem-pruner';
+import { pruneCodememWorkspaces, runCodememMaintenance } from './codemem-pruner';
 
 describe('pruneCodememWorkspaces', () => {
   it('prunes least-recently-indexed workspaces until workspace count is within quota', () => {
@@ -30,5 +30,31 @@ describe('pruneCodememWorkspaces', () => {
 
     expect(result.deletedWorkspaceHashes).toEqual(['huge']);
     expect(store.deleteWorkspaceIndex).toHaveBeenCalledWith('huge');
+  });
+
+  it('runs content maintenance after workspace pruning', () => {
+    const store = {
+      listWorkspaceIndexStats: vi.fn(() => []),
+      deleteWorkspaceIndex: vi.fn(),
+      pruneUnreferencedChunks: vi.fn(() => 3),
+      clearLegacyMerkleNodes: vi.fn(() => 2),
+      optimizeSearchIndex: vi.fn(),
+      vacuumFreelistPages: vi.fn(),
+    };
+    const result = runCodememMaintenance(store, {
+      maxWorkspaces: 10,
+      maxManifestEntriesPerWorkspace: 500_000,
+    });
+
+    expect(result).toMatchObject({
+      deletedWorkspaceHashes: [],
+      retainedWorkspaceHashes: [],
+      deletedOrphanChunks: 3,
+      deletedLegacyMerkleNodes: 2,
+    });
+    expect(store.pruneUnreferencedChunks).toHaveBeenCalledTimes(1);
+    expect(store.clearLegacyMerkleNodes).toHaveBeenCalledTimes(1);
+    expect(store.optimizeSearchIndex).toHaveBeenCalledTimes(1);
+    expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(1);
   });
 });

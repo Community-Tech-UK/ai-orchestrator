@@ -27,6 +27,11 @@ const WorkerLoadedLocalModelSchema = z.object({
   contextLength: z.number().int().nonnegative().max(10_000_000),
 });
 
+const WorkerAgentBuildSummarySchema = z.object({
+  version: z.string().min(1).max(128),
+  startedAt: z.number().int().nonnegative(),
+});
+
 const WorkerLocalModelCapabilitySchema = z.object({
   provider: z.enum(['ollama', 'openai-compatible']),
   endpointId: z.string().min(1).max(128).optional(),
@@ -37,6 +42,7 @@ const WorkerLocalModelCapabilitySchema = z.object({
 });
 
 const WorkerNodeCapabilitiesSchema = z.object({
+  workerAgent: WorkerAgentBuildSummarySchema.optional(),
   platform: z.enum(['darwin', 'win32', 'linux']),
   arch: z.string(),
   cpuCores: z.number().int().positive(),
@@ -63,6 +69,8 @@ const WorkerNodeCapabilitiesSchema = z.object({
     lastRegistrationCheckAt: z.number().int().nonnegative().optional(),
     manifestPath: z.string().optional(),
     registrationError: z.string().optional(),
+    extensionVersion: z.string().min(1).max(128).optional(),
+    extensionReloadedAt: z.number().int().nonnegative().optional(),
     lastExtensionContactAt: z.number().int().nonnegative().optional(),
   }).optional(),
   hasAndroidMcp: z.boolean().optional().default(false),

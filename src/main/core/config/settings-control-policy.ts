@@ -141,6 +141,9 @@ const secret = (restartRequired = false): ClosedSettingsToolPolicy => ({
   restartRequired,
 });
 
+// Maintenance rule: every new AppSettings key must be classified here when it
+// is added. This object is the canonical CLI settings exposure policy for both
+// safe MCP tools and the privileged `aio-mcp settings` repair surface.
 export const SETTINGS_TOOL_POLICY = {
   defaultYoloMode: readOnly(),
   defaultWorkingDirectory: open(settingStringSchema),
@@ -274,6 +277,11 @@ export const SETTINGS_TOOL_POLICY = {
   mcpCleanupBackupsOnQuit: open(z.boolean()),
   mcpDisableProviderBackups: readOnly(),
   mcpAllowWorldWritableParent: readOnly(),
+  computerUseEnabled: readOnly(true),
+  computerUseAllowedAppsJson: readOnly(),
+  computerUseDeniedAppsJson: readOnly(),
+  computerUseRequireApprovalForInput: readOnly(),
+  computerUseStoreScreenshotsForEscalations: readOnly(),
   rtkEnabled: open(z.boolean(), true),
   rtkBundledOnly: open(z.boolean(), true),
   notifyOnAgentCompletion: open(z.boolean()),

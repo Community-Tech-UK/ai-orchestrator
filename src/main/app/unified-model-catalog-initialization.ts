@@ -48,6 +48,7 @@ interface CodexDiscoveryRuntimeService {
 
 interface LocalModelInventoryRuntimeService {
   list(): LocalModelInventoryEntry[];
+  refresh?(): Promise<LocalModelInventoryEntry[]> | LocalModelInventoryEntry[];
   on(
     event: typeof LOCAL_MODEL_INVENTORY_UPDATED_EVENT,
     listener: (payload: LocalModelInventoryUpdatedPayload) => void,
@@ -100,7 +101,11 @@ export async function initializeUnifiedModelCatalogRuntime(
   }
 
   catalog.attachCatalogOverrideSource(catalogOverrideSource);
-  catalog.onLocalModelInventoryRefreshed?.(localModelInventoryService.list(), { immediate: true });
+  const localModelEntries = await refreshLocalModelInventory(
+    localModelInventoryService,
+    logger,
+  );
+  catalog.onLocalModelInventoryRefreshed?.(localModelEntries, { immediate: true });
   localModelInventoryService.on(LOCAL_MODEL_INVENTORY_UPDATED_EVENT, (payload) => {
     catalog.onLocalModelInventoryRefreshed?.(payload.models);
   });
@@ -109,4 +114,20 @@ export async function initializeUnifiedModelCatalogRuntime(
   modelsDevService.refresh().catch(() => {
     // Suppressed; failure is already logged inside ModelsDevService.
   });
+}
+
+async function refreshLocalModelInventory(
+  localModelInventoryService: LocalModelInventoryRuntimeService,
+  logger: RuntimeLogger,
+): Promise<LocalModelInventoryEntry[]> {
+  try {
+    return localModelInventoryService.refresh
+      ? await localModelInventoryService.refresh()
+      : localModelInventoryService.list();
+  } catch (error) {
+    logger.warn('Local model inventory refresh failed; using cached inventory', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return localModelInventoryService.list();
+  }
 }

@@ -7,6 +7,10 @@ import {
   SettingsSetPayloadSchema,
   SettingsToolGetPayloadSchema,
   SettingsToolListPayloadSchema,
+  SettingsPrivilegedGetPayloadSchema,
+  SettingsPrivilegedListPayloadSchema,
+  SettingsPrivilegedResetPayloadSchema,
+  SettingsPrivilegedSetPayloadSchema,
   SettingsToolResetPayloadSchema,
   SettingsToolSetPayloadSchema,
   SettingsToolUpdateNodeConfigPayloadSchema,
@@ -43,7 +47,9 @@ describe('settings.schemas', () => {
       SettingsGetPayloadSchema, SettingsUpdatePayloadSchema, SettingsBulkUpdatePayloadSchema,
       SettingsResetOnePayloadSchema, SettingsSetPayloadSchema,
       SettingsToolGetPayloadSchema, SettingsToolListPayloadSchema, SettingsToolResetPayloadSchema,
-      SettingsToolSetPayloadSchema, SettingsToolUpdateNodeConfigPayloadSchema,
+      SettingsToolSetPayloadSchema, SettingsPrivilegedGetPayloadSchema,
+      SettingsPrivilegedListPayloadSchema, SettingsPrivilegedResetPayloadSchema,
+      SettingsPrivilegedSetPayloadSchema, SettingsToolUpdateNodeConfigPayloadSchema,
       ConfigResolvePayloadSchema, ConfigGetProjectPayloadSchema, ConfigSaveProjectPayloadSchema,
       ConfigCreateProjectPayloadSchema, ConfigFindProjectPayloadSchema,
       InstructionsResolvePayloadSchema, InstructionsCreateDraftPayloadSchema,
@@ -66,15 +72,27 @@ describe('settings.schemas', () => {
       value: 'light',
     });
     expect(SettingsToolResetPayloadSchema.parse({ key: 'theme' })).toEqual({ key: 'theme' });
+    expect(SettingsPrivilegedListPayloadSchema.parse({ category: 'display', all: true })).toEqual({
+      category: 'display',
+      all: true,
+    });
+    expect(SettingsPrivilegedGetPayloadSchema.parse({ key: 'theme' })).toEqual({ key: 'theme' });
+    expect(SettingsPrivilegedSetPayloadSchema.parse({ key: 'theme', value: 'light' })).toEqual({
+      key: 'theme',
+      value: 'light',
+    });
+    expect(SettingsPrivilegedResetPayloadSchema.parse({ key: 'theme' })).toEqual({ key: 'theme' });
 
     expect(() => SettingsToolGetPayloadSchema.parse({ key: '' })).toThrow();
     expect(() => SettingsToolListPayloadSchema.parse({ unknown: true })).toThrow();
+    expect(() => SettingsPrivilegedListPayloadSchema.parse({ all: 'yes' })).toThrow();
   });
 
   it('requires values for settings set payloads instead of accepting omitted unknowns', () => {
     expect(() => SettingsUpdatePayloadSchema.parse({ key: 'theme' })).toThrow();
     expect(() => SettingsSetPayloadSchema.parse({ key: 'theme' })).toThrow();
     expect(() => SettingsToolSetPayloadSchema.parse({ key: 'theme' })).toThrow();
+    expect(() => SettingsPrivilegedSetPayloadSchema.parse({ key: 'theme' })).toThrow();
   });
 
   it('update_node_config schema accepts existing config.update blocks and requires one', () => {

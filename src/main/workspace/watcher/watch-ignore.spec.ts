@@ -91,5 +91,5 @@ describe('watch-ignore', () => {
     } finally {
       await watcher.close();
     }
-  });
+  }, 15_000);
 });

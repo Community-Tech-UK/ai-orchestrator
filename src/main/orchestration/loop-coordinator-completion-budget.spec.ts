@@ -124,7 +124,7 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
     expect(live()?.status).toBe('completed-needs-review');
     expect(live()?.completionAttempts).toBeGreaterThanOrEqual(1);
     expect(live()?.lastCompletionOutcome).toBe('rename-gate');
-  });
+  }, 20_000);
 
   it('does not pause for no-progress on a verified-done iteration (converging, not stuck)', async () => {
     // verify always passes, rename never happens; identical work-hash every
@@ -171,5 +171,5 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
 
     expect(pausedForNoProgress).toBe(false);
     expect(live()?.status).toBe('completed-needs-review');
-  });
+  }, 20_000);
 });

@@ -113,7 +113,7 @@ export function createFileTransferToolDefinitions(
     {
       name: 'list_node_files',
       description:
-        'List allowlisted transfer roots or browse files on a connected worker node. Use this before downloading when you need to inspect a remote Downloads, Documents, Desktop, scratch, or project folder.',
+        'List allowlisted transfer roots or browse files on a connected worker node. Use this before downloading when you need to inspect remote browserDownloads, Downloads, Documents, Desktop, scratch, or project folders.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -141,7 +141,7 @@ export function createFileTransferToolDefinitions(
         properties: {
           node: { type: 'string', description: 'Worker node name or id.' },
           query: { type: 'string', description: 'Text to match against basename/path.' },
-          roots: { type: 'array', items: { type: 'string' }, description: 'Root ids such as downloads, documents, desktop, or scratch.' },
+          roots: { type: 'array', items: { type: 'string' }, description: 'Root ids such as browserDownloads, downloads, documents, desktop, or scratch.' },
           extensions: { type: 'array', items: { type: 'string' }, description: 'Extensions such as .docx, .pdf, .xlsx, .zip, .png.' },
           modifiedWithinDays: { type: 'integer', minimum: 1, maximum: 3650 },
           minBytes: { type: 'integer', minimum: 0 },

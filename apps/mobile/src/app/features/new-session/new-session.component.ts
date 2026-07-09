@@ -20,6 +20,7 @@ import type {
   MobileAttachmentDto,
   MobileModelCatalog,
   MobileRecentDirDto,
+  MobileSessionPlan,
 } from '../../core/models';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 
@@ -78,6 +79,25 @@ const DRAFT_KEY = 'new-session';
           <button class="prov" [class.sel]="provider() === p" (click)="selectProvider(p)">{{ p }}</button>
         }
       </div>
+
+      <!-- What this choice actually runs — resolved on the host (auto picks a
+           provider; model + thinking come from the host's settings). -->
+      <p class="plan" [class.dim]="planLoading()">
+        @if (plan(); as p) {
+          <span class="plan-lead">Will run:</span>
+          @if (p.provider !== provider()) {
+            <!-- 'auto', or a chosen provider that isn't installed and got
+                 redirected — name the provider that will actually run. -->
+            <strong>{{ p.providerLabel }}</strong>
+          }
+          <span>{{ p.modelLabel || 'provider default model' }}</span>
+          @if (p.reasoningEffortLabel) {
+            <span class="plan-sep">·</span><span>{{ p.reasoningEffortLabel }} thinking</span>
+          }
+        } @else if (planLoading()) {
+          Resolving what will run…
+        }
+      </p>
 
       @if (provider() !== 'auto') {
         <span class="lbl">Model</span>
@@ -233,6 +253,14 @@ const DRAFT_KEY = 'new-session';
         border-radius: var(--radius-pill); padding: 8px 14px; font-size: 14px; text-transform: capitalize;
       }
       .prov.sel { background: var(--accent-action); color: #fff; }
+      .plan {
+        margin: 2px 0 0; font-size: 13px; color: var(--text-secondary);
+        display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; min-height: 18px;
+      }
+      .plan.dim { opacity: 0.5; }
+      .plan strong { color: var(--text); font-weight: 600; }
+      .plan-lead { color: var(--text-secondary); }
+      .plan-sep { color: var(--text-secondary); }
       .model-row {
         width: 100%; text-align: left; background: var(--surface); border: 1px solid rgba(255,255,255,0.08);
         border-radius: 12px; padding: 10px 12px; color: var(--text); display: flex;
@@ -291,6 +319,11 @@ export class NewSessionComponent implements OnInit {
   });
   protected readonly provider = signal<(typeof PROVIDERS)[number]>('auto');
   protected readonly model = signal<string | undefined>(undefined);
+  /** Preview of what the chosen provider/model will actually run (from the host). */
+  protected readonly plan = signal<MobileSessionPlan | null>(null);
+  protected readonly planLoading = signal(false);
+  /** Monotonic token so a stale in-flight plan response can't clobber a newer one. */
+  private planReq = 0;
   protected readonly modelSheetOpen = signal(false);
   protected readonly modelsLoading = signal(false);
   protected readonly modelsError = signal<string | null>(null);
@@ -328,6 +361,29 @@ export class NewSessionComponent implements OnInit {
     effect(() => {
       const text = this.firstPrompt();
       if (this.draftReady) this.drafts.save(DRAFT_KEY, text);
+    });
+    // Live-refresh the "what will run" preview whenever the provider or model
+    // override changes. Resolution happens on the host (installed CLIs + saved
+    // settings), so we ask the gateway rather than guess on the phone.
+    effect(() => {
+      const provider = this.provider();
+      const model = this.model();
+      const req = ++this.planReq;
+      this.planLoading.set(true);
+      void this.gateway
+        .sessionPlan(provider, model)
+        .then((plan) => {
+          if (req === this.planReq) {
+            this.plan.set(plan);
+            this.planLoading.set(false);
+          }
+        })
+        .catch(() => {
+          if (req === this.planReq) {
+            this.plan.set(null);
+            this.planLoading.set(false);
+          }
+        });
     });
     inject(DestroyRef).onDestroy(() => {
       if (this.voice.listening()) void this.voice.stop();

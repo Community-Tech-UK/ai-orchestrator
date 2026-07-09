@@ -1,10 +1,19 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BrowserCampaignService } from './browser-campaign-store';
+import {
+  initializeBrowserCampaignRuntime,
+  stopBrowserCampaignRuntime,
+} from './browser-campaign-runtime';
 import { makeGrant, makeService } from './browser-gateway-service.test-helpers';
 
 describe('BrowserGatewayService existing Chrome tabs', () => {
+  afterEach(() => {
+    stopBrowserCampaignRuntime();
+  });
+
   const appStoreConnectTab = {
     profileId: 'existing-tab:7:42',
     targetId: 'existing-tab:7:42:target',
@@ -1431,6 +1440,58 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
         url: 'https://developer.apple.com/account/resources/identifiers/list',
       },
     }));
+  });
+
+  it('records existing-tab navigation against a live campaign lease', async () => {
+    const sendCommand = vi.fn(async () => ({
+      tab: {
+        tabId: 42,
+        windowId: 7,
+        title: 'App Store Connect',
+        url: 'https://appstoreconnect.apple.com/apps/next',
+      },
+    }));
+    const campaigns = new BrowserCampaignService();
+    const { grantStore, service } = makeService({
+      existingTab: appStoreConnectTab,
+      extensionCommandStore: { sendCommand },
+    });
+    const runtime = initializeBrowserCampaignRuntime({
+      campaigns,
+      grantStore,
+      renewIntervalMs: 60 * 60 * 1000,
+    });
+    const campaign = campaigns.create({
+      label: 'App Store Connect campaign',
+      profileId: appStoreConnectTab.profileId,
+      allowedOrigins: ['https://appstoreconnect.apple.com'],
+      allowedActionClasses: ['navigate', 'input', 'submit'],
+      budget: {
+        maxActions: 10,
+        maxSubmits: 5,
+        maxNewAccounts: 1,
+        maxUploads: 1,
+        maxDurationMs: 8 * 60 * 60 * 1000,
+      },
+    });
+    const lease = runtime.claimLease({
+      campaignId: campaign.id,
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+    expect(lease.granted).toBe(true);
+
+    await service.navigate({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+      url: 'https://appstoreconnect.apple.com/apps/next',
+    });
+
+    expect(campaigns.getCounters(campaign.id)).toMatchObject({
+      actions: 1,
+    });
   });
 
   it('allows agents to request grants for existing Chrome tabs', async () => {

@@ -478,6 +478,12 @@ describe('WorkerBackedGitStatusWatcher', () => {
     }
   }
 
+  async function flushMicrotasks(times = 4): Promise<void> {
+    for (let i = 0; i < times; i++) {
+      await Promise.resolve();
+    }
+  }
+
   function setupWorkerBackedWatcher(opts: { rpcTimeoutMs?: number } = {}) {
     const workers: FakeWorker[] = [];
     const watcher = new WorkerBackedGitStatusWatcher({
@@ -547,6 +553,110 @@ describe('WorkerBackedGitStatusWatcher', () => {
 
     expect(workers[0].terminate).toHaveBeenCalledOnce();
     expect(watcher.watchedRepos()).toEqual([]);
+    await watcher.stop();
+  });
+
+  it('does not report repos as watched before the worker acknowledges them', async () => {
+    const { watcher, workers } = setupWorkerBackedWatcher({ rpcTimeoutMs: 5 });
+    const repoPath = workPath('A');
+
+    await watcher.setRepos([repoPath]);
+    await flushMicrotasks();
+
+    expect(workers[0].terminate).toHaveBeenCalledOnce();
+    expect(watcher.watchedRepos()).toEqual([]);
+    expect(workers).toHaveLength(2);
+    expect(workers[1].messages[0]).toMatchObject({
+      type: 'set-repos',
+      repoPaths: [repoPath],
+    });
+
+    const resyncMessage = workers[1].messages[0];
+    workers[1].reply({
+      type: 'response',
+      id: resyncMessage.id,
+      ok: true,
+      watchedRepos: [repoPath],
+    });
+    await flushMicrotasks();
+
+    expect(watcher.watchedRepos()).toEqual([repoPath]);
+    await watcher.stop();
+  });
+
+  it('resyncs desired repos after the current worker emits an error', async () => {
+    const { watcher, workers } = setupWorkerBackedWatcher();
+    const repoPath = workPath('A');
+
+    const initialSet = watcher.setRepos([repoPath]);
+    const initialMessage = workers[0].messages[0];
+    workers[0].reply({
+      type: 'response',
+      id: initialMessage.id,
+      ok: true,
+      watchedRepos: [repoPath],
+    });
+    await initialSet;
+
+    workers[0].emit('error', new Error('worker broke'));
+    await flushMicrotasks();
+
+    expect(workers[0].terminate).toHaveBeenCalledOnce();
+    expect(workers).toHaveLength(2);
+    expect(workers[1].messages[0]).toMatchObject({
+      type: 'set-repos',
+      repoPaths: [repoPath],
+    });
+
+    const resyncMessage = workers[1].messages[0];
+    workers[1].reply({
+      type: 'response',
+      id: resyncMessage.id,
+      ok: true,
+      watchedRepos: [repoPath],
+    });
+    await flushMicrotasks();
+
+    expect(watcher.watchedRepos()).toEqual([repoPath]);
+    await watcher.stop();
+  });
+
+  it('ignores status events from a worker after it has been replaced', async () => {
+    const { watcher, workers } = setupWorkerBackedWatcher({ rpcTimeoutMs: 5 });
+    const repoPath = workPath('A');
+    const events: GitStatusChangedEvent[] = [];
+    watcher.on('status-changed', event => events.push(event));
+
+    await watcher.setRepos([repoPath]);
+    await flushMicrotasks();
+
+    expect(workers[0].terminate).toHaveBeenCalledOnce();
+    expect(workers).toHaveLength(2);
+
+    const staleEvent: GitStatusChangedEvent = {
+      repoPath,
+      reason: 'worktree',
+      timestamp: Date.now(),
+    };
+    workers[0].reply({ type: 'status-changed', event: staleEvent });
+    expect(events).toEqual([]);
+
+    const resyncMessage = workers[1].messages[0];
+    workers[1].reply({
+      type: 'response',
+      id: resyncMessage.id,
+      ok: true,
+      watchedRepos: [repoPath],
+    });
+    await flushMicrotasks();
+
+    const currentEvent: GitStatusChangedEvent = {
+      repoPath,
+      reason: 'index',
+      timestamp: Date.now(),
+    };
+    workers[1].reply({ type: 'status-changed', event: currentEvent });
+    expect(events).toEqual([currentEvent]);
     await watcher.stop();
   });
 });

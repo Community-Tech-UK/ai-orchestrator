@@ -5283,7 +5283,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3451
+      "lines": 3460
     },
     {
       "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
@@ -5350,6 +5350,10 @@
       "lines": 2493
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 2449
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
       "lines": 2372
     },
@@ -5367,15 +5371,11 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2294
+      "lines": 2278
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
       "lines": 2277
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 2258
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5434,12 +5434,12 @@
       "lines": 1803
     },
     {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1781
+      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
+      "lines": 1795
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
-      "lines": 1734
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1781
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
@@ -5483,7 +5483,7 @@
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1520
+      "lines": 1536
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
@@ -5511,7 +5511,7 @@
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1436
+      "lines": 1449
     },
     {
       "path": "src/main/history/history-manager.ts",
@@ -5698,6 +5698,10 @@
       "lines": 1142
     },
     {
+      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
+      "lines": 1140
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-28-wave2-navigation-pickers-prompt-recall-design_completed.md",
       "lines": 1139
     },
@@ -5742,16 +5746,16 @@
       "lines": 1091
     },
     {
-      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
-      "lines": 1088
-    },
-    {
       "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
       "lines": 1077
     },
     {
       "path": "src/main/rlm/llm-service.ts",
       "lines": 1077
+    },
+    {
+      "path": "src/worker-agent/worker-agent.ts",
+      "lines": 1076
     },
     {
       "path": "src/main/instance/instance-orchestration.ts",
@@ -5795,10 +5799,6 @@
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
-      "lines": 1028
-    },
-    {
-      "path": "src/worker-agent/worker-agent.ts",
       "lines": 1028
     },
     {
@@ -6030,6 +6030,10 @@
       "lines": 850
     },
     {
+      "path": "src/main/app/initialization-steps.ts",
+      "lines": 846
+    },
+    {
       "path": "src/main/orchestration/embedding-service.ts",
       "lines": 845
     },
@@ -6100,10 +6104,6 @@
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
-    },
-    {
-      "path": "src/main/app/initialization-steps.ts",
-      "lines": 811
     },
     {
       "path": "src/renderer/app/features/training/training-page.component.ts",

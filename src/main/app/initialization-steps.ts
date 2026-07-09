@@ -58,6 +58,7 @@ import { WorkflowPersistence } from '../workflows/workflow-persistence';
 import { initializeCodemem, getCodemem } from '../codemem';
 import { initializeAutomations } from '../automations';
 import { initializeBrowserGatewayRuntime } from '../browser-gateway';
+import { initializeDesktopGatewayRuntime } from '../desktop-gateway';
 import { initializeCodememRpcServer } from '../codemem/codemem-rpc-server';
 import * as path from 'node:path';
 import { installRuntimeDiagnostics } from './runtime-diagnostics';
@@ -87,6 +88,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
 
 const logger = getLogger('AppInitialization');
+const CODEMEM_MAINTENANCE_COOLDOWN_MS = 30 * 60 * 1000;
 
 export interface AppInitializationStep {
   name: string;
@@ -423,15 +425,34 @@ export function createInitializationSteps(
           maxCodememDbBytes: 25 * 1024 * 1024 * 1024,
           maxRlmDbBytes: 12 * 1024 * 1024 * 1024,
         });
+        let codememMaintenanceRunning = false;
+        let lastCodememMaintenanceStartedAt = 0;
         getLoopCoordinator().setResourceGovernor(() => {
           const userDataPath = app.getPath('userData');
-          return longRunGovernor.evaluate({
+          const codemem = getCodemem();
+          const decision = longRunGovernor.evaluate({
             rssBytes: process.memoryUsage().rss,
             codememDbBytes: safeFileSize(path.join(userDataPath, 'codemem.sqlite')),
             rlmDbBytes: safeFileSize(path.join(userDataPath, 'rlm', 'rlm.db')),
             contextWorkerDegraded: getContextWorkerClient().getMetrics().degraded,
-            indexWorkerDegraded: getCodemem().indexWorkerGateway.getMetrics().degraded,
+            indexWorkerDegraded: codemem.indexWorkerGateway.getMetrics().degraded,
           });
+          if (decision.actions.includes('prune-codemem')) {
+            const now = Date.now();
+            if (!codememMaintenanceRunning && now - lastCodememMaintenanceStartedAt >= CODEMEM_MAINTENANCE_COOLDOWN_MS) {
+              codememMaintenanceRunning = true;
+              lastCodememMaintenanceStartedAt = now;
+              codemem.indexWorkerGateway.runMaintenance()
+                .then((result) => {
+                  if (result) logger.info('Codemem maintenance completed', { ...result });
+                })
+                .catch((error) => logger.warn('Codemem maintenance failed', {
+                  error: error instanceof Error ? error.message : String(error),
+                }))
+                .finally(() => { codememMaintenanceRunning = false; });
+            }
+          }
+          return decision;
         });
       },
     },
@@ -637,6 +658,20 @@ export function createInitializationSteps(
           autoApproveRequests: ({ instanceId }) =>
             Boolean(instanceManager.getInstance(instanceId)?.yoloMode),
         }),
+    },
+    {
+      name: 'Desktop Computer Use Gateway',
+      fn: async () => {
+        try {
+          await initializeDesktopGatewayRuntime({
+            isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+          });
+        } catch (error) {
+          logger.warn('Desktop Computer Use gateway initialization failed; computer-use MCP will be unavailable', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
     },
     createOrchestratorToolsStep(instanceManager, windowManager),
     {

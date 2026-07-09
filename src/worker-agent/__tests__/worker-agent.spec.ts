@@ -362,6 +362,58 @@ describe('WorkerAgent', () => {
     );
   });
 
+  it('advertises managed browser downloads as a read-only file-transfer root', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      browserAutomation: {
+        enabled: true,
+        profileDir: '/tmp/aio-auto-profile',
+      },
+      fileTransfer: {
+        enabled: true,
+        maxFileBytes: 1024,
+        roots: [
+          {
+            id: 'scratch',
+            label: 'AIO Scratch',
+            path: '/tmp/aio-transfers',
+            read: true,
+            write: true,
+          },
+        ],
+      },
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+
+    expect(vi.mocked(reportCapabilities)).toHaveBeenCalledWith(
+      config.workingDirectories,
+      config.maxConcurrentInstances,
+      expect.objectContaining({
+        enabled: true,
+        profileDir: '/tmp/aio-auto-profile',
+      }),
+      undefined,
+      expect.objectContaining({ enabled: false, running: false }),
+      expect.objectContaining({
+        enabled: true,
+        roots: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'browserDownloads',
+            label: 'Browser Downloads',
+            path: '/tmp/aio-auto-profile/Downloads',
+            read: true,
+            write: false,
+          }),
+        ]),
+      }),
+    );
+  });
+
   it('does not recheck extension relay native-host registration before the 60 second repair interval', async () => {
     const config: WorkerConfig = {
       ...mockConfig,

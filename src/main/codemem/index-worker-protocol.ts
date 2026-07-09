@@ -45,6 +45,11 @@ export interface GetStatsMsg {
   id: number;
 }
 
+export interface RunMaintenanceMsg {
+  type: 'run-maintenance';
+  id: number;
+}
+
 export interface ShutdownMsg {
   type: 'shutdown';
   id: number;
@@ -64,6 +69,7 @@ export type IndexWorkerRpcMsg =
   | RebuildIndexMsg
   | SearchWorkspaceChunksMsg
   | GetStatsMsg
+  | RunMaintenanceMsg
   | ShutdownMsg;
 export type IndexWorkerFireForgetMsg = StopWorkspaceWatcherMsg;
 export type IndexWorkerInboundMsg = IndexWorkerRpcMsg | IndexWorkerFireForgetMsg;
@@ -118,4 +124,11 @@ export interface CodeIndexStatusSnapshot {
   completedAt: number | null;
   etaMs: number | null;
   errorMessage: string | null;
+}
+
+export interface CodememMaintenanceSnapshot {
+  deletedWorkspaceHashes: string[];
+  retainedWorkspaceHashes: string[];
+  deletedOrphanChunks: number;
+  deletedLegacyMerkleNodes: number;
 }

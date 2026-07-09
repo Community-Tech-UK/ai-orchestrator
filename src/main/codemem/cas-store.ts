@@ -9,9 +9,13 @@ import type {
   WorkspaceHash,
 } from './types';
 import {
+  clearLegacyMerkleNodes as clearLegacyMerkleNodesFromDb,
   deleteWorkspaceIndex as deleteWorkspaceIndexFromDb,
   listWorkspaceIndexStats as listWorkspaceIndexStatsFromDb,
+  optimizeSearchIndex as optimizeSearchIndexInDb,
+  pruneUnreferencedChunks as pruneUnreferencedChunksFromDb,
   type WorkspaceIndexStats,
+  vacuumFreelistPages as vacuumFreelistPagesInDb,
 } from './cas-workspace-index-maintenance';
 
 const logger = getLogger('CasStore');
@@ -72,20 +76,6 @@ interface WorkspaceSymbolRow {
   end_character: number | null;
   signature: string | null;
   doc_comment: string | null;
-}
-
-interface WorkspaceChunkRow {
-  id: number;
-  workspace_hash: string;
-  path_from_root: string;
-  chunk_index: number;
-  content_hash: string;
-  start_line: number;
-  end_line: number;
-  language: string;
-  chunk_type: Chunk['chunkType'];
-  name: string;
-  updated_at: number;
 }
 
 interface WorkspaceChunkSearchRow {
@@ -487,7 +477,7 @@ export class CasStore {
     `);
 
     const transaction = this.db.transaction((rows: WorkspaceChunkRecord[]) => {
-      const existingRows = existingStmt.all(workspaceHash, pathFromRoot) as Array<{ id: number }>;
+      const existingRows = existingStmt.all(workspaceHash, pathFromRoot) as { id: number }[];
       for (const row of existingRows) {
         deleteFtsStmt.run(row.id);
       }
@@ -569,7 +559,7 @@ export class CasStore {
       'DELETE FROM workspace_chunks WHERE workspace_hash = ? AND path_from_root = ?',
     );
     const transaction = this.db.transaction(() => {
-      const existingRows = existingStmt.all(workspaceHash, pathFromRoot) as Array<{ id: number }>;
+      const existingRows = existingStmt.all(workspaceHash, pathFromRoot) as { id: number }[];
       for (const row of existingRows) {
         deleteFtsStmt.run(row.id);
       }
@@ -584,6 +574,22 @@ export class CasStore {
 
   deleteWorkspaceIndex(workspaceHash: WorkspaceHash): void {
     deleteWorkspaceIndexFromDb(this.db, workspaceHash);
+  }
+
+  pruneUnreferencedChunks(): number {
+    return pruneUnreferencedChunksFromDb(this.db);
+  }
+
+  clearLegacyMerkleNodes(): number {
+    return clearLegacyMerkleNodesFromDb(this.db);
+  }
+
+  optimizeSearchIndex(): void {
+    optimizeSearchIndexInDb(this.db);
+  }
+
+  vacuumFreelistPages(): void {
+    vacuumFreelistPagesInDb(this.db);
   }
 
   upsertIndexStatus(status: CodeIndexStatusRecord): void {

@@ -104,6 +104,28 @@ describe('history title helpers', () => {
       )
     ).toBe('Plan the smoke test');
   });
+
+  it('ignores a persisted AI title that is only unfinished <think> reasoning', () => {
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({
+          aiTitle: '<think> Alright, I need to summarize this session.',
+          firstUserMessage: 'Fix tab renaming titles',
+        })
+      )
+    ).toBe('Fix tab renaming titles');
+  });
+
+  it('strips closed <think> reasoning from a persisted AI title', () => {
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({
+          aiTitle: '<think>Need a concise title.</think>\nTab rename sanitizer',
+          firstUserMessage: 'Fix tab renaming titles',
+        })
+      )
+    ).toBe('Tab rename sanitizer');
+  });
 });
 
 describe('frontLoadTitle', () => {
@@ -200,6 +222,24 @@ describe('resolveEffectiveInstanceTitle', () => {
     expect(
       resolveEffectiveInstanceTitle({ displayName: 'New Session', isRenamed: false })
     ).toBe('New Session');
+  });
+
+  it('does not display unfinished <think> reasoning from an auto-generated live displayName', () => {
+    expect(
+      resolveEffectiveInstanceTitle(
+        { displayName: '<think> Okay, I need to summarize this session.', isRenamed: false },
+        makeEntry({ firstUserMessage: 'Fix tab renaming titles' })
+      )
+    ).toBe('Fix tab renaming titles');
+  });
+
+  it('preserves a user-renamed displayName even if it contains literal <think> text', () => {
+    expect(
+      resolveEffectiveInstanceTitle(
+        { displayName: '<think> literal docs note', isRenamed: true },
+        makeEntry({ firstUserMessage: 'Fix tab renaming titles' })
+      )
+    ).toBe('<think> literal docs note');
   });
 });
 

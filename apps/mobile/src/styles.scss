@@ -196,6 +196,37 @@ code {
   color: var(--accent-online);
 }
 
+.markdown-body.loop-output {
+  width: 100%;
+}
+
+.markdown-body.loop-output pre {
+  overflow-x: hidden;
+  white-space: pre-wrap;
+}
+
+.markdown-body.loop-output code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.markdown-body.loop-output pre code {
+  min-width: 0;
+}
+
+.markdown-body.loop-output table {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.markdown-body.loop-output th,
+.markdown-body.loop-output td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .markdown-body img {
   display: block;
   max-width: 100%;

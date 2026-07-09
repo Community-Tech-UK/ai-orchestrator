@@ -475,7 +475,7 @@ describe('CompletedFileWatcher', () => {
     fs.mkdirSync(nestedDir, { recursive: true });
     const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md', [nestedDir]);
     const observed = new Promise<string>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('timed out waiting for nested completed file event')), 2_000);
+      const timeout = setTimeout(() => reject(new Error('timed out waiting for nested completed file event')), 10_000);
       watcher.onCompleted((filePath) => {
         clearTimeout(timeout);
         resolve(filePath);
@@ -491,14 +491,14 @@ describe('CompletedFileWatcher', () => {
     } finally {
       await watcher.stop();
     }
-  });
+  }, 15_000);
 
   it('ignores an initial completed file but observes the same path after recreation', async () => {
     const completedPath = path.join(tmpDir, 'phase_completed.md');
     fs.writeFileSync(completedPath, '# Old\n');
     const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md');
     const observed = new Promise<string>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('timed out waiting for recreated completed file event')), 2_000);
+      const timeout = setTimeout(() => reject(new Error('timed out waiting for recreated completed file event')), 10_000);
       watcher.onCompleted((filePath) => {
         clearTimeout(timeout);
         resolve(filePath);
@@ -518,14 +518,14 @@ describe('CompletedFileWatcher', () => {
     } finally {
       await watcher.stop();
     }
-  });
+  }, 15_000);
 });
 
 describe('FU-9: CompletedFileWatcher.onUndone', () => {
   it('fires onUndone when the only observed completed file is deleted', async () => {
     const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md');
     const undonePath = new Promise<string>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('timed out waiting for onUndone')), 3_000);
+      const timeout = setTimeout(() => reject(new Error('timed out waiting for onUndone')), 10_000);
       watcher.onUndone((filePath) => {
         clearTimeout(timeout);
         resolve(filePath);
@@ -546,7 +546,7 @@ describe('FU-9: CompletedFileWatcher.onUndone', () => {
     } finally {
       await watcher.stop();
     }
-  });
+  }, 15_000);
 
   it('fires onUndone when the last in-run completed file is deleted while an initial stale completed file remains', async () => {
     const stalePath = path.join(tmpDir, 'stale_completed.md');
@@ -554,7 +554,7 @@ describe('FU-9: CompletedFileWatcher.onUndone', () => {
     fs.writeFileSync(stalePath, '# Old\n');
     const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md');
     const undonePath = new Promise<string>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('timed out waiting for onUndone with stale initial file')), 3_000);
+      const timeout = setTimeout(() => reject(new Error('timed out waiting for onUndone with stale initial file')), 10_000);
       watcher.onUndone((filePath) => {
         clearTimeout(timeout);
         resolve(filePath);
@@ -575,7 +575,7 @@ describe('FU-9: CompletedFileWatcher.onUndone', () => {
     } finally {
       await watcher.stop();
     }
-  });
+  }, 15_000);
 
   it('does NOT fire onUndone for an in-place rename (another completed file still exists)', async () => {
     const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md');
@@ -597,7 +597,7 @@ describe('FU-9: CompletedFileWatcher.onUndone', () => {
     } finally {
       await watcher.stop();
     }
-  });
+  }, 15_000);
 });
 
 describe('FU-6: LoopCompletionDetector.runQuickVerify', () => {

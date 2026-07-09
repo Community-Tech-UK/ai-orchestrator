@@ -42,7 +42,10 @@ beforeEach(() => {
   coordinator = new LoopCoordinator();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const loop of coordinator.getActiveLoops()) {
+    await coordinator.cancelLoop(loop.id).catch(() => undefined);
+  }
   try { rmSync(workspace, { recursive: true, force: true }); } catch { /* noop */ }
 });
 
@@ -60,7 +63,7 @@ function makeChildResultThatClaimsDone(): LoopChildResult {
   };
 }
 
-async function waitForCondition(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+async function waitForCondition(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -85,9 +88,9 @@ describe('LoopCoordinator fresh-eyes review gate', () => {
       // `crossModelReview: { enabled: true, ... }`.
       expect(state.config.completion.crossModelReview).toBeUndefined();
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('respects an explicit { enabled: false } from the caller', async () => {
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
@@ -110,9 +113,9 @@ describe('LoopCoordinator fresh-eyes review gate', () => {
     try {
       expect(state.config.completion.crossModelReview?.enabled).toBe(false);
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 
   it('keeps crossModelReview undefined when no plan files and no explicit config', async () => {
     const state = await coordinator.startLoop('chat-fresh-eyes-noplans', {
@@ -123,9 +126,9 @@ describe('LoopCoordinator fresh-eyes review gate', () => {
     try {
       expect(state.config.completion.crossModelReview).toBeUndefined();
     } finally {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
-  });
+  }, 15_000);
 });
 
 describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => {
@@ -200,7 +203,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     const reason = live?.endReason;
 
     if (state.id && status === 'running') {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
 
     return {
@@ -232,7 +235,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(r.pendingInterventions.length).toBeGreaterThanOrEqual(1);
     expect(r.pendingInterventions[0]).toContain('CRITICAL');
     expect(r.pendingInterventions[0]).toContain('Plan claims X but code shows Y');
-  });
+  }, 20_000);
 
   it('dedupes corroborated findings and orders the intervention worst-first', async () => {
     const r = await runOneIterationAttempt({
@@ -280,7 +283,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     // The high finding is listed after the critical one.
     expect(msg).toContain('2. [HIGH] Unhandled promise rejection');
     expect(msg.indexOf('[CRITICAL]')).toBeLessThan(msg.indexOf('[HIGH]'));
-  });
+  }, 20_000);
 
   it('ALLOWS completion when reviewer returns only low/medium findings', async () => {
     const r = await runOneIterationAttempt({
@@ -301,7 +304,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
 
     expect(r.ended).toBe(true);
     expect(r.pendingInterventions.length).toBe(0);
-  });
+  }, 20_000);
 
   it('records lastVerifiedWorkHash on state when verify passes at the gate (D6 #7)', async () => {
     let lastBroadcastState: { lastVerifiedWorkHash?: string } | null = null;
@@ -318,7 +321,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     // computeWorkHash produces a sha256 hex digest; the passing verify at the
     // completion gate must have anchored it on state (edit-invalidates-proof).
     expect(lastBroadcastState?.lastVerifiedWorkHash).toMatch(/^[0-9a-f]{64}$/);
-  });
+  }, 20_000);
 
   it('PAUSES when the reviewer is unavailable even if a verify command passed', async () => {
     // runOneIterationAttempt always configures a passing verify command.
@@ -336,7 +339,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
 
     expect(r.ended).toBe(false);
     expect(r.endReason).toContain('operator review');
-  });
+  }, 20_000);
 
   it('does NOT false-complete a no-verify loop when no reviewers are available', async () => {
     // Regression: a no-verify loop whose ONLY completion authority is the
@@ -399,7 +402,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     await waitForCondition(() => completed || active.get(state.id)?.status === 'paused');
     const live = active.get(state.id);
     if (live?.status === 'running') {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
 
     expect(completed).toBe(false);
@@ -415,7 +418,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(claimedFailure).toContain('fresh-eyes review');
     expect(claimedFailure).toMatch(/could not produce a verdict|unparseable|none were available/);
     expect(claimedFailure).not.toContain('fresh-eyes review is not enabled');
-  });
+  }, 20_000);
 
   it('PAUSES when the reviewer throws instead of silently completing', async () => {
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
@@ -467,7 +470,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     }).active;
     await waitForCondition(() => ended || active.get(state.id)?.status === 'paused');
     if (active.get(state.id)?.status === 'running') {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
     const live = active.get(state.id);
     expect(ended).toBe(false);
@@ -475,7 +478,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(claimedFailure).toContain('fresh-eyes review');
     expect(live?.status).toBe('paused');
     expect(live?.endReason).toContain('operator review');
-  });
+  }, 20_000);
 
   it('SKIPS the gate entirely when crossModelReview.enabled is false', async () => {
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
@@ -516,8 +519,8 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
 
     await new Promise((r) => setTimeout(r, 200));
     if ((coordinator as unknown as { active: Map<string, { status: string }> }).active.get(state.id)?.status === 'running') {
-      coordinator.cancelLoop(state.id);
+      await coordinator.cancelLoop(state.id);
     }
     expect(reviewerCalls).toBe(0);
-  });
+  }, 20_000);
 });

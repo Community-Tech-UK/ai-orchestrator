@@ -52,7 +52,7 @@ export interface BrowserGatewayActionGuardOptions {
   targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
   driver: Pick<PuppeteerBrowserDriver, 'refreshTarget' | 'inspectElement'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'getTab'>;
-  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant'>;
+  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'consumeGrant'>;
   approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
   autoApproveRequests?: BrowserAutoApprovePredicate;
   /**
@@ -78,7 +78,7 @@ export class BrowserGatewayActionGuard {
   private readonly targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
   private readonly driver: Pick<PuppeteerBrowserDriver, 'refreshTarget' | 'inspectElement'>;
   private readonly extensionTabStore: Pick<BrowserExtensionTabStore, 'getTab'>;
-  private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant'>;
+  private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'consumeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
   private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
   private readonly escalations?: Pick<BrowserEscalationService, 'raise'>;
@@ -407,7 +407,7 @@ export class BrowserGatewayActionGuard {
     toolName: string,
     prepared: BrowserGatewayPreparedMutation,
   ): BrowserGatewayResult<null> {
-    this.onGrantedMutation?.({ grant: prepared.grant, actionClass: prepared.actionClass });
+    this.recordMutationSucceeded(prepared);
     return this.result({
       context: request,
       profileId: request.profileId,
@@ -424,6 +424,13 @@ export class BrowserGatewayActionGuard {
       autonomous: prepared.grant.autonomous,
       data: null,
     });
+  }
+
+  recordMutationSucceeded(prepared: BrowserGatewayPreparedMutation): void {
+    this.onGrantedMutation?.({ grant: prepared.grant, actionClass: prepared.actionClass });
+    if (prepared.grant.mode === 'per_action') {
+      this.grantStore.consumeGrant(prepared.grant.id);
+    }
   }
 
   mutationFailed(

@@ -1,6 +1,12 @@
 import type { MobileMessageDto } from '../core/models';
 
 const STAMP_GAP_MS = 15 * 60_000;
+const LOOP_TRANSCRIPT_KINDS = new Set<string>([
+  'loop-start',
+  'loop-intervene',
+  'loop-iteration',
+  'loop-summary',
+]);
 
 export type DisplayItem =
   | { kind: 'stamp'; id: string; label: string }
@@ -53,6 +59,11 @@ export function toolLabel(message: MobileMessageDto): string {
   const tool =
     (message.metadata?.['toolName'] as string) || (message.metadata?.['tool_name'] as string);
   return tool || message.content || 'tool';
+}
+
+export function isLoopTranscriptMessage(message: MobileMessageDto): boolean {
+  const kind = message.metadata?.['kind'];
+  return typeof kind === 'string' && LOOP_TRANSCRIPT_KINDS.has(kind);
 }
 
 export function formatStampLabel(ts: number, now: number): string {

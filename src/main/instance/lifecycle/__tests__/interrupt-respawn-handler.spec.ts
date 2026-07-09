@@ -414,6 +414,74 @@ describe('InterruptRespawnHandler', () => {
     );
   });
 
+  it('passes harness CLI env to replacement adapters during auto-respawn', async () => {
+    instance = createInstance('respawning');
+    instance.id = 'harness-env-respawn-instance';
+    instance.provider = 'claude';
+    instance.parentId = null;
+    instance.outputBuffer = [];
+    const harnessCliEnv = {
+      AIO_MCP: '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp',
+      AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: '/tmp/harness/tools.sock',
+      AI_ORCHESTRATOR_INSTANCE_ID: instance.id,
+    };
+
+    const previousAdapter = adapter as unknown as CliAdapter;
+    const replacement = new RespawnReplacementAdapter();
+    replacement.spawn.mockResolvedValue(777);
+    providerRuntime.createAdapter.mockReturnValue(replacement);
+
+    let currentAdapter: CliAdapter | undefined = previousAdapter;
+    const setAdapter = vi.fn((_id: string, next: CliAdapter) => {
+      currentAdapter = next;
+    });
+    const deleteAdapter = vi.fn(() => {
+      currentAdapter = undefined;
+    });
+    const getHarnessCliEnv = vi.fn(() => harnessCliEnv);
+
+    handler = new InterruptRespawnHandler({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: () => currentAdapter,
+      setAdapter,
+      deleteAdapter,
+      queueUpdate,
+      markInterrupted: vi.fn(),
+      clearInterrupted,
+      addToOutputBuffer,
+      setupAdapterEvents: vi.fn(),
+      transitionState: (target, status) => {
+        target.status = status;
+      },
+      getAdapterRuntimeCapabilities: () => ({
+        supportsResume: false,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+      }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude'),
+      getMcpConfig: () => [],
+      getHarnessCliEnv,
+      getPermissionHookPath: () => undefined,
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
+      buildReplayContinuityMessage: () => 'replay continuity',
+      buildFallbackHistory: vi.fn(),
+      emitOutput,
+    });
+
+    await handler.respawnAfterUnexpectedExit(instance.id);
+
+    expect(getHarnessCliEnv).toHaveBeenCalledWith(instance.executionLocation, instance.id, undefined);
+    expect(providerRuntime.createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cliType: 'claude',
+        options: expect.objectContaining({ env: harnessCliEnv }),
+      }),
+    );
+  });
+
   it('uses durable provider sessions for root Codex auto-respawn', async () => {
     instance = createInstance('respawning');
     instance.id = 'root-codex-respawn-instance';

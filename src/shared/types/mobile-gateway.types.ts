@@ -83,6 +83,30 @@ export interface MobileModelDto {
 
 export type MobileModelCatalog = Record<string, MobileModelDto[]>;
 
+/**
+ * A non-destructive preview of what a new session would actually start with,
+ * given a chosen provider (`auto` or a specific one) and optional model
+ * override. Computed on the host because it depends on which CLIs are installed
+ * there and the host's saved per-provider model/default settings — the phone
+ * can't know either. Mirrors the up-front resolution the spawn path performs
+ * (provider auto-detect + model resolution/validation); see
+ * mobile-gateway-session-plan.ts.
+ */
+export interface MobileSessionPlan {
+  /** Resolved CLI provider id, e.g. 'claude' (what 'auto' picked). */
+  provider: string;
+  /** Human label for the provider, e.g. 'Claude'. */
+  providerLabel: string;
+  /** Resolved concrete model id, or null when the provider uses its built-in default. */
+  model: string | null;
+  /** Human label for the model, e.g. 'Opus 4.8', or null for the provider default. */
+  modelLabel: string | null;
+  /** Reasoning effort a fresh session runs at, or null when provider-decided. */
+  reasoningEffort: string | null;
+  /** Human label for the effort, e.g. 'High', or null when provider-decided. */
+  reasoningEffortLabel: string | null;
+}
+
 /** A project = a distinct workingDirectory with its sessions rolled up. */
 export interface MobileProjectDto {
   /** Stable key (the workingDirectory, or '__no_workspace__'). */

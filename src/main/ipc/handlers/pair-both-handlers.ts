@@ -17,6 +17,14 @@ import {
   updateRemoteNodeConfig,
 } from '../../remote-node/remote-node-config';
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
+import {
+  getWorkerModeRuntimeService,
+  type WorkerModeRuntimeStatus,
+} from '../../remote-node/worker-mode-runtime-service';
+import {
+  PairBothDiscoveryBrowser,
+  PairBothDiscoveryPublisher,
+} from '../../remote-node/pair-both-discovery';
 import { PairBothRendezvousService } from '../../remote-node/pair-both-rendezvous-service';
 import {
   getLocalIpv4Addresses,
@@ -32,6 +40,8 @@ import { DEFAULT_CONFIG_PATH } from '../../../worker-agent/worker-config';
 const logger = getLogger('PairBothHandlers');
 
 let service: PairBothRendezvousService | null = null;
+let discoveryPublisher: PairBothDiscoveryPublisher | null = null;
+let discoveryBrowser: PairBothDiscoveryBrowser | null = null;
 
 export function registerPairBothHandlers(): void {
   ipcMain.handle(
@@ -53,6 +63,7 @@ export function registerPairBothHandlers(): void {
           state.sessionId,
           selectReachableHost(config.serverHost),
         );
+        getDiscoveryPublisher().publish(candidate);
 
         return {
           success: true,
@@ -75,6 +86,7 @@ export function registerPairBothHandlers(): void {
     IPC_CHANNELS.PAIR_BOTH_COORDINATOR_STOP,
     async (): Promise<IpcResponse> => {
       try {
+        getDiscoveryPublisher().unpublish();
         await getService().shutdown();
         return { success: true };
       } catch (error) {
@@ -89,6 +101,7 @@ export function registerPairBothHandlers(): void {
       try {
         const { sessionId } = PairBothSessionPayloadSchema.parse(payload);
         const state = await getService().approveCoordinatorPairing(sessionId);
+        getDiscoveryPublisher().unpublish();
         return { success: true, data: state };
       } catch (error) {
         return failure('PAIR_BOTH_COORDINATOR_APPROVE_FAILED', error);
@@ -101,6 +114,7 @@ export function registerPairBothHandlers(): void {
     async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
         const { sessionId } = PairBothSessionPayloadSchema.parse(payload);
+        getDiscoveryPublisher().unpublish();
         return {
           success: true,
           data: getService().rejectCoordinatorPairing(sessionId),
@@ -125,7 +139,11 @@ export function registerPairBothHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.PAIR_BOTH_WORKER_DISCOVER,
     async (): Promise<IpcResponse> => {
-      return { success: true, data: [] };
+      try {
+        return { success: true, data: await getDiscoveryBrowser().discover() };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_DISCOVER_FAILED', error);
+      }
     },
   );
 
@@ -159,7 +177,8 @@ export function registerPairBothHandlers(): void {
     async (): Promise<IpcResponse> => {
       try {
         const config = await getService().waitForWorkerPairingResult();
-        return { success: true, data: sanitizeWorkerConfig(config) };
+        const runtime = startWorkerRuntimeIfConfigured();
+        return { success: true, data: sanitizeWorkerConfig(config, runtime) };
       } catch (error) {
         return failure('PAIR_BOTH_WORKER_WAIT_RESULT_FAILED', error);
       }
@@ -173,7 +192,8 @@ export function registerPairBothHandlers(): void {
         const { input } = PairBothManualPairingPayloadSchema.parse(payload);
         const parsed = parsePairingConfigInput(input);
         const config = writePairedWorkerConfig(DEFAULT_CONFIG_PATH, parsed);
-        return { success: true, data: sanitizeWorkerConfig(config) };
+        const runtime = startWorkerRuntimeIfConfigured();
+        return { success: true, data: sanitizeWorkerConfig(config, runtime) };
       } catch (error) {
         return failure('PAIR_BOTH_WORKER_APPLY_MANUAL_FAILED', error);
       }
@@ -186,6 +206,16 @@ function getService(): PairBothRendezvousService {
     auth: getRemoteAuthService(),
   });
   return service;
+}
+
+function getDiscoveryPublisher(): PairBothDiscoveryPublisher {
+  discoveryPublisher ??= new PairBothDiscoveryPublisher();
+  return discoveryPublisher;
+}
+
+function getDiscoveryBrowser(): PairBothDiscoveryBrowser {
+  discoveryBrowser ??= new PairBothDiscoveryBrowser();
+  return discoveryBrowser;
 }
 
 async function ensureRemoteNodeServerRunning(): Promise<void> {
@@ -213,7 +243,23 @@ function selectReachableHost(configuredHost: string): string {
     ?? '127.0.0.1';
 }
 
-function sanitizeWorkerConfig(config: WorkerConfig): Record<string, unknown> {
+function startWorkerRuntimeIfConfigured(): WorkerModeRuntimeStatus | undefined {
+  const workerMode = getSettingsManager().get('workerMode');
+  if (!workerMode.startWorkerOnLaunch) {
+    return undefined;
+  }
+  if (workerMode.installWorkerService) {
+    throw new Error(
+      'Worker service installation from Worker Mode requires the service installer. Disable installWorkerService to run while Harness is open.',
+    );
+  }
+  return getWorkerModeRuntimeService().start({ configPath: DEFAULT_CONFIG_PATH });
+}
+
+function sanitizeWorkerConfig(
+  config: WorkerConfig,
+  runtime?: WorkerModeRuntimeStatus,
+): Record<string, unknown> {
   return {
     nodeId: config.nodeId,
     name: config.name,
@@ -221,6 +267,7 @@ function sanitizeWorkerConfig(config: WorkerConfig): Record<string, unknown> {
     namespace: config.namespace,
     maxConcurrentInstances: config.maxConcurrentInstances,
     workingDirectories: config.workingDirectories,
+    ...(runtime ? { runtime } : {}),
   };
 }
 

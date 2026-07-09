@@ -59,6 +59,8 @@
 }
 .msg { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .bubble { word-break: break-word; font-size: 15px; line-height: 1.4; max-width: 100%; }
+.msg.loop-output { align-self: stretch; }
+.msg.loop-output .bubble { width: 100%; }
 .t-user { align-items: flex-end; }
 .t-user .bubble { background: var(--accent-action); color: #fff; padding: 8px 12px; border-radius: 16px; max-width: 80%; }
 .t-assistant .bubble { color: var(--text); }

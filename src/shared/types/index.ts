@@ -42,3 +42,5 @@ export * from './thin-client-event.types';
 export * from './campaign.types';
 export * from './local-model-runtime.types';
 export * from './pair-both.types';
+export * from './desktop-gateway.types';
+export * from './desktop-gateway-settings.types';

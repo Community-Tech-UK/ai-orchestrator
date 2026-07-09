@@ -214,17 +214,9 @@ export class PairBothRendezvousService {
 
   async approveCoordinatorPairing(sessionId: string): Promise<PairBothSessionState> {
     this.coordinatorState = this.store.approveCoordinator(sessionId);
-    const result = this.store.produceEncryptedPairingPayload(sessionId);
-    const socket = this.requireOpenCoordinatorSocket();
-    if (!result.encryptedPayload) {
-      throw new Error('Encrypted pairing payload was not produced');
+    if (this.coordinatorState.workerConfirmed) {
+      return this.deliverEncryptedPairingPayload(sessionId);
     }
-    sendMessage(socket, {
-      type: 'pairing.payload',
-      sessionId,
-      encryptedPayload: result.encryptedPayload,
-    });
-    this.coordinatorState = this.store.getState(sessionId) ?? this.coordinatorState;
     return this.coordinatorState;
   }
 
@@ -271,6 +263,9 @@ export class PairBothRendezvousService {
             type: 'worker.confirmed.ack',
             sessionId: message.sessionId,
           });
+          if (this.coordinatorState.coordinatorApproved) {
+            this.deliverEncryptedPairingPayload(message.sessionId, socket);
+          }
         }
       } catch (error) {
         sendMessage(socket, {
@@ -367,6 +362,27 @@ export class PairBothRendezvousService {
     const parsed = parsePairingConfigInput(JSON.stringify(decrypted));
     this.workerResult = writePairedWorkerConfig(this.workerConfigPath, parsed);
     this.workerResultDeferred?.resolve(this.workerResult);
+  }
+
+  private deliverEncryptedPairingPayload(
+    sessionId: string,
+    socket = this.requireOpenCoordinatorSocket(),
+  ): PairBothSessionState {
+    const result = this.store.produceEncryptedPairingPayload(sessionId);
+    if (!result.encryptedPayload) {
+      throw new Error('Encrypted pairing payload was not produced');
+    }
+    sendMessage(socket, {
+      type: 'pairing.payload',
+      sessionId,
+      encryptedPayload: result.encryptedPayload,
+    });
+    const latest = this.store.getState(sessionId);
+    if (!latest) {
+      throw new Error('Pairing session disappeared after payload delivery');
+    }
+    this.coordinatorState = latest;
+    return latest;
   }
 
   private requireOpenCoordinatorSocket(): WebSocket {

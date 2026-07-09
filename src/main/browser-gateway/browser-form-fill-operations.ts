@@ -60,6 +60,8 @@ export interface FillOperationDeps {
   credentialAuthorizations?: Pick<CredentialAuthorizationService, 'check'>;
   /** Mailbox one-time-code reader; absent = email_code fills unavailable. */
   emailCodeReader?: Pick<BrowserEmailCodeReader, 'fetchCode'>;
+  /** Count successful agent-owned account creation against a campaign lease. */
+  recordNewAccount?: (request: BrowserGatewayCreateAgentCredentialRequest & { url: string }) => void;
 }
 
 export async function executeFillPlanOperation(
@@ -333,6 +335,7 @@ export async function createAgentCredentialOperation(
 
   try {
     const created = await vault.createAgentCredential({ origin, username: request.username });
+    deps.recordNewAccount?.({ ...request, url: origin });
     return deps.result({
       context,
       profileId: request.profileId,

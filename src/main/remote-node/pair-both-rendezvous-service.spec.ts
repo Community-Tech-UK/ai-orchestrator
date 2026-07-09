@@ -73,4 +73,50 @@ describe('PairBothRendezvousService', () => {
     expect(persisted).not.toHaveProperty('nodeToken');
     expect(persisted).not.toHaveProperty('recoveryToken');
   });
+
+  it('allows coordinator approval before worker confirmation and releases payload after both confirm', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pair-both-rendezvous-approval-first-'));
+    const configPath = path.join(dir, 'worker-node.json');
+    const issuePairingCredential = vi.fn(() => ({
+      token: 'one-time-token',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 300_000,
+    }));
+    const coordinator = new PairBothRendezvousService({
+      auth: { issuePairingCredential },
+      machineName: 'James MacBook',
+    });
+    const worker = new PairBothRendezvousService({
+      auth: { issuePairingCredential: vi.fn() },
+      machineName: 'Noah PC',
+      workerConfigPath: configPath,
+    });
+    services.push(coordinator, worker);
+
+    const coordinatorState = await coordinator.startCoordinatorPairing({
+      host: '127.0.0.1',
+      namespace: 'default',
+      coordinatorUrl: 'ws://127.0.0.1:4878',
+    });
+    const candidate = coordinator.getLocalCandidate(coordinatorState.sessionId, '127.0.0.1');
+    await worker.connectWorkerToCandidate(candidate);
+
+    const approved = await coordinator.approveCoordinatorPairing(coordinatorState.sessionId);
+    expect(approved.coordinatorApproved).toBe(true);
+    expect(approved.workerConfirmed).toBe(false);
+    expect(approved.payloadDelivered).toBe(false);
+    expect(issuePairingCredential).not.toHaveBeenCalled();
+
+    const result = worker.waitForWorkerPairingResult();
+    await worker.confirmWorkerCode();
+    await result;
+
+    expect(issuePairingCredential).toHaveBeenCalledTimes(1);
+    const persisted = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(persisted).toMatchObject({
+      name: 'Noah PC',
+      authToken: 'one-time-token',
+      coordinatorUrl: 'ws://127.0.0.1:4878',
+    });
+  });
 });

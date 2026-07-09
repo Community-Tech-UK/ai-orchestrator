@@ -11,6 +11,7 @@ import type {
 import type { BrowserGrantStore } from './browser-grant-store';
 import { providerFromContext } from './browser-gateway-action-guard';
 import { existingTabGrantNodeId } from './browser-grant-scope';
+import { isOriginAllowed } from './browser-origin-policy';
 import { getLogger } from '../logging/logger';
 
 /**
@@ -86,6 +87,13 @@ export type ClaimCampaignLeaseResult =
   | { granted: true; grant: BrowserPermissionGrant; renewed: boolean }
   | { granted: false; reason: string };
 
+export interface RecordCampaignActionInput {
+  profileId: string;
+  instanceId?: string;
+  provider?: string;
+  url?: string;
+}
+
 export interface BrowserCampaignRuntimeOptions {
   campaigns: Pick<
     BrowserCampaignService,
@@ -126,6 +134,58 @@ export class BrowserCampaignRuntime {
         : info.actionClass === 'file-upload'
           ? 'upload'
           : 'action';
+    this.recordCampaignAction(campaignId, kind);
+  }
+
+  /**
+   * `browser.create_agent_credential` is intentionally not a normal guarded
+   * browser mutation: it creates a vaulted account after standing credential
+   * authorization, and no secret enters model context. Still, campaign
+   * `maxNewAccounts` is load-bearing for unattended signup pilots, so a
+   * successful creation must tick the matching live campaign lease.
+   */
+  recordNewAccount(input: RecordCampaignActionInput): void {
+    this.recordCampaignActionForInstance(input, 'newAccount');
+  }
+
+  /** Count successful `browser.navigate` calls under a matching campaign lease. */
+  recordNavigation(input: RecordCampaignActionInput): void {
+    this.recordCampaignActionForInstance(input, 'action', 'navigate');
+  }
+
+  private recordCampaignActionForInstance(
+    input: RecordCampaignActionInput,
+    kind: BrowserCampaignActionKind,
+    requiredActionClass?: BrowserActionClass,
+  ): void {
+    if (!input.instanceId) {
+      return;
+    }
+    const nodeId = existingTabGrantNodeId(input.profileId);
+    const provider = providerFromContext(input.provider);
+    const grant = this.grantStore
+      .listGrants({
+        instanceId: input.instanceId,
+        ...(nodeId ? { nodeId, profileId: input.profileId } : { profileId: input.profileId }),
+      })
+      .find(
+        (candidate) =>
+          candidate.provider === provider &&
+          campaignIdFromGrant(candidate) !== null &&
+          (!requiredActionClass || candidate.allowedActionClasses.includes(requiredActionClass)) &&
+          (!input.url || isOriginAllowed(input.url, candidate.allowedOrigins).allowed),
+      );
+    const campaignId = grant ? campaignIdFromGrant(grant) : null;
+    if (!campaignId) {
+      return;
+    }
+    this.recordCampaignAction(campaignId, kind);
+  }
+
+  private recordCampaignAction(
+    campaignId: string,
+    kind: BrowserCampaignActionKind,
+  ): void {
     try {
       const result = this.campaigns.recordAction(campaignId, kind);
       if (result.paused) {

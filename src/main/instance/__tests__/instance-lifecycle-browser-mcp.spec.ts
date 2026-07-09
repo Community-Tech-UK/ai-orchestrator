@@ -10,6 +10,7 @@ const FAKE_AIO_MCP_PATH =
 const FAKE_ORCHESTRATOR_TOOLS_SOCKET = '/tmp/harness/ot-test.sock';
 const FAKE_CODEMEM_SOCKET = '/tmp/harness/cm-test.sock';
 const FAKE_BROWSER_GATEWAY_SOCKET = '/tmp/browser-gateway.sock';
+const FAKE_DESKTOP_GATEWAY_SOCKET = '/tmp/computer-use.sock';
 
 vi.mock('electron', () => ({
   app: {
@@ -23,6 +24,11 @@ const browserGatewayMocks = vi.hoisted(() => ({
   getBrowserGatewayRpcSocketPath: vi.fn(() => '/tmp/browser-gateway.sock'),
   buildChromeDevtoolsMcpConfigJson: vi.fn(() => '{"mcpServers":{"chrome-devtools":{}}}'),
   resolveChromeDevtoolsBrowserUrl: vi.fn(() => 'http://127.0.0.1:31234'),
+}));
+
+const desktopGatewayMocks = vi.hoisted(() => ({
+  buildComputerUseMcpConfigJson: vi.fn(() => '{"mcpServers":{"computer-use":{}}}'),
+  getDesktopGatewayRpcSocketPath: vi.fn(() => '/tmp/computer-use.sock'),
 }));
 
 const mcpInjectionMocks = vi.hoisted(() => ({
@@ -51,6 +57,11 @@ vi.mock('../../browser-gateway', () => ({
   getBrowserGatewayRpcSocketPath: browserGatewayMocks.getBrowserGatewayRpcSocketPath,
   buildChromeDevtoolsMcpConfigJson: browserGatewayMocks.buildChromeDevtoolsMcpConfigJson,
   resolveChromeDevtoolsBrowserUrl: browserGatewayMocks.resolveChromeDevtoolsBrowserUrl,
+}));
+
+vi.mock('../../desktop-gateway', () => ({
+  buildComputerUseMcpConfigJson: desktopGatewayMocks.buildComputerUseMcpConfigJson,
+  getDesktopGatewayRpcSocketPath: desktopGatewayMocks.getDesktopGatewayRpcSocketPath,
 }));
 
 vi.mock('../../mcp/mcp-multi-provider-singletons', () => ({
@@ -102,6 +113,9 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     browserGatewayMocks.getBrowserGatewayRpcSocketPath.mockReturnValue(
       FAKE_BROWSER_GATEWAY_SOCKET,
     );
+    desktopGatewayMocks.getDesktopGatewayRpcSocketPath.mockReturnValue(
+      FAKE_DESKTOP_GATEWAY_SOCKET,
+    );
   });
 
   it('adds Browser Gateway MCP config for local instances when the RPC socket is available', () => {
@@ -123,6 +137,30 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
 
     expect(configsForRemote(builder)).toEqual([]);
     expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).not.toHaveBeenCalled();
+  });
+
+  it('adds Computer Use MCP config for local instances when enabled and socket is available', () => {
+    const builder = makeBuilder({ computerUseEnabled: true });
+
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-desktop', 'codex');
+
+    expect(configs).toContain('{"mcpServers":{"computer-use":{}}}');
+    expect(desktopGatewayMocks.buildComputerUseMcpConfigJson).toHaveBeenCalledWith({
+      aioMcpCliPath: FAKE_AIO_MCP_PATH,
+      socketPath: FAKE_DESKTOP_GATEWAY_SOCKET,
+      instanceId: 'instance-desktop',
+      provider: 'codex',
+    });
+  });
+
+  it('does not add Computer Use MCP config when disabled or for remote instances', () => {
+    const disabledBuilder = makeBuilder({ computerUseEnabled: false });
+    disabledBuilder.getMcpConfig({ type: 'local' }, 'instance-desktop', 'codex');
+    expect(desktopGatewayMocks.buildComputerUseMcpConfigJson).not.toHaveBeenCalled();
+
+    const remoteBuilder = makeBuilder({ computerUseEnabled: true });
+    expect(configsForRemote(remoteBuilder)).toEqual([]);
+    expect(desktopGatewayMocks.buildComputerUseMcpConfigJson).not.toHaveBeenCalled();
   });
 
   it('adds chrome-devtools attach config when attach is enabled with a profile id', () => {
@@ -245,6 +283,9 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
     browserGatewayMocks.getBrowserGatewayRpcSocketPath.mockReturnValue(
       FAKE_BROWSER_GATEWAY_SOCKET,
     );
+    desktopGatewayMocks.getDesktopGatewayRpcSocketPath.mockReturnValue(
+      FAKE_DESKTOP_GATEWAY_SOCKET,
+    );
   });
 
   it('passes the SEA path + browser-gateway socket to buildBrowserGatewayMcpConfigJson', () => {
@@ -269,6 +310,36 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       socketPath: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
       instanceId: 'instance-tools',
     });
+  });
+
+  it('builds local shell env so agents can invoke aio-mcp settings directly', () => {
+    const builder = makeBuilder();
+
+    const env = builder.getHarnessCliEnv({ type: 'local' }, 'instance-tools');
+
+    expect(env).toMatchObject({
+      AIO_MCP: FAKE_AIO_MCP_PATH,
+      AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
+      AI_ORCHESTRATOR_INSTANCE_ID: 'instance-tools',
+    });
+    expect(env?.['PATH']?.split(':')[0]).toBe(
+      '/Applications/Harness.app/Contents/Resources/aio-mcp-cli',
+    );
+  });
+
+  it('omits shell env for remote instances and when prerequisites are unavailable', () => {
+    const builder = makeBuilder();
+
+    expect(builder.getHarnessCliEnv({ type: 'remote', nodeId: 'node-1' }, 'instance-tools')).toBeUndefined();
+
+    orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath.mockReturnValue(null);
+    expect(builder.getHarnessCliEnv({ type: 'local' }, 'instance-tools')).toBeUndefined();
+
+    orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath.mockReturnValue(
+      FAKE_ORCHESTRATOR_TOOLS_SOCKET,
+    );
+    aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(null);
+    expect(builder.getHarnessCliEnv({ type: 'local' }, 'instance-tools')).toBeUndefined();
   });
 
   it('passes the SEA path + codemem socket to buildCodememMcpConfig when codemem is enabled', () => {
@@ -315,6 +386,7 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
 function makeBuilder(
   overrides: {
     codememEnabled?: boolean;
+    computerUseEnabled?: boolean;
     chromeDevtoolsAttachEnabled?: boolean;
     chromeDevtoolsAttachProfileId?: string;
   } = {},
@@ -322,6 +394,7 @@ function makeBuilder(
   const settings = {
     getAll: () => ({
       codememEnabled: overrides.codememEnabled ?? false,
+      computerUseEnabled: overrides.computerUseEnabled ?? false,
       chromeDevtoolsAttachEnabled: overrides.chromeDevtoolsAttachEnabled ?? false,
       chromeDevtoolsAttachProfileId: overrides.chromeDevtoolsAttachProfileId ?? '',
     }),

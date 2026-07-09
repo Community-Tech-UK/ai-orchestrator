@@ -3,6 +3,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserGatewayService } from './browser-gateway-service';
+import { BrowserCampaignService } from './browser-campaign-store';
+import {
+  initializeBrowserCampaignRuntime,
+  stopBrowserCampaignRuntime,
+} from './browser-campaign-runtime';
 import { makeGrant, makeProfile, makeService, makeTarget } from './browser-gateway-service.test-helpers';
 import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
@@ -10,6 +15,7 @@ import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 describe('BrowserGatewayService', () => {
   afterEach(() => {
     BrowserGatewayService._resetForTesting();
+    stopBrowserCampaignRuntime();
     WorkerNodeRegistry._resetForTesting();
   });
 
@@ -289,6 +295,93 @@ describe('BrowserGatewayService', () => {
     });
   });
 
+  it('records managed-profile navigation against a live campaign lease', async () => {
+    const campaigns = new BrowserCampaignService();
+    const { service, grantStore } = makeService();
+    const runtime = initializeBrowserCampaignRuntime({
+      campaigns,
+      grantStore,
+      renewIntervalMs: 60 * 60 * 1000,
+    });
+    const campaign = campaigns.create({
+      label: 'Overnight navigation',
+      profileId: 'profile-1',
+      allowedOrigins: ['http://localhost:4567'],
+      allowedActionClasses: ['navigate', 'input', 'submit'],
+      budget: {
+        maxActions: 10,
+        maxSubmits: 5,
+        maxNewAccounts: 1,
+        maxUploads: 1,
+        maxDurationMs: 8 * 60 * 60 * 1000,
+      },
+    });
+    const lease = runtime.claimLease({
+      campaignId: campaign.id,
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+    expect(lease.granted).toBe(true);
+
+    await service.navigate({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      url: 'http://localhost:4567/next',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(campaigns.getCounters(campaign.id)).toMatchObject({
+      actions: 1,
+    });
+  });
+
+  it('records managed-profile clicks against a live campaign lease', async () => {
+    const campaigns = new BrowserCampaignService();
+    const { service, grantStore } = makeService();
+    const runtime = initializeBrowserCampaignRuntime({
+      campaigns,
+      grantStore,
+      renewIntervalMs: 60 * 60 * 1000,
+    });
+    const campaign = campaigns.create({
+      label: 'Overnight clicks',
+      profileId: 'profile-1',
+      allowedOrigins: ['http://localhost:4567'],
+      allowedActionClasses: ['navigate', 'input', 'submit'],
+      budget: {
+        maxActions: 1,
+        maxSubmits: 5,
+        maxNewAccounts: 1,
+        maxUploads: 1,
+        maxDurationMs: 8 * 60 * 60 * 1000,
+      },
+    });
+    const lease = runtime.claimLease({
+      campaignId: campaign.id,
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+    expect(lease.granted).toBe(true);
+
+    await service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.save',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(campaigns.getCounters(campaign.id)).toMatchObject({
+      actions: 1,
+    });
+    expect(campaigns.get(campaign.id)?.status).toBe('paused');
+    expect(grantStore.revokeGrant).toHaveBeenCalledWith(
+      'grant-1',
+      expect.stringContaining("Budget exhausted for 'action'"),
+    );
+  });
+
   it('downloads files from managed profiles through the driver under a download grant', async () => {
     const { service, driver } = makeService({
       grants: [
@@ -542,6 +635,7 @@ describe('BrowserGatewayService', () => {
       command: 'report_inventory',
       timeoutMs: 3_000,
       executionTimeoutMs: 2_500,
+      undeliveredWaitMs: 90_000,
     });
     expect(result.data).toEqual([
       expect.objectContaining({
@@ -1234,20 +1328,66 @@ describe('BrowserGatewayService', () => {
     );
   });
 
+  it('consumes per-action grants after successful typed input', async () => {
+    const { service, grantStore } = makeService({
+      grants: [
+        makeGrant({
+          mode: 'per_action',
+          allowedActionClasses: ['input'],
+        }),
+      ],
+    });
+
+    const result = await service.type({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'input[name="title"]',
+      value: 'Release notes',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(grantStore.consumeGrant).toHaveBeenCalledWith('grant-1');
+  });
+
+  it('consumes per-action grants after successful file downloads', async () => {
+    const { service, grantStore } = makeService({
+      grants: [
+        makeGrant({
+          mode: 'per_action',
+          allowedActionClasses: ['file-download'],
+        }),
+      ],
+    });
+
+    const result = await service.downloadFile({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'a.report',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(grantStore.consumeGrant).toHaveBeenCalledWith('grant-1');
+  });
+
   it('fails verified click when read-back does not match the expectation', async () => {
     const { service, driver } = makeService({
       grants: [makeGrant()],
     });
     driver.readControl.mockResolvedValueOnce({ checked: false });
 
-    const result = await service.click({
+    const request: Parameters<BrowserGatewayService['click']>[0] = {
       profileId: 'profile-1',
       targetId: 'target-1',
       selector: '#terms',
       verify: { checked: true },
       instanceId: 'instance-1',
       provider: 'copilot',
-    } as any);
+    };
+    const result = await service.click(request);
 
     expect(result).toMatchObject({
       decision: 'allowed',
@@ -1264,7 +1404,7 @@ describe('BrowserGatewayService', () => {
     });
     driver.readControl.mockResolvedValueOnce({ value: 'internal', selectedLabel: 'Internal' });
 
-    const result = await service.select({
+    const request: Parameters<BrowserGatewayService['select']>[0] = {
       profileId: 'profile-1',
       targetId: 'target-1',
       selector: 'select.track',
@@ -1272,7 +1412,8 @@ describe('BrowserGatewayService', () => {
       verify: { selectedLabel: 'Production' },
       instanceId: 'instance-1',
       provider: 'copilot',
-    } as any);
+    };
+    const result = await service.select(request);
 
     expect(result).toMatchObject({
       decision: 'allowed',
@@ -1291,7 +1432,7 @@ describe('BrowserGatewayService', () => {
       .mockResolvedValueOnce({ value: 'One' })
       .mockResolvedValueOnce({ value: 'wrong' });
 
-    const result = await service.fillForm({
+    const request: Parameters<BrowserGatewayService['fillForm']>[0] = {
       profileId: 'profile-1',
       targetId: 'target-1',
       fields: [
@@ -1300,7 +1441,8 @@ describe('BrowserGatewayService', () => {
       ],
       instanceId: 'instance-1',
       provider: 'copilot',
-    } as any);
+    };
+    const result = await service.fillForm(request);
 
     expect(driver.fillForm).toHaveBeenCalledWith('profile-1', 'target-1', [
       { selector: '#one', value: 'One' },
@@ -2230,6 +2372,55 @@ describe('BrowserGatewayService', () => {
     expect(vault.createAgentCredential).toHaveBeenCalledWith({
       origin: 'http://localhost:4567',
       username: 'james@communitytech.co.uk',
+    });
+  });
+
+  it('createAgentCredential records a new-account budget hit under a campaign lease', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(async () => ({ vaultItemRef: 'item-9', username: 'james@communitytech.co.uk' })),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const campaigns = new BrowserCampaignService();
+    const { service, grantStore } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+    });
+    const runtime = initializeBrowserCampaignRuntime({
+      campaigns,
+      grantStore,
+      renewIntervalMs: 60 * 60 * 1000,
+    });
+    const campaign = campaigns.create({
+      label: 'Overnight registrations',
+      profileId: 'profile-1',
+      allowedOrigins: ['http://localhost:4567'],
+      allowedActionClasses: ['navigate', 'input', 'submit'],
+      budget: {
+        maxActions: 10,
+        maxSubmits: 5,
+        maxNewAccounts: 1,
+        maxUploads: 1,
+        maxDurationMs: 8 * 60 * 60 * 1000,
+      },
+    });
+    const lease = runtime.claimLease({
+      campaignId: campaign.id,
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+    expect(lease.granted).toBe(true);
+
+    await service.createAgentCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      username: 'james@communitytech.co.uk',
+    });
+
+    expect(campaigns.getCounters(campaign.id)).toMatchObject({
+      newAccounts: 1,
     });
   });
 

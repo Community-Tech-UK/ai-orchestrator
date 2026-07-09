@@ -145,27 +145,38 @@ describe('BrowserCampaignService.recordAction', () => {
     expect(service.get(campaign.id)?.status).toBe('active');
   });
 
-  it('pauses the campaign once the matching budget is exceeded', () => {
+  it('pauses the campaign once the matching budget is exhausted', () => {
     const { service, onStateChange } = makeService();
     const campaign = service.create(input({ budget: budget({ maxActions: 1 }) }));
 
     const first = service.recordAction(campaign.id, 'action');
-    expect(first).toEqual({ paused: false });
-
-    const second = service.recordAction(campaign.id, 'action');
-    expect(second.paused).toBe(true);
-    expect(second.reason).toMatch(/action/);
-    expect(service.getCounters(campaign.id)?.actions).toBe(2);
+    expect(first.paused).toBe(true);
+    expect(first.reason).toMatch(/action/);
+    expect(service.getCounters(campaign.id)?.actions).toBe(1);
     expect(service.get(campaign.id)?.status).toBe('paused');
     expect(onStateChange).toHaveBeenCalledWith(
       expect.objectContaining({ id: campaign.id, status: 'paused' }),
     );
   });
 
+  it('pauses immediately when the matching budget reaches its limit', () => {
+    const { service } = makeService();
+    const campaign = service.create(input({ budget: budget({ maxActions: 2 }) }));
+
+    expect(service.recordAction(campaign.id, 'action')).toEqual({ paused: false });
+    const second = service.recordAction(campaign.id, 'action');
+
+    expect(second.paused).toBe(true);
+    expect(second.reason).toMatch(/action/);
+    expect(service.getCounters(campaign.id)?.actions).toBe(2);
+    expect(service.get(campaign.id)?.status).toBe('paused');
+    expect(service.canProceed(campaign.id).ok).toBe(false);
+  });
+
   it('counts a submit as both a submit and an action, and pauses on whichever budget trips first', () => {
     const { service } = makeService();
     const campaign = service.create(
-      input({ budget: budget({ maxActions: 100, maxSubmits: 1 }) }),
+      input({ budget: budget({ maxActions: 100, maxSubmits: 2 }) }),
     );
 
     const first = service.recordAction(campaign.id, 'submit');
@@ -289,8 +300,7 @@ describe('BrowserCampaignService state machine', () => {
   it('rejects resuming a campaign with an exhausted budget', () => {
     const { service } = makeService();
     const campaign = service.create(input({ budget: budget({ maxActions: 1 }) }));
-    service.recordAction(campaign.id, 'action'); // 1/1, still active
-    service.recordAction(campaign.id, 'action'); // 2/1, now paused
+    service.recordAction(campaign.id, 'action'); // 1/1, now paused
     expect(service.get(campaign.id)?.status).toBe('paused');
     expect(() => service.resume(campaign.id)).toThrow(BrowserCampaignError);
   });

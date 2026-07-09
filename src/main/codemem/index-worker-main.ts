@@ -18,7 +18,7 @@ import { getElectronParentPort } from '../runtime/electron-parent-port';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
-import { pruneCodememWorkspaces } from './codemem-pruner';
+import { runCodememMaintenance } from './codemem-pruner';
 import { CodeIndexManager } from './code-index-manager';
 import { PeriodicScan } from './periodic-scan';
 import { searchHydratedChunks } from './workspace-chunk-search';
@@ -26,6 +26,7 @@ import { workspaceHashForPath } from './symbol-id';
 import type { WorkspaceHash } from './types';
 import type {
   CodeIndexStatusSnapshot,
+  CodememMaintenanceSnapshot,
   IndexWorkerInboundMsg,
   IndexWorkerOutboundMsg,
   RebuildIndexMsg,
@@ -105,18 +106,9 @@ migrate(db);
 
 const store = new CasStore(db);
 try {
-  if (
-    typeof store.listWorkspaceIndexStats === 'function' &&
-    typeof store.deleteWorkspaceIndex === 'function'
-  ) {
-    pruneCodememWorkspaces(store, {
-      maxWorkspaces: Number(process.env['AIO_CODEMEM_MAX_WORKSPACES'] ?? 10),
-      maxManifestEntriesPerWorkspace: Number(process.env['AIO_CODEMEM_MAX_MANIFEST_ENTRIES'] ?? 500_000),
-    });
-    db.pragma('wal_checkpoint(TRUNCATE)');
-  }
+  runMaintenance();
 } catch (error) {
-  console.warn('Codemem pruning skipped', error instanceof Error ? error.message : String(error));
+  console.warn('Codemem maintenance skipped', error instanceof Error ? error.message : String(error));
 }
 const indexManager = new CodeIndexManager({ store });
 const periodicScan = new PeriodicScan({ store, mgr: indexManager });
@@ -258,6 +250,15 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
       break;
     }
 
+    case 'run-maintenance': {
+      try {
+        respond(msg.id, runMaintenance());
+      } catch (err) {
+        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
+      }
+      break;
+    }
+
     case 'shutdown': {
       shuttingDown = true;
       stopPeriodicDriftScan();
@@ -367,6 +368,15 @@ function degradedWarmWorkspaceResult(normalizedPath: string): WarmWorkspaceResul
     absPath: normalizedPath,
     primaryLanguage: 'typescript',
   };
+}
+
+function runMaintenance(): CodememMaintenanceSnapshot {
+  const result = runCodememMaintenance(store, {
+    maxWorkspaces: Number(process.env['AIO_CODEMEM_MAX_WORKSPACES'] ?? 10),
+    maxManifestEntriesPerWorkspace: Number(process.env['AIO_CODEMEM_MAX_MANIFEST_ENTRIES'] ?? 500_000),
+  });
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  return result;
 }
 
 // Signal readiness after all synchronous initialisation is complete.

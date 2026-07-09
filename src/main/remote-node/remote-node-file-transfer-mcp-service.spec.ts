@@ -278,6 +278,90 @@ describe('RemoteNodeFileTransferMcpService', () => {
     expect((result as { candidates: unknown[] }).candidates).toHaveLength(2);
   });
 
+  it('searches the managed browser downloads root before the user Downloads root', async () => {
+    const browserDownloadsRoot = {
+      id: 'browserDownloads',
+      label: 'Browser Downloads',
+      path: 'C:\\Users\\James\\.orchestrator\\browser-automation-profile\\Downloads',
+      read: true,
+      write: false,
+    };
+    node.capabilities.fileTransfer.roots.push(browserDownloadsRoot);
+    try {
+      const workspace = mkdtempSync(join(tmpdir(), 'aio-transfer-workspace-'));
+      const destination = join(workspace, '_scratch', 'aio-transfers', 'invoice.pdf');
+      const tools = createRemoteNodeFileTransferImplementations({
+        resolveLocalWorkspace: () => workspace,
+      });
+      const now = Date.now();
+      sendRpc
+        .mockResolvedValueOnce({
+          entries: [
+            {
+              path: `${browserDownloadsRoot.path}\\invoice.pdf`,
+              name: 'invoice.pdf',
+              size: 9,
+              modifiedAt: now,
+              isDirectory: false,
+              isSymlink: false,
+              restricted: false,
+              extension: '.pdf',
+            },
+          ],
+          truncated: false,
+        })
+        .mockResolvedValueOnce({
+          entries: [],
+          truncated: false,
+        })
+        .mockResolvedValueOnce({
+          exists: true,
+          isDirectory: false,
+          size: 9,
+          modifiedAt: now,
+          platform: 'win32',
+          withinBrowsableRoot: true,
+        });
+      copyFromRemote.mockResolvedValueOnce({
+        ok: true,
+        size: 9,
+        from: `windows-pc:${browserDownloadsRoot.path}\\invoice.pdf`,
+        to: destination,
+        sha256: 'c'.repeat(64),
+        mimeType: 'application/pdf',
+      });
+
+      const result = await tools.collectBrowserDownload({
+        node: 'windows-pc',
+        fileNameHint: 'invoice',
+        extensions: ['.pdf'],
+      }, { callerInstanceId: null });
+
+      expect(sendRpc).toHaveBeenNthCalledWith(
+        1,
+        'node-1',
+        COORDINATOR_TO_NODE.FS_READ_DIRECTORY,
+        { path: browserDownloadsRoot.path, depth: 3, includeHidden: false, limit: 1000 },
+      );
+      expect(sendRpc).toHaveBeenNthCalledWith(
+        2,
+        'node-1',
+        COORDINATOR_TO_NODE.FS_READ_DIRECTORY,
+        { path: 'C:\\Users\\James\\Downloads', depth: 3, includeHidden: false, limit: 1000 },
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        candidate: {
+          rootId: 'browserDownloads',
+          rootLabel: 'Browser Downloads',
+          path: `${browserDownloadsRoot.path}\\invoice.pdf`,
+        },
+      });
+    } finally {
+      node.capabilities.fileTransfer.roots.pop();
+    }
+  });
+
   it('includes the selected browser download candidate when collection succeeds', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'aio-transfer-workspace-'));
     const destination = join(workspace, '_scratch', 'aio-transfers', 'invoice.pdf');

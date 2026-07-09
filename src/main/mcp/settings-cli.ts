@@ -41,33 +41,37 @@ export async function runSettingsCli(
     case 'list': {
       const parsed = parseListArgs(argv.slice(1));
       const result = await client.call(SETTINGS_METHODS.list, parsed.payload);
+      const checked = assertSettingsListResult(result);
       stdout(parsed.json
-        ? `${JSON.stringify(result, null, 2)}\n`
-        : formatSettingsListTable(assertSettingsListResult(result)));
+        ? `${JSON.stringify(checked, null, 2)}\n`
+        : formatSettingsListTable(checked));
       return;
     }
     case 'get': {
       const parsed = parseKeyArgs(argv.slice(1), 'get');
       const result = await client.call(SETTINGS_METHODS.get, parsed.payload);
+      const checked = assertSettingsGetResult(result);
       stdout(parsed.json
-        ? `${JSON.stringify(result, null, 2)}\n`
-        : formatSettingsGet(assertSettingsGetResult(result)));
+        ? `${JSON.stringify(checked, null, 2)}\n`
+        : formatSettingsGet(checked));
       return;
     }
     case 'set': {
       const parsed = parseSetArgs(argv.slice(1));
       const result = await client.call(SETTINGS_METHODS.set, parsed.payload);
+      const checked = assertSettingsMutationResult(result);
       stdout(parsed.json
-        ? `${JSON.stringify(result, null, 2)}\n`
-        : formatSettingsMutation(assertSettingsMutationResult(result)));
+        ? `${JSON.stringify(checked, null, 2)}\n`
+        : formatSettingsMutation(checked));
       return;
     }
     case 'reset': {
       const parsed = parseKeyArgs(argv.slice(1), 'reset');
       const result = await client.call(SETTINGS_METHODS.reset, parsed.payload);
+      const checked = assertSettingsMutationResult(result);
       stdout(parsed.json
-        ? `${JSON.stringify(result, null, 2)}\n`
-        : formatSettingsMutation(assertSettingsMutationResult(result)));
+        ? `${JSON.stringify(checked, null, 2)}\n`
+        : formatSettingsMutation(checked));
       return;
     }
     default:
@@ -207,6 +211,9 @@ function assertSettingsListResult(value: unknown): SettingsToolListResult {
     throw new Error('privileged_list returned an invalid result');
   }
   const result = value as Partial<SettingsToolListResult>;
+  for (const item of result.settings ?? []) {
+    assertSettingsListItem(item);
+  }
   return {
     count: typeof result.count === 'number' ? result.count : result.settings?.length ?? 0,
     settings: result.settings ?? [],
@@ -214,17 +221,66 @@ function assertSettingsListResult(value: unknown): SettingsToolListResult {
 }
 
 function assertSettingsGetResult(value: unknown): SettingsToolGetResult {
-  if (!value || typeof value !== 'object' || typeof (value as { key?: unknown }).key !== 'string') {
+  if (!isObjectRecord(value) ||
+    typeof value['key'] !== 'string' ||
+    !hasOwn(value, 'value') ||
+    typeof value['restartRequired'] !== 'boolean' ||
+    typeof value['writable'] !== 'boolean' ||
+    !isSettingsPolicyTier(value['policyTier'])) {
     throw new Error('privileged_get returned an invalid result');
   }
-  return value as SettingsToolGetResult;
+  return {
+    key: value['key'] as SettingsToolGetResult['key'],
+    value: value['value'],
+    restartRequired: value['restartRequired'],
+    writable: value['writable'],
+    policyTier: value['policyTier'],
+  };
 }
 
 function assertSettingsMutationResult(value: unknown): SettingsToolSetResult {
-  if (!value || typeof value !== 'object' || (value as { ok?: unknown }).ok !== true) {
+  if (!isObjectRecord(value) ||
+    value['ok'] !== true ||
+    typeof value['key'] !== 'string' ||
+    !hasOwn(value, 'oldValue') ||
+    !hasOwn(value, 'newValue') ||
+    typeof value['restartRequired'] !== 'boolean') {
     throw new Error('settings mutation returned an invalid result');
   }
-  return value as SettingsToolSetResult;
+  return {
+    ok: true,
+    key: value['key'] as SettingsToolSetResult['key'],
+    oldValue: value['oldValue'],
+    newValue: value['newValue'],
+    restartRequired: value['restartRequired'],
+  };
+}
+
+function assertSettingsListItem(value: unknown): asserts value is SettingsToolListResult['settings'][number] {
+  if (!isObjectRecord(value) ||
+    typeof value['key'] !== 'string' ||
+    !hasOwn(value, 'value') ||
+    !hasOwn(value, 'defaultValue') ||
+    typeof value['type'] !== 'string' ||
+    typeof value['category'] !== 'string' ||
+    typeof value['writable'] !== 'boolean' ||
+    typeof value['restartRequired'] !== 'boolean' ||
+    typeof value['description'] !== 'string' ||
+    !isSettingsPolicyTier(value['policyTier'])) {
+    throw new Error('privileged_list returned an invalid result');
+  }
+}
+
+function isSettingsPolicyTier(value: unknown): value is SettingsToolListResult['settings'][number]['policyTier'] {
+  return value === 'open' || value === 'read-only' || value === 'secret';
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasOwn(object: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
 }
 
 function formatCliValue(value: unknown): string {

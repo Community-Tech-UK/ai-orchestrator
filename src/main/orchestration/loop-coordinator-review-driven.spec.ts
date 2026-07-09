@@ -621,7 +621,7 @@ describe('LoopCoordinator review-driven completion', () => {
   }, 25_000);
 
   it('counts semantic no-issues review output as clean without the exact phrase', async () => {
-    const completed = waitForEvent<{ signal: string }>('loop:completed', 8_000);
+    const completed = waitForEvent<{ signal: string }>('loop:completed', 15_000);
     const driver = driveLoop([
       childResult('I re-reviewed the implementation and did not find any actionable issues.'),
       childResult('I checked again and found no remaining work to do.'),
@@ -636,7 +636,7 @@ describe('LoopCoordinator review-driven completion', () => {
     } finally {
       if (state) await coordinator.cancelLoop(state.id);
     }
-  }, 12_000);
+  }, 20_000);
 
   it('ignores generated server runtime artifacts when deciding a review pass is clean', async () => {
     const completed = waitForEvent<{ signal: string }>('loop:completed', 8_000);

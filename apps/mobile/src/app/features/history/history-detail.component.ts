@@ -16,7 +16,12 @@ import type { MobileMessageDto } from '../../core/models';
 import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { renderMobileMarkdown } from '../../shared/mobile-markdown';
-import { buildDisplayItems, toolLabel, type DisplayItem } from '../../shared/transcript-items';
+import {
+  buildDisplayItems,
+  isLoopTranscriptMessage,
+  toolLabel,
+  type DisplayItem,
+} from '../../shared/transcript-items';
 
 /**
  * Read-only transcript of a persisted (closed/archived) session, fetched from
@@ -61,11 +66,19 @@ import { buildDisplayItems, toolLabel, type DisplayItem } from '../../shared/tra
                   }
                 </div>
               } @else {
-                <div class="msg" [class]="item.message.type">
+                <div
+                  class="msg"
+                  [class]="item.message.type"
+                  [class.loop-output]="isLoopTranscriptMessage(item.message)"
+                >
                   @if (item.message.type !== 'user') {
                     <span class="role">{{ roleLabel(item.message.type) }}</span>
                   }
-                  <div class="content markdown-body" [innerHTML]="renderMarkdown(item.message.content)"></div>
+                  <div
+                    class="content markdown-body"
+                    [class.loop-output]="isLoopTranscriptMessage(item.message)"
+                    [innerHTML]="renderMarkdown(item.message.content)"
+                  ></div>
                   @if (item.message.type !== 'system' && item.message.content) {
                     <app-copy-button [text]="item.message.content" />
                   }
@@ -142,6 +155,7 @@ import { buildDisplayItems, toolLabel, type DisplayItem } from '../../shared/tra
         white-space: pre-wrap; word-break: break-word;
       }
       .msg { display: flex; flex-direction: column; gap: 4px; max-width: 85%; }
+      .msg.loop-output { max-width: 100%; align-self: stretch; }
       .msg.user { align-self: flex-end; align-items: flex-end; }
       .msg .role { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
       .msg .content {
@@ -166,6 +180,7 @@ export class HistoryDetailComponent implements OnInit {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly renderMarkdown = renderMobileMarkdown;
+  protected readonly isLoopTranscriptMessage = isLoopTranscriptMessage;
   protected readonly toolLabel = toolLabel;
 
   /** Which collapsed tool groups the user has expanded (keyed by group id). */

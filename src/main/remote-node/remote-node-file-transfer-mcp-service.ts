@@ -52,6 +52,8 @@ import type {
 const logger = getLogger('RemoteNodeFileTransferMcpService');
 const DEFAULT_FIND_LIMIT = 20;
 const DEFAULT_DOWNLOAD_MINUTES = 30;
+const BROWSER_DOWNLOADS_ROOT_ID = 'browserDownloads';
+const COLLECT_BROWSER_DOWNLOAD_ROOT_IDS = [BROWSER_DOWNLOADS_ROOT_ID, 'downloads'];
 
 export { NodeFileTransferMcpError } from './remote-node-file-transfer-mcp-errors';
 
@@ -324,10 +326,11 @@ class RemoteNodeFileTransferMcpService {
   }
 
   async collectBrowserDownload(args: CollectBrowserDownloadArgs, meta: FileTransferToolMeta = {}): Promise<unknown> {
+    const resolved = this.resolveNode(args.node);
     const findResult = await this.findNodeFiles({
       node: args.node,
       query: args.fileNameHint,
-      roots: ['downloads'],
+      roots: this.collectBrowserDownloadRootIds(resolved.fileTransfer),
       extensions: args.extensions,
       modifiedWithinDays: Math.ceil((args.modifiedWithinMinutes ?? DEFAULT_DOWNLOAD_MINUTES) / (24 * 60)),
       limit: 10,
@@ -472,8 +475,40 @@ class RemoteNodeFileTransferMcpService {
     fileTransfer: WorkerNodeFileTransferSummary,
     rootIds: string[] | undefined,
   ): WorkerNodeFileTransferRoot[] {
-    const allowed = new Set(rootIds?.map((root) => root.toLowerCase()));
-    return fileTransfer.roots.filter((root) => root.read && (allowed.size === 0 || allowed.has(root.id.toLowerCase())));
+    const readable = fileTransfer.roots.filter((root) => root.read);
+    if (!rootIds?.length) {
+      return readable;
+    }
+    const byId = new Map(readable.map((root) => [root.id.toLowerCase(), root]));
+    const selected: WorkerNodeFileTransferRoot[] = [];
+    const seen = new Set<string>();
+    for (const rootId of rootIds) {
+      const key = rootId.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      const root = byId.get(key);
+      if (!root) {
+        continue;
+      }
+      selected.push(root);
+      seen.add(key);
+    }
+    return selected;
+  }
+
+  private collectBrowserDownloadRootIds(
+    fileTransfer: WorkerNodeFileTransferSummary,
+  ): string[] {
+    const readable = new Set(
+      fileTransfer.roots
+        .filter((root) => root.read)
+        .map((root) => root.id.toLowerCase()),
+    );
+    const matchedRootIds = COLLECT_BROWSER_DOWNLOAD_ROOT_IDS.filter((rootId) =>
+      readable.has(rootId.toLowerCase()),
+    );
+    return matchedRootIds.length > 0 ? matchedRootIds : COLLECT_BROWSER_DOWNLOAD_ROOT_IDS;
   }
 
   private toCandidate(entry: FsEntry, root: WorkerNodeFileTransferRoot): RemoteCandidate {

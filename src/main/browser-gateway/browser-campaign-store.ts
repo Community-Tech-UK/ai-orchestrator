@@ -234,9 +234,9 @@ export class BrowserCampaignService {
       const counterKey = COUNTER_KEY_BY_KIND[incrementKind];
       const budgetKey = BUDGET_KEY_BY_KIND[incrementKind];
       counters[counterKey] += 1;
-      if (counters[counterKey] > campaign.budget[budgetKey]) {
+      if (counters[counterKey] >= campaign.budget[budgetKey]) {
         paused = true;
-        reason ??= `Budget exceeded for '${incrementKind}' (${counters[counterKey]}/${campaign.budget[budgetKey]})`;
+        reason ??= `Budget exhausted for '${incrementKind}' (${counters[counterKey]}/${campaign.budget[budgetKey]})`;
       }
     }
 
