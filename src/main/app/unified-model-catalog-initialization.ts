@@ -2,6 +2,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { getCatalogOverrideSource, type CatalogOverrideEntry } from '../providers/catalog-override-source';
 import { getCodexCliDiscoveryService } from '../providers/codex-cli-discovery-service';
+import { getCursorCopilotCliDiscoveryService } from '../providers/cursor-copilot-cli-discovery-service';
 import { getModelsDevService } from '../providers/models-dev-service';
 import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
 import {
@@ -46,6 +47,10 @@ interface CodexDiscoveryRuntimeService {
   start(): void;
 }
 
+interface CursorCopilotDiscoveryRuntimeService {
+  start(): void;
+}
+
 interface LocalModelInventoryRuntimeService {
   list(): LocalModelInventoryEntry[];
   refresh?(): Promise<LocalModelInventoryEntry[]> | LocalModelInventoryEntry[];
@@ -66,6 +71,7 @@ export interface UnifiedModelCatalogRuntimeOptions {
   catalogOverrideSource?: CatalogOverrideRuntimeSource;
   modelsDevService?: ModelsDevRuntimeService;
   codexDiscoveryService?: CodexDiscoveryRuntimeService;
+  cursorCopilotDiscoveryService?: CursorCopilotDiscoveryRuntimeService;
   localModelInventoryService?: LocalModelInventoryRuntimeService;
   logger?: RuntimeLogger;
 }
@@ -78,6 +84,8 @@ export async function initializeUnifiedModelCatalogRuntime(
   const catalog = options.catalog ?? getUnifiedModelCatalog();
   const catalogOverrideSource = options.catalogOverrideSource ?? getCatalogOverrideSource();
   const codexDiscoveryService = options.codexDiscoveryService ?? getCodexCliDiscoveryService();
+  const cursorCopilotDiscoveryService = options.cursorCopilotDiscoveryService
+    ?? getCursorCopilotCliDiscoveryService();
   const localModelInventoryService = options.localModelInventoryService ?? getLocalModelInventoryService();
   const logger = options.logger ?? getLogger('AppInitialization');
 
@@ -110,6 +118,7 @@ export async function initializeUnifiedModelCatalogRuntime(
     catalog.onLocalModelInventoryRefreshed?.(payload.models);
   });
   codexDiscoveryService.start();
+  cursorCopilotDiscoveryService.start();
 
   modelsDevService.refresh().catch(() => {
     // Suppressed; failure is already logged inside ModelsDevService.

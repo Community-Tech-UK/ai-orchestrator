@@ -19,7 +19,7 @@ import { CursorCliAdapter } from '../cli/adapters/cursor-cli-adapter';
 import { PROVIDER_MODEL_LIST } from '../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../shared/types/provider.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
-import { classifyCopilotModelTier } from './cli-verification-model-tier';
+import { copilotModelInfosToDisplayInfo } from '../cli/adapters/copilot-cli-adapter.models';
 import { setupCoordinatorEvents } from './cli-verification-event-forwarding';
 import {
   CliDetectAllPayloadSchema,
@@ -380,13 +380,7 @@ export function registerCliVerificationHandlers(
           try {
             const adapter = new CopilotCliAdapter();
             const copilotModels = await adapter.listAvailableModels();
-            const models: ModelDisplayInfo[] = copilotModels
-              .filter(m => m.enabled !== false)
-              .map(m => ({
-                id: m.id,
-                name: m.name,
-                tier: classifyCopilotModelTier(m.id),
-              }));
+            const models = copilotModelInfosToDisplayInfo(copilotModels);
             logger.info('Fetched Copilot models dynamically', { count: models.length });
             return { success: true, data: models };
           } catch {

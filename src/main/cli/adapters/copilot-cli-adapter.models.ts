@@ -4,7 +4,10 @@
  * size ceiling. Pure functions + constants; no class dependency.
  */
 
-import { COPILOT_MODELS } from '../../../shared/types/provider.types';
+import {
+  COPILOT_MODELS,
+  type ModelDisplayInfo,
+} from '../../../shared/types/provider.types';
 import { COPILOT_AUTO_MODEL_ID, type CopilotModelInfo } from './copilot-cli-adapter.types';
 
 /** Default context window when we don't know the model. Matches the old SDK adapter. */
@@ -73,6 +76,28 @@ export function normalizedCopilotVisionModel(modelId: string): boolean {
     || normalized.startsWith('grok-')
     || normalized.startsWith('goldeneye')
     || normalized.startsWith('raptor');
+}
+
+/** Classify a Copilot model id into a tier for picker display. */
+export function classifyCopilotModelTier(modelId: string): 'fast' | 'balanced' | 'powerful' {
+  const id = modelId.toLowerCase();
+  if (id.includes('mini') || id.includes('lite') || id.includes('haiku') || id.includes('flash')) {
+    return 'fast';
+  }
+  if (id.includes('opus') || id === 'o3' || id === 'o1' || id.includes('-pro')) {
+    return 'powerful';
+  }
+  return 'balanced';
+}
+
+export function copilotModelInfosToDisplayInfo(models: CopilotModelInfo[]): ModelDisplayInfo[] {
+  return models
+    .filter((model) => model.enabled !== false)
+    .map((model) => ({
+      id: model.id,
+      name: model.name,
+      tier: classifyCopilotModelTier(model.id),
+    }));
 }
 
 export function toCopilotModelInfo(modelId: string): CopilotModelInfo {

@@ -114,10 +114,16 @@ export class CursorCliAdapter extends BaseCliAdapter {
    * the curated static list when the CLI is unavailable or the output can't be
    * parsed, so callers always receive a usable list.
    */
-  async listAvailableModels(): Promise<ModelDisplayInfo[]> {
+  async listAvailableModels(
+    options: { fallbackToStatic?: boolean } = {},
+  ): Promise<ModelDisplayInfo[]> {
+    const fallbackToStatic = options.fallbackToStatic ?? true;
     try {
       return await discoverCursorModels(() => this.spawnProcess(['--list-models']));
     } catch (error) {
+      if (!fallbackToStatic) {
+        throw error;
+      }
       logger.warn('Falling back to default Cursor model list', {
         error: error instanceof Error ? error.message : String(error),
       });

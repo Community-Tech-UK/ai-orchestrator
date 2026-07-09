@@ -44,6 +44,11 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
         events.push('codexDiscovery');
       }),
     };
+    const cursorCopilotDiscovery = {
+      start: vi.fn(() => {
+        events.push('cursorCopilotDiscovery');
+      }),
+    };
 
     await initializeUnifiedModelCatalogRuntime({
       userDataPath: '/tmp/aio-user-data',
@@ -52,6 +57,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       catalogOverrideSource: source,
       modelsDevService: modelsDev,
       codexDiscoveryService: codexDiscovery,
+      cursorCopilotDiscoveryService: cursorCopilotDiscovery,
       localModelInventoryService: localModelInventoryService(),
       logger: { warn: vi.fn() },
     });
@@ -63,6 +69,8 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       'attachSettingsManager',
       'catalogOverride',
     ]);
+    expect(codexDiscovery.start).toHaveBeenCalledOnce();
+    expect(cursorCopilotDiscovery.start).toHaveBeenCalledOnce();
     expect(attachedEntries.map((entry) => `${entry.provider}:${entry.id}`)).toEqual([
       'claude:claude-local-opus',
       'gemini:gemini-remote-pro',
@@ -105,6 +113,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       catalogOverrideSource: catalogOverrideSource(),
       modelsDevService: modelsDevService(),
       codexDiscoveryService: { start: vi.fn() },
+      cursorCopilotDiscoveryService: { start: vi.fn() },
       localModelInventoryService,
       logger: { warn: vi.fn() },
     });
@@ -157,6 +166,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       catalogOverrideSource: catalogOverrideSource(),
       modelsDevService: modelsDevService(),
       codexDiscoveryService: { start: vi.fn() },
+      cursorCopilotDiscoveryService: { start: vi.fn() },
       localModelInventoryService,
       logger,
     });

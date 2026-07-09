@@ -5782,16 +5782,16 @@
       "lines": 1046
     },
     {
+      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
+      "lines": 1044
+    },
+    {
       "path": "src/main/workspace/git/worktree-manager.ts",
       "lines": 1041
     },
     {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
       "lines": 1041
-    },
-    {
-      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
-      "lines": 1038
     },
     {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
