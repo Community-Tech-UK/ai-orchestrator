@@ -5458,11 +5458,19 @@
       "lines": 1623
     },
     {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 1616
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
       "lines": 1613
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
+      "lines": 1582
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1582
     },
     {
@@ -5474,16 +5482,8 @@
       "lines": 1560
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 1546
-    },
-    {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
       "lines": 1540
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1536
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
