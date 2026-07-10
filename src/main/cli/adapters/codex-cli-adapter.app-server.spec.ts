@@ -354,6 +354,86 @@ describe('CodexCliAdapter', () => {
       expect(state.lastAgentMessage).toBe('Hello world');
       expect(state.finalAgentOutputId).toBe(outputs[0].id);
     });
+
+    it('reconciles canonical turn-completed agent items when the streamed item id differs', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): {
+          completed: boolean;
+          finalAgentOutputId: string | null;
+          lastAgentMessage: string;
+          turnId: string | null;
+        };
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      state.turnId = 'turn-1';
+      const outputs: {
+        id: string;
+        content: string;
+        metadata?: Record<string, unknown>;
+        type: string;
+      }[] = [];
+      const streamedPrefix = 'Moving messages into a database does not achieve that by itself, and I';
+      const finalText = `${streamedPrefix} would keep the chat stream append-only.`;
+
+      adapter.on('output', (message) => outputs.push(message as typeof outputs[number]));
+
+      internals.handleTurnNotification(state, {
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'stream-item',
+          delta: streamedPrefix,
+        },
+      });
+      internals.handleTurnNotification(state, {
+        method: 'turn/completed',
+        params: {
+          threadId: 'thread-1',
+          turn: {
+            id: 'turn-1',
+            status: 'completed',
+            items: [
+              {
+                id: 'final-item',
+                type: 'agentMessage',
+                phase: 'final_answer',
+                text: finalText,
+              },
+            ],
+          },
+        },
+      });
+
+      expect(outputs).toHaveLength(2);
+      expect(outputs[0]).toMatchObject({
+        type: 'assistant',
+        content: streamedPrefix,
+        metadata: {
+          streaming: true,
+          accumulatedContent: streamedPrefix,
+          turnId: 'turn-1',
+        },
+      });
+      expect(outputs[1]).toMatchObject({
+        type: 'assistant',
+        content: ' would keep the chat stream append-only.',
+        metadata: {
+          streaming: true,
+          accumulatedContent: finalText,
+          turnId: 'turn-1',
+        },
+      });
+      expect(outputs[1].id).toBe(outputs[0].id);
+      expect(state.completed).toBe(true);
+      expect(state.lastAgentMessage).toBe(finalText);
+      expect(state.finalAgentOutputId).toBe(outputs[0].id);
+    });
   });
 
   describe('interrupt behavior', () => {

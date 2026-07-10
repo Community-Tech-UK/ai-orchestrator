@@ -2060,6 +2060,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   private emitStreamingAgentDelta(state: TurnCaptureState, itemId: string | null, delta: string): void {
     const stream = this.getStreamingAgentMessage(state, itemId);
+    this.emitStreamingAgentDeltaForStream(state, stream, delta);
+  }
+
+  private emitStreamingAgentDeltaForStream(
+    state: TurnCaptureState,
+    stream: { outputId: string; content: string; deltaSeen: boolean },
+    delta: string,
+  ): void {
     stream.content += delta;
     stream.deltaSeen = true;
 
@@ -2105,7 +2113,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
     itemId: string | null,
   ): { outputId: string; content: string; deltaSeen: boolean } | null {
     if (itemId) {
-      return state.streamingAgentMessages.get(itemId) ?? null;
+      const exact = state.streamingAgentMessages.get(itemId);
+      if (exact) {
+        return exact;
+      }
+      if (state.streamingAgentMessages.size === 1) {
+        return Array.from(state.streamingAgentMessages.values())[0] ?? null;
+      }
+      return null;
     }
     if (state.streamingAgentMessages.size === 1) {
       return Array.from(state.streamingAgentMessages.values())[0] ?? null;
@@ -2135,7 +2150,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (text.startsWith(stream.content)) {
       const suffix = text.slice(stream.content.length);
       if (suffix) {
-        this.emitStreamingAgentDelta(state, itemId ?? null, suffix);
+        this.emitStreamingAgentDeltaForStream(state, stream, suffix);
       }
       state.finalAgentOutputId = stream.outputId;
       return text;
@@ -2151,6 +2166,47 @@ export class CodexCliAdapter extends BaseCliAdapter {
     stream.content = text;
     state.finalAgentOutputId = stream.outputId;
     return text;
+  }
+
+  private getAgentMessageText(item: ThreadItem): string {
+    return item.text || item.content
+      || (item.message && typeof item.message === 'object' ? item.message.content : undefined)
+      || '';
+  }
+
+  private reconcileCompletedTurnAgentMessages(
+    state: TurnCaptureState,
+    turn: TurnCaptureState['finalTurn'],
+  ): void {
+    if (!turn?.items || turn.items.length === 0) {
+      return;
+    }
+
+    for (const item of turn.items) {
+      if (item.type !== 'agent_message' && item.type !== 'agentMessage') {
+        continue;
+      }
+
+      const text = this.getAgentMessageText(item);
+      if (!text) {
+        continue;
+      }
+
+      const itemPhase = item.phase || null;
+      const alreadyRecorded = state.messages.some((message) =>
+        message.lifecycle === 'completed' &&
+        message.phase === itemPhase &&
+        message.text === text
+      );
+      if (!alreadyRecorded) {
+        state.messages.push({ lifecycle: 'completed', phase: itemPhase, text });
+      }
+
+      state.lastAgentMessage = this.reconcileCompletedAgentMessage(state, item.id, text);
+      if (itemPhase === 'final_answer') {
+        state.finalAnswerSeen = true;
+      }
+    }
   }
 
   /**
@@ -2184,6 +2240,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
    */
   private completeTurn(state: TurnCaptureState, turn: TurnCaptureState['finalTurn']): void {
     if (state.completed) return;
+    this.reconcileCompletedTurnAgentMessages(state, turn);
     state.completed = true;
     state.finalTurn = turn;
 

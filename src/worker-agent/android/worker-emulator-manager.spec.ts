@@ -65,6 +65,8 @@ function makeManager(config: WorkerAndroidAutomationConfig = baseConfig): {
       config,
       spawnProcess: spawnProcess as unknown as typeof spawn,
       execFileProcess: execFileProcess as unknown as typeof execFile,
+      statePath: path.join(os.tmpdir(), `aio-emulator-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`),
+      canListenPort: async () => true,
     }),
     children,
     spawnProcess,
@@ -230,6 +232,8 @@ describe('WorkerEmulatorManager', () => {
       config: baseConfig,
       spawnProcess: spawnProcess as unknown as typeof spawn,
       execFileProcess: execFileProcess as unknown as typeof execFile,
+      statePath: path.join(os.tmpdir(), `aio-emulator-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`),
+      canListenPort: async () => true,
     });
 
     await expect(manager.ensureRunning()).resolves.toMatchObject({ serial: 'emulator-5554' });
