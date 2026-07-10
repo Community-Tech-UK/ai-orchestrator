@@ -175,6 +175,25 @@ export class GrokBillingProbe implements ProviderQuotaProbe {
 
       const expiresAt = parseExpiresAtMs(entry.expires_at);
       if (expiresAt !== null && expiresAt <= this.now()) {
+        // The `key` (access token) is short-lived (~5h). When a `refresh_token`
+        // is present the Grok CLI silently refreshes it on next use without any
+        // browser login ("Tokens auto-refresh silently via the stored
+        // refresh_token"). This is NOT a reauth situation — flagging it as one
+        // makes the chip scream "Reauth needed" every few hours while the user
+        // is perfectly signed in. We deliberately do NOT perform the refresh
+        // ourselves (read-only discipline: rotating the refresh token here could
+        // invalidate the CLI's live session), so live billing is simply
+        // unavailable until the CLI refreshes; the cached usage-monitor windows
+        // still surface via CompositeQuotaProbe.
+        const hasRefreshToken =
+          typeof entry.refresh_token === 'string' && entry.refresh_token.trim().length > 0;
+        if (hasRefreshToken) {
+          return {
+            ok: false,
+            error:
+              'Grok access token expired; the CLI refreshes it automatically on next use — live billing unavailable until then',
+          };
+        }
         return {
           ok: false,
           error: 'Grok auth token is expired — run `grok login` to refresh',

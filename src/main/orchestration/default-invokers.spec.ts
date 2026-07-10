@@ -144,6 +144,12 @@ describe('default orchestration invokers', () => {
   });
 
   it('invokes the verification adapter with normalized callback values', async () => {
+    // The 'scaffolding' routing intent probes the local Ollama server first;
+    // stub fetch so the probe fails fast and deterministically and the path
+    // falls through to the resolved CLI. Without this the test relies on the
+    // ambient global fetch, which another test file can leave stubbed in the
+    // full suite run (diverting away from the resolveCliType path).
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no local server')));
     hoisted.sendMessage.mockResolvedValue({
       content: 'verified',
       usage: { totalTokens: 42 },
@@ -168,6 +174,7 @@ describe('default orchestration invokers', () => {
     expect(hoisted.createCliAdapter).toHaveBeenCalled();
     expect(callback).toHaveBeenCalledWith(null, 'verified', 42, 0);
     expect(hoisted.terminate).toHaveBeenCalledWith(false);
+    vi.unstubAllGlobals();
   });
 
   it('routes verification scaffolding to local Ollama first when the server has models', async () => {
@@ -292,6 +299,10 @@ describe('default orchestration invokers', () => {
   });
 
   it('routes verification scaffolding to the first available non-Claude CLI', async () => {
+    // Fail the local Ollama probe fast/deterministically so scaffolding falls
+    // through to the first reachable cloud CLI instead of depending on the
+    // ambient global fetch (which the full-suite run can leave stubbed).
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no local server')));
     hoisted.resolveCliType.mockImplementation(async (requested?: string) => (
       requested === 'gemini' ? 'gemini' : 'claude'
     ));
@@ -321,6 +332,7 @@ describe('default orchestration invokers', () => {
       }),
       undefined,
     );
+    vi.unstubAllGlobals();
   });
 
   it('rejects invalid review payloads at the listener boundary', async () => {
@@ -488,6 +500,10 @@ describe('default orchestration invokers', () => {
   });
 
   it('routes debate scaffolding away from Claude and synthesis to the balanced tier', async () => {
+    // Response/critique steps route with the 'scaffolding' intent, which probes
+    // the local Ollama server first — fail it fast/deterministically so the path
+    // falls through to gemini instead of depending on the ambient global fetch.
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no local server')));
     hoisted.resolveCliType.mockImplementation(async (requested?: string) => (
       requested === 'gemini' ? 'gemini' : 'claude'
     ));
@@ -562,6 +578,7 @@ describe('default orchestration invokers', () => {
       }),
       undefined,
     );
+    vi.unstubAllGlobals();
   });
 
   it('honours an explicit synthesis model instead of tier-routing it', async () => {

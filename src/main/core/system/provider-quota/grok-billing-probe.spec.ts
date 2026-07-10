@@ -90,12 +90,39 @@ describe('GrokBillingProbe', () => {
     expect(snap!.error).toMatch(/not signed in|auth\.json/i);
   });
 
-  it('returns ok=false with needsReauth when the OIDC key is expired', async () => {
+  it('does NOT flag reauth when the access token is expired but a refresh_token exists', async () => {
+    // The Grok CLI silently refreshes the short-lived access token via the
+    // stored refresh_token, so an expired `key` alongside a valid refresh_token
+    // must NOT surface the "Reauth needed" affordance (it would fire every ~5h).
     const expired = JSON.stringify({
       'https://auth.x.ai::client': {
         key: 'stale-token',
         expires_at: '2020-01-01T00:00:00Z',
         refresh_token: 'do-not-touch',
+      },
+    });
+    let fetched = false;
+    const probe = new GrokBillingProbe({
+      readFile: reader(expired),
+      fetchBilling: async () => {
+        fetched = true;
+        return { status: 200, body: {} };
+      },
+      now: () => Date.parse('2026-07-09T12:00:00Z'),
+    });
+    const snap = await probe.probe({ signal: new AbortController().signal });
+    expect(snap!.ok).toBe(false);
+    expect(snap!.needsReauth).toBeFalsy();
+    expect(snap!.error).toMatch(/refreshes it automatically/i);
+    // Read-only discipline: never call billing with the stale token.
+    expect(fetched).toBe(false);
+  });
+
+  it('flags reauth when the OIDC key is expired and no refresh_token is present', async () => {
+    const expired = JSON.stringify({
+      'https://auth.x.ai::client': {
+        key: 'stale-token',
+        expires_at: '2020-01-01T00:00:00Z',
       },
     });
     const probe = new GrokBillingProbe({
