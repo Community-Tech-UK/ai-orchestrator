@@ -33,7 +33,6 @@ import type { FsEventNotification } from '../shared/types/remote-fs.types';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
 import {
-  WORKER_NODE_WS_BACKPRESSURE_BYTES,
   WORKER_NODE_WS_MAX_PAYLOAD_BYTES,
 } from '../main/remote-node/rpc-schemas';
 import { NodeFilesystemHandler } from '../main/remote-node/node-filesystem-handler';
@@ -43,6 +42,7 @@ import { WorkerInstanceNotifier } from './worker-instance-notifier';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import { WorkerBrowserManager } from './worker-browser-manager';
 import { WorkerCdpTunnel } from './worker-cdp-tunnel';
+import { wireCdpTunnelEvents, wireInstanceEvents } from './worker-event-wiring';
 import { WorkerAndroidManager } from './android/worker-android-manager';
 import { WorkerExtensionRelay } from './worker-extension-relay';
 import {
@@ -133,7 +133,6 @@ export class WorkerAgent extends EventEmitter {
       userDataPath: path.dirname(this.configPath),
       hostCommand: this.currentWorkerNativeHostCommand(),
     });
-    this.wireCdpTunnelEvents();
     this.instanceManager = new LocalInstanceManager(
       config.workingDirectories,
       config.maxConcurrentInstances,
@@ -160,7 +159,8 @@ export class WorkerAgent extends EventEmitter {
       sendResult: (id, result) => this.notifier.sendResult(id, result),
       sendError: (id, code, message) => this.notifier.sendError(id, code, message),
     });
-    this.wireInstanceEvents();
+    wireCdpTunnelEvents(this.cdpTunnel, this.notifier, this.config);
+    wireInstanceEvents(this.instanceManager, this.localModelSessionManager, this.notifier);
     // Safety net: WorkerAgent is an EventEmitter. A Node EventEmitter that emits
     // 'error' with no listener THROWS synchronously and crashes the process. This
     // no-op listener guarantees a stray 'error' emit (from anywhere) is never
@@ -978,93 +978,4 @@ export class WorkerAgent extends EventEmitter {
 
   // -- Instance event forwarding ----------------------------------------------
 
-  /**
-   * Forward Chrome CDP frames (and socket close) from the tunnel up to the
-   * coordinator as notifications. These ride the already-authenticated WS, so
-   * the coordinator treats them as trusted high-frequency stream frames.
-   */
-  private wireCdpTunnelEvents(): void {
-    this.cdpTunnel.on('message', ({ sessionId, frame }) => {
-      const sent = this.notifier.send({
-        jsonrpc: '2.0',
-        method: NODE_TO_COORDINATOR.BROWSER_CDP_MESSAGE,
-        params: {
-          sessionId,
-          frame,
-          token: this.config.nodeToken ?? this.config.authToken,
-        },
-      }, {
-        highWatermarkBytes: WORKER_NODE_WS_BACKPRESSURE_BYTES,
-      });
-      if (!sent) {
-        this.cdpTunnel.close(sessionId);
-      }
-    });
-    this.cdpTunnel.on('closed', ({ sessionId }) => {
-      this.notifier.send({
-        jsonrpc: '2.0',
-        method: NODE_TO_COORDINATOR.BROWSER_CDP_CLOSED,
-        params: {
-          sessionId,
-          token: this.config.nodeToken ?? this.config.authToken,
-        },
-      });
-    });
-  }
-
-  private wireInstanceEvents(): void {
-    this.wireInstanceEventSource(this.instanceManager);
-    this.wireInstanceEventSource(this.localModelSessionManager);
-  }
-
-  private wireInstanceEventSource(source: EventEmitter): void {
-    source.on(
-      'instance:output',
-      (instanceId: string, message: unknown) => {
-        this.notifier.sendOutputNotification(instanceId, message);
-      }
-    );
-
-    source.on(
-      'instance:heartbeat',
-      (instanceId: string) => {
-        this.notifier.sendHeartbeatNotification(instanceId);
-      }
-    );
-
-    source.on(
-      'instance:complete',
-      (instanceId: string, response: unknown) => {
-        this.notifier.sendCompleteNotification(instanceId, response);
-      }
-    );
-
-    source.on(
-      'instance:stateChange',
-      (instanceId: string, state: unknown, info?: unknown) => {
-        this.notifier.sendStateChange(instanceId, state, info);
-      }
-    );
-
-    source.on(
-      'instance:exit',
-      (instanceId: string, info: unknown) => {
-        this.notifier.sendExit(instanceId, info);
-      }
-    );
-
-    source.on(
-      'instance:permissionRequest',
-      (instanceId: string, permission: unknown) => {
-        this.notifier.sendPermissionRequest(instanceId, permission);
-      }
-    );
-
-    source.on(
-      'instance:context',
-      (instanceId: string, usage: unknown) => {
-        this.notifier.sendContextNotification(instanceId, usage);
-      }
-    );
-  }
 }

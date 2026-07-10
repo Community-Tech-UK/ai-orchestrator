@@ -209,11 +209,12 @@ export class BrowserCampaignService {
   }
 
   get(id: string): BrowserCampaign | undefined {
-    return this.store.get(id);
+    const campaign = this.store.get(id);
+    return campaign ? this.expireElapsedActiveCampaign(campaign) : undefined;
   }
 
   list(filter: BrowserCampaignListFilter = {}): BrowserCampaign[] {
-    const all = this.store.list();
+    const all = this.store.list().map((campaign) => this.expireElapsedActiveCampaign(campaign));
     return filter.status ? all.filter((campaign) => campaign.status === filter.status) : all;
   }
 
@@ -355,6 +356,16 @@ export class BrowserCampaignService {
     this.store.put(updated);
     this.emitStateChange(updated);
     return updated;
+  }
+
+  private expireElapsedActiveCampaign(campaign: BrowserCampaign): BrowserCampaign {
+    if (campaign.status !== 'active' || campaign.expiresAt > this.now()) {
+      return campaign;
+    }
+    const expired: BrowserCampaign = { ...campaign, status: 'expired' };
+    this.store.put(expired);
+    this.emitStateChange(expired);
+    return expired;
   }
 
   private requireCampaign(id: string): BrowserCampaign {

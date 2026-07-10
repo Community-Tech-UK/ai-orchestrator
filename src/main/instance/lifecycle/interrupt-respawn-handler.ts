@@ -44,16 +44,11 @@ import {
   type InterruptBoundaryMarker,
 } from '../../display-items/interrupt-boundary-renderer';
 import type {
-  ContextUsage,
   Instance,
   InstanceStatus,
-  InstanceWaitReason,
   OutputMessage,
-  SessionDiffStats,
 } from '../../../shared/types/instance.types';
-import type { ActivityState } from '../../../shared/types/activity.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
-import type { ErrorInfo } from '../../../shared/types/ipc.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
 import { getProviderRuntimeService } from '../../providers/provider-runtime-service';
@@ -63,36 +58,14 @@ import { getOrCreateCircuitBreaker } from './respawn-circuit-breaker';
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 import { getLastStopSnapshotIfInitialized } from '../../session/last-stop-snapshot';
 import { applyProviderSessionDurability } from './provider-session-durability';
+import {
+  type QueueUpdate,
+  INTERRUPT_FORCE_ABORT_MS,
+  INTERRUPT_COMPLETION_DEADLINE_MS,
+  residentClaudeForSpawn,
+} from './interrupt-utils';
 
 const logger = getLogger('InterruptRespawn');
-
-type QueueUpdate = (
-  instanceId: string,
-  status: InstanceStatus,
-  contextUsage?: ContextUsage,
-  diffStats?: SessionDiffStats | null,
-  displayName?: string,
-  error?: ErrorInfo,
-  executionLocation?: ExecutionLocation,
-  sessionState?: {
-    providerSessionId?: string;
-    restartEpoch?: number;
-    adapterGeneration?: number;
-    activeTurnId?: string;
-    interruptRequestId?: string;
-    interruptRequestedAt?: number;
-    interruptPhase?: Instance['interruptPhase'];
-    lastTurnOutcome?: Instance['lastTurnOutcome'];
-    supersededBy?: string;
-    cancelledForEdit?: boolean;
-    recoveryMethod?: Instance['recoveryMethod'];
-    archivedUpToMessageId?: string;
-    historyThreadId?: string;
-  },
-  activityState?: ActivityState,
-  currentModel?: string,
-  waitReason?: InstanceWaitReason | null,
-) => void;
 
 /**
  * Stash for respawn-promise resolvers. Keyed on Instance so the pending
@@ -107,18 +80,6 @@ const respawnResolvers = new WeakMap<Instance, () => void>();
  * Armed on every accepted interrupt; cancelled by resolveRespawnPromise().
  */
 const forceAbortTimers = new WeakMap<Instance, ReturnType<typeof setTimeout>>();
-
-/** How long to wait for a graceful interrupt to settle before force-aborting. */
-const INTERRUPT_FORCE_ABORT_MS = 30_000;
-/** Deadline for `handleInterruptCompletion()` to receive a provider completion. */
-const INTERRUPT_COMPLETION_DEADLINE_MS = 15_000;
-
-function residentClaudeForSpawn(instance: Instance): boolean {
-  if (instance.residentClaude !== true) {
-    instance.residentClaude = true;
-  }
-  return true;
-}
 
 export interface InterruptRespawnDeps {
   // readers

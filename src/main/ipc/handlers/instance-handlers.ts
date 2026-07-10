@@ -33,6 +33,7 @@ import {
 import { InstanceManager } from '../../instance/instance-manager';
 import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';
+import { resolveDefaultWorkingDirectory } from './instance-handlers-utils';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 import { getSelfPermissionGranter } from '../../security/self-permission-granter';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
@@ -67,17 +68,7 @@ export function registerInstanceHandlers(deps: {
           'INSTANCE_CREATE'
         );
 
-        // Use default working directory from settings if not provided or is just '.'
-        let workingDirectory = validatedPayload.workingDirectory;
-        if (!workingDirectory || workingDirectory === '.') {
-          const settings = getSettingsManager();
-          const defaultDir = settings.get('defaultWorkingDirectory');
-          if (defaultDir) {
-            workingDirectory = defaultDir;
-          } else {
-            workingDirectory = process.cwd();
-          }
-        }
+        const workingDirectory = resolveDefaultWorkingDirectory(validatedPayload.workingDirectory);
 
         const instance = await instanceManager.createInstance({
           workingDirectory,
@@ -128,17 +119,7 @@ export function registerInstanceHandlers(deps: {
           payload,
           'INSTANCE_CREATE_WITH_MESSAGE'
         );
-        // Use default working directory from settings if not provided or is just '.'
-        let workingDirectory = validated.workingDirectory;
-        if (!workingDirectory || workingDirectory === '.') {
-          const settings = getSettingsManager();
-          const defaultDir = settings.get('defaultWorkingDirectory');
-          if (defaultDir) {
-            workingDirectory = defaultDir;
-          } else {
-            workingDirectory = process.cwd();
-          }
-        }
+        const workingDirectory = resolveDefaultWorkingDirectory(validated.workingDirectory);
 
         const attachments = validated.attachments as FileAttachment[] | undefined;
 

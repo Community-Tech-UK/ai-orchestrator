@@ -87,6 +87,7 @@ import {
 } from '../../shared/components/image-lightbox/image-lightbox.component';
 import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.types';
 import {
+  commandSuggestionText,
   defaultWakeupLocal,
   formatWaitReasonLabel,
   formatFileSize,
@@ -101,16 +102,6 @@ import {
 import { fuzzyRank } from '../../shared/utils/fuzzy';
 
 const LOOP_START_ACK_TIMEOUT_MS = 30_000;
-
-function commandSuggestionText(command: ExtendedCommand): string {
-  return [
-    command.name,
-    ...(command.aliases ?? []),
-    command.description,
-    command.category ?? '',
-    command.usage ?? '',
-  ].filter(Boolean).join(' ');
-}
 
 @Component({
   selector: 'app-input-panel',

@@ -72,7 +72,7 @@ const ALLOWLIST: Record<string, number> = {
   // CompletionSignalEvidence.openCount, LoopState ledger +
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
   'packages/contracts/src/schemas/loop.schemas.ts': 773,
-  'packages/contracts/src/types/transport.types.ts': 1820,
+  'packages/contracts/src/types/transport.types.ts': 1788,
   // Main process — automations
   'src/main/automations/automation-store.ts': 852,
   // Main process — browser gateway
@@ -90,8 +90,8 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.
   'src/main/cli/adapters/claude-cli-adapter.ts': 2345,
-  // Raised for thread/resume transient-timeout retry wrapper.
-  'src/main/cli/adapters/codex-cli-adapter.ts': 3398,
+  // Re-tightened after extracting the exec helpers to codex/exec-helpers.ts.
+  'src/main/cli/adapters/codex-cli-adapter.ts': 3336,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 1060,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 892,
@@ -118,13 +118,13 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
   'src/main/instance/instance-lifecycle.ts': 3528,
-  // Raised for context/load-scaled sendInput init-wait budget + timer-leak fix.
-  'src/main/instance/instance-manager.ts': 2662,
+  // Re-tightened after extracting provider-runtime-helpers.ts.
+  'src/main/instance/instance-manager.ts': 2632,
   'src/main/instance/instance-orchestration.ts': 1068,
-  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1435,
+  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1411,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
-  'src/main/ipc/handlers/instance-handlers.ts': 1173,
+  'src/main/ipc/handlers/instance-handlers.ts': 1158,
   'src/main/ipc/handlers/mcp-handlers.ts': 925,
   'src/main/ipc/handlers/session-handlers.ts': 1045,
   'src/main/ipc/handlers/vcs-handlers.ts': 992,
@@ -139,7 +139,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/mcp/mcp-manager.ts': 1025,
   'src/main/mcp/mcp-tool-search.ts': 735,
   // Main process — mobile gateway
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 1535,
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 1512,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,
@@ -147,17 +147,16 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/memory/procedural-store.ts': 802,
   'src/main/memory/project-memory-brief.ts': 997,
   'src/main/memory/r1-memory-manager.ts': 793,
-  'src/main/memory/unified-controller.ts': 1343,
+  'src/main/memory/unified-controller.ts': 1312,
   // Main process — orchestration
   'src/main/orchestration/child-result-storage.ts': 836,
-  'src/main/orchestration/cli-verification-extension.ts': 1002,
-  'src/main/orchestration/consensus-coordinator.ts': 888,
+  'src/main/orchestration/cli-verification-extension.ts': 936,
+  'src/main/orchestration/consensus-coordinator.ts': 859,
   'src/main/orchestration/consensus.ts': 759,
   'src/main/orchestration/cross-model-review-service.ts': 827,
-  'src/main/orchestration/debate-coordinator.ts': 1196,
-  // Raised 1613 -> 1670 for Phase 4 TaskPacket child prompt injection and
-  // provider-owned tool stream safety evidence in branch invocations.
-  'src/main/orchestration/default-invokers.ts': 1670,
+  'src/main/orchestration/debate-coordinator.ts': 1179,
+  // Re-tightened after extracting loop-branch-selector-helpers.ts.
+  'src/main/orchestration/default-invokers.ts': 1590,
   'src/main/orchestration/embedding-service.ts': 845,
   // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
   // integration points. Audit mechanics live in loop-audit-runtime.ts.
@@ -166,12 +165,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3480 -> 3496 for D5 self-declared more-work-remaining completion veto.
   // Raised 3496 -> 3567 for fail-closed ratchet hook termination,
   // tool-rw-lock-conflict terminal failures, and explicit loop failure signaling.
-  'src/main/orchestration/loop-coordinator.ts': 3567,
-  // Allowlisted at 712 when the D5 more-work-remaining sentinel parser
-  // (parseAgentMoreWorkRemaining) tipped it just past 700.
-  'src/main/orchestration/loop-completion-detector.ts': 796,
-  // Allowlisted at 702 when the D5 sentinel prompt guidance tipped it past 700.
-  'src/main/orchestration/loop-stage-machine.ts': 725,
+  'src/main/orchestration/loop-coordinator.ts': 3535,
+  // Re-tightened after extracting loop-completed-plan-helpers.ts.
+  'src/main/orchestration/loop-completion-detector.ts': 783,
   'src/main/orchestration/loop-store.ts': 762,
   'src/main/orchestration/loop-progress-detector.ts': 755,
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
@@ -181,7 +177,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/plugins/plugin-manager.ts': 1303,
   // Main process — providers
   'src/main/providers/model-discovery.ts': 552,
-  'src/main/providers/unified-model-catalog-service.ts': 727,
   // Main process — remote
   'src/main/remote/observer-server.ts': 864,
   // Main process — repo jobs
@@ -189,7 +184,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — RLM
   'src/main/rlm/episodic-rlm-store.ts': 766,
   'src/main/rlm/hyde-service.ts': 734,
-  'src/main/rlm/llm-service.ts': 1076,
+  'src/main/rlm/llm-service.ts': 1024,
   'src/main/rlm/smart-compaction.ts': 880,
   // Main process — security
   'src/main/security/permission-manager.ts': 1151,
@@ -213,9 +208,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,
   'src/renderer/app/core/services/new-session-draft.service.ts': 869,
   // Renderer — stores
-  'src/renderer/app/core/state/instance/instance-list.store.ts': 856,
-  'src/renderer/app/core/state/instance/instance-messaging.store.ts': 794,
-  'src/renderer/app/core/state/instance/instance.store.ts': 773,
+  'src/renderer/app/core/state/instance/instance-list.store.ts': 796,
+  'src/renderer/app/core/state/instance/instance-messaging.store.ts': 774,
+  'src/renderer/app/core/state/instance/instance.store.ts': 747,
   'src/renderer/app/core/state/source-control.store.ts': 976,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
@@ -227,8 +222,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1096,
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1035,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1722,
-  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1559,
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1714,
+  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1547,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1266,
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),
@@ -236,7 +231,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/instance-detail/session-progress-panel.component.ts': 747,
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 991,
   'src/renderer/app/features/instance-list/instance-list.component.ts': 1334,
-  'src/renderer/app/features/instance-list/instance-row.component.ts': 404,
   'src/renderer/app/features/knowledge/knowledge-page.component.ts': 1322,
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
   // Raised 992 -> 1051 for the Task 18 renderer follow-up affordance (queue a
@@ -281,11 +275,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/services/voice/providers/local-whisper-transcription-provider.ts': 849,
   // Shared
   'src/shared/types/loop.types.ts': 780,
-  // Allowlisted when Claude Fable 5 was re-added (pinned id, API pricing
-  // entry, and PROVIDER_MODEL_LIST row) tipped it just past 700.
-  'src/shared/types/provider.types.ts': 737,
   // Worker agent
-  'src/worker-agent/worker-agent.ts': 1027,
+  'src/worker-agent/worker-agent.ts': 981,
 };
 
 function countLines(filePath: string): number {

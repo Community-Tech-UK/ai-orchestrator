@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { BwCommandResult, BwRunner } from './browser-credential-vault';
+import { buildCliEnv } from '../cli/cli-environment';
 
 /**
  * Default Bitwarden `bw` CLI runner for the credential vault.
@@ -35,7 +36,7 @@ export function createBwRunner(options: BwRunnerOptions = {}): BwRunner {
   const binary = options.binary ?? 'bw';
   const timeoutMs = options.timeoutMs ?? 30_000;
   const execFileFn = options.execFileFn ?? (execFile as unknown as ExecFileFn);
-  const baseEnv = options.baseEnv ?? process.env;
+  const baseEnv = buildCliEnv(options.baseEnv ?? process.env);
 
   return {
     run(

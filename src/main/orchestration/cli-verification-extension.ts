@@ -16,6 +16,12 @@ import {
   createDefaultVerificationConfig,
 } from '../../shared/types/verification.types';
 import { ProviderType } from '../../shared/types/provider.types';
+import {
+  findAgreements,
+  findDisagreements,
+  rankResponses,
+  detectOutliers,
+} from './response-analysis';
 import { CliDetectionService, CliInfo, CliType } from '../cli/cli-detection';
 import { getProviderInstanceManager } from '../providers/provider-instance-manager';
 import type { ProviderAdapter } from '@sdk/provider-adapter';
@@ -98,14 +104,6 @@ function escapeClosingTag(text: string, tagName: string): string {
   return text.replace(new RegExp(`</${tagName}`, 'gi'), `<\\/${tagName}`);
 }
 
-function pointSimilarity(left: string, right: string): number {
-  const words = (value: string) => new Set(value.toLowerCase().match(/[a-z0-9]+/g) ?? []);
-  const a = words(left);
-  const b = words(right);
-  if (a.size === 0 || b.size === 0) return 0;
-  const intersection = [...a].filter((word) => b.has(word)).length;
-  return intersection / (a.size + b.size - intersection);
-}
 
 export class CliVerificationCoordinator extends EventEmitter {
   private static instance: CliVerificationCoordinator | null = null;
@@ -660,16 +658,16 @@ State your overall confidence in your response (0-100%): X%`;
     const validResponses = responses.filter(r => !r.error);
 
     // Find agreements
-    const agreements = this.findAgreements(validResponses);
+    const agreements = findAgreements(validResponses);
 
     // Find disagreements
-    const disagreements = this.findDisagreements(validResponses);
+    const disagreements = findDisagreements(validResponses);
 
     // Rank responses
-    const rankings = this.rankResponses(validResponses);
+    const rankings = rankResponses(validResponses);
 
     // Detect outliers
-    const outliers = this.detectOutliers(validResponses, agreements);
+    const outliers = detectOutliers(validResponses, agreements);
 
     // Calculate consensus strength
     const consensusStrength = agreements.length > 0
@@ -685,107 +683,6 @@ State your overall confidence in your response (0-100%): X%`;
       outlierAgents: outliers,
       consensusStrength,
     };
-  }
-
-  /**
-   * Find agreement points across responses
-   */
-  private findAgreements(responses: AgentResponse[]): any[] {
-    const clusters: Array<{ point: any; agents: string[]; confidences: number[] }> = [];
-
-    for (const response of responses) {
-      for (const point of response.keyPoints) {
-        const existing = clusters.find((cluster) => pointSimilarity(cluster.point.content, point.content) >= 0.7);
-        if (existing) {
-          if (!existing.agents.includes(response.agentId)) {
-            existing.agents.push(response.agentId);
-            existing.confidences.push(point.confidence);
-          }
-        } else {
-          clusters.push({ point, agents: [response.agentId], confidences: [point.confidence] });
-        }
-      }
-    }
-
-    return clusters
-      .filter(p => p.agents.length >= 2)
-      .map(p => ({
-        point: p.point.content,
-        category: p.point.category,
-        agentIds: p.agents,
-        strength: p.agents.length / responses.length,
-        combinedConfidence: p.confidences.reduce((sum, value) => sum + value, 0) / p.confidences.length,
-      }));
-  }
-
-  /**
-   * Find disagreement points
-   */
-  private findDisagreements(responses: AgentResponse[]): any[] {
-    const recommendations = responses.flatMap(r =>
-      r.keyPoints
-        .filter(p => p.category === 'recommendation')
-        .map(p => ({ ...p, agentId: r.agentId }))
-    );
-
-    if (recommendations.length <= 1) return [];
-
-    const unique = new Set(recommendations.map(r => r.content.toLowerCase()));
-    if (unique.size > 1) {
-      return [{
-        topic: 'Recommendations differ across agents',
-        positions: recommendations.map(r => ({
-          agentId: r.agentId,
-          position: r.content,
-          confidence: r.confidence,
-        })),
-        requiresHumanReview: true,
-      }];
-    }
-
-    return [];
-  }
-
-  /**
-   * Rank responses by quality
-   */
-  private rankResponses(responses: AgentResponse[]): any[] {
-    return responses
-      .map(r => {
-        const completeness = Math.min(1, r.keyPoints.length / 5);
-        const accuracy = r.confidence;
-        const score = completeness * 0.3 + accuracy * 0.7;
-
-        return {
-          agentId: r.agentId,
-          rank: 0,
-          score,
-          criteria: { completeness, accuracy },
-        };
-      })
-      .sort((a, b) => b.score - a.score)
-      .map((r, i) => ({ ...r, rank: i + 1 }));
-  }
-
-  /**
-   * Detect outlier agents
-   */
-  private detectOutliers(responses: AgentResponse[], agreements: any[]): string[] {
-    const outliers: string[] = [];
-    const majorityPoints = new Set(
-      agreements.filter(a => a.strength >= 0.5).map(a => a.point.toLowerCase())
-    );
-
-    for (const response of responses) {
-      const agentPoints = new Set(response.keyPoints.map(p => p.content.toLowerCase()));
-      const overlap = [...agentPoints].filter(p => majorityPoints.has(p)).length;
-
-      if (majorityPoints.size > 0 && overlap / majorityPoints.size < 0.3) {
-        outliers.push(response.agentId);
-      }
-    }
-
-    return outliers;
   }
 
   /**

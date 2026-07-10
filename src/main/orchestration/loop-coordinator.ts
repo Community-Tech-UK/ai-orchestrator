@@ -74,7 +74,7 @@ import {
   type VerifyOutcomeLike,
   verifyFailureIntervention,
 } from './loop-coordinator-utils';
-import { resolveCompletion, type EvidenceResolution } from './evidence-resolver';
+import { resolveCompletion } from './evidence-resolver';
 import {
   captureAndPersistLoopRepoBaseline,
   effectiveLoopRepoCwd,
@@ -84,6 +84,10 @@ import {
   writeLoopPreflightArtifact,
 } from './loop-audit-runtime';
 import { EvidenceStore } from './evidence-store';
+import {
+  recordCompletionEvidence as recordCompletionEvidenceToStore,
+  type CompletionEvidenceInput,
+} from './loop-coordinator-evidence-recorder';
 import { summarizeVerifyOutput } from './verify-output-summarizer';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import {
@@ -477,58 +481,11 @@ export class LoopCoordinator extends EventEmitter {
   private recordCompletionEvidence(
     state: LoopState,
     candidate: CompletionSignalEvidence,
-    ev: {
-      verifyPassed: boolean;
-      freshEyesRan: boolean;
-      freshEyesBlockingCount: number;
-      freshEyesErrored: boolean;
-      resolution: EvidenceResolution;
-    },
+    ev: CompletionEvidenceInput,
   ): void {
     const store = this.resolveEvidenceStore();
     if (!store) return;
-    const loopId = state.id;
-    const target = candidate.id;
-
-    // Contradiction: verify regressed after a prior pass for this target.
-    if (ev.resolution.outcome === 'verify-failed') {
-      const priorVerified = store.getForTarget(loopId, target, 'verified');
-      if (priorVerified.length > 0) {
-        const note =
-          `verify regressed after ${priorVerified.length} previous pass(es) — ` +
-          'the work broke something that was passing before';
-        const existing = this.convergenceNotes.get(loopId);
-        this.convergenceNotes.set(loopId, existing ? `${existing}; ${note}` : note);
-        // A4: schedule a forced fresh-eyes pass on the next completion attempt
-        // so a second opinion evaluates the workspace before accepting again.
-        state.freshEyesForcedByContradiction = true;
-        logger.info('Loop verify regressed after a prior pass — forcing fresh-eyes on next attempt', {
-          loopRunId: loopId,
-          target,
-          priorPasses: priorVerified.length,
-        });
-      }
-      return; // nothing positive to persist on a failed verify
-    }
-
-    if (ev.verifyPassed) {
-      store.record({
-        loopId,
-        target,
-        kind: 'verify-passed',
-        state: 'verified',
-        sourceMetadata: { signalId: candidate.id, attempt: state.completionAttempts },
-      });
-    }
-    if (ev.freshEyesRan && ev.freshEyesBlockingCount === 0 && !ev.freshEyesErrored) {
-      store.record({
-        loopId,
-        target,
-        kind: 'fresh-eyes-clean',
-        state: 'reviewed',
-        sourceMetadata: { signalId: candidate.id, verifyPassed: ev.verifyPassed },
-      });
-    }
+    recordCompletionEvidenceToStore(state, candidate, ev, store, this.convergenceNotes);
   }
 
   static getInstance(): LoopCoordinator {

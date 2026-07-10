@@ -34,11 +34,11 @@ import type { ReasoningEffort } from '../../../../../shared/types/provider.types
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import {
   isActiveTurnStatus,
-  isInterruptRecoveryStatus,
   isReadyForInputStatus,
   isTerminalStatus,
 } from './instance-messaging-queue-utils';
 import { withStatusTimeline } from './instance-status-timeline';
+import { RespawnWatchdog } from './instance-respawn-watchdog';
 
 @Injectable({ providedIn: 'root' })
 export class InstanceStore implements OnDestroy {
@@ -70,8 +70,7 @@ export class InstanceStore implements OnDestroy {
   private _busySince = signal(new Map<string, number>());
 
   // Respawn timeout watchdog: force-terminates instances stuck in 'respawning'
-  private respawnTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private static readonly RESPAWN_TIMEOUT_MS = 15_000;
+  private readonly respawnWatchdog = new RespawnWatchdog(this.stateService, this.listStore);
 
   // ============================================
   // Re-export Queries for backwards compatibility
@@ -109,10 +108,7 @@ export class InstanceStore implements OnDestroy {
     this.outputStore.cleanupAll();
 
     // Clean up respawn watchdog timers
-    for (const timer of this.respawnTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.respawnTimers.clear();
+    this.respawnWatchdog.clearAll();
   }
 
   // ============================================
@@ -285,7 +281,7 @@ export class InstanceStore implements OnDestroy {
       this.updateBusySince(update.instanceId, newStatus);
 
       // Track respawn timeouts — force-terminate if stuck
-      this.updateRespawnWatchdog(update.instanceId, newStatus);
+      this.respawnWatchdog.update(update.instanceId, newStatus);
     }
 
     // Clear pending approval count when instance resumes work or is terminated
@@ -386,7 +382,7 @@ export class InstanceStore implements OnDestroy {
       }
       if (newStatus) {
         this.updateBusySince(update.instanceId, newStatus);
-        this.updateRespawnWatchdog(update.instanceId, newStatus);
+        this.respawnWatchdog.update(update.instanceId, newStatus);
       }
     }
 
@@ -504,41 +500,6 @@ export class InstanceStore implements OnDestroy {
     const id = this.queries.selectedInstanceId();
     if (!id) return undefined;
     return this._busySince().get(id);
-  }
-
-  // ============================================
-  // Respawn Timeout Watchdog
-  // ============================================
-
-  /**
-   * Start or clear the recovery timeout when status changes.
-   * If an instance stays in an interrupt/respawn state for longer than RESPAWN_TIMEOUT_MS,
-   * force-terminate it so the user isn't stuck with an unresponsive session.
-   */
-  private updateRespawnWatchdog(instanceId: string, newStatus: InstanceStatus): void {
-    // Clear any existing timer when status changes
-    const existing = this.respawnTimers.get(instanceId);
-    if (existing) {
-      clearTimeout(existing);
-      this.respawnTimers.delete(instanceId);
-    }
-
-    if (isInterruptRecoveryStatus(newStatus)) {
-      const timer = setTimeout(() => {
-        this.respawnTimers.delete(instanceId);
-        const inst = this.stateService.getInstance(instanceId);
-        const stillRecovering = inst && isInterruptRecoveryStatus(inst.status);
-        if (stillRecovering) {
-          console.error('Interrupt recovery timeout: force-terminating stuck instance', { instanceId });
-          this.listStore.terminateInstance(instanceId).then(() =>
-            this.listStore.restartInstance(instanceId)
-          ).catch((err) => {
-            console.error('Interrupt recovery timeout recovery failed', err);
-          });
-        }
-      }, InstanceStore.RESPAWN_TIMEOUT_MS);
-      this.respawnTimers.set(instanceId, timer);
-    }
   }
 
   // ============================================

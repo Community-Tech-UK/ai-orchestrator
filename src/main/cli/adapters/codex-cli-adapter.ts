@@ -86,7 +86,15 @@ import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 import { discoverCodexModels } from './codex/model-list';
-import { buildCodexReplayPrompt, wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
+import { wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
+import {
+  type CodexConversationEntry,
+  buildReplayPrompt,
+  consumeLines,
+  delay,
+  recordConversationTurn,
+  normalizeAttachmentData,
+} from './codex/exec-helpers';
 import { CompactionGate } from './codex/compaction-gate';
 import { recoverFromInputCap } from './codex/input-cap-recovery';
 
@@ -114,10 +122,6 @@ interface CodexExecutionState {
   emittedDiagnosticKeys: Set<string>;
 }
 
-interface CodexConversationEntry {
-  content: string;
-  role: 'assistant' | 'user';
-}
 
 /**
  * Codex CLI specific configuration
@@ -2580,7 +2584,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           && !execution.diagnostics.some((diagnostic) => diagnostic.fatal);
 
         if (!shouldRetry) {
-          this.recordConversationTurn(normalizedMessage, response);
+          this.conversationHistory = recordConversationTurn(this.conversationHistory, normalizedMessage, response, CodexCliAdapter.MAX_REPLAY_ENTRIES);
           this.hasCompletedExecTurn = true;
           // Note: 'complete' is emitted by execSendMessage() AFTER all
           // output events, to guarantee correct event ordering.
@@ -2592,7 +2596,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           maxAttempts,
           diagnosticsCount: execution.diagnostics.length,
         });
-        await this.delay(250 * attempt);
+        await delay(250 * attempt);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
@@ -2649,7 +2653,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           maxAttempts,
           errorMessage: lastError.message,
         });
-        await this.delay(250 * attempt);
+        await delay(250 * attempt);
       }
     }
 
@@ -2951,7 +2955,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             });
           });
         }
-        state.partialStdout = this.consumeLines(chunk, state.partialStdout, (line) => {
+        state.partialStdout = consumeLines(chunk, state.partialStdout, (line) => {
           this.processStdoutLine(line, state);
         });
       });
@@ -2969,7 +2973,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         this.emit('heartbeat');
         const chunk = data.toString();
         state.rawStderr += chunk;
-        state.partialStderr = this.consumeLines(chunk, state.partialStderr, (line) => {
+        state.partialStderr = consumeLines(chunk, state.partialStderr, (line) => {
           const diagnostic = classifyCodexDiagnostic(line);
           state.diagnostics.push(diagnostic);
 
@@ -3144,7 +3148,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     let content = message.content;
 
     if (!this.shouldUseResumeCommand() && this.conversationHistory.length > 0) {
-      content = this.buildReplayPrompt(content);
+      content = buildReplayPrompt(this.conversationHistory, content, CodexCliAdapter.MAX_REPLAY_ENTRIES, CodexCliAdapter.MAX_REPLAY_CHARS_PER_ENTRY);
     }
 
     // Skip system prompt on resume turns — the Codex thread already has full
@@ -3184,7 +3188,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       name: attachment.name || `attachment-${index}`,
       type: attachment.mimeType || (attachment.type === 'image' ? 'image/png' : 'application/octet-stream'),
       size: attachment.content?.length || 0,
-      data: this.normalizeAttachmentData(attachment.content || ''),
+      data: normalizeAttachmentData(attachment.content || ''),
     }));
     return processAttachments(fileAttachments, this.sessionId || generateId(), workingDirectory);
   }
@@ -3293,104 +3297,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
    */
   private supportsNativeResume(): boolean {
     return true;
-  }
-
-  private buildReplayPrompt(currentMessage: string): string {
-    return buildCodexReplayPrompt(
-      this.conversationHistory.slice(-CodexCliAdapter.MAX_REPLAY_ENTRIES),
-      currentMessage,
-      CodexCliAdapter.MAX_REPLAY_CHARS_PER_ENTRY,
-    );
-  }
-
-  private consumeLines(
-    chunk: string,
-    carry: string,
-    handleLine: (line: string) => void
-  ): string {
-    const combined = carry + chunk;
-    const lines = combined.split('\n');
-    const remainder = lines.pop() || '';
-    for (const line of lines) {
-      if (line.trim()) {
-        handleLine(line);
-      }
-    }
-    return remainder;
-  }
-
-  private async delay(ms: number): Promise<void> {
-    await new Promise<void>((resolve) => setTimeout(resolve, ms));
-  }
-
-  private recordConversationTurn(message: CliMessage, response: CliResponse): void {
-    const userContent = this.buildHistoryEntryContent(message);
-    if (userContent) {
-      this.conversationHistory.push({ role: 'user', content: userContent });
-    }
-
-    const assistantContent = response.content.trim() || this.summarizeToolCalls(response.toolCalls);
-    if (assistantContent) {
-      this.conversationHistory.push({ role: 'assistant', content: assistantContent });
-    }
-
-    if (this.conversationHistory.length > CodexCliAdapter.MAX_REPLAY_ENTRIES) {
-      this.conversationHistory = this.conversationHistory.slice(-CodexCliAdapter.MAX_REPLAY_ENTRIES);
-    }
-  }
-
-  private buildHistoryEntryContent(message: CliMessage): string {
-    const imageNames = (message.attachments || [])
-      .filter((attachment) => attachment.type === 'image')
-      .map((attachment) => attachment.name || 'image');
-    const imageSummary = imageNames.length > 0
-      ? `[Attached images: ${imageNames.join(', ')}]`
-      : '';
-
-    if (message.content.trim() && imageSummary) {
-      return `${message.content.trim()}\n${imageSummary}`;
-    }
-
-    return message.content.trim() || imageSummary;
-  }
-
-  private summarizeToolCalls(toolCalls?: CliToolCall[]): string {
-    if (!toolCalls || toolCalls.length === 0) {
-      return '';
-    }
-
-    return toolCalls
-      .slice(0, 3)
-      .map((toolCall) => {
-        if (toolCall.name === 'command_execution' && typeof toolCall.arguments['command'] === 'string') {
-          return `Executed command: ${toolCall.arguments['command'] as string}`;
-        }
-        return `Used tool: ${toolCall.name}`;
-      })
-      .join('\n');
-  }
-
-  private normalizeAttachmentData(data: string): string {
-    if (!data) {
-      return data;
-    }
-
-    if (data.startsWith('data:')) {
-      return data;
-    }
-
-    if (this.looksLikeBase64(data)) {
-      return data;
-    }
-
-    return Buffer.from(data, 'utf-8').toString('base64');
-  }
-
-  private looksLikeBase64(data: string): boolean {
-    if (data.length < 16 || data.length % 4 !== 0) {
-      return false;
-    }
-    return /^[A-Za-z0-9+/]+={0,2}$/.test(data);
   }
 
   /**

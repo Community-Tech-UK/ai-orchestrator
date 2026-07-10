@@ -75,6 +75,47 @@ export function buildHistoryPreviewPendingRestoreMessages(
   };
 }
 
+/**
+ * Pure reducer: append a pending-restore user+notice message pair for `entryId`.
+ * Returns the generated id and the next map (does not mutate `current`).
+ */
+export function appendHistoryPreviewPendingRestore(
+  current: Record<string, OutputMessage[]>,
+  entryId: string,
+  message: string,
+): { id: string; next: Record<string, OutputMessage[]> } {
+  const { id, messages } = buildHistoryPreviewPendingRestoreMessages(entryId, message);
+  return {
+    id,
+    next: { ...current, [entryId]: [...(current[entryId] ?? []), ...messages] },
+  };
+}
+
+/**
+ * Pure reducer: remove the pending-restore messages for `id` under `entryId`,
+ * dropping the entry key entirely when it becomes empty.
+ */
+export function removeHistoryPreviewPendingRestore(
+  current: Record<string, OutputMessage[]>,
+  entryId: string,
+  id: string,
+): Record<string, OutputMessage[]> {
+  const nextMessages = (current[entryId] ?? []).filter(
+    (message) => !message.id.startsWith(`${id}-`)
+  );
+
+  if (nextMessages.length === 0) {
+    const next = { ...current };
+    delete next[entryId];
+    return next;
+  }
+
+  return {
+    ...current,
+    [entryId]: nextMessages,
+  };
+}
+
 function shortenPath(path: string): string {
   return path
     .replace(/^\/Users\/[^/]+/, '~')

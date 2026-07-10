@@ -5327,12 +5327,12 @@
       "lines": 3817
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3579
-    },
-    {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
       "lines": 3564
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 3536
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
@@ -5347,12 +5347,12 @@
       "lines": 3440
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3431
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
       "lines": 3408
+    },
+    {
+      "path": "src/main/cli/adapters/codex-cli-adapter.ts",
+      "lines": 3337
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -5387,12 +5387,12 @@
       "lines": 2695
     },
     {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2674
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
       "lines": 2659
+    },
+    {
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2633
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5475,12 +5475,12 @@
       "lines": 1830
     },
     {
-      "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1826
-    },
-    {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
       "lines": 1803
+    },
+    {
+      "path": "packages/contracts/src/types/transport.types.ts",
+      "lines": 1789
     },
     {
       "path": "src/main/session/session-continuity.ts",
@@ -5488,11 +5488,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1724
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1681
+      "lines": 1715
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5511,11 +5507,11 @@
       "lines": 1613
     },
     {
-      "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
-      "lines": 1582
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1591
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
       "lines": 1582
     },
     {
@@ -5524,7 +5520,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1561
+      "lines": 1548
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
@@ -5533,6 +5529,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
       "lines": 1517
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1513
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
@@ -5559,16 +5559,16 @@
       "lines": 1456
     },
     {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1451
-    },
-    {
       "path": "src/main/history/history-manager.ts",
       "lines": 1430
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
       "lines": 1419
+    },
+    {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
+      "lines": 1412
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
@@ -5581,10 +5581,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
       "lines": 1371
-    },
-    {
-      "path": "src/main/memory/unified-controller.ts",
-      "lines": 1358
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -5621,6 +5617,10 @@
     {
       "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
       "lines": 1314
+    },
+    {
+      "path": "src/main/memory/unified-controller.ts",
+      "lines": 1313
     },
     {
       "path": "src/main/plugins/plugin-manager.ts",
@@ -5687,10 +5687,6 @@
       "lines": 1240
     },
     {
-      "path": "src/main/orchestration/debate-coordinator.ts",
-      "lines": 1240
-    },
-    {
       "path": "docs/superpowers/plans/2026-03-21-discord-whatsapp-channels_completed.md",
       "lines": 1239
     },
@@ -5727,12 +5723,12 @@
       "lines": 1186
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
-      "lines": 1179
+      "path": "src/main/orchestration/debate-coordinator.ts",
+      "lines": 1180
     },
     {
-      "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1178
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 1179
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
@@ -5745,6 +5741,10 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md",
       "lines": 1165
+    },
+    {
+      "path": "src/main/ipc/handlers/instance-handlers.ts",
+      "lines": 1159
     },
     {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
@@ -5823,16 +5823,8 @@
       "lines": 1091
     },
     {
-      "path": "src/main/rlm/llm-service.ts",
-      "lines": 1082
-    },
-    {
       "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
       "lines": 1077
-    },
-    {
-      "path": "src/worker-agent/worker-agent.ts",
-      "lines": 1071
     },
     {
       "path": "src/main/instance/instance-orchestration.ts",
@@ -5867,10 +5859,6 @@
       "lines": 1041
     },
     {
-      "path": "src/main/orchestration/cli-verification-extension.ts",
-      "lines": 1040
-    },
-    {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
       "lines": 1039
     },
@@ -5888,6 +5876,10 @@
     },
     {
       "path": "src/main/mcp/mcp-manager.ts",
+      "lines": 1025
+    },
+    {
+      "path": "src/main/rlm/llm-service.ts",
       "lines": 1025
     },
     {
@@ -5935,6 +5927,10 @@
       "lines": 984
     },
     {
+      "path": "src/worker-agent/worker-agent.ts",
+      "lines": 982
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-system-infrastructure.COMPLETED.md",
       "lines": 976
     },
@@ -5975,6 +5971,10 @@
       "lines": 943
     },
     {
+      "path": "src/main/orchestration/cli-verification-extension.ts",
+      "lines": 937
+    },
+    {
       "path": "docs/superpowers/plans/2026-06-05-auxiliary-local-model-routing_completed.md",
       "lines": 935
     },
@@ -5993,10 +5993,6 @@
     {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 920
-    },
-    {
-      "path": "src/main/orchestration/consensus-coordinator.ts",
-      "lines": 916
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",
@@ -6051,10 +6047,6 @@
       "lines": 872
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 872
-    },
-    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 870
     },
@@ -6073,6 +6065,10 @@
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
       "lines": 862
+    },
+    {
+      "path": "src/main/orchestration/consensus-coordinator.ts",
+      "lines": 860
     },
     {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
@@ -6149,10 +6145,6 @@
     {
       "path": "src/renderer/app/features/settings/remote-nodes-settings-tab.component.html",
       "lines": 836
-    },
-    {
-      "path": "src/main/orchestration/loop-completion-detector.ts",
-      "lines": 830
     },
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",

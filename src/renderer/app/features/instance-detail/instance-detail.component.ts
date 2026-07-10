@@ -64,7 +64,8 @@ import {
   type ConversationHistoryEntry,
 } from '../../../../shared/types/history.types';
 import {
-  buildHistoryPreviewPendingRestoreMessages,
+  appendHistoryPreviewPendingRestore,
+  removeHistoryPreviewPendingRestore,
   getHistoryPreviewInstanceId,
   getHistoryPreviewSubtitle,
   providerDisplayName,
@@ -1464,33 +1465,19 @@ export class InstanceDetailComponent {
   }
 
   private addHistoryPreviewPendingRestoreMessage(entryId: string, message: string): string {
-    const { id, messages } = buildHistoryPreviewPendingRestoreMessages(entryId, message);
-
-    this.historyPreviewPendingRestoreMessages.update((current) => ({
-      ...current,
-      [entryId]: [...(current[entryId] ?? []), ...messages],
-    }));
-
+    const { id, next } = appendHistoryPreviewPendingRestore(
+      this.historyPreviewPendingRestoreMessages(),
+      entryId,
+      message,
+    );
+    this.historyPreviewPendingRestoreMessages.set(next);
     return id;
   }
 
   private removeHistoryPreviewPendingRestoreMessage(entryId: string, id: string): void {
-    this.historyPreviewPendingRestoreMessages.update((current) => {
-      const nextMessages = (current[entryId] ?? []).filter(
-        (message) => !message.id.startsWith(`${id}-`)
-      );
-
-      if (nextMessages.length === 0) {
-        const next = { ...current };
-        delete next[entryId];
-        return next;
-      }
-
-      return {
-        ...current,
-        [entryId]: nextMessages,
-      };
-    });
+    this.historyPreviewPendingRestoreMessages.update((current) =>
+      removeHistoryPreviewPendingRestore(current, entryId, id),
+    );
   }
 
   private getEnteringInspectorToggle(): 'todo' | 'review' | 'children' | null {

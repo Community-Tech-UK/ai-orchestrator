@@ -52,6 +52,13 @@ import { getProactiveSurfacer } from './proactive-surfacer';
 import { getCrossProjectLearner } from './cross-project-learner';
 import { getEpisodicStore } from './episodic-store';
 import { getProceduralStore } from './procedural-store';
+import {
+  ensureSessionTag,
+  getFilterTags,
+  filterShortTermBuffer,
+  filterEntriesByTags,
+  stripMemoryTags,
+} from './unified-memory-tags';
 
 export function buildMemoryDistillationPrompts(
   content: string,
@@ -287,8 +294,8 @@ export class UnifiedMemoryController extends EventEmitter {
     sessionId: string,
     taskId: string
   ): Promise<void> {
-    const taggedInput = this.ensureSessionTag(input, sessionId);
-    const plainInput = this.stripMemoryTags(taggedInput);
+    const taggedInput = ensureSessionTag(input, sessionId);
+    const plainInput = stripMemoryTags(taggedInput);
 
     // 1. Add to short-term buffer
     await this.addToShortTerm(taggedInput);
@@ -333,7 +340,7 @@ export class UnifiedMemoryController extends EventEmitter {
   ): Promise<UnifiedRetrievalResult> {
     const types = options?.types || ['short_term', 'long_term', 'procedural'];
     const maxTokens = options?.maxTokens || this.config.shortTermMaxTokens;
-    const filterTags = this.getFilterTags(options);
+    const filterTags = getFilterTags(options);
 
     const cacheKey = this.buildCacheKey(query, options, this.cacheRevision);
     const cached = this.getCachedResult(cacheKey);
@@ -379,25 +386,25 @@ export class UnifiedMemoryController extends EventEmitter {
         const entries = hybridResults
           .map(r => r.entry)
           .filter((e): e is MemoryEntry => !!e);
-        const filteredEntries = this.filterEntriesByTags(
+        const filteredEntries = filterEntriesByTags(
           entries,
           filterTags,
           options
         );
         results.longTerm = filteredEntries.map((e) =>
-          this.stripMemoryTags(e.content)
+          stripMemoryTags(e.content)
         );
       } catch (error) {
         // Fallback to direct Memory-R1 if hybrid fails
         try {
           const entries = await this.memoryR1.retrieve(query, taskId);
-          const filteredEntries = this.filterEntriesByTags(
+          const filteredEntries = filterEntriesByTags(
             entries,
             filterTags,
             options
           );
           results.longTerm = filteredEntries.map((e) =>
-            this.stripMemoryTags(e.content)
+            stripMemoryTags(e.content)
           );
         } catch (fallbackError) {
           this.emit('retrieve:sourceError', {
@@ -518,14 +525,14 @@ export class UnifiedMemoryController extends EventEmitter {
       .toLowerCase()
       .split(/\s+/)
       .filter((term) => term.length > 0);
-    const buffer = this.filterShortTermBuffer(
+    const buffer = filterShortTermBuffer(
       this.state.shortTerm.buffer,
       filterTags
     );
 
     // Prioritize recent and keyword-matching entries with diversity
     const scored = buffer.map((content, index) => {
-      const sanitized = this.stripMemoryTags(content);
+      const sanitized = stripMemoryTags(content);
       const lowerContent = sanitized.toLowerCase();
       const matches = queryTerms.filter((term) =>
         lowerContent.includes(term)
@@ -546,7 +553,7 @@ export class UnifiedMemoryController extends EventEmitter {
   getShortTermContext(): string {
     return this.state.shortTerm.buffer
       .slice(-10)
-      .map((entry) => this.stripMemoryTags(entry))
+      .map((entry) => stripMemoryTags(entry))
       .join('\n\n');
   }
 
@@ -558,7 +565,7 @@ export class UnifiedMemoryController extends EventEmitter {
     );
 
     const content = toSummarize
-      .map((entry) => this.stripMemoryTags(entry))
+      .map((entry) => stripMemoryTags(entry))
       .join('\n\n');
 
     // Call summarization (placeholder - actual impl uses LLM)
@@ -635,7 +642,7 @@ export class UnifiedMemoryController extends EventEmitter {
     return this.state.shortTerm.buffer
       .filter((b) => b.length > 100)
       .slice(-5)
-      .map((entry) => this.stripMemoryTags(entry));
+      .map((entry) => stripMemoryTags(entry));
   }
 
   private async extractPatterns(session: SessionMemory): Promise<void> {
@@ -1087,58 +1094,6 @@ export class UnifiedMemoryController extends EventEmitter {
         maxItems
       ).map((candidate) => candidate.content)
     };
-  }
-
-  private ensureSessionTag(input: string, sessionId: string): string {
-    if (/^\s*\[(?:instance|session):/i.test(input)) {
-      return input;
-    }
-
-    return `[session:${sessionId}] ${input}`;
-  }
-
-  private getFilterTags(options?: RetrievalOptions): string[] {
-    const tags: string[] = [];
-
-    if (options?.instanceId) {
-      tags.push(`[instance:${options.instanceId}]`);
-    }
-
-    if (options?.sessionId) {
-      tags.push(`[session:${options.sessionId}]`);
-    }
-
-    return tags;
-  }
-
-  private filterShortTermBuffer(buffer: string[], tags: string[]): string[] {
-    if (tags.length === 0) return buffer;
-    return buffer.filter((content) => this.matchesFilterTags(content, tags));
-  }
-
-  private filterEntriesByTags(
-    entries: MemoryEntry[],
-    tags: string[],
-    options?: RetrievalOptions
-  ): MemoryEntry[] {
-    if (tags.length === 0) return entries;
-
-    return entries.filter((entry) => {
-      if (options?.sessionId && entry.sourceSessionId === options.sessionId) {
-        return true;
-      }
-      return this.matchesFilterTags(entry.content, tags);
-    });
-  }
-
-  private matchesFilterTags(content: string, tags: string[]): boolean {
-    return tags.every((tag) => content.includes(tag));
-  }
-
-  private stripMemoryTags(content: string): string {
-    return content
-      .replace(/^\s*(\[(?:instance|session):[^\]]+\]\s*)+/i, '')
-      .trim();
   }
 
   private estimateTokens(text: string): number {

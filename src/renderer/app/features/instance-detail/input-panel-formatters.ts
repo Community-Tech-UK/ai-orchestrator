@@ -2,6 +2,18 @@ import type { InstanceProvider } from '../../core/state/instance/instance.types'
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
 import type { ProviderType } from '../../core/services/provider-state.service';
 import type { PickerProvider } from '../models/compact-model-picker.types';
+import type { ExtendedCommand } from '../../core/state/command.store';
+
+/** Flattened searchable text for a command (name, aliases, description, etc.). */
+export function commandSuggestionText(command: ExtendedCommand): string {
+  return [
+    command.name,
+    ...(command.aliases ?? []),
+    command.description,
+    command.category ?? '',
+    command.usage ?? '',
+  ].filter(Boolean).join(' ');
+}
 
 export function getFileIcon(file: File): string {
   if (file.type.startsWith('image/')) return '🖼️';

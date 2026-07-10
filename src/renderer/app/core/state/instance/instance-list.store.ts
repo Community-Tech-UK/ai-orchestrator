@@ -25,6 +25,7 @@ import {
   validateFiles,
   type InstanceAttachment,
 } from './instance-attachments';
+import { inferInstanceProvider } from './instance-list-provider-helpers';
 
 export interface CreateInstanceWithMessageOptions {
   message: string;
@@ -671,7 +672,7 @@ export class InstanceListStore {
       // Older restores and some legacy payloads can arrive without provider.
       // Recover it from model/session identifiers instead of silently
       // repainting Gemini/Codex threads as Claude.
-      provider: this.inferInstanceProvider(d),
+      provider: inferInstanceProvider(d),
       status: d['status'] as InstanceStatus,
       contextUsage: (d['contextUsage'] as Instance['contextUsage']) || {
         used: 0,
@@ -762,82 +763,6 @@ export class InstanceListStore {
 
     this.stateService.setError(response.error?.message || fallbackMessage);
     return false;
-  }
-
-  private inferInstanceProvider(data: Record<string, unknown>): Instance['provider'] {
-    const explicitProvider = data['provider'];
-    if (this.isInstanceProvider(explicitProvider)) {
-      return explicitProvider;
-    }
-
-    return (
-      this.inferProviderFromModel(data['currentModel'])
-      || this.inferProviderFromIdentifier(data['historyThreadId'])
-      || this.inferProviderFromIdentifier(data['sessionId'])
-      || this.inferProviderFromIdentifier(data['id'])
-      || 'claude'
-    );
-  }
-
-  private inferProviderFromModel(model: unknown): Instance['provider'] | undefined {
-    if (typeof model !== 'string') {
-      return undefined;
-    }
-
-    const normalized = model.trim().toLowerCase();
-    if (!normalized) {
-      return undefined;
-    }
-
-    if (normalized.startsWith('gemini')) return 'gemini';
-    if (normalized.startsWith('copilot')) return 'copilot';
-    if (
-      normalized.startsWith('gpt-')
-      || normalized.includes('codex')
-      || normalized === 'o3'
-    ) {
-      return 'codex';
-    }
-    if (
-      normalized.startsWith('claude')
-      || normalized === 'opus'
-      || normalized === 'sonnet'
-      || normalized === 'haiku'
-    ) {
-      return 'claude';
-    }
-
-    return undefined;
-  }
-
-  private inferProviderFromIdentifier(value: unknown): Instance['provider'] | undefined {
-    if (typeof value !== 'string') {
-      return undefined;
-    }
-
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) {
-      return undefined;
-    }
-
-    if (normalized.startsWith('gemini-')) return 'gemini';
-    if (normalized.startsWith('codex-')) return 'codex';
-    if (normalized.startsWith('copilot-')) return 'copilot';
-    if (normalized.startsWith('claude-')) return 'claude';
-    if (normalized.startsWith('u-')) return 'cursor';
-
-    return undefined;
-  }
-
-  private isInstanceProvider(value: unknown): value is Instance['provider'] {
-    return value === 'claude'
-      || value === 'codex'
-      || value === 'gemini'
-      || value === 'antigravity'
-      || value === 'copilot'
-      || value === 'ollama'
-      || value === 'cursor'
-      || value === 'grok';
   }
 
   private isLaunchMode(value: unknown): value is Instance['launchMode'] {

@@ -57,6 +57,18 @@ describe('createBwRunner', () => {
     expect(captured?.env['BW_SESSION']).toBeUndefined();
   });
 
+  it('expands a stripped packaged-app PATH so Homebrew bw can be resolved', async () => {
+    let captured: Captured | undefined;
+    const runner = createBwRunner({
+      baseEnv: { PATH: '/usr/bin:/bin' },
+      execFileFn: fakeExecFile((c) => (captured = c), { stdout: 'ok' }),
+    });
+
+    await runner.run(['status']);
+
+    expect(captured?.env['PATH']?.split(':')).toContain('/opt/homebrew/bin');
+  });
+
   it('resolves a non-zero result (not a rejection) with the exit code and stderr', async () => {
     const runner = createBwRunner({
       execFileFn: fakeExecFile(() => undefined, {

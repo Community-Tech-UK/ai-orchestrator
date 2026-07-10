@@ -131,6 +131,30 @@ describe('BrowserCampaignService.get / list', () => {
     expect(service.list({ status: 'active' }).map((c) => c.id)).toEqual([a.id]);
     expect(service.list({ status: 'paused' }).map((c) => c.id)).toEqual([b.id]);
   });
+
+  it('reports elapsed active campaigns as expired from get and list', () => {
+    const { service, advance, onStateChange } = makeService({ idFactory: idSequence() });
+    const expired = service.create(
+      input({ label: 'Expired', budget: budget({ maxDurationMs: HOUR }) }),
+    );
+    const paused = service.create(
+      input({ label: 'Paused', budget: budget({ maxDurationMs: HOUR }) }),
+    );
+    service.pause(paused.id);
+    onStateChange.mockClear();
+    advance(HOUR + 1);
+
+    expect(service.get(expired.id)?.status).toBe('expired');
+    expect(service.get(paused.id)?.status).toBe('paused');
+    expect(service.list({ status: 'active' })).toEqual([]);
+    expect(service.list({ status: 'expired' }).map((campaign) => campaign.id)).toEqual([
+      expired.id,
+    ]);
+    expect(onStateChange).toHaveBeenCalledTimes(1);
+    expect(onStateChange).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expired.id, status: 'expired' }),
+    );
+  });
 });
 
 describe('BrowserCampaignService.recordAction', () => {

@@ -5,6 +5,7 @@ import {
   reestablishExpiredStandingCampaigns,
   type ApplyAutonomyConfigDeps,
 } from './browser-autonomy-config';
+import { BrowserCampaignService } from './browser-campaign-store';
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
@@ -186,6 +187,22 @@ describe('reestablishExpiredStandingCampaigns', () => {
 
     expect(reestablishExpiredStandingCampaigns(deps, FULL_CONFIG)).toBe(1);
     expect(createdCampaigns).toEqual([{ label: 'Overnight registrations' }]);
+  });
+
+  it('rolls an elapsed active campaign without requiring canProceed first', () => {
+    let now = T0;
+    let nextId = 0;
+    const campaigns = new BrowserCampaignService({
+      now: () => now,
+      idFactory: () => `campaign-${++nextId}`,
+    });
+    const deps: ApplyAutonomyConfigDeps = { ...makeDeps().deps, campaigns };
+    applyBrowserAutonomyConfig(FULL_CONFIG, deps);
+    now += 12 * 60 * 60 * 1000 + 1;
+
+    expect(reestablishExpiredStandingCampaigns(deps, FULL_CONFIG)).toBe(1);
+    expect(campaigns.list({ status: 'expired' })).toHaveLength(1);
+    expect(campaigns.list({ status: 'active' })).toHaveLength(1);
   });
 
   it('leaves an active or paused standing campaign untouched', () => {

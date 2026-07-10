@@ -22,13 +22,11 @@ import {
   pickQueuedMetadata,
   type SendInputImmediateOptions,
 } from './instance-messaging-queue-utils';
+import { getSendInputTimeoutMs } from './instance-messaging-send-utils';
 
 // Max transient-failure retries before dropping a queued message. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
 const MAX_QUEUE_RETRIES = 5;
-const DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
-const TURN_BLOCKING_SEND_INPUT_IPC_TIMEOUT_MS = 11 * 60_000;
-const NO_SEND_INPUT_IPC_TIMEOUT_MS = null;
 
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
@@ -295,7 +293,7 @@ export class InstanceMessagingStore {
     this.noteInterruptRequested(targetInstanceId);
     const result = await this.sendInputWithTimeout(
       this.ipc.steerInput(targetInstanceId, message, attachments),
-      this.getSendInputTimeoutMs(instance.provider)
+      getSendInputTimeoutMs(instance.provider)
     );
 
     if (!result.success) {
@@ -440,7 +438,7 @@ export class InstanceMessagingStore {
         attachments,
         retryCount > 0 || options.skipUserBubble === true
       ),
-      this.getSendInputTimeoutMs(target.instance.provider)
+      getSendInputTimeoutMs(target.instance.provider)
     );
 
     // If send failed, decide whether to retry or drop
@@ -597,25 +595,6 @@ export class InstanceMessagingStore {
         clearTimeout(timeoutId);
       }
     }
-  }
-
-  private getSendInputTimeoutMs(provider: Instance['provider']): number | null {
-    // Codex app-server turns can legitimately run for much longer than the
-    // renderer's bridge guard while still streaming output and heartbeats.
-    // Let the main-process Codex watchdogs own failure detection so the
-    // renderer does not clear the busy UI while text is still arriving.
-    if (provider === 'codex') {
-      return NO_SEND_INPUT_IPC_TIMEOUT_MS;
-    }
-
-    // Some adapters keep the IPC send promise open for the whole turn rather
-    // than just message acceptance. Keep this renderer guard beyond backend
-    // watchdogs so it only catches a wedged bridge, not normal long turns.
-    // Grok Build uses the same ACP session/prompt contract as Cursor.
-    if (provider === 'cursor' || provider === 'copilot' || provider === 'grok') {
-      return TURN_BLOCKING_SEND_INPUT_IPC_TIMEOUT_MS;
-    }
-    return DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS;
   }
 
   private resolveMessageTarget(

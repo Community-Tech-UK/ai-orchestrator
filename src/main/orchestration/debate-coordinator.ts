@@ -11,11 +11,12 @@
 
 import { EventEmitter } from 'events';
 import type {
-  ActiveDebate, AgentCritique, ConsensusAgreement, ConsensusAnalysis,
-  ConsensusDisagreement, CritiqueSeverity, DebateConfig, DebateContribution,
+  ActiveDebate, AgentCritique, ConsensusAnalysis,
+  CritiqueSeverity, DebateConfig, DebateContribution,
   DebateResult, DebateRoundType, DebateSessionRound, DebateStats, DebateStatus,
 } from '../../shared/types/debate.types';
 import { getLogger } from '../logging/logger';
+import { calculateConsensus, analyzeConsensus, getFinalSubstantiveRound } from './debate-consensus';
 import { estimateTokens } from '../rlm/token-counter';
 import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
@@ -288,7 +289,7 @@ export class DebateCoordinator extends EventEmitter {
       roundNumber: 1,
       type: 'initial',
       contributions,
-      consensusScore: this.calculateConsensus(contributions),
+      consensusScore: calculateConsensus(contributions),
       timestamp: Date.now(),
       durationMs: Date.now() - roundStart,
     };
@@ -339,7 +340,7 @@ export class DebateCoordinator extends EventEmitter {
       roundNumber: debate.currentRound + 1,
       type: 'critique',
       contributions,
-      consensusScore: this.calculateConsensus(contributions),
+      consensusScore: calculateConsensus(contributions),
       timestamp: Date.now(),
       durationMs: Date.now() - roundStart,
     };
@@ -385,7 +386,7 @@ export class DebateCoordinator extends EventEmitter {
       roundNumber: debate.currentRound + 1,
       type: 'defense',
       contributions,
-      consensusScore: this.calculateConsensus(contributions),
+      consensusScore: calculateConsensus(contributions),
       timestamp: Date.now(),
       durationMs: Date.now() - roundStart,
     };
@@ -405,7 +406,7 @@ export class DebateCoordinator extends EventEmitter {
     const roundStart = Date.now();
 
     // Analyze consensus across all rounds
-    const consensusAnalysis = this.analyzeConsensus(debate);
+    const consensusAnalysis = analyzeConsensus(debate);
 
     // Generate final synthesis
     const synthesis = await this.generateSynthesis(debate, consensusAnalysis);
@@ -862,7 +863,7 @@ Duration: ${r.durationMs}ms`
       })
       .join('\n\n');
 
-    const finalPositionsRound = this.getFinalSubstantiveRound(debate);
+    const finalPositionsRound = getFinalSubstantiveRound(debate);
     const finalPositions = finalPositionsRound.contributions
       .map((contribution) => promptDataBlock('agent_position', contribution.content, ` id="${contribution.agentId}"`))
       .join('\n\n');
@@ -902,67 +903,6 @@ Create a comprehensive synthesis that:
 Provide your synthesis:`;
   }
 
-  // ============ Consensus Analysis ============
-
-  private calculateConsensus(contributions: DebateContribution[]): number {
-    if (contributions.length <= 1) return 1.0;
-
-    // Simple text similarity-based consensus
-    let totalSimilarity = 0;
-    let comparisons = 0;
-
-    for (let i = 0; i < contributions.length; i++) {
-      for (let j = i + 1; j < contributions.length; j++) {
-        totalSimilarity += this.textSimilarity(contributions[i].content, contributions[j].content);
-        comparisons++;
-      }
-    }
-
-    return comparisons > 0 ? totalSimilarity / comparisons : 0;
-  }
-
-  private analyzeConsensus(debate: ActiveDebate): ConsensusAnalysis {
-    const lastRound = this.getFinalSubstantiveRound(debate);
-    const positions = new Map(lastRound.contributions.map((contribution) => [
-      contribution.agentId,
-      contribution.content,
-    ]));
-    const agreements: ConsensusAgreement[] = lastRound.consensusScore >= debate.config.convergenceThreshold
-      ? [{
-          topic: 'Agents reached the configured convergence threshold',
-          confidence: lastRound.consensusScore,
-          supportingAgents: [...positions.keys()],
-        }]
-      : [];
-    const disagreements: ConsensusDisagreement[] = positions.size > 1 && agreements.length === 0
-      ? [{
-          topic: 'Final agent positions require moderator resolution',
-          positions,
-          severity: lastRound.consensusScore < 0.5 ? 'high' : 'medium',
-        }]
-      : [];
-
-    return {
-      overallScore: lastRound.consensusScore,
-      agreements,
-      disagreements,
-      undecided: [],
-    };
-  }
-
-  private getFinalSubstantiveRound(debate: ActiveDebate): DebateSessionRound {
-    return [...debate.rounds].reverse().find((round) => round.type !== 'synthesis')
-      ?? debate.rounds[debate.rounds.length - 1];
-  }
-
-  private textSimilarity(a: string, b: string): number {
-    const wordsA = new Set(a.toLowerCase().split(/\s+/));
-    const wordsB = new Set(b.toLowerCase().split(/\s+/));
-    const intersection = new Set([...wordsA].filter(x => wordsB.has(x)));
-    const union = new Set([...wordsA, ...wordsB]);
-    return union.size > 0 ? intersection.size / union.size : 0;
-  }
-
   // ============ Helper Methods ============
 
   private extractConfidenceFromResponse(response: string): number {
@@ -989,7 +929,7 @@ Provide your synthesis:`;
 
   private finalizeDebate(debate: ActiveDebate): void {
     const lastRound = debate.rounds[debate.rounds.length - 1];
-    const consensusAnalysis = this.analyzeConsensus(debate);
+    const consensusAnalysis = analyzeConsensus(debate);
 
     const result: DebateResult = {
       id: debate.id,

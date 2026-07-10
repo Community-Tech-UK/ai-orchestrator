@@ -3,7 +3,6 @@ import { readFileSync } from 'fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { createServer as createHttpsServer } from 'https';
 import type { AddressInfo } from 'net';
-import type { Duplex } from 'stream';
 import { URL } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getLogger } from '../logging/logger';
@@ -27,7 +26,6 @@ import type {
   MobileMessagesResumeDto,
   MobilePauseDto,
   MobilePromptDto,
-  MobileClientEvent,
   MobileServerEvent,
   MobileSnapshot,
 } from '../../shared/types/mobile-gateway.types';
@@ -50,6 +48,11 @@ import {
   sendJsonResponse,
 } from './mobile-gateway-http-utils';
 import { handleMobileHistory, handleMobileHistoryMessages } from './mobile-gateway-history-handlers';
+import {
+  handleWsUpgrade,
+  isInstanceBeingViewed,
+  type WsHandlerDeps,
+} from './mobile-gateway-ws-handlers';
 import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
 import {
   handleMobileModelRoutes,
@@ -381,7 +384,7 @@ export class MobileGatewayServer {
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
     httpServer.on('upgrade', (req, socket, head) => {
-      this.handleUpgrade(req, socket, head);
+      handleWsUpgrade(this.wsDeps(), req, socket, head);
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -664,7 +667,7 @@ export class MobileGatewayServer {
       // connected phone (mirrors the desktop "selected instance" rule). The push
       // still fires — iOS suppresses its own banner while the app is foreground,
       // and a backgrounded-but-still-"viewing" client should still be alerted.
-      if (!this.isInstanceBeingViewed(instanceId)) {
+      if (!isInstanceBeingViewed(this.wsDeps(), instanceId)) {
         this.unreadCompletions.add(instanceId);
       }
       this.sendCompletionPush(instanceId);
@@ -911,89 +914,17 @@ export class MobileGatewayServer {
   // WebSocket
   // ---------------------------------------------------------------------------
 
-  private handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-    try {
-      const url = new URL(req.url || '/', 'http://localhost');
-      if (url.pathname !== '/ws') {
-        socket.destroy();
-        return;
-      }
-      const token = url.searchParams.get('token') || bearerFromHeader(req.headers['authorization']);
-      if (!this.registry.validateToken(token)) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
-      }
-      const wss = this.wss;
-      if (!wss) {
-        socket.destroy();
-        return;
-      }
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        this.handleWsConnection(ws);
-      });
-    } catch (err) {
-      logger.warn('WS upgrade failed', { error: err instanceof Error ? err.message : String(err) });
-      socket.destroy();
-    }
-  }
-
-  private handleWsConnection(ws: WebSocket): void {
-    this.clients.add(ws);
-    this.clientAlive.set(ws, true);
-    ws.on('pong', () => this.clientAlive.set(ws, true));
-    ws.on('message', (data) => this.handleClientMessage(ws, data));
-    ws.on('close', () => {
-      this.clients.delete(ws);
-      this.activeViewByClient.delete(ws);
-    });
-    ws.on('error', () => {
-      this.clients.delete(ws);
-      this.activeViewByClient.delete(ws);
-    });
-    // Initial snapshot (includes pending prompts + pause state).
-    ws.send(
-      JSON.stringify({ type: 'snapshot', data: this.buildSnapshot() } satisfies MobileServerEvent),
-    );
-  }
-
-  /**
-   * Parse a client control frame. Currently only the `view` report, which
-   * records (per socket) the conversation the phone is looking at so completions
-   * for that session don't raise the unread dot. Defensive: malformed frames are
-   * silently ignored — a client must never be able to crash the gateway.
-   */
-  private handleClientMessage(ws: WebSocket, data: unknown): void {
-    try {
-      const raw = Array.isArray(data)
-        ? Buffer.concat(data as Buffer[]).toString('utf8')
-        : Buffer.isBuffer(data)
-          ? data.toString('utf8')
-          : data instanceof ArrayBuffer
-            ? Buffer.from(data).toString('utf8')
-            : String(data);
-      const event = JSON.parse(raw) as MobileClientEvent;
-      if (event?.type === 'view') {
-        const id = typeof event.instanceId === 'string' && event.instanceId ? event.instanceId : null;
-        if (id) {
-          this.activeViewByClient.set(ws, id);
-          // Opening a conversation counts as viewing it — drop any existing dot.
-          this.markCompletionViewed(id);
-        } else {
-          this.activeViewByClient.delete(ws);
-        }
-      }
-    } catch {
-      /* ignore malformed control frame */
-    }
-  }
-
-  /** True while any connected client has this instance's conversation open. */
-  private isInstanceBeingViewed(instanceId: string): boolean {
-    for (const viewed of this.activeViewByClient.values()) {
-      if (viewed === instanceId) return true;
-    }
-    return false;
+  /** Assemble the state + callbacks the extracted WS handlers need. */
+  private wsDeps(): WsHandlerDeps {
+    return {
+      registry: this.registry,
+      wss: this.wss,
+      clients: this.clients,
+      clientAlive: this.clientAlive,
+      activeViewByClient: this.activeViewByClient,
+      buildSnapshot: () => this.buildSnapshot(),
+      markCompletionViewed: (instanceId: string) => this.markCompletionViewed(instanceId),
+    };
   }
 
   // ---------------------------------------------------------------------------

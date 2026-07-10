@@ -31,6 +31,7 @@ import {
 import { getAuxiliaryLlmService } from './auxiliary-llm-service';
 import type { AuxiliaryLlmSlot } from '../../shared/types/auxiliary-llm.types';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
+import { generateLocalFallback, fallbackSummarize } from './llm-service-fallbacks';
 
 // Re-export public API so existing importers are unaffected.
 export type {
@@ -144,7 +145,7 @@ Summary:`;
       if (!auxDecision.allowFrontierFallback) {
         // Frontier fallback disabled for the compression slot — return the
         // deterministic local summary instead of calling the primary (cloud) LLM.
-        const summary = this.fallbackSummarize(request.content, request.targetTokens);
+        const summary = fallbackSummarize(request.content, request.targetTokens);
         this.emit('summarize:complete', {
           requestId: request.requestId,
           summary,
@@ -177,7 +178,7 @@ Summary:`;
       });
 
       // Return fallback summary
-      return this.fallbackSummarize(request.content, request.targetTokens);
+      return fallbackSummarize(request.content, request.targetTokens);
     }
   }
 
@@ -232,7 +233,7 @@ Summary:`;
       });
 
       // Return fallback summary
-      fullResponse = this.fallbackSummarize(request.content, request.targetTokens);
+      fullResponse = fallbackSummarize(request.content, request.targetTokens);
     }
 
     return fullResponse;
@@ -488,7 +489,7 @@ Answer:`;
     }
 
     // Fall back to local extraction
-    return this.generateLocal(userPrompt);
+    return generateLocalFallback(userPrompt);
   }
 
   /**
@@ -566,7 +567,7 @@ Answer:`;
       }
 
       // Fall back to local (non-streaming, emitted as single chunk)
-      const response = this.generateLocal(userPrompt);
+      const response = generateLocalFallback(userPrompt);
       yield { requestId, chunk: response, done: true };
     } finally {
       this.activeStreams.delete(requestId);
@@ -941,64 +942,6 @@ Answer:`;
 
     this.openaiAvailable = true;
     return data.choices[0]?.message?.content || '';
-  }
-
-  /**
-   * Local extraction without LLM (fallback)
-   */
-  private generateLocal(prompt: string): string {
-    // For summarization, extract key content
-    // For sub-queries, return a message that LLM is unavailable
-    if (prompt.includes('summarize')) {
-      const content = prompt.split('Summary:')[0];
-      const targetMatch = prompt.match(/approximately (\d+) tokens/);
-      const targetTokens = targetMatch ? parseInt(targetMatch[1]) : 500;
-      return this.fallbackSummarize(content, targetTokens);
-    }
-
-    return LLM_UNAVAILABLE_TEXT;
-  }
-
-  /**
-   * Fallback summarization without LLM
-   */
-  private fallbackSummarize(content: string, targetTokens: number): string {
-    const targetChars = targetTokens * 4;
-    const lines = content.split('\n');
-
-    // Extract key lines (headers, first sentences, etc.)
-    const keyLines: string[] = [];
-    let currentChars = 0;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-
-      // Prioritize headers and important patterns
-      const isHeader = /^#+\s/.test(trimmed) || /^[A-Z][^.]*:/.test(trimmed);
-      const isImportant = /^(NOTE|IMPORTANT|TODO|WARNING|CRITICAL)/i.test(trimmed);
-
-      if (isHeader || isImportant || keyLines.length < 5) {
-        if (currentChars + trimmed.length <= targetChars) {
-          keyLines.push(trimmed);
-          currentChars += trimmed.length;
-        }
-      }
-    }
-
-    // If we have room, add more content
-    for (const line of lines) {
-      if (currentChars >= targetChars) break;
-      const trimmed = line.trim();
-      if (!trimmed || keyLines.includes(trimmed)) continue;
-
-      if (currentChars + trimmed.length <= targetChars) {
-        keyLines.push(trimmed);
-        currentChars += trimmed.length;
-      }
-    }
-
-    return keyLines.join('\n');
   }
 
   /**

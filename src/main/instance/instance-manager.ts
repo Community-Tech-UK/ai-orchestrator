@@ -93,6 +93,7 @@ import type {
   ProviderName,
   ProviderRuntimeEvent,
 } from '@contracts/types/provider-runtime-events';
+import { resolveProviderName, resolveRuntimeEventTurnId } from './provider-runtime-helpers';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { emitPluginHook } from '../plugins/hook-emitter';
@@ -1056,7 +1057,7 @@ export class InstanceManager extends EventEmitter {
     },
   ): void {
     const instance = this.state.getInstance(instanceId);
-    const provider = this.resolveProviderName(instanceId, options?.provider, instance?.provider);
+    const provider = resolveProviderName(instanceId, options?.provider, instance?.provider);
     if (!provider) {
       return;
     }
@@ -1067,53 +1068,11 @@ export class InstanceManager extends EventEmitter {
       instanceId,
       sessionId: options?.sessionId ?? instance?.providerSessionId ?? instance?.sessionId,
       adapterGeneration: instance?.adapterGeneration,
-      turnId: this.resolveRuntimeEventTurnId(event, instance),
+      turnId: resolveRuntimeEventTurnId(event, instance),
       event,
     };
 
     this.providerEventBus.enqueue(pending);
-  }
-
-  private resolveRuntimeEventTurnId(
-    event: ProviderRuntimeEvent,
-    instance?: Instance,
-  ): string | undefined {
-    if (event.kind === 'output' && typeof event.metadata?.['turnId'] === 'string') {
-      return event.metadata['turnId'];
-    }
-
-    return instance?.activeTurnId;
-  }
-
-  private resolveProviderName(
-    instanceId: string,
-    explicitProvider: ProviderName | undefined,
-    instanceProvider: Instance['provider'] | undefined,
-  ): ProviderName | null {
-    if (explicitProvider) {
-      return explicitProvider;
-    }
-
-    switch (instanceProvider) {
-      case 'claude':
-      case 'codex':
-      case 'gemini':
-      case 'antigravity':
-      case 'copilot':
-      case 'cursor':
-      case 'grok':
-        return instanceProvider;
-      case 'auto':
-      case undefined:
-        logger.debug('Skipping provider runtime event before provider resolution', { instanceId });
-        return null;
-      default:
-        logger.warn('Unsupported provider for runtime envelope', {
-          instanceId,
-          provider: instanceProvider,
-        });
-        return null;
-    }
   }
 
   // ============================================
