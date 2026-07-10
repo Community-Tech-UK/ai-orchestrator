@@ -252,7 +252,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         typeof providerCost === 'number' ? providerCost : undefined,
         reasoning,
       );
-      // Phase 1 fan-out audit: flag-gated task-type attribution (AIO_COST_ATTRIBUTION=1).
+      // Fan-out audit task-type attribution: on by default (opt-out AIO_COST_ATTRIBUTION=0).
       recordInstanceTurnAttribution({
         instanceId,
         parentId: instance.parentId,

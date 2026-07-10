@@ -541,6 +541,9 @@ export function createOllamaAdapter(options: UnifiedSpawnOptions): OllamaCliAdap
     systemPrompt: options.systemPrompt,
     workingDir: options.workingDirectory,
     timeout: options.timeout,
+    // Scaffolding local-first can target a worker node's Ollama directly.
+    host: options.ollamaEndpoint?.host,
+    port: options.ollamaEndpoint?.port,
   });
 }
 

@@ -591,6 +591,62 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(result.reason).toContain('browser_upload_verify_mismatch:file_count');
   });
 
+  it('adds Play Console Add from library recovery hints to upload verification failures', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-hint-'));
+    const filePath = path.join(tempDir, 'app.aab');
+    fs.writeFileSync(filePath, 'fake bundle');
+    const sendCommand = vi.fn(async () => ({
+      uploaded: false,
+      fileCount: 0,
+      files: [],
+    }));
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Play Console',
+      url: 'https://play.google.com/console/u/0/developers/app/releases',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          provider: 'claude',
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['file-upload'],
+          uploadRoots: [tempDir],
+        }),
+      ],
+    });
+
+    const result = await service.uploadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: 'input[type=file]',
+      filePath,
+      actionHint: 'Use Add from library to select the uploaded AAB',
+    });
+
+    expect(result.reason).toContain('browser_upload_verify_mismatch:file_count,uploaded');
+    expect(result.reason).toContain('Recovery hint: For Play Console Add from library');
+  });
+
   it('stages the file onto the remote node before uploading into a remote-node existing tab', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-remote-'));
     const filePath = path.join(tempDir, 'app.aab');
@@ -606,7 +662,12 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     // coordinator-local path is meaningless there, so the gateway must ship
     // the bytes first and hand the extension the NODE-local staged path.
     const stagedRemotePath = 'C:\\work\\_scratch\\aio-browser-uploads\\staged-app.aab';
-    const stageUploadFileOnNode = vi.fn(async () => stagedRemotePath);
+    const stageUploadFileOnNode = vi.fn(async () => ({
+      remotePath: stagedRemotePath,
+      size: Buffer.byteLength('fake bundle'),
+      sha256: 'a'.repeat(64),
+      integrity: 'size-and-sha256' as const,
+    }));
     const existingTab = {
       profileId: 'existing-tab:n.node-1:7:42',
       targetId: 'existing-tab:n.node-1:7:42:target',

@@ -22,6 +22,7 @@ import { WORKFLOW_CHANNELS } from './workflow.channels';
 import { DIAGNOSTICS_CHANNELS } from './diagnostics.channels';
 import { VOICE_CHANNELS } from './voice.channels';
 import { BROWSER_CHANNELS } from './browser.channels';
+import { DESKTOP_CHANNELS } from './desktop.channels';
 import { CONVERSATION_LEDGER_CHANNELS } from './conversation-ledger.channels';
 import { OPERATOR_CHANNELS } from './operator.channels';
 import { CHAT_CHANNELS } from './chat.channels';
@@ -50,6 +51,7 @@ export {
   DIAGNOSTICS_CHANNELS,
   VOICE_CHANNELS,
   BROWSER_CHANNELS,
+  DESKTOP_CHANNELS,
   CONVERSATION_LEDGER_CHANNELS,
   OPERATOR_CHANNELS,
   CHAT_CHANNELS,
@@ -83,6 +85,7 @@ export const IPC_CHANNELS = {
   ...DIAGNOSTICS_CHANNELS,
   ...VOICE_CHANNELS,
   ...BROWSER_CHANNELS,
+  ...DESKTOP_CHANNELS,
   ...CONVERSATION_LEDGER_CHANNELS,
   ...OPERATOR_CHANNELS,
   ...CHAT_CHANNELS,

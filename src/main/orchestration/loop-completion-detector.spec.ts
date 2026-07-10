@@ -9,6 +9,7 @@ import {
   isCompletedRenameForPlan,
   parseAgentMoreWorkRemaining,
   MORE_WORK_REMAINING_SENTINEL,
+  matchesTerminalOutputPattern,
 } from './loop-completion-detector';
 import { findSelfAssignedCaveat } from './loop-anti-self-grading';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
@@ -209,6 +210,17 @@ describe('LoopCompletionDetector.observe', () => {
     const sig = sigs.find((s) => s.id === 'done-promise');
     expect(sig).toBeDefined();
     expect(sig?.sufficient).toBe(false);
+  });
+
+  it('ignores a done-promise that is quoted in prose instead of emitted as a terminal line', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeState(tmpDir);
+    const iter = makeIteration({
+      stage: 'IMPLEMENT',
+      outputExcerpt: 'The prompt says to emit <promise>DONE</promise> when finished, but work remains.',
+    });
+    const sigs = await det.observe({ iteration: iter, config: state.config, state });
+    expect(sigs.find((s) => s.id === 'done-promise')).toBeUndefined();
   });
 
   it('reports done-sentinel when DONE.txt is created during the run (IMPLEMENT stage)', async () => {
@@ -801,14 +813,36 @@ describe('isCompletedRenameForPlan (completion tied to THIS loop\'s plan)', () =
 });
 
 describe('parseAgentMoreWorkRemaining (D5)', () => {
-  it('detects the sentinel anywhere in the output', () => {
+  it('detects the sentinel only on its own line near the end of output', () => {
     expect(parseAgentMoreWorkRemaining(`done with subtask\n${MORE_WORK_REMAINING_SENTINEL}\n`)).toBe(true);
     expect(parseAgentMoreWorkRemaining(MORE_WORK_REMAINING_SENTINEL)).toBe(true);
+  });
+
+  it('rejects quoted, embedded, and stale sentinel text', () => {
+    expect(parseAgentMoreWorkRemaining(`The token ${MORE_WORK_REMAINING_SENTINEL} means continue.`)).toBe(false);
+    expect(parseAgentMoreWorkRemaining(`> ${MORE_WORK_REMAINING_SENTINEL}`)).toBe(false);
+    expect(parseAgentMoreWorkRemaining([
+      MORE_WORK_REMAINING_SENTINEL,
+      ...Array.from({ length: 13 }, (_, i) => `later line ${i + 1}`),
+    ].join('\n'))).toBe(false);
   });
 
   it('returns false when the sentinel is absent or the input is not a string', () => {
     expect(parseAgentMoreWorkRemaining('all done, verify passed')).toBe(false);
     expect(parseAgentMoreWorkRemaining('')).toBe(false);
     expect(parseAgentMoreWorkRemaining(undefined as unknown as string)).toBe(false);
+  });
+});
+
+describe('matchesTerminalOutputPattern', () => {
+  it('requires the regex to match a whole line within the output tail', () => {
+    expect(matchesTerminalOutputPattern('finished\n<promise>DONE</promise>\n', '<promise>DONE</promise>')).toBe(true);
+    expect(matchesTerminalOutputPattern('say <promise>DONE</promise> later', '<promise>DONE</promise>')).toBe(false);
+    expect(matchesTerminalOutputPattern('<promise>DONE</promise> suffix', '<promise>DONE</promise>')).toBe(false);
+  });
+
+  it('rejects a matching line outside the terminal window', () => {
+    const output = ['<promise>DONE</promise>', ...Array.from({ length: 13 }, (_, i) => `tail ${i}`)].join('\n');
+    expect(matchesTerminalOutputPattern(output, '<promise>DONE</promise>')).toBe(false);
   });
 });

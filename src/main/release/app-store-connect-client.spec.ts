@@ -43,7 +43,7 @@ describe('buildAppStoreConnectJwt', () => {
 
 describe('AppStoreConnectClient', () => {
   it('sends bearer-authenticated JSON requests to the ASC API', async () => {
-    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const requests: { url: string; init: RequestInit }[] = [];
     const client = new AppStoreConnectClient({
       keyId: 'ABC123DEFG',
       issuerId: 'issuer-123',
@@ -92,5 +92,67 @@ describe('AppStoreConnectClient', () => {
     await expect(client.request('/v1/apps')).rejects.toThrow(/app_store_connect_api_error:401/);
     await expect(client.request('/v1/apps')).rejects.not.toThrow(privateKey);
     await expect(client.request('/v1/apps')).rejects.not.toThrow(/eyJ\.secret\.parts/);
+  });
+
+  it('uploads asset parts to HTTPS pre-signed URLs without ASC bearer authorization', async () => {
+    const requests: { url: string; init: RequestInit }[] = [];
+    const client = new AppStoreConnectClient({
+      keyId: 'ABC123DEFG',
+      issuerId: 'issuer-123',
+      privateKey,
+      fetch: async (url, init) => {
+        requests.push({ url: String(url), init: init ?? {} });
+        return new Response(null, { status: 200 });
+      },
+    });
+
+    await client.uploadAssetPart({
+      method: 'PUT',
+      url: 'https://upload.example.test/part?Signature=sensitive-query-value',
+      headers: {
+        'Content-Type': 'image/png',
+        'x-upload-token': 'operation-header',
+      },
+      body: Buffer.from('part-bytes'),
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toContain('Signature=sensitive-query-value');
+    expect(requests[0].init.method).toBe('PUT');
+    expect(requests[0].init.headers).toEqual({
+      'Content-Type': 'image/png',
+      'x-upload-token': 'operation-header',
+    });
+    expect(requests[0].init.headers).not.toHaveProperty('authorization');
+    expect(Buffer.from(requests[0].init.body as Uint8Array).toString()).toBe('part-bytes');
+    expect(requests[0].init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('rejects non-HTTPS asset URLs and redacts pre-signed query secrets from failures', async () => {
+    const client = new AppStoreConnectClient({
+      keyId: 'ABC123DEFG',
+      issuerId: 'issuer-123',
+      privateKey,
+      fetch: async () => new Response(
+        'upload failed for https://upload.example.test/part?Signature=never-log-me',
+        { status: 500 },
+      ),
+    });
+
+    await expect(client.uploadAssetPart({
+      method: 'PUT',
+      url: 'http://upload.example.test/part?Signature=never-log-me',
+      headers: {},
+      body: Buffer.from('part'),
+    })).rejects.toThrow('app_store_connect_upload_url_invalid:https_required');
+
+    const upload = client.uploadAssetPart({
+      method: 'PUT',
+      url: 'https://upload.example.test/part?Signature=never-log-me',
+      headers: {},
+      body: Buffer.from('part'),
+    });
+    await expect(upload).rejects.toThrow(/app_store_connect_upload_error:500/);
+    await expect(upload).rejects.not.toThrow('never-log-me');
   });
 });

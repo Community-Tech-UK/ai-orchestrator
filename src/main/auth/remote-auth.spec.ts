@@ -24,6 +24,8 @@ vi.mock('../remote-node/remote-node-config', () => ({
 }));
 
 import { NodeIdentityStore } from '../remote-node/node-identity-store';
+import { generatePairBothKeyMaterial } from '../remote-node/pair-both-crypto';
+import { PairBothSessionStore } from '../remote-node/pair-both-session-store';
 import { _resetRemoteAuthServiceForTesting, RemoteAuthService } from './remote-auth';
 
 describe('RemoteAuthService', () => {
@@ -47,6 +49,38 @@ describe('RemoteAuthService', () => {
     expect(result.status).toBe('paired');
     expect(service.validateSessionToken(result.status === 'rejected' ? undefined : result.session.token, 'node-1')).toBe(true);
     expect(settings.get('remoteNodesRegisteredNodes')).toEqual(expect.any(String));
+  });
+
+  it('accepts the one-time credential produced by pair-both through normal node registration', () => {
+    const auth = new RemoteAuthService();
+    const pairBoth = new PairBothSessionStore({ auth });
+    const session = pairBoth.beginCoordinatorSession({
+      machineName: 'Coordinator',
+      namespace: 'default',
+      listenerPort: 49321,
+      coordinatorUrl: 'ws://192.168.1.2:4878',
+    });
+    const workerKeys = generatePairBothKeyMaterial();
+    pairBoth.acceptWorkerHello(session.sessionId, {
+      protocolVersion: '1',
+      role: 'worker',
+      machineName: 'Noah PC',
+      nonce: 'worker-nonce',
+      publicKey: workerKeys.publicKey,
+      pairingSessionId: session.sessionId,
+    });
+    pairBoth.confirmWorkerCode(session.sessionId);
+    pairBoth.approveCoordinator(session.sessionId);
+    const payload = pairBoth.producePairingPayload(session.sessionId);
+
+    const registered = auth.authenticateRegistration({
+      nodeId: 'node-pair-both',
+      nodeName: payload.connectionConfig.name,
+      token: payload.connectionConfig.authToken,
+    });
+
+    expect(registered.status).toBe('paired');
+    expect(auth.listPendingPairings()).toEqual([]);
   });
 
   it('issues a same-node recovery token when a node is paired', () => {

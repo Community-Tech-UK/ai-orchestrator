@@ -34,10 +34,23 @@ export interface DesktopDriverHealth {
   setupActions: string[];
 }
 
+export interface DesktopSessionLockHolder {
+  instanceId?: string;
+  provider?: string;
+  appId?: string;
+  startedAt?: number;
+  purpose?: string;
+}
+
 export interface DesktopHealthData extends DesktopDriverHealth {
   enabled: boolean;
   lockAvailable: boolean;
   injectable: boolean;
+  /**
+   * When a desktop-use session lock is currently held, the sanitized holder
+   * metadata. Never contains prompt text or task details.
+   */
+  lockHolder?: DesktopSessionLockHolder;
 }
 
 export interface DesktopAppDescriptor {
@@ -143,6 +156,8 @@ export type DesktopScrollDirection = 'up' | 'down' | 'left' | 'right';
 export interface DesktopInputActionRequest {
   appId: string;
   observationToken: string;
+  /** Internal binding copied from the observation; callers cannot override it. */
+  windowId?: string;
   sensitive?: boolean;
   metadata?: Record<string, unknown>;
 }
@@ -208,6 +223,61 @@ export interface DesktopGrantResolutionRequest {
   approved: boolean;
   decidedBy: string;
   reason?: string;
+}
+
+export interface DesktopQueryElementsRequest {
+  observationToken: string;
+  appId?: string;
+  text?: string;
+  role?: string;
+  label?: string;
+  value?: string;
+  limit?: number;
+}
+
+export interface DesktopElementCandidate {
+  uid: string;
+  role: string;
+  label?: string;
+  value?: string;
+  bounds?: DesktopRegion;
+  enabled?: boolean;
+  focused?: boolean;
+  redacted?: boolean;
+}
+
+export interface DesktopQueryElementsResult {
+  appId: string;
+  candidates: DesktopElementCandidate[];
+  observationToken?: string;
+}
+
+export interface DesktopGrantSummary {
+  id: string;
+  appId: string;
+  capability: DesktopGrantCapability;
+  createdAt: number;
+  expiresAt: number;
+  scope: 'session' | 'durable';
+  decidedBy: string;
+  reason?: string;
+  revokedAt?: number;
+}
+
+export interface DesktopListGrantsRequest {
+  appId?: string;
+  includeExpired?: boolean;
+  limit?: number;
+}
+
+export interface DesktopRevokeGrantRequest {
+  grantId: string;
+  reason?: string;
+}
+
+export interface DesktopRevokeGrantResult {
+  grantId: string;
+  revoked: boolean;
 }
 
 export interface DesktopAuditEntry {

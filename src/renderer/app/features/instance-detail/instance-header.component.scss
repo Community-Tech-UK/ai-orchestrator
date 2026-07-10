@@ -311,9 +311,29 @@
           color: var(--primary-color);
         }
 
+        // A toggle queued while busy: amber "in transit" look, distinct from the
+        // settled active/inactive states. Stays clickable (cancels the queue).
+        &.pending {
+          background: rgba(245, 179, 66, 0.12);
+          border-color: rgba(245, 179, 66, 0.4);
+          border-style: dashed;
+          color: #f5b342;
+          animation: yolo-pending-pulse 1.6s ease-in-out infinite;
+        }
+
         &:disabled {
           opacity: 0.5;
           cursor: not-allowed;
+        }
+      }
+
+      @keyframes yolo-pending-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
         }
       }
 

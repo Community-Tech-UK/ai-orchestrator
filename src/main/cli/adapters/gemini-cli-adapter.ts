@@ -540,9 +540,18 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     // shell commands with `rtk`. Gemini has no programmatic PreToolUse hook;
     // each call is a fresh process so awareness is injected every turn.
     if (message.content) {
-      const promptText = this.cliConfig.rtkEnabled
+      let promptText = this.cliConfig.rtkEnabled
         ? `${wrapRtkAwareness()}\n\n${message.content}`
         : message.content;
+      // Deliver the configured system prompt. Gemini CLI has no system-prompt
+      // flag and each non-interactive call is a fresh process, so the only
+      // delivery surface is the positional prompt — without this the child/
+      // worker instructions (e.g. Android device-lease rules) never reach the
+      // model at all. Same [SYSTEM INSTRUCTIONS] envelope as the Codex adapter.
+      const systemPrompt = this.cliConfig.systemPrompt?.trim();
+      if (systemPrompt) {
+        promptText = `[SYSTEM INSTRUCTIONS]\n${systemPrompt}\n[/SYSTEM INSTRUCTIONS]\n\n${promptText}`;
+      }
       args.push(promptText);
     }
 

@@ -6,7 +6,7 @@ import {
   getModelsWithInputModality,
   estimatePromptCost,
 } from './models-catalog';
-import { PROVIDER_MODEL_LIST } from '../types/provider.types';
+import { OPENAI_MODELS, PROVIDER_MODEL_LIST } from '../types/provider.types';
 
 const CATALOG_PROVIDER_BY_STATIC_PROVIDER = {
   claude: 'anthropic',
@@ -96,5 +96,24 @@ describe('models-catalog', () => {
     expect(m.pricing?.inputPer1mTokens).toBe(10.0);
     expect(m.pricing?.outputPer1mTokens).toBe(50.0);
     expect(m.active).toBe(true);
+  });
+
+  it('derives GPT-5.6 fallback limits and pricing from the shared catalogue', () => {
+    const expected = [
+      [OPENAI_MODELS.GPT56_SOL, 5, 30],
+      [OPENAI_MODELS.GPT56_TERRA, 2.5, 15],
+      [OPENAI_MODELS.GPT56_LUNA, 1, 6],
+    ] as const;
+
+    for (const [id, input, output] of expected) {
+      const model = getModelCatalogEntry(id);
+      expect(model?.provider).toBe('openai');
+      expect(model?.contextWindow).toBe(200_000);
+      expect(model?.maxOutputTokens).toBe(100_000);
+      expect(model?.pricing).toMatchObject({
+        inputPer1mTokens: input,
+        outputPer1mTokens: output,
+      });
+    }
   });
 });

@@ -201,6 +201,7 @@ function displayItemSignature(item: DisplayItem): string {
         item.response?.failedImages?.length ?? 0,
         refToken(item.renderedResponse),
         item.showHeader ?? '',
+        item.collapsedThinkingFallback ? 'cf' : '',
       ].join('|');
 
     case 'work-cycle': {

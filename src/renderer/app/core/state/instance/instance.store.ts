@@ -149,6 +149,13 @@ export class InstanceStore implements OnDestroy {
       })
     );
     this.addSubscription(
+      this.eventBus.yoloToggled$.subscribe(({ instanceId, yoloMode, pendingYoloMode }) => {
+        // Applied toggle → yoloMode flips, pendingYoloMode clears.
+        // Queued/cancelled while busy → yoloMode unchanged, pendingYoloMode set/cleared.
+        this.stateService.updateInstance(instanceId, { yoloMode, pendingYoloMode });
+      })
+    );
+    this.addSubscription(
       this.eventBus.fastToggled$.subscribe(({ instanceId, fastMode, reason }) => {
         this.stateService.updateInstance(instanceId, { fastMode });
         if (reason === 'unavailable') {

@@ -14,10 +14,11 @@ vi.mock('../../../logging/logger', () => ({
 interface CapturedTurnEvents {
   output: string[];
   complete: boolean;
+  error: Error | null;
 }
 
 function captureTurnEvents(adapter: OpenAICompatibleChatAdapter): CapturedTurnEvents {
-  const events: CapturedTurnEvents = { output: [], complete: false };
+  const events: CapturedTurnEvents = { output: [], complete: false, error: null };
   adapter.on('output', (message: unknown) => {
     if (typeof message === 'string') {
       events.output.push(message);
@@ -30,6 +31,9 @@ function captureTurnEvents(adapter: OpenAICompatibleChatAdapter): CapturedTurnEv
   });
   adapter.on('complete', () => {
     events.complete = true;
+  });
+  adapter.on('error', (error: Error) => {
+    events.error = error;
   });
   return events;
 }
@@ -249,5 +253,6 @@ describe('OpenAICompatibleChatAdapter', () => {
 
     expect(events.output.join('')).toContain('timed out after 25ms');
     expect(events.complete).toBe(false);
+    expect(events.error?.message).toContain('timed out after 25ms');
   });
 });

@@ -61,6 +61,7 @@ import { initializeBrowserGatewayRuntime } from '../browser-gateway';
 import { initializeDesktopGatewayRuntime } from '../desktop-gateway';
 import { initializeCodememRpcServer } from '../codemem/codemem-rpc-server';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { installRuntimeDiagnostics } from './runtime-diagnostics';
 import { setupCompactionCoordinator } from './compaction-runtime';
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
@@ -655,6 +656,12 @@ export function createInitializationSteps(
       fn: () =>
         initializeBrowserGatewayRuntime({
           isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+          resolveCheckpointOwner: (instanceId) => {
+            const workingDirectory = instanceManager.getInstance(instanceId)?.workingDirectory;
+            return workingDirectory
+              ? `project:${createHash('sha256').update(path.resolve(workingDirectory)).digest('hex')}`
+              : `instance:${instanceId}`;
+          },
           autoApproveRequests: ({ instanceId }) =>
             Boolean(instanceManager.getInstance(instanceId)?.yoloMode),
         }),

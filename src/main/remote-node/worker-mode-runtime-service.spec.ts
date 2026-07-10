@@ -75,4 +75,58 @@ describe('WorkerModeRuntimeService', () => {
     expect(second.pid).toBe(4321);
     expect(spawn).toHaveBeenCalledTimes(1);
   });
+
+  it('installs the service with the pairing credential in environment only', async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      pid: number;
+      kill: ReturnType<typeof vi.fn>;
+      killed: boolean;
+    };
+    child.pid = 2468;
+    child.kill = vi.fn();
+    child.killed = false;
+    const spawn = vi.fn(() => child);
+    const service = new WorkerModeRuntimeService({
+      spawn,
+      resolveCommand: () => ({ command: '/bin/aio-worker', args: [] }),
+    });
+
+    const install = service.installService({
+      configPath: '/Users/james/.orchestrator/worker-node.json',
+      config: {
+        nodeId: 'node-1',
+        name: 'Noah PC',
+        coordinatorUrl: 'ws://mac:4878',
+        authToken: 'one-time-token',
+        namespace: 'default',
+        maxConcurrentInstances: 10,
+        workingDirectories: [],
+        reconnectIntervalMs: 5_000,
+        heartbeatIntervalMs: 10_000,
+      },
+    });
+    child.emit('exit', 0, null);
+    const result = await install;
+
+    expect(result).toEqual({
+      state: 'service-installed',
+      command: '/bin/aio-worker',
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      '/bin/aio-worker',
+      [
+        '--install-service',
+        '--coordinator-url',
+        'ws://mac:4878',
+        '--token-env',
+        'AIO_WORKER_INSTALL_TOKEN',
+      ],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          AIO_WORKER_INSTALL_TOKEN: 'one-time-token',
+        }),
+      }),
+    );
+    expect(JSON.stringify(spawn.mock.calls[0][1])).not.toContain('one-time-token');
+  });
 });

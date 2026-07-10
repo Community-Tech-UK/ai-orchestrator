@@ -30,6 +30,9 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
   standalone: true,
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[class.dropdown-open]': 'isOpen()',
+  },
   template: `
     <div class="dropdown-container" [class.open]="isOpen()">
       <!-- Trigger button -->
@@ -253,7 +256,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      z-index: 1000;
+      z-index: var(--z-dropdown);
     }
 
     .search-shell {
@@ -385,7 +388,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-      z-index: 1100;
+      z-index: calc(var(--z-dropdown) + 1);
       padding: 4px 0;
     }
 
@@ -420,7 +423,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
       left: 0;
       right: 0;
       bottom: 0;
-      z-index: 999;
+      z-index: calc(var(--z-dropdown) - 1);
       background: transparent;
       border: none;
       cursor: default;

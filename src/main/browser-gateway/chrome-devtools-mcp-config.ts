@@ -8,7 +8,7 @@ import {
 
 /**
  * MCP config writer for the `chrome-devtools` server when it is **attached** to
- * an Harness-managed Chrome profile.
+ * a Harness-managed Chrome profile.
  *
  * Unlike the static user-scoped chrome-devtools server (which launches its own
  * Chrome), the attached config injects `--browserUrl http://127.0.0.1:<port>` so

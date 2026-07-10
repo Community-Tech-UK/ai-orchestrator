@@ -41,8 +41,11 @@ export interface StoreAssetManifestInput {
   phoneScreenshotPaths?: string[];
   sevenInchTabletScreenshotPaths?: string[];
   tenInchTabletScreenshotPaths?: string[];
+  appStoreVersionLocalizationId?: string;
   iphoneScreenshotPaths?: string[];
+  iphoneScreenshotDisplayType?: string;
   ipadScreenshotPaths?: string[];
+  ipadScreenshotDisplayType?: string;
 }
 
 export type IosReleaseDestination =
@@ -442,12 +445,21 @@ function iosStoreAssetBlockers(input: IosReleasePlanInput): string[] {
   }
   return [
     ...storeAssetOutputBlockers(input.storeAssets),
+    ...(input.storeAssets?.appStoreVersionLocalizationId
+      ? []
+      : ['asc-app-store-version-localization-id-missing']),
     ...(nonEmpty(input.storeAssets?.iphoneScreenshotPaths)
       ? []
       : ['ios-iphone-screenshots-missing']),
+    ...(input.storeAssets?.iphoneScreenshotDisplayType
+      ? []
+      : ['ios-iphone-screenshot-display-type-missing']),
     ...(nonEmpty(input.storeAssets?.ipadScreenshotPaths)
       ? []
       : ['ios-ipad-screenshots-missing']),
+    ...(input.storeAssets?.ipadScreenshotDisplayType
+      ? []
+      : ['ios-ipad-screenshot-display-type-missing']),
   ];
 }
 
@@ -560,8 +572,11 @@ function hasAnyStoreAsset(assets: StoreAssetManifestInput | undefined): boolean 
       nonEmpty(assets?.phoneScreenshotPaths) ||
       nonEmpty(assets?.sevenInchTabletScreenshotPaths) ||
       nonEmpty(assets?.tenInchTabletScreenshotPaths) ||
+      assets?.appStoreVersionLocalizationId ||
       nonEmpty(assets?.iphoneScreenshotPaths) ||
-      nonEmpty(assets?.ipadScreenshotPaths),
+      assets?.iphoneScreenshotDisplayType ||
+      nonEmpty(assets?.ipadScreenshotPaths) ||
+      assets?.ipadScreenshotDisplayType,
   );
 }
 
@@ -597,10 +612,22 @@ function playSetupSteps(input: NewAppSetupPlanInput): MobileReleaseStep[] {
       'Content rating page shows the saved rating summary.',
     ),
     browserCheckpointStep(
+      'play-data-safety-csv-generate',
+      'Generate Play Data safety CSV',
+      'Generate the Data safety CSV offline from the app privacy manifest before opening Play Console import.',
+      'Data safety CSV exists locally and is ready for console import without hand-entering answers.',
+    ),
+    browserCheckpointStep(
       'play-data-safety-import',
       'Import Play Data safety CSV',
       'Generate the CSV offline, import it through the console UI, and verify each saved summary page.',
       'Data safety summary matches the imported CSV answers after reload.',
+    ),
+    browserCheckpointStep(
+      'play-resolution-center-reader',
+      'Read Play policy and Resolution Center messages',
+      'Open Play Console policy status and Resolution Center, extract rejection or warning details, and checkpoint the current issue text for draft fixes and replies.',
+      'Resolution Center or policy status details are captured in the session before any appeal or reply is drafted.',
     ),
   ];
 }
@@ -621,6 +648,12 @@ function ascSetupSteps(input: NewAppSetupPlanInput): MobileReleaseStep[] {
       'Complete ASC privacy nutrition labels',
       'Fill privacy nutrition labels with read-back verification for every data category.',
       'Privacy labels show saved answers after reload.',
+    ),
+    browserCheckpointStep(
+      'asc-resolution-center-reader',
+      'Read ASC Resolution Center messages',
+      'Open App Store Connect Resolution Center, extract rejection details, and checkpoint the issue text for fixes and policy appeal drafting.',
+      'Resolution Center rejection details are captured in the session before any reply is drafted.',
     ),
   ];
 }

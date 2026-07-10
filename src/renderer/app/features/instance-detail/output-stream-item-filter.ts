@@ -8,10 +8,14 @@
  * "2 Bash" for content that would render to an empty box. Work-cycles whose
  * children all get filtered out are dropped entirely.
  *
- * When thinking is hidden, thought-groups that carry extracted planning text
- * but no standalone response are promoted to regular assistant messages so
- * Cursor/Codex narration is still visible (formatted via markdown), instead
- * of vanishing from the transcript.
+ * When thinking is hidden, a thought-group that carries reasoning/narration but
+ * no standalone response is NOT dropped and NOT flattened into a bare assistant
+ * bubble (which rendered an empty "CLAUDE" header — the reasoning text was
+ * created after the markdown pass and never rendered). Instead it is kept as a
+ * thought-group and flagged `collapsedThinkingFallback`, so the template renders
+ * it as a collapsed-by-default "Thought process" accordion. The reasoning stays
+ * one click away instead of either vanishing or filling the transcript.
+ * Thought-groups with no reasoning text at all are still dropped.
  */
 
 import type { DisplayItem } from './display-item-processor.service';
@@ -34,51 +38,29 @@ export interface DisplayItemFilterOptions {
   isThoughtGroupEmpty: (item: DisplayItem) => boolean;
 }
 
-function joinThoughtContent(item: DisplayItem): string {
-  const fromBlocks = item.thinking?.map((block) => block.content.trim()).filter(Boolean) ?? [];
-  if (fromBlocks.length > 0) {
-    return fromBlocks.join('\n\n');
+/** True when the thought-group carries any non-empty reasoning/narration text. */
+function hasThinkingText(item: DisplayItem): boolean {
+  if (item.thinking?.some((block) => block.content.trim().length > 0)) {
+    return true;
   }
-  const fromLegacy = item.thoughts?.map((thought) => thought.trim()).filter(Boolean) ?? [];
-  return fromLegacy.join('\n\n');
+  return item.thoughts?.some((thought) => thought.trim().length > 0) ?? false;
 }
 
 /**
- * When thinking display is off, a thought-group with extracted narration but
- * no response body would otherwise be dropped entirely. Promote it to a normal
- * assistant message so the user still sees the text.
+ * When thinking display is off, a thought-group with reasoning text but no
+ * standalone response would otherwise render nothing (its accordion is gated on
+ * the showThinking toggle). Rather than drop it — or flatten it into an empty
+ * assistant bubble — keep it as a thought-group flagged to render a
+ * collapsed-by-default accordion. Groups with no reasoning text are dropped.
  */
-function promoteHiddenThoughtGroup(
-  item: DisplayItem,
-  isThoughtGroupEmpty: (item: DisplayItem) => boolean,
-): DisplayItem | null {
-  if (item.type !== 'thought-group' || !isThoughtGroupEmpty(item)) {
-    return item;
-  }
-
-  const thinkingContent = joinThoughtContent(item);
-  if (!thinkingContent) {
+function resolveHiddenThoughtGroup(item: DisplayItem): DisplayItem | null {
+  if (!hasThinkingText(item)) {
     return null;
   }
-
-  const baseMessage = item.response ?? {
-    id: item.id.replace(/^thought-/, 'msg-'),
-    type: 'assistant' as const,
-    content: '',
-    timestamp: item.timestamp ?? Date.now(),
-  };
-
-  return {
-    id: `msg-${item.id}`,
-    type: 'message',
-    message: {
-      ...baseMessage,
-      type: 'assistant',
-      content: thinkingContent,
-    },
-    timestamp: item.timestamp ?? baseMessage.timestamp,
-    bufferIndex: item.bufferIndex,
-  };
+  if (item.collapsedThinkingFallback) {
+    return item;
+  }
+  return { ...item, collapsedThinkingFallback: true };
 }
 
 function resolveItemForDisplay(
@@ -92,7 +74,7 @@ function resolveItemForDisplay(
   }
 
   if (hideEmptyThoughts && item.type === 'thought-group' && isThoughtGroupEmpty(item)) {
-    return promoteHiddenThoughtGroup(item, isThoughtGroupEmpty);
+    return resolveHiddenThoughtGroup(item);
   }
 
   return item;

@@ -1,7 +1,39 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createReleaseToolDefinitions } from './orchestrator-release-tools';
+import {
+  BuildIosReleasePlanArgsSchema,
+  createReleaseToolDefinitions,
+  STORE_ASSETS_INPUT_SCHEMA,
+} from './orchestrator-release-tools';
 
 describe('orchestrator release MCP tools', () => {
+  it('accepts ASC localization and screenshot display mappings in release tool schemas', () => {
+    const storeAssets = {
+      outputDir: '/store-assets',
+      appStoreVersionLocalizationId: 'localization-1',
+      iphoneScreenshotPaths: ['/store-assets/iphone.png'],
+      iphoneScreenshotDisplayType: 'APP_IPHONE_67',
+      ipadScreenshotPaths: ['/store-assets/ipad.png'],
+      ipadScreenshotDisplayType: 'APP_IPAD_PRO_3GEN_129',
+    };
+
+    expect(BuildIosReleasePlanArgsSchema.safeParse({
+      appPath: '/repo/app',
+      bundleId: 'com.example.app',
+      archivePath: '/tmp/app.xcarchive',
+      exportPath: '/tmp/export',
+      exportOptionsPlist: '/tmp/ExportOptions.plist',
+      ipaPath: '/tmp/export/App.ipa',
+      buildNumber: '42',
+      destination: 'app-store-submit',
+      storeAssets,
+    }).success).toBe(true);
+    expect(STORE_ASSETS_INPUT_SCHEMA.properties).toMatchObject({
+      appStoreVersionLocalizationId: { type: 'string' },
+      iphoneScreenshotDisplayType: { type: 'string' },
+      ipadScreenshotDisplayType: { type: 'string' },
+    });
+  });
+
   it('builds an operational readiness report for the remaining live rollout gates', async () => {
     const tools = createReleaseToolDefinitions();
     const tool = tools.find((candidate) => candidate.name === 'build_release_operational_readiness_report');
@@ -100,6 +132,29 @@ describe('orchestrator release MCP tools', () => {
     });
     expect(JSON.stringify(result)).toContain('create-play-edit');
     expect(JSON.stringify(result)).toContain('upload-play-aab');
+  });
+
+  it('generates an import-ready Play Data safety CSV', async () => {
+    const tool = createReleaseToolDefinitions().find(
+      (candidate) => candidate.name === 'generate_play_data_safety_csv',
+    );
+
+    const result = await tool!.handler({
+      rows: [{
+        questionId: 'PSL_DATA_TYPES_PERSONAL',
+        responseId: 'PSL_NAME',
+        responseValue: true,
+        answerRequirement: 'MULTIPLE_CHOICE',
+        questionLabel: 'Personal info Name',
+      }],
+    });
+
+    expect(result).toEqual({
+      csv: expect.stringContaining(
+        'PSL_DATA_TYPES_PERSONAL,PSL_NAME,TRUE,MULTIPLE_CHOICE,Personal info Name',
+      ),
+      rowCount: 1,
+    });
   });
 
   it('executes an Android Play API release without returning service-account secrets', async () => {

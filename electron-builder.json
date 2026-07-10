@@ -78,6 +78,11 @@
     },
     "extraResources": [
       {
+        "from": "dist/desktop-helper/",
+        "to": "desktop-helper/",
+        "filter": ["desktop-helper"]
+      },
+      {
         "from": "resources/rtk/darwin-${arch}/",
         "to": "rtk/darwin-${arch}/",
         "filter": ["rtk"]

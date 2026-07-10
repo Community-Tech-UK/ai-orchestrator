@@ -475,7 +475,10 @@ export function registerInstanceHandlers(deps: {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(InstanceInterruptPayloadSchema, payload, 'INSTANCE_TOGGLE_YOLO_MODE');
-        const instance = await instanceManager.toggleYoloMode(
+        // Queue-aware: applies immediately when settled, otherwise parks the
+        // request and auto-applies on the next idle (instead of being refused
+        // and silently swallowed while the instance is busy).
+        const instance = await instanceManager.requestYoloModeToggle(
           validated.instanceId
         );
 

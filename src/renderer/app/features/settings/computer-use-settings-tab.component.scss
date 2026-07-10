@@ -1,0 +1,224 @@
+.cu-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cu-card {
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface-1, rgba(255, 255, 255, 0.02));
+}
+
+.cu-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+
+  h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+}
+
+.cu-btn {
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  &--small {
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+
+  &--danger {
+    border-color: rgba(255, 90, 90, 0.5);
+    color: rgba(255, 120, 120, 0.95);
+  }
+}
+
+.cu-error {
+  color: rgba(255, 120, 120, 0.95);
+  font-size: 12px;
+  margin: 4px 0;
+}
+
+.cu-empty {
+  font-size: 12px;
+  opacity: 0.6;
+  margin: 4px 0;
+}
+
+.cu-platform,
+.cu-lock {
+  font-size: 12px;
+  margin: 4px 0;
+}
+
+.cu-caps {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cu-caps__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+
+  &[data-state='available'] .cu-caps__state {
+    color: rgba(120, 220, 140, 0.95);
+  }
+
+  &[data-state='missing_permission'] .cu-caps__state {
+    color: rgba(255, 190, 90, 0.95);
+  }
+
+  &[data-state='unavailable'] .cu-caps__state {
+    color: rgba(255, 120, 120, 0.95);
+  }
+}
+
+.cu-caps__label {
+  min-width: 130px;
+}
+
+.cu-caps__state {
+  flex: 1;
+}
+
+.cu-setup {
+  margin-top: 8px;
+
+  h4 {
+    margin: 0 0 4px;
+    font-size: 12px;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12px;
+  }
+}
+
+.cu-apps,
+.cu-grants,
+.cu-audit {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.cu-apps__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+
+  &[data-status='denied'] .cu-apps__status {
+    color: rgba(255, 120, 120, 0.95);
+  }
+
+  &[data-status='allowed'] .cu-apps__status {
+    color: rgba(120, 220, 140, 0.95);
+  }
+}
+
+.cu-apps__name {
+  min-width: 140px;
+  font-weight: 500;
+}
+
+.cu-apps__id {
+  flex: 1;
+  opacity: 0.65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cu-grants__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.05));
+}
+
+.cu-grants__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+}
+
+.cu-grants__app {
+  font-weight: 500;
+}
+
+.cu-grants__cap,
+.cu-grants__expiry {
+  opacity: 0.65;
+  font-size: 11px;
+}
+
+.cu-grants__meta {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.cu-grants__status[data-status='Active'] {
+  color: rgba(120, 220, 140, 0.95);
+}
+
+.cu-grants__status[data-status='Revoked'],
+.cu-grants__status[data-status='Expired'] {
+  opacity: 0.6;
+}
+
+.cu-audit__row {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  padding: 2px 0;
+
+  &[data-decision='denied'] .cu-audit__decision {
+    color: rgba(255, 120, 120, 0.95);
+  }
+}
+
+.cu-audit__time {
+  min-width: 150px;
+  opacity: 0.65;
+}
+
+.cu-audit__tool {
+  min-width: 170px;
+}
+
+.cu-audit__reason {
+  opacity: 0.7;
+}

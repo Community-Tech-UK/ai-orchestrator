@@ -1,0 +1,138 @@
+<section class="cu-tab" aria-label="Computer Use settings">
+  <section class="settings-list-card" aria-label="Computer Use policy">
+    @for (setting of settingRows(); track setting.key) {
+      <app-setting-row
+        class="settings-list-item"
+        [setting]="setting"
+        [value]="store.get(setting.key)"
+        (valueChange)="onSettingChange($event)"
+      />
+    }
+  </section>
+
+  <section class="cu-card" aria-label="Driver health">
+    <header class="cu-card__header">
+      <h3>Permissions & health</h3>
+      <button type="button" class="cu-btn" (click)="refresh()" [disabled]="loading()">
+        {{ loading() ? 'Refreshing…' : 'Refresh' }}
+      </button>
+    </header>
+
+    @if (error(); as err) {
+      <p class="cu-error">{{ err }}</p>
+    }
+
+    @if (health(); as h) {
+      <p class="cu-platform">
+        Platform: <strong>{{ h.platform }}</strong> ·
+        {{ h.supported ? 'Supported' : 'Unsupported on this OS' }} ·
+        {{ h.enabled ? 'Enabled' : 'Disabled' }} ·
+        {{ h.injectable ? 'Injectable' : 'Not injected' }}
+      </p>
+
+      <ul class="cu-caps">
+        @for (cap of capabilityRows(); track cap.label) {
+          <li class="cu-caps__row" [attr.data-state]="cap.state">
+            <span class="cu-caps__label">{{ cap.label }}</span>
+            <span class="cu-caps__state">{{ capabilityLabel(cap.state) }}</span>
+            @if (cap.state !== 'available' && cap.permission) {
+              <button type="button" class="cu-btn cu-btn--small" (click)="openPermission(cap.permission)">
+                Open settings
+              </button>
+            }
+          </li>
+        }
+      </ul>
+
+      @if (setupActions().length > 0) {
+        <div class="cu-setup">
+          <h4>Setup needed</h4>
+          <ul>
+            @for (action of setupActions(); track action) {
+              <li>{{ action }}</li>
+            }
+          </ul>
+        </div>
+      }
+
+      @if (h.lockHolder; as holder) {
+        <p class="cu-lock">
+          Session lock held by
+          <strong>{{ holder.instanceId || 'unknown' }}</strong>
+          @if (holder.appId) { · {{ holder.appId }} }
+          @if (holder.provider) { · {{ holder.provider }} }
+        </p>
+      }
+    } @else {
+      <p class="cu-empty">Health has not been reported yet.</p>
+    }
+  </section>
+
+  <section class="cu-card" aria-label="Discovered apps">
+    <header class="cu-card__header">
+      <h3>Discovered apps ({{ apps().length }})</h3>
+    </header>
+    @if (apps().length === 0) {
+      <p class="cu-empty">No apps reported. Enable Computer Use and grant permissions to discover apps.</p>
+    } @else {
+      <ul class="cu-apps">
+        @for (app of apps(); track app.appId) {
+          <li class="cu-apps__row" [attr.data-status]="app.policyStatus">
+            <span class="cu-apps__name">{{ app.displayName }}</span>
+            <span class="cu-apps__id">{{ app.bundleId || app.appId }}</span>
+            <span class="cu-apps__status">{{ app.policyStatus || 'neutral' }}</span>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+
+  <section class="cu-card" aria-label="Grants">
+    <header class="cu-card__header">
+      <h3>Grants ({{ grants().length }})</h3>
+    </header>
+    @if (grants().length === 0) {
+      <p class="cu-empty">No grants issued yet.</p>
+    } @else {
+      <ul class="cu-grants">
+        @for (grant of grants(); track grant.id) {
+          <li class="cu-grants__row">
+            <div class="cu-grants__main">
+              <span class="cu-grants__app">{{ grant.appId }}</span>
+              <span class="cu-grants__cap">{{ grant.capability }} · {{ grant.scope }}</span>
+            </div>
+            <div class="cu-grants__meta">
+              <span class="cu-grants__status" [attr.data-status]="grantStatus(grant)">{{ grantStatus(grant) }}</span>
+              <span class="cu-grants__expiry">expires {{ formatTimestamp(grant.expiresAt) }}</span>
+            </div>
+            @if (!grant.revokedAt) {
+              <button type="button" class="cu-btn cu-btn--small cu-btn--danger" (click)="revokeGrant(grant.id)">
+                Revoke
+              </button>
+            }
+          </li>
+        }
+      </ul>
+    }
+  </section>
+
+  <section class="cu-card" aria-label="Audit log">
+    <header class="cu-card__header">
+      <h3>Audit log ({{ auditEntries().length }})</h3>
+    </header>
+    @if (auditEntries().length === 0) {
+      <p class="cu-empty">No audit entries yet.</p>
+    } @else {
+      <ul class="cu-audit">
+        @for (entry of auditEntries(); track entry.id) {
+          <li class="cu-audit__row" [attr.data-decision]="entry.decision">
+            <span class="cu-audit__time">{{ formatTimestamp(entry.timestamp) }}</span>
+            <span class="cu-audit__tool">{{ entry.toolName }}</span>
+            <span class="cu-audit__decision">{{ entry.decision }}/{{ entry.resultCode }}</span>
+            @if (entry.reason) { <span class="cu-audit__reason">{{ entry.reason }}</span> }
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</section>

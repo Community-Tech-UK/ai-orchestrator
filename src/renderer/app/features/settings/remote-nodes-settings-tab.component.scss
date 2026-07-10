@@ -190,6 +190,26 @@
   flex-wrap: wrap;
 }
 
+.role-choice-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.role-choice-row .btn.selected {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--bg-primary));
+}
+
+.advanced-legacy-pairing summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
 .btn-row.compact {
   justify-content: flex-end;
 }

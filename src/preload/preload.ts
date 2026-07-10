@@ -30,6 +30,7 @@ import { createWorkspaceDomain } from './domains/workspace.preload';
 import { createAutomationDomain } from './domains/automation.preload';
 import { createVoiceDomain } from './domains/voice.preload';
 import { createBrowserDomain } from './domains/browser.preload';
+import { createDesktopDomain } from './domains/desktop.preload';
 import { createConversationLedgerDomain } from './domains/conversation-ledger.preload';
 import { createOperatorDomain } from './domains/operator.preload';
 import { createChatDomain } from './domains/chat.preload';
@@ -72,6 +73,7 @@ const electronAPI = {
   ...createAutomationDomain(ipcRenderer, IPC_CHANNELS),
   ...createVoiceDomain(ipcRenderer, IPC_CHANNELS, withAuth),
   ...createBrowserDomain(ipcRenderer, IPC_CHANNELS),
+  ...createDesktopDomain(ipcRenderer, IPC_CHANNELS),
   ...createConversationLedgerDomain(ipcRenderer, IPC_CHANNELS),
   ...createOperatorDomain(ipcRenderer, IPC_CHANNELS),
   ...createChatDomain(ipcRenderer, IPC_CHANNELS),

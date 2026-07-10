@@ -1,5 +1,5 @@
 /**
- * Helpers for attaching the `chrome-devtools` MCP server to an Harness-managed
+ * Helpers for attaching the `chrome-devtools` MCP server to a Harness-managed
  * Chrome profile via its CDP remote-debugging endpoint.
  *
  * The attach contract requires the managed profile's debug port to be **stable

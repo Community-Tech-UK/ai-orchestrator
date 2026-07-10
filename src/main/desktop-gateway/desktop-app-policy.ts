@@ -8,19 +8,59 @@ export interface DesktopGatewayPolicySettings {
 }
 
 const HARD_DENY_PATTERNS = [
+  // Harness itself
   /ai\s*orchestrator/i,
   /\bharness\b/i,
+  // Terminals and shells
   /\bterminal\b/i,
   /\biterm\b/i,
   /\bshell\b/i,
+  /\bwarp\b/i,
+  /\balacritty\b/i,
+  /\bkitty\b/i,
+  /\bhyper\b/i,
+  /\btmux\b/i,
+  // Provider / agent apps
+  /\bclaude\b/i,
+  /\bcodex\b/i,
+  /\bgemini\b/i,
+  /\bcopilot\b/i,
+  /\bcursor\b/i,
+  /\bantigravity\b/i,
+  // System security / privacy settings
   /system settings/i,
-  /security/i,
-  /privacy/i,
+  /system preferences/i,
+  /securityagent/i,
+  /\bsecurity\b/i,
+  /\bprivacy\b/i,
+  // Keychain / credential stores
   /keychain/i,
+  /credential/i,
+  // Password managers
   /1password/i,
+  /bitwarden/i,
+  /lastpass/i,
+  /dashlane/i,
+  /keeper/i,
+  /nordpass/i,
   /password manager/i,
-  /wallet/i,
-  /payment/i,
+  // Payment / wallet
+  /\bwallet\b/i,
+  /\bpayment\b/i,
+  /\bstocks\b/i,
+];
+
+const HARD_DENY_BUNDLE_IDS = [
+  'com.apple.Terminal',
+  'com.googlecode.iterm2',
+  'com.apple.systempreferences',
+  'com.apple.SecurityAgent',
+  'com.apple.keychainaccess',
+  'com.1password.1password',
+  'com.agilebits.onepassword7',
+  'com.bitwarden.desktop',
+  'com.anthropic.claudefordesktop',
+  'dev.warp.Warp-Stable',
 ];
 
 export interface DesktopAppPolicyDecision {
@@ -61,6 +101,9 @@ export function readAppList(rawJson: string): string[] {
 }
 
 function hardDenyReasonForApp(app: DesktopAppDescriptor): string | undefined {
+  if (app.bundleId && HARD_DENY_BUNDLE_IDS.includes(app.bundleId)) {
+    return 'built-in hard deny';
+  }
   const haystack = [
     app.appId,
     app.displayName,

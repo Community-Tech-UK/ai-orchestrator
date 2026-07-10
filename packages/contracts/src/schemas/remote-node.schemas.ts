@@ -132,6 +132,10 @@ export const PairBothManualPairingPayloadSchema = z.object({
   input: z.string().trim().min(1).max(20_000),
 }).strict();
 
+export const PairBothWorkerRunModePayloadSchema = z.object({
+  mode: z.enum(['run-while-open', 'background-service']),
+}).strict();
+
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;
 export type ValidatedIssuePairingPayload = z.infer<typeof RemoteNodeIssuePairingPayloadSchema>;
 export type ValidatedRevokePayload = z.infer<typeof RemoteNodeRevokePayloadSchema>;

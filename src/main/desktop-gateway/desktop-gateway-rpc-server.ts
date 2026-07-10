@@ -11,8 +11,11 @@ import {
   DesktopHealthRequestSchema,
   DesktopHotkeyRequestSchema,
   DesktopListAppsRequestSchema,
+  DesktopListGrantsRequestSchema,
+  DesktopQueryElementsRequestSchema,
   DesktopRaiseEscalationRequestSchema,
   DesktopRequestAppGrantSchema,
+  DesktopRevokeGrantRequestSchema,
   DesktopScrollRequestSchema,
   DesktopScreenshotRequestSchema,
   DesktopClickRequestSchema,
@@ -47,6 +50,7 @@ export interface DesktopGatewayRpcServerOptions {
   maxPayloadBytes?: number;
   rateLimit?: {
     maxRequests: number;
+    maxBytes?: number;
     windowMs: number;
   };
 }
@@ -55,13 +59,18 @@ const DEFAULT_MAX_PAYLOAD_BYTES = 512 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
 const MAX_UNIX_SOCKET_PATH_BYTES = 100;
 
+interface DesktopGatewayRateBucketEntry {
+  timestamp: number;
+  bytes: number;
+}
+
 export class DesktopGatewayRpcServer {
   private readonly service: Partial<DesktopGatewayService>;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly maxPayloadBytes: number;
-  private readonly rateLimit: { maxRequests: number; windowMs: number };
-  private readonly buckets = new Map<string, number[]>();
+  private readonly rateLimit: { maxRequests: number; maxBytes: number; windowMs: number };
+  private readonly buckets = new Map<string, DesktopGatewayRateBucketEntry[]>();
   private server: net.Server | null = null;
   private socketPath: string | null = null;
   private socketDirToCleanup: string | null = null;
@@ -71,7 +80,11 @@ export class DesktopGatewayRpcServer {
     this.userDataPath = options.userDataPath ?? app?.getPath?.('userData') ?? os.tmpdir();
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
-    this.rateLimit = options.rateLimit ?? { maxRequests: 60, windowMs: 10_000 };
+    this.rateLimit = {
+      maxRequests: options.rateLimit?.maxRequests ?? 60,
+      maxBytes: options.rateLimit?.maxBytes ?? this.maxPayloadBytes * 10,
+      windowMs: options.rateLimit?.windowMs ?? 10_000,
+    };
     const register = options.registerCleanup ?? registerGlobalCleanup;
     register(() => this.stop());
   }
@@ -118,8 +131,8 @@ export class DesktopGatewayRpcServer {
     if (!this.isKnownLocalInstance(params.instanceId)) {
       throw new Error('unknown computer-use instance');
     }
-    this.enforceRateLimit(params.instanceId);
-    this.enforcePayloadSize(params.payload);
+    const payloadBytes = this.enforcePayloadSize(params.payload);
+    this.enforceRateLimit(params.instanceId, payloadBytes);
     const payload = this.validatePayload(request.method, params.payload);
     const context = {
       instanceId: params.instanceId,
@@ -151,6 +164,12 @@ export class DesktopGatewayRpcServer {
         return this.requireMethod('drag')(context, payload);
       case 'computer.wait_for':
         return this.requireMethod('waitFor')(context, payload);
+      case 'computer.query_elements':
+        return this.requireMethod('queryElements')(context, payload);
+      case 'computer.list_grants':
+        return this.requireMethod('listGrants')(context, payload);
+      case 'computer.revoke_grant':
+        return this.requireMethod('revokeGrant')(context, payload);
       case 'computer.get_audit_log':
         return this.requireMethod('getAuditLog')(context, payload);
       case 'computer.raise_escalation':
@@ -231,21 +250,27 @@ export class DesktopGatewayRpcServer {
       : parsed;
   }
 
-  private enforcePayloadSize(payload: Record<string, unknown>): void {
-    if (Buffer.byteLength(JSON.stringify(payload), 'utf-8') > this.maxPayloadBytes) {
+  private enforcePayloadSize(payload: Record<string, unknown>): number {
+    const payloadBytes = Buffer.byteLength(JSON.stringify(payload), 'utf-8');
+    if (payloadBytes > this.maxPayloadBytes) {
       throw new Error('Computer Use RPC payload too large');
     }
+    return payloadBytes;
   }
 
-  private enforceRateLimit(instanceId: string): void {
+  private enforceRateLimit(instanceId: string, payloadBytes: number): void {
     const now = Date.now();
     const bucket = (this.buckets.get(instanceId) ?? []).filter(
-      (timestamp) => now - timestamp < this.rateLimit.windowMs,
+      (entry) => now - entry.timestamp < this.rateLimit.windowMs,
     );
     if (bucket.length >= this.rateLimit.maxRequests) {
       throw new Error('Computer Use RPC rate limit exceeded');
     }
-    bucket.push(now);
+    const bytesInWindow = bucket.reduce((total, entry) => total + entry.bytes, 0);
+    if (bytesInWindow + payloadBytes > this.rateLimit.maxBytes) {
+      throw new Error('Computer Use RPC byte rate limit exceeded');
+    }
+    bucket.push({ timestamp: now, bytes: payloadBytes });
     this.buckets.set(instanceId, bucket);
   }
 
@@ -276,6 +301,12 @@ export class DesktopGatewayRpcServer {
           return DesktopDragRequestSchema;
         case 'computer.wait_for':
           return DesktopWaitForRequestSchema;
+        case 'computer.query_elements':
+          return DesktopQueryElementsRequestSchema;
+        case 'computer.list_grants':
+          return DesktopListGrantsRequestSchema;
+        case 'computer.revoke_grant':
+          return DesktopRevokeGrantRequestSchema;
         case 'computer.get_audit_log':
           return DesktopAuditLogRequestSchema;
         case 'computer.raise_escalation':

@@ -155,6 +155,50 @@ describe('BrowserExtensionCommandStore', () => {
     await rejected;
   });
 
+  it('classifies delivered timeouts as channel-down when contact is stale', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      queueKey: 'node:windows-pc',
+      command: 'snapshot',
+      timeoutMs: 30_000,
+      describeChannelState: () => ({
+        active: false,
+        summary: 'node windows-pc: extension last contacted 180s ago',
+      }),
+    });
+    const rejected = expect(pending).rejects.toThrow(
+      'browser_extension_channel_down (node windows-pc: extension last contacted 180s ago)',
+    );
+
+    await store.pollCommand('node:windows-pc', { timeoutMs: 1 });
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await rejected;
+  });
+
+  it('classifies delivered timeouts as active-but-unanswered when contact is fresh', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      queueKey: 'node:windows-pc',
+      command: 'snapshot',
+      timeoutMs: 30_000,
+      describeChannelState: () => ({
+        active: true,
+        summary: 'node windows-pc: extension last contacted 2s ago',
+      }),
+    });
+    const rejected = expect(pending).rejects.toThrow(
+      'browser_extension_command_timeout (channel active - command not answered; node windows-pc: extension last contacted 2s ago)',
+    );
+
+    await store.pollCommand('node:windows-pc', { timeoutMs: 1 });
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await rejected;
+  });
+
   it('fails an undelivered command as not_delivered even when it is a mutation', async () => {
     vi.useFakeTimers();
     const store = new BrowserExtensionCommandStore();

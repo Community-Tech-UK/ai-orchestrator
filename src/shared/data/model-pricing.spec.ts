@@ -8,7 +8,7 @@ import {
   modelRateOverlaySize,
   DEFAULT_MODEL_RATE,
 } from './model-pricing';
-import { CLAUDE_MODELS, MODEL_PRICING } from '../types/provider.types';
+import { CLAUDE_MODELS, MODEL_PRICING, OPENAI_MODELS } from '../types/provider.types';
 
 describe('computeTokenCost', () => {
   it('prices input and output with the per-model rate', () => {
@@ -72,6 +72,12 @@ describe('computeTokenCost', () => {
         outputTokens: 1_000_000,
       }),
     ).toBeCloseTo(60, 6);
+  });
+
+  it('prices the GPT-5.6 preview family at the official static rates', () => {
+    expect(getModelRate(OPENAI_MODELS.GPT56_SOL)).toEqual({ input: 5, output: 30 });
+    expect(getModelRate(OPENAI_MODELS.GPT56_TERRA)).toEqual({ input: 2.5, output: 15 });
+    expect(getModelRate(OPENAI_MODELS.GPT56_LUNA)).toEqual({ input: 1, output: 6 });
   });
 });
 

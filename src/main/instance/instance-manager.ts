@@ -1321,6 +1321,15 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.toggleYoloMode(instanceId);
   }
 
+  /**
+   * Queue-aware YOLO toggle for the UI: flips immediately when settled, else
+   * parks the request and auto-applies on the next idle. See
+   * {@link InstanceLifecycle.requestYoloModeToggle}.
+   */
+  async requestYoloModeToggle(instanceId: string): Promise<Instance> {
+    return this.lifecycle.requestYoloModeToggle(instanceId);
+  }
+
   async setYoloMode(instanceId: string, desiredYoloMode: boolean): Promise<Instance> {
     return this.lifecycle.setYoloMode(instanceId, desiredYoloMode);
   }

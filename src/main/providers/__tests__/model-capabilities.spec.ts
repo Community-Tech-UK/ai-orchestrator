@@ -14,6 +14,7 @@ import {
   getModelCapabilitiesRegistry,
   type ModelCapabilities,
 } from '../model-capabilities';
+import { OPENAI_MODELS } from '../../../shared/types/provider.types';
 
 describe('ModelCapabilitiesRegistry', () => {
   beforeEach(() => {
@@ -100,6 +101,25 @@ describe('ModelCapabilitiesRegistry', () => {
       const registry = ModelCapabilitiesRegistry.getInstance();
       const caps = registry.getCapabilities('openai', 'o1');
       expect(caps.contextWindow).toBe(200_000);
+    });
+  });
+
+  describe('getCapabilities — GPT-5.6 Codex family', () => {
+    it('uses Codex fallback limits and official pricing for every family member', () => {
+      const registry = ModelCapabilitiesRegistry.getInstance();
+      const expected = [
+        [OPENAI_MODELS.GPT56_SOL, 5, 30],
+        [OPENAI_MODELS.GPT56_TERRA, 2.5, 15],
+        [OPENAI_MODELS.GPT56_LUNA, 1, 6],
+      ] as const;
+
+      for (const [model, inputPerMillion, outputPerMillion] of expected) {
+        expect(registry.getCapabilities('codex', model)).toMatchObject({
+          contextWindow: 200_000,
+          maxOutputTokens: 4_096,
+          pricing: { inputPerMillion, outputPerMillion },
+        });
+      }
     });
   });
 

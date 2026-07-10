@@ -1,3 +1,8 @@
+import type {
+  LocalModelEndpointProvider,
+  LocalModelSource,
+} from './local-model-runtime.types';
+
 /**
  * Shared types for the UnifiedModelCatalogService.
  *
@@ -83,11 +88,32 @@ export interface UnifiedModelEntry {
   source: CatalogSource;
   /** True when the entry came from the user's provider-specific custom list. */
   isCustom?: boolean;
+  /** Sanitized local-model runtime metadata for picker badges and disabled rows. */
+  localModel?: LocalModelCatalogMetadata;
   /**
    * Wall-clock timestamp (ms since epoch) when this entry was last refreshed
    * from its primary source.
    */
   discoveredAt: number;
+}
+
+export interface LocalModelCatalogMetadata {
+  source: LocalModelSource;
+  endpointProvider: LocalModelEndpointProvider;
+  endpointId: string;
+  modelId: string;
+  nodeId?: string;
+  nodeName?: string;
+  healthy: boolean;
+  loaded: boolean;
+  loadedContextLength?: number;
+  advertisedContextLength?: number;
+  capabilities: {
+    streaming: boolean;
+    multiTurn: boolean;
+    toolUse: 'none' | 'probable' | 'verified';
+    vision: 'unknown' | 'no' | 'yes';
+  };
 }
 
 /**

@@ -11,6 +11,7 @@ export type SettingsTab =
   | 'display'
   | 'ecosystem'
   | 'permissions'
+  | 'computer-use'
   | 'review'
   | 'advanced'
   | 'keyboard'
@@ -135,6 +136,13 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Default approval rules for filesystem, network, and browser actions.',
     group: 'Agent behavior',
     keywords: 'allow deny security tools approval rules',
+  },
+  {
+    id: 'computer-use',
+    label: 'Computer Use',
+    summary: 'Let agents observe and control approved desktop apps (macOS).',
+    group: 'Agent behavior',
+    keywords: 'desktop computer use accessibility screen recording macos app control gateway',
   },
   {
     id: 'models',

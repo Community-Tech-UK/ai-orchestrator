@@ -70,7 +70,7 @@ export type CodexSandboxPolicy =
   | { type: 'readOnly'; networkAccess: boolean }
   | { type: 'workspaceWrite'; writableRoots: string[]; networkAccess: boolean; excludeTmpdirEnvVar: boolean; excludeSlashTmp: boolean }
   | { type: 'externalSandbox'; networkAccess: unknown };
-export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type SortDirection = 'asc' | 'desc';
 export type ThreadSortKey = 'created_at' | 'updated_at';
 export type ThreadSourceKind =

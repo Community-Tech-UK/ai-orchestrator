@@ -6,6 +6,10 @@
 
 import { WorkflowTemplate } from '../../../shared/types/workflow.types';
 
+const REVIEW_OUTPUT_CONTRACT =
+  'Format each qualifying finding as `- [severity] [confidence NN/100] file:line — issue — evidence — suggested fix`. ' +
+  'Use critical/high/medium/low severity. If no qualifying findings remain after genuine review, state `No qualifying findings`. ';
+
 export const featureDevelopmentTemplate: WorkflowTemplate = {
   id: 'feature-development',
   name: 'Feature Development',
@@ -41,14 +45,7 @@ Your task is to thoroughly understand the feature requirements:
 3. **List Assumptions**: What assumptions are you making about the requirements?
 4. **Note Ambiguities**: What aspects need clarification?
 
-Create a TodoWrite list with all 7 workflow phases:
-1. Discovery (current)
-2. Codebase Exploration
-3. Clarifying Questions
-4. Architecture Design
-5. Implementation
-6. Quality Review
-7. Summary
+Track the seven workflow phases with your task or todo tooling, if available. The workflow engine owns phase advancement; your task list is only a working aid.
 
 Output a clear summary of what you understand the feature to be.
 When complete, the workflow will automatically advance to Codebase Exploration.
@@ -81,7 +78,7 @@ Three exploration agents are searching the codebase in parallel with different f
 
 After they complete:
 1. Review their findings
-2. Read ALL files they identified (this is required)
+2. Review and deduplicate the three file lists, then read the files most relevant to the chosen scope
 3. Document the patterns you discovered
 4. Present a comprehensive summary of the codebase understanding
 
@@ -99,7 +96,7 @@ Mark 'files_identified' and 'patterns_documented' complete when done.
       systemPromptAddition: `
 ## Current Phase: CLARIFYING QUESTIONS
 
-**CRITICAL: This is one of the most important phases. DO NOT SKIP.**
+This phase prevents expensive rework later — invest real effort here even when the feature seems clear.
 
 Based on your codebase exploration, identify all underspecified aspects:
 
@@ -173,9 +170,7 @@ Ask the user: "Which approach do you prefer?"
       systemPromptAddition: `
 ## Current Phase: IMPLEMENTATION
 
-**DO NOT START WITHOUT EXPLICIT USER APPROVAL**
-
-The user has selected an approach. Now implement the feature:
+The approval gate has passed and the user selected an approach. Implement the feature:
 
 1. **Read First**: Re-read all relevant files identified in exploration
 2. **Follow Conventions**: Match existing codebase patterns exactly
@@ -186,10 +181,10 @@ The user has selected an approach. Now implement the feature:
 Implementation guidelines:
 - Follow the chosen architecture approach
 - Keep changes focused and minimal
-- Add inline comments for complex logic
+- Follow the repository's commenting conventions; comment only where the reasoning is not clear from the code
 - Consider edge cases identified in clarification
 
-Update your todo list as you complete each component.
+Update your task tracking, if available, as you complete each component.
 `,
     },
     {
@@ -209,9 +204,9 @@ Update your todo list as you complete each component.
         agentType: 'code-reviewer',
         parallel: true,
         prompts: [
-          'Review for simplicity, DRY principles, and code elegance. Is the code easy to read and maintain? Report issues with confidence 0-100.',
-          'Review for bugs and functional correctness. Are there logic errors, edge cases, or potential runtime issues? Report issues with confidence 0-100.',
-          'Review for project conventions and proper abstractions. Does the code follow existing patterns? Report issues with confidence 0-100.',
+          `Review for simplicity, DRY principles, and maintainability. ${REVIEW_OUTPUT_CONTRACT}`,
+          `Review for bugs, functional correctness, edge cases, and runtime failures. ${REVIEW_OUTPUT_CONTRACT}`,
+          `Review for repository conventions, integration wiring, and appropriate abstractions. ${REVIEW_OUTPUT_CONTRACT}`,
         ],
       },
       systemPromptAddition: `
@@ -253,7 +248,7 @@ The feature is complete. Provide a comprehensive summary:
 4. **Suggested Next Steps**: What should be done next (tests, documentation, etc.)
 5. **Known Limitations**: Any limitations or future improvements
 
-Mark all todos as complete.
+Close any remaining task-tracking items that are actually complete.
 
 Present the summary clearly for the user's reference.
 `,

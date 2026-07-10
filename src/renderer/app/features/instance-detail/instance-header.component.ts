@@ -177,6 +177,15 @@ export class InstanceHeaderComponent implements OnInit {
     return status === 'busy' || this.isStartingOrRecovering();
   });
 
+  /**
+   * A YOLO change is queued (requested while busy) and will apply on the next
+   * idle. Drives the ⚡ button's pending affordance.
+   */
+  readonly yoloPending = computed(() => {
+    const inst = this.instance();
+    return inst.pendingYoloMode !== undefined && inst.pendingYoloMode !== inst.yoloMode;
+  });
+
   // Tooltips for badges
   activeSkillsTooltip = computed(() => {
     const skills = this.skillStore.getActiveSkillBundles();

@@ -1,5 +1,6 @@
 import * as os from 'node:os';
 import type { AddressInfo } from 'node:net';
+import type { IncomingMessage } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { RemotePairingCredential } from '../auth/remote-auth';
 import {
@@ -13,6 +14,19 @@ import {
   PAIR_BOTH_PROTOCOL_VERSION,
   type PairBothKeyMaterial,
 } from './pair-both-crypto';
+import {
+  parsePairBothWireMessage,
+  type PairBothWireMessage,
+} from './pair-both-wire-schema';
+import {
+  closeServer,
+  closeSocket,
+  createDeferred,
+  isPairingRateLimitError,
+  sendPairBothMessage as sendMessage,
+  waitForServerListening,
+  type Deferred,
+} from './pair-both-rendezvous-helpers';
 import { PairBothSessionStore } from './pair-both-session-store';
 import {
   DEFAULT_CONFIG_PATH,
@@ -31,9 +45,13 @@ import type {
 } from '../../shared/types/pair-both.types';
 
 const PAIR_BOTH_WS_MAX_PAYLOAD_BYTES = 64 * 1024;
+const PAIR_BOTH_CONFIRM_TIMEOUT_MS = 15_000;
+const PAIR_BOTH_WORKER_HANDSHAKE_TIMEOUT_MS = 15_000;
+const PAIR_BOTH_WORKER_RESULT_TIMEOUT_MS = 5 * 60_000;
 
 interface PairBothAuthPort {
   issuePairingCredential(options: { label?: string; ttlMs?: number }): RemotePairingCredential;
+  revokePairingCredential?(token: string): boolean;
 }
 
 export interface PairBothRendezvousServiceOptions {
@@ -41,6 +59,8 @@ export interface PairBothRendezvousServiceOptions {
   machineName?: string;
   workerConfigPath?: string;
   now?: () => number;
+  workerHandshakeTimeoutMs?: number;
+  workerResultTimeoutMs?: number;
 }
 
 export interface StartCoordinatorPairingInput {
@@ -59,25 +79,15 @@ export interface PairBothWorkerPairingState {
   workerHello: PairBothHello;
 }
 
-type PairBothWireMessage =
-  | { type: 'worker.hello'; hello: PairBothHello }
-  | { type: 'coordinator.hello'; hello: PairBothHello; shortCode: string }
-  | { type: 'worker.confirmed'; sessionId: string }
-  | { type: 'worker.confirmed.ack'; sessionId: string }
-  | { type: 'pairing.payload'; sessionId: string; encryptedPayload: PairBothEncryptedPayload }
-  | { type: 'error'; message: string };
-
-interface Deferred<T> {
-  promise: Promise<T>;
-  resolve(value: T): void;
-  reject(error: unknown): void;
-}
-
 export class PairBothRendezvousService {
   private readonly store: PairBothSessionStore;
   private readonly machineName: string;
   private readonly workerConfigPath: string;
+  private readonly now: () => number;
+  private readonly workerHandshakeTimeoutMs: number;
+  private readonly workerResultTimeoutMs: number;
   private coordinatorServer: WebSocketServer | null = null;
+  private coordinatorExpiryTimer: NodeJS.Timeout | null = null;
   private coordinatorSocket: WebSocket | null = null;
   private coordinatorState: PairBothSessionState | null = null;
   private workerSocket: WebSocket | null = null;
@@ -88,10 +98,22 @@ export class PairBothRendezvousService {
   private workerResult: WorkerConfig | null = null;
   private workerResultDeferred: Deferred<WorkerConfig> | null = null;
   private workerConfirmAck: Deferred<void> | null = null;
+  private workerConfirmationAcknowledged = false;
+  private workerHandshakeTimer: NodeJS.Timeout | null = null;
+  private workerResultTimer: NodeJS.Timeout | null = null;
 
   constructor(options: PairBothRendezvousServiceOptions) {
     this.machineName = options.machineName ?? os.hostname();
     this.workerConfigPath = options.workerConfigPath ?? DEFAULT_CONFIG_PATH;
+    this.now = options.now ?? Date.now;
+    this.workerHandshakeTimeoutMs = Math.max(
+      1,
+      options.workerHandshakeTimeoutMs ?? PAIR_BOTH_WORKER_HANDSHAKE_TIMEOUT_MS,
+    );
+    this.workerResultTimeoutMs = Math.max(
+      1,
+      options.workerResultTimeoutMs ?? PAIR_BOTH_WORKER_RESULT_TIMEOUT_MS,
+    );
     this.store = new PairBothSessionStore({
       auth: options.auth,
       ...(options.now ? { now: options.now } : {}),
@@ -109,7 +131,7 @@ export class PairBothRendezvousService {
     });
     await waitForServerListening(server);
     this.coordinatorServer = server;
-    server.on('connection', (socket) => this.handleCoordinatorConnection(socket));
+    server.on('connection', (socket, request) => this.handleCoordinatorConnection(socket, request));
 
     const address = server.address();
     if (!address || typeof address === 'string') {
@@ -123,6 +145,21 @@ export class PairBothRendezvousService {
       coordinatorUrl: input.coordinatorUrl,
       ...(input.ttlMs ? { ttlMs: input.ttlMs } : {}),
     });
+    const sessionId = this.coordinatorState.sessionId;
+    this.coordinatorExpiryTimer = setTimeout(() => {
+      if (this.coordinatorState?.sessionId !== sessionId) {
+        return;
+      }
+      this.coordinatorState = this.store.expireSession(sessionId);
+      void this.stopCoordinatorServer().catch(() => {
+        if (this.coordinatorState?.sessionId === sessionId) {
+          this.coordinatorState = {
+            ...this.coordinatorState,
+            error: 'Pairing session expired; listener cleanup failed',
+          };
+        }
+      });
+    }, Math.max(1, this.coordinatorState.expiresAt - this.now()));
     return this.coordinatorState;
   }
 
@@ -144,9 +181,14 @@ export class PairBothRendezvousService {
     candidate: PairBothCandidate,
   ): Promise<PairBothWorkerPairingState> {
     await this.closeWorkerSocket();
+    if (candidate.expiresAt <= this.now()) {
+      throw new Error('Pair-both candidate has expired');
+    }
     this.workerCandidate = candidate;
     this.workerResult = null;
     this.workerResultDeferred = createDeferred<WorkerConfig>();
+    void this.workerResultDeferred.promise.catch(() => undefined);
+    this.workerConfirmationAcknowledged = false;
     this.workerKeyMaterial = generatePairBothKeyMaterial();
     this.workerHello = {
       protocolVersion: PAIR_BOTH_PROTOCOL_VERSION,
@@ -166,34 +208,54 @@ export class PairBothRendezvousService {
     return new Promise<PairBothWorkerPairingState>((resolve, reject) => {
       let settled = false;
       const rejectIfPending = (error: unknown): void => {
+        this.clearWorkerHandshakeTimer();
         this.workerResultDeferred?.reject(error);
         if (!settled) {
           settled = true;
           reject(error);
         }
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close(1008, 'Pairing protocol failed');
+        }
       };
+
+      const handshakeDelayMs = Math.max(
+        1,
+        Math.min(this.workerHandshakeTimeoutMs, candidate.expiresAt - this.now()),
+      );
+      this.workerHandshakeTimer = setTimeout(() => {
+        rejectIfPending(new Error('Pair-both worker handshake timed out'));
+      }, handshakeDelayMs);
 
       socket.once('open', () => {
         sendMessage(socket, { type: 'worker.hello', hello: this.requireWorkerHello() });
       });
       socket.on('message', (data) => {
         try {
-          const message = parseWireMessage(data);
+          const message = parsePairBothWireMessage(data);
           if (message.type === 'coordinator.hello') {
             const state = this.acceptCoordinatorHello(candidate, message);
+            this.clearWorkerHandshakeTimer();
+            this.scheduleWorkerResultTimeout(candidate);
             if (!settled) {
               settled = true;
               resolve(state);
             }
             return;
           }
-          void this.handleWorkerMessage(message);
+          void this.handleWorkerMessage(message).catch(rejectIfPending);
         } catch (error) {
           rejectIfPending(error);
         }
       });
       socket.once('error', rejectIfPending);
       socket.once('close', () => {
+        this.clearWorkerHandshakeTimer();
+        this.clearWorkerResultTimer();
+        this.workerConfirmAck?.reject(
+          new Error('Pair-both worker socket closed before confirmation was acknowledged'),
+        );
+        this.workerConfirmAck = null;
         if (!this.workerResult) {
           rejectIfPending(new Error('Pair-both worker socket closed before pairing completed'));
         }
@@ -204,12 +266,28 @@ export class PairBothRendezvousService {
   async confirmWorkerCode(): Promise<void> {
     const socket = this.requireOpenWorkerSocket();
     const workerHello = this.requireWorkerHello();
+    this.requireWorkerTranscript();
+    if (this.workerConfirmationAcknowledged) {
+      return;
+    }
+    if (this.workerConfirmAck) {
+      return this.workerConfirmAck.promise;
+    }
     this.workerConfirmAck = createDeferred<void>();
     sendMessage(socket, {
       type: 'worker.confirmed',
       sessionId: workerHello.pairingSessionId,
     });
-    return this.workerConfirmAck.promise;
+    const pendingAck = this.workerConfirmAck;
+    const timeout = setTimeout(() => {
+      pendingAck.reject(new Error('Pair-both confirmation acknowledgement timed out'));
+    }, PAIR_BOTH_CONFIRM_TIMEOUT_MS);
+    return pendingAck.promise.finally(() => {
+      clearTimeout(timeout);
+      if (this.workerConfirmAck === pendingAck) {
+        this.workerConfirmAck = null;
+      }
+    });
   }
 
   async approveCoordinatorPairing(sessionId: string): Promise<PairBothSessionState> {
@@ -248,16 +326,26 @@ export class PairBothRendezvousService {
     ]);
   }
 
-  private handleCoordinatorConnection(socket: WebSocket): void {
-    this.coordinatorSocket = socket;
+  private handleCoordinatorConnection(socket: WebSocket, request?: IncomingMessage): void {
+    const remoteAddress = request?.socket.remoteAddress;
     socket.on('message', (data) => {
       try {
-        const message = parseWireMessage(data);
+        let message: PairBothWireMessage;
+        try {
+          message = parsePairBothWireMessage(data);
+        } catch (error) {
+          this.store.registerMalformedRemoteAttempt(
+            remoteAddress,
+            this.coordinatorState?.sessionId,
+          );
+          throw error;
+        }
         if (message.type === 'worker.hello') {
-          this.handleWorkerHello(socket, message.hello);
+          this.handleWorkerHello(socket, message.hello, remoteAddress);
           return;
         }
         if (message.type === 'worker.confirmed') {
+          this.assertBoundCoordinatorSocket(socket, message.sessionId);
           this.coordinatorState = this.store.confirmWorkerCode(message.sessionId);
           sendMessage(socket, {
             type: 'worker.confirmed.ack',
@@ -266,8 +354,25 @@ export class PairBothRendezvousService {
           if (this.coordinatorState.coordinatorApproved) {
             this.deliverEncryptedPairingPayload(message.sessionId, socket);
           }
+          return;
+        }
+        if (message.type === 'pairing.payload.ack') {
+          this.assertBoundCoordinatorSocket(socket, message.sessionId);
+          this.coordinatorState = this.store.markPayloadDelivered(message.sessionId);
+          void this.stopCoordinatorServer().catch(() => {
+            if (this.coordinatorState?.sessionId === message.sessionId) {
+              this.coordinatorState = {
+                ...this.coordinatorState,
+                error: 'Pairing completed; listener cleanup failed',
+              };
+            }
+          });
         }
       } catch (error) {
+        if (isPairingRateLimitError(error)) {
+          socket.close(1008, 'Pairing rate limit exceeded');
+          return;
+        }
         sendMessage(socket, {
           type: 'error',
           message: error instanceof Error ? error.message : 'Pair-both request failed',
@@ -277,12 +382,37 @@ export class PairBothRendezvousService {
     socket.once('close', () => {
       if (this.coordinatorSocket === socket) {
         this.coordinatorSocket = null;
+        if (
+          this.coordinatorState?.status === 'approved'
+          && !this.coordinatorState.payloadDelivered
+        ) {
+          this.coordinatorState = this.store.abortPayloadDelivery(
+            this.coordinatorState.sessionId,
+            'Pairing payload delivery failed before worker acknowledgement',
+          );
+        }
       }
     });
   }
 
-  private handleWorkerHello(socket: WebSocket, hello: PairBothHello): void {
-    this.coordinatorState = this.store.acceptWorkerHello(hello.pairingSessionId, hello);
+  private handleWorkerHello(
+    socket: WebSocket,
+    hello: PairBothHello,
+    remoteAddress?: string,
+  ): void {
+    if (this.coordinatorSocket && this.coordinatorSocket !== socket) {
+      throw new Error('Pair-both session already has a worker connection');
+    }
+    const activeSessionId = this.coordinatorState?.sessionId;
+    if (!activeSessionId) {
+      throw new Error('Pair-both coordinator session is not active');
+    }
+    this.coordinatorState = this.store.acceptWorkerHello(
+      activeSessionId,
+      hello,
+      remoteAddress,
+    );
+    this.coordinatorSocket = socket;
     sendMessage(socket, {
       type: 'coordinator.hello',
       hello: this.coordinatorState.coordinatorHello,
@@ -333,12 +463,21 @@ export class PairBothRendezvousService {
 
   private async handleWorkerMessage(message: PairBothWireMessage): Promise<void> {
     if (message.type === 'worker.confirmed.ack') {
-      this.workerConfirmAck?.resolve();
+      this.assertBoundWorkerSession(message.sessionId);
+      if (!this.workerConfirmAck) {
+        throw new Error('Pair-both confirmation acknowledgement was not requested');
+      }
+      this.workerConfirmationAcknowledged = true;
+      this.workerConfirmAck.resolve();
       this.workerConfirmAck = null;
       return;
     }
     if (message.type === 'pairing.payload') {
-      await this.applyEncryptedPayload(message.encryptedPayload);
+      this.assertBoundWorkerSession(message.sessionId);
+      if (!this.workerConfirmationAcknowledged) {
+        throw new Error('Pair-both payload arrived before worker confirmation acknowledgement');
+      }
+      await this.applyEncryptedPayload(message.sessionId, message.encryptedPayload);
       return;
     }
     if (message.type === 'error') {
@@ -346,7 +485,14 @@ export class PairBothRendezvousService {
     }
   }
 
-  private async applyEncryptedPayload(payload: PairBothEncryptedPayload): Promise<void> {
+  private async applyEncryptedPayload(
+    sessionId: string,
+    payload: PairBothEncryptedPayload,
+  ): Promise<void> {
+    this.assertBoundWorkerSession(sessionId);
+    if (!this.workerConfirmationAcknowledged) {
+      throw new Error('Pair-both payload cannot be applied before worker confirmation');
+    }
     const keyMaterial = this.requireWorkerKeyMaterial();
     const transcript = this.requireWorkerTranscript();
     const sessionKey = derivePairBothPayloadKeyForHellos({
@@ -361,6 +507,11 @@ export class PairBothRendezvousService {
     );
     const parsed = parsePairingConfigInput(JSON.stringify(decrypted));
     this.workerResult = writePairedWorkerConfig(this.workerConfigPath, parsed);
+    this.clearWorkerResultTimer();
+    sendMessage(this.requireOpenWorkerSocket(), {
+      type: 'pairing.payload.ack',
+      sessionId,
+    });
     this.workerResultDeferred?.resolve(this.workerResult);
   }
 
@@ -391,6 +542,26 @@ export class PairBothRendezvousService {
       throw new Error('No worker is connected for pair-both approval');
     }
     return socket;
+  }
+
+  private assertBoundCoordinatorSocket(socket: WebSocket, sessionId: string): void {
+    if (
+      this.coordinatorSocket !== socket
+      || this.coordinatorState?.sessionId !== sessionId
+      || this.coordinatorState.workerHello?.pairingSessionId !== sessionId
+    ) {
+      throw new Error('Pair-both message is not bound to the accepted worker session');
+    }
+  }
+
+  private assertBoundWorkerSession(sessionId: string): void {
+    if (
+      this.workerCandidate?.pairingSessionId !== sessionId
+      || this.workerHello?.pairingSessionId !== sessionId
+      || this.workerTranscript?.pairingSessionId !== sessionId
+    ) {
+      throw new Error('Pair-both message is not bound to the selected worker session');
+    }
   }
 
   private requireOpenWorkerSocket(): WebSocket {
@@ -429,12 +600,67 @@ export class PairBothRendezvousService {
     return this.workerTranscript;
   }
 
+  private scheduleWorkerResultTimeout(candidate: PairBothCandidate): void {
+    this.clearWorkerResultTimer();
+    const delayMs = Math.max(
+      1,
+      Math.min(this.workerResultTimeoutMs, candidate.expiresAt - this.now()),
+    );
+    this.workerResultTimer = setTimeout(() => {
+      const error = new Error(
+        this.now() >= candidate.expiresAt
+          ? 'Pair-both candidate expired before pairing completed'
+          : 'Pair-both worker pairing result timed out',
+      );
+      this.workerResultDeferred?.reject(error);
+      this.workerConfirmAck?.reject(error);
+      this.workerConfirmAck = null;
+      const socket = this.workerSocket;
+      if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) {
+        socket.close(1008, 'Pairing timed out');
+      }
+    }, delayMs);
+  }
+
+  private clearWorkerHandshakeTimer(): void {
+    if (this.workerHandshakeTimer) {
+      clearTimeout(this.workerHandshakeTimer);
+      this.workerHandshakeTimer = null;
+    }
+  }
+
+  private clearWorkerResultTimer(): void {
+    if (this.workerResultTimer) {
+      clearTimeout(this.workerResultTimer);
+      this.workerResultTimer = null;
+    }
+  }
+
   private async stopCoordinatorServer(): Promise<void> {
+    if (this.coordinatorExpiryTimer) {
+      clearTimeout(this.coordinatorExpiryTimer);
+      this.coordinatorExpiryTimer = null;
+    }
     const server = this.coordinatorServer;
     const socket = this.coordinatorSocket;
+    if (
+      this.coordinatorState?.status === 'approved'
+      && !this.coordinatorState.payloadDelivered
+    ) {
+      this.coordinatorState = this.store.abortPayloadDelivery(
+        this.coordinatorState.sessionId,
+        'Pairing stopped before worker acknowledged payload delivery',
+      );
+    }
     this.coordinatorServer = null;
     this.coordinatorSocket = null;
-    if (socket && socket.readyState === WebSocket.OPEN) {
+    if (server) {
+      for (const client of server.clients) {
+        if (client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING) {
+          client.close();
+        }
+      }
+    } else if (socket && socket.readyState === WebSocket.OPEN) {
       socket.close();
     }
     if (!server) {
@@ -444,88 +670,22 @@ export class PairBothRendezvousService {
   }
 
   private async closeWorkerSocket(): Promise<void> {
+    this.clearWorkerHandshakeTimer();
+    this.clearWorkerResultTimer();
     const socket = this.workerSocket;
+    if (!this.workerResult) {
+      this.workerResultDeferred?.reject(new Error('Pair-both worker pairing stopped'));
+    }
     this.workerSocket = null;
     this.workerCandidate = null;
     this.workerHello = null;
     this.workerKeyMaterial = null;
     this.workerTranscript = null;
     this.workerConfirmAck = null;
+    this.workerConfirmationAcknowledged = false;
     if (!socket || socket.readyState === WebSocket.CLOSED) {
       return;
     }
     await closeSocket(socket);
   }
-}
-
-function createDeferred<T>(): Deferred<T> {
-  let resolveFn: (value: T) => void = () => undefined;
-  let rejectFn: (error: unknown) => void = () => undefined;
-  const promise = new Promise<T>((resolve, reject) => {
-    resolveFn = resolve;
-    rejectFn = reject;
-  });
-  return {
-    promise,
-    resolve: resolveFn,
-    reject: rejectFn,
-  };
-}
-
-function sendMessage(socket: WebSocket, message: PairBothWireMessage): void {
-  socket.send(JSON.stringify(message));
-}
-
-function parseWireMessage(data: Buffer | ArrayBuffer | Buffer[]): PairBothWireMessage {
-  const message = JSON.parse(data.toString()) as unknown;
-  if (!message || typeof message !== 'object') {
-    throw new Error('Pair-both message must be a JSON object');
-  }
-  const record = message as Record<string, unknown>;
-  if (typeof record['type'] !== 'string') {
-    throw new Error('Pair-both message is missing a type');
-  }
-  return record as PairBothWireMessage;
-}
-
-function waitForServerListening(server: WebSocketServer): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const cleanup = (): void => {
-      server.off('listening', onListening);
-      server.off('error', onError);
-    };
-    const onListening = (): void => {
-      cleanup();
-      resolve();
-    };
-    const onError = (error: Error): void => {
-      cleanup();
-      reject(error);
-    };
-    server.once('listening', onListening);
-    server.once('error', onError);
-  });
-}
-
-function closeServer(server: WebSocketServer): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-function closeSocket(socket: WebSocket): Promise<void> {
-  return new Promise((resolve) => {
-    if (socket.readyState === WebSocket.CLOSED) {
-      resolve();
-      return;
-    }
-    socket.once('close', () => resolve());
-    socket.close();
-  });
 }

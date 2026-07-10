@@ -170,7 +170,22 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                       </svg>
                     </span>
                     <span class="model-picker-row__provider">{{ row.providerLabel }}</span>
+                    @if (row.model.localModel) {
+                      <span class="model-picker-row__badge" [class.model-picker-row__badge--warn]="!row.model.localModel.healthy">
+                        {{ row.model.localModel.healthy ? 'Healthy' : 'Unavailable' }}
+                      </span>
+                      @if (row.model.localModel.loaded) {
+                        <span class="model-picker-row__badge model-picker-row__badge--loaded" [attr.title]="loadedContextTitle(row)">Loaded</span>
+                      }
+                    }
                   </span>
+                  @if (row.model.localModel) {
+                    <span class="model-picker-row__chips" aria-label="Local model capabilities">
+                      @if (row.model.localModel.capabilities.multiTurn) { <span class="model-picker-row__chip">Chat</span> }
+                      @if (row.model.localModel.capabilities.toolUse !== 'none') { <span class="model-picker-row__chip">Tools</span> }
+                      @else { <span class="model-picker-row__chip model-picker-row__chip--muted">No tools</span> }
+                    </span>
+                  }
                 </span>
               </button>
 
@@ -484,6 +499,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       min-width: 0;
       align-items: center;
       gap: 6px;
+      flex-wrap: wrap;
       color: var(--text-muted, #9ca3af);
       font-size: 12px;
     }
@@ -493,6 +509,19 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    .model-picker-row__badge,
+    .model-picker-row__chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--success-border, rgba(34,197,94,0.42)) 75%, transparent); border-radius: 999px; color: var(--success-text, #86efac); background: color-mix(in srgb, var(--success-bg, rgba(34,197,94,0.14)) 72%, transparent); font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
+
+    .model-picker-row__badge--warn { border-color: color-mix(in srgb, var(--warning-border, rgba(251,191,36,0.46)) 75%, transparent); color: var(--warning-text, #fbbf24); background: color-mix(in srgb, var(--warning-bg, rgba(251,191,36,0.14)) 72%, transparent); }
+
+    .model-picker-row__badge--loaded { border-color: color-mix(in srgb, var(--primary-color, #14b8a6) 50%, transparent); color: color-mix(in srgb, var(--primary-color, #14b8a6) 70%, white); background: color-mix(in srgb, var(--primary-color, #14b8a6) 14%, transparent); }
+
+    .model-picker-row__chips { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+    .model-picker-row__chip { border-color: color-mix(in srgb, var(--border-light, rgba(255,255,255,0.22)) 80%, transparent); color: var(--text-secondary, #c4c4c9); background: color-mix(in srgb, var(--bg-primary, #111) 42%, transparent); }
+
+    .model-picker-row__chip--muted { color: var(--text-tertiary, rgba(255,255,255,0.45)); background: transparent; }
 
     .model-picker-row__actions {
       display: inline-flex;
@@ -704,12 +733,13 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     return this._providers().flatMap((provider) => {
       const providerLabel = labels[provider] ?? provider;
       const providerColor = this.providerColor(provider);
-      const disabledReason = disabledReasonForProvider(provider);
+      const providerDisabledReason = disabledReasonForProvider(provider);
       const reasoningOptions = reasoningOptionsForProvider(provider);
 
       return modelsForProvider(provider).map((model) => {
         const key = modelKey(provider, model.id);
         const selected = provider === selectedProvider && model.id === selectedModelId;
+        const disabledReason = providerDisabledReason ?? localModelDisabledReason(model);
         return {
           key,
           provider,
@@ -725,6 +755,12 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
             model.name,
             model.id,
             model.family ?? '',
+            model.localModel ? (model.localModel.healthy ? 'healthy' : 'unavailable') : '',
+            model.localModel?.loaded ? 'loaded' : '',
+            model.localModel?.capabilities.multiTurn ? 'chat' : '',
+            model.localModel
+              ? (model.localModel.capabilities.toolUse !== 'none' ? 'tools' : 'no tools')
+              : '',
             providerLabel,
             provider,
           ].join(' ').toLowerCase(),
@@ -760,6 +796,9 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     if (this.searchTerm().trim()) return 'No models match your search';
     const active = this.activeTab();
     if (active === 'favorites') return 'No favorite models yet';
+    if (active === 'local-model') {
+      return 'No local models found. Add a Remote Node or configure Auxiliary Models in Settings.';
+    }
     const label = this._providerLabels()[active] ?? active;
     return `No models available for ${label}`;
   });
@@ -823,6 +862,11 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
     this.toggleFavorite(row, event);
+  }
+
+  protected loadedContextTitle(row: ModelPickerRow): string | null {
+    const contextLength = row.model.localModel?.loadedContextLength;
+    return contextLength ? `Loaded context: ${contextLength.toLocaleString()} tokens` : null;
   }
 
   protected onPanelKeydown(event: KeyboardEvent): void {
@@ -898,6 +942,12 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
 
 function modelKey(provider: PickerProvider, modelId: string): string {
   return `${provider}:${modelId}`;
+}
+
+function localModelDisabledReason(model: ModelDisplayInfo): string | undefined {
+  return model.localModel && !model.localModel.healthy
+    ? 'Local model endpoint is unavailable'
+    : undefined;
 }
 
 /**

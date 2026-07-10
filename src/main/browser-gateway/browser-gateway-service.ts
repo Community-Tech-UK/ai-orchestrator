@@ -163,6 +163,7 @@ import {
   type BrowserGatewayMutationReadbackDeps,
 } from './browser-gateway-mutation-readback';
 import {
+  appendBrowserUploadRecoveryHint,
   basenameForUploadPath,
   verifyUploadedFileSelection,
 } from './browser-upload-verify';
@@ -1557,7 +1558,8 @@ export class BrowserGatewayService {
           // node first and hand the extension a path that exists THERE —
           // otherwise DOM.setFileInputFiles backs the input with a nonexistent
           // path and the site receives an empty/unreadable file.
-          uploadFilePath = await this.stageUploadFileOnNode(existingTab.nodeId, uploadFilePath);
+          const staging = await this.stageUploadFileOnNode(existingTab.nodeId, uploadFilePath);
+          uploadFilePath = staging.remotePath;
         }
         const uploadResult = await this.existingTabOperations.sendCommand(existingTab, 'upload_file', {
           selector: request.selector,
@@ -1569,7 +1571,16 @@ export class BrowserGatewayService {
         });
         return this.actionGuard.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
       } catch (error) {
-        return this.actionGuard.mutationFailed(request, 'upload_file', 'browser.upload_file', prepared, error);
+        return this.actionGuard.mutationFailed(
+          request,
+          'upload_file',
+          'browser.upload_file',
+          prepared,
+          appendBrowserUploadRecoveryHint(error, {
+            url: prepared.url,
+            actionHint: request.actionHint,
+          }),
+        );
       }
     }
 

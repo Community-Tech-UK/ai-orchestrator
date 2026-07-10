@@ -220,6 +220,76 @@ describe('OrchestratorToolsRpcServer settings integration', () => {
     expect(settingsManager.set).not.toHaveBeenCalled();
   });
 
+  it('keeps credential-vault unlock anchors operator-only in privileged mode', async () => {
+    const settingsManager = makeSettingsManager({
+      browserVaultMasterPasswordFile: '',
+      browserVaultAutoUnlock: false,
+    });
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager,
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 51,
+      method: 'orchestrator_tools.settings.privileged_set',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { key: 'browserVaultAutoUnlock', value: true },
+      },
+    })).rejects.toThrow(/operator-only/);
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 52,
+      method: 'orchestrator_tools.settings.privileged_reset',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { key: 'browserVaultMasterPasswordFile' },
+      },
+    })).rejects.toThrow(/operator-only/);
+
+    expect(settingsManager.set).not.toHaveBeenCalled();
+    expect(settingsManager.resetOne).not.toHaveBeenCalled();
+  });
+
+  it('keeps Computer Use policy operator-only in privileged mode', async () => {
+    const settingsManager = makeSettingsManager({
+      computerUseEnabled: false,
+      computerUseRequireApprovalForInput: true,
+    });
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager,
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    for (const [key, value] of [
+      ['computerUseEnabled', true],
+      ['computerUseAllowedAppsJson', '["com.example.untrusted"]'],
+      ['computerUseDeniedAppsJson', '[]'],
+      ['computerUseRequireApprovalForInput', false],
+      ['computerUseStoreScreenshotsForEscalations', true],
+    ] as const) {
+      await expect(server.handleRequest({
+        jsonrpc: '2.0',
+        id: `computer-use-${key}`,
+        method: 'orchestrator_tools.settings.privileged_set',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { key, value },
+        },
+      })).rejects.toThrow(/operator-only/);
+    }
+
+    expect(settingsManager.set).not.toHaveBeenCalled();
+  });
+
   it('privileged_set redacts secret old and new values in results and logs', async () => {
     const settingsManager = makeSettingsManager({
       remoteNodesEnrollmentToken: 'previous-redaction-test-value',

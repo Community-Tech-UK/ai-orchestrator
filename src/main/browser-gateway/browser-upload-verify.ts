@@ -5,6 +5,11 @@ export interface BrowserUploadVerificationExpectation {
   size?: number;
 }
 
+export interface BrowserUploadRecoveryContext {
+  url?: string;
+  actionHint?: string;
+}
+
 interface BrowserUploadReadbackFile {
   name?: unknown;
   size?: unknown;
@@ -59,6 +64,29 @@ export function basenameForUploadPath(filePath: string): string {
     return path.win32.basename(filePath);
   }
   return path.posix.basename(filePath);
+}
+
+export function appendBrowserUploadRecoveryHint(
+  error: unknown,
+  context: BrowserUploadRecoveryContext,
+): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const hint = browserUploadRecoveryHint(context);
+  if (!hint || message.includes(hint)) {
+    return error instanceof Error ? error : new Error(message);
+  }
+  return new Error(`${message}. Recovery hint: ${hint}`);
+}
+
+function browserUploadRecoveryHint(context: BrowserUploadRecoveryContext): string | null {
+  const haystack = `${context.url ?? ''} ${context.actionHint ?? ''}`.toLowerCase();
+  if (
+    haystack.includes('play.google.com') &&
+    (haystack.includes('add from library') || haystack.includes('library'))
+  ) {
+    return 'For Play Console Add from library, reopen the library picker, clear any stale selection, search the uploaded artifact by name or version, select it again, and verify the selected asset row after reload.';
+  }
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

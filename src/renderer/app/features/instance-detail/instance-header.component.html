@@ -242,17 +242,23 @@
           <button
             class="yolo-badge"
             [class.active]="instance().yoloMode"
-            [disabled]="isTogglingYolo() || isRuntimeLocked()"
+            [class.pending]="yoloPending()"
+            [disabled]="isTogglingYolo() || isStartingOrRecovering()"
             [title]="
-              isRuntimeLocked()
-                ? 'Cannot toggle YOLO mode while instance is running or recovering'
-                : instance().yoloMode
-                  ? 'YOLO Mode: Auto-approve all tool calls without prompting. Click to disable'
-                  : 'YOLO Mode: Requires manual approval for tool calls. Click to enable auto-approve'
+              isStartingOrRecovering()
+                ? 'Cannot toggle YOLO mode while the session is starting or recovering'
+                : yoloPending()
+                  ? (instance().pendingYoloMode
+                      ? 'YOLO will turn ON when the current turn finishes. Click to cancel.'
+                      : 'YOLO will turn OFF when the current turn finishes. Click to cancel.')
+                  : instance().yoloMode
+                    ? 'YOLO Mode: Auto-approve all tool calls without prompting. Click to disable'
+                    : 'YOLO Mode: Requires manual approval for tool calls. Click to enable auto-approve'
             "
             (click)="toggleYolo.emit()"
           >
-            ⚡ YOLO {{ instance().yoloMode ? 'ON' : 'OFF' }}
+            ⚡ YOLO {{ instance().yoloMode ? 'ON' : 'OFF'
+            }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON ⏳' : ' → OFF ⏳') : '' }}
           </button>
           @if (supportsFastMode()) {
             <button

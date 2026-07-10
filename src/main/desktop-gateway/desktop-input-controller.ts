@@ -5,10 +5,12 @@ import type {
   DesktopAuditEntry,
   DesktopClickRequest,
   DesktopDragRequest,
+  DesktopElementCandidate,
   DesktopGatewayContext,
   DesktopGatewayResult,
   DesktopHotkeyRequest,
   DesktopInputActionRequest,
+  DesktopPoint,
   DesktopScrollRequest,
   DesktopTypeTextRequest,
   DesktopWaitForRequest,
@@ -18,7 +20,6 @@ import {
   grantAllowsInput,
   type DesktopPermissionGrant,
 } from './desktop-grant-store';
-import { redactDesktopMetadata } from './desktop-redaction';
 import type { DesktopSessionLock } from './desktop-session-lock';
 import type { DesktopDriver } from './platform/desktop-driver';
 
@@ -32,8 +33,33 @@ interface DesktopInputControllerDeps {
     toolName: string,
     appId: string | undefined,
   ) => Promise<{ app?: DesktopAppDescriptor; grantId?: string; reason?: string }>;
-  validateObservationToken: (token: string, appId: string) => string | null;
-  createObservationToken: (appId: string) => string;
+  validateObservationToken: (
+    token: string,
+    appId: string,
+    currentWindowId?: string,
+  ) => string | null;
+  getObservationWindowId: (token: string, appId: string) => string | undefined;
+  findObservedElement: (
+    token: string,
+    appId: string,
+    uid: string,
+  ) => { ok: true; candidate: DesktopElementCandidate } | { ok: false; reason: string };
+  findFocusedObservedElement: (
+    token: string,
+    appId: string,
+  ) => { ok: true; candidate: DesktopElementCandidate } | { ok: false; reason: string };
+  findObservedElementAtPoint: (
+    token: string,
+    appId: string,
+    point: DesktopPoint,
+  ) => { ok: true; candidate: DesktopElementCandidate } | { ok: false; reason: string };
+  createObservationToken: (
+    appId: string,
+    meta?: {
+      windowId?: string;
+      snapshot?: DesktopAccessibilitySnapshotResult['nodes'];
+    },
+  ) => string;
   findActiveGrant: (
     context: DesktopGatewayContext,
     appId: string,
@@ -58,14 +84,38 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     request: DesktopClickRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    return this.runInputAction(context, 'computer.click', request, () => this.deps.driver.click(request));
+    const resolved = await this.resolveObservedPoint(context, 'computer.click', request);
+    if (!resolved.ok) {
+      return denied(resolved.reason);
+    }
+    return this.runInputAction(
+      context,
+      'computer.click',
+      resolved.request,
+      (request) => this.deps.driver.click(request),
+    );
   }
 
   async typeText(
     context: DesktopGatewayContext,
     request: DesktopTypeTextRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    return this.runInputAction(context, 'computer.type_text', request, () => this.deps.driver.typeText(request));
+    const resolved = await this.resolveTextTarget(context, request);
+    if (!resolved.ok) {
+      return denied(resolved.reason);
+    }
+    return this.runInputAction(context, 'computer.type_text', resolved.request, async (request) => {
+      if (resolved.point) {
+        await this.deps.driver.click({
+          appId: request.appId,
+          observationToken: request.observationToken,
+          windowId: request.windowId,
+          elementUid: request.elementUid,
+          ...resolved.point,
+        });
+      }
+      return this.deps.driver.typeText(request);
+    });
   }
 
   async hotkey(
@@ -76,21 +126,97 @@ export class DesktopInputController {
       await this.deps.audit(context, 'computer.hotkey', 'denied', 'not_run', 'computer_use_sensitive_action_blocked', metadataFromObject(request), request.appId);
       return denied('computer_use_sensitive_action_blocked');
     }
-    return this.runInputAction(context, 'computer.hotkey', request, () => this.deps.driver.hotkey(request));
+    const observed = this.deps.findFocusedObservedElement(
+      request.observationToken,
+      request.appId,
+    );
+    if (!observed.ok) {
+      await this.deps.audit(
+        context,
+        'computer.hotkey',
+        'denied',
+        'not_run',
+        observed.reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return denied(observed.reason);
+    }
+    const resolvedRequest = {
+      ...request,
+      ...(isSensitiveObservedElement(observed.candidate) ? { sensitive: true } : {}),
+    };
+    return this.runInputAction(
+      context,
+      'computer.hotkey',
+      resolvedRequest,
+      (boundRequest) => this.deps.driver.hotkey(boundRequest),
+    );
   }
 
   async scroll(
     context: DesktopGatewayContext,
     request: DesktopScrollRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    return this.runInputAction(context, 'computer.scroll', request, () => this.deps.driver.scroll(request));
+    const resolved = await this.resolveObservedPoint(context, 'computer.scroll', request);
+    if (!resolved.ok) {
+      return denied(resolved.reason);
+    }
+    return this.runInputAction(
+      context,
+      'computer.scroll',
+      resolved.request,
+      (boundRequest) => this.deps.driver.scroll(boundRequest),
+    );
   }
 
   async drag(
     context: DesktopGatewayContext,
     request: DesktopDragRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    return this.runInputAction(context, 'computer.drag', request, () => this.deps.driver.drag(request));
+    const start = this.deps.findObservedElementAtPoint(
+      request.observationToken,
+      request.appId,
+      request.start,
+    );
+    const end = this.deps.findObservedElementAtPoint(
+      request.observationToken,
+      request.appId,
+      request.end,
+    );
+    if (!start.ok) {
+      await this.deps.audit(
+        context,
+        'computer.drag',
+        'denied',
+        'not_run',
+        start.reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return denied(start.reason);
+    }
+    if (!end.ok) {
+      await this.deps.audit(
+        context,
+        'computer.drag',
+        'denied',
+        'not_run',
+        end.reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return denied(end.reason);
+    }
+    const sensitive = isSensitiveObservedElement(start.candidate)
+      || isSensitiveObservedElement(end.candidate);
+    const resolvedRequest = { ...request, ...(sensitive ? { sensitive: true } : {}) };
+    return this.runInputAction(
+      context,
+      'computer.drag',
+      resolvedRequest,
+      (boundRequest) => this.deps.driver.drag(boundRequest),
+    );
   }
 
   async waitFor(
@@ -106,11 +232,35 @@ export class DesktopInputController {
       try {
         const snapshot = await this.deps.driver.accessibilitySnapshot({
           appId: policy.app.appId,
+          ...(policy.app.windowId ? { windowId: policy.app.windowId } : {}),
           includeBounds: true,
           maxNodes: 500,
         });
         if (matchesWaitCondition(snapshot.nodes, request.condition)) {
-          const token = this.deps.createObservationToken(snapshot.appId);
+          const observedWindowId = snapshot.windowId ?? policy.app.windowId;
+          if (
+            snapshot.appId !== policy.app.appId
+            || !observedWindowId
+            || (policy.app.windowId
+              && snapshot.windowId
+              && snapshot.windowId !== policy.app.windowId)
+          ) {
+            await this.deps.audit(
+              context,
+              'computer.wait_for',
+              'denied',
+              'failed',
+              'computer_use_target_changed',
+              metadataFromObject(request),
+              policy.app.appId,
+              policy.grantId,
+            );
+            return denied('computer_use_target_changed', 'failed');
+          }
+          const token = this.deps.createObservationToken(snapshot.appId, {
+            windowId: observedWindowId,
+            snapshot: snapshot.nodes,
+          });
           await this.deps.audit(context, 'computer.wait_for', 'allowed', 'ok', undefined, metadataFromObject(request), policy.app.appId, policy.grantId);
           return allowed({
             matched: true,
@@ -130,16 +280,20 @@ export class DesktopInputController {
     return denied('computer_use_wait_timeout', 'failed');
   }
 
-  private async runInputAction(
+  private async runInputAction<TRequest extends DesktopInputActionRequest>(
     context: DesktopGatewayContext,
     toolName: string,
-    request: DesktopInputActionRequest,
-    driverAction: () => Promise<DesktopActionResult>,
+    request: TRequest,
+    driverAction: (request: TRequest) => Promise<DesktopActionResult>,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
     const readiness = await this.requireInputAction(context, toolName, request);
     if (readiness.reason || !readiness.app) {
       return denied(readiness.reason ?? 'computer_use_target_not_found');
     }
+    const boundRequest = {
+      ...request,
+      windowId: readiness.observationWindowId,
+    };
     const lock = await this.deps.sessionLock.acquire({
       instanceId: context.instanceId,
       ...(context.provider ? { provider: context.provider } : {}),
@@ -152,7 +306,7 @@ export class DesktopInputController {
       return denied('computer_use_lock_held');
     }
     try {
-      const result = await driverAction();
+      const result = await driverAction(boundRequest);
       if (result.appId && result.appId !== readiness.app.appId) {
         await this.deps.audit(context, toolName, 'denied', 'failed', 'computer_use_target_changed', {
           expectedAppId: readiness.app.appId,
@@ -176,19 +330,226 @@ export class DesktopInputController {
     }
   }
 
+  private async resolveObservedPoint<
+    TRequest extends DesktopInputActionRequest & {
+      elementUid?: string;
+      x?: number;
+      y?: number;
+    },
+  >(
+    context: DesktopGatewayContext,
+    toolName: string,
+    request: TRequest,
+  ): Promise<
+    | { ok: true; request: TRequest; point?: { x: number; y: number } }
+    | { ok: false; reason: string }
+  > {
+    const observed = request.elementUid
+      ? this.deps.findObservedElement(
+        request.observationToken,
+        request.appId,
+        request.elementUid,
+      )
+      : request.x !== undefined && request.y !== undefined
+        ? this.deps.findObservedElementAtPoint(
+          request.observationToken,
+          request.appId,
+          { x: request.x, y: request.y },
+        )
+        : null;
+    if (!observed) {
+      const reason = 'computer_use_element_target_required';
+      await this.deps.audit(
+        context,
+        toolName,
+        'denied',
+        'not_run',
+        reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason };
+    }
+    if (!observed.ok) {
+      await this.deps.audit(
+        context,
+        toolName,
+        'denied',
+        'not_run',
+        observed.reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason: observed.reason };
+    }
+    if (request.elementUid && !observed.candidate.bounds) {
+      const reason = 'computer_use_element_bounds_unavailable';
+      await this.deps.audit(
+        context,
+        toolName,
+        'denied',
+        'not_run',
+        reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason };
+    }
+    const point = request.elementUid
+      ? {
+        x: observed.candidate.bounds!.x + observed.candidate.bounds!.width / 2,
+        y: observed.candidate.bounds!.y + observed.candidate.bounds!.height / 2,
+      }
+      : { x: request.x!, y: request.y! };
+    const pointObserved = request.elementUid
+      ? this.deps.findObservedElementAtPoint(
+        request.observationToken,
+        request.appId,
+        point,
+      )
+      : observed;
+    if (!pointObserved.ok) {
+      await this.deps.audit(
+        context,
+        toolName,
+        'denied',
+        'not_run',
+        pointObserved.reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason: pointObserved.reason };
+    }
+    const sensitive = isSensitiveObservedElement(observed.candidate)
+      || isSensitiveObservedElement(pointObserved.candidate);
+    return {
+      ok: true,
+      request: {
+        ...request,
+        ...point,
+        ...(sensitive ? { sensitive: true } : {}),
+      },
+      point,
+    };
+  }
+
+  private async resolveTextTarget(
+    context: DesktopGatewayContext,
+    request: DesktopTypeTextRequest,
+  ): Promise<
+    | { ok: true; request: DesktopTypeTextRequest; point?: { x: number; y: number } }
+    | { ok: false; reason: string }
+  > {
+    const observed = request.elementUid
+      ? this.deps.findObservedElement(request.observationToken, request.appId, request.elementUid)
+      : this.deps.findFocusedObservedElement(request.observationToken, request.appId);
+    if (!observed.ok) {
+      await this.deps.audit(
+        context,
+        'computer.type_text',
+        'denied',
+        'not_run',
+        observed.reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason: observed.reason };
+    }
+    if (!request.elementUid) {
+      return {
+        ok: true,
+        request: {
+          ...request,
+          ...(isSensitiveObservedElement(observed.candidate) ? { sensitive: true } : {}),
+        },
+      };
+    }
+    if (!observed.candidate.bounds) {
+      const reason = 'computer_use_element_bounds_unavailable';
+      await this.deps.audit(
+        context,
+        'computer.type_text',
+        'denied',
+        'not_run',
+        reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason };
+    }
+    const point = {
+      x: observed.candidate.bounds.x + observed.candidate.bounds.width / 2,
+      y: observed.candidate.bounds.y + observed.candidate.bounds.height / 2,
+    };
+    const pointObserved = this.deps.findObservedElementAtPoint(
+      request.observationToken,
+      request.appId,
+      point,
+    );
+    if (!pointObserved.ok) {
+      await this.deps.audit(
+        context,
+        'computer.type_text',
+        'denied',
+        'not_run',
+        pointObserved.reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason: pointObserved.reason };
+    }
+    const sensitive = isSensitiveObservedElement(observed.candidate)
+      || isSensitiveObservedElement(pointObserved.candidate);
+    return {
+      ok: true,
+      request: {
+        ...request,
+        ...(sensitive ? { sensitive: true } : {}),
+      },
+      point,
+    };
+  }
+
   private async requireInputAction(
     context: DesktopGatewayContext,
     toolName: string,
     request: DesktopInputActionRequest,
-  ): Promise<{ app?: DesktopAppDescriptor; grantId?: string; reason?: string }> {
+  ): Promise<{
+    app?: DesktopAppDescriptor;
+    grantId?: string;
+    observationWindowId?: string;
+    reason?: string;
+  }> {
     const policy = await this.deps.requireObservableApp(context, toolName, request.appId);
     if (policy.reason || !policy.app) {
       return policy;
     }
-    const tokenReason = this.deps.validateObservationToken(request.observationToken, policy.app.appId);
+    const tokenReason = this.deps.validateObservationToken(
+      request.observationToken,
+      policy.app.appId,
+      policy.app.windowId,
+    );
     if (tokenReason) {
       await this.deps.audit(context, toolName, 'denied', 'not_run', tokenReason, metadataFromObject(request), policy.app.appId, policy.grantId);
       return { app: policy.app, reason: tokenReason };
+    }
+    const observationWindowId = this.deps.getObservationWindowId(
+      request.observationToken,
+      policy.app.appId,
+    );
+    if (!observationWindowId) {
+      const reason = 'computer_use_target_changed';
+      await this.deps.audit(
+        context,
+        toolName,
+        'denied',
+        'not_run',
+        reason,
+        metadataFromObject(request),
+        policy.app.appId,
+        policy.grantId,
+      );
+      return { app: policy.app, reason };
     }
     if (request.sensitive || isSecretLikeInput(request)) {
       await this.deps.audit(context, toolName, 'denied', 'not_run', 'computer_use_sensitive_action_blocked', metadataFromObject(request), policy.app.appId, policy.grantId);
@@ -202,6 +563,7 @@ export class DesktopInputController {
     return {
       app: policy.app,
       grantId: grant?.id ?? policy.grantId,
+      observationWindowId,
     };
   }
 }
@@ -228,6 +590,9 @@ function metadataFromObject(value: object): Record<string, unknown> {
 
 function isDeniedHotkey(keys: string[]): boolean {
   const normalized = new Set(keys.map((key) => key.trim().toLowerCase()));
+  if (normalized.has('enter') || normalized.has('return') || normalized.has('space')) {
+    return true;
+  }
   const hasCommand = normalized.has('cmd') || normalized.has('command') || normalized.has('meta');
   if (hasCommand && normalized.has('q')) {
     return true;
@@ -236,6 +601,10 @@ function isDeniedHotkey(keys: string[]): boolean {
     return true;
   }
   const hasControl = normalized.has('ctrl') || normalized.has('control');
+  if ((hasCommand || normalized.has('shift'))
+    && (normalized.has('delete') || normalized.has('backspace'))) {
+    return true;
+  }
   return hasControl && hasCommand && (
     normalized.has('power')
     || normalized.has('eject')
@@ -256,6 +625,17 @@ function isSecretLikeInput(request: DesktopInputActionRequest): boolean {
   const hasDigits = /\d/.test(text);
   const hasSymbols = /[^a-z0-9]/i.test(text);
   return text.length >= 48 && noWhitespace && hasLetters && hasDigits && hasSymbols;
+}
+
+function isSensitiveObservedElement(candidate: DesktopElementCandidate): boolean {
+  if (candidate.redacted) {
+    return true;
+  }
+  const description = [candidate.role, candidate.label, candidate.value]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return /secure|password|passcode|credential|secret|api\s*key|access\s*token|credit\s*card|card\s*number|\bcvv\b|\bcvc\b|security\s*code|account\s*security|two[- ]?factor|\b2fa\b|payment|purchase|buy\s*now|place\s*order|delete|remove\s*account|send|post|publish|sign\s*in|log\s*in|login|submit|confirm|authorize|administrator|admin\s*prompt|elevat|keychain|wallet/.test(description);
 }
 
 function matchesWaitCondition(

@@ -416,7 +416,7 @@ describe('ChannelMessageRouter', () => {
 
       expect(instanceManager.createInstance).toHaveBeenCalledWith(
         expect.objectContaining({
-          initialPrompt: 'run this task',
+          initialPrompt: expect.stringContaining('<channel_message>\nrun this task\n</channel_message>'),
           yoloMode: true,
         })
       );
@@ -457,7 +457,10 @@ describe('ChannelMessageRouter', () => {
       const msg = makeMessage({ threadId: 'thread-1', content: 'follow up' });
       await router.handleInboundMessage(msg);
 
-      expect(instanceManager.sendInput).toHaveBeenCalledWith('existing-inst', 'follow up');
+      expect(instanceManager.sendInput).toHaveBeenCalledWith(
+        'existing-inst',
+        expect.stringContaining('<channel_message>\nfollow up\n</channel_message>'),
+      );
       expect(instanceManager.createInstance).not.toHaveBeenCalled();
     });
   });
@@ -471,7 +474,10 @@ describe('ChannelMessageRouter', () => {
       const msg = makeMessage({ content: '@instance-3 do this task' });
       await router.handleInboundMessage(msg);
 
-      expect(instanceManager.sendInput).toHaveBeenCalledWith('3', 'do this task');
+      expect(instanceManager.sendInput).toHaveBeenCalledWith(
+        '3',
+        expect.stringContaining('<channel_message>\ndo this task\n</channel_message>'),
+      );
       expect(instanceManager.createInstance).not.toHaveBeenCalled();
     });
   });
@@ -491,8 +497,14 @@ describe('ChannelMessageRouter', () => {
       await router.handleInboundMessage(msg);
 
       // Should have sent to a and b (idle/busy), not c (hibernated)
-      expect(instanceManager.sendInput).toHaveBeenCalledWith('a', 'stop everything');
-      expect(instanceManager.sendInput).toHaveBeenCalledWith('b', 'stop everything');
+      expect(instanceManager.sendInput).toHaveBeenCalledWith(
+        'a',
+        expect.stringContaining('<channel_message>\nstop everything\n</channel_message>'),
+      );
+      expect(instanceManager.sendInput).toHaveBeenCalledWith(
+        'b',
+        expect.stringContaining('<channel_message>\nstop everything\n</channel_message>'),
+      );
       expect(instanceManager.sendInput).not.toHaveBeenCalledWith('c', expect.anything());
     });
 
@@ -689,7 +701,10 @@ describe('ChannelMessageRouter', () => {
       );
 
       expect(instanceManager.wakeInstance).toHaveBeenCalledWith('sleep-1');
-      expect(instanceManager.sendInput).toHaveBeenCalledWith('sleep-1', 'continue this work');
+      expect(instanceManager.sendInput).toHaveBeenCalledWith(
+        'sleep-1',
+        expect.stringContaining('<channel_message>\ncontinue this work\n</channel_message>'),
+      );
       expect(instanceManager.createInstance).not.toHaveBeenCalled();
     });
 

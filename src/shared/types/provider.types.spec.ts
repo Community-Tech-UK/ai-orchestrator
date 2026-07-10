@@ -7,6 +7,7 @@ import {
   DEFAULT_MODELS,
   MODEL_PRICING,
   MAX_MODEL_ID_LENGTH,
+  OPENAI_MODELS,
   PROVIDER_MODEL_LIST,
   REASONING_EFFORTS,
   getDefaultModelForCli,
@@ -63,6 +64,27 @@ describe('provider type helpers', () => {
 });
 
 describe('provider model lists', () => {
+  it('registers the GPT-5.6 family and makes Sol the Codex default', () => {
+    expect(OPENAI_MODELS.GPT56_SOL).toBe('gpt-5.6-sol');
+    expect(OPENAI_MODELS.GPT56_TERRA).toBe('gpt-5.6-terra');
+    expect(OPENAI_MODELS.GPT56_LUNA).toBe('gpt-5.6-luna');
+
+    expect(PROVIDER_MODEL_LIST['codex'].slice(0, 3)).toEqual([
+      { id: OPENAI_MODELS.GPT56_SOL, name: 'GPT-5.6 Sol', tier: 'powerful', pinned: true, family: 'GPT' },
+      { id: OPENAI_MODELS.GPT56_TERRA, name: 'GPT-5.6 Terra', tier: 'balanced', family: 'GPT' },
+      { id: OPENAI_MODELS.GPT56_LUNA, name: 'GPT-5.6 Luna', tier: 'fast', family: 'GPT' },
+    ]);
+    expect(DEFAULT_MODELS.openai).toBe(OPENAI_MODELS.GPT56_SOL);
+    expect(getDefaultModelForCli('codex')).toBe(OPENAI_MODELS.GPT56_SOL);
+    expect(getPrimaryModelForProvider('codex')).toBe(OPENAI_MODELS.GPT56_SOL);
+    expect(resolveModelForTier('powerful', 'codex')).toBe(OPENAI_MODELS.GPT56_SOL);
+    expect(resolveModelForTier('balanced', 'codex')).toBe(OPENAI_MODELS.GPT56_TERRA);
+    expect(resolveModelForTier('fast', 'codex')).toBe(OPENAI_MODELS.GPT56_LUNA);
+
+    expect(DEFAULT_MODELS['openai-compatible']).toBe(OPENAI_MODELS.GPT55);
+    expect(DEFAULT_MODELS.azure).toBe(OPENAI_MODELS.GPT55);
+  });
+
   it('defaults orchestration invocations to plain Opus; interactive sessions to Opus-1M', () => {
     // DEFAULT_MODELS feeds one-shot orchestration invocations (verify/review/
     // debate/workflow) via getDefaultModelForCli — plain Opus, no 1M premium.

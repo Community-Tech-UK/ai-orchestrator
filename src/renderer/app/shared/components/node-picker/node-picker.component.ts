@@ -18,6 +18,9 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
   standalone: true,
   selector: 'app-node-picker',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[class.picker-open]': 'isOpen()',
+  },
   template: `
     @if (isVisible()) {
       <div class="node-picker" [class.open]="isOpen()">
@@ -111,7 +114,7 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
       position: absolute;
       top: calc(100% + 4px);
       left: 0;
-      z-index: 100;
+      z-index: var(--z-dropdown);
       min-width: 280px;
       background: var(--bg-secondary);
       border: 1px solid var(--border-color);
@@ -167,7 +170,7 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
     .node-picker-backdrop {
       position: fixed;
       inset: 0;
-      z-index: 99;
+      z-index: calc(var(--z-dropdown) - 1);
       background: transparent;
       border: none;
       cursor: default;

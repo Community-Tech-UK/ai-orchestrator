@@ -3,6 +3,8 @@ import * as crypto from 'crypto';
 const ASC_BASE_URL = 'https://api.appstoreconnect.apple.com';
 const ASC_AUDIENCE = 'appstoreconnect-v1';
 const ASC_MAX_TOKEN_TTL_SECONDS = 20 * 60;
+const ASC_UPLOAD_TIMEOUT_MS = 60_000;
+const ASC_MAX_UPLOAD_TIMEOUT_MS = 120_000;
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -29,6 +31,14 @@ export interface AppStoreConnectRequestOptions {
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
   scope?: string[];
+}
+
+export interface AppStoreConnectAssetUploadInput {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: Uint8Array | ArrayBuffer | Blob | string;
+  timeoutMs?: number;
 }
 
 export function buildAppStoreConnectJwt(input: AppStoreConnectJwtInput): string {
@@ -107,6 +117,42 @@ export class AppStoreConnectClient {
       [token, this.privateKey],
     );
   }
+
+  async uploadAssetPart(input: AppStoreConnectAssetUploadInput): Promise<void> {
+    const url = parseUploadUrl(input.url);
+    const timeoutMs = Math.min(
+      Math.max(input.timeoutMs ?? ASC_UPLOAD_TIMEOUT_MS, 1),
+      ASC_MAX_UPLOAD_TIMEOUT_MS,
+    );
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+    try {
+      const response = await this.fetchImpl(url.toString(), {
+        method: input.method,
+        redirect: 'error',
+        headers: { ...input.headers },
+        body: input.body as RequestInit['body'],
+        signal: abortController.signal,
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        const summary = summarizeApiError(parseJson(text), text);
+        throw new Error(
+          `app_store_connect_upload_error:${response.status}:${redactUploadError(summary, url)}`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('app_store_connect_upload_error:')) {
+        throw error;
+      }
+      const reason = abortController.signal.aborted
+        ? 'timeout'
+        : redactUploadError(error instanceof Error ? error.message : String(error), url);
+      throw new Error(`app_store_connect_upload_error:network:${reason}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 async function parseJsonResponse<T>(
@@ -169,6 +215,25 @@ function redactSecrets(value: string, secrets: string[]): string {
     }
   }
   return redacted;
+}
+
+function parseUploadUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('app_store_connect_upload_url_invalid:malformed');
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error('app_store_connect_upload_url_invalid:https_required');
+  }
+  return url;
+}
+
+function redactUploadError(value: string, url: URL): string {
+  const querySecrets = [...url.searchParams.values()];
+  const redacted = redactSecrets(value, [url.toString(), ...querySecrets]);
+  return redacted.replace(/\?[^\s"']*/g, '?[REDACTED]');
 }
 
 function base64url(input: Buffer | string): string {

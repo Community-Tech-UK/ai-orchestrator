@@ -206,7 +206,7 @@ export class HyDEService extends EventEmitter {
     const systemPrompt = HYDE_PROMPTS[contextType];
     const userPrompt = `Search query: "${query}"
 
-Generate a hypothetical document that would perfectly match this query:`;
+Generate a hypothetical document that would perfectly match this query. Write only the document content itself — no preamble and no meta-commentary about the task:`;
 
     // Use the LLMService's internal generate method through completion
     const response = await this.generateWithTimeout(systemPrompt, userPrompt);

@@ -40,6 +40,15 @@ const SECRET_POLICY: ClosedSettingsToolPolicy = {
 };
 const SECRET_KEY_PATTERN = /token|secret|key|cert|password/i;
 const REDACTED = '[redacted]';
+const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
+  'browserVaultMasterPasswordFile',
+  'browserVaultAutoUnlock',
+  'computerUseEnabled',
+  'computerUseAllowedAppsJson',
+  'computerUseDeniedAppsJson',
+  'computerUseRequireApprovalForInput',
+  'computerUseStoreScreenshotsForEscalations',
+]);
 const metadataByKey = new Map(SETTINGS_METADATA.map((metadata) => [metadata.key, metadata]));
 
 const cliSchema = z.enum(['auto', 'claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor', 'grok', 'openai']);
@@ -285,7 +294,7 @@ export const SETTINGS_TOOL_POLICY = {
   mcpCleanupBackupsOnQuit: open(z.boolean()),
   mcpDisableProviderBackups: readOnly(),
   mcpAllowWorldWritableParent: readOnly(),
-  computerUseEnabled: readOnly(true),
+  computerUseEnabled: readOnly(),
   computerUseAllowedAppsJson: readOnly(),
   computerUseDeniedAppsJson: readOnly(),
   computerUseRequireApprovalForInput: readOnly(),
@@ -346,6 +355,12 @@ export function assertWritableSetting(
   }
   if (policy.tier === 'read-only') {
     throw new Error(`Setting is read-only via tools: ${key}`);
+  }
+}
+
+export function assertPrivilegedSettingsCliWritable(key: keyof AppSettings): void {
+  if (PRIVILEGED_CLI_OPERATOR_ONLY_KEYS.has(key)) {
+    throw new Error(`Setting is operator-only and cannot be changed by agents: ${key}`);
   }
 }
 

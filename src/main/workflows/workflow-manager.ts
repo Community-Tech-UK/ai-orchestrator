@@ -274,10 +274,13 @@ export class WorkflowManager extends EventEmitter {
       .get(execution.templateId)!
       .phases.find((p) => p.id === execution.pendingGate!.phaseId)!;
 
-    // Store response in phase data
+    // Store response in phase data. For approval gates a bare {approved:true}
+    // carries no answer text — record a marker so isGateSatisfied() sees the
+    // gate as satisfied on the follow-up completePhase() pass (otherwise an
+    // approval without text re-arms the gate forever).
     execution.phaseData[phase.id] = {
       ...execution.phaseData[phase.id],
-      userResponse: response.answer,
+      userResponse: response.answer ?? (response.approved ? 'approved' : undefined),
       selectedOption: response.selection,
     };
 
@@ -317,12 +320,13 @@ export class WorkflowManager extends EventEmitter {
       case 'none':
         return true;
       case 'completion':
-        // Check if required actions are done
+        // Completion markers are exact, own-line tokens. Loose substring
+        // matching let ordinary prose (or quoted instructions) satisfy gates.
         return (
           phase.requiredActions?.every(
             (action) =>
               data?.collectedFiles?.includes(action) ||
-              data?.agentResults?.some((r) => r.response.includes(action))
+              data?.agentResults?.some((result) => hasWorkflowActionMarker(result.response, action))
           ) ?? true
         );
       case 'user_confirmation':
@@ -369,13 +373,18 @@ export class WorkflowManager extends EventEmitter {
     if (parallel) {
       // Launch all agents in parallel
       const promises = prompts.slice(0, count).map((prompt, i) =>
-        this.invokeAgent(execution, agentType, prompt, i)
+        this.invokeAgent(execution, agentType, appendRequiredActionProtocol(prompt, phase), i)
       );
       results.push(...(await Promise.all(promises)));
     } else {
       // Launch agents sequentially
       for (let i = 0; i < Math.min(count, prompts.length); i++) {
-        const result = await this.invokeAgent(execution, agentType, prompts[i], i);
+        const result = await this.invokeAgent(
+          execution,
+          agentType,
+          appendRequiredActionProtocol(prompts[i], phase),
+          i,
+        );
         results.push(result);
       }
     }
@@ -523,7 +532,7 @@ export class WorkflowManager extends EventEmitter {
       .filter(Boolean)
       .join('\n\n---\n\n');
 
-    return `${previousContext}\n\n${phase.systemPromptAddition}`;
+    return `${previousContext}\n\n${appendRequiredActionProtocol(phase.systemPromptAddition, phase)}`;
   }
 
   cancelWorkflow(executionId: string): void {
@@ -561,4 +570,25 @@ export function getWorkflowManager(): WorkflowManager {
 export function _resetWorkflowManagerForTesting(): void {
   workflowManagerInstance = null;
   WorkflowManager._resetForTesting();
+}
+
+function workflowActionMarker(action: string): string {
+  return `[[WORKFLOW_ACTION:${action}]]`;
+}
+
+function hasWorkflowActionMarker(response: string, action: string): boolean {
+  const marker = workflowActionMarker(action);
+  return response.split(/\r?\n/).some((line) => line.trim() === marker);
+}
+
+function appendRequiredActionProtocol(prompt: string, phase: WorkflowPhase): string {
+  const actions = phase.requiredActions ?? [];
+  if (actions.length === 0) return prompt;
+  return [
+    prompt,
+    '',
+    '## Required action markers',
+    'After genuinely completing an action, emit its exact marker on its own line. Do not quote or emit a marker before the action is complete.',
+    ...actions.map((action) => workflowActionMarker(action)),
+  ].join('\n');
 }

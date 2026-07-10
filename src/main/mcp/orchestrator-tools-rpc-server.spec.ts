@@ -318,7 +318,9 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
 
   it('dispatches release tool methods to the matching tool with validated payload', async () => {
     const releaseHandler = vi.fn(async (args: unknown) => ({ release: { committed: true }, echoed: args }));
+    const authorizeReleaseMutation = vi.fn(async () => true);
     const { server } = makeServer({
+      authorizeReleaseMutation,
       toolFactory: () => [
         {
           name: 'execute_android_play_release',
@@ -349,12 +351,44 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     });
 
     expect(releaseHandler).toHaveBeenCalledOnce();
+    expect(authorizeReleaseMutation).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: KNOWN_INSTANCE,
+      method: 'orchestrator_tools.execute_android_play_release',
+    }));
     expect(releaseHandler.mock.calls[0]?.[0]).toMatchObject({
       packageName: 'com.example.app',
       versionCode: 42,
       track: 'internal',
     });
     expect(result).toMatchObject({ release: { committed: true } });
+  });
+
+  it('blocks release mutations without fresh operator authorization', async () => {
+    const releaseHandler = vi.fn();
+    const { server } = makeServer({
+      authorizeReleaseMutation: vi.fn(async () => false),
+      toolFactory: () => [{
+        name: 'execute_ios_asc_finalization',
+        description: 'test tool',
+        inputSchema: { type: 'object' },
+        handler: releaseHandler,
+      }],
+    });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 160,
+      method: 'orchestrator_tools.execute_ios_asc_finalization',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: {
+          bundleId: 'com.example.app',
+          buildNumber: '42',
+          destination: 'app-store-submit',
+        },
+      },
+    })).rejects.toThrow('release_operator_authorization_required');
+    expect(releaseHandler).not.toHaveBeenCalled();
   });
 
   it('dispatches release readiness report requests to the matching tool', async () => {

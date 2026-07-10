@@ -5,6 +5,7 @@
 import type { PluginProviderName } from '@contracts/types/provider-runtime-events';
 import { getProviderModelContextWindow } from './provider-context-window';
 import { isKnownCatalogModelForProvider } from './provider-model-catalog-snapshot';
+import type { LocalModelCatalogMetadata } from './unified-model-catalog.types';
 
 export { getProviderModelContextWindow };
 export {
@@ -216,6 +217,9 @@ export const CLAUDE_LEGACY_PRICING_ALIASES = {
  * OpenAI model identifiers
  */
 export const OPENAI_MODELS = {
+  GPT56_SOL: 'gpt-5.6-sol',
+  GPT56_TERRA: 'gpt-5.6-terra',
+  GPT56_LUNA: 'gpt-5.6-luna',
   GPT55: 'gpt-5.5',
   GPT55_MINI: 'gpt-5.5-mini',
   GPT53_CODEX: 'gpt-5.3-codex',
@@ -299,7 +303,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   // to Opus-1M via PROVIDER_MODEL_LIST[0] / getPrimaryModelForProvider.
   'claude-cli': CLAUDE_MODELS.OPUS,
   'anthropic-api': CLAUDE_MODELS.OPUS,
-  'openai': OPENAI_MODELS.GPT55,
+  'openai': OPENAI_MODELS.GPT56_SOL,
   'openai-compatible': OPENAI_MODELS.GPT55,
   'ollama': 'llama3',
   // NOTE: We default to GEMINI_3_PRO ('gemini-3-pro-preview') instead of
@@ -354,6 +358,9 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'claude-3-5-sonnet-20241022': { input: 3.0, output: 15.0 },
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4.0 },
   // OpenAI / Codex models (GPT-5 family)
+  [OPENAI_MODELS.GPT56_SOL]: { input: 5.0, output: 30.0 },
+  [OPENAI_MODELS.GPT56_TERRA]: { input: 2.5, output: 15.0 },
+  [OPENAI_MODELS.GPT56_LUNA]: { input: 1.0, output: 6.0 },
   [OPENAI_MODELS.GPT55]: { input: 5.0, output: 20.0 },
   [OPENAI_MODELS.GPT55_MINI]: { input: 1.5, output: 6.0 },
   // GPT-5.4 family (added via Copilot CLI / GitHub Copilot, May 2026).
@@ -392,6 +399,7 @@ export interface ModelDisplayInfo {
   tier: 'fast' | 'balanced' | 'powerful';
   pinned?: boolean;
   family?: string;
+  localModel?: LocalModelCatalogMetadata;
 }
 
 /**
@@ -424,6 +432,9 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: CLAUDE_PINNED_MODELS.HAIKU_45, name: 'Haiku 4.5', tier: 'fast', family: 'Haiku' },
   ],
   codex: [
+    { id: OPENAI_MODELS.GPT56_SOL, name: 'GPT-5.6 Sol', tier: 'powerful', pinned: true, family: 'GPT' },
+    { id: OPENAI_MODELS.GPT56_TERRA, name: 'GPT-5.6 Terra', tier: 'balanced', family: 'GPT' },
+    { id: OPENAI_MODELS.GPT56_LUNA, name: 'GPT-5.6 Luna', tier: 'fast', family: 'GPT' },
     { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'powerful', pinned: true, family: 'GPT' },
     { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced', family: 'GPT' },
     { id: OPENAI_MODELS.GPT53_CODEX_SPARK, name: 'GPT-5.3 Codex Spark', tier: 'fast', family: 'GPT' },

@@ -151,7 +151,7 @@ export interface AppSettings extends DesktopComputerUseSettings {
   broadRootFileThreshold: number;
 
   /**
-   * Attach the `chrome-devtools` MCP server to an Harness-managed browser profile.
+   * Attach the `chrome-devtools` MCP server to a Harness-managed browser profile.
    * When enabled, spawned agents get a chrome-devtools server configured with
    * `--browserUrl` pointing at the managed profile's CDP endpoint, so they can
    * drive the same authenticated browser they opened via `browser.*`.

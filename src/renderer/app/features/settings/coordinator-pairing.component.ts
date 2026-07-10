@@ -24,7 +24,10 @@ type CoordinatorPairingUiState =
       <div class="card-row">
         <div>
           <h4 id="pair-both-title">Pair Another Computer</h4>
-          <p class="hint">Open Harness on the other computer, choose worker mode, then paste this invitation.</p>
+          <p class="hint">
+            Open Harness on the other computer and choose worker mode. Windows may ask whether
+            Harness can accept private network connections; allow private networks so the worker can pair.
+          </p>
         </div>
         @if (uiState() === 'idle' || uiState() === 'completed' || uiState() === 'error') {
           <button class="btn btn-primary" type="button" (click)="startPairing()">Pair Another Computer</button>
@@ -35,6 +38,10 @@ type CoordinatorPairingUiState =
 
       @if (error()) {
         <div class="pair-notice error">{{ error() }}</div>
+      }
+
+      @if (discoveryNotice()) {
+        <div class="pair-notice warn">{{ discoveryNotice() }}</div>
       }
 
       @if (uiState() === 'waiting' && active(); as activePairing) {
@@ -171,6 +178,12 @@ type CoordinatorPairingUiState =
       color: var(--pill-ok-fg);
     }
 
+    .pair-notice.warn {
+      border-color: var(--pill-warn-border, var(--border-color));
+      background: var(--pill-warn-bg, var(--bg-primary));
+      color: var(--pill-warn-fg, var(--text-primary));
+    }
+
     .invitation-box,
     .confirm-box {
       display: flex;
@@ -215,6 +228,7 @@ export class CoordinatorPairingComponent implements OnDestroy {
   protected readonly session = signal<PairBothSessionState | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly qrCodeDataUrl = signal('');
+  protected readonly discoveryNotice = signal<string | null>(null);
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   ngOnDestroy(): void {
@@ -227,6 +241,7 @@ export class CoordinatorPairingComponent implements OnDestroy {
       const active = await this.pairBoth.startCoordinatorPairing();
       this.active.set(active);
       this.session.set(active.state);
+      this.discoveryNotice.set(active.discoveryDisabledReason ?? null);
       await this.generateInvitationQr(active.invitation);
       this.uiState.set('waiting');
       this.startPoll();
@@ -241,6 +256,7 @@ export class CoordinatorPairingComponent implements OnDestroy {
     this.active.set(null);
     this.session.set(null);
     this.qrCodeDataUrl.set('');
+    this.discoveryNotice.set(null);
     this.uiState.set('idle');
   }
 
@@ -303,8 +319,16 @@ export class CoordinatorPairingComponent implements OnDestroy {
   }
 
   private showError(error: unknown): void {
-    this.error.set(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    this.error.set(this.toFriendlyError(message));
     this.uiState.set('error');
+  }
+
+  private toFriendlyError(message: string): string {
+    if (/listen|bind|permission|firewall|network/i.test(message)) {
+      return `${message} Use the QR code or copied invitation if local network pairing is blocked.`;
+    }
+    return message;
   }
 
   private async generateInvitationQr(invitation: string): Promise<void> {

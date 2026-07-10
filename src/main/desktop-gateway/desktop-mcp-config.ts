@@ -7,6 +7,11 @@ export interface ComputerUseMcpConfigOptions {
   socketPath: string;
   instanceId: string;
   provider?: string;
+  /**
+   * Health-gated allowlist of `computer.*` tool names. When present, the
+   * spawned forwarder only exposes these tools. Omitted means all tools.
+   */
+  toolNames?: string[];
   exists?: (candidatePath: string) => boolean;
 }
 
@@ -30,6 +35,9 @@ export function resolveComputerUseBridgeSpec(
       AI_ORCHESTRATOR_DESKTOP_GATEWAY_SOCKET: options.socketPath,
       AI_ORCHESTRATOR_DESKTOP_INSTANCE_ID: options.instanceId,
       ...(options.provider ? { AI_ORCHESTRATOR_DESKTOP_PROVIDER: options.provider } : {}),
+      ...(options.toolNames && options.toolNames.length > 0
+        ? { AI_ORCHESTRATOR_DESKTOP_TOOLS: options.toolNames.join(',') }
+        : {}),
     },
   };
 }

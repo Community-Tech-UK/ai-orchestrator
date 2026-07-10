@@ -76,7 +76,7 @@ Use ASC API reads/writes for processing, export compliance, TestFlight group att
 
 1. Poll until build processing is complete.
 2. Set export compliance.
-3. Attach the build to the requested TestFlight group, or submit for review only with explicit James approval.
+3. Attach the build to the requested TestFlight group, or submit for review only with explicit user approval.
 4. Verify from a fresh ASC read before moving on.
 `,
     },

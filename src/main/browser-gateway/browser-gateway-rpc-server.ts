@@ -25,6 +25,8 @@ import {
   BrowserRevokeGrantRequestSchema,
   BrowserScreenshotRequestSchema,
   BrowserSelectRequestSchema,
+  BrowserWorkflowCheckpointResumeRequestSchema,
+  BrowserWorkflowCheckpointSaveRequestSchema,
   BrowserExecuteFillPlanRequestSchema,
   BrowserFillCredentialRequestSchema,
   BrowserCreateAgentCredentialRequestSchema,
@@ -51,6 +53,10 @@ import {
   handleUnattendedRpcMethod,
   isUnattendedRpcMethod,
 } from './browser-unattended-rpc-operations';
+import {
+  BrowserWorkflowCheckpointStore,
+  getBrowserWorkflowCheckpointStore,
+} from './browser-workflow-checkpoint-store';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -77,6 +83,8 @@ export interface BrowserGatewayRpcServerOptions {
     BrowserExtensionCommandStore,
     'pollCommand' | 'resolveCommand' | 'markReceived'
   >;
+  checkpointStore?: Pick<BrowserWorkflowCheckpointStore, 'saveStep' | 'get'>;
+  resolveCheckpointOwner?: (instanceId: string) => string;
   onExtensionDisconnected?: (reason: string) => void;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
@@ -85,6 +93,7 @@ export interface BrowserGatewayRpcServerOptions {
   maxPayloadBytes?: number;
   rateLimit?: {
     maxRequests: number;
+    maxBytes?: number;
     windowMs: number;
   };
 }
@@ -92,19 +101,27 @@ export interface BrowserGatewayRpcServerOptions {
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
 const MAX_UNIX_SOCKET_PATH_BYTES = 100;
+
+interface BrowserGatewayRateBucketEntry {
+  timestamp: number;
+  bytes: number;
+}
+
 export class BrowserGatewayRpcServer {
   private readonly service: Partial<BrowserGatewayService>;
   private readonly extensionCommandStore: Pick<
     BrowserExtensionCommandStore,
     'pollCommand' | 'resolveCommand' | 'markReceived'
   >;
+  private readonly checkpointStore?: Pick<BrowserWorkflowCheckpointStore, 'saveStep' | 'get'>;
+  private readonly resolveCheckpointOwner: (instanceId: string) => string;
   private readonly onExtensionDisconnected: (reason: string) => void;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly extensionToken: string;
   private readonly maxPayloadBytes: number;
-  private readonly rateLimit: { maxRequests: number; windowMs: number };
-  private readonly buckets = new Map<string, number[]>();
+  private readonly rateLimit: { maxRequests: number; maxBytes: number; windowMs: number };
+  private readonly buckets = new Map<string, BrowserGatewayRateBucketEntry[]>();
   private server: net.Server | null = null;
   private socketPath: string | null = null;
   private socketDirToCleanup: string | null = null;
@@ -113,6 +130,8 @@ export class BrowserGatewayRpcServer {
     this.service = options.service ?? getBrowserGatewayService();
     this.extensionCommandStore =
       options.extensionCommandStore ?? getBrowserExtensionCommandStore();
+    this.checkpointStore = options.checkpointStore;
+    this.resolveCheckpointOwner = options.resolveCheckpointOwner ?? ((instanceId) => instanceId);
     this.onExtensionDisconnected = options.onExtensionDisconnected
       ?? ((reason: string) =>
         getBrowserExtensionContactState().markExtensionDisconnect('local', reason));
@@ -120,7 +139,11 @@ export class BrowserGatewayRpcServer {
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.extensionToken = options.extensionToken ?? crypto.randomBytes(32).toString('hex');
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
-    this.rateLimit = options.rateLimit ?? { maxRequests: 30, windowMs: 10_000 };
+    this.rateLimit = {
+      maxRequests: options.rateLimit?.maxRequests ?? 30,
+      maxBytes: options.rateLimit?.maxBytes ?? this.maxPayloadBytes * 10,
+      windowMs: options.rateLimit?.windowMs ?? 10_000,
+    };
     const register = options.registerCleanup ?? registerGlobalCleanup;
     register(() => this.stop());
   }
@@ -188,8 +211,8 @@ export class BrowserGatewayRpcServer {
     if (!this.isKnownLocalInstance(params.instanceId)) {
       throw new Error('unknown browser gateway instance');
     }
-    this.enforceRateLimit(params.instanceId);
-    this.enforcePayloadSize(params.payload);
+    const payloadBytes = this.enforcePayloadSize(params.payload);
+    this.enforceRateLimit(params.instanceId, payloadBytes);
 
     // Unattended-layer runtime methods (escalations, campaign leases, session
     // sentinel) validate their own payloads and dispatch to the unattended
@@ -276,9 +299,33 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('getHealth')(withContext);
       case 'browser.get_audit_log':
         return this.requireMethod('getAuditLog')(withContext);
+      case 'browser.checkpoint_save':
+        return this.handleCheckpointSave(this.resolveCheckpointOwner(params.instanceId), payload);
+      case 'browser.checkpoint_resume':
+        return this.handleCheckpointResume(this.resolveCheckpointOwner(params.instanceId), payload);
       default:
         throw new Error(`Unknown Browser Gateway RPC method: ${request.method}`);
     }
+  }
+
+  private handleCheckpointSave(ownerId: string, payload: Record<string, unknown>): unknown {
+    const result = BrowserWorkflowCheckpointSaveRequestSchema.safeParse(payload);
+    if (!result.success) {
+      throw new Error('Invalid browser gateway RPC payload');
+    }
+    return this.getCheckpointStore().saveStep({ ownerId, ...result.data });
+  }
+
+  private handleCheckpointResume(ownerId: string, payload: Record<string, unknown>): unknown {
+    const result = BrowserWorkflowCheckpointResumeRequestSchema.safeParse(payload);
+    if (!result.success) {
+      throw new Error('Invalid browser gateway RPC payload');
+    }
+    return this.getCheckpointStore().get(ownerId, result.data.workflowId);
+  }
+
+  private getCheckpointStore(): Pick<BrowserWorkflowCheckpointStore, 'saveStep' | 'get'> {
+    return this.checkpointStore ?? getBrowserWorkflowCheckpointStore();
   }
 
   private handleExtensionAttachTab(request: BrowserGatewayRpcRequest): unknown {
@@ -432,26 +479,35 @@ export class BrowserGatewayRpcServer {
     if (parsed.extensionToken !== this.extensionToken) {
       throw new Error('invalid browser extension host token');
     }
-    this.enforceRateLimit(`extension:${parsed.extensionOrigin ?? 'unknown'}`);
-    this.enforcePayloadSize(parsed.payload);
+    const payloadBytes = this.enforcePayloadSize(parsed.payload);
+    this.enforceRateLimit(
+      `extension:${parsed.extensionOrigin ?? 'unknown'}`,
+      payloadBytes,
+    );
     return parsed;
   }
 
-  private enforcePayloadSize(payload: Record<string, unknown>): void {
-    if (Buffer.byteLength(JSON.stringify(payload), 'utf-8') > this.maxPayloadBytes) {
+  private enforcePayloadSize(payload: Record<string, unknown>): number {
+    const payloadBytes = Buffer.byteLength(JSON.stringify(payload), 'utf-8');
+    if (payloadBytes > this.maxPayloadBytes) {
       throw new Error('Browser Gateway RPC payload too large');
     }
+    return payloadBytes;
   }
 
-  private enforceRateLimit(instanceId: string): void {
+  private enforceRateLimit(instanceId: string, payloadBytes: number): void {
     const now = Date.now();
     const bucket = (this.buckets.get(instanceId) ?? []).filter(
-      (timestamp) => now - timestamp < this.rateLimit.windowMs,
+      (entry) => now - entry.timestamp < this.rateLimit.windowMs,
     );
     if (bucket.length >= this.rateLimit.maxRequests) {
       throw new Error('Browser Gateway RPC rate limit exceeded');
     }
-    bucket.push(now);
+    const bytesInWindow = bucket.reduce((total, entry) => total + entry.bytes, 0);
+    if (bytesInWindow + payloadBytes > this.rateLimit.maxBytes) {
+      throw new Error('Browser Gateway RPC byte rate limit exceeded');
+    }
+    bucket.push({ timestamp: now, bytes: payloadBytes });
     this.buckets.set(instanceId, bucket);
   }
 
@@ -537,6 +593,10 @@ export class BrowserGatewayRpcServer {
           return BrowserQueryElementsRequestSchema;
         case 'browser.get_audit_log':
           return BrowserListAuditLogRequestSchema;
+        case 'browser.checkpoint_save':
+          return BrowserWorkflowCheckpointSaveRequestSchema;
+        case 'browser.checkpoint_resume':
+          return BrowserWorkflowCheckpointResumeRequestSchema;
         default:
           return null;
       }

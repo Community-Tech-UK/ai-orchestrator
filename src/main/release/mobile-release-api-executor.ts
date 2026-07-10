@@ -1,13 +1,23 @@
-import type { MobileReleasePlan } from './mobile-release-plan';
+import type { MobileReleasePlan, StoreAssetManifestInput } from './mobile-release-plan';
+import type { AppStoreConnectAssetUploadInput } from './app-store-connect-client';
 import type {
   CommitEditInput,
+  UploadImageInput,
   UpdateTrackInput,
   UploadBundleInput,
 } from './play-developer-client';
+import {
+  prepareAndVerifyAndroidStoreAssets,
+  prepareAndVerifyIosStoreAssets,
+  uploadAscStoreAssets,
+  uploadPlayStoreAssets,
+  type StoreAssetExecutionResult,
+} from './mobile-store-asset-executor';
 
 export interface PlayReleaseApiClient {
   createEdit(packageName: string): Promise<unknown>;
   uploadBundle(input: UploadBundleInput): Promise<unknown>;
+  uploadImage?(input: UploadImageInput): Promise<unknown>;
   updateTrack(input: UpdateTrackInput): Promise<unknown>;
   commitEdit(input: CommitEditInput): Promise<unknown>;
 }
@@ -22,17 +32,21 @@ export interface AscReleaseApiClient {
       scope?: string[];
     },
   ): Promise<T>;
+  uploadAssetPart?(input: AppStoreConnectAssetUploadInput): Promise<void>;
 }
 
 export interface ExecuteAndroidPlayApiReleaseInput {
   plan: MobileReleasePlan;
   client: PlayReleaseApiClient;
   packageName: string;
+  expectedVersionCode: number;
   track: string;
   aabPath: string;
   readFile: (path: string) => Promise<Uint8Array>;
-  releases?: Array<Record<string, unknown>>;
+  releases?: Record<string, unknown>[];
   changesInReviewBehavior?: CommitEditInput['changesInReviewBehavior'];
+  storeAssets?: StoreAssetManifestInput;
+  storeAssetLanguage?: string;
 }
 
 export interface AndroidPlayApiReleaseResult {
@@ -40,6 +54,7 @@ export interface AndroidPlayApiReleaseResult {
   uploadedVersionCode?: number;
   committed: boolean;
   executedStepIds: string[];
+  storeAssets?: StoreAssetExecutionResult;
 }
 
 export interface ExecuteIosAscApiReleaseInput {
@@ -49,6 +64,8 @@ export interface ExecuteIosAscApiReleaseInput {
   betaGroupId?: string;
   appStoreVersionId?: string;
   usesNonExemptEncryption: boolean;
+  storeAssets?: StoreAssetManifestInput;
+  readFile?: (path: string) => Promise<Uint8Array>;
 }
 
 export interface IosAscApiReleaseResult {
@@ -57,6 +74,7 @@ export interface IosAscApiReleaseResult {
   betaGroupAttached: boolean;
   submittedForReview: boolean;
   executedStepIds: string[];
+  storeAssets?: StoreAssetExecutionResult;
 }
 
 export async function executeAndroidPlayApiRelease(
@@ -80,6 +98,35 @@ export async function executeAndroidPlayApiRelease(
     aab,
   }));
   const uploadedVersionCode = numberField(upload, 'versionCode');
+  if (uploadedVersionCode === undefined) {
+    throw new Error('play_uploaded_version_code_missing');
+  }
+  if (uploadedVersionCode !== input.expectedVersionCode) {
+    throw new Error(
+      `play_uploaded_version_code_mismatch:expected_${input.expectedVersionCode}:got_${uploadedVersionCode}`,
+    );
+  }
+  let storeAssets: StoreAssetExecutionResult | undefined;
+  if (hasStep(input.plan, 'prepare-store-assets') || hasStep(input.plan, 'verify-store-assets')) {
+    if (!input.storeAssets) {
+      throw new Error('release_api_input_missing:storeAssets');
+    }
+    const verifiedAssets = await prepareAndVerifyAndroidStoreAssets({
+      assets: input.storeAssets,
+      readFile: input.readFile,
+    });
+    const uploadedAssets = hasStep(input.plan, 'upload-play-store-assets')
+      ? await uploadPlayStoreAssets({
+        client: requirePlayImageUploadClient(input.client),
+        packageName: input.packageName,
+        editId,
+        language: input.storeAssetLanguage,
+        assets: verifiedAssets,
+        readFile: input.readFile,
+      })
+      : [];
+    storeAssets = { verifiedAssets, uploadedAssets };
+  }
   const releases = input.releases ?? [{
     versionCodes: [String(uploadedVersionCode)],
     status: 'completed',
@@ -102,9 +149,12 @@ export async function executeAndroidPlayApiRelease(
     executedStepIds: [
       'create-play-edit',
       'upload-play-aab',
+      ...(storeAssets ? ['prepare-store-assets', 'verify-store-assets'] : []),
+      ...(storeAssets?.uploadedAssets.length ? ['upload-play-store-assets'] : []),
       'update-play-track',
       'commit-play-edit',
     ],
+    ...(storeAssets ? { storeAssets } : {}),
   };
 }
 
@@ -160,6 +210,30 @@ export async function executeIosAscApiRelease(
     executedStepIds.push('attach-testflight-group');
   }
 
+  let storeAssets: StoreAssetExecutionResult | undefined;
+  if (hasStep(input.plan, 'prepare-store-assets') || hasStep(input.plan, 'verify-store-assets')) {
+    if (!input.storeAssets || !input.readFile) {
+      throw new Error('release_api_input_missing:storeAssets');
+    }
+    const verifiedAssets = await prepareAndVerifyIosStoreAssets({
+      assets: input.storeAssets,
+      readFile: input.readFile,
+    });
+    const uploadedAssets = hasStep(input.plan, 'upload-asc-store-assets')
+      ? await uploadAscStoreAssets({
+        client: requireAscAssetUploadClient(input.client),
+        assets: input.storeAssets,
+        verifiedAssets,
+        readFile: input.readFile,
+      })
+      : [];
+    storeAssets = { verifiedAssets, uploadedAssets };
+    executedStepIds.push('prepare-store-assets', 'verify-store-assets');
+    if (uploadedAssets.length > 0) {
+      executedStepIds.push('upload-asc-store-assets');
+    }
+  }
+
   let submittedForReview = false;
   if (hasStep(input.plan, 'submit-app-store-review')) {
     if (!input.appStoreVersionId) {
@@ -189,6 +263,7 @@ export async function executeIosAscApiRelease(
     betaGroupAttached,
     submittedForReview,
     executedStepIds,
+    ...(storeAssets ? { storeAssets } : {}),
   };
 }
 
@@ -214,6 +289,28 @@ function requirePlanSteps(plan: MobileReleasePlan, stepIds: string[]): void {
 
 function hasStep(plan: MobileReleasePlan, stepId: string): boolean {
   return plan.steps.some((step) => step.id === stepId);
+}
+
+function requirePlayImageUploadClient(client: PlayReleaseApiClient): PlayReleaseApiClient & {
+  uploadImage: NonNullable<PlayReleaseApiClient['uploadImage']>;
+} {
+  if (!client.uploadImage) {
+    throw new Error('release_api_client_missing:uploadImage');
+  }
+  return client as PlayReleaseApiClient & {
+    uploadImage: NonNullable<PlayReleaseApiClient['uploadImage']>;
+  };
+}
+
+function requireAscAssetUploadClient(client: AscReleaseApiClient): AscReleaseApiClient & {
+  uploadAssetPart: NonNullable<AscReleaseApiClient['uploadAssetPart']>;
+} {
+  if (!client.uploadAssetPart) {
+    throw new Error('release_api_client_missing:uploadAssetPart');
+  }
+  return client as AscReleaseApiClient & {
+    uploadAssetPart: NonNullable<AscReleaseApiClient['uploadAssetPart']>;
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

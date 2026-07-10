@@ -135,6 +135,7 @@ function makeMockInstanceManager(): InstanceManager {
     renameInstance: vi.fn(),
     changeAgentMode: vi.fn(),
     toggleYoloMode: vi.fn(),
+    requestYoloModeToggle: vi.fn(),
     changeModel: vi.fn(),
     serializeForIpc: vi.fn((inst: unknown) => inst as Record<string, unknown>),
     getOrchestrationHandler: vi.fn().mockReturnValue(orchestration),

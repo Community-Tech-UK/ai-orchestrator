@@ -86,6 +86,7 @@ import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 import { discoverCodexModels } from './codex/model-list';
+import { buildCodexReplayPrompt, wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
 
 const logger = getLogger('CodexCliAdapter');
 // ─── Local Types ────────────────────────────────────────────────────────────
@@ -1134,10 +1135,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // Include system prompt on the very first turn only.
     // Track via a dedicated flag — currentTurnId is cleared after every turn.
     if (!this.systemPromptSent && this.cliConfig.systemPrompt?.trim()) {
-      const prompt = this.cliConfig.systemPrompt.trim();
-      if (prompt.length <= CodexCliAdapter.MAX_SYSTEM_PROMPT_CHARS) {
-        content = `[SYSTEM INSTRUCTIONS]\n${prompt}\n[/SYSTEM INSTRUCTIONS]\n\n${content}`;
-      }
+      // Oversized prompts (usually merged project-instruction files Codex
+      // already loads natively) are truncated to the cap rather than silently
+      // dropped — dropping delivered NOTHING (no role, no tool permissions)
+      // while still marking the prompt as sent.
+      const prompt = CodexCliAdapter.truncateSystemPrompt(this.cliConfig.systemPrompt.trim());
+      content = wrapCodexSystemInstructions(prompt, content);
       this.systemPromptSent = true;
     }
 
@@ -3050,6 +3053,20 @@ export class CodexCliAdapter extends BaseCliAdapter {
    */
   private static readonly MAX_SYSTEM_PROMPT_CHARS = 4000;
 
+  /** Cap an oversized system prompt at MAX_SYSTEM_PROMPT_CHARS. Keeps the head
+   *  (orchestrator role/permissions lead) AND a tail slice — safety-critical
+   *  rules are sometimes appended last, and a head-only cut would drop them. */
+  private static truncateSystemPrompt(prompt: string): string {
+    if (prompt.length <= CodexCliAdapter.MAX_SYSTEM_PROMPT_CHARS) return prompt;
+    const tailChars = 800;
+    const headChars = CodexCliAdapter.MAX_SYSTEM_PROMPT_CHARS - tailChars;
+    return (
+      prompt.slice(0, headChars) +
+      '\n[... middle of system prompt truncated to protect Codex latency ...]\n' +
+      prompt.slice(-tailChars)
+    );
+  }
+
   private prepareMessageForExecution(message: CliMessage): CliMessage {
     let content = message.content;
 
@@ -3060,19 +3077,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // Skip system prompt on resume turns — the Codex thread already has full
     // context from the initial turn.  Re-injecting it wastes tokens.
     if (!this.shouldUseResumeCommand() && this.cliConfig.systemPrompt?.trim()) {
-      const prompt = this.cliConfig.systemPrompt.trim();
-      // Only inject the system prompt when it is reasonably short.  Large
-      // prompts are almost certainly the merged project instruction files
-      // which Codex already loads natively from the working directory.
-      if (prompt.length <= CodexCliAdapter.MAX_SYSTEM_PROMPT_CHARS) {
-        content = [
-          '[SYSTEM INSTRUCTIONS]',
-          prompt,
-          '[/SYSTEM INSTRUCTIONS]',
-          '',
-          content,
-        ].join('\n');
-      }
+      // Large prompts are almost certainly the merged project instruction
+      // files which Codex already loads natively from the working directory —
+      // but the head still carries the orchestrator-specific context (agent
+      // role, observation, tool permissions), so truncate to the cap instead
+      // of dropping the prompt entirely.
+      const prompt = CodexCliAdapter.truncateSystemPrompt(this.cliConfig.systemPrompt.trim());
+      content = wrapCodexSystemInstructions(prompt, content);
     }
 
     // Inject RTK awareness on the first non-resume exec turn.  Same rationale
@@ -3212,37 +3223,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   private buildReplayPrompt(currentMessage: string): string {
-    const replayEntries = this.conversationHistory
-      .slice(-CodexCliAdapter.MAX_REPLAY_ENTRIES)
-      .map((entry) => {
-        const role = entry.role === 'user' ? 'User' : 'Assistant';
-        return [
-          `<${role}>`,
-          this.truncateReplayContent(entry.content),
-          `</${role}>`,
-        ].join('\n');
-      });
-
-    return [
-      '[CONVERSATION HISTORY]',
-      'Use the recent transcript below as context for the current request.',
-      '',
-      ...replayEntries,
-      '',
-      '[/CONVERSATION HISTORY]',
-      '',
-      '[CURRENT USER MESSAGE]',
+    return buildCodexReplayPrompt(
+      this.conversationHistory.slice(-CodexCliAdapter.MAX_REPLAY_ENTRIES),
       currentMessage,
-      '[/CURRENT USER MESSAGE]',
-    ].join('\n');
-  }
-
-  private truncateReplayContent(content: string): string {
-    const normalized = content.trim();
-    if (normalized.length <= CodexCliAdapter.MAX_REPLAY_CHARS_PER_ENTRY) {
-      return normalized;
-    }
-    return `${normalized.slice(0, CodexCliAdapter.MAX_REPLAY_CHARS_PER_ENTRY)}...[truncated]`;
+      CodexCliAdapter.MAX_REPLAY_CHARS_PER_ENTRY,
+    );
   }
 
   private consumeLines(

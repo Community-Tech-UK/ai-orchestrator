@@ -109,6 +109,12 @@ export interface Instance {
   archivedUpToMessageId?: string;
   workingDirectory: string;
   yoloMode: boolean;
+  /**
+   * Desired YOLO mode queued while the instance is busy; applied automatically
+   * once it goes idle. Undefined when no change is pending. Drives the ⚡ button's
+   * pending affordance.
+   */
+  pendingYoloMode?: boolean;
   /** Fast mode: faster output at some capability cost (Claude Opus / Codex priority tier). */
   fastMode?: boolean;
   launchMode: InstanceLaunchMode;

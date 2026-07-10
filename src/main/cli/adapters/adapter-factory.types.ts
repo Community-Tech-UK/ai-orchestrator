@@ -18,6 +18,7 @@ import type { RemoteLocalModelAdapter } from './remote-local-model-adapter';
 import type { CliAdapterWorkerProxy } from '../spawn-worker/cli-adapter-worker-proxy';
 import type { InstanceLaunchMode } from '../../../shared/types/instance.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
+import type { ComputerUseMcpConfigOptions } from '../../desktop-gateway/desktop-mcp-config';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
 import type { MobileMcpConfigOptions } from '../../browser-gateway/mobile-mcp-config';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
@@ -33,6 +34,13 @@ export interface UnifiedSpawnOptions {
   sessionId?: string;
   workingDirectory?: string;
   systemPrompt?: string;
+  /** How `systemPrompt` combines with the CLI's own default system prompt.
+   *  'append' (default) keeps the CLI's tool/safety guidance and adds ours on
+   *  top — matches the documented "prepend/overlay" contract of agent profiles
+   *  and the orchestration prompt. 'replace' passes it as the ENTIRE system
+   *  prompt (Claude `--system-prompt`) — only for minimal one-shot spawns
+   *  (e.g. title generation) where inheriting the full default prompt is waste. */
+  systemPromptMode?: 'append' | 'replace';
   model?: string;
   yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
@@ -50,6 +58,13 @@ export interface UnifiedSpawnOptions {
   mcpServers?: AcpMcpServerConfig[];
   /** Browser Gateway bridge options used to build provider-specific MCP config. */
   browserGatewayMcp?: BrowserGatewayMcpConfigOptions;
+  /**
+   * Desktop/Harness Computer Use bridge options used to build provider-specific
+   * MCP config. Parallel to {@link browserGatewayMcp}: when set, providers that
+   * consume a settings file (e.g. Gemini) get a `computer-use` MCP server, and
+   * the computer-use system prompt guidance is injected.
+   */
+  computerUseMcp?: ComputerUseMcpConfigOptions;
   /**
    * chrome-devtools attach options. When set, each provider gets a
    * `chrome-devtools` MCP server configured with `--browserUrl` pointing at a
@@ -109,6 +124,10 @@ export interface UnifiedSpawnOptions {
   nodePlacement?: NodePlacementPrefs;
   /** Optional explicit runtime target selected from the unified model picker. */
   modelRuntimeTarget?: ModelRuntimeTarget;
+  /** Direct Ollama server endpoint for REST-only ollama spawns (scaffolding
+   *  local-first: localhost or a connected worker node's address). Defaults
+   *  to localhost:11434 when omitted. */
+  ollamaEndpoint?: { host: string; port: number };
 }
 
 /**

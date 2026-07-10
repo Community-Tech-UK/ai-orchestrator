@@ -121,6 +121,7 @@ export abstract class BaseLocalModelChatAdapter
       };
       this.emit('output', errorMessage);
       this.emit('status', 'error' as InstanceStatus);
+      this.emit('error', err);
     }
   }
 

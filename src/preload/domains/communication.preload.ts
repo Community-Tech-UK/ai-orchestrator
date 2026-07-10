@@ -230,6 +230,15 @@ export function createCommunicationDomain(
     pairBothWorkerApplyManual: (input: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_APPLY_MANUAL, { input }),
 
+    pairBothWorkerRunMode: (mode: 'run-while-open' | 'background-service'): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_RUN_MODE, { mode }),
+
+    pairBothWorkerStop: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_STOP),
+
+    pairBothWorkerUnpair: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_UNPAIR),
+
     onRemoteNodeEvent: (callback: (event: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) =>
         callback(data);

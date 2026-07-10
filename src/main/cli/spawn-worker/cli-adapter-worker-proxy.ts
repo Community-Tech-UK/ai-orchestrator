@@ -48,6 +48,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   private stdoutLineBuffer = '';
   private lastKnownContextWindow: number;
   private deferredToolUse: DeferredToolUse | null = null;
+  private geminiRtkAwarenessSent = false;
 
   constructor(opts: CliAdapterWorkerProxyOptions) {
     super();
@@ -183,6 +184,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       }
       this.outputBuffer = '';
       await this.runTurn(this.buildArgs({ role: 'user', content: message }), undefined, { closeStdin: true });
+      this.geminiRtkAwarenessSent = true;
       return;
     }
     await this.gateway.writeStdin(this.instanceId, await this.formatClaudeInput(message, attachments));
@@ -192,10 +194,12 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     const stdin = this.cliType === 'claude'
       ? await this.formatClaudeInput(message.content, message.attachments as FileAttachment[] | undefined)
       : undefined;
-    return this.runTurn(this.buildArgs(message), stdin, {
+    const response = await this.runTurn(this.buildArgs(message), stdin, {
       closeStdin: this.cliType === 'gemini',
       closeStdinAfterWrite: this.cliType === 'claude',
     });
+    if (this.cliType === 'gemini') this.geminiRtkAwarenessSent = true;
+    return response;
   }
 
   private async runTurn(
@@ -362,7 +366,9 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   private buildArgs(message: CliMessage): string[] {
-    return buildWorkerArgs(this.cliType, this.options, this.sessionId, message);
+    return buildWorkerArgs(this.cliType, this.options, this.sessionId, message, {
+      includeGeminiRtkAwareness: !this.geminiRtkAwarenessSent,
+    });
   }
 
   private async formatClaudeInput(message: string, attachments?: FileAttachment[]): Promise<string> {

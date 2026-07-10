@@ -77,8 +77,11 @@ describe('mobile release plans', () => {
       allowSubmitForReview: false,
       storeAssets: {
         outputDir: '/tmp/store-assets',
+        appStoreVersionLocalizationId: 'localization-en-US',
         iphoneScreenshotPaths: ['/tmp/store-assets/ios/iphone-1.png'],
+        iphoneScreenshotDisplayType: 'APP_IPHONE_67',
         ipadScreenshotPaths: ['/tmp/store-assets/ios/ipad-1.png'],
+        ipadScreenshotDisplayType: 'APP_IPAD_PRO_3GEN_129',
       },
     });
 
@@ -87,6 +90,8 @@ describe('mobile release plans', () => {
       channel: 'manual-approval',
       requiredApproval: 'James must explicitly approve App Store review submission.',
     });
+    expect(plan.steps.map((step) => step.id).indexOf('upload-asc-store-assets'))
+      .toBeLessThan(plan.steps.map((step) => step.id).indexOf('submit-app-store-review'));
   });
 
   it('builds a Play API Android plan and routes console declarations to the browser setup plan', () => {
@@ -214,8 +219,11 @@ describe('mobile release plans', () => {
     ]));
     expect(ios.blockers).toEqual(expect.arrayContaining([
       'store-assets-output-dir-missing',
+      'asc-app-store-version-localization-id-missing',
       'ios-iphone-screenshots-missing',
+      'ios-iphone-screenshot-display-type-missing',
       'ios-ipad-screenshots-missing',
+      'ios-ipad-screenshot-display-type-missing',
     ]));
   });
 
@@ -272,11 +280,24 @@ describe('mobile release plans', () => {
       'play-create-app-record',
       'play-app-content-declarations',
       'play-content-rating',
+      'play-data-safety-csv-generate',
       'play-data-safety-import',
+      'play-resolution-center-reader',
       'asc-create-app-record',
       'asc-privacy-nutrition-labels',
+      'asc-resolution-center-reader',
       'surface-account-legal-prompts',
     ]));
+    expect(plan.steps.find((step) => step.id === 'play-data-safety-csv-generate')).toMatchObject({
+      checkpoint: true,
+      verifies: expect.arrayContaining([
+        'Data safety CSV exists locally and is ready for console import without hand-entering answers.',
+      ]),
+    });
+    expect(plan.steps.find((step) => step.id === 'asc-resolution-center-reader')).toMatchObject({
+      channel: 'browser',
+      checkpoint: true,
+    });
     const browserMutationSteps = plan.steps.filter(
       (step) => step.channel === 'browser' && step.id !== 'claim-browser-campaign-lease',
     );

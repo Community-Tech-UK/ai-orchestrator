@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { createDesktopMcpTools } from './desktop-mcp-tools';
+import { createDesktopMcpTools, DESKTOP_DEGRADED_TOOL_NAMES } from './desktop-mcp-tools';
 
 const TOOL_NAMES = [
   'computer.health',
@@ -9,12 +9,15 @@ const TOOL_NAMES = [
   'computer.get_approval_status',
   'computer.screenshot',
   'computer.accessibility_snapshot',
+  'computer.query_elements',
   'computer.click',
   'computer.type_text',
   'computer.hotkey',
   'computer.scroll',
   'computer.drag',
   'computer.wait_for',
+  'computer.list_grants',
+  'computer.revoke_grant',
   'computer.get_audit_log',
   'computer.raise_escalation',
 ];
@@ -24,6 +27,17 @@ describe('desktop-mcp-tools', () => {
     const names = createDesktopMcpTools({ call: vi.fn() }).map((tool) => tool.name);
 
     expect(names).toEqual(TOOL_NAMES);
+  });
+
+  it('restricts tools to the health-gated allowlist when the driver is degraded', () => {
+    const names = createDesktopMcpTools({ call: vi.fn() }, DESKTOP_DEGRADED_TOOL_NAMES)
+      .map((tool) => tool.name);
+
+    expect(names).toEqual([
+      'computer.health',
+      'computer.list_apps',
+      'computer.raise_escalation',
+    ]);
   });
 
   it('warns that desktop content is untrusted and delegates to RPC', async () => {
@@ -40,6 +54,19 @@ describe('desktop-mcp-tools', () => {
       .find((tool) => tool.name === 'computer.screenshot');
 
     expect(screenshot?.producesImage).toBe(true);
+  });
+
+  it('documents observed-coordinate fencing and sensitive-action escalation', () => {
+    const tools = createDesktopMcpTools({ call: vi.fn() });
+    const click = tools.find((tool) => tool.name === 'computer.click');
+    const typeText = tools.find((tool) => tool.name === 'computer.type_text');
+    const drag = tools.find((tool) => tool.name === 'computer.drag');
+
+    expect(click?.description).toContain('accessibility_snapshot');
+    expect(click?.description).toContain('approved app window');
+    expect(typeText?.description).toContain('secure fields are blocked');
+    expect(drag?.description).toContain('both points');
+    expect(drag?.description).toContain('observed app bounds');
   });
 
   it('keeps the stdio bridge free of Electron and desktop driver imports', () => {

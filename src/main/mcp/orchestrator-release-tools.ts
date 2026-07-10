@@ -22,6 +22,10 @@ import {
 } from '../release/play-developer-client';
 import { AppStoreConnectClient } from '../release/app-store-connect-client';
 import {
+  generatePlayDataSafetyCsv,
+  type PlayDataSafetyCsvRow,
+} from '../release/play-data-safety-csv';
+import {
   buildReleaseOperationalReadinessReport,
   remoteNodesToReleaseReadinessEvidence,
 } from '../release/mobile-release-readiness';
@@ -31,6 +35,22 @@ const commandListSchema = z.array(z.array(nonEmpty));
 const androidTrackSchema = z.enum(['internal', 'alpha', 'beta', 'production']);
 const iosDestinationSchema = z.enum(['testflight-internal', 'testflight-external', 'app-store-submit']);
 const releaseRecordSchema = z.record(z.string(), z.unknown());
+const playDataSafetyRowSchema = z.object({
+  questionId: nonEmpty,
+  responseId: z.string(),
+  responseValue: z.union([z.boolean(), z.literal('')]),
+  answerRequirement: z.enum([
+    'OPTIONAL',
+    'REQUIRED',
+    'MULTIPLE_CHOICE',
+    'SINGLE_CHOICE',
+    'MAYBE_REQUIRED',
+  ]),
+  questionLabel: nonEmpty,
+}).strict();
+export const GeneratePlayDataSafetyCsvArgsSchema = z.object({
+  rows: z.array(playDataSafetyRowSchema).min(1).max(10_000),
+}).strict();
 const storeAssetsSchema = z.object({
   outputDir: nonEmpty.optional(),
   appIcon512Path: nonEmpty.optional(),
@@ -38,8 +58,11 @@ const storeAssetsSchema = z.object({
   phoneScreenshotPaths: z.array(nonEmpty).optional(),
   sevenInchTabletScreenshotPaths: z.array(nonEmpty).optional(),
   tenInchTabletScreenshotPaths: z.array(nonEmpty).optional(),
+  appStoreVersionLocalizationId: nonEmpty.optional(),
   iphoneScreenshotPaths: z.array(nonEmpty).optional(),
+  iphoneScreenshotDisplayType: nonEmpty.optional(),
   ipadScreenshotPaths: z.array(nonEmpty).optional(),
+  ipadScreenshotDisplayType: nonEmpty.optional(),
 }).strict();
 const readinessWorkerAgentSchema = z.object({
   version: nonEmpty,
@@ -210,6 +233,17 @@ export function createReleaseToolDefinitions(
       handler: async (args) => buildNewAppSetupPlan(BuildNewAppSetupPlanArgsSchema.parse(args) as NewAppSetupPlanInput),
     },
     {
+      name: 'generate_play_data_safety_csv',
+      ...RELEASE_TOOL_SPECS.generate_play_data_safety_csv,
+      handler: async (args) => {
+        const parsed = GeneratePlayDataSafetyCsvArgsSchema.parse(args);
+        return {
+          csv: generatePlayDataSafetyCsv(parsed.rows as PlayDataSafetyCsvRow[]),
+          rowCount: parsed.rows.length,
+        };
+      },
+    },
+    {
       name: 'execute_android_play_release',
       ...RELEASE_TOOL_SPECS.execute_android_play_release,
       handler: async (args) => {
@@ -220,11 +254,13 @@ export function createReleaseToolDefinitions(
           plan,
           client: createPlayClient(serviceAccount),
           packageName: parsed.packageName,
+          expectedVersionCode: parsed.versionCode,
           track: parsed.track ?? parsed.destinationTrack,
           aabPath: parsed.aabPath,
           readFile: readBinaryFile,
           releases: parsed.releases,
           changesInReviewBehavior: parsed.changesInReviewBehavior,
+          storeAssets: parsed.storeAssets,
         });
         return { plan, release };
       },
@@ -247,6 +283,8 @@ export function createReleaseToolDefinitions(
           betaGroupId: parsed.betaGroupId,
           appStoreVersionId: parsed.appStoreVersionId,
           usesNonExemptEncryption: parsed.usesNonExemptEncryption,
+          storeAssets: parsed.storeAssets,
+          readFile: readBinaryFile,
         });
         return { plan, release };
       },
@@ -347,8 +385,11 @@ export const STORE_ASSETS_INPUT_SCHEMA = {
     phoneScreenshotPaths: { type: 'array', items: { type: 'string' } },
     sevenInchTabletScreenshotPaths: { type: 'array', items: { type: 'string' } },
     tenInchTabletScreenshotPaths: { type: 'array', items: { type: 'string' } },
+    appStoreVersionLocalizationId: { type: 'string' },
     iphoneScreenshotPaths: { type: 'array', items: { type: 'string' } },
+    iphoneScreenshotDisplayType: { type: 'string' },
     ipadScreenshotPaths: { type: 'array', items: { type: 'string' } },
+    ipadScreenshotDisplayType: { type: 'string' },
   },
   additionalProperties: false,
 };
@@ -551,6 +592,40 @@ export const NEW_APP_SETUP_INPUT_SCHEMA = {
   additionalProperties: false,
 };
 
+export const PLAY_DATA_SAFETY_CSV_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    rows: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 10_000,
+      items: {
+        type: 'object',
+        properties: {
+          questionId: { type: 'string' },
+          responseId: { type: 'string' },
+          responseValue: { anyOf: [{ type: 'boolean' }, { type: 'string', enum: [''] }] },
+          answerRequirement: {
+            type: 'string',
+            enum: ['OPTIONAL', 'REQUIRED', 'MULTIPLE_CHOICE', 'SINGLE_CHOICE', 'MAYBE_REQUIRED'],
+          },
+          questionLabel: { type: 'string' },
+        },
+        required: [
+          'questionId',
+          'responseId',
+          'responseValue',
+          'answerRequirement',
+          'questionLabel',
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['rows'],
+  additionalProperties: false,
+};
+
 export const RELEASE_TOOL_SPECS = {
   build_release_operational_readiness_report: {
     description:
@@ -571,6 +646,11 @@ export const RELEASE_TOOL_SPECS = {
     description:
       'Build the checkpointed browser plan for console-only new-app setup work in Play Console and App Store Connect. This does not mutate the browser.',
     inputSchema: NEW_APP_SETUP_INPUT_SCHEMA,
+  },
+  generate_play_data_safety_csv: {
+    description:
+      'Generate Google Play\'s official five-column Data safety CSV from machine-readable response rows for later API or Play Console import. Returns CSV text and does not write files or mutate Play Console.',
+    inputSchema: PLAY_DATA_SAFETY_CSV_INPUT_SCHEMA,
   },
   execute_android_play_release: {
     description:

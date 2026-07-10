@@ -9,6 +9,7 @@ import { Injectable, inject } from '@angular/core';
 import { IpcFacadeService } from '../../services/ipc';
 import { ProviderStateService, type ProviderType } from '../../services/provider-state.service';
 import { InstanceStateService } from './instance-state.service';
+import { ToastService } from '../../services/toast.service';
 import type {
   Instance,
   InstanceStatus,
@@ -49,6 +50,7 @@ export class InstanceListStore {
   private stateService = inject(InstanceStateService);
   private ipc = inject(IpcFacadeService);
   private providerState = inject(ProviderStateService);
+  private toast = inject(ToastService);
 
   /**
    * Resolve the fast-mode preference for a new instance: an explicit override
@@ -370,19 +372,25 @@ export class InstanceListStore {
     console.log('[InstanceListStore] toggleYoloMode called for:', instanceId);
 
     const response = await this.ipc.toggleYoloMode(instanceId);
-    console.log('[InstanceListStore] toggleYoloMode response:', response);
 
     if (response.success && 'data' in response) {
-      const data = response.data as { yoloMode?: boolean; status?: string } | undefined;
+      // Queue-aware: when settled, yoloMode flips; when busy, yoloMode is
+      // unchanged and pendingYoloMode carries the parked value (auto-applied on
+      // idle, at which point a yolo-toggled push clears it). An authoritative
+      // yolo-toggled event also syncs these fields — this is immediate feedback.
+      const data = response.data as
+        | { yoloMode?: boolean; pendingYoloMode?: boolean; status?: string }
+        | undefined;
       const newYoloMode = data?.yoloMode ?? !instance.yoloMode;
-      console.log('[InstanceListStore] Updating yoloMode to', newYoloMode);
 
       this.stateService.updateInstance(instanceId, {
         yoloMode: newYoloMode,
-        status: (data?.status as InstanceStatus) || 'idle',
+        pendingYoloMode: data?.pendingYoloMode,
+        status: (data?.status as InstanceStatus) || instance.status,
       });
     } else if ('error' in response) {
       console.error('Failed to toggle YOLO mode:', response.error);
+      this.toast.show('Could not change YOLO mode. Please try again.', 'error');
     }
   }
 

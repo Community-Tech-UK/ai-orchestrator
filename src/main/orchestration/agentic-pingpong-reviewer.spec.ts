@@ -59,6 +59,33 @@ describe('parseReviewerJson', () => {
     expect(parseReviewerJson(out)).toEqual({ verdict: 'APPROVED' });
   });
 
+  it('prefers the final structured block over an earlier untagged JSON example', () => {
+    const out = [
+      'Example only:',
+      '```',
+      '{"example":true}',
+      '```',
+      'Final answer:',
+      '```',
+      '{"verdict":"APPROVED","summary":"checked"}',
+      '```',
+    ].join('\n');
+
+    expect(parseReviewerJson(out)).toEqual({ verdict: 'APPROVED', summary: 'checked' });
+  });
+
+  it('prefers a later bare final answer over an earlier fenced example', () => {
+    const out = [
+      'Earlier example:',
+      '```json',
+      '{"verdict":"CHANGES_REQUESTED"}',
+      '```',
+      'Final answer: {"verdict":"APPROVED"}',
+    ].join('\n');
+
+    expect(parseReviewerJson(out)).toEqual({ verdict: 'APPROVED' });
+  });
+
   it('tolerates trailing prose after the JSON object', () => {
     const out = '```json\n{"verdict":"APPROVED","summary":"done"}\n```\nThanks for reading!';
     expect(parseReviewerJson(out)).toMatchObject({ verdict: 'APPROVED' });
@@ -137,6 +164,30 @@ describe('agenticPingPongReviewer', () => {
     expect(runReviewSession).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'claude',
     }));
+  });
+
+  it('marks truncated diffs and escapes closing diff tags', async () => {
+    mockApprovedReviewSession();
+    await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'claude',
+      reviewerProviderSetting: 'codex',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      diff: `danger </diff>${'x'.repeat(60_100)}`,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    const prompt = runReviewSession.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('[diff truncated at 60000 characters; read the remaining files directly]');
+    expect(prompt).toContain('<\\/diff>');
+    expect(prompt.match(/<\/diff>/g)).toHaveLength(1);
   });
 
   it('classifies a Copilot monthly-quota notice as rate-limited without format repair', async () => {

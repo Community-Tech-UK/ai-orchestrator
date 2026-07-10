@@ -6,6 +6,13 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('BrowserRemoteUploadStaging');
 
+export interface BrowserRemoteUploadStagingResult {
+  remotePath: string;
+  size: number;
+  sha256: string;
+  integrity: 'size-and-sha256';
+}
+
 /**
  * Stage a coordinator-local file onto a remote worker node so the node's
  * Chrome extension can point `DOM.setFileInputFiles` at a path that exists on
@@ -24,7 +31,7 @@ const logger = getLogger('BrowserRemoteUploadStaging');
 export async function stageBrowserUploadOnNode(
   nodeId: string,
   localPath: string,
-): Promise<string> {
+): Promise<BrowserRemoteUploadStagingResult> {
   const node = getWorkerNodeRegistry().getNode(nodeId);
   const stagingRoot = node?.capabilities.workingDirectories[0];
   if (!stagingRoot) {
@@ -46,13 +53,20 @@ export async function stageBrowserUploadOnNode(
     remotePath,
     nodeId,
   });
-  logger.info('Staged browser upload file on remote node', {
+  const staged = {
+    remotePath,
+    size: result.size,
+    sha256: result.sha256,
+    integrity: 'size-and-sha256' as const,
+  };
+  logger.info('Staged browser upload file on remote node with verified integrity', {
     nodeId,
     localPath,
     remotePath,
-    size: result.size,
+    size: staged.size,
+    sha256: staged.sha256,
   });
-  return remotePath;
+  return staged;
 }
 
 function isWindowsStylePath(value: string): boolean {

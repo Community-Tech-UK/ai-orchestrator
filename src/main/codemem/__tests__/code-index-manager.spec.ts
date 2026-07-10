@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyFile, mkdir, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -225,7 +225,12 @@ describe('CodeIndexManager (incremental)', () => {
     db = new Database(':memory:');
     migrate(db);
     store = new CasStore(db);
-    mgr = new CodeIndexManager({ store, debounceMs: 30 });
+    mgr = new CodeIndexManager({
+      store,
+      debounceMs: 30,
+      maxNativeWatchFiles: 0,
+      pollingIntervalMs: 1_000,
+    });
     workDir = join(tmpdir(), `codemem-incr-${Date.now()}-${Math.random()}`);
     await mkdir(join(workDir, 'src'), { recursive: true });
     await copyFile(join(FIXTURE, 'src/math.ts'), join(workDir, 'src/math.ts'));
@@ -399,8 +404,8 @@ describe('CodeIndexManager (incremental)', () => {
       '// edited\nexport function add(a: number, b: number): number { return a + b + 2; }\n',
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    expect(seen).toContain('src/math.ts');
+    await vi.waitFor(() => {
+      expect(seen).toContain('src/math.ts');
+    }, { timeout: 3_000, interval: 25 });
   });
 });

@@ -115,7 +115,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2343 -> 2394 for the non-destructive streaming-replace guard.
   'src/main/instance/instance-communication.ts': 2492,
   'src/main/instance/instance-context.ts': 1260,
-  'src/main/instance/instance-lifecycle.ts': 3450,
+  // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
+  // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
+  'src/main/instance/instance-lifecycle.ts': 3528,
   // Raised for context/load-scaled sendInput init-wait budget + timer-leak fix.
   'src/main/instance/instance-manager.ts': 2662,
   'src/main/instance/instance-orchestration.ts': 1068,

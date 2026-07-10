@@ -19,10 +19,11 @@ export function buildWorkerArgs(
   options: UnifiedSpawnOptions,
   sessionId: string | null,
   message: CliMessage,
+  state: { includeGeminiRtkAwareness?: boolean } = {},
 ): string[] {
   return cliType === 'claude'
     ? buildClaudeArgs(options, sessionId)
-    : buildGeminiArgs(options, message);
+    : buildGeminiArgs(options, message, state.includeGeminiRtkAwareness === true);
 }
 
 function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null): string[] {
@@ -49,7 +50,12 @@ function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null)
   }
   const disallowedTools = Array.from(new Set([...HOST_CLI_CLOUD_SCHEDULER_TOOLS, ...(options.disallowedTools ?? [])]));
   if (disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','));
-  if (options.systemPrompt && !options.resume) args.push('--system-prompt', options.systemPrompt);
+  // Append by default — `--system-prompt` would REPLACE Claude Code's entire
+  // default system prompt; our prompts are overlays (see claude-cli-adapter.ts).
+  if (options.systemPrompt && !options.resume) {
+    const flag = options.systemPromptMode === 'replace' ? '--system-prompt' : '--append-system-prompt';
+    args.push(flag, options.systemPrompt);
+  }
   const settingsOverlay = buildClaudeSettingsOverlay(options);
   if (settingsOverlay) args.push('--settings', settingsOverlay);
   if (options.mcpConfig?.length) args.push('--mcp-config', ...options.mcpConfig);
@@ -102,16 +108,28 @@ function mapClaudeReasoningEffort(
   }
 }
 
-function buildGeminiArgs(options: UnifiedSpawnOptions, message: CliMessage): string[] {
+function buildGeminiArgs(
+  options: UnifiedSpawnOptions,
+  message: CliMessage,
+  includeRtkAwareness: boolean,
+): string[] {
   const args: string[] = [];
   if (options.model) args.push('--model', options.model);
   args.push('--output-format', 'stream-json');
   if (options.yoloMode ?? true) args.push('--yolo');
   if (message.content) {
-    const promptText = options.rtk?.enabled && options.rtk.binaryPath
-      ? `${wrapRtkAwareness()}\n\n${message.content}`
-      : message.content;
-    args.push(promptText);
+    const promptParts: string[] = [];
+    const systemPrompt = options.systemPrompt?.trim();
+    if (systemPrompt) {
+      promptParts.push(`[SYSTEM INSTRUCTIONS]\n${systemPrompt}\n[/SYSTEM INSTRUCTIONS]`);
+    }
+    if (includeRtkAwareness && options.rtk?.enabled && options.rtk.binaryPath) {
+      promptParts.push(wrapRtkAwareness());
+    }
+    promptParts.push(message.content);
+    // The explicit separator prevents a leading-dash prompt from being parsed
+    // as another Gemini CLI option.
+    args.push('--', promptParts.join('\n\n'));
   }
   return args;
 }

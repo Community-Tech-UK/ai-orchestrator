@@ -225,6 +225,16 @@ describe('UnifiedModelCatalogService — local model inventory source', () => {
         source: 'local-model',
         tier: 'balanced',
         family: 'Ollama',
+        localModel: expect.objectContaining({
+          healthy: true,
+          loaded: false,
+          endpointProvider: 'ollama',
+          modelId: 'qwen',
+          capabilities: expect.objectContaining({
+            multiTurn: true,
+            toolUse: 'none',
+          }),
+        }),
         discoveredAt: 1783468800000,
       }),
     ]);
@@ -252,7 +262,7 @@ describe('UnifiedModelCatalogService — local model inventory source', () => {
     expect(svc.getModelsByProvider('local-model')).toEqual([]);
   });
 
-  it('does not publish unhealthy local model rows to the picker catalog', () => {
+  it('publishes unhealthy local model rows as picker catalog metadata', () => {
     const svc = makeServiceWithMock();
 
     svc.onLocalModelInventoryRefreshed([{
@@ -271,7 +281,19 @@ describe('UnifiedModelCatalogService — local model inventory source', () => {
     }]);
     vi.runAllTimers();
 
-    expect(svc.getModelsByProvider('local-model')).toEqual([]);
+    expect(svc.getModelsByProvider('local-model')).toEqual([
+      expect.objectContaining({
+        id: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        provider: 'local-model',
+        name: 'qwen on windows-pc',
+        source: 'local-model',
+        localModel: expect.objectContaining({
+          healthy: false,
+          loaded: false,
+          modelId: 'qwen',
+        }),
+      }),
+    ]);
   });
 });
 

@@ -242,7 +242,7 @@ function buildBranchSelectTaskPackets(input: BranchSelectInput): LoopTaskPacket[
   const verify = input.verifyCommand.trim() || 'no verify command configured';
   return Array.from({ length: Math.max(0, input.exploration.fanout) }, (_, index) => ({
     id: `branch-candidate-${index + 1}`,
-    objective: input.prompt,
+    objective: input.goal,
     scope: {
       read: [input.workspaceCwd],
       // Candidates write in separate worktrees. Use logical per-candidate

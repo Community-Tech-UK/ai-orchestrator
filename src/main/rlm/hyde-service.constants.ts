@@ -23,17 +23,19 @@ export const HYDE_PROMPTS: Record<string, string> = {
 Rules:
 - Write actual code or technical documentation, not a meta-description
 - Include realistic function/variable names, types, and patterns
-- Keep it concise but representative of what real matching code would look like
+- Keep it to at most 10 lines while representing real matching code
 - Don't explain what you're doing, just write the hypothetical matching content
-- Use TypeScript/JavaScript unless the query suggests another language`,
+- Use TypeScript/JavaScript unless the query suggests another language
+Example: for "where is retry implemented?", write a short \`retryRequest(options)\` function with the likely backoff call.`,
 
   documentation: `You are a documentation expert. Given a search query, generate a hypothetical documentation section that would answer the query.
 
 Rules:
 - Write actual documentation content, not a meta-description
 - Include realistic headings, explanations, and examples
-- Keep it concise but representative of what real matching docs would look like
-- Don't explain what you're doing, just write the hypothetical matching content`,
+- Keep it to at most 10 lines while representing real matching docs
+- Don't explain what you're doing, just write the hypothetical matching content
+Example: for "how are sessions resumed?", write a short "Session Resume" section naming the likely state and command flow.`,
 
   mixed: `You are a technical writer. Given a search query, generate a hypothetical document (code, documentation, or config) that would answer the query.
 
@@ -42,6 +44,7 @@ Rules:
 - If the query is about code, write code with comments
 - If the query is about concepts, write documentation
 - If the query is about configuration, write config examples
-- Keep it concise but representative
-- Don't explain what you're doing, just write the hypothetical matching content`
+- Keep it to at most 10 lines while remaining representative
+- Don't explain what you're doing, just write the hypothetical matching content
+Example: for "where is timeout configured?", write a short config fragment plus one explanatory line naming the timeout field.`
 };

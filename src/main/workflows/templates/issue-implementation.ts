@@ -33,7 +33,7 @@ Understand the issue or ticket before changing code:
 3. Note assumptions and missing context.
 4. Assess implementation risk and likely test impact.
 
-When complete, advance to Targeted Investigation.
+When this output is complete, the workflow advances automatically to Targeted Investigation.
 `,
     },
     {

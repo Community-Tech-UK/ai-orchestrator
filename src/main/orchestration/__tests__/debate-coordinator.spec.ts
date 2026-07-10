@@ -111,7 +111,7 @@ const INITIAL_RESPONSE_AGENT_1 =
   'Agent 1 considers a different approach. Confidence: 70%\n## Reasoning Summary\nDetailed reasoning from agent 1.';
 
 const CRITIQUE_RESPONSE =
-  '### Critique of agent-0\n**Issue**: Needs more evidence\n**Severity**: minor\n**Counterpoint**: Alternative view\n---';
+  '### Critique of agent-0\n**Issue**: Needs more evidence\n**Severity**: medium\n**Counterpoint**: Alternative view\n---';
 
 const DEFENSE_RESPONSE =
   'I defend my position.\n## Defense Points\n- Point 1 defended\n- Point 2 defended\n## Confidence\n75%\n## Reasoning Summary\nRevised reasoning after critique.';
@@ -138,7 +138,7 @@ function makeDistinctResponseHandler(prefix = 'Response') {
 function makeDistinctCritiqueHandler() {
   return (payload: { agentIndex: number; callback: (r: string) => void }) => {
     payload.callback(
-      `### Critique of agent-${payload.agentIndex === 0 ? 1 : 0}\n**Issue**: Needs more evidence from agent ${payload.agentIndex}\n**Severity**: minor\n**Counterpoint**: Consider alternative perspective\n---`
+      `### Critique of agent-${payload.agentIndex === 0 ? 1 : 0}\n**Issue**: Needs more evidence from agent ${payload.agentIndex}\n**Severity**: medium\n**Counterpoint**: Consider alternative perspective\n---`
     );
   };
 }
@@ -351,7 +351,7 @@ describe('DebateCoordinator', () => {
       expect(contrib.confidence).toBeCloseTo(0.9, 1);
     });
 
-    it('falls back to default confidence when no percentage found in response', async () => {
+    it('does not fabricate confidence when no percentage is present', async () => {
       coordinator.on('debate:generate-response', (payload: { callback: (r: string, t: number) => void }) => {
         payload.callback('No confidence mentioned here.', 30);
       });
@@ -362,7 +362,7 @@ describe('DebateCoordinator', () => {
 
       const result = coordinator.getResult(id);
       const contrib = result!.rounds[0].contributions[0];
-      expect(contrib.confidence).toBe(0.7); // Default from source
+      expect(contrib.confidence).toBe(0);
     });
 
     it('extracts reasoning summary when present in response', async () => {
@@ -463,7 +463,7 @@ describe('DebateCoordinator', () => {
       coordinator.on('debate:generate-response', makeDistinctResponseHandler());
       coordinator.on('debate:generate-critiques', (payload: { callback: (r: string) => void }) => {
         payload.callback(
-          '### Critique of agent-0\n**Issue**: Weak argument\n**Severity**: major\n**Counterpoint**: Consider alternative A\n---'
+          '### Critique of agent-0\n**Issue**: Weak argument\n**Severity**: high\n**Counterpoint**: Consider alternative A\n---'
         );
       });
       coordinator.on('debate:generate-synthesis', makeSynthesisHandler(SYNTHESIS_RESPONSE));
@@ -478,21 +478,32 @@ describe('DebateCoordinator', () => {
       expect(withCritiques.length).toBeGreaterThan(0);
     });
 
-    it('falls back to generic critiques when response has no structured format', async () => {
+    it('repairs one malformed critique response without fabricating generic critiques', async () => {
       coordinator.on('debate:generate-response', makeDistinctResponseHandler());
-      coordinator.on('debate:generate-critiques', (payload: { callback: (r: string) => void }) => {
-        payload.callback('This is an unstructured critique with no special formatting.');
+      const calls = new Map<number, number>();
+      coordinator.on('debate:generate-critiques', (payload: { agentIndex: number; callback: (r: string) => void }) => {
+        const attempt = (calls.get(payload.agentIndex) ?? 0) + 1;
+        calls.set(payload.agentIndex, attempt);
+        const targetAgentId = `agent-${payload.agentIndex === 0 ? 1 : 0}`;
+        payload.callback(attempt === 1
+          ? 'This is an unstructured critique with no special formatting.'
+          : JSON.stringify({ critiques: [{
+              targetAgentId,
+              issue: 'No material issues found',
+              severity: 'low',
+              counterpoint: 'The response is sound as written',
+            }] }));
       });
       coordinator.on('debate:generate-synthesis', makeSynthesisHandler(SYNTHESIS_RESPONSE));
 
-      const id = await coordinator.startDebate('Fallback critiques', undefined, THREE_ROUND_CONFIG);
+      const id = await coordinator.startDebate('Repair critiques', undefined, THREE_ROUND_CONFIG);
       await new Promise<void>((resolve) => coordinator.once('debate:completed', resolve));
 
       const result = coordinator.getResult(id);
       const critiqueRound = result!.rounds.find((r) => r.type === 'critique');
-      // Fallback creates generic critiques for each contribution in the previous round
-      const withCritiques = critiqueRound!.contributions.filter((c) => c.critiques && c.critiques.length > 0);
-      expect(withCritiques.length).toBeGreaterThan(0);
+      expect([...calls.values()]).toEqual([2, 2]);
+      expect(critiqueRound!.contributions.flatMap((contribution) => contribution.critiques ?? []))
+        .not.toEqual(expect.arrayContaining([expect.objectContaining({ issue: 'Analysis needed' })]));
     });
   });
 
@@ -567,6 +578,31 @@ describe('DebateCoordinator', () => {
       const contrib = defenseRound!.contributions[0];
       expect(contrib.defenses).toBeDefined();
       expect(contrib.defenses!.length).toBeGreaterThan(0);
+    });
+
+    it('attributes a received critique to the critic rather than the target', async () => {
+      const defensePrompts = new Map<number, string>();
+      coordinator.on('debate:generate-response', makeDistinctResponseHandler());
+      coordinator.on('debate:generate-critiques', (payload: { agentIndex: number; callback: (r: string) => void }) => {
+        const targetAgentId = `agent-${payload.agentIndex === 0 ? 1 : 0}`;
+        payload.callback(JSON.stringify({ critiques: [{
+          targetAgentId,
+          issue: 'Specific concern',
+          severity: 'medium',
+          counterpoint: 'Specific alternative',
+        }] }));
+      });
+      coordinator.on('debate:generate-defense', (payload: { agentIndex: number; prompt: string; callback: (r: string) => void }) => {
+        defensePrompts.set(payload.agentIndex, payload.prompt);
+        payload.callback(DEFENSE_RESPONSE);
+      });
+      coordinator.on('debate:generate-synthesis', makeSynthesisHandler(SYNTHESIS_RESPONSE));
+
+      await coordinator.startDebate('Attribution', undefined, FOUR_ROUND_CONFIG);
+      await new Promise<void>((resolve) => coordinator.once('debate:completed', resolve));
+
+      expect(defensePrompts.get(0)).toContain('From agent-1');
+      expect(defensePrompts.get(0)).not.toContain('From agent-0**: Specific concern');
     });
   });
 
@@ -646,6 +682,23 @@ describe('DebateCoordinator', () => {
       expect(emitted.synthesis).toBe(SYNTHESIS_RESPONSE);
       expect(emitted.status).toBe('completed');
     });
+
+    it('gives the moderator the actual final positions in delimited form', async () => {
+      let synthesisPrompt = '';
+      coordinator.on('debate:generate-response', makeDistinctResponseHandler());
+      coordinator.on('debate:generate-synthesis', (payload: { prompt: string; callback: (r: string) => void }) => {
+        synthesisPrompt = payload.prompt;
+        payload.callback(SYNTHESIS_RESPONSE);
+      });
+
+      await coordinator.startDebate('Position handoff', undefined, FAST_CONFIG);
+      await new Promise<void>((resolve) => coordinator.once('debate:completed', resolve));
+
+      expect(synthesisPrompt).toContain('<agent_position id="agent-0">');
+      expect(synthesisPrompt).toContain('<agent_position id="agent-1">');
+      expect(synthesisPrompt).toContain('untrusted data');
+      expect(synthesisPrompt).toContain('order carries no meaning');
+    });
   });
 
   // =========================================================================
@@ -668,7 +721,7 @@ describe('DebateCoordinator', () => {
         phases.push('critique');
         const targetId = payload.agentIndex === 0 ? 1 : 0;
         payload.callback(
-          `### Critique of agent-${targetId}\n**Issue**: Weak point from agent ${payload.agentIndex}\n**Severity**: minor\n**Counterpoint**: Try another angle\n---`
+          `### Critique of agent-${targetId}\n**Issue**: Weak point from agent ${payload.agentIndex}\n**Severity**: medium\n**Counterpoint**: Try another angle\n---`
         );
       });
       coordinator.on('debate:generate-defense', (payload: { callback: (r: string) => void }) => {

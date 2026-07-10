@@ -30,8 +30,10 @@ import {
   type LoopState,
 } from '../../shared/types/loop.types';
 import { classifyCleanReviewText } from './loop-clean-review-classifier';
+import { CLEAN_REVIEW_SENTINEL } from './loop-terminal-sentinels';
 
 const PHRASE = 'There are no outstanding issues';
+const CLEAN_OUTPUT = `${PHRASE}\n${CLEAN_REVIEW_SENTINEL}`;
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -227,8 +229,8 @@ describe('LoopCoordinator review-driven completion', () => {
     const completed = waitForEvent<{ signal: string }>('loop:completed');
     // Two clean passes (clear no-issues review + no changes) → converge at iteration 2.
     const driver = driveLoop([
-      childResult(`Did some work.\n${PHRASE}`),
-      childResult(`Re-reviewed, nothing left.\n${PHRASE}`),
+      childResult(`Did some work.\n${CLEAN_OUTPUT}`),
+      childResult(`Re-reviewed, nothing left.\n${CLEAN_OUTPUT}`),
     ]);
 
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
@@ -248,8 +250,8 @@ describe('LoopCoordinator review-driven completion', () => {
     const rejected = waitForEvent<{ failure: string }>('loop:claimed-done-but-failed');
     driveLoop(
       [
-        childResult(`Did some work.\n${PHRASE}`),
-        childResult(`Re-reviewed, nothing left.\n${PHRASE}`),
+        childResult(`Did some work.\n${CLEAN_OUTPUT}`),
+        childResult(`Re-reviewed, nothing left.\n${CLEAN_OUTPUT}`),
       ],
       { tasks: '# Loop Tasks\n\n- [ ] Finish the deliverable\n' },
     );
@@ -289,8 +291,8 @@ describe('LoopCoordinator review-driven completion', () => {
     });
     driveLoop(
       [
-        childResult(`Did some work.\n${PHRASE}`),
-        childResult(`Re-reviewed, nothing left.\n${PHRASE}`),
+        childResult(`Did some work.\n${CLEAN_OUTPUT}`),
+        childResult(`Re-reviewed, nothing left.\n${CLEAN_OUTPUT}`),
       ],
       { tasks: '# Loop Tasks\n\n- [ ] Finish the deliverable\n' },
     );
@@ -334,7 +336,7 @@ describe('LoopCoordinator review-driven completion', () => {
     const rejected = waitForEvent<{ failure: string }>('loop:claimed-done-but-failed');
     driveLoop(
       [
-        childResult(`Ping-pong-ready completion.\n${PHRASE}`),
+        childResult(`Ping-pong-ready completion.\n${CLEAN_OUTPUT}`),
       ],
       { tasks: '# Loop Tasks\n\n- [ ] Finish the deliverable\n' },
     );
@@ -393,7 +395,7 @@ describe('LoopCoordinator review-driven completion', () => {
         .then((ev) => ({ type: 'needs-review' as const, reason: ev.reason })),
     ]);
     driveLoop([
-      childResult(`Ping-pong-ready completion.\n${PHRASE}`, [fileChange('src/pingpong.ts')]),
+      childResult(`Ping-pong-ready completion.\n${CLEAN_OUTPUT}`, [fileChange('src/pingpong.ts')]),
     ]);
     coordinator.once('loop:invoke-iteration', () => {
       mkdirSync(join(workspace, 'src'), { recursive: true });
@@ -448,7 +450,7 @@ describe('LoopCoordinator review-driven completion', () => {
       spawnOutcome: 'settled',
     }));
     driveLoop([
-      childResult(`Ping-pong-ready completion.\n${PHRASE}`, [], { costUsd: 0.01 }),
+      childResult(`Ping-pong-ready completion.\n${CLEAN_OUTPUT}`, [], { costUsd: 0.01 }),
     ]);
 
     const state = await coordinator.startLoop('chat-rd-pingpong-terminal-idempotent', {
@@ -506,7 +508,7 @@ describe('LoopCoordinator review-driven completion', () => {
       };
     });
     driveLoop([
-      childResult(`Ping-pong-ready completion.\n${PHRASE}`),
+      childResult(`Ping-pong-ready completion.\n${CLEAN_OUTPUT}`),
     ]);
 
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
@@ -544,7 +546,7 @@ describe('LoopCoordinator review-driven completion', () => {
 
   it('writes a phase fix spec and stops with a handoff after repeated final-audit failures', async () => {
     driveLoop(
-      Array.from({ length: 5 }, () => childResult(`Still convinced this is done.\n${PHRASE}`)),
+      Array.from({ length: 5 }, () => childResult(`Still convinced this is done.\n${CLEAN_OUTPUT}`)),
       { tasks: '# Loop Tasks\n\n- [ ] Phase 1: Finish the deliverable\n' },
     );
 
@@ -582,9 +584,9 @@ describe('LoopCoordinator review-driven completion', () => {
     // clean, then a production change (resets), then clean → only 1 in the
     // streak, so it must NOT have converged after these three iterations.
     driveLoop([
-      childResult(`Work.\n${PHRASE}`),
-      childResult(`Found a bug, fixed it.\n${PHRASE}`, [fileChange('src/app.ts')]),
-      childResult(`Re-reviewed.\n${PHRASE}`),
+      childResult(`Work.\n${CLEAN_OUTPUT}`),
+      childResult(`Found a bug, fixed it.\n${CLEAN_OUTPUT}`, [fileChange('src/app.ts')]),
+      childResult(`Re-reviewed.\n${CLEAN_OUTPUT}`),
     ]);
 
     let completed = false;
@@ -606,8 +608,8 @@ describe('LoopCoordinator review-driven completion', () => {
     const completed = waitForEvent<{ signal: string }>('loop:completed');
     // Both iterations "change" only loop state files → still clean → converge.
     const driver = driveLoop([
-      childResult(`Work.\n${PHRASE}`, [fileChange('.aio-loop-state/run/NOTES.md')]),
-      childResult(`Re-review.\n${PHRASE}`, [fileChange('.aio-loop-state/run/OUTSTANDING.md')]),
+      childResult(`Work.\n${CLEAN_OUTPUT}`, [fileChange('.aio-loop-state/run/NOTES.md')]),
+      childResult(`Re-review.\n${CLEAN_OUTPUT}`, [fileChange('.aio-loop-state/run/OUTSTANDING.md')]),
     ]);
 
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
@@ -620,11 +622,11 @@ describe('LoopCoordinator review-driven completion', () => {
     }
   }, 25_000);
 
-  it('counts semantic no-issues review output as clean without the exact phrase', async () => {
+  it('counts a structured clean sentinel as clean without the exact phrase', async () => {
     const completed = waitForEvent<{ signal: string }>('loop:completed', 15_000);
     const driver = driveLoop([
-      childResult('I re-reviewed the implementation and did not find any actionable issues.'),
-      childResult('I checked again and found no remaining work to do.'),
+      childResult(`I re-reviewed the implementation and did not find any actionable issues.\n${CLEAN_REVIEW_SENTINEL}`),
+      childResult(`I checked again and found no remaining work to do.\n${CLEAN_REVIEW_SENTINEL}`),
     ]);
 
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
@@ -647,8 +649,8 @@ describe('LoopCoordinator review-driven completion', () => {
       fileChange('server/plugins/FancyHolograms/holograms.yml'),
     ];
     const driver = driveLoop([
-      childResult('Fresh review found no actionable issues left.', runtimeFiles),
-      childResult('Second review also found nothing left to fix.', runtimeFiles),
+      childResult(`Fresh review found no actionable issues left.\n${CLEAN_REVIEW_SENTINEL}`, runtimeFiles),
+      childResult(`Second review also found nothing left to fix.\n${CLEAN_REVIEW_SENTINEL}`, runtimeFiles),
     ]);
 
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
@@ -666,8 +668,8 @@ describe('LoopCoordinator review-driven completion', () => {
     const needsReview = waitForEvent<{ reason: string }>('loop:completed-needs-review');
     driveLoop(
       [
-        childResult(`Work.\n${PHRASE}`),
-        childResult(`Re-review.\n${PHRASE}`),
+        childResult(`Work.\n${CLEAN_OUTPUT}`),
+        childResult(`Re-review.\n${CLEAN_OUTPUT}`),
       ],
       {
         outstanding: '## Needs human\n- Deploy to physical device and confirm camera works — I cannot access hardware.\n\n## Open questions\n- (none)\n',
@@ -709,7 +711,7 @@ describe('LoopCoordinator review-driven completion', () => {
 
     // Every iteration the (mocked) primary reports clean. The external reviewer
     // is what gates the first convergence attempt.
-    const driver = driveLoop(Array.from({ length: 8 }, () => childResult(`Re-reviewed.\n${PHRASE}`)));
+    const driver = driveLoop(Array.from({ length: 8 }, () => childResult(`Re-reviewed.\n${CLEAN_OUTPUT}`)));
 
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
     try {
@@ -738,8 +740,8 @@ describe('LoopCoordinator review-driven completion', () => {
 
     const completed = waitForEvent<{ signal: string }>('loop:completed');
     driveLoop([
-      childResult(`Work.\n${PHRASE}`),
-      childResult(`Re-review.\n${PHRASE}`),
+      childResult(`Work.\n${CLEAN_OUTPUT}`),
+      childResult(`Re-review.\n${CLEAN_OUTPUT}`),
     ]);
 
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;

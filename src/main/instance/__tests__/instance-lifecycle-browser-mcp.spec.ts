@@ -29,6 +29,11 @@ const browserGatewayMocks = vi.hoisted(() => ({
 const desktopGatewayMocks = vi.hoisted(() => ({
   buildComputerUseMcpConfigJson: vi.fn(() => '{"mcpServers":{"computer-use":{}}}'),
   getDesktopGatewayRpcSocketPath: vi.fn(() => '/tmp/computer-use.sock'),
+  getDesktopGatewayInjectionState: vi.fn(() => ({
+    supported: true,
+    enabled: true,
+    actionToolsHealthy: true,
+  })),
 }));
 
 const mcpInjectionMocks = vi.hoisted(() => ({
@@ -62,6 +67,7 @@ vi.mock('../../browser-gateway', () => ({
 vi.mock('../../desktop-gateway', () => ({
   buildComputerUseMcpConfigJson: desktopGatewayMocks.buildComputerUseMcpConfigJson,
   getDesktopGatewayRpcSocketPath: desktopGatewayMocks.getDesktopGatewayRpcSocketPath,
+  getDesktopGatewayInjectionState: desktopGatewayMocks.getDesktopGatewayInjectionState,
 }));
 
 vi.mock('../../mcp/mcp-multi-provider-singletons', () => ({

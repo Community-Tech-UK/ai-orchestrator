@@ -99,7 +99,7 @@ export function makeService(overrides: {
   credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
   emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
-  stageUploadFileOnNode?: (nodeId: string, localPath: string) => Promise<string>;
+  stageUploadFileOnNode?: BrowserGatewayServiceOptions['stageUploadFileOnNode'];
   useSingleton?: boolean;
 } = {}) {
   const audits: BrowserAuditEntry[] = [];

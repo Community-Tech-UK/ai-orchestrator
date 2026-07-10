@@ -259,6 +259,10 @@ export class AutoTitleService {
         workingDirectory: process.cwd(),
         model,
         systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. If the message text is generic filler with no specific subject, build the title around the attached file name instead. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.',
+        // One-shot, no tools: replace the CLI's default system prompt instead
+        // of appending — inheriting the full default prompt would add cost and
+        // latency to every title generation for no benefit.
+        systemPromptMode: 'replace' as const,
         yoloMode: false,
         timeout: AI_TITLE_TIMEOUT,
       },

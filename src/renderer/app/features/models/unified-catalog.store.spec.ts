@@ -150,6 +150,23 @@ describe('UnifiedCatalogStore', () => {
         name: 'qwen on windows-pc',
         source: 'local-model',
         tier: 'balanced',
+        localModel: {
+          source: 'worker-node',
+          endpointProvider: 'ollama',
+          endpointId: 'ollama',
+          modelId: 'qwen',
+          nodeId: 'node-win',
+          nodeName: 'windows-pc',
+          healthy: false,
+          loaded: true,
+          loadedContextLength: 32768,
+          capabilities: {
+            streaming: true,
+            multiTurn: true,
+            toolUse: 'none',
+            vision: 'unknown',
+          },
+        },
       }),
     ]);
     const store = setup();
@@ -157,7 +174,16 @@ describe('UnifiedCatalogStore', () => {
     await store.refresh();
 
     expect(store.displayModelsForProvider('local-model')).toEqual([
-      { id: 'lm://worker-node/node-win/ollama/ollama/qwen', name: 'qwen on windows-pc', tier: 'balanced' },
+      {
+        id: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        name: 'qwen on windows-pc',
+        tier: 'balanced',
+        localModel: expect.objectContaining({
+          healthy: false,
+          loaded: true,
+          modelId: 'qwen',
+        }),
+      },
     ]);
   });
 

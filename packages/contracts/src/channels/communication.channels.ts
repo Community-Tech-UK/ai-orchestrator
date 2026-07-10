@@ -81,6 +81,9 @@ export const COMMUNICATION_CHANNELS = {
   PAIR_BOTH_WORKER_CONFIRM_CODE: 'pair-both:worker:confirm-code',
   PAIR_BOTH_WORKER_WAIT_RESULT: 'pair-both:worker:wait-result',
   PAIR_BOTH_WORKER_APPLY_MANUAL: 'pair-both:worker:apply-manual',
+  PAIR_BOTH_WORKER_RUN_MODE: 'pair-both:worker:run-mode',
+  PAIR_BOTH_WORKER_STOP: 'pair-both:worker:stop',
+  PAIR_BOTH_WORKER_UNPAIR: 'pair-both:worker:unpair',
 
   // Remote Filesystem operations
   REMOTE_FS_READ_DIR: 'remote-fs:read-dir',
@@ -100,5 +103,5 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_FS_SYNC_START: 'remote-fs:sync-start',
   REMOTE_FS_SYNC_PROGRESS: 'remote-fs:sync-progress',
   REMOTE_FS_SYNC_CANCEL: 'remote-fs:sync-cancel',
-  REMOTE_FS_SYNC_DIFF: 'remote-fs:sync-diff'
+  REMOTE_FS_SYNC_DIFF: 'remote-fs:sync-diff',
 } as const;

@@ -24,6 +24,13 @@ export interface DisplayItem {
   timestamp?: number;
   repeatCount?: number;
   showHeader?: boolean;
+  /**
+   * Set on a thought-group by the visibility filter when "show thinking" is off
+   * but the group still carries reasoning text. Tells the template to render a
+   * collapsed-by-default "Thought process" accordion instead of hiding it, so
+   * the reasoning stays available without filling the transcript.
+   */
+  collapsedThinkingFallback?: boolean;
   bufferIndex?: number;
   children?: DisplayItem[];
   systemEvents?: OutputMessage[];

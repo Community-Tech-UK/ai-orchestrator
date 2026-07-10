@@ -2,12 +2,17 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { PairBothCandidate } from '../../../shared/types/pair-both.types';
-import type { WorkerConfig } from '../../../worker-agent/worker-config';
+import {
+  DEFAULT_CONFIG_PATH,
+  loadWorkerConfig,
+  type WorkerConfig,
+} from '../../../worker-agent/worker-config';
 import {
   PairBothCoordinatorStartPayloadSchema,
   PairBothManualPairingPayloadSchema,
   PairBothSessionPayloadSchema,
   PairBothWorkerConnectPayloadSchema,
+  PairBothWorkerRunModePayloadSchema,
 } from '@contracts/schemas/remote-node';
 import { getRemoteAuthService } from '../../auth/remote-auth';
 import { getSettingsManager } from '../../core/config/settings-manager';
@@ -19,6 +24,7 @@ import {
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import {
   getWorkerModeRuntimeService,
+  clearWorkerModeConfig,
   type WorkerModeRuntimeStatus,
 } from '../../remote-node/worker-mode-runtime-service';
 import {
@@ -35,7 +41,6 @@ import {
   parsePairingConfigInput,
   writePairedWorkerConfig,
 } from '../../../worker-agent/cli/pairing-config';
-import { DEFAULT_CONFIG_PATH } from '../../../worker-agent/worker-config';
 
 const logger = getLogger('PairBothHandlers');
 
@@ -63,7 +68,12 @@ export function registerPairBothHandlers(): void {
           state.sessionId,
           selectReachableHost(config.serverHost),
         );
-        getDiscoveryPublisher().publish(candidate);
+        const discoveryDisabledReason = isLoopbackHost(config.serverHost)
+          ? 'LAN discovery is disabled because the coordinator is bound to this computer only. Use QR or paste pairing instead.'
+          : undefined;
+        if (!discoveryDisabledReason) {
+          getDiscoveryPublisher().publish(candidate);
+        }
 
         return {
           success: true,
@@ -71,6 +81,7 @@ export function registerPairBothHandlers(): void {
             state,
             candidate,
             invitation: JSON.stringify(candidate),
+            ...(discoveryDisabledReason ? { discoveryDisabledReason } : {}),
           },
         };
       } catch (error) {
@@ -177,8 +188,7 @@ export function registerPairBothHandlers(): void {
     async (): Promise<IpcResponse> => {
       try {
         const config = await getService().waitForWorkerPairingResult();
-        const runtime = startWorkerRuntimeIfConfigured();
-        return { success: true, data: sanitizeWorkerConfig(config, runtime) };
+        return { success: true, data: sanitizeWorkerConfig(config) };
       } catch (error) {
         return failure('PAIR_BOTH_WORKER_WAIT_RESULT_FAILED', error);
       }
@@ -192,10 +202,56 @@ export function registerPairBothHandlers(): void {
         const { input } = PairBothManualPairingPayloadSchema.parse(payload);
         const parsed = parsePairingConfigInput(input);
         const config = writePairedWorkerConfig(DEFAULT_CONFIG_PATH, parsed);
-        const runtime = startWorkerRuntimeIfConfigured();
-        return { success: true, data: sanitizeWorkerConfig(config, runtime) };
+        return { success: true, data: sanitizeWorkerConfig(config) };
       } catch (error) {
         return failure('PAIR_BOTH_WORKER_APPLY_MANUAL_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_RUN_MODE,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const { mode } = PairBothWorkerRunModePayloadSchema.parse(payload);
+        const runtime = await startWorkerRuntimeForMode(mode);
+        return { success: true, data: runtime };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_RUN_MODE_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_STOP,
+    async (): Promise<IpcResponse> => {
+      try {
+        return {
+          success: true,
+          data: getWorkerModeRuntimeService().stop(),
+        };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_STOP_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_UNPAIR,
+    async (): Promise<IpcResponse> => {
+      try {
+        const runtime = getWorkerModeRuntimeService().stop();
+        const workerMode = getSettingsManager().get('workerMode');
+        getSettingsManager().set('workerMode', {
+          ...workerMode,
+          role: 'unset',
+          lastCoordinatorName: undefined,
+          lastCoordinatorUrl: undefined,
+        });
+        clearWorkerModeConfig(DEFAULT_CONFIG_PATH);
+        return { success: true, data: runtime };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_UNPAIR_FAILED', error);
       }
     },
   );
@@ -243,17 +299,49 @@ function selectReachableHost(configuredHost: string): string {
     ?? '127.0.0.1';
 }
 
-function startWorkerRuntimeIfConfigured(): WorkerModeRuntimeStatus | undefined {
+async function startWorkerRuntimeForMode(
+  mode: 'run-while-open' | 'background-service',
+): Promise<WorkerModeRuntimeStatus | undefined> {
+  const config = loadWorkerConfig(DEFAULT_CONFIG_PATH);
   const workerMode = getSettingsManager().get('workerMode');
-  if (!workerMode.startWorkerOnLaunch) {
-    return undefined;
+  if (mode === 'background-service') {
+    getSettingsManager().set('workerMode', {
+      ...workerMode,
+      startWorkerOnLaunch: false,
+      installWorkerService: true,
+    });
+    try {
+      return await getWorkerModeRuntimeService().installService({
+        configPath: DEFAULT_CONFIG_PATH,
+        config,
+      });
+    } catch (error) {
+      throw new Error(toGuidedServiceInstallMessage(error));
+    }
   }
-  if (workerMode.installWorkerService) {
-    throw new Error(
-      'Worker service installation from Worker Mode requires the service installer. Disable installWorkerService to run while Harness is open.',
-    );
-  }
+
+  getSettingsManager().set('workerMode', {
+    ...workerMode,
+    startWorkerOnLaunch: true,
+    installWorkerService: false,
+  });
   return getWorkerModeRuntimeService().start({ configPath: DEFAULT_CONFIG_PATH });
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return normalized === 'localhost'
+    || normalized === '127.0.0.1'
+    || normalized === '::1'
+    || normalized.startsWith('127.');
+}
+
+function toGuidedServiceInstallMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/elevat|administrator|permission|denied|privilege/i.test(message)) {
+    return 'Installing the background worker service needs administrator permission. Run Harness as administrator, or choose "Run while Harness is open" for this computer.';
+  }
+  return message;
 }
 
 function sanitizeWorkerConfig(

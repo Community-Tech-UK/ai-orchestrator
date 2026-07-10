@@ -68,6 +68,7 @@ import {
 import { resolveInitialModel } from './lifecycle/resolve-initial-model';
 import { createModelSelectionDegradationNotice, resolveAvailableModelSelection, type ModelSelectionDegradation } from './lifecycle/model-selection-degradation';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
+import { YoloModeQueue } from './lifecycle/yolo-mode-queue';
 import {
   applyOutputStyle,
   applyResolvedOutputStyle,
@@ -116,6 +117,7 @@ import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-con
 import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
 import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
+import { buildToolPermissionPrompt } from './lifecycle/tool-permission-prompt';
 import type {
   LocalModelInventoryEntry,
   ModelRuntimeTarget,
@@ -153,6 +155,8 @@ export class InstanceLifecycleManager extends EventEmitter {
   private deps: LifecycleDependencies;
   private activityDetectors = new Map<string, ActivityStateDetector>();
   private recoveryEngine: RecoveryRecipeEngine | null = null;
+  /** Queue-aware YOLO toggling (park-while-busy + auto-apply-on-idle). */
+  private _yoloQueue?: YoloModeQueue;
   /**
    * Create-time enrichers (per instance → label → section text) that missed the
    * deadline and are being deferred into the next turn's continuity preamble.
@@ -473,6 +477,21 @@ export class InstanceLifecycleManager extends EventEmitter {
       previousStatus,
       timestamp: Date.now(),
     });
+
+    // Auto-apply a YOLO toggle that was queued while the instance was busy.
+    this.yoloQueue.onSettled(instance);
+  }
+
+  /** Lazily built so it can close over deps/setYoloMode/emit after construction. */
+  private get yoloQueue(): YoloModeQueue {
+    return (this._yoloQueue ??= new YoloModeQueue({
+      getInstance: (id) => this.deps.getInstance(id),
+      setYoloMode: (id, desired) => this.setYoloMode(id, desired),
+      queueUpdate: (id, status, contextUsage) => this.deps.queueUpdate(id, status, contextUsage),
+      emitYoloToggled: (payload) => {
+        this.emit('yolo-toggled', payload);
+      },
+    }));
   }
 
   private resetTerminalStateForRestart(instance: Instance): void {
@@ -1371,13 +1390,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           });
         }
 
-        // Append tool permission clarification to prevent models from hallucinating
-        // permission issues when commands fail for unrelated reasons (test failures, etc.)
-        systemPrompt += '\n\n---\n\n' +
-          '[Tool Permissions] Tools available to you are pre-configured for your current mode. ' +
-          'Use any tool in your tool list directly without asking the user for permission. ' +
-          'If a command fails, it failed for a real reason (syntax error, test failure, missing dependency, etc.) — not because of permissions. ' +
-          'Never ask the user to approve or deny tool calls. Just use tools directly.';
+        systemPrompt += `\n\n---\n\n${buildToolPermissionPrompt(instance.yoloMode)}`;
 
         if (signal.aborted) return;
 
@@ -2759,6 +2772,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     return this.setYoloMode(instanceId, !instance.yoloMode);
   }
 
+  /** Queue-aware YOLO toggle for the UI. See {@link YoloModeQueue.requestToggle}. */
+  async requestYoloModeToggle(instanceId: string): Promise<Instance> {
+    return this.yoloQueue.requestToggle(instanceId);
+  }
+
   /**
    * Set YOLO mode for an instance to an explicit target value, respawning the
    * CLI (with resume) so the new permission posture takes effect immediately.
@@ -2771,6 +2789,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       throw new Error(`Instance ${instanceId} not found`);
     }
     if (instance.yoloMode === desiredYoloMode) {
+      // Already in the desired mode — clear any now-satisfied pending request.
+      instance.pendingYoloMode = undefined;
       return instance;
     }
 
@@ -2944,10 +2964,13 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         throw error;
       }
 
+      // The live mode now matches; any queued request is satisfied.
+      instance.pendingYoloMode = undefined;
       this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
       this.emit('yolo-toggled', {
         instanceId,
-        yoloMode: newYoloMode
+        yoloMode: newYoloMode,
+        pendingYoloMode: instance.pendingYoloMode,
       });
 
       logger.debug('toggleYoloMode complete', {
@@ -3037,7 +3060,10 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   ): Promise<void> {
     await this.deferredPermission.resumeAfterDeferredPermission(instanceId, approved, updatedInput, options);
     if (options?.yoloMode !== undefined) {
-      this.emit('yolo-toggled', { instanceId, yoloMode: options.yoloMode });
+      // This path forces yolo directly; drop any now-stale queued request.
+      const live = this.deps.getInstance(instanceId);
+      if (live) live.pendingYoloMode = undefined;
+      this.emit('yolo-toggled', { instanceId, yoloMode: options.yoloMode, pendingYoloMode: undefined });
     }
   }
 

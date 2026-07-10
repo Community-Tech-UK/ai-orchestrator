@@ -9,6 +9,8 @@
  * Round 4: Synthesis - Moderator extracts best elements
  */
 
+import type { ReviewSeverity } from './review-severity';
+
 // ============ Configuration ============
 
 export interface DebateConfig {
@@ -44,9 +46,12 @@ export interface DebateContribution {
   reasoning: string;
 }
 
-export type CritiqueSeverity = 'major' | 'minor' | 'suggestion';
+export type CritiqueSeverity = ReviewSeverity;
 
 export interface AgentCritique {
+  /** Agent that authored the critique. Kept distinct from the target so
+   * defense prompts do not misattribute feedback to the defender. */
+  criticAgentId?: string;
   targetAgentId: string;
   issue: string;
   severity: CritiqueSeverity;

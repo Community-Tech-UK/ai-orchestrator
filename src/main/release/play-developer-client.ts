@@ -63,6 +63,15 @@ export interface CommitEditInput {
   changesNotSentForReview?: boolean;
 }
 
+export interface UploadImageInput {
+  packageName: string;
+  editId: string;
+  language: string;
+  imageType: string;
+  image: Uint8Array | ArrayBuffer | Blob | string;
+  contentType?: string;
+}
+
 export function buildGoogleServiceAccountAssertion(
   input: GoogleServiceAccountAssertionInput,
 ): string {
@@ -166,6 +175,17 @@ export class PlayDeveloperClient {
     return this.request('POST', url.toString(), {
       body: input.aab,
       headers: { 'content-type': input.contentType ?? 'application/octet-stream' },
+    });
+  }
+
+  uploadImage(input: UploadImageInput): Promise<unknown> {
+    const url = new URL(
+      `${this.uploadBaseUrl}${this.apiPath(input.packageName)}/edits/${encodeURIComponent(input.editId)}/listings/${encodeURIComponent(input.language)}/${encodeURIComponent(input.imageType)}`,
+    );
+    url.searchParams.set('uploadType', 'media');
+    return this.request('POST', url.toString(), {
+      body: input.image,
+      headers: { 'content-type': input.contentType ?? 'image/png' },
     });
   }
 

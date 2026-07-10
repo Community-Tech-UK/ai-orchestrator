@@ -88,7 +88,9 @@ describe('CliAdapterWorkerProxy', () => {
         '--dangerously-skip-permissions',
         '--model',
         'opus[1m]',
-        '--system-prompt',
+        // Append (not replace): '--system-prompt' would wipe Claude Code's
+        // default system prompt; overlays must ride on top of it.
+        '--append-system-prompt',
         'system',
       ]),
     );
@@ -188,6 +190,41 @@ describe('CliAdapterWorkerProxy', () => {
 
     await send;
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ content: 'hi' }));
+  });
+
+  it('delivers Gemini worker system context, protects leading-dash prompts, and sends RTK guidance once', async () => {
+    const gateway = new FakeGateway();
+    const proxy = new CliAdapterWorkerProxy({
+      cliType: 'gemini',
+      instanceId: 'inst-gemini-bootstrap',
+      gateway,
+      options: {
+        workingDirectory: '/repo',
+        systemPrompt: 'Keep the Android device lease for this worker.',
+        rtk: { enabled: true, binaryPath: '/opt/aio/rtk' },
+      },
+    });
+
+    await proxy.spawn();
+
+    const first = proxy.sendInput('-inspect this request');
+    const firstArgs = gateway.spawnRequests.at(-1)?.args ?? [];
+    expect(firstArgs.at(-2)).toBe('--');
+    expect(firstArgs.at(-1)).toContain('[SYSTEM INSTRUCTIONS]');
+    expect(firstArgs.at(-1)).toContain('Keep the Android device lease for this worker.');
+    expect(firstArgs.at(-1)).toContain('RTK');
+    expect(firstArgs.at(-1)).toContain('-inspect this request');
+    gateway.handler?.exited?.(0, null);
+    await first;
+
+    const second = proxy.sendInput('continue');
+    const secondArgs = gateway.spawnRequests.at(-1)?.args ?? [];
+    expect(secondArgs.at(-2)).toBe('--');
+    expect(secondArgs.at(-1)).toContain('[SYSTEM INSTRUCTIONS]');
+    expect(secondArgs.at(-1)).toContain('Keep the Android device lease for this worker.');
+    expect(secondArgs.at(-1)).not.toContain('RTK');
+    gateway.handler?.exited?.(0, null);
+    await second;
   });
 
   it('checks Gemini CLI availability before reporting the proxy as spawned', async () => {

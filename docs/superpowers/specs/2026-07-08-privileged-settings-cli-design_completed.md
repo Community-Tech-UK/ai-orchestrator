@@ -1,0 +1,160 @@
+# Privileged Settings CLI Design
+
+**Status (re-audited 2026-07-10):** Completed
+
+## Goal
+
+Harness-spawned agents need a command-line way to repair Harness settings, including settings that are intentionally blocked from the existing safe MCP `set_setting` tool. The CLI should let a local trusted Harness instance list and inspect every `AppSettings` key and set/reset closed keys through the running app, except explicit operator-only authorization anchors. It must never edit settings storage directly.
+
+## Non-Goals
+
+- Do not weaken the existing safe MCP settings tools. `list_settings`, `get_setting`, `set_setting`, and `reset_setting` keep their current policy-driven behavior for ordinary tool callers.
+- Do not print secret values in terminal output, logs, or tests.
+- Do not bypass `SettingsManager`, renderer broadcasts, validation, normalization, or app-side cache invalidation.
+- Do not add operator-token authentication in phase 1. The CLI shape should leave room for it in phase 2.
+- Do not let an agent change credential-vault unlock anchors or Computer Use
+  enablement, app policy, approval, or screenshot-retention settings. Those
+  remain operator-only until a separate operator-authenticated mutation path
+  exists.
+
+## Existing Context
+
+- `src/main/mcp/orchestrator-settings-tools.ts` already exposes safe settings tools.
+- `src/main/core/config/settings-control-policy.ts` classifies all current `AppSettings` keys as `open`, `read-only`, or `secret`.
+- `src/main/mcp/orchestrator-tools-rpc-server.ts` already accepts settings RPC methods over a local socket and rejects calls from unknown instance ids.
+- `src/main/mcp/aio-mcp-dispatcher.ts` already ships a bundled `aio-mcp` CLI with subcommands such as `remote-nodes` and `release-readiness`.
+- Spawned CLIs already receive `AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET` and `AI_ORCHESTRATOR_INSTANCE_ID`, which is enough for the parent app to verify the caller is a known local Harness instance.
+
+## CLI Surface
+
+Add an `aio-mcp settings` subcommand:
+
+```bash
+aio-mcp settings list [--json] [--category <category>] [--all]
+aio-mcp settings get <key> [--json]
+aio-mcp settings set <key> <json-value> [--json]
+aio-mcp settings reset <key> [--json]
+```
+
+Value parsing for `set` should attempt JSON first so booleans, numbers, arrays, and objects are unambiguous:
+
+```bash
+aio-mcp settings set remoteNodesEnabled true
+aio-mcp settings set maxTotalInstances 20
+aio-mcp settings set defaultModelByProvider '{"codex":"gpt-5.1-codex"}'
+```
+
+If JSON parsing fails, the CLI should treat the value as a plain string. This keeps simple string settings ergonomic while still supporting structured values.
+
+## Privileged RPC
+
+Add privileged RPC methods distinct from the safe MCP tool methods:
+
+- `orchestrator_tools.settings.privileged_list`
+- `orchestrator_tools.settings.privileged_get`
+- `orchestrator_tools.settings.privileged_set`
+- `orchestrator_tools.settings.privileged_reset`
+
+These methods are available only through the existing local orchestrator-tools RPC path. The parent still enforces:
+
+- known local instance id,
+- local randomized socket or named pipe,
+- existing payload-size and rate-limit caps,
+- app-side schema validation before invoking settings mutation logic.
+
+The implementation should reuse `SettingsManager` and the renderer-compatible coercion path (`coerceRendererSettingValue` / `coerceRendererSettingsUpdate`) so privileged CLI writes behave like trusted UI writes, including closed keys, after the operator-only denylist is enforced.
+
+## Output And Redaction
+
+The CLI can report whether a key is writable through the safe MCP surface, but privileged operations are not limited by that flag.
+
+Terminal output must redact secret-tier values:
+
+- `list` shows `[redacted]` for secret keys.
+- `get` refuses secret keys instead of returning their current values.
+- `set` and `reset` can operate on secret-tier keys in privileged mode, except
+  operator-only authorization anchors. Successful secret mutations report only
+  `ok`, `key`, `restartRequired`, and redacted old/new values.
+- logs record key name, source, action, restart requirement, and redacted values.
+
+## Safety Model
+
+Phase 1 is local trusted-instance control:
+
+- A random per-app socket path is created by the running Harness app.
+- A spawned agent must know both the socket env var and its instance id.
+- The parent rejects unknown instance ids.
+- No network listener is added.
+- No direct settings-file edits happen.
+- Credential-vault unlock and Computer Use policy anchors are denied before
+  `SettingsManager` mutation, even for a known local instance.
+
+This does not protect against malicious same-user local code that can read another spawned process environment or otherwise obtain the socket and instance id. That is acceptable for phase 1 because the stated goal is full self-repair authority for Harness-owned agents.
+
+Phase 2 should add operator authentication for privileged settings writes:
+
+- an operator token or key generated by Harness,
+- local secure storage where practical,
+- token rotation/reset,
+- clear failure messages when auth is missing,
+- no change to the public `aio-mcp settings ...` command shape if possible.
+
+## Settings Maintenance Rule
+
+Every new `AppSettings` key must be classified deliberately for the CLI settings surface at the same time it is added.
+
+Required checklist for new settings:
+
+1. Add the key and default to `AppSettings` / `DEFAULT_SETTINGS`.
+2. Add metadata in `SETTINGS_METADATA` when it should be user-visible.
+3. Classify it in `SETTINGS_TOOL_POLICY` as `open`, `read-only`, or `secret`.
+4. Decide whether privileged mutation is allowed or whether the key is an
+   operator-only authorization anchor.
+5. Confirm the privileged CLI can list the key with safe redaction.
+6. Add or update tests that prove the key is safely writable, safely blocked,
+   or redacted as appropriate.
+
+This keeps the CLI repair surface from silently falling behind new settings.
+
+## Tests
+
+Use TDD for implementation. Focused tests should cover:
+
+- dispatcher routes `aio-mcp settings` to the new CLI runner,
+- CLI help and unknown-option handling,
+- `list`, `get`, `set`, and `reset` call the correct privileged RPC methods,
+- JSON value parsing for booleans, numbers, objects, arrays, and plain strings,
+- parent RPC validates privileged payloads before mutation,
+- privileged writes can update keys blocked by the safe MCP policy,
+- privileged writes cannot update operator-only vault or Computer Use policy
+  anchors,
+- secret values are redacted in results and logs,
+- new-settings policy coverage still requires every `AppSettings` key to be classified.
+
+Final verification should run:
+
+```bash
+npm run test:quiet -- src/main/mcp/settings-cli.spec.ts src/main/mcp/aio-mcp-dispatcher.spec.ts src/main/mcp/orchestrator-tools-rpc-server.spec.ts src/main/mcp/orchestrator-settings-tools.spec.ts
+npx tsc --noEmit
+npx tsc --noEmit -p tsconfig.spec.json
+npm run lint
+npm run check:ts-max-loc
+```
+
+## Completion Re-Audit (2026-07-10)
+
+The privileged `aio-mcp settings` dispatcher, strict RPC payload schemas,
+known-local-instance authorization, renderer-compatible coercion,
+SettingsManager mutation path, renderer broadcasts, complete setting-policy
+coverage, and secret-tier output/log redaction are implemented. The existing
+safe MCP setting policy remains separate and unchanged. A dedicated
+operator-only denylist now prevents both privileged set and reset for the two
+vault-unlock anchors and all five Computer Use policy anchors.
+
+The focused gate passes 5 files / 87 tests. TypeScript, spec TypeScript, lint,
+and the TypeScript LOC ratchet pass. A fresh `aio-mcp` SEA executable also
+builds successfully, and both its top-level help and `settings --help` expose
+the documented list/get/set/reset surface. This task did not have an injected
+parent RPC socket, so no live setting was mutated during the re-audit; the
+design's required acceptance surface is covered by the parent-RPC integration
+tests without weakening secret hygiene.

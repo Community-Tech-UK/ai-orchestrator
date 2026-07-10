@@ -325,6 +325,7 @@ describe('BrowserHealthService', () => {
           gapCount: 0,
           longestGapMs: 0,
         },
+        serviceWorkerRestarts: 0,
         registration: undefined,
         lastRegistrationCheckAt: undefined,
       }],
@@ -552,5 +553,66 @@ describe('BrowserHealthService', () => {
         lastRegistrationCheckAt: 99_000,
       }],
     });
+  });
+
+  it('counts service-worker restarts when extension start time changes', async () => {
+    const node: WorkerNodeInfo = {
+      id: 'node-1',
+      name: 'Windows PC',
+      address: '',
+      status: 'connected',
+      activeInstances: 0,
+      capabilities: {
+        platform: 'win32',
+        arch: 'x64',
+        cpuCores: 8,
+        totalMemoryMB: 16_384,
+        availableMemoryMB: 8_192,
+        supportedClis: ['claude'],
+        hasBrowserRuntime: true,
+        hasBrowserMcp: false,
+        hasExtensionRelay: true,
+        extensionRelay: {
+          enabled: true,
+          running: true,
+          lastExtensionContactAt: 10_000,
+          extensionReloadedAt: 9_000,
+        },
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 4,
+        workingDirectories: [],
+        browsableRoots: [],
+        discoveredProjects: [],
+      },
+    };
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => [] },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing',
+          checkedAt: 1,
+          runtimeAvailable: false,
+          nodeAvailable: true,
+          inAppConfigured: false,
+          inAppConnected: false,
+          inAppToolCount: 0,
+          configDetected: false,
+          configSources: [],
+          browserToolNames: [],
+          warnings: [],
+          suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      workerNodeRegistry: { getAllNodes: () => [node] },
+      mcpBridgeAvailable: () => true,
+      chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+      now: () => 10_000,
+    });
+
+    expect((await service.diagnose()).remoteExtensions.nodes[0].serviceWorkerRestarts).toBe(0);
+    node.capabilities.extensionRelay!.extensionReloadedAt = 9_500;
+    expect((await service.diagnose()).remoteExtensions.nodes[0].serviceWorkerRestarts).toBe(1);
   });
 });

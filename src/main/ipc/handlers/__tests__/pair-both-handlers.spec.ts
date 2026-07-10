@@ -5,6 +5,12 @@ import { registerPairBothHandlers } from '../pair-both-handlers';
 import type { PairBothCandidate, PairBothSessionState } from '../../../../shared/types/pair-both.types';
 
 const mocks = vi.hoisted(() => ({
+  remoteNodeConfig: {
+    enabled: true,
+    serverHost: '0.0.0.0',
+    serverPort: 4878,
+    namespace: 'default',
+  },
   discover: vi.fn(),
   publish: vi.fn(),
   unpublish: vi.fn(),
@@ -17,8 +23,16 @@ const mocks = vi.hoisted(() => ({
   connectWorkerToCandidate: vi.fn(),
   confirmWorkerCode: vi.fn(),
   waitForWorkerPairingResult: vi.fn(),
+  writePairedWorkerConfig: vi.fn(),
+  parsePairingConfigInput: vi.fn(),
+  loadWorkerConfig: vi.fn(),
   getSetting: vi.fn(),
+  setSetting: vi.fn(),
+  updateSettings: vi.fn(),
   startRuntime: vi.fn(),
+  stopRuntime: vi.fn(),
+  installService: vi.fn(),
+  clearWorkerConfig: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -36,16 +50,15 @@ vi.mock('../../../auth/remote-auth', () => ({
 }));
 
 vi.mock('../../../core/config/settings-manager', () => ({
-  getSettingsManager: () => ({ set: vi.fn(), get: mocks.getSetting }),
+  getSettingsManager: () => ({
+    set: mocks.setSetting,
+    update: mocks.updateSettings,
+    get: mocks.getSetting,
+  }),
 }));
 
 vi.mock('../../../remote-node/remote-node-config', () => ({
-  getRemoteNodeConfig: () => ({
-    enabled: true,
-    serverHost: '0.0.0.0',
-    serverPort: 4878,
-    namespace: 'default',
-  }),
+  getRemoteNodeConfig: () => mocks.remoteNodeConfig,
   updateRemoteNodeConfig: vi.fn(),
 }));
 
@@ -63,12 +76,13 @@ vi.mock('../../../util/network-addresses', () => ({
 }));
 
 vi.mock('../../../../worker-agent/cli/pairing-config', () => ({
-  parsePairingConfigInput: vi.fn(),
-  writePairedWorkerConfig: vi.fn(),
+  parsePairingConfigInput: mocks.parsePairingConfigInput,
+  writePairedWorkerConfig: mocks.writePairedWorkerConfig,
 }));
 
 vi.mock('../../../../worker-agent/worker-config', () => ({
   DEFAULT_CONFIG_PATH: '/tmp/worker-node.json',
+  loadWorkerConfig: mocks.loadWorkerConfig,
 }));
 
 vi.mock('../../../remote-node/pair-both-rendezvous-service', () => ({
@@ -96,8 +110,11 @@ vi.mock('../../../remote-node/pair-both-discovery', () => ({
 }));
 
 vi.mock('../../../remote-node/worker-mode-runtime-service', () => ({
+  clearWorkerModeConfig: mocks.clearWorkerConfig,
   getWorkerModeRuntimeService: () => ({
     start: mocks.startRuntime,
+    stop: mocks.stopRuntime,
+    installService: mocks.installService,
   }),
 }));
 
@@ -156,6 +173,12 @@ function makeState(candidate: PairBothCandidate): PairBothSessionState {
 describe('pair-both IPC handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.remoteNodeConfig = {
+      enabled: true,
+      serverHost: '0.0.0.0',
+      serverPort: 4878,
+      namespace: 'default',
+    };
     mocks.getSetting.mockReturnValue({
       role: 'worker',
       startWorkerOnLaunch: true,
@@ -193,7 +216,7 @@ describe('pair-both IPC handlers', () => {
     expect(mocks.publish).toHaveBeenCalledWith(candidate);
   });
 
-  it('starts the worker runtime after pair-both writes the worker config', async () => {
+  it('returns the paired config without starting the worker before post-pair choice', async () => {
     mocks.waitForWorkerPairingResult.mockResolvedValueOnce({
       nodeId: 'node-1',
       name: 'Noah PC',
@@ -205,7 +228,6 @@ describe('pair-both IPC handlers', () => {
       reconnectIntervalMs: 5_000,
       heartbeatIntervalMs: 10_000,
     });
-    mocks.startRuntime.mockReturnValueOnce({ state: 'running', pid: 1234 });
 
     const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_WAIT_RESULT)({});
 
@@ -218,10 +240,126 @@ describe('pair-both IPC handlers', () => {
         namespace: 'default',
         maxConcurrentInstances: 10,
         workingDirectories: [],
-        runtime: { state: 'running', pid: 1234 },
       },
     });
-    expect(mocks.startRuntime).toHaveBeenCalledWith({ configPath: '/tmp/worker-node.json' });
+    expect(mocks.startRuntime).not.toHaveBeenCalled();
+    expect(mocks.installService).not.toHaveBeenCalled();
     expect(JSON.stringify(response)).not.toContain('one-time-token');
+  });
+
+  it('skips LAN discovery publication when the coordinator host is loopback-only', async () => {
+    mocks.remoteNodeConfig = {
+      enabled: true,
+      serverHost: '127.0.0.1',
+      serverPort: 4878,
+      namespace: 'default',
+    };
+    const candidate = makeCandidate();
+    const state = makeState(candidate);
+    mocks.startCoordinatorPairing.mockResolvedValueOnce(state);
+    mocks.getLocalCandidate.mockReturnValueOnce({
+      ...candidate,
+      host: '127.0.0.1',
+      addresses: ['127.0.0.1'],
+    });
+
+    const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_COORDINATOR_START)({}, {});
+
+    expect(response.success).toBe(true);
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(JSON.stringify(response.data)).toContain('QR or paste');
+  });
+
+  it('starts the worker runtime after the post-pair run-while-open choice', async () => {
+    const config = {
+      nodeId: 'node-1',
+      name: 'Noah PC',
+      authToken: 'one-time-token',
+      coordinatorUrl: 'ws://192.168.1.20:4878',
+      namespace: 'default',
+      maxConcurrentInstances: 10,
+      workingDirectories: [],
+      reconnectIntervalMs: 5_000,
+      heartbeatIntervalMs: 10_000,
+    };
+    mocks.loadWorkerConfig.mockReturnValueOnce(config);
+    mocks.startRuntime.mockReturnValueOnce({ state: 'running', pid: 1234 });
+
+    const response = await handlerFor('pair-both:worker:run-mode')({}, {
+      mode: 'run-while-open',
+    });
+
+    expect(response).toEqual({
+      success: true,
+      data: { state: 'running', pid: 1234 },
+    });
+    expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({
+      startWorkerOnLaunch: true,
+      installWorkerService: false,
+    }));
+    expect(mocks.startRuntime).toHaveBeenCalledWith({ configPath: '/tmp/worker-node.json' });
+    expect(mocks.installService).not.toHaveBeenCalled();
+  });
+
+  it('installs the worker service after the post-pair background-service choice', async () => {
+    const config = {
+      nodeId: 'node-1',
+      name: 'Noah PC',
+      authToken: 'one-time-token',
+      coordinatorUrl: 'ws://192.168.1.20:4878',
+      namespace: 'default',
+      maxConcurrentInstances: 10,
+      workingDirectories: [],
+      reconnectIntervalMs: 5_000,
+      heartbeatIntervalMs: 10_000,
+    };
+    mocks.loadWorkerConfig.mockReturnValueOnce(config);
+    mocks.installService.mockResolvedValueOnce({
+      state: 'service-installed',
+      command: '/bin/aio-worker',
+    });
+
+    const response = await handlerFor('pair-both:worker:run-mode')({}, {
+      mode: 'background-service',
+    });
+
+    expect(response.success).toBe(true);
+    expect(mocks.installService).toHaveBeenCalledWith({
+      configPath: '/tmp/worker-node.json',
+      config,
+    });
+    expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({
+      startWorkerOnLaunch: false,
+      installWorkerService: true,
+    }));
+    expect(JSON.stringify(response)).not.toContain('one-time-token');
+  });
+
+  it('stops the worker runtime through pair-both IPC', async () => {
+    mocks.stopRuntime.mockReturnValueOnce({ state: 'stopped' });
+
+    const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_STOP)({});
+
+    expect(response).toEqual({ success: true, data: { state: 'stopped' } });
+    expect(mocks.stopRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it('unpairs the worker without exposing persisted credentials', async () => {
+    mocks.stopRuntime.mockReturnValueOnce({ state: 'stopped' });
+    mocks.clearWorkerConfig.mockReturnValueOnce(undefined);
+
+    const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_UNPAIR)({});
+
+    expect(response).toEqual({ success: true, data: { state: 'stopped' } });
+    expect(mocks.stopRuntime).toHaveBeenCalledTimes(1);
+    expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({
+      role: 'unset',
+      lastCoordinatorName: undefined,
+      lastCoordinatorUrl: undefined,
+    }));
+    expect(mocks.setSetting.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.clearWorkerConfig.mock.invocationCallOrder[0],
+    );
+    expect(JSON.stringify(response)).not.toMatch(/token|credential/i);
   });
 });

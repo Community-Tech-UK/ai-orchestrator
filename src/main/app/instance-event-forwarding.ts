@@ -135,6 +135,12 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     observer.publishInstanceState(update as Record<string, unknown>);
   });
 
+  // YOLO changes (applied toggle + queued/cancelled-while-busy) so the renderer
+  // can sync the live mode and the pending affordance on the ⚡ button.
+  instanceManager.on('instance:yolo-toggled', (payload) => {
+    windowManager.sendToRenderer(IPC_CHANNELS.INSTANCE_YOLO_TOGGLED, payload);
+  });
+
   // Fast-mode changes (user toggle confirmation + provider auto-revert) so the
   // renderer can sync the per-instance toggle and toast on unavailability.
   instanceManager.on('instance:fast-toggled', (payload) => {

@@ -275,6 +275,11 @@ Answer:`;
     }
   }
 
+  /** Run a provider completion with caller-supplied system and user prompts. */
+  async generate(systemPrompt: string, userPrompt: string): Promise<string> {
+    return this.generateCompletion(systemPrompt, userPrompt);
+  }
+
   /**
    * Execute a sub-query, routing grunt-work through the auxiliary LLM service
    * first (local/remote-GPU model) before the frontier cloud ladder.

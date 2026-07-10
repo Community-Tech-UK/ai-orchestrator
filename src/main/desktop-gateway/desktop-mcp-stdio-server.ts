@@ -21,13 +21,27 @@ function writeResponse(id: JsonRpcRequest['id'], payload: Record<string, unknown
   stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, ...payload })}\n`);
 }
 
+/**
+ * Health-gated tool set. The parent process sets
+ * `AI_ORCHESTRATOR_DESKTOP_TOOLS` to a comma-separated allowlist when the
+ * driver is degraded (missing TCC), so the agent only sees health / list /
+ * escalation tools rather than action tools that would just fail.
+ */
+function resolveAllowedToolNames(): string[] | undefined {
+  const raw = process.env['AI_ORCHESTRATOR_DESKTOP_TOOLS'];
+  if (!raw || !raw.trim()) {
+    return undefined;
+  }
+  return raw.split(',').map((name) => name.trim()).filter(Boolean);
+}
+
 export async function runDesktopMcpForwarder(
   client: DesktopGatewayRpcClientLike = new DesktopGatewayRpcClient(),
 ): Promise<void> {
   getLogManager().updateConfig({ enableConsole: false });
 
   const server = McpServer.getInstance();
-  server.registerTools(createDesktopMcpTools(client));
+  server.registerTools(createDesktopMcpTools(client, resolveAllowedToolNames()));
   server.start();
 
   const shutdown = (): void => {

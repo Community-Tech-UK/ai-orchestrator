@@ -182,6 +182,30 @@ describe('InstanceMessagingStore', () => {
     });
   });
 
+  it('does not show the renderer timeout for a long-running Grok ACP turn before the backend timeout can resolve', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'grok', status: 'idle' }));
+    ipcMock.sendInput.mockImplementation(() => new Promise(() => undefined));
+
+    void currentStore.sendInput('inst-1', 'long grok turn');
+
+    await vi.advanceTimersByTimeAsync(60_100);
+
+    let instance = currentStateService.getInstance('inst-1');
+    expect(instance?.status).toBe('busy');
+    expect(instance?.outputBuffer).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+    instance = currentStateService.getInstance('inst-1');
+    expect(instance?.status).toBe('idle');
+    expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
+      type: 'error',
+      content: expect.stringContaining('timed out after 660s'),
+    });
+  });
+
   it('does not clear busy for long-running Codex turns at the renderer timeout boundary', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;

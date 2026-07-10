@@ -694,7 +694,7 @@ describe('LoopStageMachine.readOutstanding', () => {
 });
 
 describe('LoopStageMachine.buildReviewDrivenPrompt', () => {
-  it('embeds the goal, the exact no-outstanding phrase, the pass count, and the OUTSTANDING path', () => {
+  it('embeds the goal, structured clean sentinel, pass count, and the OUTSTANDING path', () => {
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     const cfg = {
       ...defaultLoopConfig(tmpDir, 'build the thing'),
@@ -712,12 +712,15 @@ describe('LoopStageMachine.buildReviewDrivenPrompt', () => {
     });
     expect(prompt).toContain('build the thing');
     expect(prompt).toContain('There are no outstanding issues');
+    expect(prompt).toContain('[[LOOP:CLEAN_REVIEW]]');
     expect(prompt).toContain('3 consecutive');
     expect(prompt).toContain('OUTSTANDING.md');
     expect(prompt).toContain('fresh eyes');
     // D5: the review-driven prompt must also expose the more-work sentinel so the
     // coordinator's review-driven completion veto (which checks it) is reachable.
     expect(prompt).toContain('[[LOOP:MORE_WORK_REMAINING]]');
+    expect(prompt).toContain('Never quote');
+    expect(prompt).toContain('do not invent work');
   });
 
   it('folds a configured verify command into the review instructions', () => {

@@ -23,6 +23,7 @@ import type {
   RemotePairingCredentialInfo,
   RemoteNodeRosterEntry,
 } from '../../../../shared/types/worker-node.types';
+import type { HarnessRole } from '../../../../shared/types/pair-both.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { InlineHelpComponent } from '../../shared/help/inline-help.component';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
@@ -263,6 +264,13 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
         this.error.set((err as Error).message);
       }
     }
+  }
+
+  async changeComputerRole(role: HarnessRole): Promise<void> {
+    await this.store.set('workerMode', {
+      ...this.store.workerMode(),
+      role,
+    });
   }
 
   async applyAndRestart(): Promise<void> {

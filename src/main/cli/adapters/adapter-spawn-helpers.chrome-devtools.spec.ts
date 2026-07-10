@@ -83,4 +83,19 @@ describe('withBrowserGatewaySystemPrompt', () => {
     expect(result.systemPrompt).toContain('browser.find_or_open');
     expect(result.systemPrompt).toContain('[mobile-mcp attached to a leased Android device]');
   });
+
+  it('steers Computer Use input through accessibility targets and escalation', () => {
+    const result = withBrowserGatewaySystemPrompt({
+      mcpConfig: [JSON.stringify({
+        mcpServers: {
+          'computer-use': { command: '/tmp/aio-mcp', args: ['computer-use'] },
+        },
+      })],
+    } as UnifiedSpawnOptions);
+
+    expect(result.systemPrompt).toContain('[Harness Computer Use]');
+    expect(result.systemPrompt).toContain('computer.accessibility_snapshot');
+    expect(result.systemPrompt).toContain('coordinates inside observed app bounds');
+    expect(result.systemPrompt).toContain('computer.raise_escalation');
+  });
 });

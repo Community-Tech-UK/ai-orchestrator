@@ -3,7 +3,11 @@
  * Validated patterns from Claude Code pr-review-toolkit
  */
 
-export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
+import type { ReviewSeverity } from './review-severity';
+
+/** `info` remains for persisted legacy/UI records; new LLM findings are
+ * validated by ReviewFindingPayloadSchema and use ReviewSeverity only. */
+export type SeverityLevel = ReviewSeverity | 'info';
 
 export type ScoringSystem =
   | { type: 'confidence'; min: number; max: number; threshold: number }

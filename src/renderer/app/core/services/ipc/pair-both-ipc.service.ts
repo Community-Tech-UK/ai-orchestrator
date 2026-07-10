@@ -15,6 +15,7 @@ export interface PairBothCoordinatorStartResult {
   state: PairBothSessionState;
   candidate: PairBothCandidate;
   invitation: string;
+  discoveryDisabledReason?: string;
 }
 
 export interface PairBothWorkerPairingState {
@@ -31,7 +32,15 @@ export interface PairBothWorkerConfigSummary {
   namespace: string;
   maxConcurrentInstances: number;
   workingDirectories: string[];
+  runtime?: {
+    state: string;
+    pid?: number;
+    command?: string;
+    error?: string;
+  };
 }
+
+export type PairBothWorkerRunMode = 'run-while-open' | 'background-service';
 
 @Injectable({ providedIn: 'root' })
 export class PairBothIpcService {
@@ -124,6 +133,27 @@ export class PairBothIpcService {
       throw new Error('Manual pairing is unavailable outside Electron');
     }
     return result;
+  }
+
+  async runWorker(mode: PairBothWorkerRunMode): Promise<PairBothWorkerConfigSummary['runtime']> {
+    return await this.invoke<PairBothWorkerConfigSummary['runtime']>(
+      () => this.api?.pairBothWorkerRunMode(mode),
+      'Failed to start worker',
+    ) ?? { state: 'stopped' };
+  }
+
+  async stopWorker(): Promise<PairBothWorkerConfigSummary['runtime']> {
+    return await this.invoke<PairBothWorkerConfigSummary['runtime']>(
+      () => this.api?.pairBothWorkerStop(),
+      'Failed to stop worker',
+    ) ?? { state: 'stopped' };
+  }
+
+  async unpairWorker(): Promise<PairBothWorkerConfigSummary['runtime']> {
+    return await this.invoke<PairBothWorkerConfigSummary['runtime']>(
+      () => this.api?.pairBothWorkerUnpair(),
+      'Failed to unpair worker',
+    ) ?? { state: 'stopped' };
   }
 
   parseInvitation(input: string): PairBothCandidate {

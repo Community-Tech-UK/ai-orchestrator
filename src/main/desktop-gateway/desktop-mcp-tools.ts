@@ -11,17 +11,39 @@ const TOOL_NAMES = [
   'computer.get_approval_status',
   'computer.screenshot',
   'computer.accessibility_snapshot',
+  'computer.query_elements',
   'computer.click',
   'computer.type_text',
   'computer.hotkey',
   'computer.scroll',
   'computer.drag',
   'computer.wait_for',
+  'computer.list_grants',
+  'computer.revoke_grant',
   'computer.get_audit_log',
   'computer.raise_escalation',
 ] as const;
 
+/**
+ * Tools that stay available even when the driver is unhealthy (missing TCC
+ * permissions, unsupported platform). Everything else is gated off so an agent
+ * cannot attempt observe/input actions that will only fail.
+ */
+export const DESKTOP_DEGRADED_TOOL_NAMES: readonly DesktopMcpToolName[] = [
+  'computer.health',
+  'computer.list_apps',
+  'computer.raise_escalation',
+];
+
 type DesktopMcpToolName = typeof TOOL_NAMES[number];
+
+const TOOL_GUIDANCE: Partial<Record<DesktopMcpToolName, string>> = {
+  'computer.click': 'Use a fresh computer.accessibility_snapshot token. Target an elementUid or coordinates inside the observed approved app window; sensitive controls are blocked for escalation.',
+  'computer.type_text': 'Use a fresh accessibility snapshot and an elementUid or observed focused field. Password and other secure fields are blocked; never send credentials.',
+  'computer.hotkey': 'The approved app must remain active. Activation, destructive, quit, and system-level shortcuts are blocked.',
+  'computer.scroll': 'Use an observed elementUid or coordinates inside the observed approved app window.',
+  'computer.drag': 'For drag, both points must remain inside observed app bounds from a fresh accessibility snapshot; sensitive targets and focus changes fail closed.',
+};
 
 const stringProp = { type: 'string' };
 const numberProp = { type: 'number' };
@@ -99,6 +121,15 @@ const TOOL_SCHEMAS: Record<DesktopMcpToolName, Record<string, unknown>> = {
     includeBounds: booleanProp,
     roleFilters: { type: 'array', items: stringProp },
   }, ['appId']),
+  'computer.query_elements': objectSchema({
+    observationToken: observationTokenProp,
+    appId: appIdProp,
+    text: stringProp,
+    role: stringProp,
+    label: stringProp,
+    value: stringProp,
+    limit: numberProp,
+  }, ['observationToken']),
   'computer.click': objectSchema({
     ...inputBaseProps,
     elementUid: stringProp,
@@ -139,6 +170,15 @@ const TOOL_SCHEMAS: Record<DesktopMcpToolName, Record<string, unknown>> = {
     }),
     timeoutMs: numberProp,
   }, ['appId', 'condition']),
+  'computer.list_grants': objectSchema({
+    appId: appIdProp,
+    includeExpired: booleanProp,
+    limit: numberProp,
+  }),
+  'computer.revoke_grant': objectSchema({
+    grantId: { ...stringProp, description: 'Grant id from computer.list_grants.' },
+    reason: stringProp,
+  }, ['grantId']),
   'computer.get_audit_log': objectSchema({
     appId: appIdProp,
     limit: numberProp,
@@ -166,10 +206,18 @@ const TOOL_SCHEMAS: Record<DesktopMcpToolName, Record<string, unknown>> = {
 
 export function createDesktopMcpTools(
   client: DesktopGatewayRpcClientLike,
+  allowedToolNames?: readonly string[],
 ): McpServerToolDefinition[] {
-  return TOOL_NAMES.map((name) => ({
+  const allowed = allowedToolNames && allowedToolNames.length > 0
+    ? new Set(allowedToolNames)
+    : null;
+  return TOOL_NAMES.filter((name) => !allowed || allowed.has(name)).map((name) => ({
     name,
-    description: `${UNTRUSTED_WARNING} Calls the managed Harness Computer Use tool ${name}.`,
+    description: [
+      UNTRUSTED_WARNING,
+      TOOL_GUIDANCE[name],
+      `Calls the managed Harness Computer Use tool ${name}.`,
+    ].filter(Boolean).join(' '),
     inputSchema: TOOL_SCHEMAS[name],
     handler: async (args) => client.call(name, args),
     producesImage: name === 'computer.screenshot',

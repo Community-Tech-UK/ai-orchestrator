@@ -201,12 +201,17 @@ interface WelcomeProjectContext {
       }
 
       .welcome-shell {
+        --welcome-layer-content: var(--z-base);
+        --welcome-layer-composer: calc(var(--z-base) + 1);
+        --welcome-layer-open-menu: calc(var(--z-base) + 2);
+
         width: min(680px, 100%);
         display: flex;
         flex-direction: column;
         gap: 18px;
         position: relative;
-        z-index: 1;
+        z-index: var(--z-base);
+        isolation: isolate;
         margin-block: auto;
       }
 
@@ -216,7 +221,12 @@ interface WelcomeProjectContext {
         gap: 14px;
         animation: fadeInUp 0.6s ease-out;
         width: 100%;
-        z-index: 2;
+        position: relative;
+        z-index: var(--welcome-layer-content);
+      }
+
+      .welcome-copy:has(app-recent-directories-dropdown.dropdown-open) {
+        z-index: var(--welcome-layer-open-menu);
       }
 
       .welcome-title {
@@ -349,14 +359,17 @@ interface WelcomeProjectContext {
         min-width: 0;
         animation: fadeInUp 0.6s ease-out 0.15s both;
         width: 100%;
-        /*
-         * Sit above .welcome-copy (z-index: 2). The input panel's slash-command
-         * suggestions open upward (bottom: 100%) into the working-directory
-         * card's region; without this the card's stacking context paints over
-         * the dropdown even though the dropdown has a high local z-index.
-         */
         position: relative;
-        z-index: 3;
+        z-index: var(--welcome-layer-composer);
+      }
+
+      app-node-picker {
+        position: relative;
+        z-index: var(--welcome-layer-content);
+      }
+
+      app-node-picker.picker-open {
+        z-index: var(--welcome-layer-open-menu);
       }
 
       .welcome-input-header {

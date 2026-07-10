@@ -22,6 +22,45 @@
 
   <div class="connection-card">
     <div class="card-row">
+      <div>
+        <span class="card-name">Computer Role</span>
+        <p class="field-hint section-inline-hint">
+          Choose whether this computer coordinates work or runs as a worker for another Harness.
+        </p>
+      </div>
+      <span class="status-badge connected">{{ store.harnessRole() }}</span>
+    </div>
+
+    <div class="role-choice-row">
+      <button
+        class="btn btn-secondary"
+        type="button"
+        [class.selected]="store.harnessRole() === 'coordinator'"
+        (click)="changeComputerRole('coordinator')"
+      >
+        Main Harness
+      </button>
+      <button
+        class="btn btn-secondary"
+        type="button"
+        [class.selected]="store.harnessRole() === 'worker'"
+        (click)="changeComputerRole('worker')"
+      >
+        Worker
+      </button>
+      <button
+        class="btn btn-secondary"
+        type="button"
+        [class.selected]="store.harnessRole() === 'unset'"
+        (click)="changeComputerRole('unset')"
+      >
+        Ask on launch
+      </button>
+    </div>
+  </div>
+
+  <div class="connection-card">
+    <div class="card-row">
       <div class="card-info">
         <span class="card-name">Enable Remote Node Server</span>
       </div>
@@ -252,7 +291,13 @@
 
     <app-coordinator-pairing />
 
-    <div class="connection-card">
+    <details class="connection-card advanced-legacy-pairing">
+      <summary>
+        <span class="card-name">Advanced: aio-worker pair command</span>
+        <span class="status-badge" [class]="pendingPairings().length > 0 ? 'status-badge connecting' : 'status-badge disconnected'">
+          {{ pendingPairings().length }} pending
+        </span>
+      </summary>
       <div class="card-row">
         <div>
           <span class="card-name">Pair this computer</span>
@@ -413,7 +458,7 @@
           }
         </div>
       }
-    </div>
+    </details>
 
     <app-danger-zone
       title="Manual Pairing Token (advanced)"

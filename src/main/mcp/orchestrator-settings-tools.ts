@@ -25,6 +25,7 @@ import {
   type AppSettings,
 } from '../../shared/types/settings.types';
 import {
+  assertPrivilegedSettingsCliWritable,
   assertReadableSetting,
   assertWritableSetting,
   coerceRendererSettingValue,
@@ -367,6 +368,7 @@ export function privilegedSetSetting(
   args: SettingsPrivilegedSetArgs,
 ): SettingsToolSetResult {
   const { key, value } = coerceRendererSettingValue(args.key, args.value);
+  assertPrivilegedSettingsCliWritable(key);
   const policy = getSettingsToolPolicy(key);
   const manager = requireSettingsManager(context);
   const oldRaw = manager.get(key);
@@ -382,6 +384,7 @@ export function privilegedResetSetting(
   args: SettingsPrivilegedResetArgs,
 ): SettingsToolSetResult {
   const key = requireKnownSettingsToolKey(args.key);
+  assertPrivilegedSettingsCliWritable(key);
   const policy = getSettingsToolPolicy(key);
   const manager = requireSettingsManager(context);
   const oldRaw = manager.get(key);

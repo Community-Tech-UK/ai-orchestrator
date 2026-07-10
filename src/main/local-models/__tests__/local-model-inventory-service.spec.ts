@@ -125,6 +125,29 @@ describe('LocalModelInventoryService', () => {
     );
   });
 
+  it('keeps disconnected worker models visible as unhealthy inventory rows', () => {
+    const svc = new LocalModelInventoryService({
+      roster: fakeRoster([makeWorker({
+        status: 'disconnected',
+        connected: false,
+      })]),
+    });
+
+    const rows = svc.list();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen2.5-coder%3A14b',
+      healthy: false,
+      loaded: true,
+      nodeId: 'node-win',
+      nodeName: 'windows-pc',
+    });
+    expect(() => svc.resolveTarget(rows[0].selectorId)).toThrow(
+      'Local model is no longer available',
+    );
+  });
+
   it('refreshes coordinator-local model rows without exposing loopback URLs', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1783468800000);
     const svc = new LocalModelInventoryService({

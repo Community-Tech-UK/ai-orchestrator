@@ -274,6 +274,19 @@ export class InstanceIpcService {
   }
 
   /**
+   * Subscribe to YOLO changes pushed from main: an applied toggle, or a change
+   * queued/cancelled while the instance was busy (`pendingYoloMode`).
+   */
+  onYoloToggled(
+    callback: (payload: { instanceId: string; yoloMode: boolean; pendingYoloMode?: boolean }) => void,
+  ): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onYoloToggled((payload) => {
+      this.ngZone.run(() => callback(payload));
+    });
+  }
+
+  /**
    * Subscribe to fast-mode changes pushed from main (user toggle + auto-revert)
    */
   onFastToggled(

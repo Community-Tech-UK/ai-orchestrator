@@ -48,6 +48,7 @@ import { toOutputMessageFromProviderEnvelope } from '../providers/provider-outpu
 import { ChannelAccessPolicyStore } from './channel-access-policy-store';
 import { ChannelRouteStore, type SavedChannelRoutePin } from './channel-route-store';
 import { getRLMDatabase } from '../persistence/rlm-database';
+import { buildChannelMessagePrompt } from './channel-message-prompt';
 
 const logger = getLogger('ChannelMessageRouter');
 
@@ -2071,7 +2072,7 @@ export class ChannelMessageRouter {
     const instance = await im.createInstance({
       displayName: `${msg.platform}:${msg.senderName}`,
       workingDirectory,
-      initialPrompt: content,
+      initialPrompt: buildChannelMessagePrompt(msg, content),
       yoloMode: true,
       forceNodeId: node.id,
     });
@@ -2155,7 +2156,7 @@ export class ChannelMessageRouter {
     const instance = await im.createInstance({
       displayName: `${msg.platform}:${msg.senderName}`,
       workingDirectory,
-      initialPrompt: content || undefined,
+      initialPrompt: content ? buildChannelMessagePrompt(msg, content) : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
       yoloMode: true,
       ...(nodePlacement ? { nodePlacement } : {}),
@@ -2210,9 +2211,9 @@ export class ChannelMessageRouter {
     }
 
     if (attachments.length > 0) {
-      await im.sendInput(instanceId, content, attachments);
+      await im.sendInput(instanceId, buildChannelMessagePrompt(msg, content), attachments);
     } else {
-      await im.sendInput(instanceId, content);
+      await im.sendInput(instanceId, buildChannelMessagePrompt(msg, content));
     }
 
     // Stream results back
@@ -2249,9 +2250,9 @@ export class ChannelMessageRouter {
     for (const inst of activeInstances) {
       try {
         if (attachments.length > 0) {
-          await im.sendInput(inst.id, content, attachments);
+          await im.sendInput(inst.id, buildChannelMessagePrompt(msg, content), attachments);
         } else {
-          await im.sendInput(inst.id, content);
+          await im.sendInput(inst.id, buildChannelMessagePrompt(msg, content));
         }
         this.streamResults(msg, inst.id, adapter);
       } catch (err) {

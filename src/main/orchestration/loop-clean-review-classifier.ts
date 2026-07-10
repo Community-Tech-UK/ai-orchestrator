@@ -1,4 +1,10 @@
 import type { LoopCompletionConfig } from '../../shared/types/loop.types';
+import {
+  CLEAN_REVIEW_SENTINEL,
+  hasTerminalSentinelLine,
+} from './loop-terminal-sentinels';
+
+export { CLEAN_REVIEW_SENTINEL } from './loop-terminal-sentinels';
 
 export interface LoopCleanReviewClassifierInput {
   goal: string;
@@ -30,9 +36,9 @@ export const defaultCleanReviewClassifier: LoopCleanReviewClassifier = async (in
   if (deterministic.confidence >= 0.9) return deterministic;
 
   const model = await withCleanReviewTimeout(runModelCleanReviewClassifier(input), DEFAULT_CLEAN_REVIEW_TIMEOUT_MS);
-  if (model.confidence >= 0.6) return model;
+  if (!model.clean && model.confidence >= 0.6) return model;
 
-  return deterministic.confidence > 0 ? deterministic : model;
+  return deterministic.clean ? UNCLEAR_CLEAN_REVIEW : deterministic;
 };
 
 /** Result of the auxiliary (local) backend for clean-review classification. */
@@ -93,8 +99,9 @@ async function runModelCleanReviewClassifier(
   const prompt =
     'Classify whether the REVIEW OUTPUT says there are no actionable issues, ' +
     'no remaining work, and nothing left to fix for the GOAL. Do not require ' +
-    'any exact phrase; judge the sentiment. Return ONLY JSON:\n' +
+    'any exact phrase; judge the sentiment. Return ONLY JSON (no markdown fences, no other text):\n' +
     '{"clean": <true|false>, "confidence": <number 0..1>, "reason": "<short sentence>"}\n' +
+    'Example: {"clean": false, "confidence": 0.8, "reason": "Review lists two unresolved findings"}\n' +
     'Return clean=false for vague shipping confidence, unresolved work, blocked/cannot-verify language, or ambiguity.';
 
   // Prefer the auxiliary (local) model for this low-stakes semantic check — this
@@ -149,23 +156,21 @@ export function classifyCleanReviewText(
   raw: string,
   noOutstandingPhrase = 'There are no outstanding issues',
 ): LoopCleanReviewClassification {
+  if (hasTerminalSentinelLine(raw, CLEAN_REVIEW_SENTINEL)) {
+    return { clean: true, confidence: 1, reason: 'structured clean-review sentinel present' };
+  }
+
   const text = raw.replace(/\s+/g, ' ').trim().toLowerCase();
   if (!text) return UNCLEAR_CLEAN_REVIEW;
 
-  const phrase = noOutstandingPhrase.trim().toLowerCase();
-  if (phrase && text.includes(phrase)) {
-    return { clean: true, confidence: 1, reason: 'configured no-outstanding phrase present' };
-  }
-
-  const cleanPatterns = [
-    /\b(no|zero)\s+(actionable\s+)?(remaining\s+|outstanding\s+)?(issues|problems|blockers|findings|tasks|work|fixes)\b/,
-    /\b(nothing|no work)\s+(left|remaining|outstanding)\s+(to\s+)?(fix|do|address|change)\b/,
-    /\b(did not|didn't|could not|couldn't|cannot|can't)\s+find\s+(any\s+)?(actionable\s+)?(issues|problems|blockers|findings|remaining work)\b/,
-    /\bfound\s+no\s+(actionable\s+)?(issues|problems|blockers|findings|remaining work)\b/,
-    /\ball\s+clear\b/,
-  ];
-  if (cleanPatterns.some((pattern) => pattern.test(text))) {
-    return { clean: true, confidence: 0.8, reason: 'review output says no actionable work remains' };
+  const naturalCleanPatterns = [
+    noOutstandingPhrase.trim().toLowerCase(),
+    'no actionable issues',
+    'nothing left to fix',
+    'all clear',
+  ].filter(Boolean);
+  if (naturalCleanPatterns.some((phrase) => text.includes(phrase))) {
+    return UNCLEAR_CLEAN_REVIEW;
   }
 
   const unresolvedPatterns = [

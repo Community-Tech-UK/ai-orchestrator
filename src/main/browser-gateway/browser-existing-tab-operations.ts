@@ -245,6 +245,10 @@ export class BrowserExistingTabOperations {
       timeoutMs: callerTimeoutMs,
       executionTimeoutMs: timeoutMs,
       undeliveredWaitMs,
+      describeChannelState: () => ({
+        active: attachment.nodeId ? this.deps.isRemoteExtensionContactFresh(attachment.nodeId) : true,
+        summary: this.describeChannel(attachment.nodeId),
+      }),
     }).catch(async (error: unknown) => {
       // A delivered mutation that times out in the user's real Chrome may have
       // already applied. Before surfacing the failure, re-read any control state
@@ -275,14 +279,18 @@ export class BrowserExistingTabOperations {
           + 'run, but verify page state before retrying a mutation)',
         );
       }
-      if (message.startsWith('browser_extension_command_timeout') && isMutatingBrowserCommand(command)) {
+      if (isDeliveredCommandTimeout(message) && isMutatingBrowserCommand(command)) {
+        const probe = await postTimeoutMutationProbe(
+          command,
+          payload,
+          attachment,
+          (request) => this.deps.extensionCommandStore.sendCommand(request),
+        );
+        if (message === 'browser_extension_command_timeout') {
+          throw new Error(`browser_extension_command_timeout_${probe}`);
+        }
         throw new Error(
-          `browser_extension_command_timeout_${await postTimeoutMutationProbe(
-            command,
-            payload,
-            attachment,
-            (request) => this.deps.extensionCommandStore.sendCommand(request),
-          )}`,
+          `${message}; post-timeout mutation probe: ${probe}`,
         );
       }
       throw error instanceof Error ? error : new Error(message);
@@ -529,6 +537,11 @@ export class BrowserExistingTabOperations {
       ? this.deps.extensionTabStore.attachTab(input, options)
       : this.deps.extensionTabStore.attachTab(input);
   }
+}
+
+function isDeliveredCommandTimeout(message: string): boolean {
+  return message.startsWith('browser_extension_command_timeout') ||
+    message.startsWith('browser_extension_channel_down');
 }
 
 function remoteTabAttachOptions(

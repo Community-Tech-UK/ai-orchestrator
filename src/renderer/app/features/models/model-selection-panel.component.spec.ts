@@ -14,6 +14,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   gemini: 'Gemini',
   copilot: 'Copilot',
   cursor: 'Cursor',
+  'local-model': 'Local Models',
 };
 
 const CLAUDE_MODELS: ModelDisplayInfo[] = [
@@ -70,6 +71,7 @@ describe('ModelSelectionPanelComponent', () => {
     selectedProvider?: PickerProvider | null;
     selectedModelId?: string | null;
     selectedReasoning?: ReasoningEffort | null;
+    modelsForProvider?: (provider: PickerProvider) => ModelDisplayInfo[];
     reasoningOptionsForProvider?: (provider: PickerProvider) => UnifiedReasoningOption[];
     disabledReasonForProvider?: (provider: PickerProvider) => string | undefined;
   } = {}): void {
@@ -78,12 +80,12 @@ describe('ModelSelectionPanelComponent', () => {
     fixture.componentRef.setInput('selectedModelId', overrides.selectedModelId ?? 'claude-opus-4-7');
     fixture.componentRef.setInput('selectedReasoning', overrides.selectedReasoning ?? null);
     fixture.componentRef.setInput('providerLabels', PROVIDER_LABELS);
-    fixture.componentRef.setInput('modelsForProvider', (provider: PickerProvider) => {
+    fixture.componentRef.setInput('modelsForProvider', overrides.modelsForProvider ?? ((provider: PickerProvider) => {
       if (provider === 'claude') return CLAUDE_MODELS;
       if (provider === 'codex') return CODEX_MODELS;
       if (provider === 'gemini') return GEMINI_MODELS;
       return [];
-    });
+    }));
     fixture.componentRef.setInput('reasoningOptionsForProvider', overrides.reasoningOptionsForProvider ?? (() => []));
     fixture.componentRef.setInput('disabledReasonForProvider', overrides.disabledReasonForProvider ?? (() => undefined));
     fixture.detectChanges();
@@ -308,5 +310,106 @@ describe('ModelSelectionPanelComponent', () => {
     expect(emitted).toEqual([
       { kind: 'model', provider: 'claude', modelId: 'claude-opus-4-7' },
     ]);
+  });
+
+  it('renders local-model health, loaded, and capability chips', () => {
+    setInputs({
+      providers: ['local-model'],
+      selectedProvider: 'local-model',
+      selectedModelId: null,
+      modelsForProvider: (provider) => provider === 'local-model'
+        ? [{
+          id: 'lm://worker-node/node-win/ollama/ollama/qwen',
+          name: 'qwen on windows-pc',
+          tier: 'balanced',
+          family: 'Ollama',
+          localModel: {
+            source: 'worker-node',
+            endpointProvider: 'ollama',
+            endpointId: 'ollama',
+            modelId: 'qwen',
+            nodeId: 'node-win',
+            nodeName: 'windows-pc',
+            healthy: true,
+            loaded: true,
+            loadedContextLength: 32768,
+            capabilities: {
+              streaming: true,
+              multiTurn: true,
+              toolUse: 'verified',
+              vision: 'unknown',
+            },
+          },
+        }]
+        : [],
+    });
+
+    (fixture.nativeElement.querySelector('[data-provider="local-model"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const row = fixture.nativeElement.querySelector('.model-picker-row') as HTMLElement;
+    expect(row.textContent).toContain('Healthy');
+    expect(row.textContent).toContain('Loaded');
+    expect(row.textContent).toContain('Chat');
+    expect(row.textContent).toContain('Tools');
+  });
+
+  it('keeps unhealthy local-model rows visible but disabled', () => {
+    setInputs({
+      providers: ['local-model'],
+      selectedProvider: 'local-model',
+      selectedModelId: null,
+      modelsForProvider: (provider) => provider === 'local-model'
+        ? [{
+          id: 'lm://worker-node/node-win/ollama/ollama/qwen',
+          name: 'qwen on windows-pc',
+          tier: 'balanced',
+          family: 'Ollama',
+          localModel: {
+            source: 'worker-node',
+            endpointProvider: 'ollama',
+            endpointId: 'ollama',
+            modelId: 'qwen',
+            nodeId: 'node-win',
+            nodeName: 'windows-pc',
+            healthy: false,
+            loaded: false,
+            capabilities: {
+              streaming: true,
+              multiTurn: true,
+              toolUse: 'none',
+              vision: 'unknown',
+            },
+          },
+        }]
+        : [],
+    });
+    const emitted: UnifiedSelection[] = [];
+    fixture.componentInstance.selection.subscribe((selection) => emitted.push(selection));
+
+    (fixture.nativeElement.querySelector('[data-provider="local-model"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const row = fixture.nativeElement.querySelector('.model-picker-row') as HTMLElement;
+    expect(row.textContent).toContain('Unavailable');
+    expect(row.getAttribute('aria-disabled')).toBe('true');
+    (row.querySelector('.model-picker-row__select') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(emitted).toEqual([]);
+  });
+
+  it('shows local-model settings guidance when the tab has no rows', () => {
+    setInputs({
+      providers: ['local-model'],
+      selectedProvider: 'local-model',
+      selectedModelId: null,
+    });
+
+    (fixture.nativeElement.querySelector('[data-provider="local-model"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement.querySelector('.model-picker-empty') as HTMLElement).textContent).toContain(
+      'Add a Remote Node or configure Auxiliary Models in Settings',
+    );
   });
 });

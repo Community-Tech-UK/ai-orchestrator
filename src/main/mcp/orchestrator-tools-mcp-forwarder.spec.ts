@@ -35,6 +35,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'build_ios_release_plan',
       'build_android_release_plan',
       'build_new_app_setup_plan',
+      'generate_play_data_safety_csv',
       'execute_android_play_release',
       'execute_ios_asc_finalization',
     ]);

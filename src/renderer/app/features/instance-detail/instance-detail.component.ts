@@ -1098,16 +1098,17 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
 
-    if (inst.status === 'busy') {
-      console.log(
-        '[InstanceDetail] Cannot toggle YOLO mode while instance is busy'
-      );
-      return;
-    }
-
-    if (!inst.yoloMode) {
+    // Queue-aware: the state a click flips is the parked value if one is
+    // pending, otherwise the live mode. A click while busy is no longer
+    // swallowed — it queues and auto-applies when the turn finishes.
+    const effectiveTarget = inst.pendingYoloMode ?? inst.yoloMode;
+    const willEnable = !effectiveTarget;
+    if (willEnable) {
       const confirmed = confirm(
-        'Enable YOLO mode? This will auto-approve all tool calls for this instance.'
+        'Enable YOLO mode? This will auto-approve all tool calls for this instance.' +
+          (inst.status === 'busy'
+            ? '\n\nThe instance is busy — YOLO will turn on automatically once the current turn finishes.'
+            : '')
       );
       if (!confirmed) return;
     }

@@ -87,6 +87,37 @@ describe('BrowserGatewayRpcServer', () => {
     ).rejects.toThrow(/payload too large/);
   });
 
+  it('limits cumulative payload bytes per instance within the rate window', async () => {
+    const navigate = vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' }));
+    const server = new BrowserGatewayRpcServer({
+      service: { navigate },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+      maxPayloadBytes: 512,
+      rateLimit: { maxRequests: 10, maxBytes: 300, windowMs: 10_000 },
+    });
+    const request = {
+      jsonrpc: '2.0' as const,
+      method: 'browser.navigate',
+      params: {
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        payload: {
+          profileId: 'profile-1',
+          targetId: 'target-1',
+          url: `https://example.com/${'x'.repeat(80)}`,
+        },
+      },
+    };
+
+    await server.handleRequest({ ...request, id: 1 });
+    await expect(server.handleRequest({ ...request, id: 2 })).rejects.toThrow(
+      'Browser Gateway RPC byte rate limit exceeded',
+    );
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects invalid schemas and forwards valid calls', async () => {
     const navigate = vi.fn().mockResolvedValue({ decision: 'allowed' });
     const server = new BrowserGatewayRpcServer({
@@ -133,6 +164,111 @@ describe('BrowserGatewayRpcServer', () => {
       targetId: 'target-1',
       url: 'http://localhost:4567',
     });
+  });
+
+  it('handles durable browser workflow checkpoint save and resume RPC calls', async () => {
+    const checkpointStore = {
+      saveStep: vi.fn(async (input) => ({
+        workflowId: input.workflowId,
+        updatedAt: input.completedAt ?? 123,
+        steps: [{
+          stepId: input.stepId,
+          completedAt: input.completedAt ?? 123,
+          pageFingerprint: input.pageFingerprint,
+          resultSummary: input.resultSummary,
+        }],
+      })),
+      get: vi.fn(async (ownerId, workflowId) => ({
+        ownerId,
+        workflowId,
+        updatedAt: 123,
+        steps: [{
+          stepId: 'create-app',
+          completedAt: 123,
+          pageFingerprint: 'url:/console/app|saved:true',
+        }],
+      })),
+    };
+    const server = new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+      checkpointStore,
+    });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.checkpoint_save',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          workflowId: 'new-app/com.example.app',
+          stepId: 'create-app',
+          pageFingerprint: 'url:/console/app|saved:true',
+          resultSummary: 'App record saved',
+          completedAt: 123,
+        },
+      },
+    })).resolves.toMatchObject({
+      workflowId: 'new-app/com.example.app',
+      steps: [{ stepId: 'create-app' }],
+    });
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'browser.checkpoint_resume',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          workflowId: 'new-app/com.example.app',
+        },
+      },
+    })).resolves.toMatchObject({
+      workflowId: 'new-app/com.example.app',
+      steps: [{ pageFingerprint: 'url:/console/app|saved:true' }],
+    });
+    expect(checkpointStore.saveStep).toHaveBeenCalledWith({
+      ownerId: 'instance-1',
+      workflowId: 'new-app/com.example.app',
+      stepId: 'create-app',
+      pageFingerprint: 'url:/console/app|saved:true',
+      resultSummary: 'App record saved',
+      completedAt: 123,
+    });
+    expect(checkpointStore.get).toHaveBeenCalledWith(
+      'instance-1',
+      'new-app/com.example.app',
+    );
+  });
+
+  it('rejects arbitrary checkpoint result objects that could persist secrets', async () => {
+    const server = new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+      checkpointStore: {
+        saveStep: vi.fn(),
+        get: vi.fn(),
+      },
+    });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.checkpoint_save',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          workflowId: 'new-app/com.example.app',
+          stepId: 'create-app',
+          pageFingerprint: 'saved',
+          result: { password: 'must-not-persist' },
+        },
+      },
+    })).rejects.toThrow('Invalid browser gateway RPC payload');
   });
 
   it('validates and forwards managed profile creation calls', async () => {

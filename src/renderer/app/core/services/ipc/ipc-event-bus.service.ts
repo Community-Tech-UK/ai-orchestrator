@@ -100,6 +100,13 @@ export interface FastToggledEvent {
   reason: 'user' | 'unavailable';
 }
 
+export interface YoloToggledEvent {
+  instanceId: string;
+  yoloMode: boolean;
+  /** Desired value queued while busy; undefined when nothing is pending. */
+  pendingYoloMode?: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class IpcEventBusService {
   private instanceEvents = inject(InstanceEventsService);
@@ -119,6 +126,10 @@ export class IpcEventBusService {
 
   readonly fastToggled$ = this.createStream<FastToggledEvent>((next) =>
     this.instanceIpc.onFastToggled((data) => next(data)),
+  );
+
+  readonly yoloToggled$ = this.createStream<YoloToggledEvent>((next) =>
+    this.instanceIpc.onYoloToggled((data) => next(data)),
   );
 
   readonly instanceOutput$ = this.instanceEvents.outputEvents$.pipe(

@@ -162,7 +162,7 @@ function toCodexModelDisplayInfo(
   const known = CODEX_DEFAULT_MODELS.find((entry) => entry.id === id);
   return {
     id,
-    name: formatCodexDisplayName(readNonEmptyString(model.displayName) ?? id),
+    name: known?.name ?? formatCodexDisplayName(readNonEmptyString(model.displayName) ?? id),
     tier: known?.tier ?? classifyCodexModelTier(id),
     family: known?.family ?? classifyCodexModelFamily(id),
     pinned: known?.pinned || model.isDefault ? true : undefined,

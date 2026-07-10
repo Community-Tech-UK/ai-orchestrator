@@ -7,9 +7,10 @@
 // under its size ratchet; re-exported from `loop.types.ts`.
 
 import type { LoopProvider } from './loop.types';
+import type { ReviewSeverity } from './review-severity';
 
 /** Severity rubric shared with the fresh-eyes reviewer findings. */
-export type PingPongSeverity = 'critical' | 'high' | 'medium' | 'low';
+export type PingPongSeverity = ReviewSeverity;
 
 /**
  * What the reviewer is deep-diving this round. Inferred from the kickoff prompt

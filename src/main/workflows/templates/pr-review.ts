@@ -6,6 +6,13 @@
 
 import { WorkflowTemplate } from '../../../shared/types/workflow.types';
 
+const REVIEW_FINDING_CONTRACT =
+  'Report each finding as `- [critical|high|medium|low] [confidence NN/100] file:line — issue — evidence — suggested fix`. ' +
+  'Only include confidence 80 or higher. If no qualifying findings remain after genuine review, state `No qualifying findings`. ';
+
+const PROMPT_HOUSE_STYLE_REVIEW =
+  'If the diff changes an LLM-facing prompt or parser, read `docs/prompt-engineering-house-style.md` and report any concrete contract, trust-boundary, parsing, or provider-fit violation.';
+
 export const prReviewTemplate: WorkflowTemplate = {
   id: 'pr-review',
   name: 'PR Review',
@@ -46,7 +53,7 @@ Use git diff to see the changes. Provide a summary of:
 - List of all files changed with brief description of each change
 - Initial risk assessment with reasoning
 
-When complete, advance to the Security Review phase.
+When this output is complete, the workflow advances automatically to Security Review.
 `,
     },
     {
@@ -69,13 +76,7 @@ When complete, advance to the Security Review phase.
 5. **Cryptography**: Weak algorithms or improper usage
 6. **Dependencies**: Known vulnerable packages
 
-For each issue found, report:
-- Severity (CRITICAL/HIGH/MEDIUM/LOW)
-- Confidence (0-100)
-- File and line number
-- Description and fix suggestion
-
-Only report issues with confidence ≥85.`,
+${REVIEW_FINDING_CONTRACT}`,
         ],
       },
       systemPromptAddition: `
@@ -109,7 +110,9 @@ Present all security issues clearly with file locations and suggested fixes.
 - Inconsistent naming
 - Code smells
 
-Report issues with confidence 0-100.`,
+${PROMPT_HOUSE_STYLE_REVIEW}
+
+${REVIEW_FINDING_CONTRACT}`,
           `Review for bugs and correctness:
 - Logic errors
 - Edge case handling
@@ -118,7 +121,9 @@ Report issues with confidence 0-100.`,
 - Race conditions
 - Type safety issues
 
-Report issues with confidence 0-100.`,
+${PROMPT_HOUSE_STYLE_REVIEW}
+
+${REVIEW_FINDING_CONTRACT}`,
         ],
       },
       systemPromptAddition: `
@@ -154,11 +159,8 @@ Present findings organized by file.
 3. **Error Paths**: Are error scenarios tested?
 4. **Test Quality**: Do tests actually verify behavior?
 
-For each gap found, report:
-- Severity (1-10)
-- What's missing
-- Risk if not tested
-- Suggested test outline`,
+${REVIEW_FINDING_CONTRACT}
+For each test gap, explain the untested behavior, risk, and a concrete test outline.`,
         ],
       },
       systemPromptAddition: `
@@ -168,7 +170,7 @@ A test coverage analyzer is reviewing the changes.
 
 After it completes:
 1. Review the test gaps identified
-2. Prioritize by risk (focus on severity ≥7)
+2. Prioritize by critical/high/medium/low severity
 3. Consider if any are blockers for merge
 
 Present test coverage findings with specific test suggestions.
@@ -189,7 +191,7 @@ If the repository exposes a browser-based flow relevant to this PR:
 3. Record console errors, failed requests, HAR files, or trace references when available.
 4. Keep heavyweight artifacts as file references and summarize the evidence in prose.
 
-If the change is not meaningfully testable in a browser, say so explicitly and continue.
+If no browser tools are available, or the change is not meaningfully testable in a browser, say so explicitly and continue.
 `,
     },
     {

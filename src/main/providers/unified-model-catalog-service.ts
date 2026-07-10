@@ -533,9 +533,6 @@ export class UnifiedModelCatalogService extends EventEmitter {
       }
     }
     for (const entry of this.localModelEntries) {
-      if (!entry.healthy) {
-        continue;
-      }
       next.set(catalogKey('local-model', entry.selectorId), {
         id: entry.selectorId,
         provider: 'local-model',
@@ -543,6 +540,19 @@ export class UnifiedModelCatalogService extends EventEmitter {
         tier: 'balanced',
         family: entry.endpointProvider === 'ollama' ? 'Ollama' : 'OpenAI-compatible',
         contextWindow: entry.loadedContextLength ?? entry.advertisedContextLength,
+        localModel: {
+          source: entry.source,
+          endpointProvider: entry.endpointProvider,
+          endpointId: entry.endpointId,
+          modelId: entry.modelId,
+          ...(entry.nodeId ? { nodeId: entry.nodeId } : {}),
+          ...(entry.nodeName ? { nodeName: entry.nodeName } : {}),
+          healthy: entry.healthy,
+          loaded: entry.loaded,
+          ...(entry.loadedContextLength !== undefined ? { loadedContextLength: entry.loadedContextLength } : {}),
+          ...(entry.advertisedContextLength !== undefined ? { advertisedContextLength: entry.advertisedContextLength } : {}),
+          capabilities: entry.capabilities,
+        },
         source: 'local-model',
         discoveredAt: entry.discoveredAt || this.localModelLastRefreshedAt || now,
       });

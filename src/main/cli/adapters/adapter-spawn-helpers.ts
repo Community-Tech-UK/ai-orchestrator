@@ -26,6 +26,10 @@ import {
   buildMobileMcpGeminiSettingsJson,
   buildMobileMcpConfigJson,
 } from '../../browser-gateway/mobile-mcp-config';
+import {
+  buildComputerUseGeminiSettingsJson,
+  type ComputerUseMcpConfigOptions,
+} from '../../desktop-gateway/desktop-mcp-config';
 
 export const COPILOT_ORCHESTRATOR_HOME_ENV = 'AI_ORCHESTRATOR_COPILOT_HOME';
 export const COPILOT_ORCHESTRATOR_HOME_DIR = 'copilot-cli-home';
@@ -48,7 +52,7 @@ const BROWSER_GATEWAY_SYSTEM_PROMPT = [
 
 const CHROME_DEVTOOLS_ATTACH_PROMPT = [
   '[chrome-devtools attached to a managed browser profile]',
-  'The chrome-devtools.* tools are attached to an Harness-managed Chrome profile — the SAME browser the browser.* tools open and control. This is the one case where browser.* and chrome-devtools.* share a browser.',
+  'The chrome-devtools.* tools are attached to a Harness-managed Chrome profile — the SAME browser the browser.* tools open and control. This is the one case where browser.* and chrome-devtools.* share a browser.',
   'Workflow: first open and sign into the managed profile with browser.find_or_open (complete any login), THEN use chrome-devtools.* — it connects to that same live browser on first tool use, so the profile must be open first.',
   'If a chrome-devtools.* tool reports it cannot connect to a browser, the managed profile is not running yet: open it via browser.* first, then retry.',
   'For accessibility scans on worker-managed browser sessions, run `$AIO_AXE_RUNNER --browser-url "$AIO_BROWSER_URL" --page-url <url>`.',
@@ -58,6 +62,18 @@ const MOBILE_MCP_ATTACH_PROMPT = [
   '[mobile-mcp attached to a leased Android device]',
   'Use mobile-mcp tools for Android testing only against the leased serial named in the Android device lease section.',
   'Every mobile tool call must pass that serial as its `device` parameter.',
+].join('\n');
+
+const COMPUTER_USE_SYSTEM_PROMPT = [
+  '[Harness Computer Use]',
+  'When the user asks you to observe or control a desktop application (not a web page), use the computer.* tools.',
+  'Always call computer.health first. If it reports the driver is unhealthy or missing macOS permissions (Screen Recording / Accessibility), report the exact setupActions to the user and use computer.raise_escalation instead of attempting observe/input actions.',
+  'Discover targets with computer.list_apps, then request access with computer.request_app_grant and wait for approval (poll computer.get_approval_status). You may only observe or control an app the user has explicitly granted.',
+  'Before any input action (click, type_text, hotkey, scroll, drag) you MUST first capture a fresh observation and pass its observationToken. Use computer.accessibility_snapshot for click, type_text, scroll, and drag so targets can be bound to accessibility elements or coordinates inside observed app bounds. Tokens are single-app, time-bounded, and invalidated when the focused window changes.',
+  'Use computer.query_elements against the accessibility observation token to locate UI elements by role/label/text. When an elementUid is supplied, Harness ignores caller coordinates and uses the observed element center. Coordinate clicks, scrolls, and both drag endpoints must remain inside observed app bounds.',
+  'For login, credential entry, payment, destructive, or otherwise sensitive actions, use computer.raise_escalation and let the user complete the step; never type passwords or secrets yourself.',
+  'Certain apps (the Harness itself, terminals, password managers, Keychain, System Settings security panes, provider apps) are hard-denied and can never be controlled — do not attempt to work around a denial.',
+  'Use computer.list_grants and computer.revoke_grant to review and clean up access you no longer need.',
 ].join('\n');
 
 /**
@@ -136,8 +152,33 @@ export function withBrowserGatewayProvider(
   };
 }
 
+/**
+ * True when the spawn carries a Harness Computer Use bridge — either the
+ * dedicated {@link UnifiedSpawnOptions.computerUseMcp} option or a `computer-use`
+ * server already present in the inline `mcpConfig` (which the spawn-config
+ * builder injects for all providers). Lets the system-prompt / Gemini-settings
+ * helpers react without every spawn site populating the dedicated option.
+ */
+function hasComputerUseBridge(options: UnifiedSpawnOptions): boolean {
+  if (options.computerUseMcp) {
+    return true;
+  }
+  return hasInlineMcpServerConfig(options.mcpConfig ?? [], 'computer-use');
+}
+
+export function withComputerUseProvider(
+  options: ComputerUseMcpConfigOptions,
+  provider: string,
+): ComputerUseMcpConfigOptions {
+  return {
+    ...options,
+    provider: options.provider ?? provider,
+  };
+}
+
 export function withBrowserGatewaySystemPrompt(options: UnifiedSpawnOptions): UnifiedSpawnOptions {
-  if (!options.browserGatewayMcp && !options.chromeDevtoolsMcp && !options.mobileMcp) {
+  const computerUse = hasComputerUseBridge(options);
+  if (!options.browserGatewayMcp && !options.chromeDevtoolsMcp && !options.mobileMcp && !computerUse) {
     return options;
   }
   const existingPrompt = options.systemPrompt?.trim() ?? '';
@@ -160,6 +201,12 @@ export function withBrowserGatewaySystemPrompt(options: UnifiedSpawnOptions): Un
     !existingPrompt.includes('[mobile-mcp attached to a leased Android device]')
   ) {
     sections.push(MOBILE_MCP_ATTACH_PROMPT);
+  }
+  if (
+    computerUse &&
+    !existingPrompt.includes('[Harness Computer Use]')
+  ) {
+    sections.push(COMPUTER_USE_SYSTEM_PROMPT);
   }
   return {
     ...options,
@@ -195,7 +242,7 @@ export function extendEnvWithRtk(
 export function toCodexReasoningEffort(
   reasoningEffort: UnifiedSpawnOptions['reasoningEffort'],
 ): CodexReasoningEffort | undefined {
-  if (reasoningEffort === 'max' || reasoningEffort === 'workflow') {
+  if (reasoningEffort === 'workflow') {
     return undefined;
   }
   return reasoningEffort;
@@ -214,6 +261,46 @@ function mergeGeminiMcpServers(json: string | null, into: Record<string, unknown
   }
   const parsed = JSON.parse(json) as { mcpServers?: Record<string, unknown> };
   Object.assign(into, parsed.mcpServers ?? {});
+}
+
+/**
+ * Merge the Harness Computer Use MCP server into a Gemini settings object.
+ *
+ * Gemini reads MCP servers from a settings.json file rather than inline JSON,
+ * so the `computer-use` server the spawn-config builder pushes onto `mcpConfig`
+ * (consumed directly by Claude/Codex/Copilot) would otherwise be dropped for
+ * Gemini. Prefer the dedicated {@link UnifiedSpawnOptions.computerUseMcp}
+ * option; otherwise recover the already-built server spec from the inline
+ * `mcpConfig` so injection works even when only the inline path is populated.
+ */
+function mergeComputerUseGeminiSettings(
+  options: UnifiedSpawnOptions,
+  into: Record<string, unknown>,
+): void {
+  if (options.computerUseMcp) {
+    mergeGeminiMcpServers(
+      buildComputerUseGeminiSettingsJson(
+        withComputerUseProvider(options.computerUseMcp, 'gemini'),
+      ),
+      into,
+    );
+    return;
+  }
+  for (const entry of options.mcpConfig ?? []) {
+    const trimmed = entry.trim();
+    if (!trimmed.startsWith('{')) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as { mcpServers?: Record<string, unknown> };
+      const server = parsed.mcpServers?.['computer-use'];
+      if (server) {
+        into['computer-use'] = server;
+      }
+    } catch {
+      // Ignore malformed inline entries; other providers validate separately.
+    }
+  }
 }
 
 export function writeGeminiBrowserGatewaySettings(
@@ -240,6 +327,7 @@ export function writeGeminiBrowserGatewaySettings(
       mcpServers,
     );
   }
+  mergeComputerUseGeminiSettings(options, mcpServers);
   if (Object.keys(mcpServers).length === 0) {
     return undefined;
   }

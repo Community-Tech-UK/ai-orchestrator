@@ -21,6 +21,12 @@ export * from './desktop-mcp-tools';
 export * from './desktop-redaction';
 export * from './desktop-session-lock';
 export * from './platform/desktop-driver';
+export * from './platform/desktop-helper-protocol';
+export { DarwinDesktopDriver } from './platform/darwin-driver';
+export {
+  BundledDarwinHelperClient,
+  resolveDesktopHelperPath,
+} from './platform/darwin-helper-client';
 
 export interface DesktopGatewayRuntimeOptions
   extends DesktopGatewayRpcServerOptions,
@@ -40,4 +46,9 @@ export async function initializeDesktopGatewayRuntime(
     userDataPath,
     service,
   });
+  // Prime the spawn-injection gate so the synchronous spawn-config-builder can
+  // decide injection without async driver probes on the spawn hot path.
+  if (typeof service.refreshInjectionState === 'function') {
+    await service.refreshInjectionState().catch(() => undefined);
+  }
 }

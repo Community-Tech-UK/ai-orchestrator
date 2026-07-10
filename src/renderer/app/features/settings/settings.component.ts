@@ -41,6 +41,7 @@ import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.com
 import { MobileSettingsTabComponent } from './mobile-settings-tab.component';
 import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
 import { ProviderQuotaSettingsTabComponent } from './provider-quota-settings-tab.component';
+import { ComputerUseSettingsTabComponent } from './computer-use-settings-tab.component';
 import { NetworkSettingsTabComponent } from './network-settings-tab.component';
 import { DoctorSettingsTabComponent } from './doctor-settings-tab.component';
 import { RtkSavingsTabComponent } from './rtk-savings-tab.component';
@@ -83,6 +84,7 @@ import {
     AdvancedSettingsTabComponent,
     KeyboardSettingsTabComponent,
     PermissionsSettingsTabComponent,
+    ComputerUseSettingsTabComponent,
     ConnectionsSettingsTabComponent,
     NetworkSettingsTabComponent,
     DoctorSettingsTabComponent,

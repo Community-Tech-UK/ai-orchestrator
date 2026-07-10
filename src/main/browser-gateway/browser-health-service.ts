@@ -98,6 +98,8 @@ export interface BrowserGatewayHealthReport {
       contactGaps: BrowserExtensionContactGapStats;
       /** Most recent channel-close reported by the node's native host. */
       lastDisconnect?: BrowserExtensionDisconnectRecord;
+      /** Observed MV3 service-worker restarts since this service began watching the node. */
+      serviceWorkerRestarts: number;
       registration?: 'ok' | 'repaired' | 'contested' | 'error';
       lastRegistrationCheckAt?: number;
     }>;
@@ -186,6 +188,8 @@ export class BrowserHealthService {
   private readonly mcpBridgeAvailable: () => boolean;
   private readonly chromeRuntimeDetector: () => Promise<BrowserChromeRuntimeHealth>;
   private readonly now: () => number;
+  private readonly extensionStartedAtByNode = new Map<string, number>();
+  private readonly serviceWorkerRestartsByNode = new Map<string, number>();
 
   constructor(options: BrowserHealthServiceOptions = {}) {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
@@ -348,6 +352,10 @@ export class BrowserHealthService {
           queue,
           contactGaps: this.extensionContactState.getContactGapStats(node.id),
           ...(lastDisconnect ? { lastDisconnect } : {}),
+          serviceWorkerRestarts: this.serviceWorkerRestartCount(
+            node.id,
+            relay?.extensionReloadedAt,
+          ),
           registration: relay?.registration,
           lastRegistrationCheckAt: relay?.lastRegistrationCheckAt,
         };
@@ -358,6 +366,21 @@ export class BrowserHealthService {
       silent: nodes.filter((node) => node.silent).length,
       nodes,
     };
+  }
+
+  private serviceWorkerRestartCount(nodeId: string, extensionStartedAt: number | undefined): number {
+    if (extensionStartedAt === undefined) {
+      return this.serviceWorkerRestartsByNode.get(nodeId) ?? 0;
+    }
+    const previous = this.extensionStartedAtByNode.get(nodeId);
+    if (previous !== undefined && previous !== extensionStartedAt) {
+      this.serviceWorkerRestartsByNode.set(
+        nodeId,
+        (this.serviceWorkerRestartsByNode.get(nodeId) ?? 0) + 1,
+      );
+    }
+    this.extensionStartedAtByNode.set(nodeId, extensionStartedAt);
+    return this.serviceWorkerRestartsByNode.get(nodeId) ?? 0;
   }
 }
 

@@ -43,14 +43,14 @@
 
     <ng-template #itemBody let-item>
           @if (item.type === 'thought-group') {
-            @if (hasThoughtGroupContent(item, showThinking())) {
+            @if (hasThoughtGroupContent(item, showThinking()) || item.collapsedThinkingFallback) {
               <div class="thought-group">
                 @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
-                  @if (showThinking()) {
+                  @if (showThinking() || item.collapsedThinkingFallback) {
                     <app-thought-process
                       [thoughts]="item.thoughts || []"
                       [thinkingBlocks]="item.thinking"
-                      [defaultExpanded]="thinkingDefaultExpanded()"
+                      [defaultExpanded]="thinkingDefaultExpanded() && !item.collapsedThinkingFallback"
                       [instanceId]="instanceId()"
                       [itemId]="item.id"
                     />

@@ -32,6 +32,10 @@ import { parseTaskLedger } from './loop-task-ledger';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { readUtf8FileHead } from './bounded-file-read';
 import { isInsideOrEqual } from '../util/path-helpers';
+import {
+  hasTerminalSentinelLine,
+  matchesTerminalOutputPattern,
+} from './loop-terminal-sentinels';
 import type {
   CompletionSignalEvidence,
   LoopConfig,
@@ -140,8 +144,8 @@ export class CompletedFileWatcher {
     // pressure, chokidar's native close() can stall long enough to trip
     // afterEach/hookTimeout during pre-push. Polling keeps rename detection
     // correct in tests without pinning the kernel watcher.
-    const usePolling = process.env.VITEST === 'true'
-      || process.env.AIO_LOOP_WATCH_POLLING === '1';
+    const usePolling = process.env['VITEST'] === 'true'
+      || process.env['AIO_LOOP_WATCH_POLLING'] === '1';
     this.watcher = watch(this.watchTargets(), {
       depth: 0,
       ignoreInitial: true,
@@ -364,9 +368,11 @@ export function isSubstantiveInvestigationReport(content: string): boolean {
  */
 export const MORE_WORK_REMAINING_SENTINEL = '[[LOOP:MORE_WORK_REMAINING]]';
 
+export { matchesTerminalOutputPattern } from './loop-terminal-sentinels';
+
 /** Pure + exported for testing. True iff the agent declared more work remains. */
 export function parseAgentMoreWorkRemaining(output: string): boolean {
-  return typeof output === 'string' && output.includes(MORE_WORK_REMAINING_SENTINEL);
+  return hasTerminalSentinelLine(output, MORE_WORK_REMAINING_SENTINEL);
 }
 
 export class LoopCompletionDetector {
@@ -457,8 +463,8 @@ export class LoopCompletionDetector {
     // agent prompt requires a durable marker as well (DONE.txt, plan checklist,
     // or completed-plan rename), and those signals are what can stop the loop.
     try {
-      const re = new RegExp(config.completion.donePromiseRegex, 'i');
-      if (re.test(iteration.outputExcerpt)) {
+      const output = iteration.outputFull || iteration.outputExcerpt;
+      if (matchesTerminalOutputPattern(output, config.completion.donePromiseRegex, 'i')) {
         out.push({
           id: 'done-promise',
           sufficient: false,

@@ -360,6 +360,14 @@ export interface Instance {
   autoRespawnSuppressedUntil?: number;
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
+  /**
+   * Desired YOLO mode queued while the instance was busy. YOLO is a spawn-time
+   * CLI flag (`--dangerously-skip-permissions`) applied by respawning, which is
+   * refused mid-turn. A toggle requested while busy is parked here and applied
+   * automatically on the next transition to a settled (idle/ready) state.
+   * Cleared once applied or cancelled. Undefined means no change is queued.
+   */
+  pendingYoloMode?: boolean;
   launchMode: InstanceLaunchMode; // Orchestrated agent loop or human-driven interactive terminal
   provider: InstanceProvider; // Which CLI provider is being used
   /** Run Claude in lightweight --bare mode when supported. Defaults false. */

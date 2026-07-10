@@ -106,6 +106,27 @@ export const DesktopWaitForRequestSchema = z.object({
   timeoutMs: z.number().int().min(1).max(30_000).optional(),
 }).strict();
 
+export const DesktopQueryElementsRequestSchema = z.object({
+  observationToken: observationTokenSchema,
+  appId: appIdSchema.optional(),
+  text: z.string().trim().min(1).max(500).optional(),
+  role: z.string().trim().min(1).max(128).optional(),
+  label: z.string().trim().min(1).max(500).optional(),
+  value: z.string().trim().min(1).max(500).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+}).strict();
+
+export const DesktopListGrantsRequestSchema = z.object({
+  appId: appIdSchema.optional(),
+  includeExpired: z.boolean().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+}).strict();
+
+export const DesktopRevokeGrantRequestSchema = z.object({
+  grantId: z.string().trim().min(1).max(256),
+  reason: boundedTextSchema.optional(),
+}).strict();
+
 export const DesktopAuditLogRequestSchema = z.object({
   appId: appIdSchema.optional(),
   limit: z.number().int().min(1).max(200).optional(),

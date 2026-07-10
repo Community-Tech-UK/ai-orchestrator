@@ -25,6 +25,7 @@ import {
 } from './settings-help-core';
 import {
   CLI_HEALTH_TAB_HELP,
+  COMPUTER_USE_TAB_HELP,
   CONNECTIONS_TAB_HELP,
   DOCTOR_TAB_HELP,
   MOBILE_TAB_HELP,
@@ -45,6 +46,7 @@ export const SETTINGS_TAB_HELP: Record<SettingsTab, HelpEntry> = {
   'display': DISPLAY_TAB_HELP,
   'ecosystem': ECOSYSTEM_TAB_HELP,
   'permissions': PERMISSIONS_TAB_HELP,
+  'computer-use': COMPUTER_USE_TAB_HELP,
   'review': REVIEW_TAB_HELP,
   'advanced': ADVANCED_TAB_HELP,
   'keyboard': KEYBOARD_TAB_HELP,

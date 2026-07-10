@@ -113,6 +113,11 @@ export interface ClaudeCliSpawnOptions {
   allowedTools?: string[];
   disallowedTools?: string[];
   systemPrompt?: string;
+  /** 'append' (default) → `--append-system-prompt` (keeps Claude Code's default
+   *  system prompt: tool guidance, safety, todo machinery); 'replace' →
+   *  `--system-prompt` (ours becomes the entire system prompt — minimal
+   *  one-shot spawns only). */
+  systemPromptMode?: 'append' | 'replace';
   mcpConfig?: string[];  // MCP server config file paths or inline JSON strings
   /** Enable Claude in Chrome extension integration (--chrome flag).
    *  This exposes legacy raw browser automation and must be explicitly requested. */

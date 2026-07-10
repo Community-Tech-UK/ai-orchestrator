@@ -364,3 +364,36 @@ export const RTK_SAVINGS_TAB_HELP: HelpEntry = {
     },
   ],
 };
+
+export const COMPUTER_USE_TAB_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Lets local agents observe and control approved desktop apps through the Harness-owned computer-use MCP server (macOS v1). Off by default.',
+    },
+    {
+      kind: 'callout',
+      variant: 'warning',
+      heading: 'Grants are per app',
+      body: 'Agents can only touch apps you explicitly grant. Sensitive apps (the Harness itself, terminals, password managers, Keychain, System Settings security, payment apps) are always hard-denied.',
+    },
+    {
+      kind: 'steps',
+      heading: 'Setup on macOS',
+      items: [
+        'Enable Computer Use above.',
+        'Grant Screen Recording and Accessibility to AI Orchestrator (use the Open settings buttons).',
+        'Install the input helper (brew install cliclick) to enable click/type/scroll/drag.',
+        'Click Refresh to re-check permission and driver health.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'tip',
+      heading: 'Approvals happen inline',
+      body: 'When an agent requests app access you approve it in the normal approval card. This tab is for reviewing health, active grants, and the audit log, and for revoking grants.',
+    },
+  ],
+};

@@ -202,6 +202,23 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     },
 
     /**
+     * Subscribe to YOLO changes pushed from main: an applied toggle, or a
+     * change queued/cancelled while the instance was busy. `pendingYoloMode`
+     * carries the parked value (undefined when nothing is queued). Returns an
+     * unsubscribe fn.
+     */
+    onYoloToggled: (
+      callback: (payload: { instanceId: string; yoloMode: boolean; pendingYoloMode?: boolean }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        payload: { instanceId: string; yoloMode: boolean; pendingYoloMode?: boolean }
+      ): void => callback(payload);
+      ipcRenderer.on(ch.INSTANCE_YOLO_TOGGLED, listener);
+      return () => ipcRenderer.removeListener(ch.INSTANCE_YOLO_TOGGLED, listener);
+    },
+
+    /**
      * Subscribe to fast-mode changes pushed from main (user toggle or provider
      * auto-revert when fast mode is unavailable). Returns an unsubscribe fn.
      */

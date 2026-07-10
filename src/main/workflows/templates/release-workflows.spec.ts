@@ -63,4 +63,12 @@ describe('release workflow templates', () => {
     expect(newAppSetupWorkflowTemplate.phases[3].systemPromptAddition)
       .toContain('privacy nutrition labels');
   });
+
+  it('uses reusable user-approval language without a hardcoded operator name', () => {
+    const prompts = iosReleaseWorkflowTemplate.phases
+      .map((phase) => phase.systemPromptAddition ?? '')
+      .join('\n');
+    expect(prompts).toContain('explicit user approval');
+    expect(prompts).not.toContain('James');
+  });
 });

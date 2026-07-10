@@ -10,7 +10,14 @@ describe('agent.types', () => {
     expect(build.systemPrompt).toEqual(expect.stringContaining('Use the existing architecture and idioms.'));
     expect(build.systemPrompt).toEqual(expect.stringContaining('Before claiming completion, run appropriate verification'));
     expect(build.systemPrompt).toEqual(expect.stringContaining('fresh review pass of your own changes'));
-    expect(build.systemPrompt).toEqual(expect.stringContaining('Loop Mode / fresh-eyes review'));
+    expect(build.systemPrompt).not.toEqual(expect.stringContaining('Loop Mode / fresh-eyes review'));
+  });
+
+  it('defines an exact fence-free mode-switch marker protocol for Plan mode', () => {
+    const plan = getAgentById('plan')!;
+    expect(plan.systemPrompt).toContain('on their own lines');
+    expect(plan.systemPrompt).toContain('no code fence');
+    expect(plan.systemPrompt).toContain('never mention or quote these markers');
   });
 
   describe('observer profile (E12)', () => {

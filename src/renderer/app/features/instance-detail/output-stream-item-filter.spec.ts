@@ -65,16 +65,31 @@ describe('filterDisplayItems', () => {
     expect(result.map((i) => i.id)).toEqual(['a', 'c']);
   });
 
-  it('promotes thought-only groups to assistant messages when thinking is hidden', () => {
+  it('keeps thought-only groups as a collapsed-thinking accordion when thinking is hidden', () => {
+    // These used to be flattened into a bare assistant message, which rendered
+    // an empty "CLAUDE" header (the reasoning text was created after the
+    // markdown pass and never rendered). Now they stay thought-groups flagged
+    // to render a collapsed-by-default accordion.
     const items = [message('a'), thoughtGroup('planning', { empty: true }), message('c')];
     const result = filterDisplayItems(items, {
       hideToolGroups: false,
       hideEmptyThoughts: true,
       isThoughtGroupEmpty,
     });
-    expect(result.map((i) => i.id)).toEqual(['a', 'msg-planning', 'c']);
-    expect(result[1].type).toBe('message');
-    expect(result[1].message?.content).toBe('reasoning');
+    expect(result.map((i) => i.id)).toEqual(['a', 'planning', 'c']);
+    expect(result[1].type).toBe('thought-group');
+    expect(result[1].collapsedThinkingFallback).toBe(true);
+  });
+
+  it('does not mutate the original when flagging a collapsed-thinking fallback', () => {
+    const group = thoughtGroup('planning', { empty: true });
+    const result = filterDisplayItems([group], {
+      hideToolGroups: false,
+      hideEmptyThoughts: true,
+      isThoughtGroupEmpty,
+    });
+    expect(result[0]).not.toBe(group);
+    expect(group.collapsedThinkingFallback).toBeUndefined();
   });
 
   it('drops truly empty thought-groups when thinking is hidden', () => {
@@ -97,7 +112,7 @@ describe('filterDisplayItems', () => {
     expect(result.map((i) => i.id)).toEqual(['withResponse']);
   });
 
-  it('promotes hidden thought-groups inside work-cycle children', () => {
+  it('flags hidden thought-groups inside work-cycle children as collapsed accordions', () => {
     const cycle = workCycle('cycle', [
       thoughtGroup('planning', { empty: true }),
       message('err'),
@@ -108,8 +123,9 @@ describe('filterDisplayItems', () => {
       isThoughtGroupEmpty,
     });
     expect(result).toHaveLength(1);
-    expect(result[0].children?.map((c) => c.id)).toEqual(['msg-planning', 'err']);
-    expect(result[0].children?.[0].type).toBe('message');
+    expect(result[0].children?.map((c) => c.id)).toEqual(['planning', 'err']);
+    expect(result[0].children?.[0].type).toBe('thought-group');
+    expect(result[0].children?.[0].collapsedThinkingFallback).toBe(true);
   });
 
   it('drops a work-cycle whose children are all truly empty thought-groups', () => {

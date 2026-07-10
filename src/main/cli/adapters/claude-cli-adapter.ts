@@ -1116,9 +1116,19 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
 
     // Don't pass system prompt when resuming - the session already has one
-    // and Claude CLI doesn't support changing it mid-session
+    // and Claude CLI doesn't support changing it mid-session.
+    // Default is APPEND: `--system-prompt` REPLACES Claude Code's entire default
+    // system prompt (tool guidance, safety, todo machinery) and also disables
+    // --exclude-dynamic-system-prompt-sections. Our orchestration prompt and
+    // agent profiles are written as overlays (agent.types.ts documents
+    // systemPrompt as "to prepend"), so they must ride on top of the default,
+    // not supplant it. Only explicit systemPromptMode: 'replace' (minimal
+    // one-shot spawns like title generation) uses the replacing flag.
     if (this.spawnOptions.systemPrompt && !this.spawnOptions.resume) {
-      args.push('--system-prompt', this.spawnOptions.systemPrompt);
+      const flag = this.spawnOptions.systemPromptMode === 'replace'
+        ? '--system-prompt'
+        : '--append-system-prompt';
+      args.push(flag, this.spawnOptions.systemPrompt);
     }
 
     // MCP server configurations (file paths or inline JSON strings). On Windows

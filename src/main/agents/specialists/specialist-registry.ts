@@ -311,6 +311,13 @@ export class SpecialistRegistryManager extends EventEmitter {
 
     let prompt = profile.systemPromptAddition;
 
+    // Shared evidence discipline for every specialist: findings must be anchored
+    // to code actually read, never inferred (see docs/llm audit rubric C9).
+    prompt +=
+      '\n\nEvidence rule: never speculate about code or behaviour you have not actually read. ' +
+      'Anchor every finding to a file (and line where possible). If you could not examine ' +
+      'something relevant, say so explicitly instead of guessing.';
+
     // Add tool restrictions
     if (profile.restrictedTools.length > 0) {
       prompt += `\n\nIMPORTANT: You must NOT use the following tools: ${profile.restrictedTools.join(', ')}`;

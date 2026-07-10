@@ -158,4 +158,35 @@ describe('DesktopGatewayRpcServer', () => {
       },
     );
   });
+
+  it('limits cumulative payload bytes per instance within the rate window', async () => {
+    const service = {
+      typeText: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
+    };
+    const server = new DesktopGatewayRpcServer({
+      service,
+      isKnownLocalInstance: (id) => id === 'instance-1',
+      registerCleanup: () => undefined,
+      maxPayloadBytes: 512,
+      rateLimit: { maxRequests: 10, maxBytes: 300, windowMs: 10_000 },
+    });
+    const request = {
+      jsonrpc: '2.0' as const,
+      method: 'computer.type_text',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          appId: 'darwin-app:com.apple.Preview',
+          observationToken: 'obs_123',
+          text: 'x'.repeat(100),
+        },
+      },
+    };
+
+    await server.handleRequest({ ...request, id: 1 });
+    await expect(server.handleRequest({ ...request, id: 2 })).rejects.toThrow(
+      'Computer Use RPC byte rate limit exceeded',
+    );
+    expect(service.typeText).toHaveBeenCalledTimes(1);
+  });
 });

@@ -117,6 +117,27 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     supportsThinking: false,
     supportsBatching: false,
   },
+  'codex:gpt-5.6-sol': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: false,
+    pricing: pricingFor(OPENAI_MODELS.GPT56_SOL),
+  },
+  'codex:gpt-5.6-terra': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: false,
+    pricing: pricingFor(OPENAI_MODELS.GPT56_TERRA),
+  },
+  'codex:gpt-5.6-luna': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: false,
+    pricing: pricingFor(OPENAI_MODELS.GPT56_LUNA),
+  },
   'codex:gpt-5.5': {
     contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,

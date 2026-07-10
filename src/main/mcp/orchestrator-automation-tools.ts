@@ -460,7 +460,7 @@ export function createAutomationToolDefinitions(
     {
       name: 'postpone_automation',
       description:
-        'Postpone (delay/snooze) an Harness automation\'s next run to a later time. Use this when the user asks to "postpone", "delay", "snooze", or "push back" an automation. For a one-time automation this reschedules its single run; for a recurring automation it skips ahead to the new time once and then resumes its normal cadence. Provide exactly one of untilIso (an absolute ISO-8601 time) or delayMinutes (relative push). Call list_automations first to find the id. Returns the new next run time.',
+        'Postpone (delay/snooze) a Harness automation\'s next run to a later time. Use this when the user asks to "postpone", "delay", "snooze", or "push back" an automation. For a one-time automation this reschedules its single run; for a recurring automation it skips ahead to the new time once and then resumes its normal cadence. Provide exactly one of untilIso (an absolute ISO-8601 time) or delayMinutes (relative push). Call list_automations first to find the id. Returns the new next run time.',
       inputSchema: {
         type: 'object',
         properties: {

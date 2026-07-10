@@ -77,6 +77,12 @@ export interface BrowserExtensionSendCommandRequest {
    * Once delivered, the command gets its full `timeoutMs` execution window.
    */
   undeliveredWaitMs?: number;
+  describeChannelState?: () => BrowserExtensionCommandChannelState;
+}
+
+export interface BrowserExtensionCommandChannelState {
+  active: boolean;
+  summary: string;
 }
 
 export interface BrowserExtensionQueueSnapshot {
@@ -110,6 +116,7 @@ interface PendingCommand {
   dequeuedAt?: number;
   /** Set when the extension acknowledges receiving the command. */
   receivedAt?: number;
+  describeChannelState?: () => BrowserExtensionCommandChannelState;
 }
 
 export class BrowserExtensionCommandStore {
@@ -170,6 +177,7 @@ export class BrowserExtensionCommandStore {
         reject,
         timeout,
         executionWindowMs: timeoutMs,
+        describeChannelState: request.describeChannelState,
       });
       this.enqueue(queueKey, command);
     });
@@ -345,7 +353,7 @@ export class BrowserExtensionCommandStore {
   private armExecutionTimeout(pending: PendingCommand, commandId: string): void {
     pending.timeout = setTimeout(() => {
       this.pending.delete(commandId);
-      pending.reject(new Error('browser_extension_command_timeout'));
+      pending.reject(new Error(formatDeliveredCommandTimeout(pending.describeChannelState?.())));
     }, pending.executionWindowMs);
   }
 
@@ -385,6 +393,18 @@ export class BrowserExtensionCommandStore {
     }
     return pollers;
   }
+}
+
+function formatDeliveredCommandTimeout(
+  channelState: BrowserExtensionCommandChannelState | undefined,
+): string {
+  if (!channelState) {
+    return 'browser_extension_command_timeout';
+  }
+  if (!channelState.active) {
+    return `browser_extension_channel_down (${channelState.summary})`;
+  }
+  return `browser_extension_command_timeout (channel active - command not answered; ${channelState.summary})`;
 }
 
 export function getBrowserExtensionCommandStore(): BrowserExtensionCommandStore {

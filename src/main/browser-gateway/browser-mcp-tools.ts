@@ -34,6 +34,8 @@ const TOOL_NAMES = [
   'browser.query_elements',
   'browser.health',
   'browser.get_audit_log',
+  'browser.checkpoint_save',
+  'browser.checkpoint_resume',
   'browser.raise_escalation',
   'browser.get_campaign',
   'browser.list_campaigns',
@@ -477,6 +479,36 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     instanceId: stringProp,
     limit: numberProp,
   }),
+  'browser.checkpoint_save': objectSchema({
+    workflowId: {
+      ...stringProp,
+      description: 'Stable workflow id, e.g. play-data-safety/com.example.app.',
+    },
+    stepId: {
+      ...stringProp,
+      description: 'Completed workflow step id to record.',
+    },
+    pageFingerprint: {
+      ...stringProp,
+      description:
+        'Caller-computed page-state fingerprint, such as URL, heading, app/package identity, and saved-state text.',
+    },
+    resultSummary: {
+      ...stringProp,
+      description: 'Optional non-secret result summary to persist with the checkpoint.',
+    },
+    completedAt: {
+      ...numberProp,
+      description: 'Optional epoch-ms completion timestamp. Defaults to now.',
+    },
+  }, ['workflowId', 'stepId', 'pageFingerprint']),
+  'browser.checkpoint_resume': objectSchema({
+    workflowId: {
+      ...stringProp,
+      description:
+        'Stable workflow id to load. Re-verify returned step fingerprints before skipping completed work.',
+    },
+  }, ['workflowId']),
   'browser.raise_escalation': objectSchema({
     campaignId: stringProp,
     profileId: profileIdProp,

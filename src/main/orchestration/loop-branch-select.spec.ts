@@ -177,6 +177,7 @@ describe('runBranchSelect orchestration (LF-5)', () => {
       taskPackets: expect.arrayContaining([
         expect.objectContaining({
           id: 'branch-candidate-1',
+          objective: 'goal',
           verificationPlan: [passingVerifyCommand()],
         }),
       ]),

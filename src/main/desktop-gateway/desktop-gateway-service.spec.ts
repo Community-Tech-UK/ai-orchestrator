@@ -1,6 +1,10 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { DesktopGatewayService } from './desktop-gateway-service';
 import { InMemoryDesktopGatewayAuditStore } from './desktop-gateway-audit-store';
+import { InMemoryDesktopGrantStore } from './desktop-grant-store';
 import type {
   DesktopAccessibilitySnapshotResult,
   DesktopAppDescriptor,
@@ -14,6 +18,7 @@ const APP: DesktopAppDescriptor = {
   platform: 'darwin',
   bundleId: 'com.apple.Preview',
   pid: 123,
+  windowId: 'window-1',
   visibleWindowCount: 1,
 };
 
@@ -118,6 +123,380 @@ describe('DesktopGatewayService', () => {
     });
   });
 
+  it('resolves an observed element uid to bounded coordinates before clicking', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-save',
+          role: 'AXButton',
+          label: 'Save',
+          bounds: { x: 10, y: 20, width: 100, height: 40 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), {
+      appId: APP.appId,
+    });
+
+    await service.click(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+      elementUid: 'ax-save',
+    });
+
+    expect(driver.click).toHaveBeenCalledWith(expect.objectContaining({
+      appId: APP.appId,
+      windowId: APP.windowId,
+      elementUid: 'ax-save',
+      x: 60,
+      y: 40,
+    }));
+  });
+
+  it('never trusts caller coordinates when an observed element uid is supplied', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-safe',
+          role: 'AXButton',
+          label: 'Continue',
+          bounds: { x: 100, y: 200, width: 40, height: 20 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+
+    await service.click(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+      elementUid: 'ax-safe',
+      x: 0,
+      y: 0,
+    });
+
+    expect(driver.click).toHaveBeenCalledWith(expect.objectContaining({ x: 120, y: 210 }));
+  });
+
+  it('allows coordinates inside the observed app and rejects off-app coordinates', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-window',
+          role: 'AXWindow',
+          bounds: { x: 100, y: 100, width: 400, height: 300 },
+          children: [{
+            uid: 'ax-safe',
+            role: 'AXButton',
+            label: 'Continue',
+            bounds: { x: 120, y: 130, width: 80, height: 30 },
+          }],
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+
+    await expect(service.click(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+      x: 140,
+      y: 140,
+    })).resolves.toMatchObject({ decision: 'allowed', outcome: 'ok' });
+    await expect(service.click(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+      x: 0,
+      y: 0,
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_target_outside_approved_window',
+    });
+    expect(driver.click).toHaveBeenCalledOnce();
+  });
+
+  it('blocks secure text fields and sensitive observed controls without trusting caller flags', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-password',
+          role: 'AXSecureTextField',
+          label: 'Password',
+          redacted: true,
+          focused: true,
+          bounds: { x: 10, y: 10, width: 120, height: 30 },
+        }, {
+          uid: 'ax-delete',
+          role: 'AXButton',
+          label: 'Delete account',
+          bounds: { x: 10, y: 50, width: 120, height: 30 },
+        }],
+        focusedUid: 'ax-password',
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+
+    await expect(service.typeText(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+      text: 'ordinary-password',
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    await expect(service.click(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+      elementUid: 'ax-delete',
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    expect(driver.typeText).not.toHaveBeenCalled();
+    expect(driver.click).not.toHaveBeenCalled();
+  });
+
+  it('reclassifies an element handle center against the deepest observed child', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-window',
+          role: 'AXWindow',
+          label: 'Document',
+          bounds: { x: 0, y: 0, width: 200, height: 200 },
+          children: [{
+            uid: 'ax-delete',
+            role: 'AXButton',
+            label: 'Delete account',
+            bounds: { x: 90, y: 90, width: 20, height: 20 },
+          }],
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+
+    await expect(service.click(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+      elementUid: 'ax-window',
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    expect(driver.click).not.toHaveBeenCalled();
+  });
+
+  it('blocks credential-submit labels and hotkeys on focused sensitive controls', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-sign-in',
+          role: 'AXButton',
+          label: 'Sign In',
+          focused: true,
+          bounds: { x: 10, y: 10, width: 100, height: 30 },
+        }],
+        focusedUid: 'ax-sign-in',
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+    const base = {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+    };
+
+    await expect(service.click(context(), {
+      ...base,
+      elementUid: 'ax-sign-in',
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    await expect(service.hotkey(context(), {
+      ...base,
+      keys: ['space'],
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    await expect(service.hotkey(context(), {
+      ...base,
+      keys: ['cmd', 'v'],
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    expect(driver.click).not.toHaveBeenCalled();
+    expect(driver.hotkey).not.toHaveBeenCalled();
+  });
+
+  it('rejects an observation after the active window changes within the approved app', async () => {
+    let activeWindowId = 'window-1';
+    const driver = makeDriver({
+      apps: [{ ...APP, windowId: activeWindowId }],
+      snapshot: {
+        appId: APP.appId,
+        windowId: activeWindowId,
+        nodes: [{
+          uid: 'ax-safe',
+          role: 'AXButton',
+          label: 'Save',
+          bounds: { x: 10, y: 10, width: 100, height: 30 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    vi.mocked(driver.listApps).mockImplementation(async () => [{ ...APP, windowId: activeWindowId }]);
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+    activeWindowId = 'window-2';
+
+    await expect(service.click(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+      elementUid: 'ax-safe',
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_target_changed',
+    });
+    expect(driver.click).not.toHaveBeenCalled();
+  });
+
+  it('returns a window-bound snapshot token from wait_for that can drive follow-up input', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        windowId: APP.windowId,
+        nodes: [{
+          uid: 'ax-save',
+          role: 'AXButton',
+          label: 'Save',
+          bounds: { x: 10, y: 20, width: 100, height: 40 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+
+    const waited = await service.waitFor(context(), {
+      appId: APP.appId,
+      condition: { label: 'Save' },
+      timeoutMs: 100,
+    });
+    await expect(service.click(context(), {
+      appId: APP.appId,
+      observationToken: waited.data!.observationToken,
+      elementUid: 'ax-save',
+    })).resolves.toMatchObject({ decision: 'allowed', outcome: 'ok' });
+    expect(driver.click).toHaveBeenCalledWith(expect.objectContaining({
+      windowId: APP.windowId,
+      elementUid: 'ax-save',
+    }));
+  });
+
+  it('keeps drags inside observed app bounds and blocks activation hotkeys', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-window',
+          role: 'AXWindow',
+          bounds: { x: 10, y: 10, width: 200, height: 200 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+    const base = {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken,
+    };
+
+    await expect(service.drag(context(), {
+      ...base,
+      start: { x: 20, y: 20 },
+      end: { x: 40, y: 40 },
+    })).resolves.toMatchObject({ decision: 'allowed', outcome: 'ok' });
+    await expect(service.drag(context(), {
+      ...base,
+      start: { x: 20, y: 20 },
+      end: { x: 400, y: 400 },
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_target_outside_approved_window',
+    });
+    await expect(service.hotkey(context(), {
+      ...base,
+      keys: ['enter'],
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    expect(driver.drag).toHaveBeenCalledOnce();
+    expect(driver.hotkey).not.toHaveBeenCalled();
+  });
+
   it('canonicalizes grant requests made by bundle id before applying approved grants', async () => {
     const service = makeService({
       apps: [APP],
@@ -133,7 +512,7 @@ describe('DesktopGatewayService', () => {
       appId: APP.appId,
       status: 'pending',
     });
-    await (service as any).resolveAppGrant(context(), {
+    await service.resolveAppGrant(context(), {
       requestId: grant.data!.requestId,
       approved: true,
       decidedBy: 'test-operator',
@@ -148,6 +527,31 @@ describe('DesktopGatewayService', () => {
         observationToken: expect.stringMatching(/^obs_/),
       },
     });
+  });
+
+  it('starts bounded grant duration when approval is granted, not when requested', async () => {
+    let now = 1_000;
+    const service = makeService({
+      apps: [APP],
+      now: () => now,
+    });
+    const requested = await service.requestAppGrant(context(), {
+      appId: APP.appId,
+      capability: 'observe',
+      reason: 'Observe Preview briefly',
+      duration: 'boundedMinutes',
+      minutes: 1,
+    });
+    now += 30_000;
+
+    await service.resolveAppGrant(context(), {
+      requestId: requested.data!.requestId,
+      approved: true,
+      decidedBy: 'test-operator',
+    });
+    const grants = await service.listGrants(context(), { includeExpired: true });
+
+    expect(grants.data?.grants[0]?.expiresAt).toBe(91_000);
   });
 
   it('routes app grant requests through the permission registry approval path', async () => {
@@ -285,18 +689,31 @@ describe('DesktopGatewayService', () => {
   });
 
   it('requires an approved input grant before clicking even with a fresh observation token', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-button',
+          role: 'AXButton',
+          label: 'Continue',
+          bounds: { x: 5, y: 6, width: 20, height: 10 },
+        }],
+        capturedAt: 1,
+      },
+    });
     const service = makeService({
       allowedApps: [APP.appId],
       apps: [APP],
+      driver,
     });
-    const screenshot = await service.screenshot(context(), { appId: APP.appId });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
 
     await expect(
-      (service as any).click(context(), {
+      service.click(context(), {
         appId: APP.appId,
-        observationToken: screenshot.data!.observationToken,
-        x: 5,
-        y: 6,
+        observationToken: snapshot.data!.observationToken,
+        elementUid: 'ax-button',
       }),
     ).resolves.toMatchObject({
       decision: 'denied',
@@ -306,7 +723,21 @@ describe('DesktopGatewayService', () => {
   });
 
   it('executes input actions only with an approved grant and redacts typed text from audit', async () => {
-    const driver = makeDriver({ apps: [APP] });
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-notes',
+          role: 'AXTextArea',
+          label: 'Notes',
+          focused: true,
+          bounds: { x: 5, y: 6, width: 200, height: 100 },
+        }],
+        focusedUid: 'ax-notes',
+        capturedAt: 1,
+      },
+    });
     const auditStore = new InMemoryDesktopGatewayAuditStore();
     const service = makeService({
       driver,
@@ -320,17 +751,17 @@ describe('DesktopGatewayService', () => {
       reason: 'Fill the controlled test app',
       duration: 'session',
     });
-    await (service as any).resolveAppGrant(context(), {
+    await service.resolveAppGrant(context(), {
       requestId: grant.data!.requestId,
       approved: true,
       decidedBy: 'test-operator',
     });
-    const screenshot = await service.screenshot(context(), { appId: APP.appId });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
 
     await expect(
-      (service as any).typeText(context(), {
+      service.typeText(context(), {
         appId: APP.appId,
-        observationToken: screenshot.data!.observationToken,
+        observationToken: snapshot.data!.observationToken,
         text: 'super secret typed value',
       }),
     ).resolves.toMatchObject({
@@ -356,7 +787,19 @@ describe('DesktopGatewayService', () => {
 
   it('rejects stale observation tokens before running the input driver', async () => {
     let now = 1783468800000;
-    const driver = makeDriver({ apps: [APP] });
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-button',
+          role: 'AXButton',
+          label: 'Continue',
+          bounds: { x: 5, y: 6, width: 20, height: 10 },
+        }],
+        capturedAt: 1,
+      },
+    });
     const service = makeService({
       driver,
       now: () => now,
@@ -364,15 +807,14 @@ describe('DesktopGatewayService', () => {
       apps: [APP],
       requireApprovalForInput: false,
     });
-    const screenshot = await service.screenshot(context(), { appId: APP.appId });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
     now += 16_000;
 
     await expect(
-      (service as any).click(context(), {
+      service.click(context(), {
         appId: APP.appId,
-        observationToken: screenshot.data!.observationToken,
-        x: 5,
-        y: 6,
+        observationToken: snapshot.data!.observationToken,
+        elementUid: 'ax-button',
       }),
     ).resolves.toMatchObject({
       decision: 'denied',
@@ -407,6 +849,11 @@ function makeService(options: {
       snapshot: options.snapshot,
     }),
     auditStore: options.auditStore ?? new InMemoryDesktopGatewayAuditStore(),
+    // Hermetic per-service stores: an in-memory grant store plus a unique temp
+    // userDataPath so the file-backed session lock never bleeds state between
+    // tests or runs.
+    grantStore: new InMemoryDesktopGrantStore(),
+    userDataPath: mkdtempSync(join(tmpdir(), 'aio-desktop-gateway-spec-')),
     permissionRegistry: options.permissionRegistry,
     settings: {
       get: (key) => {

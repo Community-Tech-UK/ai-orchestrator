@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { detectAndroidIntent } from '../channels/android-intent';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
@@ -14,6 +15,7 @@ import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import { sendServiceRpc } from '../remote-node/service-rpc-client';
 import { createRemoteNodeFileTransferImplementations } from '../remote-node/remote-node-file-transfer-mcp-service';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
+import { getPermissionRegistry } from '../orchestration/permission-registry';
 import {
   getAutomationRunner,
   getAutomationScheduler,
@@ -159,6 +161,34 @@ export function createOrchestratorToolsStep(
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+        authorizeReleaseMutation: async ({ instanceId, method, payload }) => {
+          const isAndroid = method === 'orchestrator_tools.execute_android_play_release';
+          const appIdentity = isAndroid ? payload['packageName'] : payload['bundleId'];
+          const releaseIdentity = isAndroid ? payload['versionCode'] : payload['buildNumber'];
+          const destination = isAndroid
+            ? (payload['track'] ?? payload['destinationTrack'])
+            : payload['destination'];
+          const safeLabel = (value: unknown): string => String(value ?? '')
+            .replace(/[\r\n\t\u0000-\u001f\u007f]+/g, ' ')
+            .trim()
+            .slice(0, 200);
+          const decision = await getPermissionRegistry().requestPermission({
+            id: `release_${randomUUID()}`,
+            instanceId,
+            action: 'store_release_mutation',
+            description: `Allow ${isAndroid ? 'Google Play' : 'App Store Connect'} release for ${safeLabel(appIdentity) || 'unknown app'} (${safeLabel(releaseIdentity) || 'unknown version'}) to ${safeLabel(destination) || 'unknown destination'}?`,
+            toolName: method.slice('orchestrator_tools.'.length),
+            details: {
+              platform: isAndroid ? 'android' : 'ios',
+              appIdentity: safeLabel(appIdentity),
+              releaseIdentity: safeLabel(releaseIdentity),
+              destination: safeLabel(destination),
+            },
+            createdAt: Date.now(),
+            timeoutMs: 5 * 60_000,
+          });
+          return decision.granted && decision.decidedBy === 'user';
+        },
         // Backs the read-only `list_remote_nodes` MCP tool: expose only
         // operational routing/status fields already advertised by workers.
         listRemoteNodes: async () => {

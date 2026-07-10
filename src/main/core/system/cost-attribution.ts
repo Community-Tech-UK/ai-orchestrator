@@ -13,11 +13,13 @@
  *     turns and spawned child instances. `taskType` derives from the
  *     instance's parent/agent shape.
  *
- * Enabled only when AIO_COST_ATTRIBUTION=1 (or "true"). Output directory:
+ * Enabled by default (opt-out with AIO_COST_ATTRIBUTION=0 or "false") so
+ * day-to-day burn is always attributable. Output directory:
  * AIO_COST_ATTRIBUTION_DIR if set, otherwise `<userData>/cost-attribution`.
- * Outside Electron with no explicit dir the sink stays disabled. Writes must
- * never break the invocation path: every failure is swallowed after a single
- * warning.
+ * Outside Electron with no explicit dir the sink stays disabled, so worker
+ * and test contexts stay silent unless they opt in with an explicit dir.
+ * Writes must never break the invocation path: every failure is swallowed
+ * after a single warning.
  */
 
 import { appendFileSync, mkdirSync } from 'fs';
@@ -62,8 +64,10 @@ let cachedDir: string | null | undefined;
 let warnedOnce = false;
 
 function isEnabled(): boolean {
+  // Default-on: only an explicit opt-out disables the sink. '1'/'true' remain
+  // valid (legacy opt-in invocations keep working unchanged).
   const raw = process.env['AIO_COST_ATTRIBUTION'];
-  return raw === '1' || raw === 'true';
+  return raw !== '0' && raw !== 'false';
 }
 
 function resolveElectronUserData(): string | undefined {
@@ -116,8 +120,8 @@ export function getCostAttributionFilePath(): string | null {
 }
 
 /**
- * Append one attribution record. No-op unless AIO_COST_ATTRIBUTION is set and
- * a sink directory is resolvable. Never throws.
+ * Append one attribution record. No-op when AIO_COST_ATTRIBUTION opts out
+ * ('0'/'false') or no sink directory is resolvable. Never throws.
  */
 export function recordCostAttribution(record: CostAttributionRecord): void {
   if (!isEnabled()) return;

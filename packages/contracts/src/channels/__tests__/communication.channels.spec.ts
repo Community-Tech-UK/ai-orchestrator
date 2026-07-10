@@ -37,6 +37,9 @@ describe('COMMUNICATION_CHANNELS', () => {
     expect(COMMUNICATION_CHANNELS.PAIR_BOTH_COORDINATOR_APPROVE).toBe('pair-both:coordinator:approve');
     expect(COMMUNICATION_CHANNELS.PAIR_BOTH_WORKER_CONNECT).toBe('pair-both:worker:connect');
     expect(COMMUNICATION_CHANNELS.PAIR_BOTH_WORKER_APPLY_MANUAL).toBe('pair-both:worker:apply-manual');
+    expect(COMMUNICATION_CHANNELS.PAIR_BOTH_WORKER_RUN_MODE).toBe('pair-both:worker:run-mode');
+    expect(COMMUNICATION_CHANNELS.PAIR_BOTH_WORKER_STOP).toBe('pair-both:worker:stop');
+    expect(COMMUNICATION_CHANNELS.PAIR_BOTH_WORKER_UNPAIR).toBe('pair-both:worker:unpair');
   });
 
   it('has remote filesystem channels', () => {

@@ -32,6 +32,8 @@ const ALLOWED_TOOLS = [
   'browser.query_elements',
   'browser.health',
   'browser.get_audit_log',
+  'browser.checkpoint_save',
+  'browser.checkpoint_resume',
   'browser.raise_escalation',
   'browser.get_campaign',
   'browser.list_campaigns',
@@ -76,6 +78,7 @@ describe('browser-mcp-tools', () => {
     const queryElements = tools.find((tool) => tool.name === 'browser.query_elements');
     const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
     const pauseForManualStep = tools.find((tool) => tool.name === 'browser.pause_for_manual_step');
+    const checkpointSave = tools.find((tool) => tool.name === 'browser.checkpoint_save');
 
     expect(listTargets?.inputSchema).toMatchObject({
       type: 'object',
@@ -151,6 +154,16 @@ describe('browser-mcp-tools', () => {
           enum: ['manual_review', 'login', 'captcha', 'two_factor'],
         },
         reason: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(checkpointSave?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['workflowId', 'stepId', 'pageFingerprint'],
+      properties: {
+        workflowId: { type: 'string' },
+        stepId: { type: 'string' },
+        pageFingerprint: { type: 'string' },
       },
       additionalProperties: false,
     });

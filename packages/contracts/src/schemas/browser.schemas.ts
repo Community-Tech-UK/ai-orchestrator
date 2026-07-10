@@ -691,3 +691,10 @@ export const BrowserListAuditLogRequestSchema = z
 export type BrowserListAuditLogRequest = z.infer<
   typeof BrowserListAuditLogRequestSchema
 >;
+
+export const BrowserWorkflowCheckpointSaveRequestSchema = z.object({
+  workflowId: z.string().min(1).max(500), stepId: z.string().min(1).max(300),
+  pageFingerprint: z.string().min(1).max(4000), resultSummary: z.string().max(2000).optional(),
+  completedAt: z.number().int().nonnegative().optional(),
+}).strict();
+export const BrowserWorkflowCheckpointResumeRequestSchema = z.object({ workflowId: z.string().min(1).max(500) }).strict();

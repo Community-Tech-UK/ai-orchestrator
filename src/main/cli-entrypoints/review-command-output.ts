@@ -1,4 +1,6 @@
-export type HeadlessReviewSeverity = 'critical' | 'high' | 'medium' | 'low';
+import type { ReviewSeverity } from '../../shared/types/review-severity';
+
+export type HeadlessReviewSeverity = ReviewSeverity;
 
 export interface HeadlessReviewReviewer {
   provider: string;

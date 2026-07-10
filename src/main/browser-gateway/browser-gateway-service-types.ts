@@ -21,6 +21,7 @@ import type { FillPlanStep } from './browser-fill-plan-executor';
 import type { CredentialVault, CredentialFieldKind } from './browser-credential-vault';
 import type { CredentialAuthorizationService } from './browser-credential-authorization-store';
 import type { BrowserEmailCodeReader } from './browser-email-code-reader';
+import type { BrowserRemoteUploadStagingResult } from './browser-remote-upload-staging';
 
 export interface BrowserGatewayContext {
   instanceId?: string;
@@ -193,9 +194,12 @@ export interface BrowserGatewayServiceOptions {
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
   /**
    * Copy a coordinator-local file onto a remote worker node before an
-   * existing-tab upload there, returning the node-local path to hand to the
-   * extension. Defaults to the FileTransferService-backed implementation;
-   * injectable for tests.
+   * existing-tab upload there, returning the node-local path plus the
+   * host-to-node size/SHA-256 integrity assertion. Defaults to the
+   * FileTransferService-backed implementation; injectable for tests.
    */
-  stageUploadFileOnNode?: (nodeId: string, localPath: string) => Promise<string>;
+  stageUploadFileOnNode?: (
+    nodeId: string,
+    localPath: string,
+  ) => Promise<BrowserRemoteUploadStagingResult>;
 }

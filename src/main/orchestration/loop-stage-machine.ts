@@ -31,6 +31,7 @@ import {
   LOOP_TASKS_TEMPLATE,
 } from './loop-stage-files';
 import { renderPlanPacketInstructions } from './loop-plan-packet';
+import { CLEAN_REVIEW_SENTINEL } from './loop-terminal-sentinels';
 
 export {
   curateNotesContent,
@@ -624,7 +625,7 @@ ${contextModeLine}
 There is no human in the loop. Make the decisions a senior engineer would defend; do not ask questions (the next iteration won't see them).
 
 ## Your job this iteration
-1. **Advance the goal.** Do the next concrete chunk of real work toward the goal below. Use maintainable architecture; no shortcuts, stubs, or placeholder/constant-return logic standing in for the real thing.
+1. **Advance the goal when work remains.** Do the next concrete chunk of real work toward the goal below. Use maintainable architecture; no shortcuts, stubs, or placeholder/constant-return logic standing in for the real thing. If a genuine fresh-eyes review finds nothing actionable, do not invent work or gold-plate the result; proceed to the clean declaration below without changing production code.
 2. **Re-review your own work with completely fresh eyes.** Pretend a stranger wrote everything and you are the reviewer. Hunt specifically for:
    - things the goal asked for that are NOT actually implemented (orphan code, stubs, TODOs, "not implemented", fake/mock behaviour in production paths, docs that claim done with no real wiring);
    - specs that say one thing while the code does another;
@@ -652,13 +653,17 @@ ${config.initialPrompt}
 ## How this loop stops
 The loop ends after **${required} consecutive** iterations where, after a genuine fresh-eyes pass, you (a) made **no** code changes and (b) found nothing left to fix that you can act on.
 
-When — and ONLY when — that is true this iteration (you changed no production code, and everything remaining is either done or sits under "## Needs human" in \`${outstandingRel}\`), end your message with a clear statement that there are no actionable issues or remaining autonomous work. Preferred wording:
+When — and ONLY when — that is true this iteration (you changed no production code, and everything remaining is either done or sits under "## Needs human" in \`${outstandingRel}\`), end your message with this human-readable statement:
 
 ${preferredCleanStatement}
 
-Do **not** write an equivalent clean statement in any other situation. If you changed code or found anything actionable, keep working. Claiming a clean review prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
+Then emit this structured sentinel on its own line within the final 12 lines of your output:
 
-If the loop is about to stop but you KNOW real work still remains — e.g. your wording was misread as "done", or an item is genuinely unresolved — emit \`[[LOOP:MORE_WORK_REMAINING]]\` on its own line in your output. The coordinator treats it as an authoritative "do not stop yet" and keeps the loop running. It can only ever keep the loop going; it can never cause a premature stop.
+${CLEAN_REVIEW_SENTINEL}
+
+Never quote or repeat that sentinel while discussing these instructions; emit it only when actually declaring a clean review. The human-readable sentence alone is not a completion signal. Do **not** write an equivalent clean statement in any other situation. If you changed code or found anything actionable, keep working. Claiming a clean review prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
+
+If the loop is about to stop but you KNOW real work still remains — e.g. your wording was misread as "done", or an item is genuinely unresolved — emit \`[[LOOP:MORE_WORK_REMAINING]]\` on its own line within the final 12 lines of your output. Never quote or repeat that token while discussing these instructions; emit it only when actually vetoing completion. The coordinator treats it as an authoritative "do not stop yet" and keeps the loop running. It can only ever keep the loop going; it can never cause a premature stop.
 
 ## Safety
 This loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations (\`rm -rf\`, \`git push --force\`, schema drops). Honor that.

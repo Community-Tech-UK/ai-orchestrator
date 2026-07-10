@@ -95,6 +95,13 @@ interface OrchestratorToolsRpcParams {
   payload: Record<string, unknown>;
 }
 
+export interface ReleaseMutationAuthorizationRequest {
+  instanceId: string;
+  method: 'orchestrator_tools.execute_android_play_release'
+    | 'orchestrator_tools.execute_ios_asc_finalization';
+  payload: Record<string, unknown>;
+}
+
 export interface OrchestratorToolsRpcServerOptions extends FileTransferToolContext {
   operatorDbPath?: string;
   userDataPath?: string;
@@ -136,6 +143,9 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
    * omitted, every instance keeps the full toolset.
    */
   resolveSpawnEligibility?: (instanceId: string) => boolean;
+  authorizeReleaseMutation?: (
+    request: ReleaseMutationAuthorizationRequest,
+  ) => Promise<boolean>;
   /** Inject the tool factory in tests so we can avoid touching the real DB. */
   toolFactory?: (deps: OrchestratorToolRuntimeContext) => McpServerToolDefinition[];
 }
@@ -160,6 +170,9 @@ export class OrchestratorToolsRpcServer {
   private readonly updateAutomation: UpdateAutomationFn | null;
   private readonly postponeAutomation: PostponeAutomationFn | null;
   private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
+  private readonly authorizeReleaseMutation: NonNullable<
+    OrchestratorToolsRpcServerOptions['authorizeReleaseMutation']
+  >;
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
   /** True when callers provided their own toolFactory — usually tests that
@@ -198,6 +211,7 @@ export class OrchestratorToolsRpcServer {
     this.updateAutomation = options.updateAutomation ?? null;
     this.postponeAutomation = options.postponeAutomation ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
+    this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
     const register = options.registerCleanup ?? registerGlobalCleanup;
@@ -415,9 +429,20 @@ export class OrchestratorToolsRpcServer {
       case 'orchestrator_tools.build_ios_release_plan':
       case 'orchestrator_tools.build_android_release_plan':
       case 'orchestrator_tools.build_new_app_setup_plan':
-      case 'orchestrator_tools.execute_android_play_release':
-      case 'orchestrator_tools.execute_ios_asc_finalization':
+      case 'orchestrator_tools.generate_play_data_safety_csv':
         return this.dispatchSameNameTool(request.method, params);
+      case 'orchestrator_tools.execute_android_play_release':
+      case 'orchestrator_tools.execute_ios_asc_finalization': {
+        const authorized = await this.authorizeReleaseMutation({
+          instanceId: params.instanceId,
+          method: request.method,
+          payload: params.payload,
+        });
+        if (!authorized) {
+          throw new Error('release_operator_authorization_required');
+        }
+        return this.dispatchSameNameTool(request.method, params);
+      }
       default:
         throw new Error(`Unknown orchestrator-tools RPC method: ${request.method}`);
     }

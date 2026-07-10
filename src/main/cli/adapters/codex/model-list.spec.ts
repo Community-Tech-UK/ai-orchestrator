@@ -104,6 +104,23 @@ describe('Codex app-server model/list discovery', () => {
     });
   });
 
+  it('enriches the live GPT-5.6 family with canonical static names and tiers', async () => {
+    const client = makeClient([{
+      data: [
+        codexModel({ model: 'gpt-5.6-sol', displayName: 'gpt-5.6-sol', isDefault: true }),
+        codexModel({ model: 'gpt-5.6-terra', displayName: 'gpt-5.6-terra' }),
+        codexModel({ model: 'gpt-5.6-luna', displayName: 'gpt-5.6-luna' }),
+      ],
+      nextCursor: null,
+    }]);
+
+    await expect(listCodexModelsFromAppServer(client)).resolves.toEqual([
+      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', tier: 'powerful', family: 'GPT', pinned: true },
+      { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', tier: 'balanced', family: 'GPT' },
+      { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', tier: 'fast', family: 'GPT' },
+    ]);
+  });
+
   it('dedupes by runnable model slug and ignores hidden or malformed entries', async () => {
     const client = makeClient([
       {

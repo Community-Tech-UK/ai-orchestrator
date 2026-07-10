@@ -611,7 +611,8 @@ export class InstanceMessagingStore {
     // Some adapters keep the IPC send promise open for the whole turn rather
     // than just message acceptance. Keep this renderer guard beyond backend
     // watchdogs so it only catches a wedged bridge, not normal long turns.
-    if (provider === 'cursor' || provider === 'copilot') {
+    // Grok Build uses the same ACP session/prompt contract as Cursor.
+    if (provider === 'cursor' || provider === 'copilot' || provider === 'grok') {
       return TURN_BLOCKING_SEND_INPUT_IPC_TIMEOUT_MS;
     }
     return DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS;

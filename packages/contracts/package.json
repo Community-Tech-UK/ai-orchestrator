@@ -51,6 +51,7 @@
     "./channels/automation":      { "types": "./src/channels/automation.channels.ts",      "default": "./src/channels/automation.channels.ts" },
     "./channels/voice":           { "types": "./src/channels/voice.channels.ts",           "default": "./src/channels/voice.channels.ts" },
     "./channels/browser":         { "types": "./src/channels/browser.channels.ts",         "default": "./src/channels/browser.channels.ts" },
+    "./channels/desktop":         { "types": "./src/channels/desktop.channels.ts",         "default": "./src/channels/desktop.channels.ts" },
     "./channels/conversation-ledger": { "types": "./src/channels/conversation-ledger.channels.ts", "default": "./src/channels/conversation-ledger.channels.ts" },
     "./channels/operator":        { "types": "./src/channels/operator.channels.ts",        "default": "./src/channels/operator.channels.ts" },
     "./channels/chat":            { "types": "./src/channels/chat.channels.ts",            "default": "./src/channels/chat.channels.ts" },

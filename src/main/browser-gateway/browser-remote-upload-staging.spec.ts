@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stageBrowserUploadOnNode } from './browser-remote-upload-staging';
 
-const copyToRemote = vi.fn(async () => ({ ok: true as const, size: 8, from: 'a', to: 'b' }));
+const copyToRemote = vi.fn(async () => ({
+  ok: true as const,
+  size: 8,
+  sha256: 'a'.repeat(64),
+  from: 'a',
+  to: 'b',
+}));
 const getNode = vi.fn();
 
 vi.mock('../remote-node/file-transfer-service', () => ({
@@ -25,14 +31,19 @@ describe('stageBrowserUploadOnNode', () => {
   it('stages into a Windows-style _scratch path when the node root is a Windows path', async () => {
     getNode.mockReturnValue(nodeWithWorkingDirectories(['C:\\work\\aio']));
 
-    const remotePath = await stageBrowserUploadOnNode('node-1', '/Users/james/build/app release.aab');
+    const staged = await stageBrowserUploadOnNode('node-1', '/Users/james/build/app release.aab');
 
-    expect(remotePath).toMatch(
+    expect(staged.remotePath).toMatch(
       /^C:\\work\\aio\\_scratch\\aio-browser-uploads\\[0-9a-f-]+-app_release\.aab$/,
     );
+    expect(staged).toMatchObject({
+      size: 8,
+      sha256: 'a'.repeat(64),
+      integrity: 'size-and-sha256',
+    });
     expect(copyToRemote).toHaveBeenCalledWith({
       localPath: '/Users/james/build/app release.aab',
-      remotePath,
+      remotePath: staged.remotePath,
       nodeId: 'node-1',
     });
   });
@@ -40,9 +51,9 @@ describe('stageBrowserUploadOnNode', () => {
   it('stages into a POSIX-style _scratch path when the node root is a POSIX path', async () => {
     getNode.mockReturnValue(nodeWithWorkingDirectories(['/home/james/aio']));
 
-    const remotePath = await stageBrowserUploadOnNode('node-1', '/Users/james/build/app.aab');
+    const staged = await stageBrowserUploadOnNode('node-1', '/Users/james/build/app.aab');
 
-    expect(remotePath).toMatch(
+    expect(staged.remotePath).toMatch(
       /^\/home\/james\/aio\/_scratch\/aio-browser-uploads\/[0-9a-f-]+-app\.aab$/,
     );
   });

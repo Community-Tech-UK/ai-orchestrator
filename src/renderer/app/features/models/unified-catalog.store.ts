@@ -100,6 +100,7 @@ export class UnifiedCatalogStore {
         name: entry.name ?? humanizeModelId(entry.id),
         tier: entry.tier,
         ...(entry.family ? { family: entry.family } : {}),
+        ...(entry.localModel ? { localModel: entry.localModel } : {}),
       }));
     }
     const curated = new Map(getModelsForProvider(provider).map((m) => [m.id, m]));

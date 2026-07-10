@@ -11,6 +11,7 @@ type WorkerModeState =
   | 'idle'
   | 'looking'
   | 'selecting'
+  | 'service-choice'
   | 'confirming'
   | 'waiting-approval'
   | 'connected'
@@ -35,6 +36,10 @@ type WorkerModeState =
         <div class="notice error" role="alert">{{ error() }}</div>
       }
 
+      @if (networkHelp()) {
+        <div class="notice guidance" role="status">{{ networkHelp() }}</div>
+      }
+
       @if (state() === 'idle') {
         <div class="action-panel">
           <button class="primary-action" type="button" (click)="pairWithHarness()">
@@ -47,7 +52,10 @@ type WorkerModeState =
       }
 
       @if (state() === 'looking') {
-        <div class="status-panel" role="status">Looking for Harness on your network...</div>
+        <div class="status-panel" role="status">
+          <strong>Looking for Harness on your network...</strong>
+          <span>{{ osPermissionCopy() }}</span>
+        </div>
       }
 
       @if (state() === 'selecting') {
@@ -94,6 +102,22 @@ type WorkerModeState =
         <div class="status-panel" role="status">Waiting for approval on the main Harness...</div>
       }
 
+      @if (state() === 'service-choice' && pairedConfig(); as config) {
+        <div class="connected-panel">
+          <h2>Connected to {{ config.name }}</h2>
+          <p>This computer is paired. How should this worker run?</p>
+          <div class="button-row">
+            <button class="primary-small" type="button" (click)="chooseRunWhileOpen()">
+              Run while Harness is open
+            </button>
+            <button class="secondary-small" type="button" (click)="chooseBackgroundService()">
+              Install background service
+            </button>
+          </div>
+          <p class="field-label">Background service install may ask for administrator permission.</p>
+        </div>
+      }
+
       @if (state() === 'connected' && pairedConfig(); as config) {
         <div class="connected-panel">
           <h2>Connected to {{ config.name }}</h2>
@@ -104,7 +128,11 @@ type WorkerModeState =
             <span>{{ config.maxConcurrentInstances }} slots</span>
           </div>
           <div class="button-row">
+            <button class="primary-small" type="button" (click)="stopWorker()">Stop Worker</button>
             <button class="secondary-small" type="button" (click)="resetPairing()">Pair Again</button>
+            <button class="secondary-small" type="button" (click)="unpairWorker()">
+              Unpair this computer
+            </button>
             <button class="secondary-small" type="button" (click)="switchRole()">Settings</button>
           </div>
         </div>
@@ -208,6 +236,18 @@ type WorkerModeState =
       border-color: var(--pill-error-border);
       background: var(--pill-error-bg);
       color: var(--pill-error-fg);
+    }
+
+    .notice.guidance {
+      border-color: var(--pill-warn-border, var(--border-color));
+      background: var(--pill-warn-bg, var(--bg-secondary));
+      color: var(--pill-warn-fg, var(--text-primary));
+    }
+
+    .status-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
 
     .primary-action,
@@ -333,6 +373,7 @@ export class WorkerModeComponent {
   protected readonly manualInvitation = signal('');
   protected readonly manualConfig = signal('');
   protected readonly error = signal<string | null>(null);
+  protected readonly networkHelp = signal<string | null>(null);
 
   protected subtitle(): string {
     if (this.pairedConfig()) {
@@ -343,11 +384,20 @@ export class WorkerModeComponent {
 
   protected async pairWithHarness(): Promise<void> {
     this.error.set(null);
+    this.networkHelp.set(this.osPermissionCopy());
     this.state.set('looking');
     try {
       const candidates = await this.pairBoth.discoverCandidates();
       this.candidates.set(candidates);
-      this.state.set(candidates.length > 0 ? 'selecting' : 'manual');
+      if (candidates.length > 0) {
+        this.networkHelp.set(null);
+        this.state.set('selecting');
+      } else {
+        this.networkHelp.set(
+          'Harness could not find another computer on this network. Show the QR code on the main Harness, or paste its pairing invitation here.',
+        );
+        this.state.set('manual');
+      }
     } catch (error) {
       this.showError(error);
     }
@@ -379,7 +429,7 @@ export class WorkerModeComponent {
       const config = await this.pairBoth.waitForWorkerResult();
       this.pairedConfig.set(config);
       await this.rememberCoordinator(config);
-      this.state.set('connected');
+      this.state.set('service-choice');
     } catch (error) {
       this.showError(error);
     }
@@ -391,7 +441,7 @@ export class WorkerModeComponent {
       const config = await this.pairBoth.applyManualPairing(this.manualConfig());
       this.pairedConfig.set(config);
       await this.rememberCoordinator(config);
-      this.state.set('connected');
+      this.state.set('service-choice');
     } catch (error) {
       this.showError(error);
     }
@@ -399,10 +449,75 @@ export class WorkerModeComponent {
 
   protected resetPairing(): void {
     this.error.set(null);
+    this.networkHelp.set(null);
     this.pairingState.set(null);
     this.candidates.set([]);
     this.manualInvitation.set('');
     this.state.set(this.pairedConfig() ? 'connected' : 'idle');
+  }
+
+  protected async chooseRunWhileOpen(): Promise<void> {
+    this.error.set(null);
+    try {
+      const runtime = await this.pairBoth.runWorker('run-while-open');
+      await this.settings.update({
+        workerMode: {
+          ...this.settings.workerMode(),
+          startWorkerOnLaunch: true,
+          installWorkerService: false,
+        },
+      });
+      this.setRuntime(runtime);
+      this.state.set('connected');
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  protected async chooseBackgroundService(): Promise<void> {
+    this.error.set(null);
+    try {
+      const runtime = await this.pairBoth.runWorker('background-service');
+      await this.settings.update({
+        workerMode: {
+          ...this.settings.workerMode(),
+          startWorkerOnLaunch: false,
+          installWorkerService: true,
+        },
+      });
+      this.setRuntime(runtime);
+      this.state.set('connected');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.error.set(this.toFriendlyPairingError(message));
+      this.state.set('service-choice');
+    }
+  }
+
+  protected async stopWorker(): Promise<void> {
+    this.error.set(null);
+    try {
+      await this.pairBoth.stopWorker();
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  protected async unpairWorker(): Promise<void> {
+    this.error.set(null);
+    try {
+      await this.pairBoth.unpairWorker();
+      this.pairedConfig.set(null);
+      await this.settings.set('workerMode', {
+        ...this.settings.workerMode(),
+        role: 'unset',
+        lastCoordinatorName: undefined,
+        lastCoordinatorUrl: undefined,
+      });
+      this.state.set('idle');
+    } catch (error) {
+      this.showError(error);
+    }
   }
 
   protected async switchRole(): Promise<void> {
@@ -422,8 +537,34 @@ export class WorkerModeComponent {
     });
   }
 
+  private setRuntime(runtime: PairBothWorkerConfigSummary['runtime']): void {
+    const config = this.pairedConfig();
+    if (config) {
+      this.pairedConfig.set({ ...config, runtime });
+    }
+  }
+
   private showError(error: unknown): void {
-    this.error.set(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    this.error.set(this.toFriendlyPairingError(message));
     this.state.set('error');
+  }
+
+  protected osPermissionCopy(): string {
+    const platform = navigator.platform.toLowerCase();
+    if (platform.includes('mac')) {
+      return 'macOS may ask whether Harness can find devices on your local network. Allow it so this computer can find your other Harness machine.';
+    }
+    if (platform.includes('win')) {
+      return 'Windows may ask whether Harness can accept private network connections. Allow private networks so your other computer can pair.';
+    }
+    return 'Your operating system or firewall may ask for local network access. Allow it so Harness can find your other computer.';
+  }
+
+  private toFriendlyPairingError(message: string): string {
+    if (/discover|bonjour|mdns|network|permission|firewall/i.test(message)) {
+      return `${message} Try QR or paste pairing if local network discovery is blocked.`;
+    }
+    return message;
   }
 }

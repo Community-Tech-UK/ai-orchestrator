@@ -22,14 +22,22 @@ import type {
 
 const DEFAULT_PAIR_BOTH_TTL_MS = 5 * 60_000;
 const DEFAULT_MAX_CONCURRENT_INSTANCES = 10;
+const MAX_FAILED_ATTEMPTS_PER_REMOTE = 5;
+const FAILED_ATTEMPT_WINDOW_MS = 60_000;
 
 interface PairBothAuthPort {
   issuePairingCredential(options: { label?: string; ttlMs?: number }): RemotePairingCredential;
+  revokePairingCredential?(token: string): boolean;
 }
 
 interface PairBothSessionRecord extends PairBothSessionState {
   keyMaterial: PairBothKeyMaterial;
   pairingCredentialToken?: string;
+}
+
+interface FailedAttemptState {
+  count: number;
+  windowStartedAt: number;
 }
 
 export interface PairBothSessionStoreOptions {
@@ -47,6 +55,8 @@ export interface BeginPairBothCoordinatorSessionInput {
 
 export class PairBothSessionStore {
   private readonly sessions = new Map<string, PairBothSessionRecord>();
+  private readonly failedAttemptsByRemote = new Map<string, FailedAttemptState>();
+  private readonly failedAttemptsBySession = new Map<string, FailedAttemptState>();
   private readonly now: () => number;
 
   constructor(private readonly options: PairBothSessionStoreOptions) {
@@ -84,29 +94,59 @@ export class PairBothSessionStore {
     return this.toState(record);
   }
 
-  acceptWorkerHello(sessionId: string, hello: PairBothHello): PairBothSessionState {
-    const record = this.requireActive(sessionId);
-    if (hello.pairingSessionId !== sessionId) {
-      throw new Error('Worker hello does not match this pairing session');
-    }
-    if (hello.role !== 'worker') {
-      throw new Error('Pair-both session expected a worker hello');
-    }
+  acceptWorkerHello(
+    sessionId: string,
+    hello: PairBothHello,
+    remoteAddress?: string,
+  ): PairBothSessionState {
+    this.pruneFailedRemoteAttempts();
+    const rateLimitKey = remoteAddress?.trim() || undefined;
+    this.assertAttemptAllowed(rateLimitKey, sessionId);
+    try {
+      const record = this.requireActive(sessionId);
+      if (hello.pairingSessionId !== sessionId) {
+        throw new Error('Worker hello does not match this pairing session');
+      }
+      if (hello.role !== 'worker') {
+        throw new Error('Pair-both session expected a worker hello');
+      }
+      if (record.workerHello) {
+        throw new Error('Pair-both session already has a worker hello');
+      }
 
-    const transcript = buildPairBothTranscript({
-      protocolVersion: record.protocolVersion,
-      pairingSessionId: record.sessionId,
-      coordinator: record.coordinatorHello,
-      worker: hello,
-    });
-    record.workerHello = hello;
-    record.shortCode = derivePairBothCodeForHellos({
-      privateKey: record.keyMaterial.privateKey,
-      peerPublicKey: hello.publicKey,
-      transcript,
-    });
-    record.status = 'confirming';
-    return this.toState(record);
+      const transcript = buildPairBothTranscript({
+        protocolVersion: record.protocolVersion,
+        pairingSessionId: record.sessionId,
+        coordinator: record.coordinatorHello,
+        worker: hello,
+      });
+      let shortCode: string;
+      try {
+        shortCode = derivePairBothCodeForHellos({
+          privateKey: record.keyMaterial.privateKey,
+          peerPublicKey: hello.publicKey,
+          transcript,
+        });
+      } catch {
+        throw new Error('Invalid worker public key');
+      }
+      record.workerHello = hello;
+      record.shortCode = shortCode;
+      record.status = 'confirming';
+      this.clearFailedAttempts(rateLimitKey, sessionId);
+      return this.toState(record);
+    } catch (error) {
+      this.recordFailedAttempt(rateLimitKey, sessionId);
+      throw error;
+    }
+  }
+
+  registerMalformedRemoteAttempt(remoteAddress?: string, sessionId?: string): void {
+    this.pruneFailedRemoteAttempts();
+    const rateLimitKey = remoteAddress?.trim() || undefined;
+    const sessionLimitKey = sessionId?.trim() || undefined;
+    this.assertAttemptAllowed(rateLimitKey, sessionLimitKey);
+    this.recordFailedAttempt(rateLimitKey, sessionLimitKey);
   }
 
   confirmWorkerCode(sessionId: string): PairBothSessionState {
@@ -180,18 +220,18 @@ export class PairBothSessionStore {
       throw new Error('Pairing payload has already been delivered');
     }
 
-    const ttlMs = Math.max(1_000, record.expiresAt - this.now());
-    const credential = this.options.auth.issuePairingCredential({
-      label: record.workerHello.machineName,
-      ttlMs,
-    });
-    record.pairingCredentialToken = credential.token;
-    record.payloadDelivered = true;
-    record.status = 'completed';
+    if (!record.pairingCredentialToken) {
+      const ttlMs = Math.max(1_000, record.expiresAt - this.now());
+      const credential = this.options.auth.issuePairingCredential({
+        label: record.workerHello.machineName,
+        ttlMs,
+      });
+      record.pairingCredentialToken = credential.token;
+    }
 
     const connectionConfig: PairBothConnectionConfig = {
       name: record.workerHello.machineName,
-      authToken: credential.token,
+      authToken: record.pairingCredentialToken,
       coordinatorUrl: record.coordinatorUrl,
       namespace: record.namespace,
       maxConcurrentInstances: DEFAULT_MAX_CONCURRENT_INSTANCES,
@@ -202,6 +242,56 @@ export class PairBothSessionStore {
       sessionId,
       connectionConfig,
     };
+  }
+
+  markPayloadDelivered(sessionId: string): PairBothSessionState {
+    const record = this.requireSession(sessionId);
+    if (record.payloadDelivered && record.status === 'completed') {
+      return this.toState(record);
+    }
+    if (
+      record.status !== 'approved'
+      || !record.pairingCredentialToken
+      || !record.workerConfirmed
+      || !record.coordinatorApproved
+    ) {
+      throw new Error('Cannot complete pairing before encrypted payload delivery');
+    }
+    record.payloadDelivered = true;
+    record.status = 'completed';
+    return this.toState(record);
+  }
+
+  abortPayloadDelivery(sessionId: string, reason: string): PairBothSessionState {
+    const record = this.requireSession(sessionId);
+    if (record.payloadDelivered || record.status === 'completed') {
+      return this.toState(record);
+    }
+    if (record.pairingCredentialToken) {
+      this.options.auth.revokePairingCredential?.(record.pairingCredentialToken);
+      record.pairingCredentialToken = undefined;
+    }
+    record.status = 'rejected';
+    record.error = reason;
+    return this.toState(record);
+  }
+
+  expireSession(sessionId: string): PairBothSessionState {
+    const record = this.requireSession(sessionId);
+    if (
+      record.status === 'completed'
+      || record.status === 'rejected'
+      || record.status === 'cancelled'
+    ) {
+      return this.toState(record);
+    }
+    if (record.pairingCredentialToken) {
+      this.options.auth.revokePairingCredential?.(record.pairingCredentialToken);
+      record.pairingCredentialToken = undefined;
+    }
+    record.status = 'expired';
+    record.error = 'Pairing session expired';
+    return this.toState(record);
   }
 
   produceEncryptedPairingPayload(sessionId: string): PairBothPayloadResult {
@@ -265,6 +355,91 @@ export class PairBothSessionStore {
         record.status = 'expired';
         record.error = 'Pairing session expired';
       }
+    }
+  }
+
+  private assertAttemptAllowed(
+    remoteAddress: string | undefined,
+    sessionId: string | undefined,
+  ): void {
+    const remoteAttempts = remoteAddress
+      ? this.currentFailedAttempts(this.failedAttemptsByRemote, remoteAddress)
+      : 0;
+    const sessionAttempts = sessionId
+      ? this.currentFailedAttempts(this.failedAttemptsBySession, sessionId)
+      : 0;
+    if (
+      remoteAttempts >= MAX_FAILED_ATTEMPTS_PER_REMOTE
+      || sessionAttempts >= MAX_FAILED_ATTEMPTS_PER_REMOTE
+    ) {
+      throw new Error('Too many pairing attempts from this computer. Wait a moment and try QR or paste pairing again.');
+    }
+  }
+
+  private recordFailedAttempt(
+    remoteAddress: string | undefined,
+    sessionId: string | undefined,
+  ): void {
+    if (remoteAddress) {
+      this.incrementFailedAttempts(this.failedAttemptsByRemote, remoteAddress);
+    }
+    if (sessionId) {
+      this.incrementFailedAttempts(this.failedAttemptsBySession, sessionId);
+    }
+  }
+
+  private incrementFailedAttempts(
+    attempts: Map<string, FailedAttemptState>,
+    key: string,
+  ): void {
+    const current = attempts.get(key);
+    const windowStartedAt = current && this.now() - current.windowStartedAt < FAILED_ATTEMPT_WINDOW_MS
+      ? current.windowStartedAt
+      : this.now();
+    attempts.set(
+      key,
+      {
+        count: windowStartedAt === current?.windowStartedAt ? current.count + 1 : 1,
+        windowStartedAt,
+      },
+    );
+  }
+
+  private currentFailedAttempts(
+    attempts: Map<string, FailedAttemptState>,
+    key: string,
+  ): number {
+    const current = attempts.get(key);
+    if (!current) {
+      return 0;
+    }
+    if (this.now() - current.windowStartedAt >= FAILED_ATTEMPT_WINDOW_MS) {
+      attempts.delete(key);
+      return 0;
+    }
+    return current.count;
+  }
+
+  private pruneFailedRemoteAttempts(): void {
+    const now = this.now();
+    for (const attemptMap of [this.failedAttemptsByRemote, this.failedAttemptsBySession]) {
+      for (const [key, attempts] of attemptMap) {
+        if (now - attempts.windowStartedAt >= FAILED_ATTEMPT_WINDOW_MS) {
+          attemptMap.delete(key);
+        }
+      }
+    }
+  }
+
+  private clearFailedAttempts(
+    remoteAddress: string | undefined,
+    sessionId: string | undefined,
+  ): void {
+    if (remoteAddress) {
+      this.failedAttemptsByRemote.delete(remoteAddress);
+    }
+    if (sessionId) {
+      this.failedAttemptsBySession.delete(sessionId);
     }
   }
 

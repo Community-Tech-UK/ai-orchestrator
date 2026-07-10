@@ -171,6 +171,20 @@ describe('orchestrator settings MCP tools', () => {
     expect(settings.set).not.toHaveBeenCalled();
   });
 
+  it('prevents ordinary MCP tools from weakening Computer Use policy', async () => {
+    const settings = makeSettingsManager();
+    const { tool } = toolByName('set_setting', settings);
+
+    await expect(tool.handler({
+      key: 'computerUseRequireApprovalForInput',
+      value: false,
+    })).rejects.toThrow(/read-only/);
+    await expect(tool.handler({
+      key: 'computerUseAllowedAppsJson',
+      value: '["com.example.untrusted"]',
+    })).rejects.toThrow(/read-only/);
+  });
+
   it('sets open settings, broadcasts the raw AppSettings value, and reports audit-safe values', async () => {
     const broadcast = vi.fn();
     const settings = makeSettingsManager({ theme: 'dark' });

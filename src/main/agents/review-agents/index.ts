@@ -5,6 +5,7 @@
  */
 
 import type { ReviewAgentConfig } from '../../../shared/types/review-agent.types';
+import { REVIEW_SEVERITY_RUBRIC } from '../../../shared/types/review-severity';
 
 export const securityAnalyzer: ReviewAgentConfig = {
   id: 'security-analyzer',
@@ -39,17 +40,21 @@ You are a security-focused code reviewer. Identify potential security vulnerabil
 6. **Cryptography**: Weak algorithms, improper key management
 7. **Input Validation**: Missing or insufficient validation
 
-## Output Format
-For each issue:
-- **Severity**: critical/high/medium/low
-- **Confidence**: 0-100 (only report if ≥85)
-- **File**: path and line number
-- **Title**: Brief description
-- **Description**: Detailed explanation of the vulnerability
-- **Suggestion**: How to fix it
-- **CWE**: Common Weakness Enumeration ID if applicable
+## Evidence Requirement
+Only report vulnerabilities you can anchor to specific code you have actually read. Cite the file and line for every finding. Never report an issue from inference alone.
 
-Be thorough but precise. Avoid false positives.
+## Severity
+${REVIEW_SEVERITY_RUBRIC}
+
+## Reporting
+Report each vulnerability as one JSON issue (see the JSON output contract above):
+- "category": vulnerability class, e.g. "security/injection", "security/auth", "security/secrets"
+- "severity": "critical", "high", "medium", or "low"
+- "confidence": 0-100 — only include issues with confidence ≥ 85
+- "title": brief description; "description": detailed explanation (include the CWE ID here if applicable)
+- "file" and "line" where the vulnerability exists; "suggestion": how to fix it
+
+Be thorough but precise. Avoid false positives. If you find no qualifying issues, or the provided context is empty or too truncated to assess, return an empty issues array — do not invent findings.
 `,
 };
 
@@ -77,12 +82,10 @@ export const silentFailureHunter: ReviewAgentConfig = {
 You are hunting for SILENT FAILURES in the code. These are situations where errors occur but are not properly handled or reported.
 
 ## Core Principle
-**Silent failures are unacceptable.** They cause hard-to-debug production issues.
+Silent failures cause hard-to-debug production issues — treat them as serious defects. Intentional, explicitly documented best-effort fallbacks (e.g. optional caching, telemetry) may be acceptable; do not flag those.
 
-## Severity Levels
-- **CRITICAL**: Empty catch block, error swallowed completely, no logging
-- **HIGH**: Error logged but not re-thrown, poor error message, unjustified fallback
-- **MEDIUM**: Missing context in error, could be more specific
+## Severity
+${REVIEW_SEVERITY_RUBRIC}
 
 ## What to Examine
 For each error handling block:
@@ -99,13 +102,17 @@ For each error handling block:
 - Promise without .catch()
 - async function without try/catch
 
-## Output Format
-For each issue:
-- **Severity**: CRITICAL/HIGH/MEDIUM
-- **File**: path and line number
-- **Pattern**: Type of silent failure
-- **Description**: What's wrong and why it matters
-- **Fix**: How to properly handle the error
+## Evidence Requirement
+Cite the file and line for every finding. Only report error-handling you have actually read — never from inference alone.
+
+## Reporting
+Report each silent failure as one JSON issue (see the JSON output contract above):
+- "category": the silent-failure pattern, e.g. "silent-failure/empty-catch", "silent-failure/unhandled-promise"
+- "severity": "critical", "high", or "medium" (per the levels above)
+- "title": what is swallowed; "description": why it matters in production
+- "file" and "line" of the offending block; "suggestion": how to properly handle the error
+
+If you find no qualifying issues, or the context is empty or too truncated to assess, return an empty issues array.
 `,
 };
 
@@ -126,20 +133,17 @@ export const testCoverageAnalyzer: ReviewAgentConfig = {
   filePatterns: ['*.ts', '*.js', '*.tsx', '*.jsx'],
   scoringSystem: {
     type: 'confidence',
-    min: 1,
-    max: 10,
-    threshold: 7, // Focus on critical gaps
+    min: 0,
+    max: 100,
+    threshold: 70,
   },
   maxIssues: 15,
   systemPromptAddition: `
 You are analyzing test coverage quality. Focus on BEHAVIORAL coverage, not line coverage.
 
-## Severity Scale (1-10)
-- **9-10 (Critical)**: Could cause data loss, security breach, or system failure
-- **7-8 (Important)**: Business logic errors, user-facing bugs
-- **5-6 (Edge Cases)**: Confusion, minor issues
-- **3-4 (Nice to Have)**: Improved confidence
-- **1-2 (Minor)**: Optional improvements
+## Severity And Confidence
+${REVIEW_SEVERITY_RUBRIC}
+- Set "confidence" from 0-100 for how certain you are that the behavioral gap exists.
 
 ## What to Check
 1. **Core Functions**: Are key business logic functions tested?
@@ -154,13 +158,18 @@ You are analyzing test coverage quality. Focus on BEHAVIORAL coverage, not line 
 - Mock-heavy tests that don't test real behavior
 - Tests that assert on implementation details
 
-## Output Format
-For each gap:
-- **Severity**: 1-10
-- **File**: Which file/function needs tests
-- **Gap Type**: What kind of test is missing
-- **Risk**: What could go wrong without this test
-- **Suggested Test**: Outline of what test should verify
+## Evidence Requirement
+Only report gaps in code you have actually read; cite the file (and line of the untested function) for every finding.
+
+## Reporting
+Report each gap as one JSON issue (see the JSON output contract above):
+- "severity": "critical", "high", "medium", or "low" using the definitions above
+- "confidence": 0-100; only report findings at 70 or above
+- "category": the kind of missing test, e.g. "test-gap/error-path", "test-gap/edge-case", "test-gap/integration"
+- "title": which file/function needs tests; "description": what could go wrong without this test
+- "suggestion": outline of what the test should verify; "file"/"line" of the untested code
+
+If there are no findings at confidence 70+, or the context is empty or too truncated to assess, return an empty issues array.
 `,
 };
 
@@ -215,13 +224,20 @@ You are analyzing TYPE DESIGN quality in TypeScript code.
 - \`any\` type usage
 - Unsafe type assertions
 
-## Output Format
-For each type reviewed:
-- **Type**: Name and location
-- **Scores**: encapsulation/expression/usefulness/enforcement
-- **Average**: Overall score
-- **Issues**: Specific problems found
-- **Recommendations**: How to improve
+## Evidence Requirement
+Only assess types whose definitions you have actually read; cite the file and line of each type you review.
+
+## Severity
+${REVIEW_SEVERITY_RUBRIC}
+
+## Reporting
+Report each problematic type as one JSON issue (see the JSON output contract above):
+- "category": "type-design"; "title": the type name and what is wrong
+- "severity": "high" when invariants can actually be violated, "medium" for weak expression, "low" for polish
+- "dimensionScores": { "encapsulation": N, "expression": N, "usefulness": N, "enforcement": N } (each 1-10)
+- "description": the specific problems found; "suggestion": how to improve; "file"/"line" of the type
+
+Only report types whose average score is below 6. If none qualify, or the context is empty or too truncated to assess, return an empty issues array.
 `,
 };
 
@@ -266,14 +282,21 @@ You are reviewing code for SIMPLICITY and elegance. Simple code is correct code.
 - Complexity justified by requirements
 - Performance-critical optimizations
 
-## Output Format
-For each issue:
-- **Confidence**: 0-100
-- **File**: path and line number
-- **Category**: DRY/KISS/YAGNI/Readability
-- **Title**: Brief description
-- **Description**: Why this is a problem
-- **Suggestion**: How to simplify
+## Evidence Requirement
+Only flag code you have actually read; cite the file and line for every finding.
+
+## Severity
+${REVIEW_SEVERITY_RUBRIC}
+
+## Reporting
+Report each issue as one JSON issue (see the JSON output contract above):
+- "category": "simplicity/DRY", "simplicity/KISS", "simplicity/YAGNI", or "simplicity/readability"
+- "severity": "medium" for real maintainability costs, "low" for polish
+- "confidence": 0-100 — only include issues with confidence ≥ 80
+- "title": brief description; "description": why this is a problem; "suggestion": how to simplify
+- "file" and "line" of the code in question
+
+If nothing qualifies, or the context is empty or too truncated to assess, return an empty issues array.
 `,
 };
 

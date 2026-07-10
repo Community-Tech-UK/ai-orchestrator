@@ -31,6 +31,8 @@ import {
 } from '../../browser-gateway';
 import {
   buildComputerUseMcpConfigJson,
+  DESKTOP_DEGRADED_TOOL_NAMES,
+  getDesktopGatewayInjectionState,
   getDesktopGatewayRpcSocketPath,
   type ComputerUseMcpConfigOptions,
 } from '../../desktop-gateway';
@@ -315,6 +317,13 @@ export class SpawnConfigBuilder {
     if (!this.settings.getAll().computerUseEnabled) {
       return null;
     }
+    // Health gate: skip injection entirely on unsupported platforms; when the
+    // driver is degraded (missing TCC) inject only the health/list/escalation
+    // tools so the agent can report status without attempting doomed actions.
+    const injectionState = getDesktopGatewayInjectionState();
+    if (!injectionState.supported) {
+      return null;
+    }
     const socketPath = getDesktopGatewayRpcSocketPath();
     if (!socketPath) {
       return null;
@@ -328,6 +337,9 @@ export class SpawnConfigBuilder {
       socketPath,
       instanceId,
       ...(provider ? { provider } : {}),
+      ...(injectionState.actionToolsHealthy
+        ? {}
+        : { toolNames: [...DESKTOP_DEGRADED_TOOL_NAMES] }),
     };
   }
 

@@ -31,7 +31,11 @@ On resume, reacquire the tab/profile, run `browser.check_session`, verify each c
 1. Create the app record in Play Console. There is no public androidpublisher create-app endpoint.
 2. Complete App content declarations: target audience, ads, app access credentials, news, financial features, health, government, advertising ID, sensitive permissions, VPN, exact alarms, accessibility/all-files where applicable.
 3. Complete Content rating. Verify the rating summary after save.
-4. Complete Data safety. Prefer generating the CSV offline, then import it through the console UI and verify every saved summary page.
+4. Complete Data safety. Build rows from an exported current Play template, call
+   `generate_play_data_safety_csv`, save the returned CSV locally, then import it
+   through the console UI and verify every saved summary page. Never invent
+   machine-readable question or response ids; they must come from Google's
+   current exported template.
 5. Configure tester list and internal testing only after the app record and required declarations are coherent.
 6. For interrupted AAB browser uploads, check the artifact library and use `Add from library` before re-uploading.
 

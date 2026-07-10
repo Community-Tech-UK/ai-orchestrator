@@ -30,8 +30,15 @@ describe('cost-attribution', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('is a no-op when the flag is unset', () => {
+  it('is enabled by default when the flag is unset', () => {
     delete process.env['AIO_COST_ATTRIBUTION'];
+    expect(getCostAttributionFilePath()).not.toBeNull();
+    recordCostAttribution({ source: 'one-shot', taskType: 'verify-orchestration' });
+    expect(existsSync(join(dir, `cost-attribution-${new Date().toISOString().slice(0, 10)}.jsonl`))).toBe(true);
+  });
+
+  it.each(['0', 'false'])('is a no-op when the flag opts out (%s)', (optOut) => {
+    process.env['AIO_COST_ATTRIBUTION'] = optOut;
     expect(getCostAttributionFilePath()).toBeNull();
     recordCostAttribution({ source: 'one-shot', taskType: 'verify-orchestration' });
     // Nothing written anywhere in the temp dir.

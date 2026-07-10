@@ -49,6 +49,7 @@ import {
   registerMcpHandlers,
   registerBrowserGatewayHandlers,
   registerBrowserUnattendedHandlers,
+  registerDesktopGatewayHandlers,
   registerTodoHandlers,
   registerSecurityHandlers,
   registerDebugHandlers,
@@ -306,6 +307,11 @@ export class IpcMainHandler {
     // Unattended-layer trigger surfaces (vault unlock, credential
     // authorizations, campaigns, escalation triage) — renderer-only.
     registerBrowserUnattendedHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
+    // Harness Computer Use (desktop gateway) diagnostics/management for the
+    // renderer Settings tab.
+    registerDesktopGatewayHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
     });
 

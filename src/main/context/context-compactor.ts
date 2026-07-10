@@ -553,7 +553,7 @@ export class ContextCompactor extends EventEmitter {
         if (t.toolCalls && t.toolCalls.length > 0) {
           const toolLines = t.toolCalls.map(tc => {
             const result = tc.output
-              ? tc.output.slice(0, 120).replace(/\n/g, ' ')
+              ? this.toolOutputExcerpt(tc.output)
               : 'no output';
             return `  tool:${tc.name} → ${result}`;
           });
@@ -595,13 +595,7 @@ export class ContextCompactor extends EventEmitter {
       if (auxDecision.source !== 'fallback' && auxText.trim()) {
         summaryContent = auxText;
       } else if (auxDecision.allowFrontierFallback) {
-        const requestId = `compact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        summaryContent = await llm.summarize({
-          requestId,
-          content: compactionPrompt,
-          targetTokens: 500,
-          preserveKeyPoints: true,
-        });
+        summaryContent = await llm.generate(compactionSystemPrompt, compactionPrompt);
       } else {
         // Frontier fallback is disabled for the compression slot — keep all
         // content local with the deterministic summary rather than sending it
@@ -624,6 +618,12 @@ export class ContextCompactor extends EventEmitter {
       tokenCount: this.estimateTokens(redactedContent),
       timestamp: Date.now(),
     };
+  }
+
+  private toolOutputExcerpt(output: string): string {
+    const normalized = output.replace(/\s+/g, ' ').trim();
+    const failed = /\b(error|failed|failure|fatal|exception|timed out|exit(?:ed)? (?:code|with) [1-9])\b/i.test(normalized);
+    return failed ? normalized.slice(-240) : normalized.slice(0, 120);
   }
 
   /**
