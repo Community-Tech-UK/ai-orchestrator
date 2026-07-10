@@ -13,11 +13,18 @@ vi.mock('../../../logging/logger', () => ({
 
 interface CapturedTurnEvents {
   output: string[];
+  outputIds: string[];
+  outputMessages: Array<{ content: string; accumulatedContent?: string }>;
   complete: boolean;
 }
 
 function captureTurnEvents(adapter: OllamaCliAdapter): CapturedTurnEvents {
-  const events: CapturedTurnEvents = { output: [], complete: false };
+  const events: CapturedTurnEvents = {
+    output: [],
+    outputIds: [],
+    outputMessages: [],
+    complete: false,
+  };
   adapter.on('output', (message: unknown) => {
     if (typeof message === 'string') {
       events.output.push(message);
@@ -26,6 +33,18 @@ function captureTurnEvents(adapter: OllamaCliAdapter): CapturedTurnEvents {
     const content = (message as { content?: unknown }).content;
     if (typeof content === 'string') {
       events.output.push(content);
+    }
+    const id = (message as { id?: unknown }).id;
+    if (typeof id === 'string') {
+      events.outputIds.push(id);
+    }
+    if (typeof content === 'string') {
+      const accumulatedContent = (message as { metadata?: Record<string, unknown> })
+        .metadata?.['accumulatedContent'];
+      events.outputMessages.push({
+        content,
+        ...(typeof accumulatedContent === 'string' ? { accumulatedContent } : {}),
+      });
     }
   });
   adapter.on('complete', () => {
@@ -127,11 +146,27 @@ describe('OllamaCliAdapter', () => {
 
     await adapter.spawn();
     await adapter.sendInput('hello');
+    const firstTurnOutputIds = [...events.outputIds];
+    const firstTurnOutputMessages = [...events.outputMessages];
+    await adapter.sendInput('follow up');
+    const secondTurnOutputIds = events.outputIds.slice(firstTurnOutputIds.length);
+    const secondTurnOutputMessages = events.outputMessages.slice(firstTurnOutputMessages.length);
 
     expect(adapter.getEndpointProvider()).toBe('ollama');
     expect(adapter.getModelId()).toBe('qwen2.5-coder:14b');
     expect(events.output.join('')).toContain('hi there');
     expect(events.complete).toBe(true);
+    expect(new Set(firstTurnOutputIds).size).toBe(1);
+    expect(new Set(secondTurnOutputIds).size).toBe(1);
+    expect(secondTurnOutputIds[0]).not.toBe(firstTurnOutputIds[0]);
+    expect(firstTurnOutputMessages.map((message) => message.accumulatedContent)).toEqual([
+      'hi ',
+      'hi there',
+    ]);
+    expect(secondTurnOutputMessages.map((message) => message.accumulatedContent)).toEqual([
+      'hi ',
+      'hi there',
+    ]);
     expect(requests).toEqual([
       {
         model: 'qwen2.5-coder:14b',
@@ -139,6 +174,16 @@ describe('OllamaCliAdapter', () => {
         messages: [
           { role: 'system', content: 'Be concise' },
           { role: 'user', content: 'hello' },
+        ],
+      },
+      {
+        model: 'qwen2.5-coder:14b',
+        stream: true,
+        messages: [
+          { role: 'system', content: 'Be concise' },
+          { role: 'user', content: 'hello' },
+          { role: 'assistant', content: 'hi there' },
+          { role: 'user', content: 'follow up' },
         ],
       },
     ]);

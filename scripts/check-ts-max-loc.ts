@@ -245,7 +245,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
   // Raised 946 -> 957 for hybrid usage-based row ordering in Favorites/provider tabs.
-  'src/renderer/app/features/models/model-selection-panel.component.ts': 957,
+  // Raised 957 -> 964: default favorites now mirror each provider tab's usage-ordered top row.
+  'src/renderer/app/features/models/model-selection-panel.component.ts': 964,
   'src/renderer/app/features/models/models-page.component.ts': 768,
   'src/renderer/app/features/observations/observations-page.component.ts': 808,
   'src/renderer/app/features/plan/plan-page.component.ts': 1036,

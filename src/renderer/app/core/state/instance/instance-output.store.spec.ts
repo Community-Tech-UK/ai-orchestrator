@@ -94,6 +94,44 @@ describe('InstanceOutputStore', () => {
     expect(bubble?.thinking?.[0]?.content).toBe('reasoning');
   });
 
+  it('renders accumulated streaming content in distinct bubbles across turns', () => {
+    store.queueOutput('inst-1', {
+      id: 'turn-1',
+      timestamp: 2,
+      type: 'assistant',
+      content: 'hi ',
+      metadata: { streaming: true, accumulatedContent: 'hi ' },
+    });
+    store.queueOutput('inst-1', {
+      id: 'turn-1',
+      timestamp: 3,
+      type: 'assistant',
+      content: 'there',
+      metadata: { streaming: true, accumulatedContent: 'hi there' },
+    });
+    store.flushInstanceOutput('inst-1');
+
+    store.queueOutput('inst-1', {
+      id: 'turn-2',
+      timestamp: 4,
+      type: 'assistant',
+      content: 'ALPHA-',
+      metadata: { streaming: true, accumulatedContent: 'ALPHA-' },
+    });
+    store.queueOutput('inst-1', {
+      id: 'turn-2',
+      timestamp: 5,
+      type: 'assistant',
+      content: '742',
+      metadata: { streaming: true, accumulatedContent: 'ALPHA-742' },
+    });
+    store.flushInstanceOutput('inst-1');
+
+    const buffer = stateService.getInstance('inst-1')?.outputBuffer ?? [];
+    expect(buffer.find((message) => message.id === 'turn-1')?.content).toBe('hi there');
+    expect(buffer.find((message) => message.id === 'turn-2')?.content).toBe('ALPHA-742');
+  });
+
   it('appends attachments and failure cards without duplicating them', () => {
     store.appendAttachmentsToMessage(
       'inst-1',

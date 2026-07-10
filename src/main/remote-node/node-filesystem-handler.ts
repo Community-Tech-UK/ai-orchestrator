@@ -175,18 +175,31 @@ export class NodeFilesystemHandler {
     ];
   }
 
-  private matchingTransferRoot(targetPath: string): WorkerNodeFileTransferRoot | undefined {
-    return this.transferRoots
-      .filter((root) => SecurityFilter.isWithinRoot(targetPath, [root.path]))
-      .sort((left, right) => right.path.length - left.path.length)[0];
-  }
-
+  /**
+   * Decide writability by the MOST SPECIFIC (longest-path) scope that contains
+   * `targetPath`, considering working directories (always writable) alongside
+   * configured transfer roots (writable per their own `write` flag).
+   *
+   * This prevents a read-only transfer root that merely *contains* a working
+   * directory — e.g. a read-only "Documents" transfer root sitting above a
+   * "Documents/Work" working directory — from shadowing that working directory
+   * and vetoing a legitimate write inside it. That shadowing broke remote
+   * browser-upload staging (which writes into
+   * `<workingDir>/_scratch/aio-browser-uploads`) on any node whose working
+   * directory lives under a read-only transfer root. A read-only transfer root
+   * nested *inside* a working directory still wins, because it is the more
+   * specific scope. On an exact-length tie a working directory wins, since
+   * agent writes inside their own working directory are a core invariant.
+   */
   private isWritablePath(targetPath: string): boolean {
-    const transferRoot = this.matchingTransferRoot(targetPath);
-    if (transferRoot) {
-      return transferRoot.write;
-    }
-    return SecurityFilter.isWithinRoot(targetPath, this.roots);
+    const scopes: Array<{ path: string; writable: boolean }> = [
+      ...this.roots.map((rootPath) => ({ path: rootPath, writable: true })),
+      ...this.transferRoots.map((root) => ({ path: root.path, writable: root.write })),
+    ];
+    const mostSpecific = scopes
+      .filter((scope) => SecurityFilter.isWithinRoot(targetPath, [scope.path]))
+      .sort((left, right) => right.path.length - left.path.length)[0];
+    return mostSpecific?.writable ?? false;
   }
 
   private writableRoots(): string[] {

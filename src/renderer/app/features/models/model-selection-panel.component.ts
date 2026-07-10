@@ -703,13 +703,20 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   protected readonly providerList = this._providers.asReadonly();
   protected readonly providerLabelMap = this._providerLabels.asReadonly();
 
+  /**
+   * Default (non-customized) favorites: one row per provider, mirroring the
+   * top of that provider's tab — usage-ranked first, catalog order otherwise —
+   * so the initial list matches what each tab shows first.
+   */
   private readonly defaultFavoriteKeys = computed(() => {
     const modelsForProvider = this._modelsForProvider();
+    const usageByKey = this.modelUsageMemory.usageByKey();
     return this._providers()
       .map((provider) => {
-        const models = modelsForProvider(provider);
-        const primary = models.find((model) => model.pinned === true) ?? models[0];
-        return primary ? modelKey(provider, primary.id) : null;
+        const keys = modelsForProvider(provider).map((model) => ({
+          key: modelKey(provider, model.id),
+        }));
+        return orderProviderRowsByUsage(keys, usageByKey)[0]?.key ?? null;
       })
       .filter((key): key is string => key !== null);
   });

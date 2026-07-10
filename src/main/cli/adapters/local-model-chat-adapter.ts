@@ -50,6 +50,8 @@ export abstract class BaseLocalModelChatAdapter
   private readonly errorLabel: string;
   private isSpawned = false;
   private activeAbortController: AbortController | null = null;
+  private activeOutputMessageId: string | null = null;
+  private activeAccumulatedContent = '';
   private cumulativeTokensUsed = 0;
 
   abstract spawn(): Promise<number>;
@@ -136,6 +138,8 @@ export abstract class BaseLocalModelChatAdapter
   override async terminate(): Promise<void> {
     this.activeAbortController?.abort();
     this.activeAbortController = null;
+    this.activeOutputMessageId = null;
+    this.activeAccumulatedContent = '';
     this.isSpawned = false;
     this.history = [];
     this.emit('exit', 0, null);
@@ -175,12 +179,16 @@ export abstract class BaseLocalModelChatAdapter
       throw new Error('A local model request is already active');
     }
     this.activeAbortController = new AbortController();
+    this.activeOutputMessageId = generateId();
+    this.activeAccumulatedContent = '';
     return this.activeAbortController.signal;
   }
 
   protected endLocalModelTurn(signal: AbortSignal): void {
     if (this.activeAbortController?.signal === signal) {
       this.activeAbortController = null;
+      this.activeOutputMessageId = null;
+      this.activeAccumulatedContent = '';
     }
   }
 
@@ -188,12 +196,16 @@ export abstract class BaseLocalModelChatAdapter
     if (!content) {
       return;
     }
+    this.activeAccumulatedContent += content;
     const output: OutputMessage = {
-      id: this.sessionId ?? generateId(),
+      id: this.activeOutputMessageId ?? generateId(),
       timestamp: Date.now(),
       type: 'assistant',
       content,
-      metadata: { streaming },
+      metadata: {
+        streaming,
+        accumulatedContent: this.activeAccumulatedContent,
+      },
     };
     this.emit('output', output);
     this.noteActivity();

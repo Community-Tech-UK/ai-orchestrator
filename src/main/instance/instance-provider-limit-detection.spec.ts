@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   detectErrorProviderLimit,
   detectCompletionProviderLimit,
+  readAdapterRateLimitTelemetry,
 } from './instance-provider-limit-detection';
 
 describe('detectErrorProviderLimit', () => {
@@ -34,6 +35,44 @@ describe('detectErrorProviderLimit', () => {
     expect(detectErrorProviderLimit(new Error('Fix the session-limit retry bug'), 'Fix the session-limit retry bug')).toBeNull();
     expect(detectErrorProviderLimit({}, 'ENOENT: file not found')).toBeNull();
   });
+
+  it('classifies a generic error as a limit when telemetry reports a live rejected window', () => {
+    const resetsAtSec = Math.floor(Date.now() / 1000) + 3600;
+    const signal = detectErrorProviderLimit({}, 'stream closed unexpectedly', {
+      status: 'rejected',
+      rateLimitType: 'five_hour',
+      resetsAt: resetsAtSec,
+    });
+    expect(signal).not.toBeNull();
+    expect(signal?.resetAtHint).toBe(resetsAtSec * 1000);
+  });
+
+  it('does not classify on telemetry whose reset time already passed', () => {
+    const resetsAtSec = Math.floor(Date.now() / 1000) - 60;
+    expect(detectErrorProviderLimit({}, 'stream closed unexpectedly', {
+      status: 'rejected',
+      resetsAt: resetsAtSec,
+    })).toBeNull();
+  });
+
+  it('does not classify on non-rejected telemetry statuses', () => {
+    const resetsAtSec = Math.floor(Date.now() / 1000) + 3600;
+    expect(detectErrorProviderLimit({}, 'stream closed unexpectedly', {
+      status: 'allowed_warning',
+      resetsAt: resetsAtSec,
+    })).toBeNull();
+  });
+
+  it('prefers structured error diagnostics over the telemetry reset time', () => {
+    const diagnosticsResetAt = Date.now() + 60_000;
+    const telemetryResetsAtSec = Math.floor(Date.now() / 1000) + 7200;
+    const signal = detectErrorProviderLimit(
+      { rateLimit: { resetAt: diagnosticsResetAt } },
+      'Rate limited',
+      { status: 'rejected', resetsAt: telemetryResetsAtSec },
+    );
+    expect(signal?.resetAtHint).toBe(diagnosticsResetAt);
+  });
 });
 
 describe('detectCompletionProviderLimit', () => {
@@ -57,5 +96,34 @@ describe('detectCompletionProviderLimit', () => {
   it('ignores an ordinary completed turn', () => {
     expect(detectCompletionProviderLimit({ content: 'Here is the refactored function.' })).toBeNull();
     expect(detectCompletionProviderLimit({ content: '' })).toBeNull();
+  });
+
+  it('falls back to the telemetry reset time when the notice carries no metadata', () => {
+    const resetsAtSec = Math.floor(Date.now() / 1000) + 1800;
+    const signal = detectCompletionProviderLimit(
+      { content: '5-hour limit reached' },
+      { status: 'rejected', resetsAt: resetsAtSec },
+    );
+    expect(signal?.resetAtHint).toBe(resetsAtSec * 1000);
+  });
+
+  it('does not classify an ordinary completion just because telemetry is throttled', () => {
+    const resetsAtSec = Math.floor(Date.now() / 1000) + 1800;
+    expect(detectCompletionProviderLimit(
+      { content: 'Here is the refactored function.' },
+      { status: 'rejected', resetsAt: resetsAtSec },
+    )).toBeNull();
+  });
+});
+
+describe('readAdapterRateLimitTelemetry', () => {
+  it('reads telemetry from an adapter exposing getLastRateLimitInfo', () => {
+    const info = { status: 'rejected', resetsAt: 123 };
+    expect(readAdapterRateLimitTelemetry({ getLastRateLimitInfo: () => info })).toBe(info);
+  });
+
+  it('returns null for adapters without telemetry', () => {
+    expect(readAdapterRateLimitTelemetry({})).toBeNull();
+    expect(readAdapterRateLimitTelemetry(null)).toBeNull();
   });
 });

@@ -5891,12 +5891,12 @@
       "lines": 1018
     },
     {
-      "path": "src/renderer/app/features/logs/logs-page.component.ts",
-      "lines": 1009
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 1015
     },
     {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 1008
+      "path": "src/renderer/app/features/logs/logs-page.component.ts",
+      "lines": 1009
     },
     {
       "path": "src/main/memory/project-memory-brief.ts",

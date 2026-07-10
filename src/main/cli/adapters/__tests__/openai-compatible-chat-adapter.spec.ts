@@ -13,12 +13,20 @@ vi.mock('../../../logging/logger', () => ({
 
 interface CapturedTurnEvents {
   output: string[];
+  outputIds: string[];
+  outputMessages: Array<{ content: string; accumulatedContent?: string }>;
   complete: boolean;
   error: Error | null;
 }
 
 function captureTurnEvents(adapter: OpenAICompatibleChatAdapter): CapturedTurnEvents {
-  const events: CapturedTurnEvents = { output: [], complete: false, error: null };
+  const events: CapturedTurnEvents = {
+    output: [],
+    outputIds: [],
+    outputMessages: [],
+    complete: false,
+    error: null,
+  };
   adapter.on('output', (message: unknown) => {
     if (typeof message === 'string') {
       events.output.push(message);
@@ -27,6 +35,18 @@ function captureTurnEvents(adapter: OpenAICompatibleChatAdapter): CapturedTurnEv
     const content = (message as { content?: unknown }).content;
     if (typeof content === 'string') {
       events.output.push(content);
+    }
+    const id = (message as { id?: unknown }).id;
+    if (typeof id === 'string') {
+      events.outputIds.push(id);
+    }
+    if (typeof content === 'string') {
+      const accumulatedContent = (message as { metadata?: Record<string, unknown> })
+        .metadata?.['accumulatedContent'];
+      events.outputMessages.push({
+        content,
+        ...(typeof accumulatedContent === 'string' ? { accumulatedContent } : {}),
+      });
     }
   });
   adapter.on('complete', () => {
@@ -116,11 +136,27 @@ describe('OpenAICompatibleChatAdapter', () => {
 
     await adapter.spawn();
     await adapter.sendInput('hello');
+    const firstTurnOutputIds = [...events.outputIds];
+    const firstTurnOutputMessages = [...events.outputMessages];
+    await adapter.sendInput('follow up');
+    const secondTurnOutputIds = events.outputIds.slice(firstTurnOutputIds.length);
+    const secondTurnOutputMessages = events.outputMessages.slice(firstTurnOutputMessages.length);
 
     expect(adapter.getEndpointProvider()).toBe('openai-compatible');
     expect(adapter.getModelId()).toBe('qwen2.5-coder-32b-instruct');
     expect(events.output.join('')).toContain('hi there');
     expect(events.complete).toBe(true);
+    expect(new Set(firstTurnOutputIds).size).toBe(1);
+    expect(new Set(secondTurnOutputIds).size).toBe(1);
+    expect(secondTurnOutputIds[0]).not.toBe(firstTurnOutputIds[0]);
+    expect(firstTurnOutputMessages.map((message) => message.accumulatedContent)).toEqual([
+      'hi ',
+      'hi there',
+    ]);
+    expect(secondTurnOutputMessages.map((message) => message.accumulatedContent)).toEqual([
+      'hi ',
+      'hi there',
+    ]);
     expect(requests).toEqual([
       {
         model: 'qwen2.5-coder-32b-instruct',
@@ -129,6 +165,17 @@ describe('OpenAICompatibleChatAdapter', () => {
         messages: [
           { role: 'system', content: 'Be concise' },
           { role: 'user', content: 'hello' },
+        ],
+      },
+      {
+        model: 'qwen2.5-coder-32b-instruct',
+        stream: true,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: 'Be concise' },
+          { role: 'user', content: 'hello' },
+          { role: 'assistant', content: 'hi there' },
+          { role: 'user', content: 'follow up' },
         ],
       },
     ]);

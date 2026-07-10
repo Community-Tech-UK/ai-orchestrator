@@ -151,14 +151,25 @@ describe('ModelSelectionPanelComponent', () => {
     expect(rowNames()).toEqual(['GPT-5.5 Mini', 'GPT-5.5']);
   });
 
+  it('seeds each default favorite from the top of its usage-ordered provider tab', () => {
+    const now = Date.now();
+    usageByKey.set({
+      'claude:claude-sonnet-4-6': { count: 5, lastUsedAt: now },
+    });
+    setInputs();
+
+    expect(rowNames()).toEqual(['Claude Sonnet 4.6', 'GPT-5.5']);
+  });
+
   it('appends used non-favorites after starred favorites', () => {
     const now = Date.now();
     usageByKey.set({
       'codex:gpt-5.5-mini': { count: 3, lastUsedAt: now },
+      'codex:gpt-5.5': { count: 1, lastUsedAt: now - 1_000 },
     });
     setInputs();
 
-    expect(rowNames()).toEqual(['Claude Opus 4.7', 'GPT-5.5', 'GPT-5.5 Mini']);
+    expect(rowNames()).toEqual(['Claude Opus 4.7', 'GPT-5.5 Mini', 'GPT-5.5']);
   });
 
   it('toggles a model into favorites and persists the customized favorite set', () => {

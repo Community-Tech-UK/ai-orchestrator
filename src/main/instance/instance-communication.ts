@@ -46,7 +46,7 @@ import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
-import { detectErrorProviderLimit, detectCompletionProviderLimit } from './instance-provider-limit-detection';
+import { detectErrorProviderLimit, detectCompletionProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
@@ -1619,7 +1619,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // ("You've hit your session limit · resets 6:30pm") rather than throwing.
       // Park + schedule a resume so the turn is re-sent after the window resets.
       if (this.deps.onProviderLimitTurn) {
-        const signal = detectCompletionProviderLimit(response);
+        const signal = detectCompletionProviderLimit(response, readAdapterRateLimitTelemetry(adapter));
         if (signal) {
           this.deps.onProviderLimitTurn({
             instanceId,
@@ -1870,7 +1870,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // stopped on a rate/session limit, park the instance and schedule a
       // resume after the quota window resets instead of marking it errored.
       if (this.deps.onProviderLimitTurn && !recoverableTurnError) {
-        const signal = detectErrorProviderLimit(error, errorMessage);
+        const signal = detectErrorProviderLimit(error, errorMessage, readAdapterRateLimitTelemetry(adapter));
         if (signal) {
           const outcome = this.deps.onProviderLimitTurn({
             instanceId,

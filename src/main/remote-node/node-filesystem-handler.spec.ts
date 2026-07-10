@@ -236,6 +236,67 @@ describe('NodeFilesystemHandler', () => {
       );
     });
 
+    it('allows writeFile inside a working directory nested under a read-only transfer root', async () => {
+      // Regression: a read-only "Documents" transfer root that is an ANCESTOR of
+      // the working directory must not shadow it. Remote browser-upload staging
+      // writes into <workingDir>/_scratch/aio-browser-uploads; when the working
+      // dir lives under a read-only transfer root, that write must still be
+      // allowed by virtue of the more-specific working-directory scope.
+      handler = new NodeFilesystemHandler(
+        ['/home/user/Documents/Work'],
+        {},
+        [
+          {
+            id: 'documents',
+            label: 'Documents',
+            path: '/home/user/Documents',
+            read: true,
+            write: false,
+          },
+        ],
+      );
+      mockRealpath.mockImplementation(async (filePath: unknown) => String(filePath) as never);
+      mockMkdir.mockResolvedValue(undefined as never);
+      mockLstat.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+      mockWriteFile.mockResolvedValue(undefined as never);
+
+      const target = '/home/user/Documents/Work/_scratch/aio-browser-uploads/photo.jpg';
+      const result = await handler.writeFile({
+        path: target,
+        data: Buffer.from('content').toString('base64'),
+      });
+
+      expect(result).toEqual({ ok: true, size: 7 });
+      expect(mockWriteFile).toHaveBeenCalledWith(target, Buffer.from('content'));
+    });
+
+    it('still refuses writeFile to a read-only transfer root nested inside a working directory', async () => {
+      // Counterpart to the ancestor case: a read-only transfer root nested
+      // INSIDE a working directory is the more specific scope and still wins,
+      // so writes into it remain denied.
+      handler = new NodeFilesystemHandler(
+        ['/home/user'],
+        {},
+        [
+          {
+            id: 'downloads',
+            label: 'Downloads',
+            path: '/home/user/Downloads',
+            read: true,
+            write: false,
+          },
+        ],
+      );
+
+      await expect(
+        handler.writeFile({
+          path: '/home/user/Downloads/nested/file.txt',
+          data: Buffer.from('content').toString('base64'),
+        }),
+      ).rejects.toThrow('EOUTOFSCOPE');
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+
     it('refuses writeFile when an existing destination is a symbolic link', async () => {
       handler = new NodeFilesystemHandler(
         ROOTS,
