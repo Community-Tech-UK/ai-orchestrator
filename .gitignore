@@ -72,6 +72,9 @@ mise.local.toml
 .aio-loop-control/
 .aio-loop-state/
 
+# Doc-review HTML artifacts (disposable human-review render target; never committed)
+.aio-review/
+
 # Temporary JSON dumps (vitest session reviews, etc.)
 .tmp-*.json
 *.tmp.json

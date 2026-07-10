@@ -41,6 +41,7 @@ import {
   type SpawnRemoteInstanceFn,
   type UpdateAutomationFn,
 } from './orchestrator-tools';
+import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tools';
 import {
   SettingsPrivilegedGetPayloadSchema,
   SettingsPrivilegedListPayloadSchema,
@@ -75,7 +76,7 @@ const logger = getLogger('OrchestratorToolsRpcServer');
 
 /** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
 ]);
 
@@ -136,6 +137,8 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   updateAutomation?: UpdateAutomationFn | null;
   /** Backs `postpone_automation`. */
   postponeAutomation?: PostponeAutomationFn | null;
+  /** Back `request_doc_review` / `get_doc_review_result`. */
+  requestDocReview?: RequestDocReviewFn | null; getDocReviewResult?: GetDocReviewResultFn | null;
   /**
    * Returns whether the given instance may still spawn (i.e. is below the
    * configured spawn-depth limit). When it returns false, the spawn-capable
@@ -169,6 +172,8 @@ export class OrchestratorToolsRpcServer {
   private readonly deleteAutomation: DeleteAutomationFn | null;
   private readonly updateAutomation: UpdateAutomationFn | null;
   private readonly postponeAutomation: PostponeAutomationFn | null;
+  private readonly requestDocReview: RequestDocReviewFn | null;
+  private readonly getDocReviewResult: GetDocReviewResultFn | null;
   private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
   private readonly authorizeReleaseMutation: NonNullable<
     OrchestratorToolsRpcServerOptions['authorizeReleaseMutation']
@@ -210,6 +215,7 @@ export class OrchestratorToolsRpcServer {
     this.deleteAutomation = options.deleteAutomation ?? null;
     this.updateAutomation = options.updateAutomation ?? null;
     this.postponeAutomation = options.postponeAutomation ?? null;
+    this.requestDocReview = options.requestDocReview ?? null; this.getDocReviewResult = options.getDocReviewResult ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
     this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
     this.toolFactoryInjected = options.toolFactory !== undefined;
@@ -598,6 +604,8 @@ export class OrchestratorToolsRpcServer {
         deleteAutomation: this.deleteAutomation,
         updateAutomation: this.updateAutomation,
         postponeAutomation: this.postponeAutomation,
+        requestDocReview: this.requestDocReview,
+        getDocReviewResult: this.getDocReviewResult,
       }));
     }
     this.ensureRuntimeReady();
@@ -621,6 +629,8 @@ export class OrchestratorToolsRpcServer {
       deleteAutomation: this.deleteAutomation,
       updateAutomation: this.updateAutomation,
       postponeAutomation: this.postponeAutomation,
+      requestDocReview: this.requestDocReview,
+      getDocReviewResult: this.getDocReviewResult,
     }));
   }
 

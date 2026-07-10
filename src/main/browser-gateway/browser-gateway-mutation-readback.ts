@@ -47,7 +47,7 @@ export async function verifyGatewayMutationReadback(
   }
   const selector = verifySelector(expected, fallbackSelector);
   const actual = existingTab
-    ? normalizeVerifyReadback(await deps.existingTabOperations.sendCommand(
+    ? normalizeExistingTabControlReadback(await deps.existingTabOperations.sendCommand(
       existingTab,
       'read_control',
       { selector },
@@ -60,7 +60,12 @@ export async function verifyGatewayMutationReadback(
   }
 }
 
-function normalizeVerifyReadback(value: unknown): FillControlReadback {
+/**
+ * Coerce a raw extension `read_control` reply into a typed FillControlReadback,
+ * dropping any field of the wrong type. Shared by verify read-back and the
+ * shared-tab execute_fill_plan read path.
+ */
+export function normalizeExistingTabControlReadback(value: unknown): FillControlReadback {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('browser_verify_readback_invalid');
   }

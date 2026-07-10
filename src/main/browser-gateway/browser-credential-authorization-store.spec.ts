@@ -36,6 +36,22 @@ describe('CredentialAuthorizationService.check', () => {
     ).toEqual({ authorized: true, authorizationId: auth.id });
   });
 
+  it('authorizes a shared-tab node scope profile the same as a managed profile', () => {
+    // Shared-tab fills key the check by the tab's stable node scope ('local' or
+    // a nodeId), not its ephemeral existing-tab profileId. check() is
+    // profile-agnostic, so a node-scoped authorization resolves exactly like a
+    // managed one.
+    const { service } = makeService();
+    const auth = service.create({ ...baseAuth(), profileId: 'local' }, 'auth-local');
+    expect(
+      service.check({ profileId: 'local', origin: 'https://portal.example.gov.uk', purpose: 'login' }),
+    ).toEqual({ authorized: true, authorizationId: auth.id });
+    // A different node scope must NOT inherit it.
+    expect(
+      service.check({ profileId: 'node-7', origin: 'https://portal.example.gov.uk', purpose: 'login' }),
+    ).toMatchObject({ authorized: false, reason: 'no_authorization_for_profile' });
+  });
+
   it('denies when the profile has no authorization', () => {
     const { service } = makeService();
     service.create(baseAuth(), 'auth-1');

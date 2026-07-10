@@ -98,6 +98,7 @@ export function makeService(overrides: {
   credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
   credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
   emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
+  allowSharedTabCredentialFill?: BrowserGatewayServiceOptions['allowSharedTabCredentialFill'];
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
   stageUploadFileOnNode?: BrowserGatewayServiceOptions['stageUploadFileOnNode'];
   useSingleton?: boolean;
@@ -313,6 +314,7 @@ export function makeService(overrides: {
     credentialVault: overrides.credentialVault,
     credentialAuthorizations: overrides.credentialAuthorizations,
     emailCodeReader: overrides.emailCodeReader,
+    allowSharedTabCredentialFill: overrides.allowSharedTabCredentialFill,
     autoApproveRequests: overrides.autoApproveRequests,
     resolvePreferredDebugPort: overrides.resolvePreferredDebugPort,
     stageUploadFileOnNode: overrides.stageUploadFileOnNode,

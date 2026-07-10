@@ -22,9 +22,29 @@
            to anchor short content to bottom without breaking scroll */
       }
 
+      /* Make room for the jump rail's ticks when it is showing */
+      :host:has(app-transcript-jump-rail.rail-visible) .output-stream {
+        padding-left: 22px;
+      }
+
       /* Push content to bottom when conversation is short */
       .transcript-item:first-child {
         margin-top: auto;
+      }
+
+      /* Brief highlight after a jump-rail navigation lands on a row */
+      .transcript-item.jump-flash {
+        animation: jump-flash 1.2s ease-out;
+        border-radius: 10px;
+      }
+
+      @keyframes jump-flash {
+        0% {
+          background: rgba(var(--primary-rgb), 0.16);
+        }
+        100% {
+          background: transparent;
+        }
       }
 
       .transcript-item {

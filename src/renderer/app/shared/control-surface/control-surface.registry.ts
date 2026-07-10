@@ -71,6 +71,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'hooks', path: '/hooks', label: 'Hooks', subtitle: 'Run commands on agent lifecycle events.', group: 'automation', kind: 'workflow', dashboard: true, settings: true }),
   surface({ id: 'skills', path: '/skills', label: 'Skills', subtitle: 'Browse available agent skills.', group: 'agents', kind: 'tool', dashboard: true }),
   surface({ id: 'reviews', path: '/reviews', label: 'Code Reviews', subtitle: 'Inspect review output and follow-up work.', group: 'agents', kind: 'workflow', dashboard: true }),
+  surface({ id: 'doc-review', path: '/doc-review', label: 'Doc Reviews', subtitle: 'Approve plans, specs, and reports agents send for review.', group: 'agents', kind: 'workflow', dashboard: true }),
   surface({ id: 'specialists', path: '/specialists', label: 'Agent Roles', subtitle: 'Choose specialist personas and responsibilities.', group: 'agents', kind: 'tool', dashboard: true }),
   surface({ id: 'worktrees', path: '/worktrees', label: 'Worktrees', subtitle: 'Manage git worktrees for parallel agent work.', group: 'code', kind: 'tool', dashboard: true, settings: true }),
   surface({ id: 'supervision', path: '/supervision', label: 'Supervisor', subtitle: 'Observe active agent trees and state.', group: 'monitoring', kind: 'diagnostic', layout: 'wide', dashboard: true }),

@@ -38,6 +38,7 @@ import {
   restoreSavedAccessPolicy,
 } from '../channels';
 import { getRLMDatabase } from '../persistence/rlm-database';
+import { getDocReviewService } from '../doc-review/doc-review-service';
 import { bootstrapAll } from '../bootstrap';
 import { registerOrchestrationBootstrap } from '../bootstrap/orchestration-bootstrap';
 import { registerLearningBootstrap } from '../bootstrap/learning-bootstrap';
@@ -778,6 +779,25 @@ export function createInitializationSteps(
               );
             } catch (err) {
               logger.warn('Failed to persist approval resolution', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          });
+
+          // Phase 3: record APPROVED doc-reviews in the same durable store so loop
+          // history has an audit trail of who approved which plan and when.
+          getDocReviewService().setApprovalRecorder((session) => {
+            try {
+              store.create({
+                approvalId: session.id,
+                instanceId: session.instanceId,
+                actionKind: 'doc-review',
+                payload: { title: session.title, sourcePath: session.sourcePath },
+                expiresAt: Date.now(),
+              });
+              store.resolve(session.id, 'approved', 'user');
+            } catch (err) {
+              logger.warn('Failed to record doc-review approval', {
                 error: err instanceof Error ? err.message : String(err),
               });
             }

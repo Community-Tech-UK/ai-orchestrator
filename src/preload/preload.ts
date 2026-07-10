@@ -40,6 +40,7 @@ import { createLoopDomain } from './domains/loop.preload';
 import { createMobileGatewayDomain } from './domains/mobile-gateway.preload';
 import { createTerminalDomain } from './domains/terminal.preload';
 import { createAuxiliaryLlmDomain } from './domains/auxiliary-llm.preload';
+import { createDocReviewDomain } from './domains/doc-review.preload';
 import type { IpcResponse } from './domains/types';
 
 // --- Auth token shared across domains that need authenticated IPC calls ---
@@ -83,6 +84,7 @@ const electronAPI = {
   ...createMobileGatewayDomain(ipcRenderer, IPC_CHANNELS),
   ...createTerminalDomain(ipcRenderer, IPC_CHANNELS),
   ...createAuxiliaryLlmDomain(ipcRenderer, IPC_CHANNELS),
+  ...createDocReviewDomain(ipcRenderer, IPC_CHANNELS),
 
   /**
    * Get current platform

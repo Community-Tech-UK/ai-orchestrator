@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1047,
+    "channelCount": 1054,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5238,11 +5238,46 @@
         "name": "CAMPAIGN_STATE_CHANGED",
         "value": "campaign:state-changed",
         "line": 1340
+      },
+      {
+        "name": "DOC_REVIEW_LIST",
+        "value": "doc-review:list",
+        "line": 1344
+      },
+      {
+        "name": "DOC_REVIEW_GET",
+        "value": "doc-review:get",
+        "line": 1346
+      },
+      {
+        "name": "DOC_REVIEW_READ_ARTIFACT",
+        "value": "doc-review:read-artifact",
+        "line": 1348
+      },
+      {
+        "name": "DOC_REVIEW_SUBMIT_DECISION",
+        "value": "doc-review:submit-decision",
+        "line": 1352
+      },
+      {
+        "name": "DOC_REVIEW_DISMISS",
+        "value": "doc-review:dismiss",
+        "line": 1354
+      },
+      {
+        "name": "DOC_REVIEW_OPEN_EXTERNAL",
+        "value": "doc-review:open-external",
+        "line": 1356
+      },
+      {
+        "name": "DOC_REVIEW_CHANGED",
+        "value": "doc-review:changed",
+        "line": 1360
       }
     ]
   },
   "preload": {
-    "domainCount": 27,
+    "domainCount": 28,
     "domains": [
       "automation.preload.ts",
       "auxiliary-llm.preload.ts",
@@ -5252,6 +5287,7 @@
       "conversation-ledger.preload.ts",
       "desktop.preload.ts",
       "diagnostics.preload.ts",
+      "doc-review.preload.ts",
       "file.preload.ts",
       "infrastructure.preload.ts",
       "instance.preload.ts",
@@ -5407,6 +5443,10 @@
       "lines": 2493
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2377
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
       "lines": 2372
     },
@@ -5417,10 +5457,6 @@
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
       "lines": 2308
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2289
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5651,10 +5687,6 @@
       "lines": 1267
     },
     {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1267
-    },
-    {
       "path": "docs/_archive/2026-06-01-remote-workspace-browser-bridge-design.md",
       "lines": 1263
     },
@@ -5689,6 +5721,10 @@
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-whatsapp-channels_completed.md",
       "lines": 1239
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+      "lines": 1237
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -6043,6 +6079,10 @@
       "lines": 876
     },
     {
+      "path": "src/main/app/initialization-steps.ts",
+      "lines": 873
+    },
+    {
       "path": "src/main/automations/automation-retry-integration.spec.ts",
       "lines": 872
     },
@@ -6093,10 +6133,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design.md",
       "lines": 854
-    },
-    {
-      "path": "src/main/app/initialization-steps.ts",
-      "lines": 853
     },
     {
       "path": "src/main/automations/automation-store.ts",
@@ -6181,6 +6217,10 @@
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
+      "lines": 813
     },
     {
       "path": "src/renderer/app/features/training/training-page.component.ts",

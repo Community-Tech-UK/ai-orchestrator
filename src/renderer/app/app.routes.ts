@@ -59,6 +59,12 @@ const controlSurfaceRoutes: Routes = [
       import('./features/review/reviews-page.component').then((m) => m.ReviewsPageComponent),
   },
   {
+    path: 'doc-review',
+    data: controlSurfaceRouteData('doc-review'),
+    loadComponent: () =>
+      import('./features/doc-review/doc-review-page.component').then((m) => m.DocReviewPageComponent),
+  },
+  {
     path: 'specialists',
     data: controlSurfaceRouteData('specialists'),
     loadComponent: () =>

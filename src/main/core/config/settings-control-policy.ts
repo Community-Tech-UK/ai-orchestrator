@@ -43,6 +43,7 @@ const REDACTED = '[redacted]';
 const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'browserVaultMasterPasswordFile',
   'browserVaultAutoUnlock',
+  'browserAllowSharedTabCredentialFill',
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',
@@ -217,6 +218,11 @@ export const SETTINGS_TOOL_POLICY = {
   // from settings export; the password itself is never stored here or logged.
   browserVaultMasterPasswordFile: secret(),
   browserVaultAutoUnlock: readOnly(),
+  // Security-sensitive: authorizes autonomous credential fills on the user's
+  // real shared browser. An autonomous agent must never flip this via the safe
+  // settings tool — only the local operator (UI / privileged aio-mcp CLI /
+  // autonomy config) may enable it.
+  browserAllowSharedTabCredentialFill: readOnly(),
   codebaseAutoIndexEnabled: open(z.boolean()),
   instanceProviderLimitResumeEnabled: open(z.boolean()),
   codebaseAutoIndexMaxFiles: open(numberSettingSchema('codebaseAutoIndexMaxFiles')),

@@ -67,6 +67,24 @@ describe('splitNarrationFromResponse', () => {
   it('does not split simple assistant replies', () => {
     expect(splitNarrationFromResponse('Hello world')).toBeNull();
   });
+
+  it('keeps a substantive answer that contains a lone reflective phrase', () => {
+    // Regression: a real Codex answer with a single "I should" was scored as
+    // narration-heavy and swallowed whole (empty response), which froze the
+    // streamed bubble at the prefix "...It also means I".
+    const input = [
+      'That changes the interpretation materially.',
+      '',
+      'If Anthony did not write this plugin and plans to replace it, then the current MySQL connector does not prove anything about his proposed S2 architecture. At most, it proves the disposable S2 prototype currently supports MySQL.',
+      '',
+      'It also means I should narrow one part of my previous conclusion: the unsafe caching demonstrates the current S2 code is not multi-instance-safe, but it does not prove his future rewrite would have those faults.',
+      '',
+      'That is the crux. You do not need to accuse him of doing nothing. Ask him to identify the work he says exists.',
+    ].join('\n');
+
+    expect(isNarrationHeavy(input)).toBe(false);
+    expect(splitNarrationFromResponse(input)).toBeNull();
+  });
 });
 
 describe('extractThinkingContent narration extraction', () => {
@@ -88,5 +106,22 @@ describe('extractThinkingContent narration extraction', () => {
     const result = extractThinkingContent('Hello world');
     expect(result.hasThinking).toBe(false);
     expect(result.response).toBe('Hello world');
+  });
+
+  it('does not swallow a long answer that reflects with a single "I should"', () => {
+    // End-to-end guard for the streaming freeze: extractThinkingContent runs on
+    // every Codex delta, and an empty response collapses the visible message.
+    const input = [
+      'That changes the interpretation materially.',
+      '',
+      'If Anthony did not write this plugin and plans to replace it, then the current MySQL connector does not prove anything about his proposed S2 architecture.',
+      '',
+      'It also means I should narrow one part of my previous conclusion, but the rest of the analysis stands and the question for him is unchanged.',
+    ].join('\n');
+
+    const result = extractThinkingContent(input);
+    expect(result.hasThinking).toBe(false);
+    expect(result.response).toContain('That changes the interpretation materially.');
+    expect(result.response).toContain('It also means I should narrow');
   });
 });

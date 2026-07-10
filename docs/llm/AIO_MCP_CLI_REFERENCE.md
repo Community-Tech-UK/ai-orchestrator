@@ -41,6 +41,13 @@ $AIO_MCP release-readiness --help
 `native-host` are forwarder subcommands. Do not run them as interactive repair
 commands unless a human specifically asks you to debug the forwarder.
 
+The `orchestrator-tools` forwarder exposes `request_doc_review` (args:
+`artifact_path`, `title`, `source_path?`) and `get_doc_review_result` (arg:
+`review_id`) as MCP tools. Use them to have James review a plan/spec/report:
+build the HTML artifact with the `doc-review-artifact` skill into the workspace's
+`.aio-review/` dir, call `request_doc_review`, then apply the returned decisions
+to the Markdown source. These are MCP tools, not `$AIO_MCP` CLI subcommands.
+
 ## Settings Repair Workflow
 
 1. Inspect before writing:

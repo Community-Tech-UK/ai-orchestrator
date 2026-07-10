@@ -51,6 +51,7 @@ import {
   registerBrowserUnattendedHandlers,
   registerDesktopGatewayHandlers,
   registerTodoHandlers,
+  registerDocReviewHandlers,
   registerSecurityHandlers,
   registerDebugHandlers,
   registerCostHandlers,
@@ -297,6 +298,9 @@ export class IpcMainHandler {
 
     // TODO handlers
     registerTodoHandlers({ windowManager: this.windowManager });
+
+    // Doc-review handlers
+    registerDocReviewHandlers({ windowManager: this.windowManager });
 
     // MCP handlers
     registerMcpHandlers({ windowManager: this.windowManager });

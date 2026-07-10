@@ -11,6 +11,34 @@ import {
 import { makeGrant, makeProfile, makeService, makeTarget } from './browser-gateway-service.test-helpers';
 import { WorkerNodeRegistry } from '../remote-node/worker-node-registry';
 
+/** A shared (non-managed) existing Chrome tab on a procurement portal. Its
+ * profileId is the ephemeral `existing-tab:<window>:<tab>` form (no nodeId =
+ * the coordinator's own Chrome), so its authorization scope resolves to 'local'. */
+function sharedPortalTab() {
+  return {
+    profileId: 'existing-tab:7:42',
+    targetId: 'existing-tab:7:42:target',
+    title: 'Portal',
+    url: 'https://portal.example.gov.uk/login',
+    origin: 'https://portal.example.gov.uk',
+    allowedOrigins: [
+      { scheme: 'https' as const, hostPattern: 'portal.example.gov.uk', includeSubdomains: false },
+    ],
+  };
+}
+
+/** Extension command mock: `snapshot` reports the live portal URL; everything
+ * else (type/read_control) acks. */
+function portalExtensionCommandStore() {
+  return {
+    sendCommand: vi.fn(async (req: { command: string }) =>
+      req.command === 'snapshot'
+        ? { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/login' } }
+        : {},
+    ),
+  };
+}
+
 describe('BrowserGatewayService credentials', () => {
   afterEach(() => {
     BrowserGatewayService._resetForTesting();
@@ -589,5 +617,171 @@ describe('BrowserGatewayService credentials', () => {
 
     expect(result).toMatchObject({ decision: 'denied' });
     expect(vault.createAgentCredential).not.toHaveBeenCalled();
+  });
+
+  it('fillCredential denies a shared existing tab when the opt-in flag is off (managed profiles only)', async () => {
+    const vault = { getSecretForFill: vi.fn(async () => 'secret') };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const extensionCommandStore = portalExtensionCommandStore();
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      // allowSharedTabCredentialFill omitted → default OFF (today's behaviour).
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'fill_credential_managed_profile_only',
+    });
+    // Denied before anything ran: no origin resolution, no authorization, no fill.
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+    expect(authorizations.check).not.toHaveBeenCalled();
+    expect(extensionCommandStore.sendCommand).not.toHaveBeenCalled();
+    expect(driver.type).not.toHaveBeenCalled();
+  });
+
+  it('fillCredential fills a shared existing tab under the opt-in flag + a node-scoped authorization, without leaking the secret', async () => {
+    const SECRET = 'Sh4red-Tab-S3cret!';
+    const vault = { getSecretForFill: vi.fn(async () => SECRET) };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const extensionCommandStore = portalExtensionCommandStore();
+    const { service, driver, audits } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [
+        { selector: '#user', kind: 'username' },
+        { selector: '#pass', kind: 'password' },
+      ],
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 2 } });
+    // Authorized by the STABLE node scope ('local'), not the ephemeral tab
+    // profileId, and against the LIVE origin resolved from a fresh snapshot.
+    expect(authorizations.check).toHaveBeenCalledWith(
+      expect.objectContaining({ profileId: 'local', origin: 'https://portal.example.gov.uk', purpose: 'login' }),
+    );
+    // The secret was typed into the page over the extension channel (a shared
+    // tab has no puppeteer page)...
+    expect(extensionCommandStore.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'type',
+        payload: expect.objectContaining({ selector: '#pass', value: SECRET }),
+      }),
+    );
+    expect(driver.type).not.toHaveBeenCalled();
+    // ...but never leaks into the model-visible result or the audit log.
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(JSON.stringify(audits)).not.toContain(SECRET);
+  });
+
+  it('fillCredential keys the opt-in by the shared tab node scope, not the ephemeral tab profileId', async () => {
+    const SECRET = 'Node-Scoped-S3cret!';
+    const vault = { getSecretForFill: vi.fn(async () => SECRET) };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const extensionCommandStore = portalExtensionCommandStore();
+    // A per-node opt-in reader: only unlocks the 'local' scope. It must receive
+    // the resolved node scope ('local'), NOT the ephemeral 'existing-tab:7:42'.
+    const allowSharedTabCredentialFill = vi.fn((profileId: string) => profileId === 'local');
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      allowSharedTabCredentialFill,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 1 } });
+    expect(allowSharedTabCredentialFill).toHaveBeenCalledWith('local');
+    expect(allowSharedTabCredentialFill).not.toHaveBeenCalledWith('existing-tab:7:42');
+  });
+
+  it('fillCredential denies a shared existing tab when the flag is on but no standing authorization covers it', async () => {
+    const vault = { getSecretForFill: vi.fn(async () => 'secret') };
+    const authorizations = {
+      check: vi.fn(() => ({ authorized: false as const, reason: 'origin_not_authorized' as const })),
+    };
+    const extensionCommandStore = portalExtensionCommandStore();
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
+    expect(result.reason).toContain('credential_not_authorized');
+    expect(authorizations.check).toHaveBeenCalledWith(
+      expect.objectContaining({ profileId: 'local', origin: 'https://portal.example.gov.uk' }),
+    );
+    // The origin was resolved (snapshot) but no secret was ever resolved or typed.
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+    expect(extensionCommandStore.sendCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'type' }),
+    );
+    expect(driver.type).not.toHaveBeenCalled();
+  });
+
+  it('executeFillPlan gets past the shared-tab gate when the opt-in flag is on', async () => {
+    const extensionCommandStore = portalExtensionCommandStore();
+    const { service } = makeService({
+      allowSharedTabCredentialFill: () => true,
+      extensionCommandStore,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.executeFillPlan({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      steps: [{ field: 'x', kind: 'set', target: '#x', value: 'y' }],
+    });
+
+    // The managed-only deny no longer fires; the plan proceeds to the per-step
+    // action guard (which, absent a grant, parks the step rather than denying
+    // for managed-profile-only).
+    expect(result.reason).not.toBe('execute_fill_plan_managed_profile_only');
   });
 });

@@ -44,6 +44,15 @@ export function countNarrationMarkers(text: string): number {
 
 /**
  * True when text is predominantly agent planning monologue.
+ *
+ * "Predominantly" is load-bearing: this verdict is used to swallow an entire
+ * message into a thinking accordion with an empty user-facing response. A
+ * substantive answer that merely contains one reflective phrase — e.g. "It also
+ * means I should narrow my conclusion" — is NOT planning monologue, and treating
+ * it as such silently deletes the whole reply (and, mid-stream, freezes the
+ * visible bubble at the prefix before the phrase). So require the markers to be
+ * both plural and dense relative to length: a single "I should" can never carry
+ * a long answer over the line on its own.
  */
 export function isNarrationHeavy(text: string): boolean {
   const trimmed = text.trim();
@@ -51,18 +60,25 @@ export function isNarrationHeavy(text: string): boolean {
     return false;
   }
 
-  let score = 0;
-  if (countNarrationMarkers(trimmed) >= 2) {
-    score += 2;
-  } else if (countNarrationMarkers(trimmed) >= 1) {
-    score += 1;
+  const markers = countNarrationMarkers(trimmed);
+  if (markers < 2) {
+    return false;
   }
 
-  if (/\b(?:i need to|i should|i'll start|let me explore|respond to the user|no tools? (?:are|is) needed)\b/i.test(trimmed)) {
-    score += 2;
+  // Roughly one narration marker per ~150 characters of prose. A ~180-char
+  // planning monologue with 5 markers passes comfortably; a 2700-char analytical
+  // answer with a single "I should" does not.
+  const denseEnough = markers * 150 >= trimmed.length;
+  if (!denseEnough) {
+    return false;
   }
 
-  return score >= 3 || (trimmed.length > 240 && countNarrationMarkers(trimmed) >= 3);
+  const hasStrongMarker =
+    /\b(?:i need to|i should|i'll start|let me explore|respond to the user|no tools? (?:are|is) needed)\b/i.test(
+      trimmed,
+    );
+
+  return hasStrongMarker || markers >= 3;
 }
 
 /**

@@ -21,6 +21,7 @@ const EXPECTED_PATHS = [
   '/hooks',
   '/skills',
   '/reviews',
+  '/doc-review',
   '/specialists',
   '/worktrees',
   '/supervision',

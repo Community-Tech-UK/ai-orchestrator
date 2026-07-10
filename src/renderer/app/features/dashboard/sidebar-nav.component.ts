@@ -12,6 +12,7 @@ import {
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 import { AutomationStore } from '../../core/state/automation.store';
+import { DocReviewStore } from '../doc-review/doc-review.store';
 import { listDashboardNavGroups } from '../../shared/control-surface/control-surface-nav';
 
 @Component({
@@ -52,6 +53,9 @@ import { listDashboardNavGroups } from '../../shared/control-surface/control-sur
                   @if (item.id === 'automations' && unreadAutomations() > 0) {
                     <span class="nav-badge">{{ unreadAutomations() }}</span>
                   }
+                  @if (item.id === 'doc-review' && pendingDocReviews() > 0) {
+                    <span class="nav-badge">{{ pendingDocReviews() }}</span>
+                  }
                 </a>
               }
             </div>
@@ -64,7 +68,9 @@ import { listDashboardNavGroups } from '../../shared/control-surface/control-sur
 })
 export class SidebarNavComponent {
   private readonly automationStore = inject(AutomationStore);
+  private readonly docReviewStore = inject(DocReviewStore);
   readonly expanded = signal(true);
   readonly groups = listDashboardNavGroups();
   readonly unreadAutomations = this.automationStore.unreadCount;
+  readonly pendingDocReviews = this.docReviewStore.pendingCount;
 }

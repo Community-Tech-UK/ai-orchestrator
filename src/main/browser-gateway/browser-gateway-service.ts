@@ -112,11 +112,14 @@ import { autoApproveBrowserApproval } from './browser-auto-approve';
 import { HEAVY_DOM_COMMAND_TIMEOUT_MS } from './browser-mutation-safety';
 import {
   defaultManualStepPrompt,
+  extractTabPayload,
   manualStepActionClass,
   primaryActionClass,
   proposedUploadRoots,
   safeTargetFromExistingTab,
+  tryParseWebUrl,
 } from './browser-gateway-service-helpers';
+import { existingTabGrantNodeId } from './browser-grant-scope';
 import {
   BrowserGatewayResultRecorder,
   type BrowserGatewayResultInput,
@@ -150,7 +153,7 @@ import type {
   BrowserGatewayTargetRequest,
   BrowserGatewayUpdateProfileRequest,
 } from './browser-gateway-service-types';
-import type { FillPlanResult } from './browser-fill-plan-executor';
+import type { FillControlReadback, FillPlanResult } from './browser-fill-plan-executor';
 import {
   executeFillPlanOperation,
   fillCredentialOperation,
@@ -158,6 +161,7 @@ import {
   type FillOperationDeps,
 } from './browser-form-fill-operations';
 import {
+  normalizeExistingTabControlReadback,
   verifyGatewayFillFormReadback,
   verifyGatewayMutationReadback,
   type BrowserGatewayMutationReadbackDeps,
@@ -232,6 +236,7 @@ export class BrowserGatewayService {
   private readonly credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
   private readonly credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
   private readonly emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
+  private readonly allowSharedTabCredentialFill: (profileId: string) => boolean;
   private autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
   private resolvePreferredDebugPort?: BrowserGatewayServiceOptions['resolvePreferredDebugPort'];
   private stageUploadFileOnNode: NonNullable<BrowserGatewayServiceOptions['stageUploadFileOnNode']>;
@@ -257,6 +262,9 @@ export class BrowserGatewayService {
     this.credentialVault = options.credentialVault;
     this.credentialAuthorizations = options.credentialAuthorizations;
     this.emailCodeReader = options.emailCodeReader;
+    // Default false: shared-tab credential fills stay managed-only unless the
+    // app root wires the operator opt-in setting in.
+    this.allowSharedTabCredentialFill = options.allowSharedTabCredentialFill ?? (() => false);
     this.autoApproveRequests = options.autoApproveRequests;
     this.resolvePreferredDebugPort = options.resolvePreferredDebugPort;
     this.stageUploadFileOnNode = options.stageUploadFileOnNode ?? stageBrowserUploadOnNode;
@@ -1460,16 +1468,22 @@ export class BrowserGatewayService {
     return {
       result: (input) => this.result(input),
       hasExistingTab: (profileId, targetId) => Boolean(this.extensionTabStore.getTab(profileId, targetId)),
+      // Key the opt-in by the same stable node scope the authorization uses (not
+      // the ephemeral existing-tab profileId), so a future per-node allowlist
+      // reader resolves correctly. The global-flag reader ignores the argument.
+      sharedTabCredentialFillAllowed: (profileId) =>
+        this.allowSharedTabCredentialFill(credentialAuthorizationProfileScope(profileId)),
+      resolveCredentialProfileScope: (profileId) => credentialAuthorizationProfileScope(profileId),
       type: (req) => this.type(req as BrowserGatewayContext & BrowserTypeRequest),
       select: (req) => this.select(req as BrowserGatewayContext & BrowserSelectRequest),
       click: (req) => this.click(req as BrowserGatewayContext & BrowserClickRequest),
-      readControl: (profileId, targetId, selector) => this.driver.readControl(profileId, targetId, selector),
+      // Shared existing tabs have no puppeteer page — read-back + typing route
+      // through the extension command channel instead (same channel browser.type
+      // uses); the driver path stays for managed profiles.
+      readControl: (profileId, targetId, selector) => this.readControlForTarget(profileId, targetId, selector),
       driverType: (profileId, targetId, selector, value) =>
-        this.driver.type(profileId, targetId, selector, value),
-      refreshTargetOrigin: async (profileId, targetId) => {
-        const target = await this.driver.refreshTarget(profileId, targetId);
-        return target.origin ?? '';
-      },
+        this.driverTypeForTarget(profileId, targetId, selector, value),
+      refreshTargetOrigin: (profileId, targetId) => this.refreshTargetOrigin(profileId, targetId),
       ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
       ...(this.credentialAuthorizations ? { credentialAuthorizations: this.credentialAuthorizations } : {}),
       ...(this.emailCodeReader ? { emailCodeReader: this.emailCodeReader } : {}),
@@ -1477,14 +1491,77 @@ export class BrowserGatewayService {
     };
   }
 
+  /** Read a control value, via the extension for shared tabs or the driver otherwise. */
+  private async readControlForTarget(
+    profileId: string,
+    targetId: string,
+    selector: string,
+  ): Promise<FillControlReadback> {
+    const existingTab = this.extensionTabStore.getTab(profileId, targetId);
+    if (existingTab) {
+      return normalizeExistingTabControlReadback(
+        await this.existingTabOperations.sendCommand(
+          existingTab,
+          'read_control',
+          { selector },
+          HEAVY_DOM_COMMAND_TIMEOUT_MS,
+        ),
+      );
+    }
+    return this.driver.readControl(profileId, targetId, selector);
+  }
+
+  /**
+   * Type a value into a field. For shared existing tabs the secret is handed to
+   * the extension `type` command (the only way to reach a tab with no puppeteer
+   * page); it is never logged or returned. Managed profiles keep the driver path.
+   */
+  private async driverTypeForTarget(
+    profileId: string,
+    targetId: string,
+    selector: string,
+    value: string,
+  ): Promise<void> {
+    const existingTab = this.extensionTabStore.getTab(profileId, targetId);
+    if (existingTab) {
+      await this.existingTabOperations.sendCommand(existingTab, 'type', { selector, value });
+      return;
+    }
+    await this.driver.type(profileId, targetId, selector, value);
+  }
+
+  /**
+   * Resolve the LIVE page origin of a fill target. For a shared existing tab a
+   * fresh snapshot is taken so a credential fill can never authorize against a
+   * stale origin the tab has since navigated away from (fail-closed on any
+   * error). Managed profiles use the puppeteer target refresh.
+   */
+  private async refreshTargetOrigin(profileId: string, targetId: string): Promise<string> {
+    const existingTab = this.extensionTabStore.getTab(profileId, targetId);
+    if (existingTab) {
+      const raw = await this.existingTabOperations.sendCommand(
+        existingTab,
+        'snapshot',
+        undefined,
+        HEAVY_DOM_COMMAND_TIMEOUT_MS,
+      );
+      const url = tryParseWebUrl(extractTabPayload(raw).url);
+      return url ? url.origin : '';
+    }
+    const target = await this.driver.refreshTarget(profileId, targetId);
+    return target.origin ?? '';
+  }
+
   /**
    * Fill credential fields from the agent credential vault WITHOUT the secret
    * ever entering model context: the request carries only a vault item
    * reference; the secret is resolved in-process (folder- + origin-jailed) and
    * typed straight into the page. Gated by a standing James-granted credential
-   * authorization for (profile, live origin, purpose) — this is the sanctioned
-   * bypass of the credential hard-stop, and only for agent-owned managed
-   * profiles. The typed secret never appears in the tool result or audit.
+   * authorization for (profile scope, live origin, purpose) — this is the
+   * sanctioned bypass of the credential hard-stop. Runs on agent-owned managed
+   * profiles, and additionally on the user's shared existing tabs when the
+   * operator has set `browserAllowSharedTabCredentialFill` (authorized by the
+   * tab's node scope). The typed secret never appears in the tool result or audit.
    */
   async fillCredential(
     request: BrowserGatewayFillCredentialRequest,
@@ -2275,6 +2352,17 @@ export class BrowserGatewayService {
     return profile.userDataDir ?? this.profileRegistry.resolveProfileDir(profile.id);
   }
 
+}
+
+/**
+ * Profile key a credential authorization is checked against for a given live
+ * target. Managed profiles authorize by their own id; a shared existing tab
+ * authorizes by its stable node scope (nodeId, or 'local') — its own profileId
+ * is per-tab/ephemeral, so authorizing by it could never be "standing". Mirrors
+ * how shared-tab grants are scoped (browser-grant-scope.ts).
+ */
+function credentialAuthorizationProfileScope(profileId: string): string {
+  return existingTabGrantNodeId(profileId) ?? profileId;
 }
 
 export function getBrowserGatewayService(): BrowserGatewayService {

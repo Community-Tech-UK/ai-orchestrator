@@ -53,13 +53,15 @@ import {
   computeStableDisplayItems,
   type StableDisplayItemsState,
 } from './compute-stable-display-items';
-import type { RenderedMarkdown, RenderedDisplayItem, LinkedFileTarget } from './output-stream.types';
+import type { RenderedDisplayItem, LinkedFileTarget } from './output-stream.types';
+import { MarkdownRenderCache } from './output-stream-markdown-cache';
 import {
   buildLinkedFileTarget as createLinkedFileTarget,
   getSystemFileManagerLabel,
 } from './output-stream.utils';
 import { TranscriptFindBarComponent } from './transcript-find-bar.component';
 import { TranscriptFindController } from './transcript-find-controller';
+import { TranscriptJumpRailComponent } from './transcript-jump-rail.component';
 
 interface OlderMessagesLoadResult {
   prependedCount: number;
@@ -86,6 +88,7 @@ interface OlderMessagesProbeResult {
     PlanUpdateCardComponent,
     ContextMenuComponent,
     TranscriptFindBarComponent,
+    TranscriptJumpRailComponent,
   ],
   templateUrl: './output-stream.component.html',
   styleUrl: './output-stream.component.scss',
@@ -1208,52 +1211,19 @@ export class OutputStreamComponent {
     if (item.type === 'message' && item.message) {
       const isToolMessage = item.message.type === 'tool_use' || item.message.type === 'tool_result';
       if (!isToolMessage && !this.isCompactionBoundary(item.message) && this.hasContent(item.message)) {
-        item.renderedMessage = this.renderMarkdownContent(item.message.content, item.message.id);
+        item.renderedMessage = this.markdownCache.render(item.message.content, item.message.id);
       }
     }
 
     if (item.type === 'thought-group' && item.response && this.hasContent(item.response)) {
-      item.renderedResponse = this.renderMarkdownContent(item.response.content, item.response.id);
+      item.renderedResponse = this.markdownCache.render(item.response.content, item.response.id);
     }
   }
 
-  // LRU markdown cache - bounded at MAX_CACHE_SIZE entries, MAX_CACHEABLE_LENGTH content size
-  // Keyed by messageId to avoid cache pollution from streaming intermediate strings
-  private markdownCache = new Map<string, { content: string; rendered: RenderedMarkdown }>();
-  private readonly MAX_CACHE_SIZE = 200;
-  private readonly MAX_CACHEABLE_LENGTH = 50_000; // Skip caching very large content
-  private renderMarkdownContent(content: string, messageId?: string): RenderedMarkdown {
-    if (!content) return '';
-
-    const cacheKey = messageId || content;
-
-    // Check cache first — LRU: delete and re-insert to move to end
-    const cached = this.markdownCache.get(cacheKey);
-    if (cached !== undefined && cached.content === content) {
-      this.markdownCache.delete(cacheKey);
-      this.markdownCache.set(cacheKey, cached);
-      return cached.rendered;
-    }
-
-    // Render with perf measurement
-    const renderStart = performance.now();
-    const rendered = this.markdownService.render(content);
-    this.perf.recordMarkdownRender(content.length, performance.now() - renderStart);
-
-    // Cache using messageId key — avoids pollution from intermediate streaming strings.
-    // Skip caching very large content.
-    if (content.length <= this.MAX_CACHEABLE_LENGTH) {
-      // Evict oldest (first) entries if at capacity
-      while (this.markdownCache.size >= this.MAX_CACHE_SIZE) {
-        const firstKey = this.markdownCache.keys().next().value;
-        if (firstKey) this.markdownCache.delete(firstKey);
-        else break;
-      }
-      this.markdownCache.set(cacheKey, { content, rendered });
-    }
-
-    return rendered;
-  }
+  private markdownCache = new MarkdownRenderCache(
+    (content) => this.markdownService.render(content),
+    (contentLength, durationMs) => this.perf.recordMarkdownRender(contentLength, durationMs),
+  );
 
   private getViewportElement(): HTMLDivElement | null {
     return this.container()?.nativeElement ?? null;

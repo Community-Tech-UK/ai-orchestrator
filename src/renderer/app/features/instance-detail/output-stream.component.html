@@ -34,7 +34,7 @@
           </button>
         }
         @for (item of visibleItems(); track item.id; let i = $index) {
-          <div class="transcript-item" [attr.data-item-index]="i" (contextmenu)="onContextMenu($event, item)">
+          <div class="transcript-item" [attr.data-item-index]="i" [attr.data-item-id]="item.id" (contextmenu)="onContextMenu($event, item)">
             <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: item }" />
           </div>
         }
@@ -326,6 +326,13 @@
         </svg>
       </button>
     }
+
+    <app-transcript-jump-rail
+      [items]="visibleItems()"
+      [viewport]="container()?.nativeElement ?? null"
+      [hasOlderMessages]="hasOlderMessages()"
+      (loadOlder)="loadOlderMessages()"
+    />
 
     <app-context-menu
       [items]="contextMenuItems()"

@@ -176,6 +176,18 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * master-password source (setting or AIO_BW_MASTER_PASSWORD_FILE).
    */
   browserVaultAutoUnlock: boolean;
+  /**
+   * When true, browser.fill_credential and the credential steps of
+   * browser.execute_fill_plan may run on the user's SHARED existing Chrome tabs
+   * (not just agent-owned managed profiles) — but ONLY when a live standing
+   * CredentialAuthorization also covers the node-scoped profile + live origin +
+   * purpose. Default OFF: shared tabs stay fully locked to manual login. The
+   * secret is still resolved in-process and typed straight into the page; it
+   * never enters model context or the audit log. Operator-only (not agent
+   * writable via the safe settings tool). See
+   * bigchange_shared-tab-autonomous-login_2026-07-10.md.
+   */
+  browserAllowSharedTabCredentialFill: boolean;
 
   // Codebase auto-index (separate, heavier pipeline from codemem: BM25 +
   // vector embeddings + Merkle change detection + hybrid search). Auto-runs
@@ -530,6 +542,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   chromeDevtoolsAttachProfileId: '',
   browserVaultMasterPasswordFile: '',
   browserVaultAutoUnlock: false,
+  browserAllowSharedTabCredentialFill: false,
 
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)
   instanceProviderLimitResumeEnabled: false,

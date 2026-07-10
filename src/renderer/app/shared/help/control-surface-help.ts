@@ -17,6 +17,7 @@ import {
 import {
   ASK_COUNCIL_HELP,
   DEBATE_HELP,
+  DOC_REVIEW_HELP,
   REVIEWS_HELP,
   SKILLS_HELP,
   SPECIALISTS_HELP,
@@ -79,6 +80,7 @@ export const CONTROL_SURFACE_HELP: Record<ControlSurfaceId, HelpEntry> = {
   'hooks': HOOKS_HELP,
   'skills': SKILLS_HELP,
   'reviews': REVIEWS_HELP,
+  'doc-review': DOC_REVIEW_HELP,
   'specialists': SPECIALISTS_HELP,
   'worktrees': WORKTREES_HELP,
   'supervision': SUPERVISION_HELP,

@@ -48,6 +48,16 @@ npm run dev
 npm run build
 ```
 
+## Documentation Formats
+
+Split docs by audience: **Markdown for machines, HTML for humans.**
+
+- Markdown is canonical for anything an agent reads or that lives in the repo long-term (conventions, runbooks, agent instructions, specs, plans). It is the source of truth. HTML is a disposable render target only.
+- Any doc that requires James's review or approval (plans, decision docs, audits, reports) should be presented as a self-contained interactive **review artifact** per the artifact contract, generated into `.aio-review/` (never committed). The `doc-review-artifact` skill produces these.
+- Never commit rendered HTML, and never treat an HTML artifact as the source of truth. Apply agreed changes to the Markdown source, then re-render.
+- Plain-language decision docs keep the numbered-items convention (it matches how James answers — by number).
+- `_completed` conventions and the loop evidence ladder are unchanged by this policy.
+
 ## TypeScript and Angular Conventions
 
 - Prefer `const` when a binding is not reassigned.

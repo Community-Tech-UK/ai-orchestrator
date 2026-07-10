@@ -9,6 +9,7 @@ import { OperatorRunStore } from '../operator/operator-run-store';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import type { WorkerAgentBuildSummary, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary, WorkerNodeFileTransferSummary } from '../../shared/types/worker-node.types';
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
+import { createDocReviewToolDefinitions, type GetDocReviewResultFn, type RequestDocReviewFn } from './doc-review-tools';
 import {
   createSettingsToolDefinitions,
   type SettingsChangeBroadcaster,
@@ -280,6 +281,8 @@ export interface OrchestratorToolRuntimeContext extends FileTransferToolContext 
   deleteAutomation?: DeleteAutomationFn | null;
   updateAutomation?: UpdateAutomationFn | null;
   postponeAutomation?: PostponeAutomationFn | null;
+  requestDocReview?: RequestDocReviewFn | null;
+  getDocReviewResult?: GetDocReviewResultFn | null;
   releaseTools?: ReleaseToolDependencies;
 }
 
@@ -632,6 +635,7 @@ export function createOrchestratorToolDefinitions(
     ...createFileTransferToolDefinitions(context),
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),
+    ...createDocReviewToolDefinitions(context),
     ...createReleaseToolDefinitions(context.releaseTools),
   ];
 }

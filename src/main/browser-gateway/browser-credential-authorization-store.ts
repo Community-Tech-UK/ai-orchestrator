@@ -6,7 +6,16 @@
  * primitive allowed to bypass it, and only when a live authorization from this
  * store covers (profileId, live origin, purpose). Authorizations are created
  * ONLY through an interactive James-approved dialog — never via an MCP tool,
- * never auto-approved — and are scoped to agent-owned managed profiles.
+ * never auto-approved.
+ *
+ * Scope: agent-owned managed profiles, keyed by the managed profileId. The same
+ * record ALSO gates autonomous login on the user's SHARED existing Chrome tabs
+ * when the operator opts in (the `browserAllowSharedTabCredentialFill` setting).
+ * A shared tab's own profileId is ephemeral (`existing-tab:...:<window>:<tab>`),
+ * so for that path the caller keys the check by the tab's NODE scope instead —
+ * the remote nodeId, or `'local'` for the coordinator's own Chrome — exactly
+ * as shared-tab GRANTS are scoped (see browser-grant-scope.ts). That keeps the
+ * consent genuinely standing: one authorization per node, not per tab.
  *
  * This is the standing-consent record; runtime secret resolution + origin/
  * folder jailing live in browser-credential-vault.ts. Both must pass.

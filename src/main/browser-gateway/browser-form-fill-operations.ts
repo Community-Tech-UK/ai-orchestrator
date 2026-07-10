@@ -38,6 +38,20 @@ type GuardedMutation = (req: {
 export interface FillOperationDeps {
   result: <T>(input: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
   hasExistingTab: (profileId: string, targetId: string) => boolean;
+  /**
+   * Operator opt-in: may fill_credential / execute_fill_plan run on the user's
+   * SHARED existing tabs (not just managed profiles)? Default absent = false, so
+   * the shared-tab denies behave byte-for-byte as before. A standing
+   * authorization is still required on top of this flag.
+   */
+  sharedTabCredentialFillAllowed?: (profileId: string) => boolean;
+  /**
+   * Map a live target profileId to the profile scope the credential
+   * authorization is keyed by. Identity for managed profiles; for a shared
+   * existing tab it returns the stable node scope (nodeId, or 'local') because
+   * the tab's own profileId is ephemeral. Default absent = identity.
+   */
+  resolveCredentialProfileScope?: (profileId: string) => string;
   /** Guarded per-action service methods (they classify + grant-check + audit). */
   type: GuardedMutation;
   select: GuardedMutation;
@@ -72,7 +86,14 @@ export async function executeFillPlanOperation(
   const action = 'execute_fill_plan';
   const context = contextOf(request);
 
-  if (deps.hasExistingTab(request.profileId, request.targetId)) {
+  // Shared existing tabs are managed-only UNLESS the operator has opted in. When
+  // allowed, every step still routes through the per-action guard (grants +
+  // classification + audit) and read-back runs via the extension, so the only
+  // thing the flag unlocks is the shared-tab surface itself.
+  if (
+    deps.hasExistingTab(request.profileId, request.targetId) &&
+    !deps.sharedTabCredentialFillAllowed?.(request.profileId)
+  ) {
     return deps.result({
       context,
       profileId: request.profileId,
@@ -183,7 +204,14 @@ export async function fillCredentialOperation(
   if (!vault || !authorizations) {
     return deny('credential_vault_unavailable', `${toolName} is not configured on this instance`);
   }
-  if (deps.hasExistingTab(request.profileId, request.targetId)) {
+  // Shared existing tabs stay managed-only unless the operator opted in via
+  // `browserAllowSharedTabCredentialFill`. The flag only unlocks the surface;
+  // the standing-authorization gate below still has to pass for the resolved
+  // node scope + live origin, so an unauthorized origin can never be filled.
+  if (
+    deps.hasExistingTab(request.profileId, request.targetId) &&
+    !deps.sharedTabCredentialFillAllowed?.(request.profileId)
+  ) {
     return deny(
       'fill_credential_managed_profile_only',
       `${toolName} runs on agent-owned managed profiles only, not shared tabs`,
@@ -208,6 +236,10 @@ export async function fillCredentialOperation(
     return deny('email_code_reader_unavailable', `${toolName} has no mailbox reader configured`);
   }
 
+  // Managed profiles authorize by their own id; a shared existing tab authorizes
+  // by its stable node scope (its own profileId is per-tab/ephemeral).
+  const authProfileId = deps.resolveCredentialProfileScope?.(request.profileId) ?? request.profileId;
+
   const purposes = new Set<CredentialPurpose>();
   for (const field of request.fields) {
     purposes.add(
@@ -215,7 +247,7 @@ export async function fillCredentialOperation(
     );
   }
   for (const purpose of purposes) {
-    const decision = authorizations.check({ profileId: request.profileId, origin, purpose });
+    const decision = authorizations.check({ profileId: authProfileId, origin, purpose });
     if (!decision.authorized) {
       return deny(
         `credential_not_authorized:${decision.reason ?? 'unknown'}`,

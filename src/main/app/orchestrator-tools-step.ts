@@ -27,6 +27,7 @@ import {
 } from '../automations/automation-create-service';
 import { getAutomationEvents } from '../automations/automation-events';
 import { createAutomationToolImplementations } from '../automations/automation-tool-impl';
+import { getDocReviewService } from '../doc-review/doc-review-service';
 import type { Instance } from '../../shared/types/instance.types';
 import type { NodePlacementPrefs, WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -157,6 +158,11 @@ export function createOrchestratorToolsStep(
           callerInstanceId
             ? instanceManager.getInstance(callerInstanceId)?.workingDirectory
             : undefined,
+      });
+      // Wire doc-review so submitted decisions can be pushed back into the
+      // requesting instance as a user message.
+      getDocReviewService().setInstanceManager({
+        sendInput: (id, message) => instanceManager.sendInput(id, message),
       });
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
@@ -509,6 +515,22 @@ export function createOrchestratorToolsStep(
         deleteAutomation: automationTools.deleteAutomation,
         updateAutomation: automationTools.updateAutomation,
         postponeAutomation: automationTools.postponeAutomation,
+        // Doc-review MCP tools (request_doc_review / get_doc_review_result).
+        requestDocReview: async ({ instanceId, artifactPath, title, sourcePath }) => {
+          const workspacePath = instanceManager.getInstance(instanceId)?.workingDirectory;
+          if (!workspacePath) {
+            throw new Error('Calling instance has no working directory for the review artifact');
+          }
+          const session = await getDocReviewService().createSession({
+            instanceId,
+            workspacePath,
+            artifactPath,
+            title,
+            sourcePath,
+          });
+          return { reviewId: session.id };
+        },
+        getDocReviewResult: (reviewId) => getDocReviewService().getSession(reviewId) ?? null,
         listNodeFiles: fileTransferTools.listNodeFiles,
         findNodeFiles: fileTransferTools.findNodeFiles,
         getNodeFileInfo: fileTransferTools.getNodeFileInfo,

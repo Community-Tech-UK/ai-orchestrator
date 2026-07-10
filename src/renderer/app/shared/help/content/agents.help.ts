@@ -83,6 +83,33 @@ export const REVIEWS_HELP: HelpEntry = {
   ],
 };
 
+export const DOC_REVIEW_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'When an agent asks you to review a plan, spec, audit, or decision doc, it appears here as an interactive HTML document. Toggle Approve/Reject and add comments per section, set an overall verdict, and submit — your decisions go straight back to the agent as a message.',
+    },
+    {
+      kind: 'steps',
+      heading: 'How to use it',
+      items: [
+        'Pick a pending review from the list on the left.',
+        'Read the document; toggle Approve or Reject and add comments per section.',
+        'Set the overall verdict (Approve / Request changes / Reject).',
+        'Click Submit decision — the agent receives your feedback and applies it to the Markdown source.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'tip',
+      heading: 'Prefer a full browser?',
+      body: 'Open in browser shows the same artifact standalone, where Export decisions downloads a JSON file and copies a Markdown summary you can paste back to the agent.',
+    },
+  ],
+};
+
 export const SPECIALISTS_HELP: HelpEntry = {
   sections: [
     {

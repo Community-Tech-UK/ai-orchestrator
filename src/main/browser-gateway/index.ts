@@ -185,6 +185,20 @@ export async function initializeBrowserGatewayRuntime(
   const service = initializeBrowserGatewayService({
     autoApproveRequests: options.autoApproveRequests,
     ...credentials,
+    // Operator opt-in for autonomous credential fills on the user's shared
+    // existing tabs. Global flag today (the standing authorization supplies the
+    // per-node/origin scoping); the signature is per-profile for a future
+    // per-profile allowlist. Fails closed to managed-only if settings error.
+    allowSharedTabCredentialFill: (_profileId) => {
+      try {
+        return getSettingsManager().getAll().browserAllowSharedTabCredentialFill === true;
+      } catch (error) {
+        logger.warn('Failed to read browserAllowSharedTabCredentialFill; shared-tab fills stay off', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    },
     // Pin the managed profile's CDP port to the derived value when it is the
     // designated chrome-devtools attach profile, so the agent's spawn-time
     // `--browserUrl` matches the live port. Otherwise use a random free port.

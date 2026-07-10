@@ -185,6 +185,15 @@ export interface BrowserGatewayServiceOptions {
    * absent, email_code fills are unavailable. Codes never enter model context.
    */
   emailCodeReader?: Pick<BrowserEmailCodeReader, 'fetchCode'>;
+  /**
+   * Operator opt-in gate for autonomous credential fills on the user's SHARED
+   * existing Chrome tabs (browser.fill_credential + execute_fill_plan). Given a
+   * live target profileId it returns whether the shared-tab path is unlocked.
+   * Wired at the app root to the `browserAllowSharedTabCredentialFill` setting;
+   * left undefined in tests and treated as false (managed-only, as today). A
+   * standing CredentialAuthorization is still required on top of this flag.
+   */
+  allowSharedTabCredentialFill?: (profileId: string) => boolean;
   autoApproveRequests?: BrowserAutoApprovePredicate;
   /**
    * Resolve a pinned CDP debug port for a profile launch, or undefined to use a

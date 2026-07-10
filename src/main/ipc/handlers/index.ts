@@ -16,6 +16,7 @@ export { registerBrowserGatewayHandlers } from './browser-gateway-handlers';
 export { registerBrowserUnattendedHandlers } from './browser-unattended-handlers';
 export { registerDesktopGatewayHandlers } from './desktop-gateway-handlers';
 export { registerTodoHandlers } from './todo-handlers';
+export { registerDocReviewHandlers } from './doc-review-handlers';
 export { registerSecurityHandlers } from './security-handlers';
 export { registerDebugHandlers } from './debug-handlers';
 export { registerCostHandlers } from './cost-handlers';

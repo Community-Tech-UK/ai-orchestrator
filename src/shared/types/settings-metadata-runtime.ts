@@ -98,6 +98,13 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'browserAllowSharedTabCredentialFill',
+    label: 'Allow autonomous sign-in on your shared browser tabs',
+    description: 'Let the agent fill saved credentials (and login/registration forms) on your OWN shared Chrome tabs, not just its managed profiles — for portals where your registered accounts live in your real browser. Only origins you have granted a standing credential authorization can be filled; the password is typed straight into the page and never shown to the agent or logged. Off by default. Set only from here or via the privileged operator CLI — not changeable by agents.',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
     key: 'codememEnabled',
     label: 'Enable code memory',
     description: 'Let agents look up symbols and structure from a lightweight index of your code ("codemem"). Turning this off disables all the code-memory options below.',

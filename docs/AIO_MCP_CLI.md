@@ -41,6 +41,21 @@ It also has MCP and integration forwarders:
 Those forwarder commands are normally launched by Harness or by MCP config. They
 are not interactive user commands.
 
+### Doc review tools
+
+The `orchestrator-tools` forwarder also exposes two instance-scoped MCP tools for
+handing a document to James for review:
+
+| Tool | Args | Purpose |
+| --- | --- | --- |
+| `request_doc_review` | `artifact_path`, `title`, `source_path?` | Register an HTML review artifact (already written under the workspace's `.aio-review/` dir) as a pending review. Returns `{ reviewId }`. James decides in-app and the canonical feedback block arrives back as a user-role message. |
+| `get_doc_review_result` | `review_id` | Poll a review's status. Returns pending until James decides, then the overall verdict and per-item decisions. |
+
+Build the artifact with the `doc-review-artifact` skill first, then call
+`request_doc_review` with its path. Markdown stays the source of truth; apply the
+returned decisions to the `.md` source and re-render. The artifact path is validated
+to sit inside the workspace's `.aio-review/` directory (never committed).
+
 ## Runtime Requirements
 
 Settings, remote-node roster, and remote-node release-readiness captures need a

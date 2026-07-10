@@ -30,6 +30,7 @@ export type ControlSurfaceId =
   | 'hooks'
   | 'skills'
   | 'reviews'
+  | 'doc-review'
   | 'specialists'
   | 'worktrees'
   | 'supervision'

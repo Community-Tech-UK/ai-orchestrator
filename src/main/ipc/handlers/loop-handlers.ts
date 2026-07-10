@@ -15,6 +15,7 @@ import {
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
+import { getDocReviewService } from '../../doc-review/doc-review-service';
 import { buildLoopCheckpoint } from '../../orchestration/loop-checkpoint';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
@@ -211,7 +212,12 @@ export function registerLoopHandlers(deps: {
   coordinator.on('loop:intervention-applied', (data: unknown) => send(IPC_CHANNELS.LOOP_INTERVENTION_APPLIED, data));
   coordinator.on('loop:completed', (data: unknown) => send(IPC_CHANNELS.LOOP_COMPLETED, data));
   // LF-7 / LF-3: new terminal + hygiene events.
-  coordinator.on('loop:completed-needs-review', (data: unknown) => send(IPC_CHANNELS.LOOP_COMPLETED_NEEDS_REVIEW, data));
+  coordinator.on('loop:completed-needs-review', (data: unknown) => {
+    send(IPC_CHANNELS.LOOP_COMPLETED_NEEDS_REVIEW, data);
+    // Phase 3: auto-create a doc-review for the plan so James can approve it in-app.
+    // Best-effort and fully isolated — never let this affect loop control flow.
+    void maybeCreateDocReviewForCompletedLoop(coordinator, data);
+  });
   coordinator.on('loop:notes-curated', (data: unknown) => send(IPC_CHANNELS.LOOP_NOTES_CURATED, data));
   coordinator.on('loop:context-compacted', (data: unknown) => send(IPC_CHANNELS.LOOP_CONTEXT_COMPACTED, data));
   coordinator.on('loop:branch-select', (data: unknown) => send(IPC_CHANNELS.LOOP_BRANCH_SELECT, data));
@@ -603,4 +609,44 @@ function isTerminalLoopStatus(status: LoopState['status']): boolean {
     || status === 'reviewer-unavailable'
     || status === 'builder-unreliable'
   );
+}
+
+/**
+ * Phase 3: when a loop terminates in `completed-needs-review` and has a plan file, render
+ * the plan into a review artifact and create a pending doc-review so James can approve it
+ * in-app. Best-effort and fully guarded — a failure here must never affect the loop.
+ */
+async function maybeCreateDocReviewForCompletedLoop(
+  coordinator: ReturnType<typeof getLoopCoordinator>,
+  data: unknown,
+): Promise<void> {
+  try {
+    const loopRunId = (data as { loopRunId?: unknown })?.loopRunId;
+    if (typeof loopRunId !== 'string') return;
+    const loop = coordinator.getLoop(loopRunId);
+    const planFile = loop?.config.planFile;
+    if (!loop || !planFile) return; // nothing to review without a plan
+    // The loop's chatId is the instance id the decision is routed back to.
+    const chatId = loop.chatId;
+
+    const service = getDocReviewService();
+    const alreadyPending = service
+      .listSessions('pending')
+      .some((s) => s.instanceId === chatId && s.sourcePath === planFile);
+    if (alreadyPending) return;
+
+    await service.createReviewFromPlan({
+      instanceId: chatId,
+      workspacePath: loop.config.workspaceCwd,
+      planFile,
+    });
+    logger.info('Created doc-review for completed-needs-review loop', {
+      loopRunId,
+      planFile,
+    });
+  } catch (err) {
+    logger.warn('Failed to auto-create doc-review for completed loop', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }

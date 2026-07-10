@@ -41,6 +41,7 @@ const MACHINE_LOCAL_SETTING_KEYS = new Set<keyof AppSettings>([
   'chromeDevtoolsAttachProfileId',
   'browserVaultMasterPasswordFile',
   'browserVaultAutoUnlock',
+  'browserAllowSharedTabCredentialFill',
   'voiceLocalSttWorkerNodeId',
   'remoteNodesEnabled',
   'remoteNodesServerHost',
