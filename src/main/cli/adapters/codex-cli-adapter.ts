@@ -202,6 +202,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   private cliConfig: CodexCliConfig;
   private readonly codexHome = new CodexHomeManager();
+  /** Which config.toml treatment the current prepared CODEX_HOME has, if any. */
+  private preparedHomeKind: 'mcp-toml' | 'app-server' | 'exec' | null = null;
   private isSpawned = false;
   /** Running total of tokens spent across all turns (for cost/spend tracking). */
   private cumulativeTokensUsed = 0;
@@ -433,8 +435,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     // Decide which mode to use
     const appServerAvailable = Boolean(status.metadata?.['appServerAvailable']);
+    // Always run codex against a prepared CODEX_HOME (unless the caller set
+    // an explicit override): AIO session history must stay out of the user's
+    // ~/.codex so the Codex app never lists orchestrator-driven sessions.
     if (this.cliConfig.mcpServersConfigToml) {
-      this.prepareCodexHome();
+      this.prepareCodexHome('exec');
+    } else if (!this.config.env?.['CODEX_HOME']) {
+      this.prepareCodexHome(appServerAvailable ? 'app-server' : 'exec');
     }
 
     if (appServerAvailable) {
@@ -475,8 +482,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
         // B9: app-server was preferred and available but failed to init — this is
         // a degradation, now surfaced as an explicit signal (not just a warn log).
         this.setSpawnMode('subprocess-exec', { reason, degraded: true });
-        if (!this.config.env?.['CODEX_HOME']) {
-          this.prepareCodexHome();
+        // The app-server home keeps user MCP servers in config.toml; exec
+        // mode wants them stripped (startup latency), so re-prepare.
+        if (this.preparedHomeKind === 'app-server' || !this.config.env?.['CODEX_HOME']) {
+          this.prepareCodexHome('exec');
         }
       } finally {
         // Don't leave the budget timer pending for up to initBudgetMs after
@@ -487,8 +496,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
     } else {
       // Exec mode: spawn per message.
       // The WHY is already logged by checkAppServerAvailability() at warn level.
-      if (!this.config.env?.['CODEX_HOME']) {
-        this.prepareCodexHome();
+      if (this.preparedHomeKind === 'app-server' || !this.config.env?.['CODEX_HOME']) {
+        this.prepareCodexHome('exec');
       }
       // B9: not a degradation — app-server simply isn't available in this CLI.
       this.setSpawnMode('subprocess-exec');
@@ -994,7 +1003,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
    */
   private async connectAppServer(cwd: string): Promise<AppServerClient> {
     const { connectToAppServer } = await import('./codex/app-server-client');
-    return connectToAppServer(cwd, this.cliConfig.mcpServersConfigToml
+    // A CODEX_HOME override (session isolation or injected MCP config) only
+    // reaches the codex process on a direct spawn — a shared broker runs in
+    // its own home and would leak sessions into ~/.codex.
+    return connectToAppServer(cwd, this.config.env?.['CODEX_HOME']
       ? {
           env: { ...getSafeEnvForTrustedProcess(), ...this.config.env },
           disableBroker: true,
@@ -3320,17 +3332,27 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return /^[A-Za-z0-9+/]+={0,2}$/.test(data);
   }
 
-  private prepareCodexHome(): void {
+  /**
+   * Prepares a session-isolated CODEX_HOME for this instance. The kind picks
+   * the config.toml treatment: exec strips user MCP servers (startup
+   * latency), app-server keeps them (users expect their MCP tools there).
+   * Injected MCP config (Browser Gateway) always wins over both.
+   */
+  private prepareCodexHome(kind: 'app-server' | 'exec'): void {
     const codexHomeDir = this.cliConfig.mcpServersConfigToml
       ? this.codexHome.prepareHomeWithMcpConfig(this.cliConfig.mcpServersConfigToml)
-      : this.codexHome.prepareMcpFreeHome();
+      : kind === 'app-server'
+        ? this.codexHome.prepareSessionIsolatedHome()
+        : this.codexHome.prepareMcpFreeHome();
     if (codexHomeDir) {
+      this.preparedHomeKind = this.cliConfig.mcpServersConfigToml ? 'mcp-toml' : kind;
       this.config.env = { ...this.config.env, CODEX_HOME: codexHomeDir };
     }
   }
 
   private cleanupCodexHome(): void {
     this.codexHome.cleanup();
+    this.preparedHomeKind = null;
   }
 
   getResumeCursor(): ResumeCursor | null {

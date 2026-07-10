@@ -4,6 +4,7 @@ import { createInterface } from 'readline';
 import { homedir } from 'os';
 import { getLogger } from '../../../logging/logger';
 import { crossPlatformPathsEqual } from '../../../../shared/utils/cross-platform-path';
+import { getAioCodexSessionsDir } from './codex-home-manager';
 
 const logger = getLogger('CodexSessionScanner');
 
@@ -27,10 +28,14 @@ const SCAN_TIMEOUT_MS = 10_000;
 
 export class CodexSessionScanner {
   private cache = new Map<string, CodexSessionScanResult | null>();
-  private sessionsDir: string;
+  private sessionsDirs: string[];
 
-  constructor(sessionsDir?: string) {
-    this.sessionsDir = sessionsDir ?? join(homedir(), '.codex', 'sessions');
+  constructor(sessionsDir?: string | string[]) {
+    // Default: the AIO session store first (where isolated CODEX_HOMEs write),
+    // then legacy ~/.codex/sessions for rollouts from before session isolation.
+    this.sessionsDirs = sessionsDir
+      ? [sessionsDir].flat()
+      : [getAioCodexSessionsDir(), join(homedir(), '.codex', 'sessions')];
   }
 
   async findSessionForWorkspace(workspacePath: string): Promise<CodexSessionScanResult | null> {
@@ -115,7 +120,9 @@ export class CodexSessionScanner {
       }
     };
 
-    walk(this.sessionsDir, 0);
+    for (const dir of this.sessionsDirs) {
+      walk(dir, 0);
+    }
     files.sort((a, b) => b.mtime - a.mtime);
     return files.map(f => f.path);
   }

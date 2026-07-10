@@ -72,6 +72,40 @@ describe('CodexCliAdapter', () => {
       expect(adapter.isAppServerMode()).toBe(false);
       expect(adapter.getRuntimeCapabilities().supportsNativeCompaction).toBe(false);
     });
+
+    it('spawn prepares a session-isolated CODEX_HOME so rollouts stay out of ~/.codex', async () => {
+      const { mkdirSync, readlinkSync, rmSync, writeFileSync } = await import('fs');
+      const { join } = await import('path');
+      const { tmpdir } = await import('os');
+      const sandboxHome = join(tmpdir(), `codex-adapter-home-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      mkdirSync(join(sandboxHome, '.codex'), { recursive: true });
+      writeFileSync(join(sandboxHome, '.codex', 'config.toml'), 'model = "gpt-5.3-codex"', 'utf-8');
+      const originalHome = process.env['HOME'];
+      process.env['HOME'] = sandboxHome;
+
+      const adapter = new CodexCliAdapter();
+      try {
+        vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
+          available: true,
+          authenticated: true,
+          path: 'codex',
+          version: '0.107.0',
+          metadata: { appServerAvailable: false },
+        });
+
+        await adapter.spawn();
+
+        const codexHome = (adapter as unknown as { config: { env?: Record<string, string> } }).config.env?.['CODEX_HOME'];
+        expect(codexHome).toBeTruthy();
+        expect(readlinkSync(join(codexHome!, 'sessions'))).toBe(
+          join(sandboxHome, '.ai-orchestrator', 'codex', 'sessions'),
+        );
+      } finally {
+        (adapter as unknown as { cleanupCodexHome(): void }).cleanupCodexHome();
+        process.env['HOME'] = originalHome;
+        rmSync(sandboxHome, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('new config options', () => {

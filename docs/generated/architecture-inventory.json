@@ -5352,7 +5352,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3348
+      "lines": 3370
     },
     {
       "path": "resources/browser-extension/background.js",

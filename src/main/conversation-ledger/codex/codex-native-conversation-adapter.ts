@@ -30,6 +30,7 @@ import type {
 import type { NativeConversationAdapter } from '../native-conversation-adapter';
 import { NativeConversationError } from '../native-conversation-adapter';
 import { parseCodexRolloutFile } from './codex-rollout-parser';
+import { getAioCodexSessionsDir } from '../../cli/adapters/codex/codex-home-manager';
 
 const logger = getLogger('CodexNativeConversationAdapter');
 
@@ -53,12 +54,17 @@ export interface CodexNativeConversationAdapterDeps {
 export class CodexNativeConversationAdapter implements NativeConversationAdapter {
   readonly provider = 'codex' as const;
   private readonly clientFactory: AppServerClientFactory;
-  private readonly sessionsDir: string;
+  private readonly sessionsDirs: string[];
   private readonly clock: () => number;
 
   constructor(deps: CodexNativeConversationAdapterDeps = {}) {
     this.clientFactory = deps.appServerClientFactory ?? ((cwd) => connectToAppServer(cwd));
-    this.sessionsDir = deps.sessionsDir ?? join(homedir(), '.codex', 'sessions');
+    // AIO instances run codex in a session-isolated CODEX_HOME, so their
+    // rollouts live in the AIO store; the app-server (real ~/.codex home)
+    // only lists the user's own threads. Scan both so discovery sees both.
+    this.sessionsDirs = deps.sessionsDir
+      ? [deps.sessionsDir]
+      : [getAioCodexSessionsDir(), join(homedir(), '.codex', 'sessions')];
     this.clock = deps.clock ?? (() => Date.now());
   }
 
@@ -385,7 +391,9 @@ export class CodexNativeConversationAdapter implements NativeConversationAdapter
         }
       }
     };
-    walk(this.sessionsDir, 0);
+    for (const dir of this.sessionsDirs) {
+      walk(dir, 0);
+    }
     return files.sort((a, b) => b.mtime - a.mtime).map(file => file.path);
   }
 

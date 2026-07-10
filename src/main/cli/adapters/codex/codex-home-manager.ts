@@ -2,6 +2,7 @@ import {
   copyFileSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -17,13 +18,55 @@ import { CodexTomlEditor } from '../../../mcp/adapters/codex-toml-editor';
 const logger = getLogger('CodexHomeManager');
 
 /**
- * Creates a temporary CODEX_HOME that mirrors ~/.codex but removes MCP server
- * config. This keeps exec-mode startup from loading user MCP tool definitions.
+ * Session-history artifacts inside CODEX_HOME. These are never symlinked to
+ * the user's ~/.codex — they're redirected to the persistent AIO session
+ * store so orchestrator-driven sessions stay out of the Codex app/CLI
+ * history (the user asked for zero AIO noise there).
+ */
+const SESSION_ARTIFACT_DIRS = ['sessions', 'archived_sessions'] as const;
+const SESSION_ARTIFACT_FILES = ['history.jsonl', 'session_index.jsonl'] as const;
+
+/**
+ * Persistent store for AIO-owned Codex session history. Lives outside
+ * ~/.codex so the Codex app never lists orchestrator sessions, and outside
+ * the per-instance temp homes so rollouts survive cleanup for resume.
+ * Env-derived (not Electron userData) because this module also runs in
+ * worker processes.
+ */
+export function getAioCodexStateDir(): string {
+  const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || tmpdir();
+  return join(homeDir, '.ai-orchestrator', 'codex');
+}
+
+export function getAioCodexSessionsDir(): string {
+  return join(getAioCodexStateDir(), 'sessions');
+}
+
+/**
+ * Creates a temporary CODEX_HOME that mirrors ~/.codex with session history
+ * redirected to the persistent AIO store, and optionally with MCP server
+ * config removed (exec-mode startup should not load user MCP tools).
  */
 export class CodexHomeManager {
   private codexHomeDir?: string;
 
+  /**
+   * Session-isolated home with user MCP servers stripped from config.toml.
+   * For exec mode, where loading user MCP tool definitions slows startup.
+   */
   prepareMcpFreeHome(): string | null {
+    return this.prepareHome({ stripUserMcp: true });
+  }
+
+  /**
+   * Session-isolated home with config.toml mirrored untouched (user MCP
+   * servers keep working). For app-server mode.
+   */
+  prepareSessionIsolatedHome(): string | null {
+    return this.prepareHome({ stripUserMcp: false });
+  }
+
+  private prepareHome(opts: { stripUserMcp: boolean }): string | null {
     this.cleanup();
     const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
     const codexDir = join(homeDir, '.codex');
@@ -33,28 +76,23 @@ export class CodexHomeManager {
       return null;
     }
 
-    const configPath = join(codexDir, 'config.toml');
-    if (!existsSync(configPath)) {
-      logger.debug('No ~/.codex/config.toml found, skipping CODEX_HOME override');
-      return null;
-    }
-
-    const configContent = readFileSync(configPath, 'utf-8');
-    if (!configContent.includes('[mcp_servers')) {
-      logger.debug('No MCP servers in config, skipping CODEX_HOME override');
-      return null;
-    }
-
     try {
-      const tempDir = mkdtempSync(join(tmpdir(), 'codex-nomcp-'));
-      this.symlinkCodexHomeEntries(codexDir, tempDir);
-      writeFileSync(join(tempDir, 'config.toml'), stripMcpServers(configContent), 'utf-8');
+      const configPath = join(codexDir, 'config.toml');
+      const configContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
+      const stripConfig = opts.stripUserMcp && configContent !== null && configContent.includes('[mcp_servers');
+
+      const tempDir = mkdtempSync(join(tmpdir(), opts.stripUserMcp ? 'codex-nomcp-' : 'codex-aio-'));
+      this.symlinkCodexHomeEntries(codexDir, tempDir, { includeConfig: !stripConfig });
+      if (stripConfig) {
+        writeFileSync(join(tempDir, 'config.toml'), stripMcpServers(configContent), 'utf-8');
+      }
+      this.linkSessionStore(tempDir);
 
       this.codexHomeDir = tempDir;
-      logger.info('Created MCP-free CODEX_HOME', { path: tempDir });
+      logger.info('Created session-isolated CODEX_HOME', { path: tempDir, mcpStripped: stripConfig });
       return tempDir;
     } catch (err) {
-      logger.warn('Failed to create clean CODEX_HOME, MCP servers may cause latency', {
+      logger.warn('Failed to create session-isolated CODEX_HOME, sessions will land in ~/.codex', {
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
@@ -80,6 +118,7 @@ export class CodexHomeManager {
         .filter(Boolean)
         .join('\n\n');
       writeFileSync(join(tempDir, 'config.toml'), nextConfig, 'utf-8');
+      this.linkSessionStore(tempDir);
 
       this.codexHomeDir = tempDir;
       logger.info('Created Browser Gateway MCP CODEX_HOME', { path: tempDir });
@@ -106,9 +145,17 @@ export class CodexHomeManager {
     this.codexHomeDir = undefined;
   }
 
-  private symlinkCodexHomeEntries(codexDir: string, tempDir: string): void {
+  private symlinkCodexHomeEntries(
+    codexDir: string,
+    tempDir: string,
+    opts: { includeConfig?: boolean } = {},
+  ): void {
+    const sessionArtifacts: readonly string[] = [...SESSION_ARTIFACT_DIRS, ...SESSION_ARTIFACT_FILES];
     for (const entry of readdirSync(codexDir)) {
-      if (entry === 'config.toml') continue;
+      if (entry === 'config.toml' && !opts.includeConfig) continue;
+      // Session history is redirected to the AIO store (linkSessionStore),
+      // never shared with the user's ~/.codex.
+      if (sessionArtifacts.includes(entry)) continue;
 
       const source = join(codexDir, entry);
       const target = join(tempDir, entry);
@@ -136,6 +183,48 @@ export class CodexHomeManager {
       }
     }
   }
+
+  /**
+   * Points the prepared home's session-history entries at the persistent AIO
+   * store. Codex writes rollouts/history through these symlinks, so sessions
+   * survive temp-home cleanup (resume keeps working) without ever touching
+   * ~/.codex/sessions.
+   *
+   * On Windows without Developer Mode symlinkSync throws EPERM; the entries
+   * are then simply absent and codex creates real ones inside the temp home.
+   * Isolation still holds (no ~/.codex noise), but those sessions don't
+   * survive cleanup — degrade with a warning rather than fail the spawn.
+   */
+  private linkSessionStore(tempDir: string): void {
+    const stateDir = getAioCodexStateDir();
+    for (const dir of SESSION_ARTIFACT_DIRS) {
+      try {
+        const target = join(stateDir, dir);
+        mkdirSync(target, { recursive: true });
+        symlinkSync(target, join(tempDir, dir), 'dir');
+      } catch (err) {
+        logger.warn('Could not link persistent codex session dir', {
+          dir,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    for (const file of SESSION_ARTIFACT_FILES) {
+      try {
+        const target = join(stateDir, file);
+        mkdirSync(stateDir, { recursive: true });
+        if (!existsSync(target)) {
+          writeFileSync(target, '', 'utf-8');
+        }
+        symlinkSync(target, join(tempDir, file), 'file');
+      } catch (err) {
+        logger.debug('Could not link persistent codex session file', {
+          file,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
 }
 
 /**
@@ -146,7 +235,7 @@ export function stripMcpServers(config: string): string {
 }
 
 /** Temp-dir prefixes created by CodexHomeManager. */
-const TEMP_HOME_PREFIXES = ['codex-nomcp-', 'codex-browser-mcp-'] as const;
+const TEMP_HOME_PREFIXES = ['codex-nomcp-', 'codex-browser-mcp-', 'codex-aio-'] as const;
 
 /**
  * Only sweep temp homes that haven't been touched for a day. Cleanup during

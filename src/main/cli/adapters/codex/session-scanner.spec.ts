@@ -149,6 +149,25 @@ describe('CodexSessionScanner', () => {
     expect(result).toBeNull();
   });
 
+  it('scans multiple session directories (AIO store + legacy ~/.codex)', async () => {
+    const legacyDir = join(tempDir, 'legacy-sessions');
+    mkdirSync(join(legacyDir, '2026/04/09'), { recursive: true });
+    writeFileSync(
+      join(legacyDir, '2026/04/09', 'rollout-legacy.jsonl'),
+      JSON.stringify({ type: 'session_meta', cwd: '/projects/legacy-app' }) + '\n'
+        + JSON.stringify({ type: 'event_msg', threadId: 'thread_legacy' }) + '\n',
+    );
+    createRolloutFile('2026/04/09', 'rollout-primary.jsonl', [
+      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.5' },
+      { type: 'event_msg', threadId: 'thread_primary' },
+    ]);
+
+    const multiScanner = new CodexSessionScanner([sessionsDir, legacyDir]);
+
+    expect((await multiScanner.findSessionForWorkspace('/projects/my-app'))?.threadId).toBe('thread_primary');
+    expect((await multiScanner.findSessionForWorkspace('/projects/legacy-app'))?.threadId).toBe('thread_legacy');
+  });
+
   it('matches Windows workspace paths across separator and case differences', async () => {
     createRolloutFile('2026/04/09', 'rollout-win.jsonl', [
       { type: 'session_meta', cwd: 'C:\\Users\\Alice\\Work\\My-App', model: 'gpt-5.5' },
