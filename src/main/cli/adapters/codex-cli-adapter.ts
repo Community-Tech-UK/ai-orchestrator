@@ -87,6 +87,8 @@ import { isSessionNotFoundText } from './resume-error-classifier';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 import { discoverCodexModels } from './codex/model-list';
 import { buildCodexReplayPrompt, wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
+import { CompactionGate } from './codex/compaction-gate';
+import { recoverFromInputCap } from './codex/input-cap-recovery';
 
 const logger = getLogger('CodexCliAdapter');
 // ─── Local Types ────────────────────────────────────────────────────────────
@@ -218,6 +220,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private lastTurnTokens = 0;
   /** Whether we've received a thread/tokenUsage/updated notification (accurate source). */
   private hasTokenUsageNotification = false;
+  /** Bounded gate that lets a per-turn-cap retry wait for compaction to land. */
+  private readonly compactionGate = new CompactionGate();
   /**
    * Context window size reported by Codex via `thread/tokenUsage/updated`.
    * Authoritative when available — takes precedence over the static registry.
@@ -1084,33 +1088,30 @@ export class CodexCliAdapter extends BaseCliAdapter {
     try {
       await this.appServerSendMessageInner(message, attachments);
     } catch (err) {
-      // Codex per-turn input character cap (distinct from token overflow): the
-      // assembled request body (thread history + tool outputs + file contents)
-      // exceeded ~1 MiB. A native compaction shrinks the thread so the retry
-      // can fit. Try exactly once — if it still overflows (e.g. a single
-      // oversized file dump), surface a clear message rather than looping.
+      // Codex per-turn input *character* cap (~1 MiB on the assembled body of
+      // history + tool outputs + file contents; separate from the token window).
+      // Escalate through compaction → fresh thread → clear error — see
+      // recoverFromInputCap for the ladder rationale.
       if (isCodexInputTooLargeError(err)) {
-        logger.warn('Codex app-server turn exceeded per-turn input char cap, compacting and retrying once', {
+        logger.warn('Codex app-server turn exceeded per-turn input char cap; recovering', {
           threadId: this.appServerThreadId,
           cause: err instanceof Error ? err.message : String(err),
         });
-        const compacted = await this.compactContext();
-        if (!compacted) {
-          throw new Error(
-            'Codex rejected the turn: input exceeds its per-turn size limit and automatic compaction was unavailable. Trim the conversation (e.g. start a fresh thread) and retry.',
-          );
-        }
-        try {
-          await this.appServerSendMessageInner(message, attachments);
-          return;
-        } catch (retryErr) {
-          if (isCodexInputTooLargeError(retryErr)) {
-            throw new Error(
-              'Codex rejected the turn: input still exceeds its per-turn size limit after compaction. A single large input (e.g. a big file) likely overflows on its own — reduce the context and retry.',
-            );
-          }
-          throw retryErr;
-        }
+        await recoverFromInputCap({
+          send: () => this.appServerSendMessageInner(message, attachments),
+          compact: () => this.compactContext(),
+          awaitCompaction: () => this.compactionGate.wait(CODEX_TIMEOUTS.COMPACTION_SETTLE_MS),
+          reopenThread: () => this.reopenAppServerThread(),
+          onThreadReset: () => this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system',
+            content:
+              'The conversation exceeded Codex’s per-turn size limit and could not be compacted, so a fresh Codex thread was started. Earlier context from this thread was cleared.',
+            metadata: { threadReset: true, reason: 'per-turn-input-cap' },
+          }),
+        });
+        return;
       }
       if (!isRecoverableThreadResumeError(err)) throw err;
       logger.warn('Codex app-server turn failed recoverably, reopening thread and retrying', {
@@ -2001,6 +2002,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
         // Codex auto-compacted the thread. Clear cached occupancy immediately
         // so UI pressure indicators do not stay pinned to the pre-compact turn.
         logger.info('Thread compacted by Codex app-server', { threadId: state.threadId });
+        // Release any per-turn-cap retry waiting for compaction to land. Fires
+        // for both Codex auto-compaction and our explicit thread/compact/start.
+        this.compactionGate.settle();
         this.emit('output', {
           id: generateId(),
           timestamp: Date.now(),

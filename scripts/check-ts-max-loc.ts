@@ -246,7 +246,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
   // Raised 946 -> 957 for hybrid usage-based row ordering in Favorites/provider tabs.
   // Raised 957 -> 964: default favorites now mirror each provider tab's usage-ordered top row.
-  'src/renderer/app/features/models/model-selection-panel.component.ts': 964,
+  // Raised 964 -> 1029: curated DEFAULT_FAVORITE_MODEL_KEYS default with per-provider fallback.
+  // Raised 1029 -> 1038: outlined (unfilled) star for non-favourited rows, gold fill when favourited.
+  'src/renderer/app/features/models/model-selection-panel.component.ts': 1038,
   'src/renderer/app/features/models/models-page.component.ts': 768,
   'src/renderer/app/features/observations/observations-page.component.ts': 808,
   'src/renderer/app/features/plan/plan-page.component.ts': 1036,

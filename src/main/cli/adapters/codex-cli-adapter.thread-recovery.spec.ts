@@ -311,6 +311,151 @@ describe('CodexCliAdapter', () => {
         expect(reopenSpy).toHaveBeenCalledTimes(1);
       });
 
+      // ── Per-turn input-cap recovery ladder ──────────────────────────────
+      // Codex enforces a hard ~1 MiB character cap on the assembled request
+      // body (history + tool outputs + file contents). The adapter escalates:
+      //   1. compact + wait + retry (context-preserving),
+      //   2. fresh thread + retry (survivable, context-lossy),
+      //   3. clear error only if the user's own message overflows.
+      const CAP_ERROR = 'Input exceeds the maximum length of 1048576 characters';
+
+      it('rung 1: compacts, waits for it to land, and retries once (keeps thread)', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValueOnce(new Error(CAP_ERROR));
+        innerSpy.mockResolvedValueOnce(undefined);
+
+        const compactSpy = vi.spyOn(adapter, 'compactContext').mockResolvedValue(true);
+        const waitSpy = vi.spyOn(
+          (adapter as unknown as { compactionGate: { wait(ms: number): Promise<void> } }).compactionGate,
+          'wait'
+        ).mockResolvedValue(undefined);
+        const reopenSpy = vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        );
+
+        await adapter.sendInput('big context turn');
+
+        expect(compactSpy).toHaveBeenCalledTimes(1);
+        expect(waitSpy).toHaveBeenCalledTimes(1);
+        expect(innerSpy).toHaveBeenCalledTimes(2);
+        // Compaction fit the turn — the thread must NOT be reset.
+        expect(reopenSpy).not.toHaveBeenCalled();
+      });
+
+      it('rung 2: reopens a fresh thread when a single item still overflows after compaction', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValueOnce(new Error(CAP_ERROR)); // initial
+        innerSpy.mockRejectedValueOnce(new Error(CAP_ERROR)); // post-compaction
+        innerSpy.mockResolvedValueOnce(undefined); // post-reopen
+
+        vi.spyOn(adapter, 'compactContext').mockResolvedValue(true);
+        vi.spyOn(
+          (adapter as unknown as { compactionGate: { wait(ms: number): Promise<void> } }).compactionGate,
+          'wait'
+        ).mockResolvedValue(undefined);
+        const reopenSpy = vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        ).mockResolvedValue(undefined);
+
+        const outputs: Array<Record<string, unknown>> = [];
+        adapter.on('output', (o: Record<string, unknown>) => outputs.push(o));
+
+        await adapter.sendInput('one huge file dump');
+
+        expect(innerSpy).toHaveBeenCalledTimes(3);
+        expect(reopenSpy).toHaveBeenCalledTimes(1);
+        // The user is told, transparently, that context was reset.
+        const resetNotice = outputs.find((o) => (o['metadata'] as Record<string, unknown> | undefined)?.['threadReset']);
+        expect(resetNotice).toBeDefined();
+        expect(resetNotice?.['type']).toBe('system');
+      });
+
+      it('rung 2: skips straight to a fresh thread when compaction is unavailable', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValueOnce(new Error(CAP_ERROR)); // initial
+        innerSpy.mockResolvedValueOnce(undefined); // post-reopen
+
+        vi.spyOn(adapter, 'compactContext').mockResolvedValue(false);
+        const waitSpy = vi.spyOn(
+          (adapter as unknown as { compactionGate: { wait(ms: number): Promise<void> } }).compactionGate,
+          'wait'
+        ).mockResolvedValue(undefined);
+        const reopenSpy = vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        ).mockResolvedValue(undefined);
+
+        await adapter.sendInput('turn we cannot compact');
+
+        expect(innerSpy).toHaveBeenCalledTimes(2);
+        expect(reopenSpy).toHaveBeenCalledTimes(1);
+        // Never wait on a compaction that did not start.
+        expect(waitSpy).not.toHaveBeenCalled();
+      });
+
+      it('rung 3: surfaces a clear error when even a fresh thread overflows', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValue(new Error(CAP_ERROR)); // every attempt overflows
+
+        vi.spyOn(adapter, 'compactContext').mockResolvedValue(true);
+        vi.spyOn(
+          (adapter as unknown as { compactionGate: { wait(ms: number): Promise<void> } }).compactionGate,
+          'wait'
+        ).mockResolvedValue(undefined);
+        vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        ).mockResolvedValue(undefined);
+
+        await expect(adapter.sendInput('a message that is itself over 1 MiB'))
+          .rejects.toThrow(/your message exceeds/i);
+
+        // initial + post-compaction + post-reopen = 3, then stop.
+        expect(innerSpy).toHaveBeenCalledTimes(3);
+      });
+
+      it('a thread/compacted notification settles the compaction gate', async () => {
+        const adapter = await prepareAppServerAdapter();
+        const settleSpy = vi.spyOn(
+          (adapter as unknown as { compactionGate: { settle(): void } }).compactionGate,
+          'settle'
+        );
+
+        (adapter as unknown as {
+          handleTurnNotification(
+            state: unknown,
+            n: { method: string; params: Record<string, unknown> },
+          ): void;
+        }).handleTurnNotification(
+          { completed: false, threadId: 'thread-old', threadIds: new Set(), threadLabels: new Map() },
+          { method: 'thread/compacted', params: { threadId: 'thread-old' } },
+        );
+
+        expect(settleSpy).toHaveBeenCalledTimes(1);
+      });
+
       it('reopenAppServerThread issues thread/start and updates thread state', async () => {
         const adapter = await prepareAppServerAdapter();
         (adapter as unknown as { systemPromptSent: boolean }).systemPromptSent = true;

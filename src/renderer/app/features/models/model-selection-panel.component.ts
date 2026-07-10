@@ -29,6 +29,7 @@ import {
   orderProviderRowsByUsage,
 } from './model-usage-memory';
 import { ModelUsageMemoryService } from './model-usage-memory.service';
+import { DEFAULT_FAVORITE_MODEL_KEYS } from './default-favorites';
 
 type ActiveModelTab = 'favorites' | PickerProvider;
 type ProviderLabelMap = Partial<Record<PickerProvider, string>>;
@@ -445,7 +446,8 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       border: 0;
       border-radius: 8px;
       background: transparent;
-      color: color-mix(in srgb, #f4c430 38%, var(--text-muted, #8f8f96));
+      /* Grey outline when not favourited; gold fill (via .active) when it is. */
+      color: var(--text-muted, #8f8f96);
       cursor: pointer;
     }
 
@@ -458,7 +460,15 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     .model-picker-row__favorite svg {
       width: 18px;
       height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.75;
+      stroke-linejoin: round;
+    }
+
+    .model-picker-row__favorite.active svg {
       fill: currentColor;
+      stroke: none;
     }
 
     .model-picker-row__select {
@@ -704,14 +714,28 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   protected readonly providerLabelMap = this._providerLabels.asReadonly();
 
   /**
-   * Default (non-customized) favorites: one row per provider, mirroring the
-   * top of that provider's tab — usage-ranked first, catalog order otherwise —
-   * so the initial list matches what each tab shows first.
+   * Default (non-customized) favorites: the curated `DEFAULT_FAVORITE_MODEL_KEYS`,
+   * filtered to available models. When none are available, fall back to one
+   * usage-ranked row per provider so the tab is never empty. Availability is
+   * derived from `_providers`/`_modelsForProvider` (not `allRows()`) to avoid a
+   * computed cycle via effectiveFavoriteKeys.
    */
   private readonly defaultFavoriteKeys = computed(() => {
     const modelsForProvider = this._modelsForProvider();
+    const providers = this._providers();
+
+    const availableKeys = new Set<string>();
+    for (const provider of providers) {
+      for (const model of modelsForProvider(provider)) {
+        availableKeys.add(modelKey(provider, model.id));
+      }
+    }
+
+    const curated = DEFAULT_FAVORITE_MODEL_KEYS.filter((key) => availableKeys.has(key));
+    if (curated.length > 0) return curated;
+
     const usageByKey = this.modelUsageMemory.usageByKey();
-    return this._providers()
+    return providers
       .map((provider) => {
         const keys = modelsForProvider(provider).map((model) => ({
           key: modelKey(provider, model.id),

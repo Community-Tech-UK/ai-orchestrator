@@ -5348,7 +5348,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3427
+      "lines": 3431
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
@@ -5631,6 +5631,10 @@
       "lines": 1296
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.thread-recovery.spec.ts",
+      "lines": 1290
+    },
+    {
       "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
       "lines": 1278
     },
@@ -5759,10 +5763,6 @@
       "lines": 1145
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.thread-recovery.spec.ts",
-      "lines": 1145
-    },
-    {
       "path": "src/main/security/permission-manager.ts",
       "lines": 1145
     },
@@ -5871,6 +5871,10 @@
       "lines": 1040
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 1039
+    },
+    {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
       "lines": 1036
     },
@@ -5889,10 +5893,6 @@
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
       "lines": 1018
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 1015
     },
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",

@@ -41,6 +41,18 @@ describe('built-in fan-out skills', () => {
       .toBe('human-public-writing');
   });
 
+  it('requires structural voice matching instead of surface cleanup alone', () => {
+    const skill = readFileSync(
+      join(builtinSkillDir, 'human-public-writing', 'SKILL.md'),
+      'utf8',
+    );
+
+    expect(skill).toContain('## Structural Voice Matching');
+    expect(skill).toContain('Match the shape before the polish');
+    expect(skill).toContain('## Channel Calibration');
+    expect(skill).toContain('Do not imitate typos');
+  });
+
   it.each(FAN_OUT_SKILLS)('%s steers child fan-out away from Claude by default', (skillName) => {
     const skill = readFileSync(join(builtinSkillDir, skillName, 'SKILL.md'), 'utf8');
 

@@ -141,6 +141,17 @@ export const CODEX_TIMEOUTS = {
    * data activity) remains the authoritative kill-switch.
    */
   EXEC_LIVENESS_HEARTBEAT_MS: 15_000,
+
+  /**
+   * Bounded wait for a `thread/compacted` notification after an explicit
+   * `thread/compact/start`. Compaction runs asynchronously server-side — the
+   * RPC ack only means it *started* — so a per-turn-cap retry must wait for the
+   * shrunken thread to land before re-sending, or it races the pre-compact
+   * thread and overflows again. If the notification never arrives (e.g. a Codex
+   * build that does not emit it for explicit compaction) the wait elapses and
+   * the caller retries anyway — bounded, never a hang.
+   */
+  COMPACTION_SETTLE_MS: 30_000,
 } as const;
 
 /**

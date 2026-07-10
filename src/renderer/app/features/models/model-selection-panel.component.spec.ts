@@ -97,6 +97,8 @@ describe('ModelSelectionPanelComponent', () => {
   }
 
   it('opens on favorites seeded from each visible provider primary model', () => {
+    // The test catalog uses placeholder IDs that don't match
+    // DEFAULT_FAVORITE_MODEL_KEYS, so this exercises the per-provider fallback.
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel');
     setInputs();
 
@@ -170,6 +172,51 @@ describe('ModelSelectionPanelComponent', () => {
     setInputs();
 
     expect(rowNames()).toEqual(['Claude Opus 4.7', 'GPT-5.5 Mini', 'GPT-5.5']);
+  });
+
+  it('seeds favorites from the curated default list when those models are available', () => {
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    const claude: ModelDisplayInfo[] = [
+      { id: 'opus[1m]', name: 'Opus latest, 1M', tier: 'powerful', pinned: true, family: 'Opus' },
+      { id: 'opus', name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
+      { id: 'claude-fable-5', name: 'Fable 5', tier: 'powerful', family: 'Fable' },
+    ];
+    const codex: ModelDisplayInfo[] = [
+      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', tier: 'powerful', pinned: true, family: 'GPT' },
+      { id: 'gpt-5.5', name: 'GPT-5.5', tier: 'powerful', pinned: true, family: 'GPT' },
+    ];
+    setInputs({
+      providers: ['claude', 'codex'],
+      selectedModelId: 'opus[1m]',
+      modelsForProvider: (provider) =>
+        provider === 'claude' ? claude : provider === 'codex' ? codex : [],
+    });
+
+    // Order and membership follow DEFAULT_FAVORITE_MODEL_KEYS, not per-provider.
+    expect(rowNames()).toEqual(['Fable 5', 'Opus latest, 1M', 'GPT-5.6 Sol']);
+
+    const shortcuts = Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row__shortcut'))
+      .map((el) => (el as HTMLElement).textContent?.trim());
+    expect(shortcuts).toEqual(['⌘1', '⌘2', '⌘3']);
+  });
+
+  it('drops curated favorites whose model is not currently available', () => {
+    const claude: ModelDisplayInfo[] = [
+      { id: 'claude-fable-5', name: 'Fable 5', tier: 'powerful', family: 'Fable' },
+      { id: 'opus', name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
+    ];
+    const codex: ModelDisplayInfo[] = [
+      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', tier: 'powerful', pinned: true, family: 'GPT' },
+    ];
+    setInputs({
+      providers: ['claude', 'codex'],
+      selectedModelId: 'claude-fable-5',
+      modelsForProvider: (provider) =>
+        provider === 'claude' ? claude : provider === 'codex' ? codex : [],
+    });
+
+    // opus[1m] from the curated list isn't in this catalog, so it's dropped.
+    expect(rowNames()).toEqual(['Fable 5', 'GPT-5.6 Sol']);
   });
 
   it('toggles a model into favorites and persists the customized favorite set', () => {
