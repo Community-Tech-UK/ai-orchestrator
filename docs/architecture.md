@@ -115,7 +115,7 @@ Located in `src/main/providers/`:
 Located in `src/main/cli/adapters/`:
 
 - **Adapter entrypoints** (`*-cli-adapter.ts`) own provider lifecycle, process state, and event emission.
-- **Provider helper directories** keep protocol details out of adapter entrypoints. For Codex, `src/main/cli/adapters/codex/` owns app-server transport, exec transcript parsing, stderr diagnostics, attachment capability checks, reasoning dedupe, session scanning, and MCP-free `CODEX_HOME` setup.
+- **Provider helper directories** keep protocol details out of adapter entrypoints. For Codex, `src/main/cli/adapters/codex/` owns app-server transport, exec transcript parsing, stderr diagnostics, attachment capability checks, reasoning dedupe, session scanning, and session-isolated `CODEX_HOME` setup. Every AIO codex instance runs against a temp home whose session history (`sessions/`, `archived_sessions/`, `history.jsonl`, `session_index.jsonl`) redirects to the persistent `~/.ai-orchestrator/codex/` store, so orchestrator sessions never appear in the user's Codex app history; exec-mode homes additionally strip user MCP servers from `config.toml`.
 - Adapter entrypoints should stay orchestration-focused. Prefer extracting pure parsing/formatting helpers or direct-testable coordinators before adding new long private-method blocks.
 
 ## MCP Multi-Provider
