@@ -2,7 +2,7 @@
 name: human-public-writing
 description: Use when writing or editing public-facing prose such as external emails, blog posts, website copy, social posts, press copy, or when the user says use my tone, match my tone, use my voice, sound like me, avoid AI tells, em dash, or emdash.
 triggers: ["use my tone", "match my tone", "use my voice", "sound like me", "public-facing writing", "public facing", "external email", "write this email", "draft email", "blog post", "website copy", "social post", "press release", "avoid AI", "AI tells", "em dash", "emdash"]
-version: 1.1.0
+version: 1.0.0
 category: writing
 effort: low
 ---
@@ -10,24 +10,6 @@ effort: low
 # Human Public Writing
 
 Use this for public-facing prose and any tone-matching request.
-
-## Structural Voice Matching
-
-Match the shape before the polish. When the user asks for their tone, first derive a small working fingerprint from user-authored material in the current request, relevant context, or an explicit voice profile. Prefer samples from the same channel and purpose.
-
-Identify and reproduce:
-
-- The opening move: direct claim, question, scene, context, or request.
-- The order in which the writer develops the point, including qualifications, corrections, asides, examples, and constraints.
-- Paragraph size and sentence-length variation, including fragments or abrupt transitions when they are intentional.
-- The writer's stance toward certainty, disagreement, humour, warmth, and the reader.
-- The ending move: direct ask, question, decision, observation, callback, or a natural stop.
-
-Draft from that fingerprint. Preserve useful irregularity instead of reorganizing every piece into an introduction, balanced body, and summary. Do not imitate typos, misspellings, duplicated punctuation, or other input-speed artifacts. If no reliable user-authored sample or profile exists, use the public-copy defaults below without claiming a personal match.
-
-## Channel Calibration
-
-Keep identity separate from occasion. Adjust formality, warmth, profanity, detail, and length for the audience and channel while retaining the writer's underlying cadence and way of developing a point. A customer email, social post, and private message should not receive identical surface treatment.
 
 ## Hard Rules
 
@@ -48,7 +30,7 @@ Avoid writing patterns that make public copy read as machine-produced:
 
 ## Tone Matching
 
-Preserve the user's directness, contractions, sentence length, vocabulary, level of warmth, idea order, and ending style. Keep useful rough edges. Do not over-polish into symmetrical marketing prose.
+Preserve the user's directness, contractions, sentence length, vocabulary, and level of warmth. Keep useful rough edges. Do not over-polish into symmetrical marketing prose.
 
 ## Output
 
