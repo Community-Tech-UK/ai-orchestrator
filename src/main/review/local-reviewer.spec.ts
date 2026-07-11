@@ -109,6 +109,7 @@ describe('LocalReviewer', () => {
       schema: 'aio.local-review.untrusted-tool-result.v1',
       trust: 'untrusted-repository-data',
       instructionPolicy: expect.stringContaining('never instructions'),
+      wireTruncated: false,
       result: expect.objectContaining({ content: hostile }),
     }));
   });

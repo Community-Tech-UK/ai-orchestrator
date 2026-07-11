@@ -212,10 +212,17 @@ export class LocalReviewer {
           result,
           limits.maxResultBytes,
         );
-        if (modelToolBytes + serialized.bytes > limits.maxTotalToolBytes) {
+        const toolMessage: LocalModelToolTurnMessage = {
+          role: 'tool',
+          toolCallId: call.id,
+          toolName: call.name,
+          content: serialized.content,
+        };
+        const toolMessageBytes = Buffer.byteLength(JSON.stringify(toolMessage));
+        if (modelToolBytes + toolMessageBytes > limits.maxTotalToolBytes) {
           return { status: 'failed', reason: 'Local review exceeded its model-facing wire byte budget.' };
         }
-        modelToolBytes += serialized.bytes;
+        modelToolBytes += toolMessageBytes;
         if (serialized.transmittedResult.ok) {
           recordEvidence(
             call.name,
@@ -224,12 +231,7 @@ export class LocalReviewer {
             successfulEvidence,
           );
         }
-        messages.push({
-          role: 'tool',
-          toolCallId: call.id,
-          toolName: call.name,
-          content: serialized.content,
-        });
+        messages.push(toolMessage);
         if (invalidCalls >= limits.maxInvalidToolCalls) {
           return { status: 'failed', reason: 'Local review exceeded its invalid or repeated tool-call limit.' };
         }

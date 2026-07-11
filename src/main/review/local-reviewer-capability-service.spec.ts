@@ -65,6 +65,13 @@ describe('LocalReviewerCapabilityService', () => {
         content: expect.stringContaining('synthetic probe content'),
       }),
     ]));
+    const probeToolResult = secondMessages.find((message) => message.role === 'tool');
+    expect(Buffer.byteLength(probeToolResult?.content ?? '')).toBeLessThanOrEqual(4_096);
+    expect(JSON.parse(probeToolResult?.content ?? '')).toMatchObject({
+      trust: 'untrusted-repository-data',
+      wireTruncated: false,
+      result: { content: 'synthetic probe content' },
+    });
   });
 
   it.each([
