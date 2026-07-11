@@ -28,6 +28,8 @@ import { getControlSurface } from './shared/control-surface/control-surface-nav'
 import { RoleChoiceComponent } from './features/worker-mode/role-choice.component';
 import { WorkerModeComponent } from './features/worker-mode/worker-mode.component';
 import type { HarnessRole } from '../../shared/types/pair-both.types';
+import { AppUpdateStore } from './core/state/app-update.store';
+import { AppUpdateBannerComponent } from './shared/components/app-update-banner/app-update-banner.component';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -76,6 +78,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     TerminalDrawerComponent,
     RoleChoiceComponent,
     WorkerModeComponent,
+    AppUpdateBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',
@@ -96,6 +99,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly firstRunService = inject(FirstRunService);
   private readonly scratchDirectory = inject(ScratchDirectoryService);
   private readonly remoteNodeStore = inject(RemoteNodeStore);
+  private readonly appUpdateStore = inject(AppUpdateStore);
 
   private menuListenerCleanup: (() => void) | null = null;
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -212,6 +216,7 @@ export class AppComponent implements OnInit, OnDestroy {
     // Populate worker-node state up front: the title bar (always mounted) gates
     // the Remote Terminal toggle on a connected worker. initialize() is idempotent.
     void this.remoteNodeStore.initialize();
+    void this.appUpdateStore.init();
 
     this.ipcService.onStartupCapabilities((report) => {
       this.startupCapabilities.set(report);
@@ -281,6 +286,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.menuListenerCleanup = null;
     this.windowControlsOverlayCleanup?.();
     this.windowControlsOverlayCleanup = null;
+    this.appUpdateStore.dispose();
   }
 
   startupCapabilitySummary(): string {

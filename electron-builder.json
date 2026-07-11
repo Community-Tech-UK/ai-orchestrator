@@ -5,18 +5,18 @@
   "npmRebuild": false,
   "publish": [
     {
-      "provider": "generic",
-      "url": "https://REPLACE-WITH-YOUR-UPDATE-FEED.example.com/ai-orchestrator"
+      "provider": "github",
+      "owner": "Community-Tech-UK",
+      "repo": "ai-orchestrator",
+      "releaseType": "release"
     }
   ],
+  "electronUpdaterCompatibility": ">=2.16",
   "directories": {
     "output": "release",
     "buildResources": "build"
   },
-  "files": [
-    "dist/**/*",
-    "!dist/out-tsc/**/*"
-  ],
+  "files": ["dist/**/*", "!dist/out-tsc/**/*"],
   "asarUnpack": [
     "node_modules/whatsapp-web.js/**/*",
     "node_modules/puppeteer-core/**/*"
@@ -64,14 +64,19 @@
     "target": [
       {
         "target": "dmg",
-        "arch": ["arm64"]
+        "arch": ["arm64", "x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["arm64", "x64"]
       }
     ],
+    "artifactName": "Harness-${version}-mac-${arch}.${ext}",
     "darkModeSupport": true,
     "hardenedRuntime": true,
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist",
-    "notarize": false,
+    "notarize": true,
     "extendInfo": {
       "NSLocalNetworkUsageDescription": "Harness uses your local network to discover and connect to worker nodes on other machines.",
       "NSMicrophoneUsageDescription": "Harness uses the microphone only when you enable voice conversation for a session."
@@ -91,9 +96,12 @@
   },
   "linux": {
     "target": [
-      "AppImage",
-      "deb"
+      {
+        "target": "AppImage",
+        "arch": ["x64", "arm64"]
+      }
     ],
+    "artifactName": "Harness-${version}-linux-${arch}.${ext}",
     "category": "Development",
     "extraResources": [
       {
@@ -105,9 +113,12 @@
   },
   "win": {
     "target": [
-      "nsis",
-      "portable"
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
     ],
+    "artifactName": "Harness-${version}-win-${arch}.${ext}",
     "extraResources": [
       {
         "from": "resources/rtk/win32-${arch}/",

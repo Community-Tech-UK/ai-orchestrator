@@ -23,7 +23,7 @@
     "watch:main": "tsc -p tsconfig.electron.json --watch",
     "preelectron:dev": "npm run build:desktop-helper",
     "electron:dev": "electron .",
-    "preelectron:build": "npm run build:desktop-helper -- --required --arch=arm64 && npm run build:worker-dist && npm run build:loop-control-dist && npm run build:aio-mcp-dist",
+    "preelectron:build": "npm run build:desktop-helper -- --required && npm run build:worker-dist && npm run build:loop-control-dist && npm run build:aio-mcp-dist",
     "electron:build": "node scripts/fetch-rtk-binaries.js && electron-builder",
     "fetch:rtk": "node scripts/fetch-rtk-binaries.js",
     "localbuild": "npm run rebuild:native && npm run build && node scripts/localbuild.js",
@@ -80,7 +80,9 @@
     "build:aio-mcp-dist": "npm run build:aio-mcp-cli && npm run build:aio-mcp-sea",
     "download:winsw": "node scripts/download-winsw.js",
     "review": "tsx src/main/cli-entrypoints/review-command.ts",
-    "visual:qa": "node scripts/visual-qa-screenshots.mjs --all"
+    "visual:qa": "node scripts/visual-qa-screenshots.mjs --all",
+    "release:validate-tag": "node scripts/validate-release-tag.js",
+    "release:validate-assets": "node scripts/validate-release-assets.js"
   },
   "keywords": [
     "ai",

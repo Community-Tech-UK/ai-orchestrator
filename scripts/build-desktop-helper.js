@@ -4,6 +4,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync: nodeSpawnSync } = require('node:child_process');
 
+function resolveRequestedArch({
+  args = process.argv.slice(2),
+  env = process.env,
+  hostArch = process.arch,
+} = {}) {
+  const explicit = args.find((argument) => argument.startsWith('--arch='));
+  if (explicit) return explicit.slice('--arch='.length);
+  if (args.includes('--arm64')) return 'arm64';
+  if (args.includes('--x64')) return 'x64';
+  return env.HARNESS_BUILD_ARCH || hostArch;
+}
+
 function createSwiftBuildPlan({
   platform = process.platform,
   arch = process.arch,
@@ -91,9 +103,8 @@ function buildDesktopHelper({
 
 if (require.main === module) {
   try {
-    const archArgument = process.argv.find((argument) => argument.startsWith('--arch='));
     buildDesktopHelper({
-      arch: archArgument?.slice('--arch='.length) || process.arch,
+      arch: resolveRequestedArch(),
       required: process.argv.includes('--required'),
     });
   } catch (error) {
@@ -105,4 +116,5 @@ if (require.main === module) {
 module.exports = {
   buildDesktopHelper,
   createSwiftBuildPlan,
+  resolveRequestedArch,
 };

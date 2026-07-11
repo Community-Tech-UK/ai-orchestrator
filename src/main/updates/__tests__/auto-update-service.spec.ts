@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 
 vi.mock('../../logging/logger', () => ({
@@ -15,14 +15,18 @@ class FakeUpdater extends EventEmitter implements UpdaterLike {
   quitAndInstall = vi.fn();
 }
 
-function make(): { service: AutoUpdateService; updater: FakeUpdater } {
+function make(now: () => Date = () => new Date('2026-07-11T12:00:00.000Z')): {
+  service: AutoUpdateService;
+  updater: FakeUpdater;
+} {
   const updater = new FakeUpdater();
-  const service = new AutoUpdateService({ autoUpdater: updater, currentVersion: '0.1.0' });
+  const service = new AutoUpdateService({ autoUpdater: updater, currentVersion: '0.1.0', now });
   return { service, updater };
 }
 
 describe('AutoUpdateService', () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.useRealTimers());
 
   it('is idle and disabled before initialization', () => {
     const { service } = make();
@@ -41,6 +45,66 @@ describe('AutoUpdateService', () => {
     const { service, updater } = make();
     service.initialize({ enabled: true, autoDownload: false });
     expect(updater.autoDownload).toBe(false);
+  });
+
+  it('delegates automatic download and normal-quit installation to electron-updater', () => {
+    const { service, updater } = make();
+    service.initialize({ enabled: true, autoDownload: true });
+
+    expect(updater.autoDownload).toBe(true);
+    expect(updater.autoInstallOnAppQuit).toBe(true);
+  });
+
+  it('checks after the startup delay and then on the polling interval', async () => {
+    vi.useFakeTimers();
+    const { service, updater } = make();
+    service.initialize({
+      enabled: true,
+      autoDownload: true,
+      startupDelayMs: 15_000,
+      pollIntervalMs: 4 * 60 * 60 * 1_000,
+    });
+
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1_000);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+
+    service.dispose();
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1_000);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not overlap update checks', async () => {
+    const { service, updater } = make();
+    let resolveCheck: (() => void) | null = null;
+    updater.checkForUpdates.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveCheck = resolve; }),
+    );
+    service.initialize({ enabled: true });
+
+    const first = service.checkForUpdates();
+    const second = service.checkForUpdates();
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+
+    resolveCheck?.();
+    await Promise.all([first, second]);
+  });
+
+  it('does not check again while an update is available, downloading, or downloaded', async () => {
+    const { service, updater } = make();
+    service.initialize({ enabled: true });
+
+    updater.emit('update-available', { version: '0.2.0' });
+    await service.checkForUpdates();
+    updater.emit('download-progress', { percent: 25 });
+    await service.checkForUpdates();
+    updater.emit('update-downloaded', { version: '0.2.0' });
+    await service.checkForUpdates();
+
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
   });
 
   it('maps the updater event stream to status transitions and emits them', () => {
@@ -74,6 +138,20 @@ describe('AutoUpdateService', () => {
     expect(service.getStatus()).toMatchObject({ state: 'error', error: 'feed unreachable' });
   });
 
+  it('classifies updater errors after update discovery as download failures', () => {
+    const { service, updater } = make();
+    service.initialize({ enabled: true });
+
+    updater.emit('update-available', { version: '0.2.0' });
+    updater.emit('error', new Error('automatic download failed'));
+
+    expect(service.getStatus()).toMatchObject({
+      state: 'error',
+      error: 'automatic download failed',
+      errorContext: 'download',
+    });
+  });
+
   it('checkForUpdates is a no-op while disabled', async () => {
     const { service, updater } = make();
     const status = await service.checkForUpdates();
@@ -89,7 +167,40 @@ describe('AutoUpdateService', () => {
 
     updater.checkForUpdates.mockRejectedValueOnce(new Error('network down'));
     const status = await service.checkForUpdates();
-    expect(status).toMatchObject({ state: 'error', error: 'network down' });
+    expect(status).toMatchObject({
+      state: 'error',
+      error: 'network down',
+      errorContext: 'check',
+      lastCheckedAt: '2026-07-11T12:00:00.000Z',
+    });
+  });
+
+  it('records download failures as retryable download errors', async () => {
+    const { service, updater } = make();
+    service.initialize({ enabled: true });
+    updater.downloadUpdate.mockRejectedValueOnce(new Error('download interrupted'));
+
+    const status = await service.downloadUpdate();
+
+    expect(status).toMatchObject({
+      state: 'error',
+      error: 'download interrupted',
+      errorContext: 'download',
+    });
+  });
+
+  it('removes only its updater listeners when disposed', () => {
+    const { service, updater } = make();
+    const externalListener = vi.fn();
+    updater.on('update-available', externalListener);
+    service.initialize({ enabled: true });
+
+    service.dispose();
+    updater.emit('update-available', { version: '0.2.0' });
+
+    expect(externalListener).toHaveBeenCalledOnce();
+    expect(service.listenerCount('status')).toBe(0);
+    expect(service.getStatus().state).toBe('idle');
   });
 
   it('quitAndInstall only fires when an update is downloaded', () => {

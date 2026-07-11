@@ -75,6 +75,8 @@
     <app-pause-banner />
   }
 
+  <app-update-banner />
+
   <main class="app-main">
     @if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'unset') {
       <app-role-choice (roleSelected)="selectHarnessRole($event)" />

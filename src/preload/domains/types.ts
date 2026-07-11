@@ -2,9 +2,9 @@
  * Shared types for preload domain modules.
  */
 
-export interface IpcResponse {
+export interface IpcResponse<T = unknown> {
   success: boolean;
-  data?: unknown;
+  data?: T;
   error?: {
     code: string;
     message: string;
