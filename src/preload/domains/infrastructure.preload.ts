@@ -1,6 +1,7 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
+import type { UpdateStatus } from '../../shared/types/update.types';
 
 export function createInfrastructureDomain(
   ipcRenderer: IpcRenderer,
@@ -510,20 +511,20 @@ export function createInfrastructureDomain(
     },
 
     // Auto-update (electron-updater)
-    updateCheck: (): Promise<IpcResponse> => {
+    updateCheck: (): Promise<IpcResponse<UpdateStatus>> => {
       return ipcRenderer.invoke(ch.UPDATE_CHECK);
     },
-    updateDownload: (): Promise<IpcResponse> => {
+    updateDownload: (): Promise<IpcResponse<UpdateStatus>> => {
       return ipcRenderer.invoke(ch.UPDATE_DOWNLOAD);
     },
-    updateInstall: (): Promise<IpcResponse> => {
+    updateInstall: (): Promise<IpcResponse<{ installing: boolean }>> => {
       return ipcRenderer.invoke(ch.UPDATE_INSTALL);
     },
-    updateGetStatus: (): Promise<IpcResponse> => {
+    updateGetStatus: (): Promise<IpcResponse<UpdateStatus>> => {
       return ipcRenderer.invoke(ch.UPDATE_GET_STATUS);
     },
-    onUpdateStatusChanged: (callback: (data: unknown) => void): (() => void) => {
-      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    onUpdateStatusChanged: (callback: (data: UpdateStatus) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: UpdateStatus) => callback(data);
       ipcRenderer.on(ch.UPDATE_STATUS_CHANGED, handler);
       return () => ipcRenderer.removeListener(ch.UPDATE_STATUS_CHANGED, handler);
     },

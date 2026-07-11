@@ -6,11 +6,12 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
+import { AppUpdateSettingsComponent } from './app-update-settings.component';
 
 @Component({
   selector: 'app-general-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent],
+  imports: [SettingRowComponent, AppUpdateSettingsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="General settings">
@@ -23,6 +24,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
         />
       }
     </section>
+    <app-update-settings />
   `,
   styleUrl: './general-settings-tab.component.scss'
 })

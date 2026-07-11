@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const {
   createSwiftBuildPlan,
   buildDesktopHelper,
+  resolveRequestedArch,
 } = require('../build-desktop-helper.js') as {
   createSwiftBuildPlan: (options: {
     platform: string;
@@ -18,9 +19,22 @@ const {
     required: boolean;
     spawnSync: typeof import('node:child_process').spawnSync;
   }) => { skipped: boolean; outputPath?: string };
+  resolveRequestedArch: (options: {
+    args: string[];
+    env: Record<string, string | undefined>;
+    hostArch: string;
+  }) => string;
 };
 
 describe('build-desktop-helper', () => {
+  it('uses the release matrix architecture instead of the runner architecture', () => {
+    expect(resolveRequestedArch({
+      args: [],
+      env: { HARNESS_BUILD_ARCH: 'x64' },
+      hostArch: 'arm64',
+    })).toBe('x64');
+  });
+
   it('skips deterministically on non-macOS platforms', () => {
     expect(createSwiftBuildPlan({
       platform: 'linux',
