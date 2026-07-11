@@ -10,6 +10,7 @@ import { CliCapabilities } from './adapters/base-cli-adapter';
 import { getLogger } from '../logging/logger';
 import { buildCliSpawnOptions, getCliAdditionalPaths } from './cli-environment';
 import { resolveCopilotCliLaunch } from './copilot-cli-launch';
+import { resolveCommandOnPath } from './cli-path-resolver';
 import {
   CLI_REGISTRY,
   SUPPORTED_CLIS,
@@ -242,6 +243,35 @@ export class CliDetectionService {
 
     // First try the main command
     let result = await this.checkCommand(config.command, config);
+
+    // If the bare-command probe failed, resolve the real binary via which/where
+    // and probe that absolute path. spawn() on POSIX resolves the executable
+    // against the *parent* (packaged-Electron, often stripped) PATH — not the
+    // augmented env.PATH we pass — so an install in nvm/~/.local/bin/Homebrew or
+    // any other login-shell dir is invisible to the bare spawn even though our
+    // env lists it. `which`/`where` reads the augmented PATH we hand it and
+    // returns the concrete path. This is the same resolution Copilot already
+    // uses; generalising it here fixes silent non-detection of `agy` (and any
+    // CLI installed outside the small hardcoded alternativePaths list below).
+    // Guarded: a resolver failure (e.g. no `which` on PATH) must never break
+    // detection — we fall through to the existing candidate-path fallbacks.
+    if (!result.installed) {
+      try {
+        const resolvedPath = resolveCommandOnPath(config.command);
+        if (resolvedPath && resolvedPath !== config.command && existsSync(resolvedPath)) {
+          const viaPath = await this.checkCommand(resolvedPath, config);
+          if (viaPath.installed) {
+            viaPath.path = resolvedPath;
+            result = viaPath;
+          }
+        }
+      } catch (err) {
+        logger.debug('which/where resolution failed', {
+          cli: type,
+          error: (err as Error).message,
+        });
+      }
+    }
 
     // If not found, try alternative paths. On Windows this also covers npm
     // shims (`<cmd>.cmd`) and native-installer binaries (`<cmd>.exe`) across

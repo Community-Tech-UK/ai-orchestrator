@@ -19,15 +19,10 @@ import {
   truncateForReview,
 } from './review-prompts';
 import { aggregateReviewFindings, type AggregatableFinding } from './review-finding-aggregation';
-import {
-  ReviewResultJsonSchema,
-  TieredReviewResultJsonSchema,
-} from '../../shared/validation/cross-model-review-schemas';
 import type {
   AggregatedReview,
   ReviewOutputType,
   ReviewResult,
-  ReviewVerdict,
   CrossModelReviewStatus,
 } from '../../shared/types/cross-model-review.types';
 import { reviewResultHasConcerns } from '../../shared/utils/cross-model-review-concerns';
@@ -42,9 +37,17 @@ import {
   normalizeAgenticReviewerCliList,
   normalizeReviewerCli,
   normalizeReviewerCliList,
+  isReviewerRateLimitError,
 } from './cross-model-review-service.constants';
-import { extractJson, resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
-
+import { resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
+import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
+import { LocalReviewer } from '../review/local-reviewer';
+import {
+  createLocalReviewExecutionPlan,
+  runReviewExecutionBatch,
+} from './review-execution-batch';
+import { parseCrossModelReviewResponse } from './review-response-parser';
+import { summarizeHeadlessReview, toHeadlessFindings } from './headless-review-findings';
 const logger = getLogger('CrossModelReviewService');
 const CODEX_REVIEW_MIN_TIMEOUT_MS = 300_000;
 
@@ -79,9 +82,17 @@ export class CrossModelReviewService extends EventEmitter {
   private pendingReviewInstances = new Map<string, string>();
   private rateLimitTimer: ReturnType<typeof setInterval> | null = null;
   private availabilityRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  // Dedupes configured-but-unavailable warnings/events across refreshes.
+  private lastUnavailableKey = '';
+  // Retained for renderer badge rehydration through getStatus().
+  private unavailableReviewers: { cli: string; error?: string }[] = [];
   private initialized = false;
   private instanceManager: InstanceManager | null = null;
   private reviewExecutionHost: ReviewExecutionHost | null = null;
+  private localReviewer: Pick<LocalReviewer, 'review'> = new LocalReviewer();
+  private localModelInventory: Pick<ReturnType<typeof getLocalModelInventoryService>, 'list'> &
+    Partial<Pick<ReturnType<typeof getLocalModelInventoryService>, 'resolveTarget'>> =
+    getLocalModelInventoryService();
   private isPaused = getPauseCoordinator().isPaused();
   private readonly handlePause = (): void => {
     this.isPaused = true;
@@ -126,12 +137,24 @@ export class CrossModelReviewService extends EventEmitter {
     this.reviewExecutionHost = host;
   }
 
+  setLocalReviewDependenciesForTesting(
+    reviewer: Pick<LocalReviewer, 'review'>,
+    inventory: Pick<ReturnType<typeof getLocalModelInventoryService>, 'list'>,
+  ): void {
+    this.localReviewer = reviewer;
+    this.localModelInventory = inventory;
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
     await this.refreshAvailability();
     this.rateLimitTimer = setInterval(() => {
-      this.reviewerPool.checkRateLimitRecovery();
+      const cleared = this.reviewerPool.checkRateLimitRecovery();
+      for (const cliType of cleared) {
+        // Let the UI drop the "rate-limited" badge once the cooldown elapses.
+        this.emit('review:reviewer-rate-limit-cleared', { cliType });
+      }
       this.reviewerPool.checkAvailabilityRecovery();
     }, RATE_LIMIT_CHECK_INTERVAL_MS);
     this.availabilityRefreshTimer = setInterval(() => {
@@ -224,10 +247,13 @@ export class CrossModelReviewService extends EventEmitter {
       preferredReviewers,
     );
 
-    if (selectedReviewers.length === 0) {
-      this.emit('review:all-unavailable', { instanceId });
-      return;
-    }
+    // Record who actually ran vs. what was configured, so a top-priority
+    // reviewer quietly falling through to a fallback is visible per cycle.
+    logger.info('Cross-model review reviewers selected', {
+      instanceId,
+      selected: selectedReviewers,
+      configured: preferredReviewers,
+    });
 
     const reviewId = `review-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.lastReviewTime.set(instanceId, Date.now());
@@ -237,6 +263,9 @@ export class CrossModelReviewService extends EventEmitter {
       id: reviewId,
       instanceId,
       primaryProvider: buffer.primaryProvider,
+      ...(instance?.modelRuntimeTarget
+        ? { builderModelRuntimeTarget: instance.modelRuntimeTarget }
+        : {}),
       workingDirectory: resolveReviewWorkingDirectory(instance?.workingDirectory),
       content: truncateForReview(aggregatedContent),
       taskDescription: firstUserPrompt || buffer.firstUserPrompt || instance?.displayName || 'No task description available',
@@ -257,9 +286,45 @@ export class CrossModelReviewService extends EventEmitter {
     const abort = new AbortController();
     this.pendingReviews.set(request.id, abort);
     this.pendingReviewInstances.set(request.id, request.instanceId);
-
     try {
-      const successfulResults = await this.collectSuccessfulReviews(request, reviewerClis, timeoutSeconds, abort.signal);
+      const settings = getSettingsManager().getAll();
+      const localPlan = createLocalReviewExecutionPlan({
+        enabled: settings.crossModelReviewLocalEnabled,
+        selectorId: settings.crossModelReviewLocalSelectorId,
+        auxiliaryQualityModel: settings.auxiliaryLlmQualityModel,
+        timeoutSeconds: settings.crossModelReviewLocalTimeout,
+        maxToolRounds: settings.crossModelReviewLocalMaxToolRounds,
+        inventory: settings.crossModelReviewLocalEnabled ? this.localModelInventory.list() : [],
+        ...(this.localModelInventory.resolveTarget
+          ? { resolveTarget: (selectorId: string) => this.localModelInventory.resolveTarget!(selectorId) }
+          : {}),
+        reviewer: this.localReviewer,
+        request: {
+          workspaceRoot: request.workingDirectory,
+          taskDescription: request.taskDescription,
+          content: request.content,
+          reviewDepth: request.reviewDepth,
+        },
+        ...(request.builderModelRuntimeTarget?.kind === 'local-model'
+          ? { builderSelectorId: request.builderModelRuntimeTarget.selectorId }
+          : {}),
+        signal: abort.signal,
+      });
+      const batch = await runReviewExecutionBatch({
+        collectRemoteReviews: () => this.collectSuccessfulReviews(
+          request,
+          reviewerClis,
+          timeoutSeconds,
+          abort.signal,
+        ),
+        runLocalReview: localPlan.run,
+      });
+      if (batch.remoteError) logger.warn('Remote review collection failed', { error: batch.remoteError });
+      const localParticipant = localPlan.participant(batch.localOutcome);
+      const localReview = batch.localOutcome.status === 'used'
+        ? [{ ...batch.localOutcome.review, source: 'local' as const }]
+        : [];
+      const successfulResults = [...batch.remoteReviews, ...localReview];
 
       if (successfulResults.length === 0) {
         this.reviewContexts.delete(request.id);
@@ -267,7 +332,7 @@ export class CrossModelReviewService extends EventEmitter {
         return;
       }
 
-      const hasDisagreement = this.detectDisagreement(successfulResults);
+      const hasDisagreement = this.detectDisagreement(batch.remoteReviews);
 
       const aggregated: AggregatedReview = {
         id: request.id,
@@ -275,6 +340,7 @@ export class CrossModelReviewService extends EventEmitter {
         outputType: request.classification.type as ReviewOutputType,
         reviewDepth: request.reviewDepth,
         reviews: successfulResults,
+        localReviewer: localParticipant,
         hasDisagreement,
         timestamp: Date.now(),
       };
@@ -405,8 +471,16 @@ export class CrossModelReviewService extends EventEmitter {
       return parsed;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('429') || message.toLowerCase().includes('rate limit') || message.toLowerCase().includes('quota')) {
+      if (isReviewerRateLimitError(message)) {
         this.reviewerPool.markRateLimited(reviewerCli);
+        // Surface it: a rate-limited/quota-capped reviewer is silently skipped
+        // by selectReviewers, so without this the only trace is app.log. Lets
+        // the UI show when a subscription reviewer (e.g. Grok Build) hits its cap.
+        this.emit('review:reviewer-rate-limited', {
+          instanceId: request.instanceId,
+          reviewId: request.id,
+          cliType: reviewerCli,
+        });
       } else {
         this.reviewerPool.recordFailure(reviewerCli);
       }
@@ -423,40 +497,13 @@ export class CrossModelReviewService extends EventEmitter {
     // here: headless reviews have no instance concept.
     const cwd = resolveReviewWorkingDirectory(request.cwd);
     const host = this.reviewExecutionHost;
-    if (!host) {
-      const completedAt = new Date();
-      return {
-        target: request.target,
-        cwd,
-        startedAt: startedAt.toISOString(),
-        completedAt: completedAt.toISOString(),
-        reviewers: [],
-        findings: [],
-        summary: 'Headless review host is not configured.',
-        infrastructureErrors: ['Headless review host is not configured.'],
-      };
-    }
-
     const reviewers = await this.resolveHeadlessReviewers(request);
-    if (reviewers.length === 0) {
-      const completedAt = new Date();
-      return {
-        target: request.target,
-        cwd,
-        startedAt: startedAt.toISOString(),
-        completedAt: completedAt.toISOString(),
-        reviewers: [],
-        findings: [],
-        summary: 'No reviewers available for headless review.',
-        infrastructureErrors: [],
-      };
-    }
 
     const abort = new AbortController();
+    const externalSignal = request.signal;
+    const abortFromExternal = (): void => abort.abort(externalSignal?.reason);
     const timeoutMs = Math.max(1, request.timeoutSeconds ?? 60) * 1000;
-    const timeout = setTimeout(() => abort.abort(), timeoutMs);
     const reviewerStatuses: HeadlessReviewReviewer[] = [];
-    const successfulReviews: ReviewResult[] = [];
 
     // Bound the review payload. The fresh-eyes loop gate feeds the full
     // cumulative git diff here; on a long run that diff can be hundreds of KB,
@@ -466,50 +513,100 @@ export class CrossModelReviewService extends EventEmitter {
     // headless path must do the same so large diffs degrade to a bounded
     // review rather than a hard failure.
     const reviewContent = truncateForReview(request.content);
-
+    const reviewDepth = request.reviewDepth ?? 'structured';
+    const settings = getSettingsManager().getAll();
+    const localPlan = createLocalReviewExecutionPlan({
+      enabled: settings.crossModelReviewLocalEnabled,
+      selectorId: settings.crossModelReviewLocalSelectorId ?? '',
+      auxiliaryQualityModel: settings.auxiliaryLlmQualityModel ?? '',
+      timeoutSeconds: settings.crossModelReviewLocalTimeout ?? 120,
+      maxToolRounds: settings.crossModelReviewLocalMaxToolRounds ?? 12,
+      inventory: settings.crossModelReviewLocalEnabled ? this.localModelInventory.list() : [],
+      ...(this.localModelInventory.resolveTarget
+        ? { resolveTarget: (selectorId: string) => this.localModelInventory.resolveTarget!(selectorId) }
+        : {}),
+      reviewer: this.localReviewer,
+      request: {
+        workspaceRoot: cwd,
+        taskDescription: request.taskDescription,
+        content: reviewContent,
+        reviewDepth,
+      },
+      signal: abort.signal,
+    });
+    if (externalSignal?.aborted) {
+      abortFromExternal();
+    } else {
+      externalSignal?.addEventListener('abort', abortFromExternal, { once: true });
+    }
+    const timeout = setTimeout(() => abort.abort(), timeoutMs);
+    let batch: Awaited<ReturnType<typeof runReviewExecutionBatch>>;
     try {
-      const reviewDepth = request.reviewDepth ?? 'structured';
-
-      // Give each reviewer a different angle (and different phrasing) so N
-      // reviewers produce genuinely independent passes rather than N copies
-      // of the same opinion. Reviewers still score every dimension.
-      let reviewerIndex = 0;
-      for (const reviewer of reviewers) {
-        const angle = angleForReviewer(reviewerIndex++);
-        const prompt = reviewDepth === 'tiered'
-          ? buildTieredReviewPrompt(request.taskDescription, reviewContent, angle)
-          : buildStructuredReviewPrompt(request.taskDescription, reviewContent, angle);
-        try {
-          const rawResponse = await host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal);
-          const parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
-          if (!parsed) {
-            const len = rawResponse?.length ?? 0;
-            reviewerStatuses.push({
-              provider: reviewer,
-              status: 'failed',
-              reason: `Reviewer returned unparseable output (${len} chars; expected strict JSON)`,
-            });
-            continue;
+      batch = await runReviewExecutionBatch({
+        collectRemoteReviews: async () => {
+          if (reviewers.length === 0) return [];
+          if (!host) throw new Error('Headless review host is not configured.');
+          const successful: ReviewResult[] = [];
+          let reviewerIndex = 0;
+          for (const reviewer of reviewers) {
+            const angle = angleForReviewer(reviewerIndex++);
+            const prompt = reviewDepth === 'tiered'
+              ? buildTieredReviewPrompt(request.taskDescription, reviewContent, angle)
+              : buildStructuredReviewPrompt(request.taskDescription, reviewContent, angle);
+            try {
+              const rawResponse = await host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal);
+              const parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
+              if (!parsed) {
+                const len = rawResponse?.length ?? 0;
+                reviewerStatuses.push({
+                  provider: reviewer,
+                  status: 'failed',
+                  reason: `Reviewer returned unparseable output (${len} chars; expected strict JSON)`,
+                });
+                continue;
+              }
+              successful.push(parsed);
+              reviewerStatuses.push({ provider: reviewer, status: 'used' });
+            } catch (error) {
+              reviewerStatuses.push({
+                provider: reviewer,
+                status: 'failed',
+                reason: error instanceof Error ? error.message : String(error),
+              });
+            }
           }
-          successfulReviews.push(parsed);
-          reviewerStatuses.push({ provider: reviewer, status: 'used' });
-        } catch (error) {
-          reviewerStatuses.push({
-            provider: reviewer,
-            status: 'failed',
-            reason: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
+          return successful;
+        },
+        runLocalReview: localPlan.run,
+      });
     } finally {
       clearTimeout(timeout);
+      externalSignal?.removeEventListener('abort', abortFromExternal);
     }
 
+    const localParticipant = localPlan.participant(batch.localOutcome);
+    if (settings.crossModelReviewLocalEnabled === true) {
+      reviewerStatuses.push({
+        provider: 'local-model',
+        source: 'local',
+        status: localParticipant.status,
+        ...(localParticipant.model ? { model: localParticipant.model } : {}),
+        ...(localParticipant.selectorId ? { selectorId: localParticipant.selectorId } : {}),
+        ...(localParticipant.reason ? { reason: localParticipant.reason } : {}),
+      });
+    }
+    const localReviews = batch.localOutcome.status === 'used'
+      ? [{ ...batch.localOutcome.review, source: 'local' as const }]
+      : [];
+    const successfulReviews = [...batch.remoteReviews, ...localReviews];
+
     // Dedup + aggregate findings across reviewers ("N/M reviewers flagged X").
-    // With a single successful reviewer this is a pass-through (no merging,
-    // no agreement prefix), so single-reviewer output is unchanged.
     const taggedFindings: AggregatableFinding[] = successfulReviews.flatMap((review) =>
-      this.toHeadlessFindings(review).map((finding) => ({ ...finding, reviewer: review.reviewerId })),
+      toHeadlessFindings(review).map((finding) => ({
+        ...finding,
+        reviewer: review.reviewerId,
+        source: review.source === 'local' ? 'local' : 'remote',
+      })),
     );
     const findings: HeadlessReviewFinding[] = aggregateReviewFindings(taggedFindings, {
       totalReviewers: successfulReviews.length,
@@ -520,12 +617,27 @@ export class CrossModelReviewService extends EventEmitter {
       ...(typeof finding.line === 'number' ? { line: finding.line } : {}),
       severity: finding.severity,
       confidence: finding.confidence,
+      reviewers: finding.reviewers,
+      agreementCount: finding.agreementCount,
+      advisory: finding.advisory,
     }));
     const failedReasons = reviewerStatuses
-      .filter((reviewer) => reviewer.status === 'failed' && reviewer.reason)
+      .filter((reviewer) => reviewer.source !== 'local' && reviewer.status === 'failed' && reviewer.reason)
       .map((reviewer) => `${reviewer.provider}: ${reviewer.reason}`);
-    const infrastructureErrors = successfulReviews.length === 0 ? failedReasons : [];
+    const localFailureReasons = reviewerStatuses
+      .filter((reviewer) => reviewer.source === 'local' && reviewer.status === 'failed' && reviewer.reason)
+      .map((reviewer) => `${reviewer.provider}: ${reviewer.reason}`);
+    if (batch.remoteError) failedReasons.push(`remote: ${batch.remoteError}`);
+    const infrastructureErrors = batch.remoteReviews.length === 0 &&
+      (reviewers.length > 0 || batch.localOutcome.status === 'used' || batch.localOutcome.status === 'failed')
+      ? [
+        ...failedReasons,
+        ...localFailureReasons,
+        ...(failedReasons.length === 0 ? ['No remote reviewers completed.'] : []),
+      ]
+      : [];
     const completedAt = new Date();
+    const noReviewers = reviewers.length === 0 && batch.localOutcome.status === 'skipped';
 
     return {
       target: request.target,
@@ -534,7 +646,9 @@ export class CrossModelReviewService extends EventEmitter {
       completedAt: completedAt.toISOString(),
       reviewers: reviewerStatuses,
       findings,
-      summary: this.summarizeHeadlessReview(successfulReviews.length, findings.length, infrastructureErrors.length),
+      summary: noReviewers
+        ? 'No reviewers available for headless review.'
+        : summarizeHeadlessReview(successfulReviews.length, findings.length, infrastructureErrors.length),
       infrastructureErrors,
     };
   }
@@ -555,163 +669,10 @@ export class CrossModelReviewService extends EventEmitter {
     );
   }
 
-  private toHeadlessFindings(review: ReviewResult): HeadlessReviewFinding[] {
-    const findings: HeadlessReviewFinding[] = [];
-    for (const issue of review.criticalIssues ?? []) {
-      findings.push({
-        title: `${review.reviewerId} critical issue`,
-        body: issue,
-        severity: 'high',
-        confidence: 0.9,
-      });
-    }
-
-    for (const [dimension, score] of Object.entries(review.scores)) {
-      if (!score || score.issues.length === 0) {
-        continue;
-      }
-      for (const issue of score.issues) {
-        findings.push({
-          title: `${review.reviewerId} ${dimension} concern`,
-          body: issue,
-          severity: this.severityForScore(dimension, score.score),
-          confidence: Math.max(0.1, Math.min(1, (5 - score.score) / 4)),
-        });
-      }
-    }
-
-    if (findings.length === 0 && review.overallVerdict !== 'APPROVE') {
-      findings.push({
-        title: `${review.reviewerId} ${review.overallVerdict.toLowerCase()} verdict`,
-        body: review.summary,
-        severity: review.overallVerdict === 'REJECT' ? 'high' : 'medium',
-        confidence: 0.7,
-      });
-    }
-
-    return findings;
-  }
-
-  private severityForScore(dimension: string, score: number): HeadlessReviewFinding['severity'] {
-    if (score <= 1) return dimension === 'security' ? 'critical' : 'high';
-    if (score <= 2) return dimension === 'security' ? 'high' : 'medium';
-    return 'low';
-  }
-
-  private summarizeHeadlessReview(successfulReviewers: number, findingCount: number, infrastructureErrorCount: number): string {
-    if (infrastructureErrorCount > 0 && successfulReviewers === 0) {
-      return 'Headless review failed before any reviewer completed.';
-    }
-    if (findingCount === 0) {
-      return `No findings from ${successfulReviewers} reviewer(s).`;
-    }
-    return `${findingCount} finding(s) from ${successfulReviewers} reviewer(s).`;
-  }
-
   // === Response Parsing ===
 
   private parseReviewResponse(reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number): ReviewResult | null {
-    const baseResult: Partial<ReviewResult> = {
-      reviewerId,
-      reviewType: reviewDepth,
-      timestamp: Date.now(),
-      durationMs,
-    };
-
-    const parsed = extractJson(rawResponse);
-
-    if (!parsed) {
-      logger.warn('Failed to extract JSON from review response', {
-        reviewerId,
-        responseLength: rawResponse.length,
-        responsePreview: rawResponse.slice(0, 400),
-      });
-      return null;
-    }
-
-    // Pre-coerce common model quirks before schema validation
-    const coerced = this.coerceReviewJson(parsed);
-
-    const schema = reviewDepth === 'tiered' ? TieredReviewResultJsonSchema : ReviewResultJsonSchema;
-    const validated = schema.safeParse(coerced);
-
-    if (!validated.success) {
-      logger.warn('Review response failed schema validation', {
-        reviewerId,
-        errors: validated.error.issues.slice(0, 3),
-      });
-      return null;
-    }
-
-    const data = validated.data;
-    const scores = 'scores' in data ? data.scores : data;
-
-    return {
-      ...baseResult,
-      scores: {
-        correctness: scores.correctness,
-        completeness: scores.completeness,
-        security: scores.security,
-        consistency: scores.consistency,
-        feasibility: 'feasibility' in scores ? scores.feasibility : undefined,
-      },
-      overallVerdict: data.overall_verdict as ReviewVerdict,
-      summary: data.summary,
-      criticalIssues: 'critical_issues' in data ? data.critical_issues : undefined,
-      traces: 'traces' in data ? data.traces : undefined,
-      boundariesChecked: 'boundaries_checked' in data ? data.boundaries_checked : undefined,
-      assumptions: 'assumptions' in data ? data.assumptions : undefined,
-      integrationRisks: 'integration_risks' in data ? data.integration_risks : undefined,
-      parseSuccess: true,
-    } as ReviewResult;
-  }
-
-  /**
-   * Coerce common model output quirks to match the expected schema:
-   * - String-typed scores ("3" → 3)
-   * - Missing issues arrays (undefined → [])
-   * - Verdict case variations ("approve" → "APPROVE")
-   */
-  private coerceReviewJson(raw: unknown): unknown {
-    if (typeof raw !== 'object' || raw === null) return raw;
-    const obj = raw as Record<string, unknown>;
-
-    // Coerce overall_verdict case
-    if (typeof obj['overall_verdict'] === 'string') {
-      obj['overall_verdict'] = obj['overall_verdict'].toUpperCase();
-    }
-
-    // Coerce dimension scores (both flat and nested under "scores")
-    const scoreSections = obj['scores'] ? [obj['scores'] as Record<string, unknown>] : [obj];
-    // Also coerce top-level dimensions for structured format
-    if (!obj['scores']) scoreSections.push(obj);
-    else scoreSections.push(obj['scores'] as Record<string, unknown>);
-
-    const dimensions = ['correctness', 'completeness', 'security', 'consistency', 'feasibility'];
-    for (const section of scoreSections) {
-      if (typeof section !== 'object' || section === null) continue;
-      for (const dim of dimensions) {
-        const dimObj = (section as Record<string, unknown>)[dim];
-        if (typeof dimObj === 'object' && dimObj !== null) {
-          const d = dimObj as Record<string, unknown>;
-          // Coerce string scores to numbers
-          if (typeof d['score'] === 'string') {
-            const num = parseInt(d['score'], 10);
-            if (!isNaN(num)) d['score'] = num;
-          }
-          // Ensure issues is an array
-          if (!Array.isArray(d['issues'])) {
-            d['issues'] = d['issues'] ? [String(d['issues'])] : [];
-          }
-          // Ensure reasoning is a string
-          if (typeof d['reasoning'] !== 'string') {
-            d['reasoning'] = d['reasoning'] ? String(d['reasoning']) : 'No reasoning provided';
-          }
-        }
-      }
-    }
-
-    return obj;
+    return parseCrossModelReviewResponse(reviewerId, rawResponse, reviewDepth, durationMs);
   }
 
   // === Disagreement Detection ===
@@ -758,6 +719,44 @@ export class CrossModelReviewService extends EventEmitter {
       const effectiveList = configured.length > 0
         ? configured.filter(p => available.includes(p))
         : available;
+
+      // Surface configured reviewers that detection could not find. Without this
+      // a top-priority reviewer (e.g. antigravity) silently drops out of the
+      // pool and its slot is handed to the next available CLI (e.g. copilot)
+      // with no trace — the exact failure where copilot burned usage while
+      // antigravity showed zero. Deduped by the dropped set so we only warn/emit
+      // when the set changes, not on every refresh.
+      if (configured.length > 0) {
+        const dropped = configured.filter(p => !available.includes(p));
+        const detected = result.detected ?? [];
+        const detail = dropped.map(name => {
+          const info = detected.find(d => normalizeReviewerCli(d.name) === name);
+          return { cli: name, error: info?.error ?? 'not detected on PATH' };
+        });
+        // Keep the snapshot current every refresh (used by getStatus rehydration),
+        // even when the set is unchanged and we skip the emit below.
+        this.unavailableReviewers = detail;
+        const key = dropped.slice().sort().join(',');
+        if (key !== this.lastUnavailableKey) {
+          this.lastUnavailableKey = key;
+          if (dropped.length > 0) {
+            logger.warn('Configured cross-model reviewer(s) unavailable — excluded from pool', {
+              dropped,
+              available,
+              detail,
+            });
+          }
+          // Emit even when the set is now empty so the UI clears stale badges
+          // once a reviewer (e.g. agy after a PATH fix) comes back.
+          this.emit('review:reviewer-unavailable', { dropped: detail });
+        }
+      } else {
+        // No configured reviewers → nothing can be "dropped"; reset so re-adding
+        // reviewers later re-emits instead of being deduped against a stale key.
+        this.unavailableReviewers = [];
+        this.lastUnavailableKey = '';
+      }
+
       this.reviewerPool.setAvailable(effectiveList);
     } catch (err) {
       logger.warn('CLI detection failed', { error: String(err) });
@@ -770,6 +769,7 @@ export class CrossModelReviewService extends EventEmitter {
       enabled: settings.crossModelReviewEnabled,
       reviewers: this.reviewerPool.getStatus(),
       pendingReviews: this.pendingReviews.size,
+      unavailableReviewers: this.unavailableReviewers,
     };
   }
 

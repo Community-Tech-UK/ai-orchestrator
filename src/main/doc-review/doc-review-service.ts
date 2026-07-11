@@ -47,16 +47,26 @@ const OVERALL_LABEL: Record<DocReviewOverall, string> = {
  * Render the canonical feedback block agents consume. Built entirely from structured
  * decisions — never from raw artifact HTML (security gate #3).
  */
+/**
+ * Collapse newlines/tabs so one item never spills across lines and breaks the numbered
+ * list. Covers every vertical separator — not just CR/LF but the Unicode line/paragraph
+ * separators (U+2028/U+2029), NEL (U+0085), and VT/FF — so a crafted comment can't smuggle
+ * a break that renders as a spurious numbered item in the feedback block downstream.
+ */
+function oneLine(value: string): string {
+  return value.replace(/\s*[\r\n\u2028\u2029\u0085\v\f]+\s*/g, ' ').trim();
+}
+
 export function renderFeedbackBlock(
   session: DocReviewSession,
   input: SubmitDocReviewDecisionInput,
 ): string {
   const lines: string[] = [];
-  lines.push(`## Document review feedback — ${session.title} (review ${session.id})`);
+  lines.push(`## Document review feedback — ${oneLine(session.title)} (review ${session.id})`);
   lines.push(`Overall: ${OVERALL_LABEL[input.overall]}`);
   let n = 0;
   for (const decision of input.decisions) {
-    const comment = decision.comment?.trim();
+    const comment = decision.comment ? oneLine(decision.comment) : '';
     if (!decision.decision && !comment) continue;
     n += 1;
     const verb =
@@ -65,12 +75,12 @@ export function renderFeedbackBlock(
         : decision.decision === 'reject'
           ? 'reject'
           : 'note';
-    const title = decision.title || decision.itemId;
+    const title = oneLine(decision.title || decision.itemId);
     let line = `${n}. [${title}] ${verb}`;
     if (comment) line += ` — ${comment}`;
     lines.push(line);
   }
-  const general = input.generalComment?.trim();
+  const general = input.generalComment ? oneLine(input.generalComment) : '';
   if (general) lines.push(`General: ${general}`);
   return lines.join('\n');
 }
@@ -295,7 +305,7 @@ export class DocReviewService extends EventEmitter {
     }
   }
 
-  private emitChanged(kind: 'created' | 'updated' | 'decided', session: DocReviewSession): void {
+  private emitChanged(kind: 'created' | 'decided', session: DocReviewSession): void {
     this.emit(DOC_REVIEW_CHANGED_EVENT, { kind, reviewId: session.id, session });
   }
 }

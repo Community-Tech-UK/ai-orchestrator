@@ -9,7 +9,14 @@ import {
 import {
   BaseLocalModelChatAdapter,
   type LocalModelChatMessage,
+  type LocalModelToolCall,
+  type LocalModelToolTurnClient,
+  type LocalModelToolTurnMessage,
+  type LocalModelToolTurnResult,
+  LocalModelToolResponseError,
+  normalizeLocalModelToolCall,
 } from './local-model-chat-adapter';
+import type { LocalReviewToolDefinition } from '../../review/local-review.types';
 import { getLogger } from '../../logging/logger';
 import type { CliSpawnMode, CliStatus } from './base-cli-adapter';
 
@@ -22,9 +29,30 @@ const DEFAULT_TEMPERATURE = 0.2;
 
 interface OpenAICompatibleChatRequest {
   model: string;
-  messages: LocalModelChatMessage[];
+  messages: OpenAIChatMessage[];
   stream: boolean;
   temperature: number;
+  tools?: OpenAIToolDefinition[];
+}
+
+type OpenAIChatMessage =
+  | LocalModelChatMessage
+  | { role: 'assistant'; content: string; tool_calls: OpenAIToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string };
+
+interface OpenAIToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+interface OpenAIToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
 }
 
 interface OpenAIChatChoiceDelta {
@@ -34,6 +62,7 @@ interface OpenAIChatChoiceDelta {
   message?: {
     role?: string;
     content?: unknown;
+    tool_calls?: unknown;
   };
 }
 
@@ -49,7 +78,7 @@ interface OpenAIChatCompletionResponse {
 }
 
 interface OpenAIModelsResponse {
-  data?: Array<{ id?: string }>;
+  data?: { id?: string }[];
 }
 
 export interface OpenAICompatibleChatConfig {
@@ -73,7 +102,7 @@ export interface OpenAICompatibleChatConfig {
   contextWindow?: number;
 }
 
-export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter {
+export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter implements LocalModelToolTurnClient {
   /** B9: OpenAI-compatible local models have no local process. */
   protected override spawnMode: CliSpawnMode = 'http';
 
@@ -162,6 +191,7 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected buildArgs(_message: CliMessage): string[] {
     return [];
   }
@@ -194,6 +224,44 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter {
     } finally {
       this.endLocalModelTurn(signal);
     }
+  }
+
+  async sendToolTurn(
+    messages: readonly LocalModelToolTurnMessage[],
+    tools: readonly LocalReviewToolDefinition[],
+    signal: AbortSignal,
+  ): Promise<LocalModelToolTurnResult> {
+    const body = {
+      model: this.model,
+      messages: messages.map(mapOpenAIToolTurnMessage),
+      stream: false,
+      temperature: this.temperature,
+      tools: tools.map(mapOpenAIToolDefinition),
+    } satisfies OpenAICompatibleChatRequest;
+    const response = await this.fetchWithTimeout(this.url('/v1/chat/completions'), {
+      method: 'POST',
+      headers: this.headers({ acceptJson: true, contentJson: true }),
+      body: JSON.stringify(body),
+    }, signal);
+    if (!response.ok) {
+      const errorBody = await safeReadText(response);
+      throw new Error(`OpenAI-compatible tool turn error ${response.status}: ${errorBody}`);
+    }
+    let parsed: OpenAIChatCompletionResponse;
+    try {
+      parsed = await response.json() as OpenAIChatCompletionResponse;
+    } catch {
+      throw new LocalModelToolResponseError('OpenAI-compatible endpoint returned malformed tool-turn JSON');
+    }
+    const choice = parsed.choices?.[0];
+    if (!choice?.message) {
+      throw new LocalModelToolResponseError('OpenAI-compatible tool turn is missing an assistant message');
+    }
+    return {
+      content: coerceMessageContent(choice.message.content),
+      toolCalls: parseOpenAIToolCalls(choice.message.tool_calls),
+      ...(parsed.usage ? { usage: mapOpenAIUsage(parsed.usage) } : {}),
+    };
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
@@ -417,7 +485,7 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter {
       return await fetch(url, { ...init, signal: controller.signal });
     } catch (error) {
       if (isAbortSignalRealmError(error)) {
-        return this.fetchWithoutSignalWithTimeout(url, init);
+        return await this.fetchWithoutSignal(url, init, controller.signal);
       }
       if (timedOut) {
         throw new Error(this.timeoutMessage());
@@ -429,22 +497,105 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter {
     }
   }
 
-  private fetchWithoutSignalWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  private fetchWithoutSignal(
+    url: string,
+    init: RequestInit,
+    cancellationSignal: AbortSignal,
+  ): Promise<Response> {
     const fallbackInit: RequestInit = { ...init };
     delete fallbackInit.signal;
 
-    return new Promise<Response>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(this.timeoutMessage())), this.timeoutMs);
+    if (cancellationSignal.aborted) {
+      return Promise.reject(cancellationSignal.reason);
+    }
 
-      fetch(url, fallbackInit)
-        .then(resolve, reject)
-        .finally(() => clearTimeout(timeout));
+    return new Promise<Response>((resolve, reject) => {
+      let settled = false;
+      const settle = (result: { response: Response } | { error: unknown }): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cancellationSignal.removeEventListener('abort', onAbort);
+        if ('response' in result) {
+          resolve(result.response);
+        } else {
+          reject(result.error);
+        }
+      };
+      const onAbort = (): void => {
+        settle({ error: cancellationSignal.reason });
+      };
+      cancellationSignal.addEventListener('abort', onAbort, { once: true });
+
+      void fetch(url, fallbackInit).then(
+        (response) => settle({ response }),
+        (error: unknown) => settle({ error }),
+      );
     });
   }
 
   private timeoutMessage(): string {
     return `OpenAI-compatible request timed out after ${this.timeoutMs}ms`;
   }
+}
+
+function mapOpenAIToolTurnMessage(message: LocalModelToolTurnMessage): OpenAIChatMessage {
+  if (message.role === 'tool') {
+    return { role: 'tool', tool_call_id: message.toolCallId, content: message.content };
+  }
+  if ('toolCalls' in message) {
+    return {
+      role: 'assistant',
+      content: message.content,
+      tool_calls: message.toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+      })),
+    };
+  }
+  return message;
+}
+
+function mapOpenAIToolDefinition(tool: LocalReviewToolDefinition): OpenAIToolDefinition {
+  return {
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    },
+  };
+}
+
+function parseOpenAIToolCalls(value: unknown): LocalModelToolCall[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new LocalModelToolResponseError('OpenAI tool_calls must be an array');
+  }
+  return value.map((call) => {
+    if (!call || typeof call !== 'object') {
+      throw new LocalModelToolResponseError('OpenAI-compatible endpoint returned a malformed tool call');
+    }
+    const candidate = call as { id?: unknown; type?: unknown; function?: unknown };
+    if (candidate.type !== 'function' || !candidate.function || typeof candidate.function !== 'object') {
+      throw new LocalModelToolResponseError('OpenAI tool call is missing function data');
+    }
+    const fn = candidate.function as { name?: unknown; arguments?: unknown };
+    if (typeof fn.arguments !== 'string') {
+      throw new LocalModelToolResponseError('OpenAI tool call arguments must be JSON text');
+    }
+    let args: unknown;
+    try {
+      args = JSON.parse(fn.arguments);
+    } catch {
+      throw new LocalModelToolResponseError('OpenAI tool call arguments contain invalid JSON');
+    }
+    return normalizeLocalModelToolCall(candidate.id, fn.name, args);
+  });
 }
 
 function normalizeBaseUrl(baseUrl: string): string {

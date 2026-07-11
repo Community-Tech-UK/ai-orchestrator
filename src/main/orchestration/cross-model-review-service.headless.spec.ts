@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CrossModelReviewService } from './cross-model-review-service';
 import type { ReviewExecutionHost } from '../review/review-execution-host';
+import type { ReviewResult } from '../../shared/types/cross-model-review.types';
+
+const localReviewState = vi.hoisted(() => ({
+  enabled: false,
+  selectorId: '',
+  qualityModel: '',
+}));
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({
@@ -32,6 +39,11 @@ vi.mock('../core/config/settings-manager', () => ({
       crossModelReviewProviders: [],
       crossModelReviewTimeout: 30,
       crossModelReviewTypes: ['code', 'plan', 'architecture'],
+      crossModelReviewLocalEnabled: localReviewState.enabled,
+      crossModelReviewLocalSelectorId: localReviewState.selectorId,
+      crossModelReviewLocalTimeout: 120,
+      crossModelReviewLocalMaxToolRounds: 12,
+      auxiliaryLlmQualityModel: localReviewState.qualityModel,
     }),
   }),
 }));
@@ -63,6 +75,9 @@ const MISSING_REMOTE_WINDOWS_CWD = 'C:\\__aio_missing_remote_node_workspace__\\r
 describe('CrossModelReviewService headless review', () => {
   beforeEach(() => {
     CrossModelReviewService._resetForTesting();
+    localReviewState.enabled = false;
+    localReviewState.selectorId = '';
+    localReviewState.qualityModel = '';
   });
 
   it('runs reviewers through a narrow host without an InstanceManager', async () => {
@@ -247,5 +262,259 @@ describe('CrossModelReviewService headless review', () => {
     expect(result.findings).toEqual([]);
     expect(result.infrastructureErrors).toEqual([]);
     expect(result.summary).toContain('No reviewers available');
+  });
+
+  it('surfaces a local-only headless finding as advisory when zero remote reviewers run', async () => {
+    const selectorId = 'lm://this-device/ollama/ollama/qwen';
+    localReviewState.enabled = true;
+    localReviewState.selectorId = '';
+    localReviewState.qualityModel = 'qwen';
+    const localReview: ReviewResult = {
+      reviewerId: 'local:qwen',
+      source: 'local',
+      reviewType: 'structured',
+      scores: {
+        correctness: { reasoning: 'missing guard', score: 2, issues: ['payload value lacks a null guard'] },
+        completeness: { reasoning: 'ok', score: 4, issues: [] },
+        security: { reasoning: 'ok', score: 4, issues: [] },
+        consistency: { reasoning: 'ok', score: 4, issues: [] },
+      },
+      overallVerdict: 'CONCERNS',
+      summary: 'One concern.',
+      timestamp: 1,
+      durationMs: 1,
+      parseSuccess: true,
+    };
+    const service = CrossModelReviewService.getInstance();
+    service.setLocalReviewDependenciesForTesting(
+      { review: vi.fn().mockResolvedValue({ status: 'used', review: localReview, evidencePaths: ['src/a.ts'] }) },
+      { list: () => [{
+        selectorId,
+        source: 'this-device',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+        displayName: 'Qwen',
+        healthy: true,
+        loaded: true,
+        capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' },
+        discoveredAt: 1,
+      }] },
+    );
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD',
+      cwd: REPO_CWD,
+      content: 'diff',
+      taskDescription: 'Review',
+      reviewers: [],
+    });
+
+    expect(result.reviewers).toEqual([expect.objectContaining({
+      provider: 'local-model',
+      source: 'local',
+      status: 'used',
+      selectorId,
+    })]);
+    expect(result.findings).toEqual([expect.objectContaining({
+      reviewers: ['local:qwen'],
+      agreementCount: 1,
+      advisory: true,
+    })]);
+    expect(result.infrastructureErrors).toEqual(['No remote reviewers completed.']);
+  });
+
+  it('visibly skips automatic quality fallback when only cloud, worker, or unhealthy matches exist', async () => {
+    localReviewState.enabled = true;
+    localReviewState.selectorId = '';
+    localReviewState.qualityModel = 'qwen';
+    const review = vi.fn();
+    const service = CrossModelReviewService.getInstance();
+    service.setLocalReviewDependenciesForTesting(
+      { review },
+      { list: () => [
+        {
+          selectorId: 'lm://this-device/ollama/ollama/qwen%3Acloud', source: 'this-device',
+          endpointProvider: 'ollama', endpointId: 'ollama', modelId: 'qwen:cloud',
+          displayName: 'Qwen Cloud', healthy: true, loaded: false,
+          capabilities: { streaming: true, multiTurn: true, toolUse: 'none', vision: 'unknown' }, discoveredAt: 1,
+        },
+        {
+          selectorId: 'lm://worker-node/node-1/ollama/ollama/qwen', source: 'worker-node', nodeId: 'node-1',
+          endpointProvider: 'ollama', endpointId: 'ollama', modelId: 'qwen',
+          displayName: 'Qwen Worker', healthy: true, loaded: true,
+          capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' }, discoveredAt: 1,
+        },
+        {
+          selectorId: 'lm://this-device/ollama/ollama/qwen%3A32b', source: 'this-device',
+          endpointProvider: 'ollama', endpointId: 'ollama', modelId: 'qwen:32b',
+          displayName: 'Qwen Offline', healthy: false, loaded: false,
+          capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' }, discoveredAt: 1,
+        },
+      ] },
+    );
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD', cwd: REPO_CWD, content: 'diff', taskDescription: 'Review', reviewers: [],
+    });
+
+    expect(review).not.toHaveBeenCalled();
+    expect(result.reviewers).toEqual([expect.objectContaining({
+      provider: 'local-model',
+      status: 'skipped',
+      reason: expect.stringContaining('quality'),
+    })]);
+  });
+
+  it('keeps a remote headless result when the local pass fails', async () => {
+    const selectorId = 'lm://this-device/ollama/ollama/qwen';
+    localReviewState.enabled = true;
+    localReviewState.selectorId = selectorId;
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => REPO_CWD,
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt: vi.fn(async () => reviewerJson('remote finding')),
+    });
+    service.setLocalReviewDependenciesForTesting(
+      { review: vi.fn().mockResolvedValue({ status: 'failed', reason: 'Local parse failed.' }) },
+      { list: () => [{
+        selectorId,
+        source: 'this-device',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+        displayName: 'Qwen',
+        healthy: true,
+        loaded: true,
+        capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' },
+        discoveredAt: 1,
+      }] },
+    );
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD', cwd: REPO_CWD, content: 'diff', taskDescription: 'Review', reviewers: ['codex'],
+    });
+
+    expect(result.reviewers).toEqual([
+      { provider: 'codex', status: 'used' },
+      expect.objectContaining({ provider: 'local-model', status: 'failed', reason: 'Local parse failed.' }),
+    ]);
+    expect(result.findings).toEqual([expect.objectContaining({ advisory: false })]);
+    expect(result.infrastructureErrors).toEqual([]);
+  });
+
+  it('reports infrastructure failure when local fails and no remote reviewer completes', async () => {
+    const selectorId = 'lm://this-device/ollama/ollama/qwen';
+    localReviewState.enabled = true;
+    localReviewState.selectorId = selectorId;
+    const service = CrossModelReviewService.getInstance();
+    service.setLocalReviewDependenciesForTesting(
+      { review: vi.fn().mockResolvedValue({ status: 'failed', reason: 'Local parse failed.' }) },
+      { list: () => [{
+        selectorId,
+        source: 'this-device',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+        displayName: 'Qwen',
+        healthy: true,
+        loaded: true,
+        capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' },
+        discoveredAt: 1,
+      }] },
+    );
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD', cwd: REPO_CWD, content: 'diff', taskDescription: 'Review', reviewers: [],
+    });
+
+    expect(result.reviewers).toEqual([expect.objectContaining({
+      provider: 'local-model', status: 'failed', reason: 'Local parse failed.',
+    })]);
+    expect(result.infrastructureErrors).toEqual([
+      'local-model: Local parse failed.',
+      'No remote reviewers completed.',
+    ]);
+    expect(result.summary).toBe('Headless review failed before any reviewer completed.');
+  });
+
+  it('bridges external cancellation into the local reviewer and removes the listener', async () => {
+    const selectorId = 'lm://this-device/ollama/ollama/qwen';
+    localReviewState.enabled = true;
+    localReviewState.selectorId = selectorId;
+    const external = new AbortController();
+    const removeListener = vi.spyOn(external.signal, 'removeEventListener');
+    const review = vi.fn((_request, _target, limits: { signal: AbortSignal }) =>
+      new Promise<{ status: 'failed'; reason: string }>((resolve) => {
+        limits.signal.addEventListener('abort', () => {
+          resolve({ status: 'failed', reason: 'Local review cancelled.' });
+        }, { once: true });
+      }),
+    );
+    const service = CrossModelReviewService.getInstance();
+    service.setLocalReviewDependenciesForTesting(
+      { review },
+      { list: () => [{
+        selectorId,
+        source: 'this-device',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+        displayName: 'Qwen',
+        healthy: true,
+        loaded: true,
+        capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' },
+        discoveredAt: 1,
+      }] },
+    );
+
+    const pending = service.runHeadlessReview({
+      target: 'HEAD', cwd: REPO_CWD, content: 'diff', taskDescription: 'Review',
+      reviewers: [], signal: external.signal,
+    });
+    await vi.waitFor(() => expect(review).toHaveBeenCalledOnce());
+    external.abort();
+
+    await expect(pending).resolves.toMatchObject({
+      reviewers: [expect.objectContaining({ source: 'local', status: 'failed' })],
+    });
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+
+  it('passes an already-aborted external signal into local review as pre-aborted', async () => {
+    const selectorId = 'lm://this-device/ollama/ollama/qwen';
+    localReviewState.enabled = true;
+    localReviewState.selectorId = selectorId;
+    const external = new AbortController();
+    external.abort('paused');
+    const review = vi.fn((_request, _target, limits: { signal: AbortSignal }) => {
+      expect(limits.signal.aborted).toBe(true);
+      expect(limits.signal.reason).toBe('paused');
+      return Promise.resolve({ status: 'failed' as const, reason: 'Local review cancelled.' });
+    });
+    const service = CrossModelReviewService.getInstance();
+    service.setLocalReviewDependenciesForTesting(
+      { review },
+      { list: () => [{
+        selectorId,
+        source: 'this-device',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+        displayName: 'Qwen',
+        healthy: true,
+        loaded: true,
+        capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' },
+        discoveredAt: 1,
+      }] },
+    );
+
+    await service.runHeadlessReview({
+      target: 'HEAD', cwd: REPO_CWD, content: 'diff', taskDescription: 'Review',
+      reviewers: [], signal: external.signal,
+    });
+
+    expect(review).toHaveBeenCalledOnce();
   });
 });

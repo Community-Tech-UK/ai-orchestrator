@@ -12,6 +12,7 @@ import type {
   PingPongReviewer,
   PingPongReviewResult,
 } from './agentic-pingpong-reviewer';
+import type { LocalFreshEyesAdvisoryResult } from './loop-fresh-eyes-reviewer';
 
 function makeState(workspace: string, overrides: Partial<LoopState> = {}): LoopState {
   const config = defaultLoopConfig(workspace, 'implement the widget feature');
@@ -88,6 +89,12 @@ function baseDeps(state: LoopState, reviewer: PingPongReviewer, clean = true) {
     signal: new AbortController().signal,
     foldReviewerSpend: vi.fn(),
     reviewer,
+    localAdvisoryReviewer: vi.fn().mockResolvedValue({
+      status: 'skipped',
+      findings: [],
+      summary: 'No local reviewer selected.',
+      reason: 'No local reviewer selected.',
+    } satisfies LocalFreshEyesAdvisoryResult),
   };
 }
 
@@ -117,6 +124,245 @@ describe('evaluatePingPongCompletion', () => {
     expect(state.pingPong?.roundCount).toBe(1);
     expect(deps.foldReviewerSpend).toHaveBeenCalledWith(100, 5);
   });
+
+  it('starts the authoritative remote review and local advisory pass concurrently', async () => {
+    const state = makeState(workspace);
+    let resolveRemote!: (value: PingPongReviewResult) => void;
+    let resolveLocal!: (value: LocalFreshEyesAdvisoryResult) => void;
+    const remote = new Promise<PingPongReviewResult>((resolve) => { resolveRemote = resolve; });
+    const local = new Promise<LocalFreshEyesAdvisoryResult>((resolve) => { resolveLocal = resolve; });
+    const reviewer = vi.fn<PingPongReviewer>(() => remote);
+    const localAdvisoryReviewer = vi.fn(() => local);
+
+    const pending = evaluatePingPongCompletion({
+      ...baseDeps(state, reviewer),
+      localAdvisoryReviewer,
+    });
+
+    await vi.waitFor(() => {
+      expect(reviewer).toHaveBeenCalledOnce();
+      expect(localAdvisoryReviewer).toHaveBeenCalledOnce();
+    });
+    resolveLocal({ status: 'used', findings: [], summary: 'Local review clean.' });
+    resolveRemote(reviewResult({ verdict: 'APPROVED' }));
+    await expect(pending).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('uses the isolated execution checkout for both remote and local review inputs', async () => {
+    const executionCwd = mkdtempSync(join(tmpdir(), 'pingpong-isolated-'));
+    const state = makeState(workspace);
+    state.config.executionCwd = executionCwd;
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
+    const localAdvisoryReviewer = vi.fn().mockResolvedValue({
+      status: 'used', findings: [], summary: 'Local clean.',
+    } satisfies LocalFreshEyesAdvisoryResult);
+
+    try {
+      await evaluatePingPongCompletion({
+        ...baseDeps(state, reviewer),
+        localAdvisoryReviewer,
+      });
+      expect(reviewer).toHaveBeenCalledWith(expect.objectContaining({ workspaceCwd: executionCwd }));
+      expect(localAdvisoryReviewer).toHaveBeenCalledWith(expect.objectContaining({
+        workspaceCwd: executionCwd,
+      }));
+    } finally {
+      rmSync(executionCwd, { recursive: true, force: true });
+    }
+  });
+
+  it('does not let a non-settling local reviewer delay remote cancellation or retain in-flight state', async () => {
+    const state = makeState(workspace);
+    const abort = new AbortController();
+    let rejectLocal!: (reason?: unknown) => void;
+    const localNeverSettles = new Promise<LocalFreshEyesAdvisoryResult>((_resolve, reject) => {
+      rejectLocal = reject;
+    });
+    const reviewer = vi.fn<PingPongReviewer>(async (input) => {
+      input.onSpawned?.('remote-reviewer');
+      abort.abort();
+      return reviewResult({ verdict: 'UNRELIABLE', spawnOutcome: 'cancelled' });
+    });
+    const localAdvisoryReviewer = vi.fn(() => localNeverSettles);
+
+    const result = await Promise.race([
+      evaluatePingPongCompletion({
+        ...baseDeps(state, reviewer),
+        signal: abort.signal,
+        localAdvisoryReviewer,
+      }),
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 250)),
+    ]);
+
+    expect(result).toBeNull();
+    expect(state.pingPong?.inFlightReviewerInstanceId).toBeUndefined();
+    expect(state.pingPong?.inFlightRound).toBeUndefined();
+    expect(localAdvisoryReviewer).toHaveBeenCalledWith(expect.objectContaining({
+      abortSignal: abort.signal,
+    }));
+    rejectLocal(new Error('late local failure'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it('wakes a local wait when pause arrives after an APPROVED remote review settles', async () => {
+    const state = makeState(workspace);
+    const abort = new AbortController();
+    const removeAbortListener = vi.spyOn(abort.signal, 'removeEventListener');
+    let rejectLocal!: (reason?: unknown) => void;
+    const localNeverSettles = new Promise<LocalFreshEyesAdvisoryResult>((_resolve, reject) => {
+      rejectLocal = reject;
+    });
+    const reviewer = vi.fn<PingPongReviewer>(async (input) => {
+      input.onSpawned?.('remote-reviewer');
+      return reviewResult({ verdict: 'APPROVED' });
+    });
+    const localAdvisoryReviewer = vi.fn(() => localNeverSettles);
+    let settled = false;
+    const evaluation = evaluatePingPongCompletion({
+      ...baseDeps(state, reviewer),
+      signal: abort.signal,
+      localAdvisoryReviewer,
+    }).finally(() => { settled = true; });
+
+    await vi.waitFor(() => {
+      expect(reviewer).toHaveBeenCalledOnce();
+      expect(localAdvisoryReviewer).toHaveBeenCalledOnce();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+
+    abort.abort();
+    const result = await Promise.race([
+      evaluation,
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 250)),
+    ]);
+
+    expect(result).toBeNull();
+    expect(state.pingPong?.inFlightReviewerInstanceId).toBeUndefined();
+    expect(state.pingPong?.inFlightRound).toBeUndefined();
+    expect(state.pingPong?.roundCount).toBe(0);
+    expect(removeAbortListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    rejectLocal(new Error('late local failure'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it('surfaces a clean local pass without changing remote APPROVED authority', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
+    const deps = {
+      ...baseDeps(state, reviewer),
+      localAdvisoryReviewer: vi.fn().mockResolvedValue({
+        status: 'used', findings: [], summary: 'Local review clean.',
+      } satisfies LocalFreshEyesAdvisoryResult),
+    };
+
+    const result = await evaluatePingPongCompletion(deps);
+
+    expect(result?.status).toBe('completed');
+    expect(deps.emit).toHaveBeenCalledWith('loop:activity', expect.objectContaining({
+      message: expect.stringContaining('Local advisory review completed cleanly'),
+    }));
+  });
+
+  it('isolates a failed local pass from an authoritative remote APPROVED verdict', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
+    const deps = {
+      ...baseDeps(state, reviewer),
+      localAdvisoryReviewer: vi.fn().mockRejectedValue(new Error('local timeout')),
+    };
+
+    const result = await evaluatePingPongCompletion(deps);
+
+    expect(result?.status).toBe('completed');
+    expect(deps.emit).toHaveBeenCalledWith('loop:activity', expect.objectContaining({
+      message: expect.stringContaining('Local advisory review failed: local timeout'),
+    }));
+  });
+
+  it('keeps a local-only high finding visible but outside the blocking ledger and counters', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
+    const localFinding = {
+      title: 'Possible auth bypass', body: 'Inspect the fallback path.', severity: 'high' as const,
+      file: 'src/auth.ts', confidence: 0.9, advisory: true as const,
+    };
+    const deps = {
+      ...baseDeps(state, reviewer),
+      localAdvisoryReviewer: vi.fn().mockResolvedValue({
+        status: 'used', findings: [localFinding], summary: 'One local concern.',
+      } satisfies LocalFreshEyesAdvisoryResult),
+    };
+
+    const result = await evaluatePingPongCompletion(deps);
+
+    expect(result?.status).toBe('completed');
+    expect(state.pingPong?.ledger).toEqual([]);
+    expect(state.pingPong?.builderUnaddressedRounds).toBe(0);
+    expect(state.pingPong?.consecutiveContradictoryRounds).toBe(0);
+    expect(deps.emit).toHaveBeenCalledWith('loop:fresh-eyes-review-passed', expect.objectContaining({
+      advisoryFindings: [expect.objectContaining({ title: 'Possible auth bypass', advisory: true })],
+    }));
+  });
+
+  it('keeps a matching remote blocking finding authoritative without promoting the local copy', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({
+      verdict: 'CHANGES_REQUESTED',
+      findings: [{
+        title: 'Auth bypass in handler', severity: 'high', evidence: 'src/auth.ts:42',
+        body: 'Remote reviewer reproduced the bypass.', novelty: 'new', file: 'src/auth.ts',
+      }],
+    }));
+    const deps = {
+      ...baseDeps(state, reviewer),
+      localAdvisoryReviewer: vi.fn().mockResolvedValue({
+        status: 'used',
+        findings: [{
+          title: 'Auth bypass in handler', body: 'Local suspicion.', severity: 'high',
+          file: 'src/auth.ts', confidence: 0.8, advisory: true,
+        }],
+        summary: 'One local concern.',
+      } satisfies LocalFreshEyesAdvisoryResult),
+    };
+
+    const result = await evaluatePingPongCompletion(deps);
+
+    expect(result).toBeNull();
+    expect(state.pingPong?.ledger).toHaveLength(1);
+    expect(state.pingPong?.ledger[0]).toMatchObject({
+      title: 'Auth bypass in handler', evidence: 'src/auth.ts:42', status: 'open',
+    });
+  });
+
+  it.each([
+    { name: 'clean', local: { status: 'used', findings: [], summary: 'Local clean.' } },
+    { name: 'concern', local: {
+      status: 'used',
+      findings: [{
+        title: 'Local concern', body: 'Advisory only.', severity: 'critical', confidence: 0.9, advisory: true,
+      }],
+      summary: 'Local concern.',
+    } },
+  ] satisfies { name: string; local: LocalFreshEyesAdvisoryResult }[])(
+    'stays fail-closed when the remote review is unreliable and local is $name',
+    async ({ local }) => {
+      const state = makeState(workspace);
+      const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({
+        verdict: 'UNRELIABLE', fault: 'malformed_output', reason: 'remote output malformed',
+      }));
+
+      const result = await evaluatePingPongCompletion({
+        ...baseDeps(state, reviewer),
+        localAdvisoryReviewer: vi.fn().mockResolvedValue(local),
+      });
+
+      expect(result).toBeNull();
+      expect(state.pingPong?.roundCount).toBe(0);
+      expect(state.pingPong?.consecutiveUnreliableRounds).toBe(1);
+      expect(state.pingPong?.ledger).toEqual([]);
+    },
+  );
 
   it('injects an intervention and continues on CHANGES_REQUESTED with blocking findings', async () => {
     const state = makeState(workspace);
@@ -218,11 +464,25 @@ describe('evaluatePingPongCompletion', () => {
     const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
     const deps = {
       ...baseDeps(state, reviewer),
+      localAdvisoryReviewer: vi.fn().mockResolvedValue({
+        status: 'used',
+        findings: [{
+          title: 'Local advisory', body: 'Inspect this separately.', severity: 'high',
+          confidence: 0.8, advisory: true,
+        }],
+        summary: 'One local advisory.',
+      } satisfies LocalFreshEyesAdvisoryResult),
       runVerify: vi.fn().mockResolvedValue({ ok: false, output: 'tests failed' }),
     };
     const result = await evaluatePingPongCompletion(deps);
     expect(result).toBeNull();
     expect(state.pendingInterventions[0]?.message).toContain('verify command FAILED');
+    expect(state.pendingInterventions[0]?.message).toContain('Local advisory');
+    expect(state.pendingInterventions[0]?.message).toContain('not blocking');
+    expect(deps.emit).toHaveBeenCalledWith('loop:fresh-eyes-review-blocked', expect.objectContaining({
+      advisoryFindings: [expect.objectContaining({ title: 'Local advisory', advisory: true })],
+      localAdvisoryStatus: 'used',
+    }));
   });
 
   it('honours a skip-next-round operator control (no reviewer spawned, flag consumed)', async () => {

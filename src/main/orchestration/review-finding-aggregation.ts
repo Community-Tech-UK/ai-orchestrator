@@ -18,6 +18,8 @@ import type { HeadlessReviewFinding, HeadlessReviewSeverity } from '../cli-entry
 export interface AggregatableFinding extends HeadlessReviewFinding {
   /** The reviewer (provider) that produced this finding. */
   reviewer: string;
+  /** Whether this came from a normal remote reviewer or the advisory local pass. */
+  source: 'remote' | 'local';
 }
 
 export interface AggregatedFinding extends HeadlessReviewFinding {
@@ -25,6 +27,10 @@ export interface AggregatedFinding extends HeadlessReviewFinding {
   reviewers: string[];
   /** Number of distinct reviewers that agreed — i.e. `reviewers.length`. */
   agreementCount: number;
+  /** Reviewer identities with their execution provenance. */
+  reviewerProvenance: { reviewer: string; source: 'remote' | 'local' }[];
+  /** Local-only clusters cannot block completion until remotely corroborated. */
+  advisory: boolean;
 }
 
 export interface AggregateOptions {
@@ -81,6 +87,7 @@ interface Cluster {
   tokens: Set<string>;
   members: AggregatableFinding[];
   reviewers: Set<string>;
+  reviewerProvenance: Map<string, 'remote' | 'local'>;
 }
 
 /**
@@ -109,10 +116,19 @@ export function aggregateReviewFindings(
     if (target) {
       target.members.push(finding);
       target.reviewers.add(finding.reviewer);
+      const existingSource = target.reviewerProvenance.get(finding.reviewer);
+      if (existingSource === undefined || finding.source === 'remote') {
+        target.reviewerProvenance.set(finding.reviewer, finding.source);
+      }
       // Grow the cluster vocabulary so subsequent matches see all phrasings.
       for (const t of tokens) target.tokens.add(t);
     } else {
-      clusters.push({ tokens, members: [finding], reviewers: new Set([finding.reviewer]) });
+      clusters.push({
+        tokens,
+        members: [finding],
+        reviewers: new Set([finding.reviewer]),
+        reviewerProvenance: new Map([[finding.reviewer, finding.source]]),
+      });
     }
   }
 
@@ -131,6 +147,11 @@ export function aggregateReviewFindings(
     );
     const reviewers = [...cluster.reviewers].sort();
     const agreementCount = reviewers.length;
+    const reviewerProvenance = reviewers.map((reviewer) => ({
+      reviewer,
+      source: cluster.reviewerProvenance.get(reviewer) ?? 'remote',
+    }));
+    const advisory = !reviewerProvenance.some(({ source }) => source === 'remote');
     const maxConfidence = cluster.members.reduce((acc, m) => Math.max(acc, m.confidence ?? 0), 0);
     const confidence = Math.min(1, maxConfidence + 0.05 * (agreementCount - 1));
 
@@ -147,6 +168,8 @@ export function aggregateReviewFindings(
       confidence,
       reviewers,
       agreementCount,
+      reviewerProvenance,
+      advisory,
     };
   });
 

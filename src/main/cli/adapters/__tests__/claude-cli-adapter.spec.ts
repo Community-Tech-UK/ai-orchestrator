@@ -151,6 +151,13 @@ vi.mock('../base-cli-process-utils', () => ({
   },
 }));
 
+// Keep POSIX command resolution a no-op so spawn is asserted against the bare
+// configured command regardless of whether `claude` happens to be on the test
+// machine's PATH (BaseCliAdapter now resolves bare commands via which/where).
+vi.mock('../../cli-path-resolver', () => ({
+  resolveCommandOnPath: vi.fn(() => null),
+}));
+
 import { ClaudeCliAdapter, DEFER_MIN_VERSION } from '../claude-cli-adapter';
 import { InputFormatter } from '../../input-formatter';
 import { NdjsonParser } from '../../ndjson-parser';

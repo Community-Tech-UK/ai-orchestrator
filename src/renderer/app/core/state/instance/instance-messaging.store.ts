@@ -23,6 +23,7 @@ import {
   type SendInputImmediateOptions,
 } from './instance-messaging-queue-utils';
 import { getSendInputTimeoutMs } from './instance-messaging-send-utils';
+import { InstanceStatusReconcilerService } from './instance-status-reconciler.service';
 
 // Max transient-failure retries before dropping a queued message. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
@@ -35,6 +36,7 @@ export class InstanceMessagingStore {
   private listStore = inject(InstanceListStore);
   private draftService = inject(DraftService);
   private pauseStore = inject(PauseStore);
+  private statusReconciler = inject(InstanceStatusReconcilerService);
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
   private interruptRequests = new Map<string, number>();
   private terminalRestartRequests = new Set<string>();
@@ -67,7 +69,16 @@ export class InstanceMessagingStore {
     for (const [instanceId] of queueMap) {
       const instance = this.stateService.getInstance(instanceId);
       if (!instance) {
-        // Instance no longer exists — clean up orphaned queue
+        // Instance no longer exists — clean up orphaned queue. Log what is
+        // being dropped: this is the last trace of any undelivered text.
+        const orphaned = queueMap.get(instanceId) ?? [];
+        if (orphaned.length > 0) {
+          console.warn('InstanceMessagingStore: dropping queued messages for removed instance', {
+            instanceId,
+            count: orphaned.length,
+            previews: orphaned.map((m) => m.message.slice(0, 120)),
+          });
+        }
         this.clearMessageQueue(instanceId);
         continue;
       }
@@ -431,15 +442,21 @@ export class InstanceMessagingStore {
       });
     }
 
-    const result = await this.sendInputWithTimeout(
-      this.ipc.sendInput(
-        targetInstanceId,
-        message,
-        attachments,
-        retryCount > 0 || options.skipUserBubble === true
-      ),
-      getSendInputTimeoutMs(target.instance.provider)
-    );
+    this.statusReconciler.noteSendStarted(targetInstanceId);
+    let result: IpcResponse;
+    try {
+      result = await this.sendInputWithTimeout(
+        this.ipc.sendInput(
+          targetInstanceId,
+          message,
+          attachments,
+          retryCount > 0 || options.skipUserBubble === true
+        ),
+        getSendInputTimeoutMs(target.instance.provider)
+      );
+    } finally {
+      this.statusReconciler.noteSendSettled(targetInstanceId);
+    }
 
     // If send failed, decide whether to retry or drop
     if (!result.success) {
@@ -458,6 +475,7 @@ export class InstanceMessagingStore {
             status: retryDisposition.nextStatus ?? previousStatus ?? 'idle',
           });
         }
+        this.restoreMessageToDraft(targetInstanceId, message);
         this.addErrorToOutput(targetInstanceId, `Failed to send message:\n${errorMessage}`);
         return;
       }
@@ -476,6 +494,7 @@ export class InstanceMessagingStore {
             status: previousStatus ?? 'idle',
           });
         }
+        this.restoreMessageToDraft(targetInstanceId, message);
         this.addErrorToOutput(
           targetInstanceId,
           `Failed to send message after ${MAX_QUEUE_RETRIES} retries:\n${errorMessage}`
@@ -685,6 +704,13 @@ export class InstanceMessagingStore {
       return { shouldRetry: false, nextStatus: 'terminated' };
     }
 
+    // Permanent: the target instance is gone from main-process state (e.g. it
+    // was terminated while the send waited out an init/respawn). Retrying can
+    // never succeed — preserve the text instead of burning retries silently.
+    if (normalized.includes('instance') && normalized.includes('not found')) {
+      return { shouldRetry: false, nextStatus: 'terminated' };
+    }
+
     // Default: retry unknown errors — the watchdog and batch updates will
     // correct the status if the instance is actually in a permanent state.
     // This prevents message loss from transient post-respawn timing issues.
@@ -732,6 +758,17 @@ export class InstanceMessagingStore {
     }
     this.interruptRequests.delete(instanceId);
     return false;
+  }
+
+  /**
+   * Preserve undeliverable message text in the composer draft (never
+   * overwriting text the user has since typed) so a permanently failed send
+   * is never a silent loss.
+   */
+  private restoreMessageToDraft(instanceId: string, message: string): void {
+    if (!message) return;
+    if (this.draftService.getDraft(instanceId).trim().length > 0) return;
+    this.draftService.setDraft(instanceId, message);
   }
 
   /**

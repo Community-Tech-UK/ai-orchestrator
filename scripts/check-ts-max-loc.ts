@@ -118,8 +118,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
   'src/main/instance/instance-lifecycle.ts': 3528,
-  // Re-tightened after extracting provider-runtime-helpers.ts.
-  'src/main/instance/instance-manager.ts': 2632,
+  // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
+  // fast instead of delivering input into a terminated instance).
+  'src/main/instance/instance-manager.ts': 2655,
   'src/main/instance/instance-orchestration.ts': 1068,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1411,
   // Main process — IPC handlers
@@ -209,7 +210,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/services/new-session-draft.service.ts': 869,
   // Renderer — stores
   'src/renderer/app/core/state/instance/instance-list.store.ts': 796,
-  'src/renderer/app/core/state/instance/instance-messaging.store.ts': 774,
+  // Raised 774 -> 811 for permanent-send-failure draft restore + zombie-busy
+  // reconciler wiring (status-reconciler service owns the polling logic).
+  'src/renderer/app/core/state/instance/instance-messaging.store.ts': 811,
   'src/renderer/app/core/state/instance/instance.store.ts': 747,
   'src/renderer/app/core/state/source-control.store.ts': 976,
   // Renderer — feature components

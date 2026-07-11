@@ -23,7 +23,14 @@ import {
 import {
   BaseLocalModelChatAdapter,
   type LocalModelChatMessage,
+  type LocalModelToolCall,
+  type LocalModelToolTurnClient,
+  type LocalModelToolTurnMessage,
+  type LocalModelToolTurnResult,
+  LocalModelToolResponseError,
+  normalizeLocalModelToolCall,
 } from './local-model-chat-adapter';
+import type { LocalReviewToolDefinition } from '../../review/local-review.types';
 import { getLogger } from '../../logging/logger';
 import type { CliSpawnMode, CliStatus } from './base-cli-adapter';
 
@@ -35,18 +42,39 @@ const DEFAULT_MODEL = 'llama3.2';
 
 // ── Ollama API types ───────────────────────────────────────────────────────────
 
-type OllamaChatMessage = LocalModelChatMessage;
+interface OllamaToolCall {
+  id: string;
+  function: {
+    name: string;
+    arguments: unknown;
+  };
+}
+
+type OllamaChatMessage =
+  | LocalModelChatMessage
+  | { role: 'assistant'; content: string; tool_calls: OllamaToolCall[] }
+  | { role: 'tool'; tool_name: string; content: string };
+
+interface OllamaToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
 
 interface OllamaChatRequest {
   model: string;
   messages: OllamaChatMessage[];
   stream: boolean;
+  tools?: OllamaToolDefinition[];
 }
 
 interface OllamaChatResponseChunk {
   model: string;
   created_at: string;
-  message: { role: 'assistant'; content: string };
+  message: { role: 'assistant'; content: string; tool_calls?: unknown };
   done: boolean;
   total_duration?: number;
   prompt_eval_count?: number;
@@ -87,7 +115,7 @@ export interface OllamaCliConfig {
 
 // ── Adapter ───────────────────────────────────────────────────────────────────
 
-export class OllamaCliAdapter extends BaseLocalModelChatAdapter {
+export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements LocalModelToolTurnClient {
   /** B9: Ollama has no local process — it talks to the Ollama REST server. */
   protected override spawnMode: CliSpawnMode = 'http';
 
@@ -205,6 +233,33 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter {
         inputTokens: promptEvalCount,
         outputTokens: evalCount,
         totalTokens: promptEvalCount + evalCount,
+      },
+    };
+  }
+
+  async sendToolTurn(
+    messages: readonly LocalModelToolTurnMessage[],
+    tools: readonly LocalReviewToolDefinition[],
+    signal: AbortSignal,
+  ): Promise<LocalModelToolTurnResult> {
+    const requestMessages = messages.map(mapOllamaToolTurnMessage);
+    const body = {
+      model: this.model,
+      messages: requestMessages,
+      stream: false,
+      tools: tools.map(mapOllamaToolDefinition),
+    } satisfies OllamaChatRequest;
+    const parsed = parseOllamaToolTurnResponse(await this.postChat(body, signal));
+    const toolCalls = parsed.toolCalls;
+    const inputTokens = parsed.prompt_eval_count;
+    const outputTokens = parsed.eval_count;
+    return {
+      content: parsed.content,
+      toolCalls,
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
       },
     };
   }
@@ -373,4 +428,146 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter {
       req.end();
     });
   }
+
+  private postChat(
+    requestBody: OllamaChatRequest,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const body = JSON.stringify(requestBody);
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: this.host,
+          port: this.port,
+          path: '/api/chat',
+          method: 'POST',
+          signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+          },
+        },
+        (res) => {
+          let responseBody = '';
+          res.on('data', (chunk: Buffer) => { responseBody += chunk.toString(); });
+          res.on('end', () => {
+            if (res.statusCode !== undefined && res.statusCode >= 400) {
+              reject(new Error(`Ollama API error ${res.statusCode}: ${responseBody}`));
+              return;
+            }
+            try {
+              resolve(JSON.parse(responseBody) as unknown);
+            } catch {
+              reject(new LocalModelToolResponseError('Ollama returned malformed tool-turn JSON'));
+            }
+          });
+          res.on('error', reject);
+        },
+      );
+      req.setTimeout(this.config.timeout ?? 300_000, () => {
+        req.destroy();
+        reject(new Error(`Ollama chat request timed out after ${this.config.timeout}ms`));
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+  }
+}
+
+function mapOllamaToolTurnMessage(message: LocalModelToolTurnMessage): OllamaChatMessage {
+  if (message.role === 'tool') {
+    return { role: 'tool', tool_name: message.toolName, content: message.content };
+  }
+  if ('toolCalls' in message) {
+    return {
+      role: 'assistant',
+      content: message.content,
+      tool_calls: message.toolCalls.map((call) => ({
+        id: call.id,
+        function: { name: call.name, arguments: call.arguments },
+      })),
+    };
+  }
+  return message;
+}
+
+function mapOllamaToolDefinition(tool: LocalReviewToolDefinition): OllamaToolDefinition {
+  return {
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    },
+  };
+}
+
+function parseOllamaToolCalls(value: unknown): LocalModelToolCall[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new LocalModelToolResponseError('Ollama tool_calls must be an array');
+  }
+  return value.map((call) => {
+    if (!call || typeof call !== 'object') {
+      throw new LocalModelToolResponseError('Ollama returned a malformed tool call');
+    }
+    const candidate = call as { id?: unknown; function?: unknown };
+    if (!candidate.function || typeof candidate.function !== 'object') {
+      throw new LocalModelToolResponseError('Ollama tool call is missing function data');
+    }
+    const fn = candidate.function as { name?: unknown; arguments?: unknown };
+    if (!Object.prototype.hasOwnProperty.call(fn, 'arguments')) {
+      throw new LocalModelToolResponseError('Ollama tool call is missing arguments');
+    }
+    return normalizeLocalModelToolCall(candidate.id, fn.name, fn.arguments);
+  });
+}
+
+function parseOllamaToolTurnResponse(value: unknown): {
+  content: string;
+  toolCalls: LocalModelToolCall[];
+  prompt_eval_count?: number;
+  eval_count?: number;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new LocalModelToolResponseError('Ollama tool turn must be a response object');
+  }
+  const response = value as {
+    message?: unknown;
+    prompt_eval_count?: unknown;
+    eval_count?: unknown;
+  };
+  if (!response.message || typeof response.message !== 'object' || Array.isArray(response.message)) {
+    throw new LocalModelToolResponseError('Ollama tool turn is missing an assistant message');
+  }
+  const message = response.message as {
+    role?: unknown;
+    content?: unknown;
+    tool_calls?: unknown;
+  };
+  if (message.role !== 'assistant') {
+    throw new LocalModelToolResponseError('Ollama tool-turn message must have the assistant role');
+  }
+  const toolCalls = parseOllamaToolCalls(message.tool_calls);
+  const content = typeof message.content === 'string'
+    ? message.content
+    : message.content == null && toolCalls.length > 0
+      ? ''
+      : null;
+  if (content === null) {
+    throw new LocalModelToolResponseError(
+      'Ollama assistant content must be a string unless valid tool calls are present',
+    );
+  }
+  return {
+    content,
+    toolCalls,
+    ...(typeof response.prompt_eval_count === 'number'
+      ? { prompt_eval_count: response.prompt_eval_count }
+      : {}),
+    ...(typeof response.eval_count === 'number' ? { eval_count: response.eval_count } : {}),
+  };
 }

@@ -564,6 +564,22 @@ export interface AcpAvailableCommandsUpdate {
   commands?: AcpAvailableCommand[];
 }
 
+/**
+ * Provider-side retry ladder progress. Observed from Grok, which wraps it in
+ * an `_x.ai/session_notification` whose params match `session/update`:
+ * `type: 'retrying'` while the agent backs off after an API error (rate
+ * limit, 5xx), `type: 'exhausted'` when it gives up and fails the turn.
+ * Field names are snake_case as emitted on the wire.
+ */
+export interface AcpRetryStateUpdate {
+  sessionUpdate: 'retry_state';
+  type?: string;
+  attempt?: number;
+  max_retries?: number;
+  attempts?: number;
+  reason?: string;
+}
+
 export type AcpSessionUpdate =
   | AcpAgentMessageChunkUpdate
   | AcpUserMessageChunkUpdate
@@ -572,7 +588,8 @@ export type AcpSessionUpdate =
   | AcpPlanUpdate
   | AcpSessionInfoUpdate
   | AcpConfigOptionUpdate
-  | AcpAvailableCommandsUpdate;
+  | AcpAvailableCommandsUpdate
+  | AcpRetryStateUpdate;
 
 export interface AcpSessionUpdateNotificationParams {
   sessionId: string;

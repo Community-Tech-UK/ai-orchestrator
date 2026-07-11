@@ -1,16 +1,10 @@
-/**
- * Settings Types - Application settings configuration
- *
- * Configuration hierarchy (highest to lowest priority):
- * 1. Project config (.ai-orchestrator.json in project root)
- * 2. User config (stored in app data)
- * 3. Default config (built-in defaults)
- */
+/** Application settings shared by the main and renderer processes. */
 
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 import { DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS, type DesktopComputerUseSettings } from './desktop-gateway-settings.types';
 import type { ModelUsageEntry } from './model-usage.types';
 import type { WorkerModeSettings } from './pair-both.types';
+import type { RemoteReviewerProvider } from './reviewer-provider.types';
 
 export type { ModelUsageEntry } from './model-usage.types';
 
@@ -274,7 +268,7 @@ export interface AppSettings extends DesktopComputerUseSettings {
   crossModelReviewEnabled: boolean;
   crossModelReviewDepth: 'structured' | 'tiered';
   crossModelReviewMaxReviewers: number;
-  crossModelReviewProviders: string[];
+  crossModelReviewProviders: RemoteReviewerProvider[];
   crossModelReviewTimeout: number;
   crossModelReviewTypes: string[];
   /**
@@ -287,6 +281,10 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * getPrimaryModelForProvider, so the default behaviour is true CLI routing.
    */
   crossModelReviewModelByProvider: Record<string, string>;
+  crossModelReviewLocalEnabled: boolean;
+  crossModelReviewLocalSelectorId: string;
+  crossModelReviewLocalTimeout: number;
+  crossModelReviewLocalMaxToolRounds: number;
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**
@@ -570,6 +568,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   crossModelReviewTimeout: 30,
   crossModelReviewTypes: ['code', 'plan', 'architecture'],
   crossModelReviewModelByProvider: { cursor: 'composer-2.5' },
+  crossModelReviewLocalEnabled: true,
+  crossModelReviewLocalSelectorId: '',
+  crossModelReviewLocalTimeout: 120,
+  crossModelReviewLocalMaxToolRounds: 12,
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',

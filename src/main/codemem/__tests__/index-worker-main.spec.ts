@@ -49,6 +49,7 @@ describe('codemem index worker main', () => {
   };
   let indexManager: EventEmitter & {
     coldIndex: ReturnType<typeof vi.fn>;
+    reconcileIndex: ReturnType<typeof vi.fn>;
     start: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
   };
@@ -76,6 +77,13 @@ describe('codemem index worker main', () => {
     };
     indexManager = Object.assign(new EventEmitter(), {
       coldIndex: vi.fn().mockResolvedValue(undefined),
+      reconcileIndex: vi.fn().mockResolvedValue({
+        workspaceHash: 'hash',
+        scannedFiles: 0,
+        changedFiles: 0,
+        removedFiles: 0,
+        cancelled: false,
+      }),
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
     });
@@ -149,6 +157,62 @@ describe('codemem index worker main', () => {
       absPath: path.resolve('/repo'),
       primaryLanguage: 'typescript',
     });
+  });
+
+  it('reconciles an existing index once after warm, but never after a cold index', async () => {
+    const repo = path.resolve('/repo');
+    store.getWorkspaceRootByPath.mockReturnValue({ absPath: repo, primaryLanguage: 'typescript' });
+
+    await importWorker();
+    parentPort.emit('message', {
+      type: 'warm-workspace',
+      id: 1,
+      workspacePath: '/repo',
+    });
+    await flushMicrotasks();
+
+    expect(indexManager.coldIndex).not.toHaveBeenCalled();
+    expect(indexManager.reconcileIndex).toHaveBeenCalledTimes(1);
+    expect(indexManager.reconcileIndex).toHaveBeenCalledWith(repo);
+    expect(store.clearCancel).toHaveBeenCalledWith(`hash:${repo}`);
+    // The warm response must not wait for the reconcile result.
+    expect(rpcResult(1)).toEqual(expect.objectContaining({ indexed: true, absPath: repo }));
+
+    parentPort.emit('message', {
+      type: 'warm-workspace',
+      id: 2,
+      workspacePath: '/repo',
+    });
+    await flushMicrotasks();
+
+    expect(indexManager.reconcileIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-arms warm reconcile after the workspace watcher is stopped', async () => {
+    const repo = path.resolve('/repo');
+    store.getWorkspaceRootByPath.mockReturnValue({ absPath: repo, primaryLanguage: 'typescript' });
+
+    await importWorker();
+    parentPort.emit('message', {
+      type: 'warm-workspace',
+      id: 1,
+      workspacePath: '/repo',
+    });
+    await flushMicrotasks();
+    parentPort.emit('message', {
+      type: 'stop-workspace-watcher',
+      id: 2,
+      workspacePath: '/repo',
+    });
+    await flushMicrotasks();
+    parentPort.emit('message', {
+      type: 'warm-workspace',
+      id: 3,
+      workspacePath: '/repo',
+    });
+    await flushMicrotasks();
+
+    expect(indexManager.reconcileIndex).toHaveBeenCalledTimes(2);
   });
 
   it('serializes heavy indexing messages while handling cancellation immediately', async () => {

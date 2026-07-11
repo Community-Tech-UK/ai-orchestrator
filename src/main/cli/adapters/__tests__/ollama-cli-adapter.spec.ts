@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { LocalReviewToolDefinition } from '../../../review/local-review.types';
 import { OllamaCliAdapter } from '../ollama-cli-adapter';
 
 vi.mock('../../../logging/logger', () => ({
@@ -14,7 +15,7 @@ vi.mock('../../../logging/logger', () => ({
 interface CapturedTurnEvents {
   output: string[];
   outputIds: string[];
-  outputMessages: Array<{ content: string; accumulatedContent?: string }>;
+  outputMessages: { content: string; accumulatedContent?: string }[];
   complete: boolean;
 }
 
@@ -93,10 +94,193 @@ async function startServer(
 }
 
 describe('OllamaCliAdapter', () => {
-  const servers: Array<{ close: () => Promise<void> }> = [];
+  const servers: { close: () => Promise<void> }[] = [];
 
   afterEach(async () => {
     await Promise.all(servers.splice(0).map((server) => server.close()));
+  });
+
+  it('normalizes native tool calls and preserves tool-result history', async () => {
+    const requests: unknown[] = [];
+    const responses = [
+      {
+        message: {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{
+            id: 'call_1',
+            function: {
+              name: 'workspace_read',
+              arguments: { path: 'README.md' },
+            },
+          }],
+        },
+        prompt_eval_count: 7,
+        eval_count: 3,
+      },
+      {
+        message: { role: 'assistant', content: 'README looks good.' },
+        prompt_eval_count: 12,
+        eval_count: 4,
+      },
+    ];
+    const server = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/api/chat') {
+        requests.push(await readJsonBody(req));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(responses.shift()));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+
+    const tools: readonly LocalReviewToolDefinition[] = [{
+      name: 'workspace_read',
+      description: 'Read a workspace file.',
+      inputSchema: {
+        type: 'object',
+        required: ['path'],
+        properties: { path: { type: 'string' } },
+      },
+    }];
+    const adapter = new OllamaCliAdapter({
+      host: '127.0.0.1',
+      port: server.port,
+      model: 'qwen2.5-coder:14b',
+    });
+
+    const first = await adapter.sendToolTurn(
+      [{ role: 'user', content: 'Inspect README.md' }],
+      tools,
+      new AbortController().signal,
+    );
+    const second = await adapter.sendToolTurn(
+      [
+        { role: 'user', content: 'Inspect README.md' },
+        { role: 'assistant', content: '', toolCalls: first.toolCalls },
+        {
+          role: 'tool',
+          toolCallId: 'call_1',
+          toolName: 'workspace_read',
+          content: '# Project',
+        },
+      ],
+      tools,
+      new AbortController().signal,
+    );
+
+    expect(first).toMatchObject({
+      content: '',
+      toolCalls: [{
+        id: 'call_1',
+        name: 'workspace_read',
+        arguments: { path: 'README.md' },
+      }],
+      usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
+    });
+    expect(second).toMatchObject({ content: 'README looks good.', toolCalls: [] });
+    expect(requests).toEqual([
+      {
+        model: 'qwen2.5-coder:14b',
+        stream: false,
+        messages: [{ role: 'user', content: 'Inspect README.md' }],
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'workspace_read',
+            description: 'Read a workspace file.',
+            parameters: tools[0]!.inputSchema,
+          },
+        }],
+      },
+      {
+        model: 'qwen2.5-coder:14b',
+        stream: false,
+        messages: [
+          { role: 'user', content: 'Inspect README.md' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_1',
+              function: {
+                name: 'workspace_read',
+                arguments: { path: 'README.md' },
+              },
+            }],
+          },
+          { role: 'tool', tool_name: 'workspace_read', content: '# Project' },
+        ],
+        tools: expect.any(Array),
+      },
+    ]);
+  });
+
+  it.each([
+    ['missing message', {}],
+    ['provider error envelope', { error: 'model failed' }],
+    ['wrong message role', { message: { role: 'user', content: 'nope' } }],
+    ['non-string content', { message: { role: 'assistant', content: 42 } }],
+    ['null content without tool calls', { message: { role: 'assistant', content: null } }],
+  ])('rejects a malformed HTTP-200 tool response with %s', async (_label, responseBody) => {
+    const server = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/api/chat') {
+        await readJsonBody(req);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(responseBody));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+    const adapter = new OllamaCliAdapter({
+      host: '127.0.0.1',
+      port: server.port,
+      model: 'qwen2.5-coder:14b',
+    });
+
+    await expect(adapter.sendToolTurn([], [], new AbortController().signal))
+      .rejects.toMatchObject({
+        name: 'LocalModelToolResponseError',
+        code: 'unreliable-tool-response',
+      });
+  });
+
+  it('accepts null assistant content when a valid tool call is present', async () => {
+    const server = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/api/chat') {
+        await readJsonBody(req);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_1',
+              function: { name: 'workspace_status', arguments: {} },
+            }],
+          },
+        }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+    const adapter = new OllamaCliAdapter({
+      host: '127.0.0.1',
+      port: server.port,
+      model: 'qwen2.5-coder:14b',
+    });
+
+    await expect(adapter.sendToolTurn([], [], new AbortController().signal))
+      .resolves.toMatchObject({
+        content: '',
+        toolCalls: [{ id: 'call_1', name: 'workspace_status', arguments: {} }],
+      });
   });
 
   it('emits streamed output and completion for sendInput', async () => {

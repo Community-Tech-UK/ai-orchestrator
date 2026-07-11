@@ -35,16 +35,14 @@ import {
           <span class="review-icon">
             @if (hasConcerns()) {
               &#x26A0;
-            } @else {
+            } @else if (hasAuthoritativeRemote()) {
               &#x2713;
+            } @else {
+              &#x2691;
             }
           </span>
           <span class="review-title">
-            @if (hasConcerns()) {
-              Cross-Model Review: {{ concernCount() }} concern{{ concernCount() !== 1 ? 's' : '' }} found
-            } @else {
-              Cross-Model Review: verified
-            }
+            {{ headerTitle() }}
           </span>
           <span class="review-toggle" aria-hidden="true">
             {{ expanded() ? '&#x25B2;' : '&#x25BC;' }}
@@ -53,6 +51,11 @@ import {
 
         @if (expanded()) {
           <div class="review-panel-body">
+            @if (review()!.localReviewer; as local) {
+              <div class="local-review-status" [class.local-review-failed]="local.status === 'failed'">
+                {{ localStatusText() }}
+              </div>
+            }
             <div class="review-actions">
               <button class="btn-review-action" type="button" (click)="onAction('dismiss')">Dismiss</button>
               @if (hasConcerns()) {
@@ -74,7 +77,7 @@ import {
             </div>
 
             @for (result of review()!.reviews; track result.reviewerId) {
-              <div class="reviewer-section">
+              <div class="reviewer-section" [class.local-reviewer-section]="result.source === 'local'">
                 <button
                   type="button"
                   class="reviewer-header"
@@ -84,6 +87,7 @@ import {
                   <span class="reviewer-label">
                     <span class="reviewer-name">
                       {{ result.reviewerId }} ({{ result.reviewType }} review)
+                      @if (result.source === 'local') { — local advisory }
                     </span>
                     <span class="reviewer-meta">
                       {{ issueCount(result) }} issue{{ issueCount(result) !== 1 ? 's' : '' }}
@@ -166,6 +170,15 @@ import {
       border-left: 3px solid var(--border-accent, #4a90e2);
       background: var(--bg-hover, rgba(255,255,255,0.03));
     }
+    .local-reviewer-section { border-left-color: #74c0fc; }
+    .local-review-status {
+      color: #74c0fc;
+      font-size: 11px;
+      padding: 6px 8px;
+      background: rgba(116, 192, 252, 0.08);
+      border-radius: 3px;
+    }
+    .local-review-failed { color: #ffc078; }
     .reviewer-header {
       display: flex;
       width: 100%;
@@ -265,15 +278,37 @@ export class CrossModelReviewPanelComponent {
 
   private reviewService = inject(CrossModelReviewIpcService);
 
+  remoteReviews = computed(() =>
+    this.review()?.reviews.filter((result) => result.source !== 'local') ?? []
+  );
+
+  hasAuthoritativeRemote = computed(() => this.remoteReviews().length > 0);
+
+  headerTitle = computed(() => {
+    if (this.hasConcerns()) {
+      const count = this.concernCount();
+      return `Cross-Model Review: ${count} concern${count === 1 ? '' : 's'} found`;
+    }
+    return this.hasAuthoritativeRemote()
+      ? 'Cross-Model Review: verified'
+      : 'Cross-Model Review: advisory only';
+  });
+
+  localStatusText = computed(() => {
+    const local = this.review()?.localReviewer;
+    if (!local) return '';
+    return `Local reviewer${local.model ? ` ${local.model}` : ''}: ${local.status} ` +
+      `(advisory only)${local.reason ? ` — ${local.reason}` : ''}`;
+  });
+
   concernCount = computed(() => {
     const r = this.review();
     if (!r) return 0;
-    return countReviewResultsWithConcerns(r.reviews);
+    return countReviewResultsWithConcerns(this.remoteReviews());
   });
 
   hasConcerns = computed(() => {
-    const r = this.review();
-    return r != null && (r.hasDisagreement || this.concernCount() > 0);
+    return this.concernCount() > 0;
   });
 
   allReviewersExpanded = computed(() => {
@@ -286,7 +321,7 @@ export class CrossModelReviewPanelComponent {
   fullReviewJson = computed(() => {
     const r = this.review();
     if (!r) return '';
-    return JSON.stringify(r.reviews, null, 2);
+    return JSON.stringify({ reviews: r.reviews, localReviewer: r.localReviewer }, null, 2);
   });
 
   togglePanel(): void {
@@ -294,7 +329,7 @@ export class CrossModelReviewPanelComponent {
   }
 
   reviewerKey(result: ReviewResult): string {
-    return result.reviewerId;
+    return `${result.source ?? 'remote'}:${result.reviewerId}`;
   }
 
   isReviewerExpanded(result: ReviewResult): boolean {
@@ -333,6 +368,7 @@ export class CrossModelReviewPanelComponent {
   async onAction(action: ReviewActionType): Promise<void> {
     const r = this.review();
     if (!r) return;
+    if ((action === 'ask-primary' || action === 'start-debate') && !this.hasConcerns()) return;
 
     if (action === 'dismiss') {
       await this.reviewService.dismiss({ reviewId: r.id, instanceId: r.instanceId });

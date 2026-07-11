@@ -1,4 +1,5 @@
 import type { SettingMetadata } from './settings-metadata.types';
+import { REMOTE_REVIEWER_PROVIDER_DEFINITIONS } from './reviewer-provider.types';
 
 export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   {
@@ -34,13 +35,10 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     description: 'Which AI CLIs may act as reviewers. Leave all unchecked to auto-pick whatever is installed.',
     type: 'multi-select',
     category: 'review',
-    options: [
-      { value: 'antigravity', label: 'Antigravity' },
-      { value: 'codex', label: 'OpenAI Codex CLI' },
-      { value: 'copilot', label: 'GitHub Copilot' },
-      { value: 'claude', label: 'Claude Code' },
-      { value: 'cursor', label: 'Cursor CLI' },
-    ],
+    options: REMOTE_REVIEWER_PROVIDER_DEFINITIONS.map(({ id, label }) => ({
+      value: id,
+      label,
+    })),
   },
   {
     key: 'crossModelReviewTimeout',
@@ -64,6 +62,38 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     ],
   },
   {
+    key: 'crossModelReviewLocalEnabled',
+    label: 'Enable local reviewer',
+    description: 'Run an additional review with the selected local model when one is available.',
+    type: 'boolean',
+    category: 'review',
+  },
+  {
+    key: 'crossModelReviewLocalSelectorId',
+    label: 'Local reviewer model',
+    description: 'The local model runtime and model used for the additional review.',
+    type: 'select',
+    category: 'review',
+  },
+  {
+    key: 'crossModelReviewLocalTimeout',
+    label: 'Local reviewer timeout (seconds)',
+    description: 'How long to wait for the local reviewer, including a cold model load.',
+    type: 'number',
+    category: 'review',
+    min: 10,
+    max: 600,
+  },
+  {
+    key: 'crossModelReviewLocalMaxToolRounds',
+    label: 'Local reviewer max tool rounds',
+    description: 'Hard cap on tool-use rounds for each local review.',
+    type: 'number',
+    category: 'review',
+    min: 1,
+    max: 32,
+  },
+  {
     key: 'pingPongReviewerProvider',
     label: 'Ping-pong reviewer',
     description: 'Which CLI reviews the builder in ping-pong mode. "Auto" picks any installed model that is NOT the one doing the work.',
@@ -71,11 +101,10 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'review',
     options: [
       { value: 'auto', label: 'Auto (a different model)' },
-      { value: 'codex', label: 'OpenAI Codex CLI' },
-      { value: 'antigravity', label: 'Antigravity' },
-      { value: 'copilot', label: 'GitHub Copilot' },
-      { value: 'claude', label: 'Claude Code' },
-      { value: 'cursor', label: 'Cursor CLI' },
+      ...REMOTE_REVIEWER_PROVIDER_DEFINITIONS.map(({ id, label }) => ({
+        value: id,
+        label,
+      })),
     ],
   },
   {

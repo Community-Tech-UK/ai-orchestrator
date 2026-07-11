@@ -3,9 +3,10 @@ import { CrossModelReviewService } from './cross-model-review-service';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import type { ReviewDispatchRequest } from './cross-model-review.types';
-import type { ReviewResult } from '../../shared/types/cross-model-review.types';
+import type { AggregatedReview, ReviewResult } from '../../shared/types/cross-model-review.types';
 import type { ReviewerPool } from './reviewer-pool';
 import type { CliType } from '../cli/cli-detection';
+import { normalizeReviewerCliList } from './cross-model-review-service.constants';
 
 type TestReviewService = CrossModelReviewService & {
   reviewerPool: ReviewerPool;
@@ -114,6 +115,11 @@ const reviewTestState = vi.hoisted(() => ({
   modelByProvider: {} as Record<string, string>,
   providers: [] as string[],
   maxReviewers: 2,
+  localEnabled: false,
+  localSelectorId: '',
+  localTimeout: 120,
+  localMaxToolRounds: 12,
+  qualityModel: '',
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -126,6 +132,11 @@ vi.mock('../core/config/settings-manager', () => ({
       crossModelReviewTimeout: 30,
       crossModelReviewTypes: ['code', 'plan', 'architecture'],
       crossModelReviewModelByProvider: reviewTestState.modelByProvider,
+      crossModelReviewLocalEnabled: reviewTestState.localEnabled,
+      crossModelReviewLocalSelectorId: reviewTestState.localSelectorId,
+      crossModelReviewLocalTimeout: reviewTestState.localTimeout,
+      crossModelReviewLocalMaxToolRounds: reviewTestState.localMaxToolRounds,
+      auxiliaryLlmQualityModel: reviewTestState.qualityModel,
     }),
   }),
 }));
@@ -144,6 +155,9 @@ describe('CrossModelReviewService', () => {
     reviewTestState.modelByProvider = {};
     reviewTestState.providers = [];
     reviewTestState.maxReviewers = 2;
+    reviewTestState.localEnabled = false;
+    reviewTestState.localSelectorId = '';
+    reviewTestState.qualityModel = '';
     detectionTestState.availableClis = ['gemini', 'codex', 'copilot'];
     vi.mocked(resolveCliType).mockImplementation(async (cli) => {
       if (!cli || cli === 'auto' || cli === 'openai') return 'codex';
@@ -161,6 +175,12 @@ describe('CrossModelReviewService', () => {
     const a = CrossModelReviewService.getInstance();
     const b = CrossModelReviewService.getInstance();
     expect(a).toBe(b);
+  });
+
+  it('normalizes every supported remote reviewer and the legacy Gemini alias', () => {
+    expect(normalizeReviewerCliList(['claude', 'grok', 'gemini'])).toEqual([
+      'claude', 'grok', 'antigravity',
+    ]);
   });
 
   it('buffers assistant messages per instance', () => {
@@ -198,6 +218,56 @@ describe('CrossModelReviewService', () => {
     const status = service.getStatus();
     expect(status.enabled).toBe(true);
     expect(status.pendingReviews).toBe(0);
+  });
+
+  it('warns and emits review:reviewer-unavailable when a configured reviewer is not detected', async () => {
+    // antigravity is configured #1 but not detected; cursor/copilot are.
+    detectionTestState.availableClis = ['cursor', 'copilot'];
+    reviewTestState.providers = ['antigravity', 'cursor', 'copilot'];
+
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+
+    const unavailable = new Promise<{ dropped: { cli: string; error: string }[] }>((resolve) => {
+      service.once('review:reviewer-unavailable', resolve as never);
+    });
+
+    await service.refreshAvailability();
+    const payload = await unavailable;
+
+    expect(payload.dropped.map((d) => d.cli)).toContain('antigravity');
+  });
+
+  it('does not re-emit review:reviewer-unavailable while the dropped set is unchanged', async () => {
+    detectionTestState.availableClis = ['cursor', 'copilot'];
+    reviewTestState.providers = ['antigravity', 'cursor', 'copilot'];
+
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    let emits = 0;
+    service.on('review:reviewer-unavailable', () => { emits += 1; });
+
+    await service.refreshAvailability();
+    await service.refreshAvailability();
+
+    expect(emits).toBe(1);
+  });
+
+  it('emits review:reviewer-rate-limited when a reviewer hits a usage cap', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+      sendMessage: async () => {
+        throw new Error('Grok Build: usage limit reached for your subscription');
+      },
+      terminate: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    const events: { cliType: string }[] = [];
+    service.on('review:reviewer-rate-limited', (e) => events.push(e as { cliType: string }));
+
+    const signal = new AbortController().signal;
+    await expect(service.executeOneReview(makeRequest(), 'copilot', 30, signal)).rejects.toThrow();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.cliType).toBe('copilot');
   });
 
   it('uses Antigravity when a legacy Gemini reviewer is configured and agy is detected', async () => {
@@ -588,5 +658,86 @@ describe('CrossModelReviewService', () => {
 
     expect(allUnavailable).toHaveBeenCalledWith({ instanceId: 'inst-2' });
     expect(result).not.toHaveBeenCalled();
+  });
+
+  it('runs a local concern when zero remote reviewers are available without giving it blocking authority', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const selectorId = 'lm://this-device/ollama/ollama/qwen';
+    reviewTestState.localEnabled = true;
+    reviewTestState.localSelectorId = '';
+    reviewTestState.qualityModel = 'qwen';
+    const localReview = makeReview({
+      reviewerId: 'local:qwen',
+      source: 'local',
+      overallVerdict: 'REJECT',
+      criticalIssues: ['Local concern'],
+    });
+    service.setLocalReviewDependenciesForTesting(
+      { review: vi.fn().mockResolvedValue({ status: 'used', review: localReview, evidencePaths: ['src/a.ts'] }) },
+      { list: () => [{
+        selectorId,
+        source: 'this-device',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+        displayName: 'Qwen',
+        healthy: true,
+        loaded: true,
+        capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' },
+        discoveredAt: 1,
+      }] },
+    );
+    const result = new Promise<AggregatedReview>((resolve) => {
+      service.once('review:result', resolve as never);
+    });
+
+    await service.executeReviews(makeRequest(), [], 30);
+
+    await expect(result).resolves.toMatchObject({
+      reviews: [{ reviewerId: 'local:qwen', source: 'local' }],
+      localReviewer: { status: 'used', selectorId, model: 'qwen' },
+      hasDisagreement: false,
+    });
+  });
+
+  it('skips the same local selector as the builder while preserving a remote success', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const selectorId = 'lm://this-device/ollama/ollama/qwen';
+    reviewTestState.localEnabled = true;
+    reviewTestState.localSelectorId = selectorId;
+    const localReviewer = { review: vi.fn() };
+    service.setLocalReviewDependenciesForTesting(localReviewer, { list: () => [{
+      selectorId,
+      source: 'this-device',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+      displayName: 'Qwen',
+      healthy: true,
+      loaded: true,
+      capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' },
+      discoveredAt: 1,
+    }] });
+    vi.spyOn(service, 'collectSuccessfulReviews').mockResolvedValue([makeReview({ reviewerId: 'codex' })]);
+    const result = new Promise<AggregatedReview>((resolve) => {
+      service.once('review:result', resolve as never);
+    });
+
+    await service.executeReviews(makeRequest({
+      builderModelRuntimeTarget: {
+        kind: 'local-model',
+        selectorId,
+        source: 'this-device',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+      },
+    }), ['codex'], 30);
+
+    expect(localReviewer.review).not.toHaveBeenCalled();
+    await expect(result).resolves.toMatchObject({
+      reviews: [{ reviewerId: 'codex' }],
+      localReviewer: { status: 'skipped', reason: expect.stringContaining('builder') },
+    });
   });
 });

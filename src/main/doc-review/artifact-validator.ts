@@ -36,12 +36,23 @@ export function validateArtifactPath(
     ? resolve(artifactPath)
     : resolve(workspacePath, artifactPath);
 
+  let realWorkspace: string;
   let realReviewDir: string;
   let realFile: string;
+  try {
+    realWorkspace = realpathSync(workspacePath);
+  } catch {
+    return { ok: false, reason: 'workspace directory does not exist' };
+  }
   try {
     realReviewDir = realpathSync(reviewDir);
   } catch {
     return { ok: false, reason: `no ${DOC_REVIEW_DIR_NAME}/ directory in workspace` };
+  }
+  // The review dir must be a real directory directly under the workspace — reject a
+  // `.aio-review` that is itself a symlink escaping the workspace (directory-level escape).
+  if (realReviewDir !== join(realWorkspace, DOC_REVIEW_DIR_NAME)) {
+    return { ok: false, reason: `${DOC_REVIEW_DIR_NAME}/ must be a real directory in the workspace` };
   }
   try {
     realFile = realpathSync(requested);

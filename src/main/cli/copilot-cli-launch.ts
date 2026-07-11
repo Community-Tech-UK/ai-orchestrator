@@ -1,37 +1,12 @@
 import { spawnSync } from 'child_process';
-import { existsSync } from 'fs';
 import { buildCliSpawnOptions } from './cli-environment';
+import { resolveCommandOnPath } from './cli-path-resolver';
 
 export interface CopilotCliLaunchConfig {
   command: string;
   argsPrefix: string[];
   displayCommand: string;
   path?: string;
-}
-
-function resolveCommandOnPath(
-  command: string,
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): string | null {
-  if ((command.includes('/') || command.includes('\\')) && existsSync(command)) {
-    return command;
-  }
-
-  const pathResolver = platform === 'win32' ? 'where' : 'which';
-  const result = spawnSync(pathResolver, [command], {
-    encoding: 'utf8',
-    ...buildCliSpawnOptions(env, platform),
-  });
-
-  if (result.status !== 0) {
-    return null;
-  }
-
-  return result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean) ?? command;
 }
 
 function commandRuns(

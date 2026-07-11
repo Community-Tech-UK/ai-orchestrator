@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, OnDestroy, computed, inject, signal } from '@angular/core';
 import { DocReviewIpcService } from '../../core/services/ipc/doc-review-ipc.service';
 import {
   DocReviewChangedEventSchema,
@@ -15,8 +15,9 @@ import type {
  * DOC_REVIEW_CHANGED event. Writes go through James-driven UI only — never an agent.
  */
 @Injectable({ providedIn: 'root' })
-export class DocReviewStore {
+export class DocReviewStore implements OnDestroy {
   private readonly ipc = inject(DocReviewIpcService);
+  private readonly unsubscribe: () => void;
 
   private readonly _sessions = signal<DocReviewSession[]>([]);
   private readonly _busy = signal(false);
@@ -37,8 +38,12 @@ export class DocReviewStore {
   });
 
   constructor() {
-    this.ipc.onChanged((event) => this.applyChange(event));
+    this.unsubscribe = this.ipc.onChanged((event) => this.applyChange(event));
     void this.refresh();
+  }
+
+  ngOnDestroy(): void {
+    this.unsubscribe();
   }
 
   select(reviewId: string | null): void {

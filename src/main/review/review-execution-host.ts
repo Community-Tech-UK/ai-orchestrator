@@ -42,6 +42,8 @@ export interface HeadlessReviewRequest {
   primaryProvider?: string;
   reviewDepth?: 'structured' | 'tiered';
   timeoutSeconds?: number;
+  /** Optional caller cancellation bridged into remote and local review work. */
+  signal?: AbortSignal;
 }
 
 function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {

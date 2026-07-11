@@ -47,7 +47,7 @@ import {
   logWindowsLauncherResolution,
   WindowsCliLauncher,
 } from './windows-cli-spawn';
-
+import { PosixSpawnCommandResolver } from './posix-spawn-command-resolver';
 const logger = getLogger('BaseCliAdapter');
 export { CliSpawnCwdError, computeBoundedTrigramSimilarity, directoryExists, enrichSpawnError, ndjsonSafeStringify };
 
@@ -468,7 +468,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
   /** Cached Windows launcher resolution: `undefined` = unattempted; `null` = failed. */
   private resolvedWindowsLauncher: WindowsCliLauncher | null | undefined;
-
+  private readonly posixSpawnCommandResolver = new PosixSpawnCommandResolver();
   /**
    * Resolve the final spawn target just before `spawn()`. On Windows this maps
    * the `<cli>.cmd`/`.ps1` shim to a directly-spawnable launcher (native
@@ -485,7 +485,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
   ): SpawnTarget {
     const shell = Boolean(spawnOptions.shell);
     if (process.platform !== 'win32' || !shell) {
-      return { command, args, shell };
+      return { command: this.posixSpawnCommandResolver.resolve(command, spawnOptions.env), args, shell };
     }
     if (this.resolvedWindowsLauncher === undefined) {
       this.resolvedWindowsLauncher = resolveWindowsCliLauncher(command, spawnOptions.env ?? process.env);

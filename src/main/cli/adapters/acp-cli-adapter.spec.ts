@@ -459,6 +459,209 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('drops user_message_chunk prompt echoes while a turn is in flight', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      // Grok replays every prompt block (injected sentinels included) as
+      // id-less user_message_chunk updates before streaming its answer.
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'user_message_chunk',
+          content: { type: 'text', text: '[RTK AWARENESS]\ninjected block\n[/RTK AWARENESS]' },
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'user_message_chunk',
+          content: { type: 'text', text: 'hello' },
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'Hi there' },
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputs: { type: string; content: string }[] = [];
+    adapter.on('output', (message: { type: string; content: string }) => {
+      outputs.push(message);
+    });
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'hello' });
+
+    expect(response.content).toBe('Hi there');
+    expect(outputs.filter((message) => message.type === 'user')).toEqual([]);
+    expect(outputs.filter((message) => message.content.includes('RTK AWARENESS'))).toEqual([]);
+    expect(outputs).toContainEqual(
+      expect.objectContaining({ type: 'assistant', content: 'Hi there' }),
+    );
+
+    proc.exit();
+  });
+
+  it('still emits user_message_chunk as a user message outside a prompt turn', async () => {
+    const proc = createInitializedAgentHarness();
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputHandler = vi.fn();
+    adapter.on('output', outputHandler);
+
+    // History replay (e.g. after session/load) arrives without a turn in flight.
+    proc.notify('session/update', {
+      sessionId: 'sess-acp-1',
+      update: {
+        sessionUpdate: 'user_message_chunk',
+        content: { type: 'text', text: 'replayed user message' },
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(outputHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'user', content: 'replayed user message' }),
+      );
+    });
+
+    proc.exit();
+  });
+
+  it('coalesces retry_state updates into one system bubble and finalizes it on success', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('_x.ai/session_notification', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'retry_state',
+          type: 'retrying',
+          attempt: 1,
+          max_retries: 15,
+          reason: 'API error (status 429 Too Many Requests): free-usage-exhausted\n\nRequest URL: https://example.invalid/v1/responses',
+        },
+      });
+      proc.notify('_x.ai/session_notification', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'retry_state',
+          type: 'retrying',
+          attempt: 2,
+          max_retries: 15,
+          reason: 'API error (status 429 Too Many Requests): free-usage-exhausted',
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'made it through' },
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputs: { id: string; type: string; content: string; metadata?: Record<string, unknown> }[] = [];
+    adapter.on('output', (message: { id: string; type: string; content: string; metadata?: Record<string, unknown> }) => {
+      outputs.push(message);
+    });
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'hello' });
+
+    expect(response.content).toBe('made it through');
+
+    const retryOutputs = outputs.filter((message) => message.metadata?.['source'] === 'acp-retry-state');
+    expect(retryOutputs.map((message) => message.metadata?.['phase'])).toEqual([
+      'retrying',
+      'retrying',
+      'recovered',
+    ]);
+    // One stable id so the renderer upserts a single bubble in place.
+    expect(new Set(retryOutputs.map((message) => message.id)).size).toBe(1);
+    expect(retryOutputs.every((message) => message.type === 'system')).toBe(true);
+    expect(retryOutputs[0].content).toContain('retrying (attempt 1/15)');
+    expect(retryOutputs[0].content).toContain('429');
+    // Only the reason's first line is surfaced — no "Request URL" tail.
+    expect(retryOutputs[0].content).not.toContain('Request URL');
+    expect(retryOutputs[1].content).toContain('attempt 2/15');
+    expect(retryOutputs[2].content).toContain('recovered');
+    expect(retryOutputs[2].metadata?.['streaming']).toBe(false);
+
+    proc.exit();
+  });
+
+  it('finalizes the retry bubble as exhausted when the provider gives up and the turn fails', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('_x.ai/session_notification', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'retry_state',
+          type: 'retrying',
+          attempt: 1,
+          max_retries: 15,
+          reason: 'API error (status 429 Too Many Requests): free-usage-exhausted',
+        },
+      });
+      proc.notify('_x.ai/session_notification', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'retry_state',
+          type: 'exhausted',
+          attempts: 15,
+          reason: 'API error (status 429 Too Many Requests): free-usage-exhausted',
+        },
+      });
+      proc.respondError(message.id, -32003, 'Rate limited');
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputs: { id: string; type: string; content: string; metadata?: Record<string, unknown> }[] = [];
+    adapter.on('output', (message: { id: string; type: string; content: string; metadata?: Record<string, unknown> }) => {
+      outputs.push(message);
+    });
+
+    await expect(adapter.sendMessage({ role: 'user', content: 'hello' })).rejects.toThrow(/Rate limited/);
+
+    const retryOutputs = outputs.filter((message) => message.metadata?.['source'] === 'acp-retry-state');
+    expect(retryOutputs.map((message) => message.metadata?.['phase'])).toEqual([
+      'retrying',
+      'exhausted',
+    ]);
+    expect(new Set(retryOutputs.map((message) => message.id)).size).toBe(1);
+    expect(retryOutputs[1].content).toContain('gave up retrying');
+    expect(retryOutputs[1].metadata?.['streaming']).toBe(false);
+
+    proc.exit();
+  });
+
   it('round-trips ACP permission requests through sendRaw responses', async () => {
     const proc = createInitializedAgentHarness();
 

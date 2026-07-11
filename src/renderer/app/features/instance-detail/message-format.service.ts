@@ -14,7 +14,10 @@ export class MessageFormatService {
     const toolCounts = new Map<string, number>();
     for (const child of children) {
       if (child.type === 'thought-group') {
-        thoughtCount++;
+        // Count reasoning blocks, not groups: adjacent thinking turns are
+        // merged into one thought-group carrying several blocks, so counting
+        // groups would under-report (a merged 5-block group would read "1").
+        thoughtCount += child.thinking?.length ?? child.thoughts?.length ?? 1;
       } else if (child.type === 'tool-group' && child.toolMessages) {
         for (const m of child.toolMessages) {
           if (m.type === 'tool_use') {

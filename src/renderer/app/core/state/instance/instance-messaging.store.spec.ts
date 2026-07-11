@@ -42,6 +42,9 @@ describe('InstanceMessagingStore', () => {
   const ipcMock = {
     sendInput: vi.fn(),
     steerInput: vi.fn(),
+    // Consumed by the InstanceStatusReconcilerService interval; resolves empty
+    // so reconciliation is a no-op while timers are advanced in these tests.
+    listInstances: vi.fn(),
   };
 
   const listStoreMock = {
@@ -56,6 +59,8 @@ describe('InstanceMessagingStore', () => {
     ipcMock.sendInput.mockReset();
     ipcMock.steerInput.mockReset();
     ipcMock.steerInput.mockResolvedValue({ success: true });
+    ipcMock.listInstances.mockReset();
+    ipcMock.listInstances.mockResolvedValue({ success: true, data: [] });
     listStoreMock.validateFiles.mockReset();
     listStoreMock.validateFiles.mockReturnValue([]);
     listStoreMock.fileToAttachments.mockReset();
@@ -110,6 +115,57 @@ describe('InstanceMessagingStore', () => {
       type: 'error',
       content: expect.stringContaining('Failed to send message'),
     });
+  });
+
+  it('treats "instance not found" as permanent and restores the text to the draft', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance());
+    ipcMock.sendInput.mockResolvedValue({
+      success: false,
+      error: { message: 'Instance inst-1 not found' },
+    });
+
+    await currentStore.sendInput('inst-1', 'do not lose me');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    expect(currentStateService.getInstance('inst-1')?.status).toBe('terminated');
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+    expect(TestBed.inject(DraftService).getDraft('inst-1')).toBe('do not lose me');
+  });
+
+  it('restores the draft when the instance terminates while the send waits out a respawn', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance());
+    ipcMock.sendInput.mockResolvedValue({
+      success: false,
+      error: { message: 'Instance inst-1 terminated while waiting to deliver input (status: terminated)' },
+    });
+
+    await currentStore.sendInput('inst-1', 'wedged send');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    expect(currentStateService.getInstance('inst-1')?.status).toBe('terminated');
+    expect(TestBed.inject(DraftService).getDraft('inst-1')).toBe('wedged send');
+  });
+
+  it('never overwrites newer composer text when restoring a failed send', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance());
+    TestBed.inject(DraftService).setDraft('inst-1', 'newer text the user typed');
+    ipcMock.sendInput.mockResolvedValue({
+      success: false,
+      error: { message: 'Instance inst-1 not found' },
+    });
+
+    await currentStore.sendInput('inst-1', 'older failed message');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(TestBed.inject(DraftService).getDraft('inst-1')).toBe('newer text the user typed');
   });
 
   it('keeps respawning failures queued until the instance is ready again', async () => {

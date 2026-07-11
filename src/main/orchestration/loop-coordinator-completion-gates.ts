@@ -20,10 +20,11 @@ import {
 } from './review-thread-fingerprint';
 import type { CompletionSignalEvidence } from '../../shared/types/loop-state.types';
 import type { EvidenceResolution } from './evidence-resolver';
-import type {
-  FreshEyesReviewer,
-  FreshEyesReviewerResult,
-  FreshEyesSeverity,
+import {
+  isBlockingFreshEyesFinding,
+  type FreshEyesReviewer,
+  type FreshEyesReviewerResult,
+  type FreshEyesSeverity,
 } from './loop-fresh-eyes-reviewer';
 import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
 import type { LoopStageMachine } from './loop-stage-machine';
@@ -313,8 +314,8 @@ export async function runFreshEyesReviewGate(args: {
     return { blocked: false, ran: true, errored: true };
   }
 
-  const blocking = reviewResult.findings.filter((f) =>
-    (effectiveCfg.blockingSeverities as readonly string[]).includes(f.severity),
+  const blocking = reviewResult.findings.filter((finding) =>
+    isBlockingFreshEyesFinding(finding, effectiveCfg.blockingSeverities),
   );
 
   if (blocking.length === 0) {

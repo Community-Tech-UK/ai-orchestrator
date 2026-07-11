@@ -79,6 +79,11 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
   constructor(config: AntigravityCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
+      // Bare `agy`; BaseCliAdapter.resolveSpawnTarget resolves it to an absolute
+      // path via which/where at spawn time (POSIX spawn() otherwise resolves a
+      // bare command against the inherited, often-stripped PATH and ENOENTs when
+      // agy lives in ~/.local/bin — the failure that silently handed every
+      // reviewer slot to the copilot fallback).
       command: 'agy',
       args: [],
       cwd: config.workingDir,

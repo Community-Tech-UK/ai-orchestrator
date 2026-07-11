@@ -8,6 +8,7 @@ import { getMetadataExtractor } from '../indexing/metadata-extractor';
 import { getLogger } from '../logging/logger';
 import { normalizeAndHash } from './ast-normalize';
 import type { CasStore, CodeIndexStatusRecord, WorkspaceChunkRecord } from './cas-store';
+import { reconcileWorkspaceIndex, type ReconcileResult } from './code-index-reconciler';
 import { CodeIndexWatcher, DEFAULT_CODE_INDEX_IGNORES } from './code-index-watcher';
 import { symbolId, workspaceHashForPath } from './symbol-id';
 import type {
@@ -261,6 +262,22 @@ export class CodeIndexManager extends EventEmitter {
     this.emit('code-index:changed', { workspaceHash, paths: [changedPath] });
   }
 
+  /** Repair manifest/filesystem drift accumulated while no watcher was running. */
+  async reconcileIndex(workspacePath: string): Promise<ReconcileResult> {
+    const absoluteWorkspacePath = path.resolve(workspacePath);
+    const workspaceHash = workspaceHashForPath(absoluteWorkspacePath);
+    this.workspacePaths.set(workspaceHash, absoluteWorkspacePath);
+    return reconcileWorkspaceIndex({
+      store: this.opts.store,
+      loadIgnoreRules: (targetPath) => this.loadIgnoreRules(targetPath),
+      walkFiles: (rootPath, dirPath, ig, shouldStop) => this.walkFiles(rootPath, dirPath, ig, shouldStop),
+      toRelativePath: (targetPath, absolutePath) => this.toRelativePath(targetPath, absolutePath),
+      indexFile: (targetPath, hash, absoluteFilePath) => this.indexFile(targetPath, hash, absoluteFilePath),
+      removeFileFromIndex: (hash, pathFromRoot) => this.removeFileFromIndex(hash, pathFromRoot),
+      refreshRootHashAfterIncrementalChange: (hash) => this.refreshRootHashAfterIncrementalChange(hash),
+      emitChanged: (event) => this.emit('code-index:changed', event),
+    }, absoluteWorkspacePath, workspaceHash);
+  }
   protected async walkFiles(
     rootPath: string,
     dirPath: string,

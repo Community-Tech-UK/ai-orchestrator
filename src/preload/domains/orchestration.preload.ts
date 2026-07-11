@@ -899,6 +899,15 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     crossModelReviewOnAllUnavailable: (callback: (data: unknown) => void) =>
       ipcRenderer.on('cross-model-review:all-unavailable', (_e, data) => callback(data)),
 
+    crossModelReviewOnReviewerUnavailable: (callback: (data: unknown) => void) =>
+      ipcRenderer.on('cross-model-review:reviewer-unavailable', (_e, data) => callback(data)),
+
+    crossModelReviewOnReviewerRateLimited: (callback: (data: unknown) => void) =>
+      ipcRenderer.on('cross-model-review:reviewer-rate-limited', (_e, data) => callback(data)),
+
+    crossModelReviewOnReviewerRateLimitCleared: (callback: (data: unknown) => void) =>
+      ipcRenderer.on('cross-model-review:reviewer-rate-limit-cleared', (_e, data) => callback(data)),
+
     crossModelReviewStatus: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CROSS_MODEL_REVIEW_STATUS),
 

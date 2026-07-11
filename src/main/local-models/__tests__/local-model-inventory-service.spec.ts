@@ -204,4 +204,73 @@ describe('LocalModelInventoryService', () => {
       modelId: 'llama3.2',
     });
   });
+
+  it('merges only cached verified local-review qualification into rows', async () => {
+    const cachedQualification = vi.fn().mockImplementation((target: { modelId: string }) =>
+      target.modelId === 'verified-model' ? { status: 'verified' } : undefined);
+    const svc = new LocalModelInventoryService({
+      roster: fakeRoster([]),
+      cachedQualification,
+      thisDeviceProbe: async () => [{
+        provider: 'ollama',
+        endpointId: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434',
+        models: ['verified-model', 'probable-model'],
+        healthy: true,
+      }],
+    });
+
+    const rows = await svc.refresh();
+
+    expect(rows.map((row) => row.capabilities.toolUse)).toEqual(['verified', 'none']);
+    expect(cachedQualification).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates only failed reviewer qualifications during an explicit refresh', async () => {
+    const invalidateFailedQualifications = vi.fn();
+    const svc = new LocalModelInventoryService({
+      roster: fakeRoster([]),
+      invalidateFailedQualifications,
+      thisDeviceProbe: async () => [],
+    });
+
+    await svc.refresh();
+
+    expect(invalidateFailedQualifications).toHaveBeenCalledOnce();
+  });
+
+  it('publishes updated rows when a qualification settles and cleans up its subscription', async () => {
+    let listener: (() => void) | undefined;
+    let verified = false;
+    const unsubscribe = vi.fn();
+    const svc = new LocalModelInventoryService({
+      roster: fakeRoster([]),
+      cachedQualification: () => verified ? { status: 'verified' } : undefined,
+      qualificationUpdates: (next) => {
+        listener = () => next({
+          kind: 'local-model', source: 'this-device', endpointProvider: 'ollama',
+          endpointId: 'ollama', modelId: 'qwen', selectorId: 'selector',
+        }, { status: 'verified' });
+        return unsubscribe;
+      },
+      thisDeviceProbe: async () => [{
+        provider: 'ollama', endpointId: 'ollama', baseUrl: 'http://127.0.0.1:11434',
+        models: ['qwen'], healthy: true,
+      }],
+    });
+    await svc.refresh();
+    const updated = vi.fn();
+    svc.on('inventory-updated', updated);
+
+    verified = true;
+    listener?.();
+
+    expect(updated).toHaveBeenCalledWith({
+      models: [expect.objectContaining({
+        modelId: 'qwen', capabilities: expect.objectContaining({ toolUse: 'verified' }),
+      })],
+    });
+    svc.dispose();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
 });

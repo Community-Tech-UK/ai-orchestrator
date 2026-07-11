@@ -133,6 +133,79 @@ describe('DisplayItemProcessor', () => {
     expect(items[1].message?.id).toBe(msg.id);
   });
 
+  it('merges consecutive thinking-only turns into one thought-group', () => {
+    const base = Date.now();
+    const msgs = [
+      makeMsg({ id: 't1', content: '', timestamp: base,
+        thinking: [{ id: 'th1', content: 'first', format: 'structured' }] }),
+      makeMsg({ id: 't2', content: '', timestamp: base + 100,
+        thinking: [{ id: 'th2', content: 'second', format: 'structured' }] }),
+      makeMsg({ id: 't3', content: '', timestamp: base + 200,
+        thinking: [{ id: 'th3', content: 'third', format: 'structured' }] }),
+    ];
+    const items = processor.process(msgs);
+    expect(items.length).toBe(1);
+    expect(items[0].type).toBe('thought-group');
+    expect(items[0].thinking?.map((b) => b.id)).toEqual(['th1', 'th2', 'th3']);
+    expect(items[0].thoughts).toEqual(['first', 'second', 'third']);
+    // Keeps the first group's id so expansion state and stable refs are stable.
+    expect(items[0].id).toBe('thought-t1');
+  });
+
+  it('does not mutate the source message thinking array when merging', () => {
+    const base = Date.now();
+    const first = makeMsg({ id: 't1', content: '', timestamp: base,
+      thinking: [{ id: 'th1', content: 'first', format: 'structured' }] });
+    const second = makeMsg({ id: 't2', content: '', timestamp: base + 100,
+      thinking: [{ id: 'th2', content: 'second', format: 'structured' }] });
+    processor.process([first, second]);
+    expect(first.thinking?.map((b) => b.id)).toEqual(['th1']);
+    expect(second.thinking?.map((b) => b.id)).toEqual(['th2']);
+  });
+
+  it('merges thinking-only turns across incremental process() calls', () => {
+    const base = Date.now();
+    const t1 = makeMsg({ id: 't1', content: '', timestamp: base,
+      thinking: [{ id: 'th1', content: 'first', format: 'structured' }] });
+    processor.process([t1]);
+    const t2 = makeMsg({ id: 't2', content: '', timestamp: base + 100,
+      thinking: [{ id: 'th2', content: 'second', format: 'structured' }] });
+    const items = processor.process([t1, t2]);
+    expect(items.length).toBe(1);
+    expect(items[0].type).toBe('thought-group');
+    expect(items[0].thinking?.length).toBe(2);
+  });
+
+  it('does not merge thought-groups separated by a tool-group', () => {
+    const base = Date.now();
+    const msgs = [
+      makeMsg({ id: 't1', content: '', timestamp: base,
+        thinking: [{ id: 'th1', content: 'first', format: 'structured' }] }),
+      makeMsg({ id: 'tu1', type: 'tool_use', content: 'bash', timestamp: base + 100 }),
+      makeMsg({ id: 't2', content: '', timestamp: base + 200,
+        thinking: [{ id: 'th2', content: 'second', format: 'structured' }] }),
+    ];
+    const items = processor.process(msgs);
+    const thoughtGroups = items.filter((i) => i.type === 'thought-group');
+    expect(thoughtGroups.length).toBe(2);
+  });
+
+  it('does not merge a thinking turn that also produced assistant text', () => {
+    const base = Date.now();
+    const msgs = [
+      makeMsg({ id: 't1', content: '', timestamp: base,
+        thinking: [{ id: 'th1', content: 'first', format: 'structured' }] }),
+      makeMsg({ id: 't2', content: 'here is the answer', timestamp: base + 100,
+        thinking: [{ id: 'th2', content: 'second', format: 'structured' }] }),
+    ];
+    const items = processor.process(msgs);
+    // t2 splits into a response-less thought-group + a standalone message. The
+    // thinking still folds into t1's group; the visible text stays separate.
+    expect(items.map((i) => i.type)).toEqual(['thought-group', 'message']);
+    expect(items[0].thinking?.length).toBe(2);
+    expect(items[1].message?.id).toBe('t2');
+  });
+
   it('should incrementally append new messages', () => {
     const msg1 = makeMsg({ timestamp: 1000, content: 'First message' });
     processor.process([msg1]);

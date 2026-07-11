@@ -363,6 +363,15 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   crossModelReview.on('review:all-unavailable', (data) => {
     windowManager.sendToRenderer('cross-model-review:all-unavailable', data);
   });
+  crossModelReview.on('review:reviewer-unavailable', (data) => {
+    windowManager.sendToRenderer('cross-model-review:reviewer-unavailable', data);
+  });
+  crossModelReview.on('review:reviewer-rate-limited', (data) => {
+    windowManager.sendToRenderer('cross-model-review:reviewer-rate-limited', data);
+  });
+  crossModelReview.on('review:reviewer-rate-limit-cleared', (data) => {
+    windowManager.sendToRenderer('cross-model-review:reviewer-rate-limit-cleared', data);
+  });
 
   instanceManager.on('instance:input-required', (payload) => {
     windowManager.sendToRenderer('instance:input-required', payload);

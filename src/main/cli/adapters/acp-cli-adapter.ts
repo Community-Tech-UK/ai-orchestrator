@@ -75,7 +75,7 @@ import { buildCliSpawnOptions } from '../cli-environment';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import type { ProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import { toAcpPromptBlockFromAttachment } from './acp-attachment-blocks';
-
+import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 const logger = getLogger('AcpCliAdapter');
 
 const ACP_PROTOCOL_VERSION = 1;
@@ -175,8 +175,9 @@ interface AcpPendingPromptTurn {
   chunks: string[];
   messageChunksById: Map<string, string[]>;
   agentMessageIds: Set<string>;
+  /** Stable OutputMessage id used to coalesce retry-state updates for this turn. */
+  retryNoticeId?: string;
 }
-
 interface AcpPendingPermissionRequest {
   key: string;
   rpcId: AcpJsonRpcId;
@@ -553,6 +554,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       };
 
       if (turn) {
+        this.resolveRetryNotice(turn);
         this.emitFinalAssistantFlushes(turn);
       }
       this.emit('status', 'idle');
@@ -1086,6 +1088,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
       case 'session/update':
         this.handleSessionUpdate(notification.params as AcpSessionUpdateNotificationParams);
         return;
+      case '_x.ai/session_notification':
+        // Grok wraps lifecycle updates in a vendor notification whose params
+        // match `session/update`; route them through the shared handler.
+        this.handleSessionUpdate(notification.params as AcpSessionUpdateNotificationParams);
+        return;
       case 'elicitation/complete':
         this.handleElicitationComplete(notification.params as AcpElicitationCompleteParams);
         return;
@@ -1167,6 +1174,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
           });
         }
         break;
+      case 'retry_state':
+        this.handleRetryState(update as Extract<AcpSessionUpdate, { sessionUpdate: 'retry_state' }>);
+        break;
       case 'config_option_update':
       case 'session_info_update':
         // Session metadata (auto-generated title, summary, mode/model
@@ -1190,6 +1200,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private handleMessageChunk(update: Extract<AcpSessionUpdate, { sessionUpdate: 'agent_message_chunk' | 'user_message_chunk' }>): void {
+    if (update.sessionUpdate === 'user_message_chunk' && this.currentPrompt) {
+      // In-flight user chunks are Grok prompt echoes. Suppress duplicates and
+      // injected sentinels; replayed history outside a turn still flows.
+      return;
+    }
     const content = this.extractContentText(update.content);
     if (!content) {
       return;
@@ -1230,6 +1245,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
     } satisfies OutputMessage);
   }
 
+  private handleRetryState(update: Extract<AcpSessionUpdate, { sessionUpdate: 'retry_state' }>): void {
+    const turn = this.currentPrompt;
+    const messageId = turn ? (turn.retryNoticeId ??= generateId()) : generateId();
+    this.emit('output', buildRetryStateMessage(update, messageId));
+  }
+  private resolveRetryNotice(turn: AcpPendingPromptTurn): void {
+    if (turn.retryNoticeId) this.emit('output', buildRetryRecoveredMessage(turn.retryNoticeId));
+  }
   private emitFinalAssistantFlushes(turn: AcpPendingPromptTurn): void {
     const canonicalContent = turn.chunks.join('');
     if (canonicalContent.trim()) {

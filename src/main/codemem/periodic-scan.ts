@@ -12,20 +12,28 @@ export interface PeriodicScanOptions {
   sampleSize?: number;
 }
 
+export interface PeriodicScanResult {
+  scanned: number;
+  mismatched: number;
+  reindexed: boolean;
+  escalated: boolean;
+}
+
 export class PeriodicScan {
+  /** Per-workspace rotating offset so successive scans cover the whole manifest. */
+  private readonly cursors = new Map<WorkspaceHash, number>();
+
   constructor(private readonly opts: PeriodicScanOptions) {}
 
-  async runOnce(workspaceHash: WorkspaceHash): Promise<{ scanned: number; mismatched: number; reindexed: boolean }> {
+  async runOnce(workspaceHash: WorkspaceHash): Promise<PeriodicScanResult> {
     const workspaceRoot = this.opts.store.getWorkspaceRoot(workspaceHash);
     if (!workspaceRoot) {
-      return { scanned: 0, mismatched: 0, reindexed: false };
+      return { scanned: 0, mismatched: 0, reindexed: false, escalated: false };
     }
 
     const manifestEntries = this.opts.store.countManifestEntries(workspaceHash);
     const sampleSize = Math.min(this.opts.sampleSize ?? 100, manifestEntries);
-    const sample = sampleSize === 0
-      ? []
-      : this.opts.store.listManifestEntries(workspaceHash, { limit: sampleSize });
+    const sample = this.takeRotatingSample(workspaceHash, manifestEntries, sampleSize);
 
     let mismatched = 0;
     const mismatchedPaths: string[] = [];
@@ -46,17 +54,43 @@ export class PeriodicScan {
       }
     }
 
-    const threshold = this.opts.mismatchThreshold ?? 0.05;
-    const rate = sampleSize === 0 ? 0 : mismatched / sampleSize;
-    if (rate <= threshold && !(threshold === 0 && mismatched > 0)) {
-      return { scanned: sampleSize, mismatched, reindexed: false };
-    }
-
+    // Always repair what the sample found — a mismatch below the threshold is
+    // still a stale entry that agents would read.
     for (const absolutePath of mismatchedPaths) {
       await this.opts.mgr.onFileChange(absolutePath, workspaceHash);
     }
 
-    return { scanned: sampleSize, mismatched, reindexed: mismatchedPaths.length > 0 };
+    // High drift in the sample means the unsampled remainder has likely
+    // drifted too (bulk change while unwatched) — reconcile the whole index.
+    const threshold = this.opts.mismatchThreshold ?? 0.05;
+    const rate = sampleSize === 0 ? 0 : mismatched / sampleSize;
+    const escalated = mismatched > 0 && rate > threshold;
+    if (escalated) {
+      await this.opts.mgr.reconcileIndex(workspaceRoot.absPath);
+    }
+
+    return { scanned: sampleSize, mismatched, reindexed: mismatchedPaths.length > 0, escalated };
   }
 
+  private takeRotatingSample(
+    workspaceHash: WorkspaceHash,
+    manifestEntries: number,
+    sampleSize: number,
+  ): ReturnType<CasStore['listManifestEntries']> {
+    if (sampleSize === 0) {
+      return [];
+    }
+
+    const offset = (this.cursors.get(workspaceHash) ?? 0) % manifestEntries;
+    const sample = this.opts.store.listManifestEntries(workspaceHash, { limit: sampleSize, offset });
+    if (sample.length < sampleSize && offset > 0) {
+      sample.push(...this.opts.store.listManifestEntries(workspaceHash, {
+        limit: sampleSize - sample.length,
+        offset: 0,
+      }));
+    }
+
+    this.cursors.set(workspaceHash, (offset + sampleSize) % manifestEntries);
+    return sample;
+  }
 }

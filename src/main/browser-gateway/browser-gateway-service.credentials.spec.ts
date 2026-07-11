@@ -697,6 +697,56 @@ describe('BrowserGatewayService credentials', () => {
     expect(JSON.stringify(audits)).not.toContain(SECRET);
   });
 
+  it('fillCredential aborts without typing when the shared tab navigates to a different origin between authorization and fill', async () => {
+    const SECRET = 'Should-Never-Be-Typed!';
+    const vault = { getSecretForFill: vi.fn(async () => SECRET) };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    // Snapshot returns the authorized portal origin for the initial resolution, then a
+    // DIFFERENT origin on the pre-type re-check — i.e. the human navigated their real tab.
+    let snapshotCalls = 0;
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async (req: { command: string }) => {
+        if (req.command === 'snapshot') {
+          snapshotCalls += 1;
+          const url =
+            snapshotCalls === 1
+              ? 'https://portal.example.gov.uk/login'
+              : 'https://evil.example.com/steal';
+          return { tab: { tabId: 42, windowId: 7, url } };
+        }
+        return {};
+      }),
+    };
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
+    expect(result.reason).toBe('origin_changed_during_fill');
+    // Authorized against the original origin, but the secret was NEVER typed into the page.
+    expect(authorizations.check).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: 'https://portal.example.gov.uk' }),
+    );
+    expect(extensionCommandStore.sendCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'type' }),
+    );
+    expect(driver.type).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
   it('fillCredential keys the opt-in by the shared tab node scope, not the ephemeral tab profileId', async () => {
     const SECRET = 'Node-Scoped-S3cret!';
     const vault = { getSecretForFill: vi.fn(async () => SECRET) };

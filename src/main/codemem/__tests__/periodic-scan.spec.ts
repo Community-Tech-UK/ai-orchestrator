@@ -48,9 +48,65 @@ describe('PeriodicScan', () => {
     const rootBefore = store.getWorkspaceRoot(result.workspaceHash)?.merkleRootHash;
 
     const scan = new PeriodicScan({ store, mgr, mismatchThreshold: 0.05 });
-    await scan.runOnce(result.workspaceHash);
+    const outcome = await scan.runOnce(result.workspaceHash);
 
     const rootAfter = store.getWorkspaceRoot(result.workspaceHash)?.merkleRootHash;
     expect(rootAfter).toBe(rootBefore);
+    expect(outcome).toEqual({ scanned: 1, mismatched: 0, reindexed: false, escalated: false });
+  });
+
+  it('repairs mismatches even when the rate stays below the threshold', async () => {
+    await writeFile(join(workDir, 'src/b.ts'), 'export const y = 1;\n');
+    const result = await mgr.coldIndex(workDir);
+
+    await writeFile(join(workDir, 'src/a.ts'), 'export const renamedOffline = 2;\n');
+
+    const scan = new PeriodicScan({ store, mgr, mismatchThreshold: 0.9 });
+    const outcome = await scan.runOnce(result.workspaceHash);
+
+    expect(outcome.reindexed).toBe(true);
+    expect(outcome.escalated).toBe(false);
+    const symbols = store
+      .listWorkspaceSymbols(result.workspaceHash)
+      .map((symbol) => symbol.name);
+    expect(symbols).toContain('renamedOffline');
+  });
+
+  it('rotates the sample window across runs instead of re-reading the same files', async () => {
+    await writeFile(join(workDir, 'src/b.ts'), 'export const y = 1;\n');
+    const result = await mgr.coldIndex(workDir);
+
+    await writeFile(join(workDir, 'src/a.ts'), 'export const editedFirst = 2;\n');
+    await writeFile(join(workDir, 'src/b.ts'), 'export const editedSecond = 2;\n');
+
+    // Threshold 1 disables escalation so only the sampled file is repaired.
+    const scan = new PeriodicScan({ store, mgr, mismatchThreshold: 1, sampleSize: 1 });
+    const first = await scan.runOnce(result.workspaceHash);
+    const second = await scan.runOnce(result.workspaceHash);
+
+    expect(first).toEqual(expect.objectContaining({ scanned: 1, mismatched: 1, escalated: false }));
+    expect(second).toEqual(expect.objectContaining({ scanned: 1, mismatched: 1, escalated: false }));
+    const symbols = store
+      .listWorkspaceSymbols(result.workspaceHash)
+      .map((symbol) => symbol.name);
+    expect(symbols).toContain('editedFirst');
+    expect(symbols).toContain('editedSecond');
+  });
+
+  it('escalates high drift to a full reconcile that catches unsampled files', async () => {
+    const result = await mgr.coldIndex(workDir);
+
+    await writeFile(join(workDir, 'src/a.ts'), 'export const editedOffline = 2;\n');
+    // New files never appear in the manifest sample; only reconcile finds them.
+    await writeFile(join(workDir, 'src/created-offline.ts'), 'export const z = 3;\n');
+
+    const scan = new PeriodicScan({ store, mgr, mismatchThreshold: 0.5 });
+    const outcome = await scan.runOnce(result.workspaceHash);
+
+    expect(outcome.escalated).toBe(true);
+    const paths = store
+      .listManifestEntries(result.workspaceHash)
+      .map((entry) => entry.pathFromRoot);
+    expect(paths).toContain('src/created-offline.ts');
   });
 });

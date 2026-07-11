@@ -7,6 +7,7 @@ function f(partial: Partial<AggregatableFinding> & { reviewer: string }): Aggreg
     body: 'body',
     severity: 'medium',
     confidence: 0.5,
+    source: 'remote',
     ...partial,
   };
 }
@@ -92,5 +93,52 @@ describe('aggregateReviewFindings', () => {
 
   it('returns an empty array for no findings', () => {
     expect(aggregateReviewFindings([], { totalReviewers: 2 })).toEqual([]);
+  });
+
+  it('marks a local-only finding advisory even when it is critical', () => {
+    const [finding] = aggregateReviewFindings([
+      f({
+        reviewer: 'local:qwen',
+        source: 'local',
+        title: 'Unsafe mutation',
+        body: 'shared state is mutated without synchronization',
+        severity: 'critical',
+      }),
+    ], { totalReviewers: 3 });
+
+    expect(finding.advisory).toBe(true);
+    expect(finding.reviewerProvenance).toEqual([
+      { reviewer: 'local:qwen', source: 'local' },
+    ]);
+  });
+
+  it('removes advisory status when a remote reviewer corroborates a local finding', () => {
+    const [finding] = aggregateReviewFindings([
+      f({ reviewer: 'local:qwen', source: 'local', title: 'Missing null guard', body: 'payload value is read without a null guard' }),
+      f({ reviewer: 'codex', source: 'remote', title: 'Missing null guard', body: 'payload value is read without a null guard' }),
+    ], { totalReviewers: 3 });
+
+    expect(finding.advisory).toBe(false);
+    expect(finding.agreementCount).toBe(2);
+    expect(finding.body).toContain('2/3 reviewers independently flagged this.');
+    expect(finding.reviewerProvenance).toEqual([
+      { reviewer: 'codex', source: 'remote' },
+      { reviewer: 'local:qwen', source: 'local' },
+    ]);
+  });
+
+  it.each([
+    ['remote first', ['remote', 'local'] as const],
+    ['local first', ['local', 'remote'] as const],
+  ])('preserves remote authority for a repeated reviewer id (%s)', (_name, sources) => {
+    const [finding] = aggregateReviewFindings(sources.map((source) => f({
+      reviewer: 'same-id',
+      source,
+      title: 'Missing null guard',
+      body: 'payload value is read without a null guard',
+    })), { totalReviewers: 1 });
+
+    expect(finding.advisory).toBe(false);
+    expect(finding.reviewerProvenance).toEqual([{ reviewer: 'same-id', source: 'remote' }]);
   });
 });

@@ -129,6 +129,15 @@ const STEER_INTERRUPT_STATUSES = new Set<InstanceStatus>([
   'thinking_deeply',
   'waiting_for_permission',
 ]);
+// Statuses in which delivering user input can never succeed; sendInput fails
+// fast when the instance lands in one of these while waiting on init/respawn.
+const SEND_TERMINAL_STATUSES = new Set<InstanceStatus>([
+  'terminated',
+  'failed',
+  'error',
+  'cancelled',
+  'superseded',
+]);
 
 interface InputContextBundle {
   rlmContext: RlmContextInfo | null;
@@ -1486,6 +1495,20 @@ export class InstanceManager extends EventEmitter {
       if (instance.status === 'error' || instance.status === 'failed') {
         throw new Error('Instance respawn after interrupt failed');
       }
+    }
+
+    // The waits above can outlive the instance: a wedged init/respawn may only
+    // settle when the user terminates the session, after which the input would
+    // travel the rest of the pipeline and vanish in the communication layer
+    // ("Instance not found in state") with no renderer left listening.
+    // Re-validate liveness so the renderer instead gets an immediate terminal
+    // failure it maps to no-retry + restore-to-draft.
+    const liveInstance = this.state.getInstance(instanceId);
+    if (!liveInstance || SEND_TERMINAL_STATUSES.has(liveInstance.status)) {
+      throw new Error(
+        `Instance ${instanceId} terminated while waiting to deliver input`
+        + ` (status: ${liveInstance?.status ?? 'removed'})`,
+      );
     }
 
     if (!options?.isRetry && !options?.autoContinuation) {

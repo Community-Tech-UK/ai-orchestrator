@@ -5,6 +5,8 @@ export type HeadlessReviewSeverity = ReviewSeverity;
 export interface HeadlessReviewReviewer {
   provider: string;
   model?: string;
+  source?: 'remote' | 'local';
+  selectorId?: string;
   status: 'used' | 'skipped' | 'failed';
   reason?: string;
 }
@@ -16,6 +18,9 @@ export interface HeadlessReviewFinding {
   line?: number;
   severity: HeadlessReviewSeverity;
   confidence: number;
+  reviewers?: string[];
+  agreementCount?: number;
+  advisory?: boolean;
 }
 
 export interface HeadlessReviewResult {
@@ -42,6 +47,8 @@ function normalizeResult(result: HeadlessReviewResult): HeadlessReviewResult {
     reviewers: (result.reviewers ?? []).map((reviewer) => ({
       provider: reviewer.provider || 'unknown',
       ...(reviewer.model ? { model: reviewer.model } : {}),
+      ...(reviewer.source ? { source: reviewer.source } : {}),
+      ...(reviewer.selectorId ? { selectorId: reviewer.selectorId } : {}),
       status: reviewer.status,
       ...(reviewer.reason ? { reason: reviewer.reason } : {}),
     })),
@@ -52,6 +59,11 @@ function normalizeResult(result: HeadlessReviewResult): HeadlessReviewResult {
       ...(typeof finding.line === 'number' ? { line: finding.line } : {}),
       severity: finding.severity,
       confidence: Number.isFinite(finding.confidence) ? finding.confidence : 0,
+      ...(finding.reviewers ? { reviewers: finding.reviewers } : {}),
+      ...(typeof finding.agreementCount === 'number'
+        ? { agreementCount: finding.agreementCount }
+        : {}),
+      ...(typeof finding.advisory === 'boolean' ? { advisory: finding.advisory } : {}),
     })),
     summary: result.summary || '',
     infrastructureErrors: result.infrastructureErrors ?? [],

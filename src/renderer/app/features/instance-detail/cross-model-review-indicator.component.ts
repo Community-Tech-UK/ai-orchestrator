@@ -20,6 +20,7 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
         [class.reviewing]="isPending()"
         [class.verified]="isVerified()"
         [class.concerns]="hasConcerns()"
+        [class.advisory]="hasLocalAdvisory() && !hasConcerns() && !isVerified()"
         [class.skipped]="isSkipped()"
         [title]="tooltip()"
         role="button"
@@ -31,9 +32,11 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
         @if (isPending()) {
           <span class="spinner">&#x21bb;</span> Reviewing...
         } @else if (isVerified()) {
-          &#x2713; Verified
+          &#x2713; Verified{{ hasLocalAdvisory() ? ' + local advisory' : '' }}
         } @else if (hasConcerns()) {
           &#x26A0; {{ concernCount() }} concern{{ concernCount() > 1 ? 's' : '' }}
+        } @else if (hasLocalAdvisory()) {
+          &#x2691; Local advisory
         } @else if (isSkipped()) {
           &#x2014;
         }
@@ -78,6 +81,12 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
       border-color: rgba(255, 192, 120, 0.2);
     }
 
+    .advisory {
+      color: #74c0fc;
+      background: rgba(116, 192, 252, 0.1);
+      border-color: rgba(116, 192, 252, 0.2);
+    }
+
     .skipped {
       color: var(--text-muted);
       background: transparent;
@@ -102,6 +111,12 @@ export class CrossModelReviewIndicatorComponent {
   private reviewService = inject(CrossModelReviewIpcService);
 
   private review = computed(() => this.reviewService.getReviewForInstance(this.instanceId()));
+  private remoteReviews = computed(() =>
+    this.review()?.reviews.filter((result) => result.source !== 'local') ?? []
+  );
+  private localReviews = computed(() =>
+    this.review()?.reviews.filter((result) => result.source === 'local') ?? []
+  );
 
   enabled = computed(() => {
     const s = this.reviewService.status();
@@ -112,14 +127,16 @@ export class CrossModelReviewIndicatorComponent {
   isSkipped = computed(() => this.reviewService.skippedInstances().has(this.instanceId()));
 
   isVerified = computed(() => {
-    const r = this.review();
-    return r != null && !this.hasConcerns();
+    return this.remoteReviews().length > 0 && !this.hasConcerns();
   });
 
   hasConcerns = computed(() => {
-    const r = this.review();
-    return r != null && (r.hasDisagreement || countReviewResultsWithConcerns(r.reviews) > 0);
+    return countReviewResultsWithConcerns(this.remoteReviews()) > 0;
   });
+
+  hasLocalAdvisory = computed(() =>
+    this.localReviews().length > 0 || this.review()?.localReviewer != null
+  );
 
   hasVisibleState = computed(() =>
     this.isPending() || this.isSkipped() || this.review() != null
@@ -128,7 +145,7 @@ export class CrossModelReviewIndicatorComponent {
   concernCount = computed(() => {
     const r = this.review();
     if (!r) return 0;
-    return countReviewResultsWithConcerns(r.reviews);
+    return countReviewResultsWithConcerns(this.remoteReviews());
   });
 
   tooltip = computed(() => {
@@ -136,7 +153,14 @@ export class CrossModelReviewIndicatorComponent {
     if (this.isSkipped()) return 'Cross-model review skipped because no secondary reviewers were available';
     const r = this.review();
     if (!r) return 'No review available';
-    if (r.hasDisagreement) return 'Secondary models flagged concerns \u2014 click to view';
-    return 'All secondary models approved this output';
+    const local = r.localReviewer;
+    const localSuffix = local
+      ? ` Local reviewer ${local.status}${local.reason ? `: ${local.reason}` : ''}.`
+      : this.localReviews().length > 0 ? ' Local reviewer output is advisory.' : '';
+    if (this.hasConcerns()) return `Remote reviewers flagged concerns \u2014 click to view.${localSuffix}`;
+    if (this.isVerified()) return `Remote reviewers approved this output.${localSuffix}`;
+    if (local?.status === 'failed') return `Local reviewer failed: ${local.reason ?? 'unknown failure'}. No remote reviewer completed.`;
+    if (local?.status === 'skipped') return `Local reviewer skipped: ${local.reason ?? 'unavailable'}. No remote reviewer completed.`;
+    return 'Local review completed as advisory; no remote reviewer completed.';
   });
 }

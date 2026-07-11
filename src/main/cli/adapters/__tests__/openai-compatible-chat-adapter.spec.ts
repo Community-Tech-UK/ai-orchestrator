@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { LocalReviewToolDefinition } from '../../../review/local-review.types';
 import { OpenAICompatibleChatAdapter } from '../openai-compatible-chat-adapter';
 
 vi.mock('../../../logging/logger', () => ({
@@ -14,7 +15,7 @@ vi.mock('../../../logging/logger', () => ({
 interface CapturedTurnEvents {
   output: string[];
   outputIds: string[];
-  outputMessages: Array<{ content: string; accumulatedContent?: string }>;
+  outputMessages: { content: string; accumulatedContent?: string }[];
   complete: boolean;
   error: Error | null;
 }
@@ -98,12 +99,165 @@ async function startServer(
 }
 
 describe('OpenAICompatibleChatAdapter', () => {
-  const servers: Array<{ close: () => Promise<void> }> = [];
+  const servers: { close: () => Promise<void> }[] = [];
 
   afterEach(async () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
     await Promise.all(servers.splice(0).map((server) => server.close()));
+  });
+
+  it('uses non-streaming tool turns and translates OpenAI tool call IDs', async () => {
+    const requests: unknown[] = [];
+    const responses = [
+      {
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_1',
+              type: 'function',
+              function: {
+                name: 'workspace_read',
+                arguments: '{"path":"README.md"}',
+              },
+            }],
+          },
+        }],
+        usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 },
+      },
+      {
+        choices: [{ message: { role: 'assistant', content: 'README looks good.' } }],
+        usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+      },
+    ];
+    const server = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+        requests.push(await readJsonBody(req));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(responses.shift()));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+
+    const tools: readonly LocalReviewToolDefinition[] = [{
+      name: 'workspace_read',
+      description: 'Read a workspace file.',
+      inputSchema: {
+        type: 'object',
+        required: ['path'],
+        properties: { path: { type: 'string' } },
+      },
+    }];
+    const adapter = new OpenAICompatibleChatAdapter({
+      baseUrl: server.baseUrl,
+      model: 'qwen2.5-coder-32b-instruct',
+    });
+
+    const first = await adapter.sendToolTurn(
+      [{ role: 'user', content: 'Inspect README.md' }],
+      tools,
+      new AbortController().signal,
+    );
+    const second = await adapter.sendToolTurn(
+      [
+        { role: 'user', content: 'Inspect README.md' },
+        { role: 'assistant', content: '', toolCalls: first.toolCalls },
+        {
+          role: 'tool',
+          toolCallId: 'call_1',
+          toolName: 'workspace_read',
+          content: '# Project',
+        },
+      ],
+      tools,
+      new AbortController().signal,
+    );
+
+    expect(first).toEqual({
+      content: '',
+      toolCalls: [{
+        id: 'call_1',
+        name: 'workspace_read',
+        arguments: { path: 'README.md' },
+      }],
+      usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
+    });
+    expect(second).toMatchObject({ content: 'README looks good.', toolCalls: [] });
+    expect(requests).toEqual([
+      {
+        model: 'qwen2.5-coder-32b-instruct',
+        stream: false,
+        temperature: 0.2,
+        messages: [{ role: 'user', content: 'Inspect README.md' }],
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'workspace_read',
+            description: 'Read a workspace file.',
+            parameters: tools[0]!.inputSchema,
+          },
+        }],
+      },
+      {
+        model: 'qwen2.5-coder-32b-instruct',
+        stream: false,
+        temperature: 0.2,
+        messages: [
+          { role: 'user', content: 'Inspect README.md' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_1',
+              type: 'function',
+              function: {
+                name: 'workspace_read',
+                arguments: '{"path":"README.md"}',
+              },
+            }],
+          },
+          { role: 'tool', tool_call_id: 'call_1', content: '# Project' },
+        ],
+        tools: expect.any(Array),
+      },
+    ]);
+  });
+
+  it('does not start a realm-error fallback fetch when already aborted', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Expected signal to be an instance of AbortSignal'));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    controller.abort(new Error('review cancelled'));
+    const adapter = new OpenAICompatibleChatAdapter({ timeout: 60_000 });
+
+    await expect(adapter.sendToolTurn([], [], controller.signal))
+      .rejects.toThrow('review cancelled');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a pending realm-error fallback and removes abort listeners', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Expected signal to be an instance of AbortSignal'))
+      .mockImplementationOnce(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    const adapter = new OpenAICompatibleChatAdapter({ timeout: 60_000 });
+
+    const turn = adapter.sendToolTurn([], [], controller.signal);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    controller.abort(new Error('review cancelled'));
+
+    await expect(turn).rejects.toThrow('review cancelled');
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(clearTimeoutSpy).toHaveBeenCalled();
   });
 
   it('emits streamed SSE output and completion for sendInput', async () => {

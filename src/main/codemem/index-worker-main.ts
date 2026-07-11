@@ -122,6 +122,10 @@ const PERIODIC_SCAN_INTERVAL_MS = Number.isFinite(configuredPeriodicScanInterval
 // Track which workspaces we've started watchers for.
 const watchedWorkspaces = new Set<string>();
 const watchedWorkspacePaths = new Map<string, string>();
+// Workspaces whose index has been reconciled (or freshly built) this worker
+// lifetime. Cleared when a workspace's watcher stops, since changes made
+// while unwatched must be reconciled on the next warm.
+const reconciledWorkspaces = new Set<string>();
 let periodicScanTimer: ReturnType<typeof setInterval> | null = null;
 let periodicScanRunning = false;
 
@@ -226,6 +230,8 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
       if (watchedWorkspaces.has(workspaceHash)) {
         watchedWorkspaces.delete(workspaceHash);
         watchedWorkspacePaths.delete(workspaceHash);
+        // Changes made while unwatched must be reconciled on the next warm.
+        reconciledWorkspaces.delete(workspaceHash);
         // CodeIndexManager stop is workspace-global — only stop when all are removed.
         if (watchedWorkspaces.size === 0) {
           stopPeriodicDriftScan();
@@ -276,6 +282,7 @@ async function warmWorkspace(msg: WarmWorkspaceMsg): Promise<void> {
   const workspaceHash = workspaceHashForPath(normalizedPath);
 
   let workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
+  const hadExistingIndex = Boolean(workspaceRoot);
   if (!workspaceRoot) {
     await indexManager.coldIndex(normalizedPath);
     workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
@@ -288,11 +295,32 @@ async function warmWorkspace(msg: WarmWorkspaceMsg): Promise<void> {
 
   await startWatcherIfNeeded(normalizedPath, workspaceHash);
 
+  // Respond before reconciling: warm callers sit on short spawn timeouts and
+  // only need the index to exist. The reconcile below still runs inside the
+  // serialized heavy queue, so it cannot overlap a cold index or rebuild.
   respond(msg.id, {
     indexed: true,
     absPath: workspaceRoot.absPath,
     primaryLanguage: workspaceRoot.primaryLanguage ?? 'typescript',
   } satisfies WarmWorkspaceResult);
+
+  const needsReconcile = hadExistingIndex && !reconciledWorkspaces.has(workspaceHash);
+  reconciledWorkspaces.add(workspaceHash);
+  if (!needsReconcile) {
+    return;
+  }
+
+  try {
+    // An existing index may predate this worker: no watcher was running while
+    // the app was closed, so diff the manifest against the filesystem once.
+    store.clearCancel(workspaceHash);
+    await indexManager.reconcileIndex(normalizedPath);
+  } catch (error) {
+    console.warn(
+      'Codemem warm reconcile failed',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 async function rebuildIndex(msg: RebuildIndexMsg): Promise<void> {
@@ -300,6 +328,8 @@ async function rebuildIndex(msg: RebuildIndexMsg): Promise<void> {
   const workspaceHash = workspaceHashForPath(normalizedPath);
   store.clearCancel(workspaceHash);
   await indexManager.coldIndex(normalizedPath);
+  // A fresh cold index leaves nothing to reconcile on the next warm.
+  reconciledWorkspaces.add(workspaceHash);
   const workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
 
   if (!workspaceRoot) {

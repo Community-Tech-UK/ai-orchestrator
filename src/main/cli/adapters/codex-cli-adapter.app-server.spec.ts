@@ -16,6 +16,7 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
 }));
 
 import { CodexCliAdapter } from './codex-cli-adapter';
+import { CodexHomeManager } from './codex/codex-home-manager';
 import { createMockProcess } from './codex-cli-adapter.test-helpers';
 
 // These tests drive the adapter through real PassThrough streams and real
@@ -105,6 +106,20 @@ describe('CodexCliAdapter', () => {
         process.env['HOME'] = originalHome;
         rmSync(sandboxHome, { recursive: true, force: true });
       }
+    });
+
+    it('aborts spawn when an isolated CODEX_HOME cannot be prepared', async () => {
+      vi.spyOn(CodexHomeManager.prototype, 'prepareMcpFreeHome').mockReturnValue(null);
+      const adapter = new CodexCliAdapter();
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
+        available: true,
+        authenticated: true,
+        path: 'codex',
+        version: '0.107.0',
+        metadata: { appServerAvailable: false },
+      });
+
+      await expect(adapter.spawn()).rejects.toThrow('isolated CODEX_HOME');
     });
   });
 

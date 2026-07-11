@@ -130,6 +130,27 @@
     }
   }
 
+  &__health {
+    flex: 0 0 auto;
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    cursor: help;
+    // Default = "unavailable" (danger). Rate-limited is a softer warning.
+    color: var(--danger-color, #ff6b6b);
+    background: color-mix(in srgb, var(--danger-color, #ff6b6b) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger-color, #ff6b6b) 40%, transparent);
+
+    &.is-ratelimited {
+      color: var(--warning-color, #ffc078);
+      background: color-mix(in srgb, var(--warning-color, #ffc078) 14%, transparent);
+      border-color: color-mix(in srgb, var(--warning-color, #ffc078) 40%, transparent);
+    }
+  }
+
   &__model {
     flex: 0 0 auto;
     width: 210px;

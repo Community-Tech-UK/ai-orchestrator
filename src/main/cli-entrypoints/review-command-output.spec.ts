@@ -57,4 +57,35 @@ describe('formatReviewJson', () => {
     expect(parsed.findings[0]).not.toHaveProperty('file');
     expect(parsed.infrastructureErrors).toEqual(['CLI exited 1']);
   });
+
+  it('preserves optional local status and finding provenance fields', () => {
+    const parsed = JSON.parse(formatReviewJson(makeResult({
+      reviewers: [{
+        provider: 'local-model',
+        model: 'qwen',
+        source: 'local',
+        selectorId: 'lm://this-device/ollama/ollama/qwen',
+        status: 'used',
+      }],
+      findings: [{
+        title: 'Local concern',
+        body: 'A local-only concern.',
+        severity: 'high',
+        confidence: 0.9,
+        reviewers: ['local:qwen'],
+        agreementCount: 1,
+        advisory: true,
+      }],
+    }))) as HeadlessReviewResult;
+
+    expect(parsed.reviewers[0]).toMatchObject({
+      source: 'local',
+      selectorId: 'lm://this-device/ollama/ollama/qwen',
+    });
+    expect(parsed.findings[0]).toMatchObject({
+      reviewers: ['local:qwen'],
+      agreementCount: 1,
+      advisory: true,
+    });
+  });
 });

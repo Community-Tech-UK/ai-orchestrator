@@ -97,6 +97,7 @@ describe('CodexHomeManager', () => {
     mkdirSync(join(codexDir, 'sessions', '2026', '07'), { recursive: true });
     writeFileSync(join(codexDir, 'sessions', '2026', '07', 'rollout-user.jsonl'), '{}', 'utf-8');
     writeFileSync(join(codexDir, 'history.jsonl'), 'user-history', 'utf-8');
+    writeFileSync(join(codexDir, 'state_5.sqlite'), 'user-thread-state', 'utf-8');
     writeFileSync(join(codexDir, 'auth.json'), '{"token":"existing"}', 'utf-8');
     if (config !== null) {
       writeFileSync(join(codexDir, 'config.toml'), config, 'utf-8');
@@ -104,6 +105,45 @@ describe('CodexHomeManager', () => {
     process.env['HOME'] = home;
     return home;
   }
+
+  it('creates an isolated home when the user has no existing Codex directory', () => {
+    const home = join(tmpdir(), `codex-home-manager-empty-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(home, { recursive: true });
+    tempRoots.push(home);
+    process.env['HOME'] = home;
+
+    const manager = new CodexHomeManager();
+    const generated = manager.prepareMcpFreeHome();
+
+    expect(generated).toBeTruthy();
+    expect(readlinkSync(join(generated!, 'sessions'))).toBe(join(home, '.ai-orchestrator', 'codex', 'sessions'));
+    expect(readlinkSync(join(generated!, 'state_5.sqlite'))).toBe(
+      join(home, '.ai-orchestrator', 'codex', 'state_5.sqlite'),
+    );
+    manager.cleanup();
+  });
+
+  it.each([
+    ['MCP-free', (manager: CodexHomeManager) => manager.prepareMcpFreeHome()],
+    ['session-isolated', (manager: CodexHomeManager) => manager.prepareSessionIsolatedHome()],
+    ['Browser Gateway', (manager: CodexHomeManager) => manager.prepareHomeWithMcpConfig([
+      '[mcp_servers."browser-gateway"]',
+      'command = "app"',
+    ].join('\n'))],
+  ])('%s homes keep thread state outside the user Codex database', (_name, prepare) => {
+    const home = makeSandboxCodexHome('model = "gpt-5.3-codex"');
+    const manager = new CodexHomeManager();
+
+    const generated = prepare(manager);
+
+    expect(generated).toBeTruthy();
+    const expectedStatePath = join(home, '.ai-orchestrator', 'codex', 'state_5.sqlite');
+    expect(readlinkSync(join(generated!, 'state_5.sqlite'))).toBe(expectedStatePath);
+    expect(readFileSync(join(home, '.codex', 'state_5.sqlite'), 'utf-8')).toBe('user-thread-state');
+
+    manager.cleanup();
+    expect(existsSync(expectedStatePath)).toBe(true);
+  });
 
   it('redirects session history to the AIO store instead of ~/.codex', () => {
     makeSandboxCodexHome('model = "gpt-5.3-codex"');

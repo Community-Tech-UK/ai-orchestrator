@@ -208,10 +208,8 @@ export async function fillCredentialOperation(
   // `browserAllowSharedTabCredentialFill`. The flag only unlocks the surface;
   // the standing-authorization gate below still has to pass for the resolved
   // node scope + live origin, so an unauthorized origin can never be filled.
-  if (
-    deps.hasExistingTab(request.profileId, request.targetId) &&
-    !deps.sharedTabCredentialFillAllowed?.(request.profileId)
-  ) {
+  const isExistingTab = deps.hasExistingTab(request.profileId, request.targetId);
+  if (isExistingTab && !deps.sharedTabCredentialFillAllowed?.(request.profileId)) {
     return deny(
       'fill_credential_managed_profile_only',
       `${toolName} runs on agent-owned managed profiles only, not shared tabs`,
@@ -271,7 +269,8 @@ export async function fillCredentialOperation(
   try {
     for (const field of request.fields) {
       // The secret exists only in this main-process scope; it is typed into the
-      // page and never returned or logged.
+      // page and never returned or logged. Resolve it first (no page contact) so the
+      // origin re-check below sits back-to-back with the type command.
       const secret =
         field.kind === 'email_code'
           ? await resolveEmailCode(deps.emailCodeReader!, emailSenderDomains!, request.emailCode)
@@ -280,6 +279,27 @@ export async function fillCredentialOperation(
               origin,
               kind: field.kind as CredentialFieldKind,
             });
+      // A shared tab is the user's real browser: they can navigate it between the
+      // authorization check and this type. Re-confirm the live origin still matches the
+      // authorized one immediately before typing, so a secret can never land on a page we
+      // never authorized (TOCTOU). Managed profiles are agent-controlled — left untouched.
+      if (isExistingTab) {
+        let liveOrigin: string;
+        try {
+          liveOrigin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
+        } catch {
+          return deny(
+            'target_unavailable',
+            `${toolName} could not re-confirm the live page origin before filling`,
+          );
+        }
+        if (liveOrigin !== origin) {
+          return deny(
+            'origin_changed_during_fill',
+            `${toolName} aborted: the tab navigated away from ${origin} before the secret was typed`,
+          );
+        }
+      }
       await deps.driverType(request.profileId, request.targetId, field.selector, secret);
       filled += 1;
     }

@@ -37,6 +37,10 @@ export class MarkdownRenderCache {
     this.recordRender(content.length, performance.now() - renderStart);
 
     if (content.length <= MAX_CACHEABLE_LENGTH) {
+      // A changed entry under a known key (e.g. a settled streaming message) must move to
+      // the most-recent position. Map.set on an existing key keeps its original slot, so
+      // delete first — then the set below re-inserts it at the end of the LRU order.
+      this.cache.delete(cacheKey);
       // Evict oldest (first) entries if at capacity
       while (this.cache.size >= MAX_CACHE_SIZE) {
         const firstKey = this.cache.keys().next().value;

@@ -44,10 +44,18 @@ describe('doc-review artifact template', () => {
     expect(html).toContain('.decisions.json');
   });
 
-  it('makes no external requests (self-contained, offline)', () => {
+  it('makes no external requests (self-contained; only a same-origin loopback capture)', () => {
+    // No absolute URLs anywhere — the artifact can never phone home to an external host.
     expect(html).not.toMatch(/https?:\/\//i);
-    expect(html).not.toMatch(/\bfetch\s*\(/);
     expect(html).not.toMatch(/<link\b[^>]*\brel=["']?stylesheet/i);
     expect(html).not.toMatch(/<script\b[^>]*\bsrc=/i);
+    // The only network call permitted is the same-origin capture POST to a relative path,
+    // which no-ops on a bare file and only reaches the local server when served.
+    const fetchCalls = html.match(/fetch\(\s*["'][^"']*["']/g) ?? [];
+    for (const call of fetchCalls) {
+      expect(call).toMatch(/fetch\(\s*["']\//); // relative path only
+      expect(call).not.toMatch(/https?:/i);
+    }
+    expect(html).toContain('fetch("/decisions"');
   });
 });

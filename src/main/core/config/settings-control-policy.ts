@@ -8,6 +8,7 @@ import type {
   AuxiliaryLlmProvider,
   AuxiliaryLlmSlot,
 } from '../../../shared/types/auxiliary-llm.types';
+import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../../shared/types/reviewer-provider.types';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -59,7 +60,7 @@ const sidebarStyleSchema = z.enum(['standard', 'compact']);
 const missedRunPolicySchema = z.enum(['skip', 'notify', 'runOnce']);
 const outputStyleSchema = z.enum(['default', 'explanatory', 'learning', 'concise']);
 const reviewDepthSchema = z.enum(['structured', 'tiered']);
-const reviewProviderSchema = z.enum(['gemini', 'antigravity', 'codex', 'copilot', 'claude', 'cursor']);
+const reviewProviderSchema = z.enum(REMOTE_REVIEWER_PROVIDER_IDS);
 const reviewTypeSchema = z.enum(['code', 'plan', 'architecture']);
 const cliUpdatePolicySchema = z.enum(['off', 'notify', 'auto']);
 const voiceSttRoutingModeSchema = z.enum([
@@ -244,12 +245,16 @@ export const SETTINGS_TOOL_POLICY = {
   crossModelReviewEnabled: open(z.boolean()),
   crossModelReviewDepth: open(reviewDepthSchema),
   crossModelReviewMaxReviewers: open(numberSettingSchema('crossModelReviewMaxReviewers')),
-  crossModelReviewProviders: open(z.array(reviewProviderSchema).max(5)),
+  crossModelReviewProviders: open(z.array(reviewProviderSchema).max(6)),
   crossModelReviewTimeout: open(numberSettingSchema('crossModelReviewTimeout')),
   crossModelReviewTypes: open(z.array(reviewTypeSchema).max(3)),
   crossModelReviewModelByProvider: open(modelByProviderSchema),
+  crossModelReviewLocalEnabled: open(z.boolean()),
+  crossModelReviewLocalSelectorId: open(settingStringSchema),
+  crossModelReviewLocalTimeout: open(z.number().finite().int().min(10).max(600)),
+  crossModelReviewLocalMaxToolRounds: open(z.number().finite().int().min(1).max(32)),
   pingPongReviewerProvider: open(
-    z.enum(['auto', 'gemini', 'antigravity', 'codex', 'copilot', 'claude', 'cursor']),
+    z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),
   pingPongMaxRounds: open(z.number().int().min(1).max(20)),
   voiceSttRoutingMode: open(voiceSttRoutingModeSchema),

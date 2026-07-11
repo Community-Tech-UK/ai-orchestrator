@@ -310,6 +310,18 @@ export class DisplayItemProcessor {
     );
   }
 
+  /** True when a thought-group's response bubble would render text/attachments.
+   *  convertToItems only sets `response` to a content-bearing message when the
+   *  thinking turn had no standalone content, so this is normally false — but we
+   *  guard on it so merging never swallows a visible assistant bubble. */
+  private thoughtGroupHasRenderableResponse(item: DisplayItem): boolean {
+    const response = item.response;
+    return Boolean(
+      response &&
+      (response.content?.trim() || (response.attachments && response.attachments.length > 0)),
+    );
+  }
+
   private getPlanUpdate(message: OutputMessage): CopilotPlanUpdate | null {
     return parseCopilotPlanUpdate(message);
   }
@@ -383,6 +395,32 @@ export class DisplayItemProcessor {
       ) {
         last.repeatCount = (last.repeatCount ?? 1) + 1;
         last.bufferIndex = item.bufferIndex;
+        continue;
+      }
+
+      // Merge consecutive thinking-only turns into a single collapsible
+      // "Thought process" panel. Providers can finalize reasoning as several
+      // back-to-back assistant messages (distinct ids, each carrying one
+      // thinking block); rendered one-per-message that becomes a stack of
+      // "Thought process (1)" boxes. The ThoughtProcessComponent already shows
+      // multiple blocks with a count badge and per-block sub-headers, so fold
+      // adjacent groups together. Only merge when neither group carries a
+      // renderable response bubble, so a thinking turn that also produced
+      // assistant text keeps its text ordering intact.
+      if (
+        item.type === 'thought-group' &&
+        last?.type === 'thought-group' &&
+        !this.thoughtGroupHasRenderableResponse(last) &&
+        !this.thoughtGroupHasRenderableResponse(item)
+      ) {
+        // Build fresh arrays rather than pushing in place: the group's
+        // `thinking`/`thoughts` are references to the source message's own
+        // arrays, so a push would pollute store state. New references also flip
+        // the stable-items signature and change the child's input, so the
+        // panel re-renders with the added blocks.
+        last.thinking = [...(last.thinking ?? []), ...(item.thinking ?? [])];
+        last.thoughts = [...(last.thoughts ?? []), ...(item.thoughts ?? [])];
+        last.bufferIndex = item.bufferIndex ?? last.bufferIndex;
         continue;
       }
 

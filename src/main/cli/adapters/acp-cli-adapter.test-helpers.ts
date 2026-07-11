@@ -54,6 +54,10 @@ export class FakeAcpProcess extends EventEmitter {
     this.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`);
   }
 
+  respondError(id: string | number, code: number, message: string): void {
+    this.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } })}\n`);
+  }
+
   waitForMessage(predicate: (message: AcpJsonRpcMessage) => boolean): Promise<AcpJsonRpcMessage> {
     const existing = this.receivedMessages.find(predicate);
     if (existing) {

@@ -1061,6 +1061,29 @@ describe('InstanceManager', () => {
       expect(abort).not.toHaveBeenCalled();
     });
 
+    it('fails fast instead of delivering input when the instance terminates during the init wait', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+
+      // Simulate a wedged init whose promise only settles around termination —
+      // the exact shape of the "send lands in a terminated instance" incident.
+      let resolveInit!: () => void;
+      instance.readyPromise = new Promise<void>((res) => { resolveInit = res; });
+      instance.contextUsage = { used: 0, total: 200_000, percentage: 0 };
+      mockAdapterSendInput.mockClear();
+
+      const sendPromise = manager.sendInput(instance.id, 'wedged message');
+      const rejects = expect(sendPromise).rejects.toThrow(
+        'terminated while waiting to deliver input',
+      );
+
+      await manager.terminateInstance(instance.id);
+      resolveInit();
+      await rejects;
+
+      expect(mockAdapterSendInput).not.toHaveBeenCalled();
+    });
+
     it('scales the init-wait budget by context size, not the old fixed 30s cap', async () => {
       const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
       await instance.readyPromise;

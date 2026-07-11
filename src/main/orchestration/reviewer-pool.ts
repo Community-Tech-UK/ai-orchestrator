@@ -125,14 +125,18 @@ export class ReviewerPool {
     logger.info('Reviewer rate-limited', { cliType, cooldownMs });
   }
 
-  checkRateLimitRecovery(): void {
+  /** @returns the cliTypes whose rate limit was cleared this tick (for surfacing). */
+  checkRateLimitRecovery(): string[] {
     const now = Date.now();
+    const cleared: string[] = [];
     for (const reviewer of this.reviewers.values()) {
       if (reviewer.rateLimited && now >= reviewer.rateLimitResetAt) {
         reviewer.rateLimited = false;
+        cleared.push(reviewer.cliType);
         logger.info('Reviewer rate limit cleared', { cliType: reviewer.cliType });
       }
     }
+    return cleared;
   }
 
   checkAvailabilityRecovery(): void {

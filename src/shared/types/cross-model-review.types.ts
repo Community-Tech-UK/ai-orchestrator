@@ -9,6 +9,17 @@ export type ReviewOutputType = 'code' | 'plan' | 'architecture';
 /** Review verdict from a single reviewer */
 export type ReviewVerdict = 'APPROVE' | 'CONCERNS' | 'REJECT';
 
+export type ReviewProvenanceSource = 'remote' | 'local';
+
+export interface ReviewParticipantStatus {
+  reviewerId: string;
+  source: ReviewProvenanceSource;
+  status: 'used' | 'skipped' | 'failed';
+  selectorId?: string;
+  model?: string;
+  reason?: string;
+}
+
 /** Dimension score from a reviewer */
 export interface ReviewDimensionScore {
   reasoning: string;
@@ -19,6 +30,8 @@ export interface ReviewDimensionScore {
 /** Structured review result from a single reviewer */
 export interface ReviewResult {
   reviewerId: string;
+  /** Optional for backwards-compatible persisted history. */
+  source?: ReviewProvenanceSource;
   reviewType: 'structured' | 'tiered';
   scores: {
     correctness: ReviewDimensionScore;
@@ -47,6 +60,8 @@ export interface AggregatedReview {
   outputType: ReviewOutputType;
   reviewDepth: 'structured' | 'tiered';
   reviews: ReviewResult[];
+  /** Status of the additional local pass, including skips and failures. */
+  localReviewer?: ReviewParticipantStatus;
   hasDisagreement: boolean;
   timestamp: number;
 }
@@ -61,6 +76,12 @@ export interface CrossModelReviewStatus {
     totalReviews: number;
   }[];
   pendingReviews: number;
+  /**
+   * Configured reviewers currently excluded because detection can't find them.
+   * Included in the status snapshot so a freshly-loaded renderer can rehydrate
+   * its reviewer-health badges without waiting for the next change event.
+   */
+  unavailableReviewers?: { cli: string; error?: string }[];
 }
 
 /** Actions the user can take on a review */

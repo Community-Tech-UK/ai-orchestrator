@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { copyFile, mkdir, rm, truncate, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rm, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { migrate } from '../cas-schema';
@@ -389,6 +389,77 @@ describe('CodeIndexManager (incremental)', () => {
     );
 
     await largeManifestMgr.stop();
+  });
+
+  it('reconcileIndex re-indexes files edited while no watcher was running', async () => {
+    const result = await mgr.coldIndex(workDir);
+    const filePath = join(workDir, 'src/math.ts');
+
+    await writeFile(
+      filePath,
+      'export function subtract(a: number, b: number): number { return a - b; }\n',
+    );
+    // Force a distinct manifest mtime even on coarse filesystem clocks.
+    const future = new Date(Date.now() + 5_000);
+    await utimes(filePath, future, future);
+
+    const reconcile = await mgr.reconcileIndex(workDir);
+
+    const symbols = store
+      .listWorkspaceSymbols(result.workspaceHash)
+      .filter((symbol) => symbol.pathFromRoot === 'src/math.ts')
+      .map((symbol) => symbol.name);
+    expect(reconcile.changedFiles).toBe(1);
+    expect(reconcile.removedFiles).toBe(0);
+    expect(reconcile.cancelled).toBe(false);
+    expect(symbols).toContain('subtract');
+    expect(symbols).not.toContain('add');
+  });
+
+  it('reconcileIndex indexes new files and drops deleted ones', async () => {
+    const result = await mgr.coldIndex(workDir);
+
+    await writeFile(
+      join(workDir, 'src/created-offline.ts'),
+      'export function createdOffline(): number { return 1; }\n',
+    );
+    await rm(join(workDir, 'src/math.ts'), { force: true });
+
+    const reconcile = await mgr.reconcileIndex(workDir);
+
+    const paths = store
+      .listManifestEntries(result.workspaceHash)
+      .map((entry) => entry.pathFromRoot);
+    expect(reconcile.changedFiles).toBe(1);
+    expect(reconcile.removedFiles).toBe(1);
+    expect(paths).toEqual(['src/created-offline.ts']);
+  });
+
+  it('reconcileIndex leaves a clean index untouched', async () => {
+    const result = await mgr.coldIndex(workDir);
+    const rootBefore = store.getWorkspaceRoot(result.workspaceHash)?.merkleRootHash;
+    const events: string[] = [];
+    mgr.on('code-index:changed', (event: { paths: string[] }) => {
+      events.push(...event.paths);
+    });
+
+    const reconcile = await mgr.reconcileIndex(workDir);
+
+    expect(reconcile.changedFiles).toBe(0);
+    expect(reconcile.removedFiles).toBe(0);
+    expect(events).toEqual([]);
+    expect(store.getWorkspaceRoot(result.workspaceHash)?.merkleRootHash).toBe(rootBefore);
+  });
+
+  it('reconcileIndex aborts without touching the manifest when cancelled', async () => {
+    const result = await mgr.coldIndex(workDir);
+    await rm(join(workDir, 'src/math.ts'), { force: true });
+    store.requestCancel(result.workspaceHash);
+
+    const reconcile = await mgr.reconcileIndex(workDir);
+
+    expect(reconcile.cancelled).toBe(true);
+    expect(store.listManifestEntries(result.workspaceHash)).toHaveLength(1);
   });
 
   it('start watches the workspace and emits code-index:changed after edits', async () => {

@@ -25,6 +25,7 @@ const logger = getLogger('CodexHomeManager');
  */
 const SESSION_ARTIFACT_DIRS = ['sessions', 'archived_sessions'] as const;
 const SESSION_ARTIFACT_FILES = ['history.jsonl', 'session_index.jsonl'] as const;
+const THREAD_STATE_FILES = ['state_5.sqlite', 'state_5.sqlite-wal', 'state_5.sqlite-shm'] as const;
 
 /**
  * Persistent store for AIO-owned Codex session history. Lives outside
@@ -70,29 +71,29 @@ export class CodexHomeManager {
     this.cleanup();
     const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
     const codexDir = join(homeDir, '.codex');
-
-    if (!existsSync(codexDir)) {
-      logger.debug('No ~/.codex directory found, skipping CODEX_HOME override');
-      return null;
-    }
+    let tempDir: string | undefined;
 
     try {
       const configPath = join(codexDir, 'config.toml');
       const configContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
       const stripConfig = opts.stripUserMcp && configContent !== null && configContent.includes('[mcp_servers');
 
-      const tempDir = mkdtempSync(join(tmpdir(), opts.stripUserMcp ? 'codex-nomcp-' : 'codex-aio-'));
-      this.symlinkCodexHomeEntries(codexDir, tempDir, { includeConfig: !stripConfig });
+      tempDir = mkdtempSync(join(tmpdir(), opts.stripUserMcp ? 'codex-nomcp-' : 'codex-aio-'));
+      if (existsSync(codexDir)) {
+        this.symlinkCodexHomeEntries(codexDir, tempDir, { includeConfig: !stripConfig });
+      }
       if (stripConfig) {
         writeFileSync(join(tempDir, 'config.toml'), stripMcpServers(configContent), 'utf-8');
       }
       this.linkSessionStore(tempDir);
+      this.linkThreadStateStore(tempDir);
 
       this.codexHomeDir = tempDir;
       logger.info('Created session-isolated CODEX_HOME', { path: tempDir, mcpStripped: stripConfig });
       return tempDir;
     } catch (err) {
-      logger.warn('Failed to create session-isolated CODEX_HOME, sessions will land in ~/.codex', {
+      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+      logger.warn('Failed to create session-isolated CODEX_HOME', {
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
@@ -103,9 +104,10 @@ export class CodexHomeManager {
     this.cleanup();
     const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
     const codexDir = join(homeDir, '.codex');
+    let tempDir: string | undefined;
 
     try {
-      const tempDir = mkdtempSync(join(tmpdir(), 'codex-browser-mcp-'));
+      tempDir = mkdtempSync(join(tmpdir(), 'codex-browser-mcp-'));
       if (existsSync(codexDir)) {
         this.symlinkCodexHomeEntries(codexDir, tempDir);
       }
@@ -119,11 +121,13 @@ export class CodexHomeManager {
         .join('\n\n');
       writeFileSync(join(tempDir, 'config.toml'), nextConfig, 'utf-8');
       this.linkSessionStore(tempDir);
+      this.linkThreadStateStore(tempDir);
 
       this.codexHomeDir = tempDir;
       logger.info('Created Browser Gateway MCP CODEX_HOME', { path: tempDir });
       return tempDir;
     } catch (err) {
+      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
       logger.warn('Failed to create Browser Gateway MCP CODEX_HOME', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -150,12 +154,16 @@ export class CodexHomeManager {
     tempDir: string,
     opts: { includeConfig?: boolean } = {},
   ): void {
-    const sessionArtifacts: readonly string[] = [...SESSION_ARTIFACT_DIRS, ...SESSION_ARTIFACT_FILES];
+    const isolatedArtifacts: readonly string[] = [
+      ...SESSION_ARTIFACT_DIRS,
+      ...SESSION_ARTIFACT_FILES,
+      ...THREAD_STATE_FILES,
+    ];
     for (const entry of readdirSync(codexDir)) {
       if (entry === 'config.toml' && !opts.includeConfig) continue;
       // Session history is redirected to the AIO store (linkSessionStore),
       // never shared with the user's ~/.codex.
-      if (sessionArtifacts.includes(entry)) continue;
+      if (isolatedArtifacts.includes(entry)) continue;
 
       const source = join(codexDir, entry);
       const target = join(tempDir, entry);
@@ -219,6 +227,31 @@ export class CodexHomeManager {
         symlinkSync(target, join(tempDir, file), 'file');
       } catch (err) {
         logger.debug('Could not link persistent codex session file', {
+          file,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  /**
+   * Keeps AIO thread metadata in the same private persistent boundary as its
+   * rollouts. Sharing the user's state_5.sqlite makes the Codex app list AIO
+   * threads whose rollout paths belong to disposable prepared homes.
+   */
+  private linkThreadStateStore(tempDir: string): void {
+    const stateDir = getAioCodexStateDir();
+    mkdirSync(stateDir, { recursive: true });
+
+    for (const file of THREAD_STATE_FILES) {
+      try {
+        const target = join(stateDir, file);
+        if (file === 'state_5.sqlite' && !existsSync(target)) {
+          writeFileSync(target, '');
+        }
+        symlinkSync(target, join(tempDir, file), 'file');
+      } catch (err) {
+        logger.warn('Could not link private Codex thread state', {
           file,
           error: err instanceof Error ? err.message : String(err),
         });

@@ -16,6 +16,7 @@ import { initializePathValidator } from '../security/path-validator';
 import { getLogger } from '../logging/logger';
 import { initTruncationCleanup } from '../util/tool-output-truncation';
 import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manager';
+import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-cleanup';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { initializeArtifactCleanupMaintenance } from '../session/artifact-cleanup-maintenance';
@@ -413,6 +414,7 @@ export function createInitializationSteps(
       fn: () => setupCompactionCoordinator(instanceManager, windowManager),
     },
     { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
+    { name: 'Leaked AIO Codex thread cleanup', fn: () => { cleanupLeakedAioCodexThreads(); } },
     { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); } },
     { name: 'Artifact cleanup maintenance', fn: () => { initializeArtifactCleanupMaintenance(); } },
     {

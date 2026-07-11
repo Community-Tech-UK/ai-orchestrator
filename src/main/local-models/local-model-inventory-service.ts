@@ -8,6 +8,13 @@ import type {
   WorkerLocalModelCapability,
 } from '../../shared/types/worker-node.types';
 import { getRemoteNodeRosterService } from '../remote-node/remote-node-roster-service';
+import {
+  getCachedLocalReviewerQualification,
+  invalidateFailedLocalReviewerQualifications,
+  subscribeToLocalReviewerQualifications,
+  type LocalReviewerQualificationListener,
+  type LocalReviewerQualification,
+} from '../review/local-reviewer-capability-service';
 import { encodeLocalModelSelector } from './local-model-selector';
 
 export const LOCAL_MODEL_INVENTORY_UPDATED_EVENT = 'inventory-updated' as const;
@@ -19,6 +26,10 @@ interface RosterLike {
 export interface LocalModelInventoryServiceOptions {
   roster?: RosterLike;
   thisDeviceProbe?: () => Promise<WorkerLocalModelCapability[]>;
+  cachedQualification?: (target: Extract<ModelRuntimeTarget, { kind: 'local-model' }>) =>
+    LocalReviewerQualification | undefined;
+  invalidateFailedQualifications?: () => void;
+  qualificationUpdates?: (listener: LocalReviewerQualificationListener) => () => void;
 }
 
 export interface LocalModelInventoryUpdatedPayload {
@@ -28,9 +39,14 @@ export interface LocalModelInventoryUpdatedPayload {
 export class LocalModelInventoryService extends EventEmitter {
   private thisDeviceEndpoints: WorkerLocalModelCapability[] = [];
   private thisDeviceDiscoveredAt = 0;
+  private readonly unsubscribeQualifications: () => void;
 
   constructor(private readonly options: LocalModelInventoryServiceOptions = {}) {
     super();
+    const subscribe = options.qualificationUpdates ?? subscribeToLocalReviewerQualifications;
+    this.unsubscribeQualifications = subscribe(() => {
+      this.emit(LOCAL_MODEL_INVENTORY_UPDATED_EVENT, { models: this.list() });
+    });
   }
 
   list(): LocalModelInventoryEntry[] {
@@ -39,8 +55,9 @@ export class LocalModelInventoryService extends EventEmitter {
       ...entriesForThisDevice(
         this.thisDeviceEndpoints,
         this.thisDeviceDiscoveredAt || now,
+        this.cachedQualification(),
       ),
-      ...this.roster().list().flatMap((node) => entriesForNode(node, now)),
+      ...this.roster().list().flatMap((node) => entriesForNode(node, now, this.cachedQualification())),
     ];
   }
 
@@ -62,11 +79,18 @@ export class LocalModelInventoryService extends EventEmitter {
   }
 
   async refresh(): Promise<LocalModelInventoryEntry[]> {
+    (this.options.invalidateFailedQualifications
+      ?? invalidateFailedLocalReviewerQualifications)();
     this.thisDeviceEndpoints = await this.thisDeviceProbe();
     this.thisDeviceDiscoveredAt = Date.now();
     const models = this.list();
     this.emit(LOCAL_MODEL_INVENTORY_UPDATED_EVENT, { models });
     return models;
+  }
+
+  dispose(): void {
+    this.unsubscribeQualifications();
+    this.removeAllListeners();
   }
 
   private roster(): RosterLike {
@@ -77,6 +101,10 @@ export class LocalModelInventoryService extends EventEmitter {
     return this.options.thisDeviceProbe
       ? this.options.thisDeviceProbe()
       : detectThisDeviceLocalModelEndpoints();
+  }
+
+  private cachedQualification() {
+    return this.options.cachedQualification ?? getCachedLocalReviewerQualification;
   }
 }
 
@@ -93,7 +121,7 @@ async function detectThisDeviceLocalModelEndpoints(): Promise<WorkerLocalModelCa
 }
 
 async function probeThisDeviceOllama(): Promise<WorkerLocalModelCapability | null> {
-  const data = await fetchJson<{ models?: Array<{ name?: unknown }> }>(
+  const data = await fetchJson<{ models?: { name?: unknown }[] }>(
     `${THIS_DEVICE_OLLAMA_BASE_URL}/api/tags`,
   );
   if (!data) {
@@ -111,7 +139,7 @@ async function probeThisDeviceOllama(): Promise<WorkerLocalModelCapability | nul
 }
 
 async function probeThisDeviceLmStudio(): Promise<WorkerLocalModelCapability | null> {
-  const data = await fetchJson<{ data?: Array<{ id?: unknown }> }>(
+  const data = await fetchJson<{ data?: { id?: unknown }[] }>(
     `${THIS_DEVICE_LMSTUDIO_BASE_URL}/v1/models`,
   );
   if (!data) {
@@ -130,11 +158,11 @@ async function probeThisDeviceLmStudio(): Promise<WorkerLocalModelCapability | n
 }
 
 async function probeThisDeviceLmStudioLoadedModels() {
-  const data = await fetchJson<{ data?: Array<{
+  const data = await fetchJson<{ data?: {
     id?: unknown;
     state?: unknown;
     loaded_context_length?: unknown;
-  }> }>(`${THIS_DEVICE_LMSTUDIO_BASE_URL}/api/v0/models`);
+  }[] }>(`${THIS_DEVICE_LMSTUDIO_BASE_URL}/api/v0/models`);
   if (!data) {
     return undefined;
   }
@@ -170,13 +198,19 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 function entriesForThisDevice(
   endpoints: WorkerLocalModelCapability[],
   discoveredAt: number,
+  cachedQualification: NonNullable<LocalModelInventoryServiceOptions['cachedQualification']>,
 ): LocalModelInventoryEntry[] {
-  return endpoints.flatMap((endpoint) => entriesForThisDeviceEndpoint(endpoint, discoveredAt));
+  return endpoints.flatMap((endpoint) => entriesForThisDeviceEndpoint(
+    endpoint,
+    discoveredAt,
+    cachedQualification,
+  ));
 }
 
 function entriesForThisDeviceEndpoint(
   endpoint: WorkerLocalModelCapability,
   discoveredAt: number,
+  cachedQualification: NonNullable<LocalModelInventoryServiceOptions['cachedQualification']>,
 ): LocalModelInventoryEntry[] {
   const endpointId = endpoint.endpointId ?? endpoint.provider;
   const loadedById = new Map((endpoint.loadedModels ?? []).map((model) => [
@@ -186,13 +220,21 @@ function entriesForThisDeviceEndpoint(
 
   return endpoint.models.map((modelId) => {
     const loadedContextLength = loadedById.get(modelId);
-    return {
+    const target = {
+      kind: 'local-model' as const,
       selectorId: encodeLocalModelSelector({
         source: 'this-device',
         endpointProvider: endpoint.provider,
         endpointId,
         modelId,
       }),
+      source: 'this-device' as const,
+      endpointProvider: endpoint.provider,
+      endpointId,
+      modelId,
+    };
+    return {
+      selectorId: target.selectorId,
       source: 'this-device',
       endpointProvider: endpoint.provider,
       endpointId,
@@ -204,7 +246,7 @@ function entriesForThisDeviceEndpoint(
       capabilities: {
         streaming: true,
         multiTurn: true,
-        toolUse: 'none',
+        toolUse: cachedQualification(target)?.status === 'verified' ? 'verified' : 'none',
         vision: 'unknown',
       },
       discoveredAt,
@@ -215,9 +257,10 @@ function entriesForThisDeviceEndpoint(
 function entriesForNode(
   node: RemoteNodeRosterEntry,
   discoveredAt: number,
+  cachedQualification: NonNullable<LocalModelInventoryServiceOptions['cachedQualification']>,
 ): LocalModelInventoryEntry[] {
   return (node.capabilities.localModelEndpoints ?? []).flatMap((endpoint) =>
-    entriesForEndpoint(node, endpoint, discoveredAt),
+    entriesForEndpoint(node, endpoint, discoveredAt, cachedQualification),
   );
 }
 
@@ -225,6 +268,7 @@ function entriesForEndpoint(
   node: RemoteNodeRosterEntry,
   endpoint: WorkerLocalModelCapability,
   discoveredAt: number,
+  cachedQualification: NonNullable<LocalModelInventoryServiceOptions['cachedQualification']>,
 ): LocalModelInventoryEntry[] {
   const endpointId = endpoint.endpointId ?? endpoint.provider;
   const loadedById = new Map((endpoint.loadedModels ?? []).map((model) => [
@@ -234,7 +278,8 @@ function entriesForEndpoint(
 
   return endpoint.models.map((modelId) => {
     const loadedContextLength = loadedById.get(modelId);
-    return {
+    const target = {
+      kind: 'local-model' as const,
       selectorId: encodeLocalModelSelector({
         source: 'worker-node',
         nodeId: node.id,
@@ -242,6 +287,15 @@ function entriesForEndpoint(
         endpointId,
         modelId,
       }),
+      source: 'worker-node' as const,
+      nodeId: node.id,
+      nodeName: node.name,
+      endpointProvider: endpoint.provider,
+      endpointId,
+      modelId,
+    };
+    return {
+      selectorId: target.selectorId,
       source: 'worker-node',
       endpointProvider: endpoint.provider,
       endpointId,
@@ -256,7 +310,7 @@ function entriesForEndpoint(
       capabilities: {
         streaming: true,
         multiTurn: true,
-        toolUse: 'none',
+        toolUse: cachedQualification(target)?.status === 'verified' ? 'verified' : 'none',
         vision: 'unknown',
       },
       discoveredAt,
@@ -274,6 +328,6 @@ export function getLocalModelInventoryService(): LocalModelInventoryService {
 }
 
 export function _resetLocalModelInventoryServiceForTesting(): void {
-  localModelInventoryService?.removeAllListeners();
+  localModelInventoryService?.dispose();
   localModelInventoryService = null;
 }

@@ -25,6 +25,13 @@ import {
   type PingPongReviewer,
   type PingPongReviewResult,
 } from './agentic-pingpong-reviewer';
+import {
+  runLocalOnlyFreshEyesReview,
+  type FreshEyesFinding,
+  type LocalFreshEyesAdvisoryResult,
+  type LocalFreshEyesAdvisoryReviewer,
+} from './loop-fresh-eyes-reviewer';
+import { settlePromise, waitForSettlementOrAbort } from './abortable-promise-settlement';
 
 const logger = getLogger('LoopPingPong');
 
@@ -74,6 +81,8 @@ export interface PingPongGateDeps {
   foldReviewerSpend: (tokens: number, costCents: number) => void;
   /** Injectable reviewer (tests). Defaults to the real agentic reviewer. */
   reviewer?: PingPongReviewer;
+  /** Additional local-only advisory pass; never replaces the remote reviewer. */
+  localAdvisoryReviewer?: LocalFreshEyesAdvisoryReviewer;
   /** Optional subject classifier (P6); falls back to config/heuristic. */
   resolveSubject?: (state: LoopState, fullOutput: string) => Promise<PingPongSubject>;
   /**
@@ -144,6 +153,7 @@ function buildIntervention(
   review: PingPongReviewResult,
   blocking: readonly PingPongReviewFinding[],
   advisory: readonly PingPongReviewFinding[],
+  localAdvisory: readonly FreshEyesFinding[],
 ): string {
   const head =
     `Ping-pong reviewer (${review.reviewerProvider}) did NOT approve. ` +
@@ -164,11 +174,55 @@ function buildIntervention(
       ? `\n\nNon-blocking suggestions (optional):\n` +
         advisory.map((f, i) => `${i + 1}. [${f.severity}] ${f.title}${f.file ? ` (${f.file})` : ''}`).join('\n')
       : '';
+  const localAdvisoryBlock = buildLocalAdvisoryBlock(localAdvisory);
   const guidance =
     `\n\nEvaluate each finding on its merits. Fix the valid ones. For ones you ` +
     `disagree with, briefly justify and push back in your reply — do not capitulate ` +
     `to be agreeable. Then declare done only when you genuinely believe the work is complete.`;
-  return head + blockingBlock + advisoryBlock + guidance;
+  return head + blockingBlock + advisoryBlock + localAdvisoryBlock + guidance;
+}
+
+function buildLocalAdvisoryBlock(localAdvisory: readonly FreshEyesFinding[]): string {
+  return localAdvisory.length > 0
+    ? `\n\nLocal-model advisory evidence (visible for consideration, but not blocking unless a remote reviewer independently finds it):\n` +
+      localAdvisory.map((finding, index) =>
+        `${index + 1}. [${finding.severity}] ${finding.title}${finding.file ? ` (${finding.file})` : ''}\n` +
+        `   ${finding.body}`,
+      ).join('\n')
+    : '';
+}
+
+function localAdvisoryFailure(error: unknown): LocalFreshEyesAdvisoryResult {
+  const reason = error instanceof Error ? error.message : String(error);
+  return { status: 'failed', findings: [], summary: reason, reason };
+}
+
+function emitLocalAdvisoryStatus(
+  emit: LoopEmit,
+  state: LoopState,
+  seq: number,
+  stage: LoopStage,
+  local: LocalFreshEyesAdvisoryResult,
+): void {
+  const message = local.status === 'used'
+    ? local.findings.length === 0
+      ? 'Local advisory review completed cleanly.'
+      : `Local advisory review reported ${local.findings.length} non-blocking finding(s): ${local.findings.map((finding) => finding.title).join('; ')}`
+    : local.status === 'failed'
+      ? `Local advisory review failed: ${local.reason ?? local.summary}`
+      : `Local advisory review skipped: ${local.reason ?? local.summary}`;
+  emit('loop:activity', {
+    loopRunId: state.id,
+    seq,
+    stage,
+    timestamp: Date.now(),
+    kind: 'status',
+    message,
+    detail: {
+      localAdvisoryStatus: local.status,
+      advisoryFindings: local.findings,
+    },
+  });
 }
 
 function costCapExceeded(state: LoopState): boolean {
@@ -264,6 +318,7 @@ export async function evaluatePingPongCompletion(
   const diffCwd = state.config.executionCwd ?? state.config.workspaceCwd;
   const workspaceDiff = collectWorkspaceDiff(diffCwd);
   const reviewer = deps.reviewer ?? agenticPingPongReviewer;
+  const localAdvisoryReviewer = deps.localAdvisoryReviewer ?? runLocalOnlyFreshEyesReview;
   const timeoutMs = Math.max(60_000, (reviewCfg.timeoutSeconds || 0) * 1000 || DEFAULT_REVIEWER_TIMEOUT_MS);
 
   emit('loop:fresh-eyes-review-started', {
@@ -274,31 +329,89 @@ export async function evaluatePingPongCompletion(
     subject,
   });
 
+  const reviewerInput = {
+    loopRunId: state.id,
+    workspaceCwd: diffCwd,
+    goal: state.config.initialPrompt,
+    subject,
+    planFile: state.config.planFile,
+    builderProvider: state.config.provider,
+    reviewerProviderSetting: ppCfg.reviewerProvider ?? 'auto',
+    triedReviewerProviders: pp.triedReviewerProviders ?? [],
+    ledger: pp.ledger,
+    roundNumber: pp.roundCount + 1,
+    maxRounds,
+    diff: workspaceDiff.diff,
+    diffSource: workspaceDiff.source,
+    blockingSeverities: reviewCfg.blockingSeverities,
+    timeoutMs,
+    signal: deps.signal,
+    isCancelled: deps.isCancelled,
+    onSpawned: (id) => {
+      pp.inFlightReviewerInstanceId = id;
+      pp.inFlightRound = pp.roundCount + 1;
+    },
+  } satisfies Parameters<PingPongReviewer>[0];
+  const localInput = {
+    loopRunId: state.id,
+    workspaceCwd: diffCwd,
+    goal: state.config.initialPrompt,
+    iterationOutput: fullOutput,
+    diff: workspaceDiff.diff,
+    diffSource: workspaceDiff.source,
+    filesChangedThisIteration: iteration.filesChanged.map((file) => file.path),
+    uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
+    verifyOutputExcerpt: '',
+    signal: 'ping-pong',
+    abortSignal: deps.signal,
+    config: reviewCfg,
+    builderProvider: state.config.provider,
+    planFile: state.config.planFile,
+    subject,
+  } satisfies Parameters<LocalFreshEyesAdvisoryReviewer>[0];
+
   let review: PingPongReviewResult;
+  let localAdvisory: LocalFreshEyesAdvisoryResult;
+  let roundCancelled = false;
   try {
-    review = await reviewer({
-      loopRunId: state.id,
-      workspaceCwd: state.config.workspaceCwd,
-      goal: state.config.initialPrompt,
-      subject,
-      planFile: state.config.planFile,
-      builderProvider: state.config.provider,
-      reviewerProviderSetting: ppCfg.reviewerProvider ?? 'auto',
-      triedReviewerProviders: pp.triedReviewerProviders ?? [],
-      ledger: pp.ledger,
-      roundNumber: pp.roundCount + 1,
-      maxRounds,
-      diff: workspaceDiff.diff,
-      diffSource: workspaceDiff.source,
-      blockingSeverities: reviewCfg.blockingSeverities,
-      timeoutMs,
-      signal: deps.signal,
-      isCancelled: deps.isCancelled,
-      onSpawned: (id) => {
-        pp.inFlightReviewerInstanceId = id;
-        pp.inFlightRound = pp.roundCount + 1;
-      },
-    });
+    const remoteSettlement = settlePromise(() => reviewer(reviewerInput));
+    const localSettlement = settlePromise(() => localAdvisoryReviewer(localInput));
+    const remoteResult = await remoteSettlement;
+    if (remoteResult.status === 'fulfilled') {
+      review = remoteResult.value;
+    } else {
+      const err = remoteResult.reason;
+      review = {
+        verdict: 'UNRELIABLE',
+        reviewerProvider: pp.lastReviewerProvider ?? '',
+        findings: [],
+        ledgerClassifications: [],
+        summary: '',
+        tokensUsed: 0,
+        costCents: 0,
+        reason: err instanceof Error ? err.message : String(err),
+        fault: 'infra_error',
+      };
+    }
+    const remoteCancelled = deps.signal.aborted || deps.isCancelled() ||
+      (remoteResult.status === 'fulfilled' && remoteResult.value.spawnOutcome === 'cancelled');
+    roundCancelled = remoteCancelled;
+    if (remoteCancelled) {
+      // The settlement promise consumes any eventual rejection, but its late
+      // value is deliberately detached from completion authority and events.
+      void localSettlement;
+      localAdvisory = localAdvisoryFailure('cancelled with the ping-pong review');
+    } else {
+      const localResult = await waitForSettlementOrAbort(localSettlement, deps.signal);
+      if (localResult.status === 'aborted') {
+        roundCancelled = true;
+        localAdvisory = localAdvisoryFailure('cancelled with the ping-pong review');
+      } else {
+        localAdvisory = localResult.status === 'fulfilled'
+          ? localResult.value
+          : localAdvisoryFailure(localResult.reason);
+      }
+    }
   } catch (err) {
     // A throw is treated as UNRELIABLE (fail-closed), never a pass. An unexpected
     // exception is an infrastructure problem with the reviewer, not the reviewer
@@ -314,10 +427,19 @@ export async function evaluatePingPongCompletion(
       reason: err instanceof Error ? err.message : String(err),
       fault: 'infra_error',
     };
+    localAdvisory = localAdvisoryFailure(err);
   } finally {
     pp.inFlightReviewerInstanceId = undefined;
     pp.inFlightRound = undefined;
   }
+
+  const advisoryFindings = localAdvisory.status === 'used'
+    ? localAdvisory.findings.map((finding) => ({ ...finding, advisory: true as const }))
+    : [];
+  emitLocalAdvisoryStatus(emit, state, seq, stage, {
+    ...localAdvisory,
+    findings: advisoryFindings,
+  });
 
   // Fold reviewer spend into the loop budget so the cost cap bounds ping-pong.
   pp.reviewerTokensUsed += review.tokensUsed;
@@ -327,7 +449,7 @@ export async function evaluatePingPongCompletion(
 
   // Cancellation (pause/cancel) — NOT a round, NOT unreliable. Let the loop's
   // top-of-iteration pause handling take over.
-  if (review.spawnOutcome === 'cancelled') {
+  if (roundCancelled || review.spawnOutcome === 'cancelled') {
     emit('loop:activity', {
       loopRunId: state.id,
       seq,
@@ -377,6 +499,8 @@ export async function evaluatePingPongCompletion(
       error: review.reason ?? 'reviewer unreliable',
       reviewerProvider: review.reviewerProvider,
       fault,
+      advisoryFindings,
+      localAdvisoryStatus: localAdvisory.status,
     });
     logger.warn('Ping-pong reviewer round UNRELIABLE', {
       loopRunId: state.id,
@@ -433,7 +557,8 @@ export async function evaluatePingPongCompletion(
           createLoopPendingInput(
             'The ping-pong reviewer APPROVED, but the configured verify command FAILED. ' +
             'Treat this as a blocking issue and fix it before re-declaring done:\n\n' +
-            (verify.output.slice(0, 8192) || '(verify produced no output)'),
+            (verify.output.slice(0, 8192) || '(verify produced no output)') +
+            buildLocalAdvisoryBlock(advisoryFindings),
           ),
         );
         emit('loop:fresh-eyes-review-blocked', {
@@ -443,6 +568,8 @@ export async function evaluatePingPongCompletion(
           reviewersUsed: [review.reviewerProvider],
           blockingFindings: [],
           summary: 'reviewer approved but verify failed',
+          advisoryFindings,
+          localAdvisoryStatus: localAdvisory.status,
         });
         return null;
       }
@@ -456,6 +583,8 @@ export async function evaluatePingPongCompletion(
       round,
       reviewersUsed: [review.reviewerProvider],
       summary: review.summary,
+      advisoryFindings,
+      localAdvisoryStatus: localAdvisory.status,
     });
     return {
       status: 'completed',
@@ -479,9 +608,13 @@ export async function evaluatePingPongCompletion(
     reviewersUsed: [review.reviewerProvider],
     blockingFindings: blocking,
     summary: review.summary,
+    advisoryFindings,
+    localAdvisoryStatus: localAdvisory.status,
   });
 
-  state.pendingInterventions.push(createLoopPendingInput(buildIntervention(review, blocking, advisory)));
+  state.pendingInterventions.push(createLoopPendingInput(
+    buildIntervention(review, blocking, advisory, advisoryFindings),
+  ));
 
   if (blocking.length === 0) {
     // Low-only churn round.

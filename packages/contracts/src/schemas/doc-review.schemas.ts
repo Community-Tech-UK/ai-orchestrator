@@ -92,7 +92,7 @@ export type DocReviewOpenExternalPayload = z.infer<typeof DocReviewOpenExternalP
 
 // ── Change event (main → renderer) ───────────────────────────────────────────
 
-export const DocReviewChangeKindSchema = z.enum(['created', 'updated', 'decided', 'dismissed']);
+export const DocReviewChangeKindSchema = z.enum(['created', 'decided', 'dismissed']);
 export type DocReviewChangeKind = z.infer<typeof DocReviewChangeKindSchema>;
 
 export const DocReviewChangedEventSchema = z

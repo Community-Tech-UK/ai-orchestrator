@@ -141,6 +141,122 @@ describe('agenticPingPongReviewer', () => {
     }));
   });
 
+  it('uses Grok when explicitly configured, installed, and different from the builder', async () => {
+    detectionTestState.availableClis = [
+      { name: 'claude', installed: true },
+      { name: 'grok', installed: true },
+    ];
+    mockApprovedReviewSession();
+
+    const result = await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'claude',
+      reviewerProviderSetting: 'grok',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    expect(result.verdict).toBe('APPROVED');
+    expect(result.reviewerProvider).toBe('grok');
+    expect(runReviewSession).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'grok',
+    }));
+  });
+
+  it.each([
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+  ])('keeps canonical remote provider %s eligible when explicitly configured', async (provider) => {
+    detectionTestState.availableClis = [
+      { name: 'claude', installed: true },
+      { name: 'codex', installed: true },
+      { name: provider, installed: true },
+    ];
+    mockApprovedReviewSession();
+
+    const result = await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: provider === 'claude' ? 'codex' : 'claude',
+      reviewerProviderSetting: provider,
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    expect(result.reviewerProvider).toBe(provider);
+    expect(runReviewSession).toHaveBeenCalledWith(expect.objectContaining({ provider }));
+  });
+
+  it('falls back instead of allowing an explicitly configured provider to review itself', async () => {
+    detectionTestState.availableClis = [
+      { name: 'claude', installed: true },
+      { name: 'codex', installed: true },
+    ];
+    mockApprovedReviewSession();
+
+    const result = await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'claude',
+      reviewerProviderSetting: 'claude',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    expect(result.reviewerProvider).toBe('codex');
+  });
+
+  it('widens auto selection through Grok after preferred and legacy-aliased providers were tried', async () => {
+    detectionTestState.availableClis = [
+      { name: 'claude', installed: true },
+      { name: 'codex', installed: true },
+      { name: 'gemini', installed: true },
+      { name: 'antigravity', installed: true },
+      { name: 'grok', installed: true },
+    ];
+    mockApprovedReviewSession();
+
+    const result = await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'cursor',
+      reviewerProviderSetting: 'auto',
+      triedReviewerProviders: ['codex', 'claude', 'gemini'],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    expect(result.reviewerProvider).toBe('grok');
+  });
+
   it('keeps Claude eligible for auto ping-pong review when Codex is the builder', async () => {
     mockApprovedReviewSession();
 
@@ -163,6 +279,29 @@ describe('agenticPingPongReviewer', () => {
     expect(result.reviewerProvider).toBe('claude');
     expect(runReviewSession).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'claude',
+    }));
+  });
+
+  it('spawns the remote reviewer in the requested isolated checkout', async () => {
+    mockApprovedReviewSession();
+
+    await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo/.worktrees/isolated',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'claude',
+      reviewerProviderSetting: 'codex',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    expect(runReviewSession).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: '/repo/.worktrees/isolated',
     }));
   });
 

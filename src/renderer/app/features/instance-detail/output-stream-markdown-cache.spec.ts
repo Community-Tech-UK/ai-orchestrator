@@ -70,6 +70,30 @@ describe('MarkdownRenderCache', () => {
     expect(renderFn).toHaveBeenCalledTimes(202); // msg-1 was evicted
   });
 
+  it('promotes a streaming-updated entry so it is not evicted before older untouched ones', () => {
+    const { cache, renderFn } = makeCache();
+
+    for (let i = 0; i < 200; i++) {
+      cache.render(`content-${i}`, `msg-${i}`);
+    }
+    expect(renderFn).toHaveBeenCalledTimes(200);
+
+    // Streaming update to the OLDEST entry: same id, changed content (a cache miss). This
+    // must move it to the most-recent position — Map.set on an existing key would otherwise
+    // leave it at its original slot and let it be evicted as "oldest" despite recent activity.
+    cache.render('content-0 updated', 'msg-0');
+    expect(renderFn).toHaveBeenCalledTimes(201);
+
+    // One fresh insert evicts the now-oldest untouched entry (msg-1), NOT the updated msg-0.
+    cache.render('content-200', 'msg-200');
+
+    cache.render('content-0 updated', 'msg-0');
+    expect(renderFn).toHaveBeenCalledTimes(202); // msg-0 still cached at its updated content
+
+    cache.render('content-1', 'msg-1');
+    expect(renderFn).toHaveBeenCalledTimes(203); // msg-1 was the one evicted
+  });
+
   it('returns empty output for empty content without rendering', () => {
     const { cache, renderFn } = makeCache();
 

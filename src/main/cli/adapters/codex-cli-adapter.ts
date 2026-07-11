@@ -3311,10 +3311,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
       : kind === 'app-server'
         ? this.codexHome.prepareSessionIsolatedHome()
         : this.codexHome.prepareMcpFreeHome();
-    if (codexHomeDir) {
-      this.preparedHomeKind = this.cliConfig.mcpServersConfigToml ? 'mcp-toml' : kind;
-      this.config.env = { ...this.config.env, CODEX_HOME: codexHomeDir };
-    }
+    if (!codexHomeDir) throw new Error('Failed to prepare isolated CODEX_HOME; refusing to start Codex without state isolation');
+    this.preparedHomeKind = this.cliConfig.mcpServersConfigToml ? 'mcp-toml' : kind;
+    this.config.env = { ...this.config.env, CODEX_HOME: codexHomeDir };
   }
 
   private cleanupCodexHome(): void {

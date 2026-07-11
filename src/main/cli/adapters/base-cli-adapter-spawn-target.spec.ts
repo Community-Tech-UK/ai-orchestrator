@@ -4,6 +4,14 @@ vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }),
 }));
 
+// Deterministic control over POSIX which/where resolution. Default: not found
+// (returns null → command stays bare), matching a machine where the CLI is not
+// on PATH. Individual tests override per case.
+const resolveCommandOnPathMock = vi.fn<(command: string) => string | null>(() => null);
+vi.mock('../cli-path-resolver', () => ({
+  resolveCommandOnPath: (...args: unknown[]) => resolveCommandOnPathMock(...(args as [string])),
+}));
+
 import type { WindowsCliLauncher } from './windows-cli-spawn';
 
 let launcher: WindowsCliLauncher | null = {
@@ -57,6 +65,8 @@ describe('BaseCliAdapter.resolveSpawnTarget (Windows launcher routing)', () => {
       prefixArgs: [],
     };
     resolveMock.mockClear();
+    resolveCommandOnPathMock.mockReset();
+    resolveCommandOnPathMock.mockReturnValue(null);
   });
 
   it('on win32 with shell:true, spawns a native-exe launcher directly with shell:false', () => {
@@ -100,12 +110,49 @@ describe('BaseCliAdapter.resolveSpawnTarget (Windows launcher routing)', () => {
     expect(resolveMock).toHaveBeenCalledTimes(1);
   });
 
-  it('off win32, returns the base target unchanged and never resolves a launcher', () => {
+  it('off win32, returns the base target unchanged when the command is not on PATH', () => {
     setPlatform('darwin');
+    resolveCommandOnPathMock.mockReturnValue(null);
     const adapter = new ClaudeCliAdapter();
     const target = resolveTarget(adapter, 'claude', ['--version'], { shell: false });
     expect(target).toEqual({ command: 'claude', args: ['--version'], shell: false });
     expect(resolveMock).not.toHaveBeenCalled();
+  });
+
+  it('off win32, resolves a bare command to its which/where absolute path', () => {
+    setPlatform('darwin');
+    resolveCommandOnPathMock.mockReturnValue('/Users/suas/.local/bin/agy');
+    const adapter = new ClaudeCliAdapter();
+    const target = resolveTarget(adapter, 'agy', ['--version'], { shell: false });
+    expect(target).toEqual({ command: '/Users/suas/.local/bin/agy', args: ['--version'], shell: false });
+    expect(resolveMock).not.toHaveBeenCalled();
+  });
+
+  it('off win32, leaves an already-absolute command untouched and never calls the resolver', () => {
+    setPlatform('darwin');
+    const adapter = new ClaudeCliAdapter();
+    const target = resolveTarget(adapter, '/opt/homebrew/bin/claude', ['--version'], { shell: false });
+    expect(target).toEqual({ command: '/opt/homebrew/bin/claude', args: ['--version'], shell: false });
+    expect(resolveCommandOnPathMock).not.toHaveBeenCalled();
+  });
+
+  it('off win32, memoizes POSIX resolution per command (resolver invoked at most once)', () => {
+    setPlatform('darwin');
+    resolveCommandOnPathMock.mockReturnValue('/Users/suas/.local/bin/agy');
+    const adapter = new ClaudeCliAdapter();
+    resolveTarget(adapter, 'agy', ['--version'], { shell: false });
+    resolveTarget(adapter, 'agy', ['--help'], { shell: false });
+    expect(resolveCommandOnPathMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the bare command when the resolver throws', () => {
+    setPlatform('darwin');
+    resolveCommandOnPathMock.mockImplementation(() => {
+      throw new Error('which unavailable');
+    });
+    const adapter = new ClaudeCliAdapter();
+    const target = resolveTarget(adapter, 'agy', ['--version'], { shell: false });
+    expect(target).toEqual({ command: 'agy', args: ['--version'], shell: false });
   });
 
   it('on win32 with shell already false, leaves the target untouched', () => {
