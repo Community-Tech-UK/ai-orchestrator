@@ -557,7 +557,7 @@ function normalizeEvidence(evidence: readonly unknown[]): LoopTerminalIntentEvid
 async function writeJsonAtomic(filePath: string, value: unknown, mode: number): Promise<void> {
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
   const handle = await fs.open(tmp, 'w', mode);
   try {
     await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
