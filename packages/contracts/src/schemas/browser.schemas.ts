@@ -16,8 +16,7 @@ const urlSchema = z.string().min(1).max(2000);
 const optionalUrlSchema = urlSchema.optional();
 const webUrlSchema = urlSchema.refine((value) => {
   try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    return ['http:', 'https:'].includes(new URL(value).protocol);
   } catch {
     return false;
   }
@@ -32,6 +31,7 @@ export const BrowserActionClassSchema = z.enum([
   'file-download',
   'submit',
   'destructive',
+  'financial_identity', 'sensitive_identity',
   'payment',
   'unknown',
 ]);
@@ -528,7 +528,7 @@ export const BrowserSelectRequestSchema = BrowserTargetRequestSchema.extend({
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserSelectRequest = z.infer<typeof BrowserSelectRequestSchema>;
 
-export { BrowserFillPlanStepSchema, BrowserExecuteFillPlanRequestSchema, BrowserFillCredentialRequestSchema, BrowserCreateAgentCredentialRequestSchema, type BrowserFillPlanStep, type BrowserExecuteFillPlanRequest, type BrowserFillCredentialRequest, type BrowserCreateAgentCredentialRequest } from './browser-form-fill.schemas';
+export { BrowserFillPlanStepSchema, BrowserExecuteFillPlanRequestSchema, BrowserFillCredentialRequestSchema, BrowserFillSecretRequestSchema, BrowserCreateAgentCredentialRequestSchema, type BrowserFillPlanStep, type BrowserExecuteFillPlanRequest, type BrowserFillCredentialRequest, type BrowserFillSecretRequest, type BrowserCreateAgentCredentialRequest } from './browser-form-fill.schemas';
 
 export const BrowserUploadFileRequestSchema = BrowserTargetRequestSchema.extend({
   selector: z.string().min(1).max(2000),

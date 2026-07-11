@@ -13,7 +13,7 @@ type BrowserGrantProposalPayload = {
     includeSubdomains: boolean;
   }>;
   allowedActionClasses: Array<
-    'read' | 'navigate' | 'input' | 'credential' | 'file-upload' | 'file-download' | 'submit' | 'destructive' | 'payment' | 'unknown'
+    'read' | 'navigate' | 'input' | 'credential' | 'file-upload' | 'file-download' | 'submit' | 'destructive' | 'financial_identity' | 'sensitive_identity' | 'payment' | 'unknown'
   >;
   allowExternalNavigation: boolean;
   uploadRoots?: string[];

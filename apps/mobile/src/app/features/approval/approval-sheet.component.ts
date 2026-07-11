@@ -30,8 +30,8 @@ interface FileDiffView {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <button type="button" class="scrim" aria-label="Dismiss" (click)="dismiss.emit()"></button>
-    <div class="sheet" role="dialog" aria-modal="true">
-      <div class="grabber"></div>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Action required">
+      <div class="grabber" aria-hidden="true"></div>
 
       @if (prompt().kind === 'permission') {
         <h2 class="title">{{ prompt().toolName ? prompt().toolName + ' needs approval' : 'Approve action?' }}</h2>
@@ -58,8 +58,15 @@ interface FileDiffView {
         }
 
         <div class="scope">
-          @for (s of scopes; track s) {
-            <button class="seg" [class.active]="scope() === s" (click)="scope.set(s)">{{ s }}</button>
+          @for (scopeOption of scopes; track scopeOption) {
+            <button
+              class="seg"
+              type="button"
+              [class.active]="scope() === scopeOption"
+              [attr.data-scope]="scopeOption"
+              [attr.aria-pressed]="scope() === scopeOption"
+              (click)="scope.set(scopeOption)"
+            >{{ scopeOption }}</button>
           }
         </div>
 
@@ -124,21 +131,24 @@ interface FileDiffView {
   `,
   styles: [
     `
-      :host { position: fixed; inset: 0; z-index: 50; display: block; }
-      .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); border: none; padding: 0; cursor: default; }
+      :host { position: fixed; inset: 0; z-index: 60; display: block; }
+      .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.62); border: none; padding: 0; cursor: default; }
       .sheet {
-        position: absolute; left: 0; right: 0; bottom: 0;
-        background: var(--surface-2, #1c1c1e);
-        border-radius: 20px 20px 0 0; padding: 8px 20px calc(20px + env(safe-area-inset-bottom));
-        box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
-        animation: slideUp 0.18s ease-out;
+        position: absolute; left: 0; right: 0; bottom: 0; max-height: min(86dvh, 760px);
+        overflow-y: auto; overscroll-behavior: contain;
+        border: 1px solid var(--separator); border-bottom: 0;
+        background: var(--surface-raised, #1c1c1e);
+        border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+        padding: 8px var(--mobile-gutter) calc(20px + env(safe-area-inset-bottom));
+        box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.55);
+        animation: slideUp var(--motion-enter) cubic-bezier(0.22, 1, 0.36, 1);
       }
-      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      @keyframes slideUp { from { transform: translateY(18px); opacity: 0; } }
       .grabber { width: 36px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.25); margin: 6px auto 14px; }
       .title { font-size: 20px; font-weight: 700; margin: 0 0 12px; }
       .cmd {
-        background: var(--bg, #000); color: var(--text, #fff); border-radius: 10px; padding: 12px;
-        font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px;
+        background: var(--bg, #000); color: var(--text, #fff); border-radius: var(--radius-md); padding: 12px;
+        font-family: var(--font-family-mono); font-size: 13px;
         white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; margin: 0 0 16px;
       }
       .diff-head {
@@ -146,7 +156,7 @@ interface FileDiffView {
         margin: 0 0 6px;
       }
       .diff-path {
-        font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px;
+        font-family: var(--font-family-mono); font-size: 12px;
         color: var(--text-secondary, #8e8e93);
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
       }
@@ -159,7 +169,7 @@ interface FileDiffView {
         -webkit-overflow-scrolling: touch;
       }
       .diff-row {
-        font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.5;
+        font-family: var(--font-family-mono); font-size: 12px; line-height: 1.5;
         padding: 0 12px; white-space: pre; min-width: max-content;
       }
       .d-add { background: rgba(52, 199, 89, 0.16); color: #7ee2a0; }
@@ -176,7 +186,7 @@ interface FileDiffView {
       .option-button {
         display: grid; gap: 4px; width: 100%; text-align: left;
         border: none; border-radius: 14px; padding: 14px 16px;
-        background: var(--surface-3, #2c2c2e); color: var(--text, #fff);
+        background: var(--surface-2, #2c2c2e); color: var(--text, #fff);
       }
       .option-label { font-size: 16px; font-weight: 600; }
       .option-description { color: var(--text-secondary, #8e8e93); font-size: 13px; }
@@ -187,17 +197,17 @@ interface FileDiffView {
         background: var(--bg, #000); color: var(--text, #fff); resize: vertical;
         font: inherit;
       }
-      .scope { display: flex; gap: 6px; background: var(--bg, #000); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
+      .scope { display: flex; gap: 4px; background: var(--bg, #000); border-radius: var(--radius-md); padding: 4px; margin-bottom: 16px; }
       .seg {
         flex: 1; border: none; background: transparent; color: var(--text-secondary, #8e8e93);
-        padding: 8px; border-radius: 8px; text-transform: capitalize; font-size: 14px;
+        min-height: var(--control-size); padding: 8px; border-radius: var(--radius-sm); text-transform: capitalize; font-size: 14px;
       }
-      .seg.active { background: var(--surface-3, #2c2c2e); color: var(--text, #fff); }
+      .seg.active { background: var(--surface-2, #2c2c2e); color: var(--text, #fff); }
       .actions { display: flex; gap: 12px; }
-      .actions button { flex: 1; border: none; border-radius: 14px; padding: 16px; font-size: 17px; font-weight: 600; }
+      .actions button { flex: 1; min-height: 52px; border: none; border-radius: var(--radius-md); padding: 12px 16px; font-size: 17px; font-weight: 600; }
       .actions button:disabled { opacity: 0.5; }
-      .deny { background: var(--surface-3, #2c2c2e); color: var(--accent-error, #ff453a); }
-      .allow { background: var(--accent-online, #34c759); color: #fff; }
+      .deny { background: var(--surface-2, #2c2c2e); color: var(--accent-error, #ff453a); }
+      .allow { background: var(--primitive-white); color: var(--primitive-black); }
     `,
   ],
 })

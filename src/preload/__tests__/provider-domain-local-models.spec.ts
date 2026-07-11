@@ -14,6 +14,34 @@ describe('providerDomain local model inventory', () => {
     expect(invoke).toHaveBeenCalledWith('models:local-model-inventory');
   });
 
+  it('invokes local reviewer qualification with the exact selector', async () => {
+    const invoke = vi.fn().mockResolvedValue({ success: true, data: { status: 'verified' } });
+    const ipcRenderer = { invoke } as unknown as IpcRenderer;
+    const domain = createProviderDomain(ipcRenderer, IPC_CHANNELS);
+
+    await domain.qualifyLocalReviewer('lm://this-device/ollama/ollama/qwen');
+
+    expect(invoke).toHaveBeenCalledWith('models:local-reviewer-qualify', {
+      selectorId: 'lm://this-device/ollama/ollama/qwen',
+    });
+  });
+
+  it('authenticates local reviewer qualification requests', async () => {
+    const invoke = vi.fn().mockResolvedValue({ success: true, data: { status: 'verified' } });
+    const ipcRenderer = { invoke } as unknown as IpcRenderer;
+    const domain = createProviderDomain(ipcRenderer, IPC_CHANNELS, (payload = {}) => ({
+      ...payload,
+      ipcAuthToken: 'token',
+    }));
+
+    await domain.qualifyLocalReviewer('lm://this-device/ollama/ollama/qwen');
+
+    expect(invoke).toHaveBeenCalledWith('models:local-reviewer-qualify', {
+      selectorId: 'lm://this-device/ollama/ollama/qwen',
+      ipcAuthToken: 'token',
+    });
+  });
+
   it('subscribes to local model inventory update pushes', () => {
     const on = vi.fn();
     const removeListener = vi.fn();

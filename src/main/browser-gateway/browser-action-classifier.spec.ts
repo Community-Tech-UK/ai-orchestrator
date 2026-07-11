@@ -73,17 +73,83 @@ describe('browser-action-classifier', () => {
     ).toMatchObject({ actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON });
   });
 
-  it('hard-stops payment fields as a distinct payment class (never a credential)', () => {
-    for (const elementContext of [
-      { label: 'Card number' },
-      { inputName: 'cvv', label: 'CVV' },
-      { label: 'Sort code' },
-      { label: 'IBAN' },
-    ]) {
+  it('hard-stops genuine card-payment fields as a distinct payment class (never a credential)', () => {
+    for (const elementContext of [{ label: 'Card number' }, { inputName: 'cvv', label: 'CVV' }]) {
       expect(
         classifyBrowserAction({ toolName: 'browser.type', elementContext }),
       ).toMatchObject({ actionClass: 'payment', hardStop: true });
     }
+  });
+
+  // Supplier bank onboarding is financial_identity, NOT payment: it is an
+  // identity/onboarding form, not a monetary transaction. Hard-stopped from raw
+  // typing (broker-only), but a distinct, grantable-via-broker class.
+  it('classifies bank-identity fields as financial_identity (broker-only, not payment)', () => {
+    for (const elementContext of [
+      { label: 'Sort code' },
+      { label: 'IBAN' },
+      { label: 'Account number' },
+      { label: 'BIC / SWIFT' },
+    ]) {
+      expect(
+        classifyBrowserAction({ toolName: 'browser.type', elementContext }),
+      ).toMatchObject({ actionClass: 'financial_identity', hardStop: true });
+    }
+  });
+
+  it('classifies tax / national-id fields as sensitive_identity (broker-only)', () => {
+    for (const elementContext of [
+      { label: 'VAT number' },
+      { label: 'National Insurance number' },
+      { label: 'Unique Taxpayer Reference (UTR)' },
+    ]) {
+      expect(
+        classifyBrowserAction({ toolName: 'browser.type', elementContext }),
+      ).toMatchObject({ actionClass: 'sensitive_identity', hardStop: true });
+    }
+  });
+
+  // Regression for the Constellia insurance-upload false positive: an expiry
+  // date on its own is ordinary (insurance certificates, accreditations, IDs and
+  // contracts all carry them). It must NOT be classified payment.
+  it('does not classify a lone expiry date as payment', () => {
+    for (const elementContext of [
+      { label: 'Insurance certificate expiry date', inputType: 'text' },
+      { inputName: 'expiryDate', placeholder: 'Expiration date', inputType: 'date' },
+      { label: 'Policy valid until' },
+    ]) {
+      const result = classifyBrowserAction({ toolName: 'browser.type', elementContext });
+      expect(result.actionClass).not.toBe('payment');
+      expect(result.hardStop).toBe(false);
+    }
+  });
+
+  // The other half of the same Constellia failure: the ordinary "Save" button on
+  // a document-upload section sat next to an expiry field and was mis-read as
+  // payment. With expiry no longer a payment cue it must classify as an ordinary
+  // (non-hard-stop) submit.
+  it('classifies a section Save button next to an expiry field as an ordinary submit', () => {
+    const result = classifyBrowserAction({
+      toolName: 'browser.click',
+      actionHint: 'save section',
+      elementContext: {
+        role: 'button',
+        accessibleName: 'Save',
+        nearbyText: 'Insurance certificate. Expiry date. Upload document.',
+      },
+    });
+    expect(result).toMatchObject({ actionClass: 'submit', hardStop: false });
+  });
+
+  // A real payment surface still hard-blocks: a card field remains payment even
+  // when it appears inside a multi-field fill_form.
+  it('hard-stops a fill_form that contains a genuine card-payment field', () => {
+    const result = classifyBrowserFillForm([
+      { selector: '#name', elementContext: { label: 'Full name', inputType: 'text' } },
+      { selector: '#card', elementContext: { label: 'Card number', inputType: 'text' } },
+      { selector: '#exp', elementContext: { label: 'Expiry date', inputType: 'text' } },
+    ]);
+    expect(result).toMatchObject({ actionClass: 'payment', hardStop: true });
   });
 
   it('hard-stops legal declarations for human review / pre-approval', () => {

@@ -61,6 +61,30 @@ describe('CrossModelReviewIndicatorComponent local review authority', () => {
     expect(component.tooltip()).toContain('advisory');
   });
 
+  it('does not treat a skipped local reviewer as advisory', () => {
+    current.set(review([result('codex', undefined)], {
+      reviewerId: 'local-model', source: 'local', status: 'skipped', reason: 'unavailable',
+    }));
+    const component = TestBed.runInInjectionContext(() => new CrossModelReviewIndicatorComponent());
+    (component as unknown as { instanceId: ReturnType<typeof signal<string>> }).instanceId = signal('inst-1');
+
+    expect(component.hasLocalAdvisory()).toBe(false);
+    expect(component.hasLocalFailure()).toBe(false);
+    expect(component.isVerified()).toBe(true);
+  });
+
+  it('flags a local-only failure as a failure, not an advisory', () => {
+    current.set(review([], {
+      reviewerId: 'local-model', source: 'local', status: 'failed', reason: 'endpoint stopped',
+    }));
+    const component = TestBed.runInInjectionContext(() => new CrossModelReviewIndicatorComponent());
+    (component as unknown as { instanceId: ReturnType<typeof signal<string>> }).instanceId = signal('inst-1');
+
+    expect(component.hasLocalFailure()).toBe(true);
+    expect(component.hasLocalAdvisory()).toBe(false);
+    expect(component.isVerified()).toBe(false);
+  });
+
   it('treats a legacy source-less remote approval as authoritative while noting local failure', () => {
     current.set(review([result('codex', undefined)], {
       reviewerId: 'local-model', source: 'local', status: 'failed', reason: 'parse failed',

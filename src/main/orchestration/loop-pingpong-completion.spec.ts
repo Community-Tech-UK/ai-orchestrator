@@ -485,6 +485,25 @@ describe('evaluatePingPongCompletion', () => {
     }));
   });
 
+  it('does NOT converge when the impl-mode verify hook throws', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
+    const deps = {
+      ...baseDeps(state, reviewer),
+      runVerify: vi.fn().mockRejectedValue(new Error('verify process crashed')),
+    };
+
+    const result = await evaluatePingPongCompletion(deps);
+
+    expect(result).toBeNull();
+    expect(state.pendingInterventions[0]?.message).toContain('verify command FAILED');
+    expect(state.pendingInterventions[0]?.message).toContain('verify process crashed');
+    expect(deps.emit).toHaveBeenCalledWith(
+      'loop:fresh-eyes-review-blocked',
+      expect.objectContaining({ summary: 'reviewer approved but verify failed' }),
+    );
+  });
+
   it('honours a skip-next-round operator control (no reviewer spawned, flag consumed)', async () => {
     const state = makeState(workspace);
     state.pingPong!.skipNextRound = true;

@@ -2,18 +2,23 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { CrossModelReviewIpcService } from './cross-model-review-ipc.service';
 import { ElectronIpcService } from './electron-ipc.service';
-import type { CrossModelReviewStatus } from '../../../../../shared/types/cross-model-review.types';
+import type {
+  AggregatedReview,
+  CrossModelReviewStatus,
+} from '../../../../../shared/types/cross-model-review.types';
 
 type Cb<T> = (data: T) => void;
 
 /** Captures the event callbacks the service registers so tests can fire them. */
 class FakeApi {
+  onStarted?: Cb<{ instanceId: string; reviewId: string }>;
+  onResult?: Cb<AggregatedReview>;
   onReviewerUnavailable?: Cb<{ dropped: { cli: string; error?: string }[] }>;
   onReviewerRateLimited?: Cb<{ instanceId?: string; cliType: string }>;
   onReviewerRateLimitCleared?: Cb<{ cliType: string }>;
 
-  crossModelReviewOnStarted = (cb: Cb<unknown>): void => { void cb; };
-  crossModelReviewOnResult = (cb: Cb<unknown>): void => { void cb; };
+  crossModelReviewOnStarted = (cb: FakeApi['onStarted']): void => { this.onStarted = cb; };
+  crossModelReviewOnResult = (cb: FakeApi['onResult']): void => { this.onResult = cb; };
   crossModelReviewOnAllUnavailable = (cb: Cb<unknown>): void => { void cb; };
   crossModelReviewOnReviewerUnavailable = (cb: FakeApi['onReviewerUnavailable']): void => {
     this.onReviewerUnavailable = cb;
@@ -95,5 +100,30 @@ describe('CrossModelReviewIpcService — reviewer notices', () => {
     expect(service.getReviewerNotice('antigravity')?.kind).toBe('unavailable');
     expect(service.getReviewerNotice('antigravity')?.reason).toBe('not on PATH');
     expect(service.getReviewerNotice('copilot')?.kind).toBe('rate-limited');
+  });
+
+  it('keeps an empty local failure result visible and clears pending state', () => {
+    ipc.api.onStarted?.({ instanceId: 'inst-1', reviewId: 'review-1' });
+    const result: AggregatedReview = {
+      id: 'review-1',
+      instanceId: 'inst-1',
+      outputType: 'code',
+      reviewDepth: 'structured',
+      reviews: [],
+      localReviewer: {
+        reviewerId: 'local-model',
+        source: 'local',
+        status: 'failed',
+        reason: 'endpoint stopped',
+      },
+      hasDisagreement: false,
+      timestamp: 1,
+    };
+
+    ipc.api.onResult?.(result);
+
+    expect(service.getReviewForInstance('inst-1')).toEqual(result);
+    expect(service.pendingInstances().has('inst-1')).toBe(false);
+    expect(service.skippedInstances().has('inst-1')).toBe(false);
   });
 });

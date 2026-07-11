@@ -1472,3 +1472,160 @@ describe('sendInput generation fence (A5/A6)', () => {
     expect(adapterB.sendInput).toHaveBeenCalledWith('hello after respawn', undefined);
   });
 });
+
+// ── Provider-limit park on thrown sendInput errors (2026-07-11 park-fix) ─────
+
+describe('provider-limit park on thrown sendInput errors', () => {
+  const LIVE_INCIDENT_MESSAGE =
+    "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or "
+    + 'try again at 5:01 PM. - [codex_error_info: usageLimitExceeded]';
+
+  let instance: Instance;
+  let adapters: Map<string, CliAdapter>;
+  let queueUpdate: ReturnType<typeof vi.fn>;
+  let onToolStateChange: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    instance = createInstance();
+    adapters = new Map();
+    queueUpdate = vi.fn();
+    onToolStateChange = vi.fn();
+  });
+
+  function createManager(
+    onProviderLimitTurn: ReturnType<typeof vi.fn>,
+    transitionState?: ReturnType<typeof vi.fn>,
+  ): InstanceCommunicationManager {
+    return new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, adapter) => { adapters.set(id, adapter); },
+      deleteAdapter: (id) => adapters.delete(id),
+      transitionState,
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      onToolStateChange,
+      onProviderLimitTurn,
+    });
+  }
+
+  it('parks (no rethrow, instance ends idle) when sendInput rejects with a usage-limit error', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapter.sendInput.mockRejectedValue(new Error(LIVE_INCIDENT_MESSAGE));
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'busy';
+
+    const transitionState = vi.fn((inst: Instance, status) => { inst.status = status; });
+    const onProviderLimitTurn = vi.fn().mockReturnValue('parked');
+    const manager = createManager(onProviderLimitTurn, transitionState);
+
+    await expect(manager.sendInput(instance.id, 'keep going')).resolves.toBeUndefined();
+
+    expect(onProviderLimitTurn).toHaveBeenCalledTimes(1);
+    const call = onProviderLimitTurn.mock.calls[0][0];
+    expect(call.instanceId).toBe(instance.id);
+    expect(call.resetAtHint).not.toBeNull();
+    expect(call.resumePrompt).toBe('keep going');
+
+    expect(transitionState).toHaveBeenCalledWith(instance, 'idle');
+    expect(instance.status).toBe('idle');
+    expect(onToolStateChange).toHaveBeenCalledWith(instance.id, 'idle');
+    expect(
+      instance.outputBuffer.some(
+        (m) => m.type === 'system' && m.metadata?.['providerLimitParked'] === true,
+      ),
+    ).toBe(true);
+  });
+
+  it('acknowledges an already-parked send quietly: no duplicate park message, no status change', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapter.sendInput.mockRejectedValue(new Error(LIVE_INCIDENT_MESSAGE));
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'idle';
+
+    const transitionState = vi.fn((inst: Instance, status) => { inst.status = status; });
+    const onProviderLimitTurn = vi.fn().mockReturnValue('already-parked');
+    const manager = createManager(onProviderLimitTurn, transitionState);
+
+    await expect(manager.sendInput(instance.id, 'are you there?')).resolves.toBeUndefined();
+
+    expect(transitionState).not.toHaveBeenCalled();
+    expect(instance.status).toBe('idle');
+    const parkMessages = instance.outputBuffer.filter(
+      (m) => m.type === 'system' && m.metadata?.['providerLimitParked'] === true,
+    );
+    expect(parkMessages).toHaveLength(1);
+    expect(parkMessages[0].metadata?.['alreadyParked']).toBe(true);
+  });
+
+  it('rethrows exactly as before when the park handler skips (feature off / no hint)', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapter.sendInput.mockRejectedValue(new Error(LIVE_INCIDENT_MESSAGE));
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'busy';
+
+    const transitionState = vi.fn((inst: Instance, status) => { inst.status = status; });
+    const onProviderLimitTurn = vi.fn().mockReturnValue('skipped');
+    const manager = createManager(onProviderLimitTurn, transitionState);
+
+    await expect(manager.sendInput(instance.id, 'keep going')).rejects.toThrow(LIVE_INCIDENT_MESSAGE);
+
+    expect(transitionState).not.toHaveBeenCalled();
+    expect(instance.status).toBe('busy');
+    expect(
+      instance.outputBuffer.some(
+        (m) => m.type === 'system' && m.metadata?.['providerLimitParked'] === true,
+      ),
+    ).toBe(false);
+  });
+
+  it('rethrows a non-limit thrown error (auth) untouched and never calls onProviderLimitTurn', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapter.sendInput.mockRejectedValue(new Error('unauthorized: authentication required'));
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'busy';
+
+    const transitionState = vi.fn((inst: Instance, status) => { inst.status = status; });
+    const onProviderLimitTurn = vi.fn().mockReturnValue('parked');
+    const manager = createManager(onProviderLimitTurn, transitionState);
+
+    await expect(manager.sendInput(instance.id, 'keep going')).rejects.toThrow(/unauthorized/i);
+
+    expect(onProviderLimitTurn).not.toHaveBeenCalled();
+    expect(transitionState).not.toHaveBeenCalled();
+    expect(instance.status).toBe('busy');
+  });
+
+  it('leaves the thrown-overflow compaction path untouched when both are wired', async () => {
+    const adapter = new FakeAdapter('gemini-cli');
+    adapter.sendInput
+      .mockRejectedValueOnce(new Error('The input token count (201,000) exceeds the maximum number of tokens allowed (200,000).'))
+      .mockResolvedValueOnce(undefined);
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const compactContext = vi.fn().mockResolvedValue(undefined);
+    const onProviderLimitTurn = vi.fn().mockReturnValue('parked');
+
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => { adapters.set(id, a); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      compactContext,
+      onProviderLimitTurn,
+    });
+
+    await manager.sendInput(instance.id, 'summarize the workspace');
+
+    expect(compactContext).toHaveBeenCalledWith(instance.id);
+    expect(onProviderLimitTurn).not.toHaveBeenCalled();
+    expect(adapter.sendInput).toHaveBeenCalledTimes(2);
+  });
+});

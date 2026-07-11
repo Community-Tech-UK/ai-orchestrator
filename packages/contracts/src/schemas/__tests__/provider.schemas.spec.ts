@@ -4,6 +4,7 @@ import {
   LLMSetConfigPayloadSchema,
   LLMTruncateTokensPayloadSchema,
   ModelsCLIPushPayloadSchema,
+  ModelsLocalReviewerQualifyPayloadSchema,
 } from '../provider.schemas';
 
 const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
@@ -41,6 +42,23 @@ describe('provider LLM payload schemas', () => {
     }).success).toBe(false);
     expect(LLMSetConfigPayloadSchema.safeParse({
       model: tooLongCatalogModelId,
+    }).success).toBe(false);
+  });
+});
+
+describe('ModelsLocalReviewerQualifyPayloadSchema', () => {
+  it('accepts only a bounded local-model selector', () => {
+    expect(ModelsLocalReviewerQualifyPayloadSchema.safeParse({
+      selectorId: 'lm://this-device/ollama/ollama/qwen',
+      ipcAuthToken: 'token',
+    }).success).toBe(true);
+    expect(ModelsLocalReviewerQualifyPayloadSchema.safeParse({ selectorId: 'qwen' }).success)
+      .toBe(false);
+    expect(ModelsLocalReviewerQualifyPayloadSchema.safeParse({
+      selectorId: `lm://${'x'.repeat(4_096)}`,
+    }).success).toBe(false);
+    expect(ModelsLocalReviewerQualifyPayloadSchema.safeParse({
+      selectorId: 'lm://this-device/ollama/ollama/qwen', extra: true,
     }).success).toBe(false);
   });
 });

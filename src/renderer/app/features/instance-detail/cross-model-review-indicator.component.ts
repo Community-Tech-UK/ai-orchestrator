@@ -21,6 +21,7 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
         [class.verified]="isVerified()"
         [class.concerns]="hasConcerns()"
         [class.advisory]="hasLocalAdvisory() && !hasConcerns() && !isVerified()"
+        [class.failed]="hasLocalFailure() && !hasConcerns() && !isVerified()"
         [class.skipped]="isSkipped()"
         [title]="tooltip()"
         role="button"
@@ -37,6 +38,8 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
           &#x26A0; {{ concernCount() }} concern{{ concernCount() > 1 ? 's' : '' }}
         } @else if (hasLocalAdvisory()) {
           &#x2691; Local advisory
+        } @else if (hasLocalFailure()) {
+          &#x26A0; Review failed
         } @else if (isSkipped()) {
           &#x2014;
         }
@@ -87,6 +90,12 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
       border-color: rgba(116, 192, 252, 0.2);
     }
 
+    .failed {
+      color: #ffc078;
+      background: rgba(255, 192, 120, 0.1);
+      border-color: rgba(255, 192, 120, 0.2);
+    }
+
     .skipped {
       color: var(--text-muted);
       background: transparent;
@@ -135,8 +144,10 @@ export class CrossModelReviewIndicatorComponent {
   });
 
   hasLocalAdvisory = computed(() =>
-    this.localReviews().length > 0 || this.review()?.localReviewer != null
+    this.localReviews().length > 0 || this.review()?.localReviewer?.status === 'used'
   );
+
+  hasLocalFailure = computed(() => this.review()?.localReviewer?.status === 'failed');
 
   hasVisibleState = computed(() =>
     this.isPending() || this.isSkipped() || this.review() != null

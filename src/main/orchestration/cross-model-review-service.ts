@@ -14,10 +14,12 @@ import { OutputClassifier } from './output-classifier';
 import { ReviewerPool } from './reviewer-pool';
 import {
   angleForReviewer,
+  buildReviewFormatRepairPrompt,
   buildStructuredReviewPrompt,
   buildTieredReviewPrompt,
   truncateForReview,
 } from './review-prompts';
+import { combineAbortSignals } from '../util/abort-signals';
 import { aggregateReviewFindings, type AggregatableFinding } from './review-finding-aggregation';
 import type {
   AggregatedReview,
@@ -28,7 +30,12 @@ import type {
 import { reviewResultHasConcerns } from '../../shared/utils/cross-model-review-concerns';
 import type { OutputBuffer, ReviewDispatchRequest } from './cross-model-review.types';
 import type { HeadlessReviewFinding, HeadlessReviewResult, HeadlessReviewReviewer } from '../cli-entrypoints/review-command-output';
-import { resolveReviewerModelOverride, type HeadlessReviewRequest, type ReviewExecutionHost } from '../review/review-execution-host';
+import {
+  resolveReviewerModelOverride,
+  sendAbortableReviewerMessage,
+  type HeadlessReviewRequest,
+  type ReviewExecutionHost,
+} from '../review/review-execution-host';
 import {
   MIN_COOLDOWN_MS,
   MAX_REVIEW_HISTORY,
@@ -46,10 +53,18 @@ import {
   createLocalReviewExecutionPlan,
   runReviewExecutionBatch,
 } from './review-execution-batch';
-import { parseCrossModelReviewResponse } from './review-response-parser';
+import { isLikelyReviewRefusal, parseCrossModelReviewResponse } from './review-response-parser';
 import { summarizeHeadlessReview, toHeadlessFindings } from './headless-review-findings';
 const logger = getLogger('CrossModelReviewService');
-const CODEX_REVIEW_MIN_TIMEOUT_MS = 300_000;
+
+// Codex and Antigravity both run noticeably slower than other reviewer CLIs
+// and have been observed cutting reviews off at the configured timeout before
+// they can finish (Antigravity's observed cutoff was 120s). Both get the same
+// floor; every other reviewer keeps the user-configured timeout as-is.
+const REVIEWER_TIMEOUT_FLOOR_MS: Readonly<Record<string, number>> = {
+  codex: 300_000,
+  antigravity: 300_000,
+};
 
 function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as Record<string, unknown>)?.['sendMessage'] === 'function';
@@ -64,9 +79,8 @@ function resolveReviewerTimeoutMs(cliType: string, timeoutSeconds: number): numb
     ? Math.max(1, Math.floor(timeoutSeconds))
     : 30;
   const configuredMs = configuredSeconds * 1000;
-  return cliType === 'codex'
-    ? Math.max(configuredMs, CODEX_REVIEW_MIN_TIMEOUT_MS)
-    : configuredMs;
+  const floorMs = REVIEWER_TIMEOUT_FLOOR_MS[cliType];
+  return floorMs ? Math.max(configuredMs, floorMs) : configuredMs;
 }
 
 export class CrossModelReviewService extends EventEmitter {
@@ -325,15 +339,6 @@ export class CrossModelReviewService extends EventEmitter {
         ? [{ ...batch.localOutcome.review, source: 'local' as const }]
         : [];
       const successfulResults = [...batch.remoteReviews, ...localReview];
-
-      if (successfulResults.length === 0) {
-        this.reviewContexts.delete(request.id);
-        this.emit('review:all-unavailable', { instanceId: request.instanceId });
-        return;
-      }
-
-      const hasDisagreement = this.detectDisagreement(batch.remoteReviews);
-
       const aggregated: AggregatedReview = {
         id: request.id,
         instanceId: request.instanceId,
@@ -341,9 +346,25 @@ export class CrossModelReviewService extends EventEmitter {
         reviewDepth: request.reviewDepth,
         reviews: successfulResults,
         localReviewer: localParticipant,
-        hasDisagreement,
+        hasDisagreement: this.detectDisagreement(batch.remoteReviews),
         timestamp: Date.now(),
       };
+
+      if (successfulResults.length === 0) {
+        // Nothing was actually reviewed. Only surface a panel when the local
+        // reviewer genuinely *failed* — worth flagging that the safety net
+        // errored. A *skipped* local reviewer (or local review disabled) means
+        // nothing ran at all, so route it to the quiet "all unavailable" state
+        // instead of showing an empty "advisory only" review with no findings.
+        if (settings.crossModelReviewLocalEnabled && localParticipant.status === 'failed') {
+          this.addToHistory(request.instanceId, aggregated);
+          this.emit('review:result', aggregated);
+        } else {
+          this.reviewContexts.delete(request.id);
+          this.emit('review:all-unavailable', { instanceId: request.instanceId });
+        }
+        return;
+      }
 
       this.addToHistory(request.instanceId, aggregated);
       this.emit('review:result', aggregated);
@@ -402,19 +423,33 @@ export class CrossModelReviewService extends EventEmitter {
       resetTimeoutMs: 60000,
     });
 
-    // Codex is slow: a tiered review at default effort blows the per-review
-    // deadline because the configured `timeout` is codex's absolute total
-    // process budget. Force structured depth + low reasoning effort for codex
-    // only, and give it a codex-specific timeout floor; other reviewers keep
-    // the configured depth and timeout. Declared in the outer scope so the
-    // parse below uses the same depth the adapter was prompted with.
+    // Codex and Antigravity are slow: a tiered review at default effort blows
+    // the per-review deadline because the configured `timeout` is the
+    // adapter's absolute total process budget. Force structured depth + low
+    // reasoning effort for codex only, and give both a provider-specific
+    // timeout floor; other reviewers keep the configured depth and timeout.
+    // Declared in the outer scope so the parse below uses the same depth the
+    // adapter was prompted with.
     const isCodex = reviewerCli === 'codex';
     const effectiveDepth: 'structured' | 'tiered' = isCodex ? 'structured' : request.reviewDepth;
     const timeoutMs = resolveReviewerTimeoutMs(reviewerCli, timeoutSeconds);
 
+    // One operation deadline covers the initial send and its single
+    // format-repair retry, so a hanging repair can't buy the reviewer a
+    // second full timeout window. `deadlineExceeded` distinguishes this from
+    // an upstream cancellation in the catch block below — both reject through
+    // the same combined signal with the same "Review cancelled" message.
+    const deadlineController = new AbortController();
+    let deadlineExceeded = false;
+    const deadlineTimer = setTimeout(() => {
+      deadlineExceeded = true;
+      deadlineController.abort();
+    }, timeoutMs);
+    const operationSignal = combineAbortSignals([signal, deadlineController.signal]);
+
     try {
-      const response = await breaker.execute(async () => {
-        if (signal.aborted) throw new Error('Review cancelled');
+      const outcome = await breaker.execute(async () => {
+        if (operationSignal.aborted) throw new Error('Review cancelled');
         if (this.isPaused || getPauseCoordinator().isPaused()) throw new Error('Review skipped while orchestrator is paused');
 
         const resolvedCli = await resolveCliType(reviewerCli as SettingsCliType);
@@ -432,12 +467,13 @@ export class CrossModelReviewService extends EventEmitter {
           },
         });
 
+        let cancelled = false;
         try {
           if (!isCliAdapterLike(adapter)) {
             throw new Error(`CLI adapter "${reviewerCli}" does not support sendMessage`);
           }
 
-          if (signal.aborted || this.isPaused || getPauseCoordinator().isPaused()) {
+          if (operationSignal.aborted || this.isPaused || getPauseCoordinator().isPaused()) {
             throw new Error('Review cancelled');
           }
 
@@ -445,12 +481,42 @@ export class CrossModelReviewService extends EventEmitter {
             ? buildTieredReviewPrompt(request.taskDescription, request.content)
             : buildStructuredReviewPrompt(request.taskDescription, request.content);
 
-          // sendMessage() does not currently expose a universal cancellation API
-          // across reviewer adapters, so an already-running provider call may run
-          // until its configured timeout even after the abort signal fires.
-          return await adapter.sendMessage({ role: 'user', content: prompt });
+          const initialResponse = await sendAbortableReviewerMessage(
+            adapter,
+            { role: 'user', content: prompt },
+            operationSignal,
+            () => { cancelled = true; },
+          );
+
+          const initialParsed = this.parseReviewResponse(reviewerCli, initialResponse.content, effectiveDepth, Date.now() - startTime);
+          if (initialParsed) return { result: initialParsed, repaired: false };
+
+          if (isLikelyReviewRefusal(initialResponse.content)) {
+            logger.warn('Reviewer refused the review request', { cliType: reviewerCli, reviewId: request.id });
+            return { result: null, repaired: false };
+          }
+
+          logger.info('Reviewer response failed validation — attempting one format-repair retry', {
+            cliType: reviewerCli,
+            reviewId: request.id,
+          });
+          const repairResponse = await sendAbortableReviewerMessage(
+            adapter,
+            { role: 'user', content: buildReviewFormatRepairPrompt(effectiveDepth, initialResponse.content) },
+            operationSignal,
+            () => { cancelled = true; },
+          );
+          const repairedParsed = this.parseReviewResponse(reviewerCli, repairResponse.content, effectiveDepth, Date.now() - startTime);
+          if (!repairedParsed) {
+            logger.warn('Reviewer format-repair response also failed validation', {
+              cliType: reviewerCli,
+              reviewId: request.id,
+            });
+            return { result: null, repaired: false };
+          }
+          return { result: repairedParsed, repaired: true };
         } finally {
-          if (isTerminableAdapter(adapter)) {
+          if (!cancelled && isTerminableAdapter(adapter)) {
             await adapter.terminate(false).catch((cleanupError: unknown) => {
               logger.warn('Review adapter cleanup failed', {
                 cliType: reviewerCli,
@@ -461,15 +527,25 @@ export class CrossModelReviewService extends EventEmitter {
         }
       });
 
-      const parsed = this.parseReviewResponse(reviewerCli, response.content, effectiveDepth, Date.now() - startTime);
-      if (!parsed) {
+      if (!outcome.result) {
         logger.warn('Skipping unparseable reviewer response', { cliType: reviewerCli, reviewId: request.id });
         return null;
       }
 
       this.reviewerPool.recordSuccess(reviewerCli);
-      return parsed;
+      logger.info('Review completed', {
+        cliType: reviewerCli,
+        reviewId: request.id,
+        durationMs: Date.now() - startTime,
+        repaired: outcome.repaired,
+      });
+      return outcome.result;
     } catch (err) {
+      if (deadlineExceeded) {
+        this.reviewerPool.recordFailure(reviewerCli);
+        logger.warn('Review exceeded its operation deadline', { cliType: reviewerCli, reviewId: request.id, timeoutMs });
+        throw new Error(`Reviewer "${reviewerCli}" exceeded its ${timeoutMs}ms review deadline`);
+      }
       const message = err instanceof Error ? err.message : String(err);
       if (isReviewerRateLimitError(message)) {
         this.reviewerPool.markRateLimited(reviewerCli);
@@ -486,6 +562,8 @@ export class CrossModelReviewService extends EventEmitter {
       }
       logger.warn('Review failed', { cliType: reviewerCli, error: message });
       throw err;
+    } finally {
+      clearTimeout(deadlineTimer);
     }
   }
 
@@ -655,7 +733,9 @@ export class CrossModelReviewService extends EventEmitter {
 
   private async resolveHeadlessReviewers(request: HeadlessReviewRequest): Promise<string[]> {
     if (request.reviewers) {
-      return normalizeAgenticReviewerCliList(request.reviewers);
+      const primaryProvider = normalizeReviewerCli(request.primaryProvider ?? 'claude');
+      return normalizeAgenticReviewerCliList(request.reviewers)
+        .filter((reviewer) => reviewer !== primaryProvider);
     }
 
     await this.refreshAvailability();

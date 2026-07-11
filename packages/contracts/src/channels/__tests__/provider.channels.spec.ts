@@ -26,6 +26,9 @@ describe('PROVIDER_CHANNELS', () => {
     expect(PROVIDER_CHANNELS.MODELS_LOCAL_MODEL_INVENTORY_UPDATED).toBe(
       'models:local-model-inventory-updated',
     );
+    expect(PROVIDER_CHANNELS.MODELS_LOCAL_REVIEWER_QUALIFY).toBe(
+      'models:local-reviewer-qualify',
+    );
   });
 
   it('has model routing channels', () => {

@@ -10,6 +10,7 @@ import type {
   LocalModelToolTurnClient,
   LocalModelToolTurnMessage,
 } from '../cli/adapters/local-model-chat-adapter';
+import { LocalModelToolResponseError } from '../cli/adapters/local-model-chat-adapter';
 import {
   buildStructuredReviewPrompt,
   buildTieredReviewPrompt,
@@ -52,6 +53,7 @@ export type LocalReviewOutcome =
 
 interface CapabilityLike {
   qualify(target: ModelRuntimeTarget): Promise<LocalReviewerQualification>;
+  invalidate?(target: ModelRuntimeTarget): void;
 }
 
 interface RunnerLike {
@@ -137,6 +139,9 @@ export class LocalReviewer {
         Date.now(),
       );
     } catch (error) {
+      if (error instanceof LocalModelToolResponseError) {
+        this.capabilityService.invalidate?.(target);
+      }
       if (timedOut) return { status: 'failed', reason: 'Local review timed out.' };
       if (controller.signal.aborted) return { status: 'failed', reason: 'Local review cancelled.' };
       return {

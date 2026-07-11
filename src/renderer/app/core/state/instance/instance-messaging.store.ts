@@ -16,6 +16,7 @@ import {
   inputFilesToAttachments,
   isActiveTurnStatus,
   isInterruptRecoveryStatus,
+  isQuotaParked,
   isReadyForInputStatus,
   isTerminalStatus,
   isTransientQueueStatus,
@@ -83,7 +84,12 @@ export class InstanceMessagingStore {
         continue;
       }
 
-      if (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input') {
+      if (isQuotaParked(instance)) {
+        // Main's resumeNow() clears the park and resends the throttled turn
+        // itself; leave the queue intact so it drains on the following idle
+        // transition instead of racing that resend.
+        continue;
+      } else if (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input') {
         this.terminalRestartRequests.delete(instanceId);
         this.processMessageQueue(instanceId);
       } else if (
@@ -238,8 +244,11 @@ export class InstanceMessagingStore {
     // If instance is busy, respawning, degraded, or in a transitional state, queue the message instead of sending immediately.
     // 'degraded' means the remote node is temporarily disconnected — queue so the
     // message can be delivered if/when the node reconnects and the instance is restored.
+    // A quota-parked instance sits at 'idle' (not a transient status) but is
+    // still not ready for a new send — main resends the throttled turn itself.
     if (
       isTransientQueueStatus(instance.status)
+      || isQuotaParked(instance)
       || this.pauseStore.isPaused()
     ) {
       this.enqueueMessage(targetInstanceId, { message, files });
@@ -548,6 +557,11 @@ export class InstanceMessagingStore {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
     if (instance.status !== 'idle' && instance.status !== 'ready' && instance.status !== 'waiting_for_input') {
+      return;
+    }
+    if (isQuotaParked(instance)) {
+      // Leave the queue intact — main's resumeNow() clears the park and
+      // resends the throttled turn; this drains on the next idle transition.
       return;
     }
     this.terminalRestartRequests.delete(instanceId);

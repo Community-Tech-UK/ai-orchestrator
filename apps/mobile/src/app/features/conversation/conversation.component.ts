@@ -21,6 +21,8 @@ import { displayStatusColor, displayStatusLabel, isWorkingOrLooping } from '../.
 import type { MobileAttachmentDto, MobileModelCatalog } from '../../core/models';
 import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
+import { MobileHeaderComponent } from '../../shared/mobile-header.component';
+import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 import { renderMobileMarkdown } from '../../shared/mobile-markdown';
 import {
@@ -39,30 +41,42 @@ import {
   standalone: true,
   selector: 'app-conversation',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, ModelSheetComponent, CopyButtonComponent, CodeCopyDirective],
+  imports: [
+    FormsModule,
+    ModelSheetComponent,
+    CopyButtonComponent,
+    CodeCopyDirective,
+    MobileHeaderComponent,
+    MobileIconComponent,
+  ],
   template: `
     <section class="screen">
-      <header class="top">
-        <button class="back" (click)="back()">‹</button>
-        <div class="title">
-          <span class="dot" [style.background]="activityColor()"></span>
-          <span class="name">{{ instance()?.displayName ?? 'Session' }}</span>
-        </div>
-        <button class="menu" (click)="menuOpen.set(!menuOpen())" aria-label="More">⋯</button>
-      </header>
-
-      <div class="subheader">
-        <span class="status-text">{{ activityLabel() }}</span>
-        @if (instance()?.contextPercentage !== undefined) {
-          <span class="ctx">· context {{ instance()?.contextPercentage }}%</span>
-        }
-        @if (instance()?.model) {
-          <span class="model">· {{ instance()?.model }}</span>
-        }
-        @if (!online()) {
-          <span class="offline">· offline</span>
-        }
-      </div>
+      <app-mobile-header
+        class="conversation-header"
+        [title]="instance()?.displayName ?? 'Session'"
+        [subtitle]="headerSubtitle()"
+        [statusColor]="activityColor()"
+      >
+        <button
+          mobileHeaderLeading
+          class="mobile-icon-button"
+          type="button"
+          (click)="back()"
+          aria-label="Back to sessions"
+        >
+          <app-mobile-icon name="chevron-left" />
+        </button>
+        <button
+          mobileHeaderTrailing
+          class="mobile-icon-button"
+          type="button"
+          (click)="menuOpen.set(!menuOpen())"
+          aria-label="More session actions"
+          [attr.aria-expanded]="menuOpen()"
+        >
+          <app-mobile-icon name="more" />
+        </button>
+      </app-mobile-header>
 
       @if (menuOpen()) {
         <div class="popover">
@@ -88,9 +102,20 @@ import {
               <div class="stamp">{{ item.label }}</div>
             } @else if (item.kind === 'tools') {
               <div class="tool-group">
-                <button class="tool-toggle" (click)="toggleTools(item.id)">
-                  <span class="tool-caret">{{ expandedTools().has(item.id) ? '▾' : '▸' }}</span>
-                  🔧 {{ item.items.length }} tool {{ item.items.length === 1 ? 'call' : 'calls' }}
+                <button
+                  class="tool-toggle"
+                  type="button"
+                  (click)="toggleTools(item.id)"
+                  [attr.aria-label]="toolGroupLabel(item)"
+                  [attr.aria-expanded]="expandedTools().has(item.id)"
+                >
+                  <app-mobile-icon
+                    class="tool-caret"
+                    [class.tool-caret--expanded]="expandedTools().has(item.id)"
+                    name="chevron-down"
+                  />
+                  <app-mobile-icon name="tool" />
+                  {{ item.items.length }} tool {{ item.items.length === 1 ? 'call' : 'calls' }}
                 </button>
                 @if (expandedTools().has(item.id)) {
                   @for (t of item.items; track t.id) {
@@ -110,7 +135,7 @@ import {
                   [innerHTML]="renderMarkdown(item.message.content)"
                 ></div>
                 @if (item.message.hasAttachments) {
-                  <span class="attach-flag">📎 photo attached</span>
+                  <span class="attach-flag"><app-mobile-icon name="attachment" /> Photo attached</span>
                 }
                 @if (item.message.type !== 'system' && item.message.content) {
                   <app-copy-button [text]="item.message.content" />
@@ -131,9 +156,7 @@ import {
           <div class="scroll-btns">
             @if (!atTop()) {
               <button class="scroll-btn" (click)="scrollToTop()" aria-label="Scroll to top">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="18 15 12 9 6 15"></polyline>
-                </svg>
+                <app-mobile-icon class="scroll-icon--up" name="chevron-down" />
               </button>
             }
             @if (!atBottom()) {
@@ -146,54 +169,30 @@ import {
                 @if (hasNewOutput()) {
                   <span class="pill-label">New output</span>
                 }
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
+                <app-mobile-icon name="chevron-down" />
               </button>
             }
           </div>
         }
       </div>
 
-      @if (attachments().length > 0) {
-        <div class="attach-strip">
-          @for (a of attachments(); track a) {
-            <div class="chip">
-              <img [src]="a.data" [alt]="a.name" />
-              <button type="button" class="chip-x" (click)="removeAttachment(a)" aria-label="Remove">×</button>
-            </div>
-          }
-        </div>
-      }
-
       <form class="composer" (submit)="send($event)">
-        @if (canAttach) {
-          <button
-            type="button"
-            class="attach"
-            (click)="pickImages()"
-            [disabled]="attachBusy() || sending()"
-            aria-label="Add photo"
-          >
-            {{ attachBusy() ? '…' : '＋' }}
-          </button>
-          <button
-            type="button"
-            class="attach"
-            (click)="pasteImageFromClipboard()"
-            [disabled]="attachBusy() || sending()"
-            aria-label="Paste image from clipboard"
-          >
-            @if (attachBusy()) {
-              …
-            } @else {
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M9 4h6a2 2 0 0 1 2 2v1h1a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-1H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1V3h3v1Z" />
-                <path d="M8 7h10v11H8V7Z" />
-                <path d="M7 4h10" />
-              </svg>
+        @if (attachments().length > 0) {
+          <div class="attach-strip" aria-label="Pending attachments">
+            @for (attachment of attachments(); track attachment) {
+              <div class="chip">
+                <img [src]="attachment.data" [alt]="attachment.name" />
+                <button
+                  type="button"
+                  class="chip-x"
+                  (click)="removeAttachment(attachment)"
+                  [attr.aria-label]="'Remove ' + attachment.name"
+                >
+                  <app-mobile-icon name="close" />
+                </button>
+              </div>
             }
-          </button>
+          </div>
         }
         <textarea
           rows="1"
@@ -204,24 +203,50 @@ import {
           (keydown.enter)="onEnter($event)"
           (paste)="onPaste($event)"
         ></textarea>
-        @if (canDictate) {
+        <div class="composer-toolbar">
+          <div class="composer-toolbar__leading">
+            @if (canAttach) {
+              <button
+                type="button"
+                class="composer-tool"
+                (click)="pickImages()"
+                [disabled]="attachBusy() || sending()"
+                aria-label="Add photo"
+              >
+                <app-mobile-icon name="plus" />
+              </button>
+              <button
+                type="button"
+                class="composer-tool"
+                (click)="pasteImageFromClipboard()"
+                [disabled]="attachBusy() || sending()"
+                aria-label="Paste image from clipboard"
+              >
+                <app-mobile-icon name="clipboard" />
+              </button>
+            }
+          </div>
+          <span class="composer-status">{{ online() ? activityLabel() : 'Offline' }}</span>
+          @if (canDictate) {
+            <button
+              type="button"
+              class="composer-tool"
+              [class.composer-tool--listening]="listening()"
+              (click)="toggleDictation()"
+              [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'"
+            >
+              <app-mobile-icon name="microphone" />
+            </button>
+          }
           <button
-            type="button"
-            class="attach mic"
-            [class.listening]="listening()"
-            (click)="toggleDictation()"
-            [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'"
+            type="submit"
+            class="send"
+            [disabled]="!online() || !canSend() || sending()"
+            [attr.aria-label]="sending() ? 'Sending message' : 'Send message'"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
-              <path d="M19 11a7 7 0 0 1-14 0" />
-              <path d="M12 18v4" />
-            </svg>
+            <app-mobile-icon name="arrow-up" />
           </button>
-        }
-        <button type="submit" class="send" [disabled]="!online() || !canSend() || sending()">
-          {{ sending() ? '…' : '↑' }}
-        </button>
+        </div>
       </form>
 
       @if (modelSheetOpen()) {
@@ -289,6 +314,17 @@ export class ConversationComponent {
   );
   protected readonly activityColor = computed(() => displayStatusColor(this.instance()));
   protected readonly activityLabel = computed(() => displayStatusLabel(this.instance()));
+  protected readonly headerSubtitle = computed(() => {
+    const detail = [
+      this.activityLabel(),
+      this.instance()?.contextPercentage === undefined
+        ? ''
+        : `context ${this.instance()?.contextPercentage}%`,
+      this.instance()?.model ?? '',
+      this.online() ? '' : 'offline',
+    ].filter(Boolean);
+    return detail.join(' · ');
+  });
   protected readonly working = computed(() => isWorkingOrLooping(this.instance()));
   protected readonly messages = computed(() => this.gateway.messagesFor(this.instanceId()));
   protected readonly modelsForProvider = computed(() => {
@@ -312,6 +348,10 @@ export class ConversationComponent {
       else next.add(id);
       return next;
     });
+  }
+
+  protected toolGroupLabel(item: Extract<DisplayItem, { kind: 'tools' }>): string {
+    return `Show ${item.items.length} tool ${item.items.length === 1 ? 'call' : 'calls'}`;
   }
 
   constructor() {

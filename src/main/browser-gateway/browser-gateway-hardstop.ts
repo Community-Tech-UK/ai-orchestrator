@@ -100,6 +100,43 @@ export function escalationResultForChallenge(
   });
 }
 
+/**
+ * Terminal deny for a hard stop that no grant OR approval can ever satisfy
+ * (a genuine payment field). Returns a clear, actionable `denied` result and —
+ * unlike the normal hard-stop path — the caller creates NO approval request, so
+ * an unattended run is never left waiting on an approval that could never permit
+ * the action (the approval loop reported in the Constellia repro).
+ */
+export function neverGrantableDenyResult(
+  deps: HardStopResultDeps,
+  request: BrowserGatewayContext & { profileId: string; targetId: string },
+  action: string,
+  toolName: string,
+  classification: BrowserActionClassification,
+  scope: HardStopScope,
+): BrowserGatewayResult<null> {
+  const guidance =
+    classification.actionClass === 'financial_identity' ||
+    classification.actionClass === 'sensitive_identity'
+      ? 'Fill it via browser.fill_secret under a standing secret-fill authorization instead of a raw type.'
+      : 'Complete this step manually in your browser.';
+  return deps.result({
+    context: request,
+    profileId: scope.profileId,
+    targetId: scope.targetId,
+    action,
+    toolName,
+    actionClass: classification.actionClass,
+    decision: 'denied',
+    outcome: 'not_run',
+    reason: classification.reason ?? 'action_never_automatable',
+    summary: `${toolName} is blocked: ${classification.actionClass} fields are never automated by an ordinary grant — no approval can authorize this. ${guidance}`,
+    origin: scope.origin,
+    url: scope.url,
+    data: null,
+  });
+}
+
 /** A short, redacted snippet of the declaration text for the audit note. */
 function declarationSnippet(ctx: DeclarationTextContext): string {
   if (!ctx) {

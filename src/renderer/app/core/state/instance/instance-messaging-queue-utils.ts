@@ -1,4 +1,4 @@
-import type { InstanceStatus, QueuedMessage } from './instance.types';
+import type { Instance, InstanceStatus, QueuedMessage } from './instance.types';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
 
 export interface SendInputImmediateOptions {
@@ -39,6 +39,16 @@ export function isReadyForInputStatus(status: InstanceStatus | undefined): boole
   return status === 'idle'
     || status === 'ready'
     || status === 'waiting_for_input';
+}
+
+/**
+ * An idle instance parked on a provider quota window (auto-resume opt-in —
+ * see `instanceProviderLimitResumeEnabled`). Main resends the throttled turn
+ * itself once the window resets, so the renderer must not race it by draining
+ * or sending into the parked instance in the meantime.
+ */
+export function isQuotaParked(instance: Pick<Instance, 'waitReason'> | undefined): boolean {
+  return instance?.waitReason?.kind === 'quota-park';
 }
 
 export function isTerminalStatus(status: InstanceStatus | undefined): boolean {

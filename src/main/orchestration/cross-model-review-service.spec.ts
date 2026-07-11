@@ -407,6 +407,34 @@ describe('CrossModelReviewService', () => {
     expect(terminate).toHaveBeenCalledWith(false);
   });
 
+  it('interrupts and force-terminates an in-session reviewer when its signal is cancelled', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const abort = new AbortController();
+    let rejectSend!: (reason?: unknown) => void;
+    const sendMessage = vi.fn(() => new Promise<never>((_resolve, reject) => {
+      rejectSend = reject;
+    }));
+    const interrupt = vi.fn(() => ({ status: 'accepted' as const }));
+    const terminate = vi.fn(async () => undefined);
+    vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue({
+      sendMessage, interrupt, terminate,
+    });
+
+    const pending = service.executeOneReview(makeRequest(), 'copilot', 30, abort.signal);
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    abort.abort();
+
+    await expect(Promise.race([
+      pending,
+      new Promise((resolve) => setTimeout(() => resolve('timed-out'), 250)),
+    ])).rejects.toThrow('Review cancelled');
+    expect(interrupt).toHaveBeenCalledOnce();
+    expect(terminate).toHaveBeenCalledWith(false);
+
+    rejectSend(new Error('late adapter rejection'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
   it('passes a configured reviewer model override into the adapter options', async () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
     reviewTestState.modelByProvider = { copilot: 'claude-sonnet-46' };
@@ -525,6 +553,40 @@ describe('CrossModelReviewService', () => {
     expect(capturedTimeout).toBe(300_000);
   });
 
+  describe('reviewer timeout floor', () => {
+    async function timeoutFor(cliType: string, timeoutSeconds: number): Promise<number> {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      let capturedTimeout = 0;
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+        capturedTimeout = options.timeout;
+        return {
+          sendMessage: async () => ({
+            content: JSON.stringify({
+              correctness: { reasoning: 'ok', score: 4, issues: [] },
+              completeness: { reasoning: 'ok', score: 4, issues: [] },
+              security: { reasoning: 'ok', score: 4, issues: [] },
+              consistency: { reasoning: 'ok', score: 4, issues: [] },
+              overall_verdict: 'APPROVE',
+              summary: 'approved',
+            }),
+          }),
+          terminate: vi.fn().mockResolvedValue(undefined),
+        };
+      });
+      await service.executeOneReview(makeRequest(), cliType, timeoutSeconds, new AbortController().signal);
+      return capturedTimeout;
+    }
+
+    it.each([
+      ['antigravity', 120, 300_000],
+      ['antigravity', 420, 420_000],
+      ['codex', 120, 300_000],
+      ['copilot', 120, 120_000],
+    ] as const)('resolves the effective timeout for %s at %dsec configured to %dms', async (cliType, seconds, expected) => {
+      await expect(timeoutFor(cliType, seconds)).resolves.toBe(expected);
+    });
+  });
+
   it('keeps full tiered depth and default effort for non-codex reviewers', async () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
 
@@ -557,6 +619,121 @@ describe('CrossModelReviewService', () => {
 
     expect(effortKeyPresent).toBe(false);
     expect(result?.reviewType).toBe('tiered');
+  });
+
+  describe('format-repair retry and shared operation deadline', () => {
+    it('retries once with a format-repair prompt and accepts a valid repaired response', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      const sendMessage = vi.fn()
+        .mockResolvedValueOnce({ content: 'not valid json' })
+        .mockResolvedValueOnce({
+          content: JSON.stringify({
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+            overall_verdict: 'APPROVE',
+            summary: 'approved after reformat',
+          }),
+        });
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+        sendMessage,
+        terminate: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      const result = await service.executeOneReview(makeRequest(), 'antigravity', 30, new AbortController().signal);
+
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(sendMessage.mock.calls[1]?.[0].content).toContain('reformat');
+      expect(result).toMatchObject({ reviewerId: 'antigravity', parseSuccess: true });
+    });
+
+    it('returns null when both the initial and the repaired responses fail validation', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      const sendMessage = vi.fn().mockResolvedValue({ content: 'still not valid json' });
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+        sendMessage,
+        terminate: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      const result = await service.executeOneReview(makeRequest(), 'antigravity', 30, new AbortController().signal);
+
+      expect(result).toBeNull();
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not attempt a repair when the reviewer plainly refuses', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      const sendMessage = vi.fn().mockResolvedValue({ content: 'I cannot fulfill this request.' });
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+        sendMessage,
+        terminate: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      const result = await service.executeOneReview(makeRequest(), 'antigravity', 30, new AbortController().signal);
+
+      expect(result).toBeNull();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('force-terminates the adapter via a single operation deadline when the reviewer hangs', async () => {
+      vi.useFakeTimers();
+      try {
+        const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+        const interrupt = vi.fn(() => ({ status: 'accepted' as const }));
+        const terminate = vi.fn(async () => undefined);
+        const sendMessage = vi.fn(() => new Promise<never>(() => {}));
+        vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue({ sendMessage, interrupt, terminate });
+
+        const pending = service.executeOneReview(makeRequest(), 'copilot', 5, new AbortController().signal);
+        const assertion = expect(pending).rejects.toThrow();
+        await vi.advanceTimersByTimeAsync(5000);
+        await assertion;
+
+        expect(interrupt).toHaveBeenCalledOnce();
+        expect(terminate).toHaveBeenCalledWith(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('shares one deadline across the initial and repair sends instead of resetting it', async () => {
+      vi.useFakeTimers();
+      try {
+        const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+        const interrupt = vi.fn(() => ({ status: 'accepted' as const }));
+        const terminate = vi.fn(async () => undefined);
+        const sendMessage = vi.fn()
+          .mockResolvedValueOnce({ content: 'not valid json' })
+          .mockImplementationOnce(() => new Promise<never>(() => {}));
+        vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue({ sendMessage, interrupt, terminate });
+
+        const pending = service.executeOneReview(makeRequest(), 'copilot', 5, new AbortController().signal);
+        const assertion = expect(pending).rejects.toThrow();
+        await vi.advanceTimersByTimeAsync(5000);
+        await assertion;
+
+        expect(sendMessage).toHaveBeenCalledTimes(2);
+        expect(interrupt).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('still reports "Review cancelled" immediately for an upstream abort, not a deadline error', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      const abort = new AbortController();
+      const sendMessage = vi.fn(() => new Promise<never>(() => {}));
+      const interrupt = vi.fn(() => ({ status: 'accepted' as const }));
+      const terminate = vi.fn(async () => undefined);
+      vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue({ sendMessage, interrupt, terminate });
+
+      const pending = service.executeOneReview(makeRequest(), 'copilot', 300, abort.signal);
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+      abort.abort();
+
+      await expect(pending).rejects.toThrow('Review cancelled');
+    });
   });
 
   describe('onInstanceIdle working-directory safety', () => {
@@ -698,6 +875,52 @@ describe('CrossModelReviewService', () => {
       localReviewer: { status: 'used', selectorId, model: 'qwen' },
       hasDisagreement: false,
     });
+  });
+
+  it('emits a visible empty result when the local reviewer failed and no remote reviewer succeeds', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    reviewTestState.localEnabled = true;
+    reviewTestState.localSelectorId = 'lm://this-device/ollama/ollama/qwen';
+    const localReviewer = { review: vi.fn().mockResolvedValue({ status: 'failed', reason: 'endpoint stopped' }) };
+    service.setLocalReviewDependenciesForTesting(localReviewer, { list: () => [{
+      selectorId: reviewTestState.localSelectorId,
+      source: 'this-device',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+      displayName: 'Qwen',
+      healthy: true,
+      loaded: true,
+      capabilities: { streaming: true, multiTurn: true, toolUse: 'verified', vision: 'unknown' },
+      discoveredAt: 1,
+    }] });
+    const allUnavailable = vi.fn();
+    service.on('review:all-unavailable', allUnavailable);
+    const result = new Promise<AggregatedReview>((resolve) => service.once('review:result', resolve as never));
+
+    await service.executeReviews(makeRequest(), [], 30);
+
+    await expect(result).resolves.toMatchObject({
+      reviews: [],
+      localReviewer: { status: 'failed', reason: expect.stringContaining('endpoint stopped') },
+      hasDisagreement: false,
+    });
+    expect(allUnavailable).not.toHaveBeenCalled();
+  });
+
+  it('routes to all-unavailable (no empty panel) when the local reviewer is skipped and no remote reviewer succeeds', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    reviewTestState.localEnabled = true;
+    service.setLocalReviewDependenciesForTesting({ review: vi.fn() }, { list: () => [] });
+    const allUnavailable = vi.fn();
+    service.on('review:all-unavailable', allUnavailable);
+    const result = vi.fn();
+    service.on('review:result', result);
+
+    await service.executeReviews(makeRequest(), [], 30);
+
+    expect(allUnavailable).toHaveBeenCalledWith({ instanceId: 'inst-1' });
+    expect(result).not.toHaveBeenCalled();
   });
 
   it('skips the same local selector as the builder while preserving a remote success', async () => {

@@ -7,6 +7,10 @@ import {
   PROVIDER_MENU_LABELS,
 } from '../models/provider-menu.constants';
 import type { PickerProvider } from '../models/compact-model-picker.types';
+import {
+  REMOTE_REVIEWER_PROVIDER_DEFINITIONS,
+  type RemoteReviewerProvider,
+} from '../../../../shared/types/reviewer-provider.types';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
 // We must include all sub-fields whenever caps/completion/progressThresholds
@@ -182,7 +186,8 @@ export class LoopConfigPanelComponent {
   /** Ping-pong mode: a different-provider agentic reviewer reviews every
    *  builder done-declaration until both models agree (or a backstop fires). */
   pingPongEnabled = signal(true);
-  pingPongReviewerProvider = signal<'auto' | 'claude' | 'codex' | 'antigravity' | 'copilot' | 'cursor'>('auto');
+  pingPongReviewerProvider = signal<'auto' | RemoteReviewerProvider>('auto');
+  readonly pingPongReviewerOptions = REMOTE_REVIEWER_PROVIDER_DEFINITIONS;
   pingPongSubject = signal<'auto' | 'plan' | 'impl'>('auto');
   pingPongMaxRounds = signal(15);
   providerOptions = computed<PickerProvider[]>(() => {

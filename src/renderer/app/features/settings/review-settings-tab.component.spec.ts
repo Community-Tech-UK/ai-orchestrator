@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { signal } from '@angular/core';
 import { ReviewSettingsTabComponent } from './review-settings-tab.component';
 import { SettingsStore } from '../../core/state/settings.store';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
@@ -10,6 +11,7 @@ import {
 } from '../../core/services/ipc/cross-model-review-ipc.service';
 import type { SettingMetadata } from '../../../../shared/types/settings-metadata.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 
 await resolveComponentResources((url) => {
   if (url.endsWith('.html') || url.endsWith('.scss')) {
@@ -176,9 +178,29 @@ class FakeSettingsStore {
 }
 
 class FakeUnifiedCatalogStore {
+  private readonly models = signal<ModelDisplayInfo[]>(structuredClone(localModels));
   readonly ensureLoaded = vi.fn();
+  readonly refresh = vi.fn(async () => {
+    this.models.update((models) => models.map((model) =>
+      model.id.includes('qwen-unverified') && model.localModel
+        ? {
+            ...model,
+            localModel: {
+              ...model.localModel,
+              capabilities: { ...model.localModel.capabilities, toolUse: 'verified' },
+            },
+          }
+        : model));
+  });
   readonly displayModelsForProvider = vi.fn((provider: string) =>
-    provider === 'local-model' ? localModels : []);
+    provider === 'local-model' ? this.models() : []);
+}
+
+class FakeProviderIpc {
+  readonly qualifyLocalReviewer = vi.fn().mockResolvedValue({
+    success: true,
+    data: { status: 'verified' },
+  });
 }
 
 class FakeReviewHealth {
@@ -202,6 +224,7 @@ describe('ReviewSettingsTabComponent', () => {
       providers: [
         { provide: SettingsStore, useValue: store },
         { provide: UnifiedCatalogStore, useClass: FakeUnifiedCatalogStore },
+        { provide: ProviderIpcService, useClass: FakeProviderIpc },
         { provide: CrossModelReviewIpcService, useValue: reviewHealth },
       ],
     }).compileComponents();
@@ -268,6 +291,82 @@ describe('ReviewSettingsTabComponent', () => {
     expect(options.get('lm://this-device/ollama/ollama/qwen-unverified')?.disabled).toBe(true);
     expect(options.get('lm://this-device/ollama/ollama/qwen-unhealthy')?.disabled).toBe(true);
     expect(options.get('lm://worker-node/node-1/ollama/ollama/qwen-worker')?.textContent).toContain('This-device models only');
+  });
+
+  it('verifies an unqualified healthy model and then allows first-time selection', async () => {
+    const unverified = 'lm://this-device/ollama/ollama/qwen-unverified';
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector(
+      `button[data-qualify-selector="${unverified}"]`,
+    ) as HTMLButtonElement;
+
+    expect(button).not.toBeNull();
+    button.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const provider = TestBed.inject(ProviderIpcService) as unknown as FakeProviderIpc;
+    expect(provider.qualifyLocalReviewer).toHaveBeenCalledWith(unverified);
+    const select = fixture.nativeElement.querySelector(
+      'select[aria-label="Local reviewer model"]',
+    ) as HTMLSelectElement;
+    expect(Array.from(select.options).find((option) => option.value === unverified)?.disabled)
+      .toBe(false);
+    select.value = unverified;
+    select.dispatchEvent(new Event('change'));
+    expect(store.set).toHaveBeenCalledWith('crossModelReviewLocalSelectorId', unverified);
+  });
+
+  it('shows qualification failure and retries without enabling the model optimistically', async () => {
+    const unverified = 'lm://this-device/ollama/ollama/qwen-unverified';
+    const provider = TestBed.inject(ProviderIpcService) as unknown as FakeProviderIpc;
+    provider.qualifyLocalReviewer
+      .mockResolvedValueOnce({ success: true, data: { status: 'unverified', reason: 'probe failed' } })
+      .mockResolvedValueOnce({ success: false, error: { message: 'endpoint unavailable' } });
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector(
+      `button[data-qualify-selector="${unverified}"]`,
+    ) as HTMLButtonElement;
+    button.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('probe failed');
+    expect(button.disabled).toBe(false);
+
+    button.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(provider.qualifyLocalReviewer).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.textContent).toContain('endpoint unavailable');
+    const select = fixture.nativeElement.querySelector(
+      'select[aria-label="Local reviewer model"]',
+    ) as HTMLSelectElement;
+    expect(Array.from(select.options).find((option) => option.value === unverified)?.disabled)
+      .toBe(true);
+  });
+
+  it('does not update destroyed settings UI after a qualification settles', async () => {
+    const unverified = 'lm://this-device/ollama/ollama/qwen-unverified';
+    let resolve!: (value: { success: true; data: { status: 'verified' } }) => void;
+    const pending = new Promise<{ success: true; data: { status: 'verified' } }>((next) => {
+      resolve = next;
+    });
+    const provider = TestBed.inject(ProviderIpcService) as unknown as FakeProviderIpc;
+    provider.qualifyLocalReviewer.mockReturnValueOnce(pending);
+    const catalog = TestBed.inject(UnifiedCatalogStore) as unknown as FakeUnifiedCatalogStore;
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    const request = component.qualifyLocalReviewer(
+      component.localReviewerModels().find((model) => model.id === unverified)!,
+    );
+    fixture.destroy();
+    resolve({ success: true, data: { status: 'verified' } });
+    await request;
+
+    expect(catalog.refresh).not.toHaveBeenCalled();
+    expect(component.qualificationState(unverified)).toEqual({ status: 'verifying' });
   });
 
   it('keeps a saved ineligible non-cloud target visible but rejects new ineligible selections', () => {

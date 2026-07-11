@@ -283,6 +283,103 @@ describe('OllamaCliAdapter', () => {
       });
   });
 
+  it('preserves an unknown tool name so the bounded runner can return a structured error', async () => {
+    const server = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/api/chat') {
+        await readJsonBody(req);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_unknown',
+              function: { name: 'workspace_shell', arguments: { command: 'pwd' } },
+            }],
+          },
+        }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+    const adapter = new OllamaCliAdapter({
+      host: '127.0.0.1',
+      port: server.port,
+      model: 'qwen2.5-coder:14b',
+    });
+
+    await expect(adapter.sendToolTurn([], [], new AbortController().signal))
+      .resolves.toMatchObject({
+        toolCalls: [{
+          id: 'call_unknown',
+          name: 'workspace_shell',
+          arguments: { command: 'pwd' },
+        }],
+      });
+  });
+
+  it('rejects an oversized HTTP-200 tool response before buffering it all', async () => {
+    const server = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/api/chat') {
+        await readJsonBody(req);
+        const body = JSON.stringify({
+          message: { role: 'assistant', content: 'x'.repeat(1_100_000) },
+        });
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        });
+        res.end(body);
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+    const adapter = new OllamaCliAdapter({
+      host: '127.0.0.1', port: server.port, model: 'qwen2.5-coder:14b',
+    });
+
+    await expect(adapter.sendToolTurn([], [], new AbortController().signal))
+      .rejects.toThrow('exceeded 1048576 bytes');
+  });
+
+  it('closes an endless declared-oversized response instead of draining it', async () => {
+    let response: http.ServerResponse | undefined;
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => { markClosed = resolve; });
+    const server = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/api/chat') {
+        await readJsonBody(req);
+        response = res;
+        res.once('close', markClosed);
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Content-Length': 1_048_577,
+        });
+        res.write('{');
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+    const adapter = new OllamaCliAdapter({
+      host: '127.0.0.1', port: server.port, model: 'qwen2.5-coder:14b',
+    });
+
+    await expect(adapter.sendToolTurn([], [], new AbortController().signal))
+      .rejects.toThrow('exceeded 1048576 bytes');
+    const result = await Promise.race([
+      closed.then(() => 'closed'),
+      new Promise((resolve) => setTimeout(() => resolve('still-open'), 250)),
+    ]);
+    if (result !== 'closed') response?.destroy();
+    expect(result).toBe('closed');
+  });
+
   it('emits streamed output and completion for sendInput', async () => {
     const requests: unknown[] = [];
     const server = await startServer(async (req, res) => {

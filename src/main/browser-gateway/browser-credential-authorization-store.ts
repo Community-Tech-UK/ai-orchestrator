@@ -21,7 +21,9 @@
  * folder jailing live in browser-credential-vault.ts. Both must pass.
  */
 
-export type CredentialPurpose = 'login' | 'register' | 'totp' | 'email_code';
+import type { SecretFieldKind } from './browser-credential-vault';
+
+export type CredentialPurpose = 'login' | 'register' | 'totp' | 'email_code' | 'secret_fill';
 
 export interface CredentialAuthorizationOrigin {
   scheme: 'https' | 'http';
@@ -35,6 +37,18 @@ export interface CredentialAuthorization {
   profileId: string;
   allowedOrigins: CredentialAuthorizationOrigin[];
   purposes: CredentialPurpose[];
+  /**
+   * For `secret_fill`: the semantic secret types this authorization permits
+   * (bank_account_number, iban, tax_identifier, …). REQUIRED for a secret_fill
+   * grant — a purpose match with no permitted type is refused. Ignored for
+   * login/register/totp/email_code.
+   */
+  allowedSecretTypes?: SecretFieldKind[];
+  /**
+   * Optional selector allowlist. When present and non-empty, a fill is permitted
+   * only into one of these selectors — binds the grant to specific controls.
+   */
+  allowedSelectors?: string[];
   /** Bitwarden folder this authorization is scoped to (e.g. 'AIO-Agent'). */
   vaultFolder: string;
   createdAt: number;
@@ -85,6 +99,10 @@ export interface AuthorizationCheck {
   profileId: string;
   origin: string;
   purpose: CredentialPurpose;
+  /** Required for a `secret_fill` check: the semantic secret type being filled. */
+  secretType?: SecretFieldKind;
+  /** The target selector, checked against an authorization's selector allowlist. */
+  selector?: string;
   now?: number;
 }
 
@@ -95,6 +113,8 @@ export interface AuthorizationDecision {
     | 'no_authorization_for_profile'
     | 'origin_not_authorized'
     | 'purpose_not_authorized'
+    | 'secret_type_not_authorized'
+    | 'selector_not_authorized'
     | 'authorization_expired'
     | 'authorization_revoked';
 }
@@ -129,6 +149,8 @@ export class CredentialAuthorizationService {
 
     let sawOrigin = false;
     let sawPurpose = false;
+    let sawSecretType = false;
+    let sawSelector = false;
     for (const auth of candidates) {
       if (auth.revokedAt) {
         continue;
@@ -141,7 +163,28 @@ export class CredentialAuthorizationService {
       if (purposeOk) {
         sawPurpose = true;
       }
-      if (!originOk || !purposeOk) {
+      // secret_fill additionally binds to the semantic secret type: a purpose
+      // match with no permitted type (or the wrong type) is refused, so a
+      // 'bank_account_number' grant can never fill an 'iban' field.
+      const secretTypeOk =
+        input.purpose !== 'secret_fill' ||
+        (input.secretType !== undefined && (auth.allowedSecretTypes?.includes(input.secretType) ?? false));
+      // Optional selector allowlist: when set, the fill must target one of them.
+      const selectorOk =
+        !auth.allowedSelectors ||
+        auth.allowedSelectors.length === 0 ||
+        (input.selector !== undefined && auth.allowedSelectors.includes(input.selector));
+      // Track the *most specific* failure only over candidates that already match
+      // origin+purpose (so an unrelated auth can't mask a real secret-type/selector
+      // rejection in the reported reason). The authorize/deny decision itself is
+      // unaffected — that requires ALL gates on ONE candidate below.
+      if (originOk && purposeOk && secretTypeOk) {
+        sawSecretType = true;
+      }
+      if (originOk && purposeOk && secretTypeOk && selectorOk) {
+        sawSelector = true;
+      }
+      if (!originOk || !purposeOk || !secretTypeOk || !selectorOk) {
         continue;
       }
       if (auth.expiresAt <= now) {
@@ -156,6 +199,12 @@ export class CredentialAuthorizationService {
     }
     if (!sawPurpose) {
       return { authorized: false, reason: 'purpose_not_authorized' };
+    }
+    if (input.purpose === 'secret_fill' && !sawSecretType) {
+      return { authorized: false, reason: 'secret_type_not_authorized' };
+    }
+    if (!sawSelector) {
+      return { authorized: false, reason: 'selector_not_authorized' };
     }
     return { authorized: false, reason: 'authorization_expired' };
   }

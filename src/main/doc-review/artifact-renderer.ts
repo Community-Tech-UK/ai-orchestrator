@@ -2,38 +2,40 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { marked } from 'marked';
 
-/** Skill-owned template, relative to the repo root. Single source of truth (lint-tested). */
+/** Tracked runtime asset, relative to the repo root in development. */
 const TEMPLATE_RELATIVE_PATH = join(
-  '.claude',
-  'skills',
-  'doc-review-artifact',
-  'references',
+  'src',
+  'main',
+  'doc-review',
+  'assets',
   'artifact-template.html',
 );
 
 let cachedTemplate: string | null = null;
 
-function candidateRoots(appRoot?: string): string[] {
-  const roots = [process.cwd()];
-  if (appRoot) roots.push(appRoot);
-  return roots;
+function candidatePaths(appRoot?: string): string[] {
+  const paths = [join(__dirname, 'assets', 'artifact-template.html')];
+  if (appRoot) paths.push(join(appRoot, TEMPLATE_RELATIVE_PATH));
+  paths.push(join(process.cwd(), TEMPLATE_RELATIVE_PATH));
+  return [...new Set(paths)];
 }
 
 /**
- * Load the artifact template from the skill references directory. Loops run in-repo, so
- * process.cwd() (or the provided app root) resolves it. Cached after first read.
+ * Load the tracked artifact template. The build copies it beside the compiled module;
+ * source-tree fallbacks support development and callers that provide an application root.
+ * Cached after first read.
  */
 export function loadArtifactTemplate(appRoot?: string): string {
   if (cachedTemplate) return cachedTemplate;
-  for (const root of candidateRoots(appRoot)) {
+  for (const candidate of candidatePaths(appRoot)) {
     try {
-      cachedTemplate = readFileSync(join(root, TEMPLATE_RELATIVE_PATH), 'utf8');
+      cachedTemplate = readFileSync(candidate, 'utf8');
       return cachedTemplate;
     } catch {
       // try next root
     }
   }
-  throw new Error(`doc-review artifact template not found at ${TEMPLATE_RELATIVE_PATH}`);
+  throw new Error(`doc-review artifact template not found (${TEMPLATE_RELATIVE_PATH})`);
 }
 
 /** For tests: drop the cached template so a fresh read happens. */
@@ -127,7 +129,7 @@ export interface RenderPlanArtifactInput {
 
 /**
  * Render a plan/spec/report Markdown document into a self-contained review artifact using
- * the skill template. Sections split at `## ` headings so each gets its own approve/reject
+ * the tracked template. Sections split at `## ` headings so each gets its own approve/reject
  * control. The embedded runtime and all contract markers come from the template.
  */
 export function renderPlanArtifact(input: RenderPlanArtifactInput): string {

@@ -46,7 +46,8 @@ import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
-import { detectErrorProviderLimit, detectCompletionProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
+import { detectCompletionProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
+import { tryParkOnProviderLimit as tryParkOnProviderLimitImpl } from './instance-communication-provider-limit';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
@@ -526,6 +527,39 @@ export class InstanceCommunicationManager extends EventEmitter {
     return `ultrathink\n\n${message}`;
   }
 
+  /**
+   * Attempt to park a regular session on a provider rate/usage limit.
+   * Shared by two turn-outcome paths that both need it: the adapter's
+   * `on('error')` event, and a thrown `sendInput()` rejection (the Codex
+   * app-server path — it fails the turn by rejecting the promise rather than
+   * emitting `'error'`, so the event hook never fires for it). Returns `true`
+   * when the turn was handled — parked fresh, or a send arrived while already
+   * parked — and the caller should stop instead of surfacing a normal error.
+   */
+  private tryParkOnProviderLimit(
+    instanceId: string,
+    instance: Instance,
+    adapter: CliAdapter,
+    error: unknown,
+    errorMessage: string,
+  ): boolean {
+    return tryParkOnProviderLimitImpl(
+      {
+        onProviderLimitTurn: this.deps.onProviderLimitTurn,
+        getResumePrompt: (id) => this.lastSentMessages.get(id)?.message ?? null,
+        addToOutputBuffer: (inst, msg) => this.addToOutputBuffer(inst, msg),
+        emitOutput: (id, msg) => this.emit('output', { instanceId: id, message: msg }),
+        transitionInstanceStatus: (inst, status) => this.transitionInstanceStatus(inst, status),
+        queueUpdate: (id, status, contextUsage) => this.deps.queueUpdate(id, status, contextUsage),
+      },
+      instanceId,
+      instance,
+      adapter,
+      error,
+      errorMessage,
+    );
+  }
+
   // ============================================
   // Message Sending
   // ============================================
@@ -911,6 +945,26 @@ export class InstanceCommunicationManager extends EventEmitter {
           logger.error('Context compaction failed (sendInput path)', compactErr instanceof Error ? compactErr : undefined, { instanceId });
           // Fall through to rethrow original error
         }
+      }
+
+      // Regular-session provider-limit auto-resume (opt-in). Some adapters
+      // (Codex app-server) fail a throttled turn by rejecting sendInput()
+      // directly rather than emitting 'error' — the on('error') hook never
+      // fires for it. Catch that here too so the park still runs instead of
+      // the instance falling into 'error'.
+      //
+      // Invariant this relies on: a given adapter's turn signals a failure
+      // through exactly ONE of {'error' event, thrown/rejected sendInput()},
+      // never both — so this call site and the on('error') handler's call
+      // below never both see the same turn. If a future adapter change ever
+      // violates that (emits 'error' *and* rejects), the second call here
+      // hits `maybePark`'s already-parked branch, which is quiet (no status
+      // change) but still adds its own system-buffer message alongside the
+      // first — a harmless but confusing double notice, not a double park.
+      if (this.tryParkOnProviderLimit(instanceId, instance, adapter, sendError, errorMsg)) {
+        this.deps.onToolStateChange?.(instanceId, 'idle');
+        this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+        return;
       }
 
       throw sendError;
@@ -1869,31 +1923,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       // Regular-session provider-limit auto-resume (opt-in). If this turn
       // stopped on a rate/session limit, park the instance and schedule a
       // resume after the quota window resets instead of marking it errored.
+      // See the sendInput() catch's tryParkOnProviderLimit call for the
+      // mutual-exclusivity invariant this relies on (a turn signals failure
+      // via 'error' XOR a thrown sendInput(), never both).
       if (this.deps.onProviderLimitTurn && !recoverableTurnError) {
-        const signal = detectErrorProviderLimit(error, errorMessage, readAdapterRateLimitTelemetry(adapter));
-        if (signal) {
-          const outcome = this.deps.onProviderLimitTurn({
-            instanceId,
-            resetAtHint: signal.resetAtHint,
-            reason: signal.reason,
-            resumePrompt: this.lastSentMessages.get(instanceId)?.message ?? null,
-          });
-          if (outcome === 'parked') {
-            const parkMessage: OutputMessage = {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'system',
-              content: 'Provider limit reached. This session is parked and will resume automatically when the quota window resets.',
-              metadata: { providerLimitParked: true },
-            };
-            this.addToOutputBuffer(instance, parkMessage);
-            this.emit('output', { instanceId, message: parkMessage });
-            if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
-              this.transitionInstanceStatus(instance, 'idle');
-              this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
-            }
-            return;
-          }
+        if (this.tryParkOnProviderLimit(instanceId, instance, adapter, error, errorMessage)) {
+          return;
         }
       }
 

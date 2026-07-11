@@ -39,6 +39,8 @@ const logger = getLogger('OllamaCliAdapter');
 const DEFAULT_HOST = 'localhost';
 const DEFAULT_PORT = 11434;
 const DEFAULT_MODEL = 'llama3.2';
+const MAX_TOOL_TURN_RESPONSE_BYTES = 1024 * 1024;
+const MAX_ERROR_RESPONSE_BYTES = 16 * 1024;
 
 // ── Ollama API types ───────────────────────────────────────────────────────────
 
@@ -175,8 +177,7 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected buildArgs(_message: CliMessage): string[] {
+  protected buildArgs(): string[] {
     return [];
   }
 
@@ -448,9 +449,39 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
           },
         },
         (res) => {
+          const responseLimit = res.statusCode !== undefined && res.statusCode >= 400
+            ? MAX_ERROR_RESPONSE_BYTES
+            : MAX_TOOL_TURN_RESPONSE_BYTES;
+          const declaredLength = Number(res.headers['content-length']);
+          if (Number.isFinite(declaredLength) && declaredLength > responseLimit) {
+            res.destroy();
+            reject(res.statusCode !== undefined && res.statusCode >= 400
+              ? new Error(`Ollama API error ${res.statusCode}: response exceeded ${responseLimit} bytes`)
+              : new LocalModelToolResponseError(
+                `Ollama tool-turn response exceeded ${responseLimit} bytes`,
+              ));
+            return;
+          }
           let responseBody = '';
-          res.on('data', (chunk: Buffer) => { responseBody += chunk.toString(); });
+          let responseBytes = 0;
+          let exceededLimit = false;
+          res.on('data', (chunk: Buffer) => {
+            if (exceededLimit) return;
+            responseBytes += chunk.length;
+            if (responseBytes > responseLimit) {
+              exceededLimit = true;
+              res.destroy();
+              reject(res.statusCode !== undefined && res.statusCode >= 400
+                ? new Error(`Ollama API error ${res.statusCode}: response exceeded ${responseLimit} bytes`)
+                : new LocalModelToolResponseError(
+                  `Ollama tool-turn response exceeded ${responseLimit} bytes`,
+                ));
+              return;
+            }
+            responseBody += chunk.toString();
+          });
           res.on('end', () => {
+            if (exceededLimit) return;
             if (res.statusCode !== undefined && res.statusCode >= 400) {
               reject(new Error(`Ollama API error ${res.statusCode}: ${responseBody}`));
               return;

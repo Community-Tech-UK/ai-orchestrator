@@ -5,6 +5,7 @@ import type {
   LocalModelToolTurnClient,
   LocalModelToolTurnResult,
 } from '../cli/adapters/local-model-chat-adapter';
+import { LocalModelToolResponseError } from '../cli/adapters/local-model-chat-adapter';
 import type { LocalReviewToolResult } from './local-review.types';
 import { LocalReviewer } from './local-reviewer';
 
@@ -292,5 +293,26 @@ describe('LocalReviewer', () => {
     await expect(reviewerFor(hanging).reviewer.review(
       REQUEST, TARGET, { timeoutMs: 10, maxToolRounds: 4 },
     )).resolves.toMatchObject({ status: 'failed', reason: expect.stringContaining('timed out') });
+  });
+
+  it('invalidates a verified capability after a tool-protocol response failure', async () => {
+    const capabilityService = {
+      qualify: vi.fn().mockResolvedValue({ status: 'verified' }),
+      invalidate: vi.fn(),
+    };
+    const reviewer = new LocalReviewer({
+      capabilityService,
+      clientFactory: async () => clientWith(
+        new LocalModelToolResponseError('malformed native tool response'),
+      ),
+      runnerFactory: () => ({ execute: vi.fn() }),
+    });
+
+    await expect(reviewer.review(
+      REQUEST,
+      TARGET,
+      { timeoutMs: 1_000, maxToolRounds: 4 },
+    )).resolves.toMatchObject({ status: 'failed', reason: expect.stringContaining('malformed') });
+    expect(capabilityService.invalidate).toHaveBeenCalledWith(TARGET);
   });
 });

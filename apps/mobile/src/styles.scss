@@ -1,16 +1,73 @@
 /* Design tokens — see docs/mobile-app/codex-visual-reference.md */
 :root {
+  /* Primitives */
+  --primitive-black: #000000;
+  --primitive-grey-900: #1c1c1e;
+  --primitive-grey-800: #2c2c2e;
+  --primitive-grey-500: #8e8e93;
+  --primitive-grey-300: #c7c7cc;
+  --primitive-white: #ffffff;
+  --primitive-green: #34c759;
+  --primitive-amber: #ff9f0a;
+  --primitive-red: #ff453a;
+  --primitive-blue: #0a84ff;
+
+  /* Semantic colours — retain the original aliases for existing screens. */
   --bg: #000000;
   --surface: #1c1c1e;
   --surface-2: #2c2c2e;
+  --surface-raised: var(--primitive-grey-900);
   --text: #ffffff;
   --text-secondary: #8e8e93;
+  --text-tertiary: #636366;
+  --separator: rgba(255, 255, 255, 0.1);
+  --separator-strong: rgba(255, 255, 255, 0.18);
   --accent-online: #34c759;
   --accent-attention: #ff9f0a;
   --accent-error: #ff453a;
   --accent-action: #0a84ff;
+
+  /* Typography */
+  --font-family-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui,
+    sans-serif;
+  --font-family-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+  --font-size-xs: 0.6875rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-base: 1.0625rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.375rem;
+  --font-size-display: 2.125rem;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+
+  /* 4pt spacing rhythm */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-9: 2.25rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Shape, motion and layering */
   --radius: 16px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-sheet: 24px;
   --radius-pill: 999px;
+  --control-size: 44px;
+  --mobile-gutter: 20px;
+  --dock-height: 72px;
+  --focus-ring: rgba(255, 255, 255, 0.92);
+  --motion-press: 120ms;
+  --motion-enter: 220ms;
+  --z-popover: 20;
+  --z-modal: 50;
+  --z-lock: 1000;
 }
 
 * {
@@ -25,7 +82,7 @@ body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-family-sans);
   font-size: 17px;
   -webkit-font-smoothing: antialiased;
 }
@@ -33,7 +90,7 @@ body {
 /* Respect the iOS safe areas (notch / home indicator). */
 app-root {
   display: block;
-  min-height: 100%;
+  min-height: 100dvh;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
 }
@@ -54,6 +111,16 @@ h2 {
 button {
   font-family: inherit;
   cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 a {
@@ -62,7 +129,87 @@ a {
 }
 
 code {
-  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-family: var(--font-family-mono);
+}
+
+.mobile-icon-button {
+  display: inline-grid;
+  width: var(--control-size);
+  height: var(--control-size);
+  place-items: center;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 1.35rem;
+  transition:
+    background var(--motion-press) ease-out,
+    transform var(--motion-press) ease-out;
+}
+
+.mobile-icon-button:active:not(:disabled),
+.mobile-pressable:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.mobile-icon-button:disabled,
+.mobile-primary-button:disabled,
+.mobile-pressable:disabled {
+  opacity: 0.4;
+}
+
+.mobile-primary-button {
+  display: inline-flex;
+  min-height: var(--control-size);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--primitive-white);
+  color: var(--primitive-black);
+  padding: 0 var(--space-5);
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.mobile-empty-state {
+  display: grid;
+  max-width: 22rem;
+  justify-items: center;
+  gap: var(--space-3);
+  margin: var(--space-12) auto 0;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.mobile-bottom-dock {
+  position: fixed;
+  right: max(var(--mobile-gutter), env(safe-area-inset-right));
+  bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+  left: max(var(--mobile-gutter), env(safe-area-inset-left));
+  z-index: var(--z-popover);
+  display: flex;
+  min-height: var(--dock-height);
+  align-items: center;
+  gap: var(--space-3);
+  pointer-events: none;
+}
+
+.mobile-bottom-dock > * {
+  pointer-events: auto;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .markdown-body {
@@ -285,4 +432,15 @@ textarea {
   border-radius: 10px;
   padding: 12px 14px;
   width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

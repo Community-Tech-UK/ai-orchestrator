@@ -22,9 +22,11 @@ import { classifyBrowserAction, LEGAL_DECLARATION_REASON } from './browser-actio
 import type { BrowserEscalationService } from './browser-escalation-store';
 import {
   escalationResultForChallenge,
+  neverGrantableDenyResult,
   recordDeclarationAutoFireNote,
 } from './browser-gateway-hardstop';
 import {
+  actionClassNeverGrantable,
   actionClassRequiresAutonomy,
   findMatchingBrowserGrant,
 } from './browser-grant-policy';
@@ -270,6 +272,20 @@ export class BrowserGatewayActionGuard {
           actionClass: classification.actionClass,
           origin: originDecision.origin,
           url: currentUrl,
+        };
+      }
+      // A never-grantable hard stop (genuine payment) can be satisfied by no
+      // grant OR approval, so we must NOT raise a per-action approval the user
+      // could approve yet which could never permit the action (the approval
+      // loop). Terminate with a clear, actionable deny instead.
+      if (actionClassNeverGrantable(classification.actionClass)) {
+        return {
+          result: neverGrantableDenyResult({ result: this.result }, request, action, toolName, classification, {
+            profileId: profile.id,
+            targetId: target.id,
+            origin: originDecision.origin,
+            url: currentUrl,
+          }),
         };
       }
       const approval = this.approvalStore.createRequest({
@@ -553,6 +569,16 @@ export class BrowserGatewayActionGuard {
           actionClass: classification.actionClass,
           origin: originDecision.origin,
           url: attachment.url,
+        };
+      }
+      if (actionClassNeverGrantable(classification.actionClass)) {
+        return {
+          result: neverGrantableDenyResult({ result: this.result }, request, action, toolName, classification, {
+            profileId: attachment.profileId,
+            targetId: attachment.targetId,
+            origin: originDecision.origin,
+            url: attachment.url,
+          }),
         };
       }
       const approval = this.approvalStore.createRequest({

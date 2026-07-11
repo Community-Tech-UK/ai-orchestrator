@@ -75,6 +75,40 @@ export const BrowserFillCredentialRequestSchema = z
   .strict();
 export type BrowserFillCredentialRequest = z.infer<typeof BrowserFillCredentialRequestSchema>;
 
+export const BrowserFillSecretRequestSchema = z
+  .object({
+    profileId: idSchema,
+    targetId: idSchema,
+    // A vault item reference, never a secret. Bounded like an id.
+    vaultItemRef: z.string().min(1).max(200),
+    fields: z
+      .array(
+        z
+          .object({
+            selector: z.string().min(1).max(2_000),
+            // The semantic secret type, resolved from a NAMED Bitwarden custom
+            // field in the main process. Never a value.
+            secretType: z.enum([
+              'bank_account_number',
+              'bank_sort_code',
+              'iban',
+              'bic_swift',
+              'tax_identifier',
+              'policy_number',
+              'arbitrary_named_vault_field',
+            ]),
+            // Required only for arbitrary_named_vault_field: the (non-secret)
+            // custom-field name to resolve.
+            fieldName: z.string().min(1).max(200).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10),
+  })
+  .strict();
+export type BrowserFillSecretRequest = z.infer<typeof BrowserFillSecretRequestSchema>;
+
 export const BrowserCreateAgentCredentialRequestSchema = z
   .object({
     profileId: idSchema,

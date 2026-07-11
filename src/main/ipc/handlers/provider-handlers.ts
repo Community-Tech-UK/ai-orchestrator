@@ -19,6 +19,8 @@ import {
   type LocalModelInventoryUpdatedPayload,
 } from '../../local-models/local-model-inventory-service';
 import type { WindowManager } from '../../window-manager';
+import { LocalReviewerQualificationController } from '../../review/local-reviewer-qualification-controller';
+import { handleLocalReviewerQualification } from './local-reviewer-qualification-handler';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   ModelsCLIPushPayloadSchema,
@@ -48,6 +50,7 @@ export function registerProviderHandlers(
   const registry = getProviderInstanceManager();
   const pluginManager = getProviderPluginsManager();
   const localModelInventory = getLocalModelInventoryService();
+  const localReviewerQualification = new LocalReviewerQualificationController(localModelInventory);
 
   // ============================================
   // Provider Handlers
@@ -484,6 +487,17 @@ export function registerProviderHandlers(
         };
       }
     },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MODELS_LOCAL_REVIEWER_QUALIFY,
+    (event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> =>
+      handleLocalReviewerQualification(
+        event,
+        payload,
+        localReviewerQualification,
+        deps.ensureAuthorized,
+      ),
   );
 
   // Push renderer-side CLI-discovered models into the backend catalog.

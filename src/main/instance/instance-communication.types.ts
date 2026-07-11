@@ -73,15 +73,17 @@ export interface CommunicationDependencies {
    * (opt-in) regular-session auto-resume machinery park the instance and
    * schedule a resume after the quota window resets. Returns `'parked'` when it
    * took ownership of the stopped turn (the caller should leave the instance
-   * idle instead of marking it errored), or `'skipped'` to fall through to
-   * normal handling.
+   * idle instead of marking it errored), `'already-parked'` when a turn
+   * arrived while the instance was already parked (e.g. from a path that
+   * bypasses the renderer's quota-park gate), or `'skipped'` to fall through
+   * to normal handling.
    */
   onProviderLimitTurn?: (params: {
     instanceId: string;
     resetAtHint: number | null;
     reason: string;
     resumePrompt: string | null;
-  }) => 'parked' | 'skipped';
+  }) => 'parked' | 'already-parked' | 'skipped';
   createSnapshot?: (instanceId: string, name: string, description: string | undefined, trigger: 'checkpoint' | 'auto') => void;
   getBudgetTracker?: (instanceId: string) => TokenBudgetTracker | undefined;
   getContextUsage?: (instanceId: string) => ContextUsage | undefined;

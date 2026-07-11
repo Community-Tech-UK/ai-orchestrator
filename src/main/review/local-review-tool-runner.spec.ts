@@ -7,6 +7,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  realpath,
   rename,
   rm,
   stat,
@@ -55,6 +56,7 @@ describe('LocalReviewToolRunner', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await rm(sandboxPath, { recursive: true, force: true });
   });
 
@@ -98,6 +100,32 @@ describe('LocalReviewToolRunner', () => {
       arguments: { path: 'src/a.ts' },
     })).resolves.toMatchObject({ ok: true, content: 'export const value = 1;\n' });
   });
+
+  it.each(['workspace_read', 'workspace_search'] as const)(
+    'rejects a repository FIFO promptly during %s',
+    async (toolName) => {
+      if (process.platform === 'win32') return;
+      const fifoPath = path.join(workspacePath, 'src', `${toolName}.fifo`);
+      await execFileAsync('mkfifo', [fifoPath]);
+      const fifoRunner = new LocalReviewToolRunner(workspacePath, { operationTimeoutMs: 2_000 });
+      const pending = fifoRunner.execute(toolName === 'workspace_read'
+        ? { name: toolName, arguments: { path: path.relative(workspacePath, fifoPath) } }
+        : { name: toolName, arguments: { path: 'src', query: 'needle' } });
+
+      const result = await Promise.race([
+        pending,
+        delay(250).then(() => 'still-pending' as const),
+      ]);
+      if (result === 'still-pending') {
+        await writeFile(fifoPath, '');
+        await pending;
+      }
+
+      expect(result).toMatchObject(toolName === 'workspace_read'
+        ? { ok: false, code: 'not-file' }
+        : { ok: true, content: '' });
+    },
+  );
 
   it.each(['workspace_read', 'workspace_list', 'workspace_search'] as const)(
     'does not release output when %s has a coordinated directory symlink swap',
@@ -222,6 +250,15 @@ describe('LocalReviewToolRunner', () => {
   it.each([
     '.env',
     '.env.local',
+    '.env-prod',
+    '.env_test',
+    '.envrc',
+    '.envrc.local',
+    '.direnv/allow',
+    'config/production.env',
+    '.aio-loop-control/run/control.json',
+    '.aio-loop-state/run/AUDIT.md',
+    '.aio-loop-attachments/run/input.txt',
     'credentials.json',
     '.git/config',
     'id_rsa',
@@ -232,6 +269,41 @@ describe('LocalReviewToolRunner', () => {
       name: 'workspace_read',
       arguments: { path: requestedPath },
     })).resolves.toMatchObject({ ok: false, code: 'sensitive-path' });
+  });
+
+  it('withholds loop-private directories from every repository tool', async () => {
+    const privatePaths = [
+      '.aio-loop-control/run/control.json',
+      '.aio-loop-state/run/AUDIT.md',
+      '.aio-loop-attachments/run/input.txt',
+      '.AIO-LOOP-CONTROL/other/control.json',
+    ];
+    for (const privatePath of privatePaths) {
+      await mkdir(path.dirname(path.join(workspacePath, privatePath)), { recursive: true });
+      await writeFile(path.join(workspacePath, privatePath), 'loop-private-marker\n');
+    }
+    await git(['add', '-f', ...privatePaths]);
+    await git(['commit', '-m', 'loop-private fixture']);
+    for (const privatePath of privatePaths) {
+      await writeFile(path.join(workspacePath, privatePath), 'changed-loop-private-marker\n');
+    }
+
+    const [read, list, search, statusResult, diffResult] = await Promise.all([
+      runner.execute({ name: 'workspace_read', arguments: { path: privatePaths[0] } }),
+      runner.execute({ name: 'workspace_list', arguments: {} }),
+      runner.execute({ name: 'workspace_search', arguments: { query: 'loop-private-marker' } }),
+      runner.execute({ name: 'workspace_status', arguments: {} }),
+      runner.execute({ name: 'workspace_diff', arguments: {} }),
+    ]);
+
+    expect(read).toMatchObject({ ok: false, code: 'sensitive-path' });
+    for (const result of [list, search, statusResult, diffResult]) {
+      expect(result).toMatchObject({ ok: true });
+      expect(JSON.stringify(result)).not.toContain('loop-private-marker');
+      for (const privatePath of privatePaths) {
+        expect(JSON.stringify(result)).not.toContain(privatePath.split('/')[0]);
+      }
+    }
   });
 
   it('returns not-found only after validating the real parent containment', async () => {
@@ -534,15 +606,23 @@ describe('LocalReviewToolRunner', () => {
     });
   });
 
-  it('rejects linked worktrees whose common Git metadata is outside their workspace', async () => {
+  it('supports status, diff, list, and search in a canonical linked worktree', async () => {
     const linkedPath = path.join(sandboxPath, 'linked-worktree');
     await git(['worktree', 'add', '-b', 'linked-review-test', linkedPath]);
+    await writeFile(path.join(linkedPath, 'src', 'a.ts'), 'export const linkedMarker = 2;\n');
     const linkedRunner = new LocalReviewToolRunner(linkedPath);
 
-    await expect(linkedRunner.execute({ name: 'workspace_status', arguments: {} })).resolves.toMatchObject({
-      ok: false,
-      code: 'process-error',
-    });
+    const [status, diff, list, search] = await Promise.all([
+      linkedRunner.execute({ name: 'workspace_status', arguments: {} }),
+      linkedRunner.execute({ name: 'workspace_diff', arguments: {} }),
+      linkedRunner.execute({ name: 'workspace_list', arguments: { path: 'src' } }),
+      linkedRunner.execute({ name: 'workspace_search', arguments: { query: 'linkedMarker', path: 'src' } }),
+    ]);
+
+    expect(status).toMatchObject({ ok: true, content: expect.stringContaining('src/a.ts') });
+    expect(diff).toMatchObject({ ok: true, content: expect.stringContaining('linkedMarker') });
+    expect(list).toMatchObject({ ok: true, content: expect.stringContaining('src/a.ts') });
+    expect(search).toMatchObject({ ok: true, content: expect.stringContaining('linkedMarker') });
   });
 
   it('rejects core.worktree redirection outside the approved workspace', async () => {
@@ -629,17 +709,56 @@ describe('LocalReviewToolRunner', () => {
     }
   });
 
+  it('filters environment-file variants from Git status and diff', async () => {
+    await mkdir(path.join(workspacePath, 'config'));
+    await mkdir(path.join(workspacePath, '.direnv'));
+    const sensitiveNames = [
+      '.env-prod', '.env_test', '.envrc', '.envrc.local',
+      '.direnv/allow', 'config/production.env',
+    ];
+    for (const name of sensitiveNames) await writeFile(path.join(workspacePath, name), 'baseline\n');
+    await git(['add', '-f', ...sensitiveNames]);
+    await git(['commit', '-m', 'environment variants fixture']);
+    for (const name of sensitiveNames) await writeFile(path.join(workspacePath, name), 'changed-environment-value\n');
+
+    const [statusResult, diffResult] = await Promise.all([
+      runner.execute({ name: 'workspace_status', arguments: {} }),
+      runner.execute({ name: 'workspace_diff', arguments: {} }),
+    ]);
+
+    for (const result of [statusResult, diffResult]) {
+      expect(result).toMatchObject({ ok: true });
+      expect(JSON.stringify(result)).not.toContain('changed-environment-value');
+      for (const name of sensitiveNames) expect(JSON.stringify(result)).not.toContain(name);
+    }
+  });
+
   it('runs Git review operations without changing index bytes or metadata', async () => {
     await writeFile(path.join(workspacePath, 'src', 'a.ts'), 'export const value = 1;\n');
     const indexPath = path.join(workspacePath, '.git', 'index');
+    const canonicalIndexPath = await realpath(indexPath);
     const beforeBytes = await readFile(indexPath);
     const before = await stat(indexPath);
+    const operationalIndexPaths: string[] = [];
+    const isolatedIndexRunner = new LocalReviewToolRunner(workspacePath, {
+      spawnProcess: (executable, args, options) => {
+        if (!args.includes('rev-parse')) {
+          operationalIndexPaths.push(String(options.env?.['GIT_INDEX_FILE'] ?? ''));
+        }
+        return spawn(executable, args, options);
+      },
+    });
 
-    await runner.execute({ name: 'workspace_status', arguments: {} });
-    await runner.execute({ name: 'workspace_diff', arguments: {} });
+    await isolatedIndexRunner.execute({ name: 'workspace_status', arguments: {} });
+    await isolatedIndexRunner.execute({ name: 'workspace_diff', arguments: {} });
 
     const afterBytes = await readFile(indexPath);
     const after = await stat(indexPath);
+    expect(operationalIndexPaths).toHaveLength(2);
+    expect(operationalIndexPaths).not.toContain(canonicalIndexPath);
+    for (const temporaryIndexPath of operationalIndexPaths) {
+      await expect(lstat(temporaryIndexPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
     expect(afterBytes.equals(beforeBytes)).toBe(true);
     expect(after.mtimeMs).toBe(before.mtimeMs);
     expect(after.ctimeMs).toBe(before.ctimeMs);
@@ -823,7 +942,6 @@ describe('LocalReviewToolRunner', () => {
   });
 
   it('escalates a stuck child from SIGTERM to SIGKILL and settles once', async () => {
-    vi.useFakeTimers();
     const child = new EventEmitter() as EventEmitter & {
       stdout: PassThrough;
       stderr: PassThrough;
@@ -841,27 +959,42 @@ describe('LocalReviewToolRunner', () => {
     };
     let signalSpawned: (() => void) | undefined;
     const spawned = new Promise<void>((resolve) => { signalSpawned = resolve; });
-    const spawnProcess = vi.fn(() => {
+    const spawnProcess = vi.fn((executable: string, args: string[], options: SpawnOptions) => {
+      if (!args.includes('diff')) return spawn(executable, args, options);
       signalSpawned?.();
       return child;
     });
+    const controller = new AbortController();
     const terminatingRunner = new LocalReviewToolRunner(workspacePath, {
-      processTimeoutMs: 10,
-      operationTimeoutMs: 10,
+      operationTimeoutMs: 30_000,
       killGraceMs: 5,
       spawnProcess,
+      executables: { git: 'git', rg: 'aio-deliberately-missing-rg' },
     });
-    try {
-      const pending = terminatingRunner.execute({ name: 'workspace_diff', arguments: {} });
-      await spawned;
-      await vi.advanceTimersByTimeAsync(20);
-
-      await expect(pending).resolves.toMatchObject({ ok: false, code: 'process-error' });
-      expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
-    } finally {
-      vi.useRealTimers();
+    let settlementCount = 0;
+    const pending = terminatingRunner.execute(
+      { name: 'workspace_diff', arguments: {} },
+      controller.signal,
+    ).then((result) => {
+      settlementCount += 1;
+      return result;
+    });
+    const spawnOutcome = await Promise.race([
+      spawned.then(() => ({ spawned: true as const })),
+      pending.then((result) => ({ spawned: false as const, result })),
+    ]);
+    if (!spawnOutcome.spawned) {
+      throw new Error(`Diff child was not spawned: ${JSON.stringify(spawnOutcome.result)}`);
     }
-  });
+
+    controller.abort();
+    await expect(pending).resolves.toMatchObject({ ok: false, code: 'process-error' });
+    child.emit('close', 0, null);
+    await Promise.resolve();
+
+    expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
+    expect(settlementCount).toBe(1);
+  }, 15_000);
 
   it('returns typed errors for unknown tools and invalid or extra arguments', async () => {
     const calls: LocalReviewToolCall[] = [

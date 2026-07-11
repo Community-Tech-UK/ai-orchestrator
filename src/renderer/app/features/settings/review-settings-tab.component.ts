@@ -2,7 +2,7 @@
  * Review Settings Tab Component - Cross-model review settings
  */
 
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import {
@@ -12,6 +12,7 @@ import {
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import { getModelsForProvider, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
+import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { resolveReviewerModels } from './reviewer-model-options';
 import {
   REMOTE_REVIEWER_PROVIDER_DEFINITIONS,
@@ -28,6 +29,12 @@ interface ReviewerProviderView {
 interface LocalReviewerModelView extends ModelDisplayInfo {
   reviewerEligible: boolean;
   reviewerIneligibleReason?: string;
+  canQualify: boolean;
+}
+
+interface LocalQualificationState {
+  status: 'verifying' | 'verified' | 'failed';
+  reason?: string;
 }
 
 const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
@@ -188,6 +195,32 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
         </select>
       </div>
 
+      @for (model of localReviewerModels(); track model.id) {
+        @if (model.canQualify) {
+          <div class="reviewer-add local-qualification-row">
+            <span>{{ model.name }}</span>
+            <button
+              type="button"
+              class="reviewer-add__chip"
+              [attr.data-qualify-selector]="model.id"
+              [disabled]="qualificationState(model.id)?.status === 'verifying'"
+              (click)="qualifyLocalReviewer(model)"
+            >
+              {{ qualificationState(model.id)?.status === 'verifying' ? 'Verifying…' : 'Verify tool use' }}
+            </button>
+            @if (qualificationState(model.id); as state) {
+              <span role="status" aria-live="polite">
+                @if (state.status === 'verified') {
+                  Tool use verified. You can now select this model.
+                } @else if (state.status === 'failed') {
+                  Verification failed: {{ state.reason }}
+                }
+              </span>
+            }
+          </div>
+        }
+      }
+
       @if (!hasEligibleLocalReviewer()) {
         <p class="reviewer-priority__empty">
           No eligible local models are currently available.
@@ -241,6 +274,10 @@ export class ReviewSettingsTabComponent {
   store = inject(SettingsStore);
   private unifiedCatalog = inject(UnifiedCatalogStore);
   private reviewHealth = inject(CrossModelReviewIpcService);
+  private providerIpc = inject(ProviderIpcService);
+  private destroyRef = inject(DestroyRef);
+  private destroyed = false;
+  private readonly qualificationStates = signal(new Map<string, LocalQualificationState>());
 
   /** Live health notice for a reviewer row (undefined when healthy). */
   reviewerNotice(id: RemoteReviewerProvider): ReviewerNotice | undefined {
@@ -273,6 +310,7 @@ export class ReviewSettingsTabComponent {
 
   constructor() {
     this.unifiedCatalog.ensureLoaded();
+    this.destroyRef.onDestroy(() => { this.destroyed = true; });
   }
 
   /** All review settings except the reviewer list, which has a bespoke control. */
@@ -289,6 +327,7 @@ export class ReviewSettingsTabComponent {
         return {
           ...model,
           reviewerEligible: reason === undefined,
+          canQualify: canQualifyLocalReviewer(model),
           ...(reason ? { reviewerIneligibleReason: reason } : {}),
         };
       }),
@@ -400,6 +439,41 @@ export class ReviewSettingsTabComponent {
     void this.store.set('crossModelReviewLocalSelectorId', selectorId);
   }
 
+  qualificationState(selectorId: string): LocalQualificationState | undefined {
+    return this.qualificationStates().get(selectorId);
+  }
+
+  async qualifyLocalReviewer(model: LocalReviewerModelView): Promise<void> {
+    if (!model.canQualify || this.qualificationState(model.id)?.status === 'verifying') return;
+    this.setQualificationState(model.id, { status: 'verifying' });
+    try {
+      const response = await this.providerIpc.qualifyLocalReviewer(model.id);
+      if (this.destroyed) return;
+      if (response.success && response.data?.status === 'verified') {
+        await this.unifiedCatalog.refresh();
+        if (!this.destroyed) this.setQualificationState(model.id, { status: 'verified' });
+        return;
+      }
+      this.setQualificationState(model.id, {
+        status: 'failed',
+        reason: response.data?.reason ?? response.error?.message ?? 'Capability probe failed.',
+      });
+    } catch (error) {
+      if (!this.destroyed) {
+        this.setQualificationState(model.id, {
+          status: 'failed',
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  private setQualificationState(selectorId: string, state: LocalQualificationState): void {
+    const next = new Map(this.qualificationStates());
+    next.set(selectorId, state);
+    this.qualificationStates.set(next);
+  }
+
   onLocalEnabledChange(event: Event): void {
     const enabled = (event.target as HTMLInputElement).checked;
     void this.store.set('crossModelReviewLocalEnabled', enabled);
@@ -423,4 +497,12 @@ function localReviewerIneligibility(model: ModelDisplayInfo): string | undefined
   if (!local.healthy) return 'Endpoint unavailable';
   if (local.capabilities.toolUse !== 'verified') return 'Tool use not verified';
   return undefined;
+}
+
+function canQualifyLocalReviewer(model: ModelDisplayInfo): boolean {
+  const local = model.localModel;
+  return local?.source === 'this-device' &&
+    local.healthy &&
+    local.capabilities.toolUse !== 'verified' &&
+    !local.modelId.toLowerCase().includes(':cloud');
 }

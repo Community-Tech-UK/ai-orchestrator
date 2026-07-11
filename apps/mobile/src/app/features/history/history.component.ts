@@ -9,6 +9,12 @@ import {
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import type { MobileHistorySessionDto } from '../../core/models';
+import { MobileHeaderComponent } from '../../shared/mobile-header.component';
+import { MobileIconComponent } from '../../shared/mobile-icon.component';
+import {
+  MobileSessionRowComponent,
+  type MobileSessionRowView,
+} from '../../shared/mobile-session-row.component';
 
 interface HistoryGroup {
   key: string;
@@ -16,77 +22,60 @@ interface HistoryGroup {
   sessions: MobileHistorySessionDto[];
 }
 
-/**
- * Browse persisted ("older") sessions — including ones that are closed/archived
- * and no longer live in the desktop's instance list. Sessions are grouped by
- * project (working directory) and ordered newest-first. Tapping a live session
- * deep-links to its live conversation; tapping a closed one opens a read-only
- * transcript.
- */
 @Component({
   standalone: true,
   selector: 'app-history',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MobileHeaderComponent, MobileIconComponent, MobileSessionRowComponent],
   template: `
-    <section class="screen">
-      <header class="top">
-        <button class="back" (click)="back()">‹</button>
-        <h2>History</h2>
-        <span></span>
-      </header>
+    <section class="history-screen">
+      <app-mobile-header title="History">
+        <button
+          mobileHeaderLeading
+          class="mobile-icon-button"
+          type="button"
+          (click)="back()"
+          aria-label="Back to projects"
+        >
+          <app-mobile-icon name="chevron-left" />
+        </button>
+        <span mobileHeaderTrailing aria-hidden="true"></span>
+      </app-mobile-header>
+
+      <h1>Past sessions</h1>
 
       @if (loading()) {
-        <p class="muted">Loading…</p>
+        <p class="history-state">Loading sessions…</p>
       } @else if (error()) {
-        <p class="error">{{ error() }}</p>
+        <p class="history-error" role="alert">{{ error() }}</p>
       } @else if (groups().length === 0) {
-        <p class="muted">No past sessions yet.</p>
+        <div class="mobile-empty-state">
+          <app-mobile-icon name="history" />
+          <h2>No past sessions yet</h2>
+        </div>
       } @else {
-        @for (g of groups(); track g.key) {
-          <h3 class="group">{{ g.name }}</h3>
-          <ul class="list">
-            @for (s of g.sessions; track s.id) {
-              <li>
-                <button class="row" (click)="open(s)">
-                  <span class="info">
-                    <span class="name">{{ s.name }}</span>
-                    <span class="meta">
-                      {{ s.provider || 'session' }} · {{ when(s.lastActiveAt) }}
-                    </span>
-                  </span>
-                  @if (s.live) {
-                    <span class="tag live">live</span>
-                  } @else if (s.archived) {
-                    <span class="tag">archived</span>
-                  }
-                  <span class="chevron">›</span>
-                </button>
-              </li>
+        @for (group of groups(); track group.key) {
+          <section class="history-group" [attr.aria-labelledby]="'history-group-' + $index">
+            <h2 [id]="'history-group-' + $index">{{ group.name }}</h2>
+            @for (session of group.sessions; track session.id) {
+              <app-mobile-session-row [row]="rowForSession(session)" (activate)="open(session)" />
             }
-          </ul>
+          </section>
         }
       }
     </section>
   `,
   styles: [
     `
-      .screen { padding: 16px; }
-      .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-      .back { background: none; border: none; color: var(--accent-action); font-size: 26px; line-height: 1; }
-      .muted { color: var(--text-secondary); text-align: center; margin-top: 40px; }
-      .error { color: var(--accent-error); }
-      .group { color: var(--text-secondary); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; margin: 18px 0 4px; }
-      .list { list-style: none; padding: 0; margin: 0; }
-      .row {
-        width: 100%; display: flex; align-items: center; gap: 12px;
-        background: transparent; border: none; color: var(--text); padding: 14px 4px; text-align: left;
-      }
-      .info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-      .name { font-size: 17px; }
-      .meta { font-size: 13px; color: var(--text-secondary); text-transform: capitalize; }
-      .tag { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-secondary); }
-      .tag.live { background: rgba(52, 199, 89, 0.15); color: var(--accent-online); }
-      .chevron { color: var(--text-secondary); font-size: 20px; }
+      .history-screen { min-height: 100%; padding: var(--space-3) var(--mobile-gutter) var(--space-8); }
+      h1 { margin: var(--space-8) 0 var(--space-5); font-size: var(--font-size-xl); }
+      .history-group { margin-top: var(--space-6); }
+      .history-group h2 { margin: 0 var(--space-3) var(--space-1); color: var(--text-secondary); font-size: var(--font-size-sm); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+      .history-state, .history-error { margin-top: var(--space-10); text-align: center; }
+      .history-state { color: var(--text-secondary); }
+      .history-error { color: var(--accent-error); }
+      .mobile-empty-state > app-mobile-icon { color: var(--text-secondary); font-size: 2.5rem; }
+      .mobile-empty-state h2 { margin: 0; }
     `,
   ],
 })
@@ -97,25 +86,27 @@ export class HistoryComponent implements OnInit {
   protected readonly sessions = signal<MobileHistorySessionDto[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
-
   protected readonly groups = computed<HistoryGroup[]>(() => {
     const map = new Map<string, HistoryGroup>();
-    for (const s of this.sessions()) {
-      const key = s.workingDirectory || '__no_workspace__';
-      let g = map.get(key);
-      if (!g) {
-        g = { key, name: s.workingDirectory ? s.projectName : 'No workspace', sessions: [] };
-        map.set(key, g);
+    for (const session of this.sessions()) {
+      const key = session.workingDirectory || '__no_workspace__';
+      let group = map.get(key);
+      if (!group) {
+        group = {
+          key,
+          name: session.workingDirectory ? session.projectName : 'No workspace',
+          sessions: [],
+        };
+        map.set(key, group);
       }
-      g.sessions.push(s);
+      group.sessions.push(session);
     }
     return [...map.values()];
   });
 
   async ngOnInit(): Promise<void> {
     try {
-      const sessions = await this.gateway.history();
-      this.sessions.set(sessions);
+      this.sessions.set(await this.gateway.history());
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : String(err));
     } finally {
@@ -123,23 +114,35 @@ export class HistoryComponent implements OnInit {
     }
   }
 
-  protected open(s: MobileHistorySessionDto): void {
-    if (s.live && s.instanceId) {
-      const key = s.workingDirectory || '__no_workspace__';
-      void this.router.navigate(['/projects', key, 'sessions', s.instanceId]);
+  protected rowForSession(session: MobileHistorySessionDto): MobileSessionRowView {
+    return {
+      id: session.id,
+      title: session.name,
+      subtitle: `${session.provider || 'session'} · ${this.when(session.lastActiveAt)}`,
+      statusLabel: session.live ? 'live' : session.archived ? 'archived' : 'history',
+      tone: session.live ? 'idle' : 'history',
+      unread: false,
+      live: session.live,
+      lastActivity: session.lastActiveAt,
+    };
+  }
+
+  protected open(session: MobileHistorySessionDto): void {
+    if (session.live && session.instanceId) {
+      const key = session.workingDirectory || '__no_workspace__';
+      void this.router.navigate(['/projects', key, 'sessions', session.instanceId]);
     } else {
-      void this.router.navigate(['/history', s.id]);
+      void this.router.navigate(['/history', session.id]);
     }
   }
 
-  protected when(ts: number): string {
-    const delta = Date.now() - ts;
-    const m = Math.round(delta / 60_000);
-    if (m < 1) return 'just now';
-    if (m < 60) return `${m}m ago`;
-    const h = Math.round(m / 60);
-    if (h < 48) return `${h}h ago`;
-    return `${Math.round(h / 24)}d ago`;
+  protected when(timestamp: number): string {
+    const minutes = Math.round((Date.now() - timestamp) / 60_000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return `${hours}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
   }
 
   protected back(): void {

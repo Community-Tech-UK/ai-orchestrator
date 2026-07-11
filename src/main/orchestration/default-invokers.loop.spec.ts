@@ -1051,6 +1051,46 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.setResume).not.toHaveBeenCalledWith(false);
     });
 
+    it('2026-07-11 park-fix Phase 5 regression: a same-session iteration on a borrowed live chat adapter never routes through InstanceManager.sendInput (which is what would double-park it alongside LoopProviderLimitHandler)', async () => {
+      const sendInput = vi.fn();
+      const instanceManager = {
+        getInstance: vi.fn(() => ({
+          id: 'chat-live',
+          provider: 'claude',
+          workingDirectory: '/tmp/ws',
+        })),
+        getAdapter: vi.fn(() => hoisted.adapterRef.current),
+        sendInput,
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });
+
+      const iter = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-borrowed-guard::0',
+          loopRunId: 'loop-borrowed-guard',
+          chatId: 'chat-live',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter;
+
+      // The turn went through the adapter directly (bypassing
+      // InstanceCommunicationManager and its onProviderLimitTurn hook)...
+      expect(hoisted.sendMessage).toHaveBeenCalledTimes(1);
+      // ...never through the regular-session send path that would let the
+      // instance-level InstanceProviderLimitHandler park it too.
+      expect(sendInput).not.toHaveBeenCalled();
+    });
+
     it('D6: pauses the loop when the borrowed parent instance was interrupted mid-iteration', async () => {
       const pauseLoop = vi.fn(() => true);
       (hoisted.loopCoordinatorRef.current as unknown as { pauseLoop: typeof pauseLoop }).pauseLoop = pauseLoop;

@@ -6,6 +6,12 @@ import path from 'node:path';
 import { getFilesystemPolicy } from '../security/filesystem-policy';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import {
+  sameLocalReviewGitMetadata,
+  validateLocalReviewGitMetadataLayout,
+  withLocalReviewGitIndexSnapshot,
+  type LocalReviewGitMetadata,
+} from './local-review-git-metadata';
+import {
   LOCAL_REVIEW_ARGUMENT_SCHEMAS,
   LOCAL_REVIEW_TOOL_NAMES,
   type LocalReviewToolCall,
@@ -17,11 +23,14 @@ const DEFAULT_LIST_ENTRIES = 200, DEFAULT_SEARCH_MATCHES = 100, DEFAULT_READ_LIN
 const DEFAULT_RESULT_BYTES = 64 * 1024, DEFAULT_SESSION_BYTES = 256 * 1024;
 const DEFAULT_PROCESS_TIMEOUT_MS = 10_000, DEFAULT_KILL_GRACE_MS = 250;
 const MAX_INSPECTED_PATHS = 400, MAX_FILE_INPUT_BYTES = 4 * 1024 * 1024;
-const DEFAULT_SEARCH_INPUT_BYTES = 8 * 1024 * 1024;
-const ERROR_NAME = 'unknown';
+const DEFAULT_SEARCH_INPUT_BYTES = 8 * 1024 * 1024, ERROR_NAME = 'unknown';
 const GIT_SAFE_PATHS = [
   '--', '.',
-  ':(exclude,icase,glob)**/.env', ':(exclude,icase,glob)**/.env.*',
+  ':(exclude,icase,glob)**/.env', ':(exclude,icase,glob)**/.env[._-]*',
+  ':(exclude,icase,glob)**/*.env', ':(exclude,icase,glob)**/*.env[._-]*',
+  ':(exclude,icase,glob)**/.envrc', ':(exclude,icase,glob)**/.envrc[._-]*', ':(exclude,icase,glob)**/.direnv', ':(exclude,icase,glob)**/.direnv/**',
+  ':(exclude,icase,glob)**/.aio-loop-control', ':(exclude,icase,glob)**/.aio-loop-control/**', ':(exclude,icase,glob)**/.aio-loop-state',
+  ':(exclude,icase,glob)**/.aio-loop-state/**', ':(exclude,icase,glob)**/.aio-loop-attachments', ':(exclude,icase,glob)**/.aio-loop-attachments/**',
   ':(exclude,icase,glob)**/*credential*', ':(exclude,icase,glob)**/*secret*',
   ':(exclude,icase,glob)**/.netrc', ':(exclude,icase,glob)**/.npmrc', ':(exclude,icase,glob)**/.yarnrc',
   ':(exclude,icase,glob)**/id_rsa*', ':(exclude,icase,glob)**/id_dsa*',
@@ -83,7 +92,7 @@ export class LocalReviewToolRunner {
   private readonly operationTimeoutMs: number;
   private readonly initialPath: string;
   private rootStatePromise: Promise<RootState> | null = null;
-  private executablesPromise: Promise<{ git: ExecutableState; rg: ExecutableState }> | null = null;
+  private readonly executablePromises: Record<'git' | 'rg', Promise<ExecutableState> | null> = { git: null, rg: null };
   private readonly approvedExecutables = new Map<string, FileIdentity>();
   private readonly terminalResult = withResultBytes({
     ok: false, name: ERROR_NAME, code: 'session-limit', message: 'Tool result budget exhausted.',
@@ -218,7 +227,7 @@ export class LocalReviewToolRunner {
         }
       }
       this.assertContext(context);
-      const executable = (await this.getExecutables()).rg.absolutePath;
+      const executable = (await this.getExecutable('rg')).absolutePath;
       const rgArgs = ['--no-config', '--no-follow', '--json', '--color', 'never'];
       if (args.glob) rgArgs.push('--glob', args.glob);
       rgArgs.push('--', args.query, '.');
@@ -270,7 +279,15 @@ export class LocalReviewToolRunner {
   ): Promise<T> {
     let handle: FileHandle | null = null;
     try {
-      handle = await open(target.absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      const currentStats = await lstat(target.absolutePath);
+      if (!currentStats.isFile()) throw new ToolResultError('not-file', 'Requested path is not a regular file.');
+      if (!sameIdentity(target.identity, currentStats)) {
+        throw new ToolResultError('path-denied', 'Workspace path changed during access.');
+      }
+      handle = await open(
+        target.absolutePath,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
+      );
       const openedStats = await handle.stat();
       if (!openedStats.isFile()) throw new ToolResultError('not-file', 'Requested path is not a regular file.');
       if (!sameIdentity(target.identity, openedStats)) throw new ToolResultError('path-denied', 'Workspace path changed during access.');
@@ -301,36 +318,36 @@ export class LocalReviewToolRunner {
     const initialMetadata = await this.validateGitMetadata(context);
     await this.gitOperationHook?.({ phase: 'before-spawn' });
     const metadata = await this.validateGitMetadata(context);
-    if (!sameGitMetadata(initialMetadata, metadata)) throw new ToolResultError('process-error', 'Git metadata changed before spawn.');
-    const env = await this.safeSubprocessEnv({
-      ...hermeticGitEnv(), GIT_OPTIONAL_LOCKS: '0',
-      GIT_DIR: metadata.gitDir, GIT_WORK_TREE: metadata.workTree, GIT_INDEX_FILE: metadata.index,
+    if (!sameLocalReviewGitMetadata(initialMetadata, metadata)) throw new ToolResultError('process-error', 'Git metadata changed before spawn.');
+    return await withLocalReviewGitIndexSnapshot(metadata.index, async (temporaryIndex) => {
+      const env = await this.safeSubprocessEnv({
+        ...hermeticGitEnv(), GIT_OPTIONAL_LOCKS: '0',
+        GIT_DIR: metadata.gitDir, GIT_WORK_TREE: metadata.workTree, GIT_INDEX_FILE: temporaryIndex,
+      });
+      const captured = await this.captureProcess(
+        (await this.getExecutable('git')).absolutePath,
+        ['--no-optional-locks', ...args],
+        await this.rootRealPath(),
+        env,
+        undefined,
+        [0],
+        this.remainingMs(context),
+        context.signal,
+      );
+      if (!captured.ok) throw new ToolResultError('process-error', 'Git repository operation failed.');
+      await this.gitOperationHook?.({ phase: 'before-release' });
+      if (!sameLocalReviewGitMetadata(metadata, await this.validateGitMetadata(context))) {
+        throw new ToolResultError('process-error', 'Git metadata changed during operation.');
+      }
+      return captured;
     });
-    const captured = await this.captureProcess(
-      (await this.getExecutables()).git.absolutePath,
-      ['--no-optional-locks', ...args],
-      await this.rootRealPath(),
-      env,
-      undefined,
-      [0],
-      this.remainingMs(context),
-      context.signal,
-    );
-    if (!captured.ok) throw new ToolResultError('process-error', 'Git repository operation failed.');
-    await this.gitOperationHook?.({ phase: 'before-release' });
-    if (!sameGitMetadata(metadata, await this.validateGitMetadata(context))) {
-      throw new ToolResultError('process-error', 'Git metadata changed during operation.');
-    }
-    return captured;
   }
-  private async validateGitMetadata(context: OperationContext): Promise<{ gitDir: string; workTree: string; index: string }> {
+  private async validateGitMetadata(context: OperationContext): Promise<LocalReviewGitMetadata> {
     if (process.env['GIT_DIR'] || process.env['GIT_WORK_TREE'] || process.env['GIT_INDEX_FILE']) {
       throw new ToolResultError('process-error', 'External Git metadata redirection denied.');
     }
     const root = await this.assertRootIdentity();
-    const dotGit = await lstat(path.join(root.absolutePath, '.git')).catch(() => null);
-    if (!dotGit?.isDirectory()) throw new ToolResultError('process-error', 'Workspace-local Git metadata required.');
-    const git = (await this.getExecutables()).git.absolutePath;
+    const git = (await this.getExecutable('git')).absolutePath;
     const env = await this.safeSubprocessEnv({ ...hermeticGitEnv(), GIT_OPTIONAL_LOCKS: '0' });
     const probe = async (args: string[]): Promise<string> => {
       this.assertContext(context);
@@ -341,29 +358,16 @@ export class LocalReviewToolRunner {
       if (!result.ok) throw new ToolResultError('process-error', 'Git metadata validation failed.');
       return result.content.trim();
     };
-    const workTree = await realpath(await probe(['--show-toplevel']));
-    const gitDir = await realpath(await probe(['--absolute-git-dir']));
-    const commonDir = await realpath(path.resolve(root.absolutePath, await probe(['--path-format=absolute', '--git-common-dir'])));
-    const indexLexical = path.resolve(root.absolutePath, await probe(['--path-format=absolute', '--git-path', 'index']));
-    if (indexLexical !== path.join(gitDir, 'index')) {
-      throw new ToolResultError('process-error', 'Unexpected Git index location.');
-    }
-    let index: string;
     try {
-      index = await realpath(indexLexical);
+      const metadata = await validateLocalReviewGitMetadataLayout(root.absolutePath, probe);
+      await this.assertRootIdentity(root);
+      return metadata;
     } catch (error) {
-      if (!isMissingPathError(error) || await realpath(path.dirname(indexLexical)) !== gitDir) throw error;
-      index = indexLexical;
+      throw new ToolResultError(
+        'process-error',
+        error instanceof Error ? error.message : 'Git metadata validation failed.',
+      );
     }
-    for (const candidate of [workTree, gitDir, commonDir, index]) {
-      if (!this.isContained(root.absolutePath, candidate)) throw new ToolResultError('process-error', 'Git metadata escapes workspace.');
-    }
-    const localGit = path.join(root.absolutePath, '.git');
-    if (workTree !== root.absolutePath || gitDir !== localGit || commonDir !== localGit) {
-      throw new ToolResultError('process-error', 'Git worktree metadata is not workspace-local.');
-    }
-    await this.assertRootIdentity(root);
-    return { gitDir, workTree, index };
   }
   private async captureProcess(
     executable: string,
@@ -496,12 +500,9 @@ export class LocalReviewToolRunner {
     delete env['RIPGREP_CONFIG_PATH'];
     return env;
   }
-  private async getExecutables(): Promise<{ git: ExecutableState; rg: ExecutableState }> {
-    this.executablesPromise ??= Promise.all([
-      this.resolveExecutable(this.executables.git),
-      this.resolveExecutable(this.executables.rg),
-    ]).then(([git, rg]) => ({ git, rg }));
-    return this.executablesPromise;
+  private getExecutable(name: 'git' | 'rg'): Promise<ExecutableState> {
+    this.executablePromises[name] ??= this.resolveExecutable(this.executables[name]);
+    return this.executablePromises[name];
   }
   private async resolveExecutable(configured: string): Promise<ExecutableState> {
     const root = await this.rootRealPath();
@@ -569,7 +570,9 @@ export class LocalReviewToolRunner {
     return relativePath.split(/[\\/]+/u).some((rawSegment) => {
       const segment = rawSegment.toLowerCase();
       return segment === '.git' || segment === '.netrc' || segment === '.npmrc' || segment === '.yarnrc'
-        || segment === '.git-credentials' || segment === '.env' || segment.startsWith('.env.')
+        || segment === '.git-credentials' || /^\.envrc(?:[._-]|$)/u.test(segment) || segment === '.direnv'
+        || segment === '.aio-loop-control' || segment === '.aio-loop-state'
+        || segment === '.aio-loop-attachments' || /(?:^|\.)env(?:[._-]|$)/u.test(segment)
         || segment.includes('credential') || segment.includes('secret')
         || /^id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?$/u.test(segment)
         || /(?:^|[-_.])private(?:[-_.]|$)/u.test(segment) || /\.(?:key|pem|p12|pfx)$/u.test(segment);
@@ -664,9 +667,6 @@ function isSafeRepositoryRelativePath(candidate: string): boolean {
   return normalized !== '..' && !normalized.startsWith(`..${path.sep}`);
 }
 function sameIdentity(expected: FileIdentity, actual: FileIdentity): boolean { return expected.dev === actual.dev && expected.ino === actual.ino; }
-function sameGitMetadata(a: { gitDir: string; workTree: string; index: string }, b: typeof a): boolean {
-  return a.gitDir === b.gitDir && a.workTree === b.workTree && a.index === b.index;
-}
 function capText(value: string, maxBytes: number): { text: string; truncated: boolean } {
   const data = Buffer.from(value, 'utf8');
   if (data.length <= maxBytes) return { text: value, truncated: false };

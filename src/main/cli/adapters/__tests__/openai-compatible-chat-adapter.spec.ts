@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LocalReviewToolDefinition } from '../../../review/local-review.types';
+import { readLocalModelResponseText } from '../local-model-http-response';
 import { OpenAICompatibleChatAdapter } from '../openai-compatible-chat-adapter';
 
 vi.mock('../../../logging/logger', () => ({
@@ -241,6 +242,80 @@ describe('OpenAICompatibleChatAdapter', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects an oversized HTTP-200 tool response before buffering it all', async () => {
+    const server = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+        await readJsonBody(req);
+        const body = JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'x'.repeat(1_100_000) } }],
+        });
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        });
+        res.end(body);
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.push(server);
+    const adapter = new OpenAICompatibleChatAdapter({
+      baseUrl: server.baseUrl, model: 'qwen2.5-coder-32b-instruct',
+    });
+
+    await expect(adapter.sendToolTurn([], [], new AbortController().signal))
+      .rejects.toThrow('exceeded 1048576 bytes');
+  });
+
+  it('cancels a stalled tool-response body when the external signal aborts after headers', async () => {
+    let bodyCancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{'));
+      },
+      cancel() {
+        bodyCancelled = true;
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })));
+    const controller = new AbortController();
+    const adapter = new OpenAICompatibleChatAdapter({ timeout: 60_000 });
+
+    const turn = adapter.sendToolTurn([], [], controller.signal);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    controller.abort(new Error('review cancelled'));
+
+    await expect(Promise.race([
+      turn,
+      new Promise((resolve) => setTimeout(() => resolve('still-pending'), 250)),
+    ])).rejects.toThrow('review cancelled');
+    expect(bodyCancelled).toBe(true);
+  });
+
+  it('keeps the configured deadline active while a tool-response body is stalled', async () => {
+    let bodyCancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{'));
+      },
+      cancel() {
+        bodyCancelled = true;
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+    const adapter = new OpenAICompatibleChatAdapter({ timeout: 25 });
+
+    await expect(Promise.race([
+      adapter.sendToolTurn([], [], new AbortController().signal),
+      new Promise((resolve) => setTimeout(() => resolve('still-pending'), 250)),
+    ])).rejects.toThrow('timed out after 25ms');
+    expect(bodyCancelled).toBe(true);
+  });
+
   it('cancels a pending realm-error fallback and removes abort listeners', async () => {
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(new TypeError('Expected signal to be an instance of AbortSignal'))
@@ -258,6 +333,73 @@ describe('OpenAICompatibleChatAdapter', () => {
     await expect(turn).rejects.toThrow('review cancelled');
     expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
     expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
+  it('discards and closes a realm-error fallback response that arrives after cancellation', async () => {
+    let resolveFallback!: (response: Response) => void;
+    let bodyCancelled = false;
+    const fallback = new Promise<Response>((resolve) => { resolveFallback = resolve; });
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Expected signal to be an instance of AbortSignal'))
+      .mockReturnValueOnce(fallback);
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    const adapter = new OpenAICompatibleChatAdapter({ timeout: 60_000 });
+
+    const turn = adapter.sendToolTurn([], [], controller.signal);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    controller.abort(new Error('review cancelled'));
+    await expect(turn).rejects.toThrow('review cancelled');
+
+    resolveFallback(new Response(new ReadableStream<Uint8Array>({
+      cancel() { bodyCancelled = true; },
+    }), { status: 200 }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bodyCancelled).toBe(true);
+  });
+
+  it('closes a settled realm-error fallback response when cancellation wins before consumption', async () => {
+    let resolveFallback!: (response: Response) => void;
+    let bodyCancelled = false;
+    const fallback = new Promise<Response>((resolve) => { resolveFallback = resolve; });
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Expected signal to be an instance of AbortSignal'))
+      .mockReturnValueOnce(fallback);
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    const adapter = new OpenAICompatibleChatAdapter({ timeout: 60_000 });
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(new TextEncoder().encode('{'));
+      },
+      cancel() { bodyCancelled = true; },
+    }), { status: 200 });
+
+    const turn = adapter.sendToolTurn([], [], controller.signal);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    resolveFallback(response);
+    queueMicrotask(() => controller.abort(new Error('review cancelled')));
+
+    await expect(turn).rejects.toThrow('review cancelled');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bodyCancelled).toBe(true);
+  });
+
+  it('closes a response body when cancellation wins before body consumption starts', async () => {
+    let bodyCancelled = false;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      cancel() { bodyCancelled = true; },
+    }), { status: 200 });
+    const controller = new AbortController();
+    controller.abort(new Error('review cancelled'));
+
+    await expect(readLocalModelResponseText(
+      response,
+      1024,
+      'Local-model response',
+      controller.signal,
+    )).rejects.toThrow('review cancelled');
+    expect(bodyCancelled).toBe(true);
   });
 
   it('emits streamed SSE output and completion for sendInput', async () => {

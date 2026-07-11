@@ -29,6 +29,7 @@ import {
   BrowserWorkflowCheckpointSaveRequestSchema,
   BrowserExecuteFillPlanRequestSchema,
   BrowserFillCredentialRequestSchema,
+  BrowserFillSecretRequestSchema,
   BrowserCreateAgentCredentialRequestSchema,
   BrowserTargetRequestSchema,
   BrowserTypeRequestSchema,
@@ -261,6 +262,8 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('executeFillPlan')(withContext);
       case 'browser.fill_credential':
         return this.requireMethod('fillCredential')(withContext);
+      case 'browser.fill_secret':
+        return this.requireMethod('fillSecret')(withContext);
       case 'browser.create_agent_credential':
         return this.requireMethod('createAgentCredential')(withContext);
       case 'browser.upload_file':
@@ -553,6 +556,8 @@ export class BrowserGatewayRpcServer {
           return BrowserExecuteFillPlanRequestSchema;
         case 'browser.fill_credential':
           return BrowserFillCredentialRequestSchema;
+        case 'browser.fill_secret':
+          return BrowserFillSecretRequestSchema;
         case 'browser.create_agent_credential':
           return BrowserCreateAgentCredentialRequestSchema;
         case 'browser.upload_file':

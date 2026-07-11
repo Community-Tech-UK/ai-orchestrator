@@ -23,6 +23,20 @@ const PREVIOUS_DEFAULT_LOOP_PROMPT =
   'rename it with _completed. Before stopping, review your own work with fresh eyes. ' +
   'Fix any issues you find. If blocked, explain the blocker clearly and stop.';
 
+const INVENTORY_DEFAULT_LOOP_PROMPT =
+  "Continue toward the user's goal. Read relevant files before changing code, " +
+  'choose the maintainable architecture, and make concrete progress this turn. ' +
+  'Do not stop after a partial slice.\n\n' +
+  'Maintain a concrete completion inventory in NOTES.md when no plan file is configured: ' +
+  'list discovered work, check items off as they are fully implemented, and add newly discovered items. ' +
+  'If implementing a plan, update the code and tests until the plan is fully implemented. ' +
+  'Verify with the appropriate checks.\n\n' +
+  'Only declare completion after the plan or inventory has no unfinished items, final verification passes, ' +
+  'and the durable completion marker has been written. If a plan file is fully implemented and verified, ' +
+  'rename it with _completed before stopping.\n\n' +
+  'Before stopping, review your own work with fresh eyes. Fix any issues you find. ' +
+  'If blocked, explain the blocker clearly and stop.';
+
 const VERBOSE_DEFAULT_LOOP_PROMPT =
   "Continue toward the user's goal.\n\n" +
   'Investigation: be thorough, read relevant files in full, and do not take shortcuts.\n\n' +
@@ -44,6 +58,7 @@ describe('LoopPromptHistoryService', () => {
       LEGACY_DEFAULT_LOOP_PROMPT,
       PREVIOUS_DEFAULT_LOOP_PROMPT,
       VERBOSE_DEFAULT_LOOP_PROMPT,
+      INVENTORY_DEFAULT_LOOP_PROMPT,
     ]));
 
     const service = new LoopPromptHistoryService();
@@ -51,5 +66,7 @@ describe('LoopPromptHistoryService', () => {
     expect(service.recent()).toEqual([DEFAULT_LOOP_PROMPT]);
     expect(DEFAULT_LOOP_PROMPT).toContain('completion inventory');
     expect(DEFAULT_LOOP_PROMPT).toContain('Do not stop after a partial slice');
+    expect(DEFAULT_LOOP_PROMPT).toContain('_livetest.md');
+    expect(DEFAULT_LOOP_PROMPT).toContain('deferred live checks');
   });
 });

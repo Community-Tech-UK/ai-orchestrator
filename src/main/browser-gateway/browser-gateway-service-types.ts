@@ -18,7 +18,7 @@ import type { BrowserProfileStore } from './browser-profile-store';
 import type { BrowserTargetRegistry } from './browser-target-registry';
 import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
 import type { FillPlanStep } from './browser-fill-plan-executor';
-import type { CredentialVault, CredentialFieldKind } from './browser-credential-vault';
+import type { CredentialVault, CredentialFieldKind, GenericSecretKind } from './browser-credential-vault';
 import type { CredentialAuthorizationService } from './browser-credential-authorization-store';
 import type { BrowserEmailCodeReader } from './browser-email-code-reader';
 import type { BrowserRemoteUploadStagingResult } from './browser-remote-upload-staging';
@@ -130,6 +130,23 @@ export interface BrowserGatewayCreateAgentCredentialRequest extends BrowserGatew
   username: string;
 }
 
+export interface BrowserGatewayFillSecretField {
+  /** CSS selector for the secret input. */
+  selector: string;
+  /** The semantic secret type — resolved from a NAMED Bitwarden custom field. */
+  secretType: GenericSecretKind;
+  /** Required for `arbitrary_named_vault_field`: the (non-secret) custom-field name. */
+  fieldName?: string;
+}
+
+export interface BrowserGatewayFillSecretRequest extends BrowserGatewayContext {
+  profileId: string;
+  targetId: string;
+  /** Opaque vault item reference — NOT a secret. Resolved in-process. */
+  vaultItemRef: string;
+  fields: BrowserGatewayFillSecretField[];
+}
+
 export interface BrowserGatewayServiceOptions {
   profileStore?: Pick<
     BrowserProfileStore,
@@ -177,7 +194,10 @@ export interface BrowserGatewayServiceOptions {
    * browser.fill_credential is unavailable. Secrets resolved here never enter
    * model context.
    */
-  credentialVault?: Pick<CredentialVault, 'getSecretForFill' | 'createAgentCredential'>;
+  credentialVault?: Pick<
+    CredentialVault,
+    'getSecretForFill' | 'createAgentCredential' | 'getGenericSecretForFill'
+  >;
   /** Standing James-granted authorizations gating browser.fill_credential. */
   credentialAuthorizations?: Pick<CredentialAuthorizationService, 'check'>;
   /**

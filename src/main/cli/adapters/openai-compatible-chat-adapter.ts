@@ -19,6 +19,13 @@ import {
 import type { LocalReviewToolDefinition } from '../../review/local-review.types';
 import { getLogger } from '../../logging/logger';
 import type { CliSpawnMode, CliStatus } from './base-cli-adapter';
+import {
+  MAX_LOCAL_MODEL_JSON_RESPONSE_BYTES,
+  openLocalModelResponseReader,
+  readLocalModelErrorText,
+  readLocalModelResponseText,
+} from './local-model-http-response';
+import { withLocalModelFetchResponse } from './local-model-fetch';
 
 const logger = getLogger('OpenAICompatibleChatAdapter');
 
@@ -158,30 +165,33 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
 
   async checkStatus(): Promise<CliStatus> {
     try {
-      const response = await this.fetchWithTimeout(this.url('/v1/models'), {
+      return await this.withResponse(this.url('/v1/models'), {
         method: 'GET',
         headers: this.headers({ acceptJson: true }),
-      });
-      if (!response.ok) {
-        const body = await safeReadText(response);
+      }, undefined, async (response, responseSignal) => {
+        if (!response.ok) {
+          const body = await readLocalModelErrorText(response, responseSignal);
+          return {
+            available: false,
+            error: `OpenAI-compatible endpoint not reachable at ${this.baseUrl}: HTTP ${response.status}${body ? `: ${body}` : ''}`,
+          };
+        }
+        const parsed = JSON.parse(await readLocalModelResponseText(
+          response,
+          MAX_LOCAL_MODEL_JSON_RESPONSE_BYTES,
+          'OpenAI-compatible models response',
+          responseSignal,
+        )) as OpenAIModelsResponse;
+        const models = (parsed.data ?? [])
+          .map((model) => model.id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0);
         return {
-          available: false,
-          error: `OpenAI-compatible endpoint not reachable at ${this.baseUrl}: HTTP ${response.status}${body ? `: ${body}` : ''}`,
+          available: true,
+          path: this.baseUrl,
+          authenticated: true,
+          metadata: { endpointId: this.endpointId, models },
         };
-      }
-      const parsed = await response.json() as OpenAIModelsResponse;
-      const models = (parsed.data ?? [])
-        .map((model) => model.id)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0);
-      return {
-        available: true,
-        path: this.baseUrl,
-        authenticated: true,
-        metadata: {
-          endpointId: this.endpointId,
-          models,
-        },
-      };
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -191,8 +201,7 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected buildArgs(_message: CliMessage): string[] {
+  protected buildArgs(): string[] {
     return [];
   }
 
@@ -238,30 +247,26 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
       temperature: this.temperature,
       tools: tools.map(mapOpenAIToolDefinition),
     } satisfies OpenAICompatibleChatRequest;
-    const response = await this.fetchWithTimeout(this.url('/v1/chat/completions'), {
+    return await this.withResponse(this.url('/v1/chat/completions'), {
       method: 'POST',
       headers: this.headers({ acceptJson: true, contentJson: true }),
       body: JSON.stringify(body),
-    }, signal);
-    if (!response.ok) {
-      const errorBody = await safeReadText(response);
-      throw new Error(`OpenAI-compatible tool turn error ${response.status}: ${errorBody}`);
-    }
-    let parsed: OpenAIChatCompletionResponse;
-    try {
-      parsed = await response.json() as OpenAIChatCompletionResponse;
-    } catch {
-      throw new LocalModelToolResponseError('OpenAI-compatible endpoint returned malformed tool-turn JSON');
-    }
-    const choice = parsed.choices?.[0];
-    if (!choice?.message) {
-      throw new LocalModelToolResponseError('OpenAI-compatible tool turn is missing an assistant message');
-    }
-    return {
-      content: coerceMessageContent(choice.message.content),
-      toolCalls: parseOpenAIToolCalls(choice.message.tool_calls),
-      ...(parsed.usage ? { usage: mapOpenAIUsage(parsed.usage) } : {}),
-    };
+    }, signal, async (response, responseSignal) => {
+      if (!response.ok) {
+        const errorBody = await readLocalModelErrorText(response, responseSignal);
+        throw new Error(`OpenAI-compatible tool turn error ${response.status}: ${errorBody}`);
+      }
+      const parsed = await this.parseToolTurnResponse(response, responseSignal);
+      const choice = parsed.choices?.[0];
+      if (!choice?.message) {
+        throw new LocalModelToolResponseError('OpenAI-compatible tool turn is missing an assistant message');
+      }
+      return {
+        content: coerceMessageContent(choice.message.content),
+        toolCalls: parseOpenAIToolCalls(choice.message.tool_calls),
+        ...(parsed.usage ? { usage: mapOpenAIUsage(parsed.usage) } : {}),
+      };
+    });
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
@@ -302,21 +307,19 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
     signal: AbortSignal,
   ): Promise<CliResponse> {
     const body = this.chatRequestBody(messages, true);
-    const response = await this.fetchWithTimeout(this.url('/v1/chat/completions'), {
+    const streamed = await this.withResponse(this.url('/v1/chat/completions'), {
       method: 'POST',
       headers: this.headers({ acceptJson: true, contentJson: true }),
       body: JSON.stringify(body),
-    }, signal);
-
-    if (!response.ok) {
-      const errorBody = await safeReadText(response);
-      if (isStreamingUnsupportedError(response.status, errorBody)) {
-        return this.postNonStreamingChat(messages, signal);
+    }, signal, async (response, responseSignal) => {
+      if (!response.ok) {
+        const errorBody = await readLocalModelErrorText(response, responseSignal);
+        if (isStreamingUnsupportedError(response.status, errorBody)) return null;
+        throw new Error(`OpenAI-compatible chat error ${response.status}: ${errorBody}`);
       }
-      throw new Error(`OpenAI-compatible chat error ${response.status}: ${errorBody}`);
-    }
-
-    return this.readSseResponse(response);
+      return this.readSseResponse(response, responseSignal);
+    });
+    return streamed ?? this.postNonStreamingChat(messages, signal);
   }
 
   private async postNonStreamingChat(
@@ -324,59 +327,61 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
     signal: AbortSignal,
   ): Promise<CliResponse> {
     const body = this.chatRequestBody(messages, false);
-    const response = await this.fetchWithTimeout(this.url('/v1/chat/completions'), {
+    return await this.withResponse(this.url('/v1/chat/completions'), {
       method: 'POST',
       headers: this.headers({ acceptJson: true, contentJson: true }),
       body: JSON.stringify(body),
-    }, signal);
-
-    if (!response.ok) {
-      const errorBody = await safeReadText(response);
-      throw new Error(`OpenAI-compatible non-streaming chat error ${response.status}: ${errorBody}`);
-    }
-
-    const parsed = await response.json() as OpenAIChatCompletionResponse;
-    const content = extractNonStreamingContent(parsed);
-    this.emitAssistantChunk(content, false);
-    return {
-      id: this.generateResponseId(),
-      content,
-      role: 'assistant',
-      ...(parsed.usage ? { usage: mapOpenAIUsage(parsed.usage) } : {}),
-      raw: parsed,
-    };
+    }, signal, async (response, responseSignal) => {
+      if (!response.ok) {
+        const errorBody = await readLocalModelErrorText(response, responseSignal);
+        throw new Error(`OpenAI-compatible non-streaming chat error ${response.status}: ${errorBody}`);
+      }
+      const parsed = JSON.parse(await readLocalModelResponseText(
+        response,
+        MAX_LOCAL_MODEL_JSON_RESPONSE_BYTES,
+        'OpenAI-compatible non-streaming response',
+        responseSignal,
+      )) as OpenAIChatCompletionResponse;
+      const content = extractNonStreamingContent(parsed);
+      this.emitAssistantChunk(content, false);
+      return {
+        id: this.generateResponseId(), content, role: 'assistant',
+        ...(parsed.usage ? { usage: mapOpenAIUsage(parsed.usage) } : {}), raw: parsed,
+      };
+    });
   }
 
-  private async readSseResponse(response: Response): Promise<CliResponse> {
+  private async readSseResponse(response: Response, signal: AbortSignal): Promise<CliResponse> {
     if (!response.body) {
       throw new Error('OpenAI-compatible streaming response did not include a body');
     }
 
-    const reader = response.body.getReader();
+    const reader = openLocalModelResponseReader(response, signal);
     const decoder = new TextDecoder();
     const chunks: string[] = [];
     let usage: CliUsage | undefined;
     let partial = '';
     let doneSeen = false;
 
-    while (!doneSeen) {
-      const read = await reader.read();
-      if (read.done) {
-        break;
-      }
-      partial += decoder.decode(read.value, { stream: true });
-      const lines = partial.split(/\r?\n/);
-      partial = lines.pop() ?? '';
-      for (const line of lines) {
-        const result = this.handleSseLine(line, chunks);
-        if (result.usage) {
-          usage = result.usage;
-        }
-        if (result.done) {
-          doneSeen = true;
-          break;
+    try {
+      while (!doneSeen) {
+        const read = await reader.read();
+        if (read.done) break;
+        partial += decoder.decode(read.value, { stream: true });
+        const lines = partial.split(/\r?\n/);
+        partial = lines.pop() ?? '';
+        for (const line of lines) {
+          const result = this.handleSseLine(line, chunks);
+          if (result.usage) usage = result.usage;
+          if (result.done) {
+            doneSeen = true;
+            break;
+          }
         }
       }
+    } finally {
+      if (doneSeen) await reader.cancel();
+      reader.release();
     }
 
     if (!doneSeen && partial.trim()) {
@@ -458,81 +463,30 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
     return headers;
   }
 
-  private async fetchWithTimeout(
+  private withResponse<T>(
     url: string,
     init: RequestInit,
-    externalSignal?: AbortSignal,
-  ): Promise<Response> {
-    const controller = new AbortController();
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort(new Error(this.timeoutMessage()));
-    }, this.timeoutMs);
-
-    const onExternalAbort = (): void => {
-      controller.abort(externalSignal?.reason);
-    };
-    if (externalSignal) {
-      if (externalSignal.aborted) {
-        controller.abort(externalSignal.reason);
-      } else {
-        externalSignal.addEventListener('abort', onExternalAbort, { once: true });
-      }
-    }
-
-    try {
-      return await fetch(url, { ...init, signal: controller.signal });
-    } catch (error) {
-      if (isAbortSignalRealmError(error)) {
-        return await this.fetchWithoutSignal(url, init, controller.signal);
-      }
-      if (timedOut) {
-        throw new Error(this.timeoutMessage());
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener('abort', onExternalAbort);
-    }
+    externalSignal: AbortSignal | undefined,
+    consume: (response: Response, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    return withLocalModelFetchResponse(
+      url, init, externalSignal, this.timeoutMs, this.timeoutMessage(), consume,
+    );
   }
 
-  private fetchWithoutSignal(
-    url: string,
-    init: RequestInit,
-    cancellationSignal: AbortSignal,
-  ): Promise<Response> {
-    const fallbackInit: RequestInit = { ...init };
-    delete fallbackInit.signal;
-
-    if (cancellationSignal.aborted) {
-      return Promise.reject(cancellationSignal.reason);
+  private async parseToolTurnResponse(
+    response: Response,
+    signal: AbortSignal,
+  ): Promise<OpenAIChatCompletionResponse> {
+    try {
+      return JSON.parse(await readLocalModelResponseText(
+        response, MAX_LOCAL_MODEL_JSON_RESPONSE_BYTES,
+        'OpenAI-compatible tool-turn response', signal,
+      )) as OpenAIChatCompletionResponse;
+    } catch (error) {
+      if (error instanceof LocalModelToolResponseError || signal.aborted) throw error;
+      throw new LocalModelToolResponseError('OpenAI-compatible endpoint returned malformed tool-turn JSON');
     }
-
-    return new Promise<Response>((resolve, reject) => {
-      let settled = false;
-      const settle = (result: { response: Response } | { error: unknown }): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        cancellationSignal.removeEventListener('abort', onAbort);
-        if ('response' in result) {
-          resolve(result.response);
-        } else {
-          reject(result.error);
-        }
-      };
-      const onAbort = (): void => {
-        settle({ error: cancellationSignal.reason });
-      };
-      cancellationSignal.addEventListener('abort', onAbort, { once: true });
-
-      void fetch(url, fallbackInit).then(
-        (response) => settle({ response }),
-        (error: unknown) => settle({ error }),
-      );
-    });
   }
 
   private timeoutMessage(): string {
@@ -602,14 +556,6 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
 }
 
-async function safeReadText(response: Response): Promise<string> {
-  try {
-    return await response.text();
-  } catch {
-    return '';
-  }
-}
-
 function isStreamingUnsupportedError(status: number, body: string): boolean {
   if (![400, 404, 422, 501].includes(status)) {
     return false;
@@ -619,12 +565,6 @@ function isStreamingUnsupportedError(status: number, body: string): boolean {
     .test(normalized)
     || /(?:not\s+supported|unsupported|not\s+implemented)[^a-z0-9]+stream(?:ing)?/i
       .test(normalized);
-}
-
-function isAbortSignalRealmError(error: unknown): boolean {
-  return error instanceof TypeError
-    && error.message.includes('Expected signal')
-    && error.message.includes('AbortSignal');
 }
 
 function extractStreamingContent(response: OpenAIChatCompletionResponse): string {

@@ -20,10 +20,12 @@ export type LocalReviewerQualification =
 export interface LocalReviewerCapabilityServiceOptions {
   clientFactory?: (target: LocalModelTarget) => Promise<LocalModelToolTurnClient>;
   timeoutMs?: number;
+  cacheTtlMs?: number;
 }
 
 const PROBE_PATH = '__aio_local_review_probe__.txt';
 const PROBE_TIMEOUT_MS = 30_000;
+const QUALIFICATION_CACHE_TTL_MS = 10 * 60_000;
 const probeTool: LocalReviewToolDefinition = {
   name: 'workspace_read',
   description: 'Read the synthetic capability-probe file.',
@@ -40,8 +42,13 @@ const probeResponseSchema = z.object({
   evidence: z.literal('synthetic'),
 }).strict();
 
-const cachedQualifications = new Map<string, LocalReviewerQualification>();
+interface CachedQualification {
+  qualification: LocalReviewerQualification;
+  cachedAt: number;
+}
+const cachedQualifications = new Map<string, CachedQualification>();
 const pendingQualifications = new Map<string, Promise<LocalReviewerQualification>>();
+const pendingQualificationControllers = new Map<string, AbortController>();
 const qualificationGenerations = new Map<string, number>();
 let globalGeneration = 0;
 export type LocalReviewerQualificationListener = (
@@ -60,16 +67,18 @@ export function subscribeToLocalReviewerQualifications(
 export function getCachedLocalReviewerQualification(
   target: LocalModelTarget,
 ): LocalReviewerQualification | undefined {
-  return cachedQualifications.get(qualificationKey(target));
+  return readCachedQualification(qualificationKey(target), QUALIFICATION_CACHE_TTL_MS);
 }
 
 export function invalidateFailedLocalReviewerQualifications(): void {
   for (const key of pendingQualifications.keys()) {
+    pendingQualificationControllers.get(key)?.abort();
+    pendingQualificationControllers.delete(key);
     pendingQualifications.delete(key);
     bumpQualificationGeneration(key);
   }
-  for (const [key, qualification] of cachedQualifications) {
-    if (qualification.status === 'verified') continue;
+  for (const [key, cached] of cachedQualifications) {
+    if (cached.qualification.status === 'verified') continue;
     cachedQualifications.delete(key);
     bumpQualificationGeneration(key);
   }
@@ -78,10 +87,12 @@ export function invalidateFailedLocalReviewerQualifications(): void {
 export class LocalReviewerCapabilityService {
   private readonly clientFactory: (target: LocalModelTarget) => Promise<LocalModelToolTurnClient>;
   private readonly timeoutMs: number;
+  private readonly cacheTtlMs: number;
 
   constructor(options: LocalReviewerCapabilityServiceOptions = {}) {
     this.clientFactory = options.clientFactory ?? createLocalReviewerToolTurnClient;
     this.timeoutMs = options.timeoutMs ?? PROBE_TIMEOUT_MS;
+    this.cacheTtlMs = Math.max(0, options.cacheTtlMs ?? QUALIFICATION_CACHE_TTL_MS);
   }
 
   qualify(target: ModelRuntimeTarget): Promise<LocalReviewerQualification> {
@@ -89,16 +100,18 @@ export class LocalReviewerCapabilityService {
       return Promise.resolve({ status: 'unverified', reason: 'Only local-model targets can be qualified.' });
     }
     const key = qualificationKey(target);
-    const cached = cachedQualifications.get(key);
+    const cached = readCachedQualification(key, this.cacheTtlMs);
     if (cached) return Promise.resolve(cached);
     const pending = pendingQualifications.get(key);
     if (pending) return pending;
 
     const generation = generationFor(key);
-    const qualification = this.runProbe(target)
+    const controller = new AbortController();
+    pendingQualificationControllers.set(key, controller);
+    const qualification = this.runProbe(target, controller)
       .then((result) => {
         if (generationFor(key) === generation) {
-          cachedQualifications.set(key, result);
+          cachedQualifications.set(key, { qualification: result, cachedAt: Date.now() });
           for (const listener of qualificationListeners) {
             try { listener(target, result); } catch { /* Observers cannot fail qualification. */ }
           }
@@ -107,9 +120,25 @@ export class LocalReviewerCapabilityService {
       })
       .finally(() => {
         if (pendingQualifications.get(key) === qualification) pendingQualifications.delete(key);
+        if (pendingQualificationControllers.get(key) === controller) {
+          pendingQualificationControllers.delete(key);
+        }
       });
     pendingQualifications.set(key, qualification);
     return qualification;
+  }
+
+  /** Explicit user-requested retry. Pending probes remain coalesced; only a cached failure is cleared. */
+  retry(target: ModelRuntimeTarget): Promise<LocalReviewerQualification> {
+    if (target.kind !== 'local-model') return this.qualify(target);
+    const key = qualificationKey(target);
+    const pending = pendingQualifications.get(key);
+    if (pending) return pending;
+    if (readCachedQualification(key, this.cacheTtlMs)?.status === 'unverified') {
+      cachedQualifications.delete(key);
+      bumpQualificationGeneration(key);
+    }
+    return this.qualify(target);
   }
 
   getCachedQualification(target: ModelRuntimeTarget): LocalReviewerQualification | undefined {
@@ -121,6 +150,8 @@ export class LocalReviewerCapabilityService {
   invalidate(target?: ModelRuntimeTarget): void {
     if (!target) {
       cachedQualifications.clear();
+      for (const controller of pendingQualificationControllers.values()) controller.abort();
+      pendingQualificationControllers.clear();
       pendingQualifications.clear();
       qualificationGenerations.clear();
       globalGeneration += 1;
@@ -129,6 +160,8 @@ export class LocalReviewerCapabilityService {
     if (target.kind !== 'local-model') return;
     const key = qualificationKey(target);
     cachedQualifications.delete(key);
+    pendingQualificationControllers.get(key)?.abort();
+    pendingQualificationControllers.delete(key);
     pendingQualifications.delete(key);
     bumpQualificationGeneration(key);
   }
@@ -137,7 +170,10 @@ export class LocalReviewerCapabilityService {
     invalidateFailedLocalReviewerQualifications();
   }
 
-  private async runProbe(target: LocalModelTarget): Promise<LocalReviewerQualification> {
+  private async runProbe(
+    target: LocalModelTarget,
+    controller: AbortController,
+  ): Promise<LocalReviewerQualification> {
     if (target.endpointProvider === 'ollama' && target.modelId.toLowerCase().includes(':cloud')) {
       return { status: 'unverified', reason: 'Ollama :cloud models are not eligible for local review.' };
     }
@@ -148,7 +184,6 @@ export class LocalReviewerCapabilityService {
       };
     }
 
-    const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     timeout.unref?.();
     try {
@@ -217,6 +252,18 @@ function qualificationKey(target: LocalModelTarget): string {
     target.endpointId,
     target.modelId,
   ]);
+}
+
+function readCachedQualification(
+  key: string,
+  ttlMs: number,
+): LocalReviewerQualification | undefined {
+  const cached = cachedQualifications.get(key);
+  if (!cached) return undefined;
+  if (Date.now() - cached.cachedAt <= ttlMs) return cached.qualification;
+  cachedQualifications.delete(key);
+  bumpQualificationGeneration(key);
+  return undefined;
 }
 
 function generationFor(key: string): string {

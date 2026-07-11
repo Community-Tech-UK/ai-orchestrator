@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  defaultFreshEyesReviewer,
   isBlockingFreshEyesFinding,
   runLocalOnlyFreshEyesReview,
   type FreshEyesReviewerInput,
@@ -7,6 +8,10 @@ import {
 
 const runHeadlessReview = vi.hoisted(() => vi.fn());
 const localReviewService = { runHeadlessReview };
+
+vi.mock('./cross-model-review-service', () => ({
+  getCrossModelReviewService: () => localReviewService,
+}));
 
 function localInput(): FreshEyesReviewerInput {
   return {
@@ -113,5 +118,19 @@ describe('runLocalOnlyFreshEyesReview', () => {
     await expect(runLocalOnlyFreshEyesReview(localInput(), localReviewService)).resolves.toMatchObject({
       status: 'failed', reason: 'Local timeout.', findings: [],
     });
+  });
+});
+
+describe('defaultFreshEyesReviewer', () => {
+  it('passes the builder provider so the headless resolver cannot self-review', async () => {
+    runHeadlessReview.mockResolvedValue({
+      reviewers: [], findings: [], summary: 'No reviewer.', infrastructureErrors: [],
+    });
+
+    await defaultFreshEyesReviewer({ ...localInput(), builderProvider: 'codex' });
+
+    expect(runHeadlessReview).toHaveBeenCalledWith(expect.objectContaining({
+      primaryProvider: 'codex',
+    }));
   });
 });

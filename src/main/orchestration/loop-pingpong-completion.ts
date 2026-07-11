@@ -551,7 +551,10 @@ export async function evaluatePingPongCompletion(
     // impl mode: verify must also be green before converging (plan mode skips —
     // no code to run). A red verify re-opens the loop with the failure injected.
     if (subject === 'impl' && deps.runVerify) {
-      const verify = await deps.runVerify().catch(() => ({ ok: true, output: '' }));
+      const verify = await deps.runVerify().catch((error: unknown) => ({
+        ok: false,
+        output: error instanceof Error ? error.message : String(error),
+      }));
       if (!verify.ok) {
         state.pendingInterventions.push(
           createLoopPendingInput(

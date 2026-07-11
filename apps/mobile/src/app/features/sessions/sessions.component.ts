@@ -1,21 +1,18 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
-import { statusColor, statusLabel } from '../../core/status';
+import { isWorking, statusLabel } from '../../core/status';
+import { MobileHeaderComponent } from '../../shared/mobile-header.component';
+import { MobileIconComponent } from '../../shared/mobile-icon.component';
+import {
+  MobileSessionRowComponent,
+  type MobileSessionRowView,
+} from '../../shared/mobile-session-row.component';
 
-/** A row in the session list — either a live instance or a persisted history session. */
-interface SessionRow {
-  /** Route target: instance id for live, or namespaced history id for past sessions. */
-  id: string;
-  name: string;
-  provider: string;
-  model?: string;
+interface SessionRow extends MobileSessionRowView {
   status: string;
   pendingApprovalCount: number;
-  hasUnreadCompletion: boolean;
   isLooping: boolean;
-  live: boolean;
-  lastActivity: number;
   chip: SessionRowChip;
 }
 
@@ -34,132 +31,94 @@ export interface SessionChipInput {
 }
 
 export function sessionChipForRow(row: SessionChipInput): SessionRowChip {
-  if (row.pendingApprovalCount > 0) {
-    return { kind: 'attention', label: 'Awaiting approval' };
-  }
-  if (!row.live) {
-    return { kind: 'past', label: 'past' };
-  }
-  if (row.isLooping) {
-    return { kind: 'loop', label: 'Loop' };
-  }
+  if (row.pendingApprovalCount > 0) return { kind: 'attention', label: 'Awaiting approval' };
+  if (!row.live) return { kind: 'past', label: 'past' };
+  if (row.isLooping) return { kind: 'loop', label: 'Loop' };
   return { kind: 'status', label: statusLabel(row.status) };
 }
 
 export const SESSION_PAGE_SIZE = 10;
 
-export function nextSessionsPageSize(
-  hiddenCount: number,
-  pageSize = SESSION_PAGE_SIZE,
-): number {
+export function nextSessionsPageSize(hiddenCount: number, pageSize = SESSION_PAGE_SIZE): number {
   return Math.max(0, Math.min(hiddenCount, pageSize));
 }
 
-export function sessionsShowMoreLabel(
-  hiddenCount: number,
-  pageSize = SESSION_PAGE_SIZE,
-): string {
+export function sessionsShowMoreLabel(hiddenCount: number, pageSize = SESSION_PAGE_SIZE): string {
   const nextCount = nextSessionsPageSize(hiddenCount, pageSize);
   if (nextCount <= 0) return 'Show more';
   if (hiddenCount > nextCount) return `Show ${nextCount} more (${hiddenCount} remaining)`;
   return `Show ${nextCount} more`;
 }
 
+function sessionTone(row: SessionChipInput): MobileSessionRowView['tone'] {
+  if (row.pendingApprovalCount > 0) return 'attention';
+  if (!row.live) return 'history';
+  if (row.isLooping) return 'loop';
+  if (row.status === 'error' || row.status === 'failed' || row.status === 'degraded') return 'error';
+  if (isWorking(row.status)) return 'working';
+  return 'idle';
+}
+
 @Component({
   standalone: true,
   selector: 'app-sessions',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MobileHeaderComponent, MobileIconComponent, MobileSessionRowComponent],
   template: `
-    <section class="screen">
-      <header class="top">
-        <button class="back" (click)="back()">‹ Projects</button>
-        <span class="conn"><span class="dot" [class.on]="online()"></span></span>
-      </header>
+    <section class="sessions-screen">
+      <app-mobile-header
+        [title]="projectName()"
+        [subtitle]="online() ? 'Connected' : 'Offline'"
+        [statusColor]="online() ? 'var(--accent-online)' : 'var(--text-secondary)'"
+      >
+        <button
+          mobileHeaderLeading
+          class="mobile-icon-button"
+          type="button"
+          (click)="back()"
+          aria-label="Back to projects"
+        >
+          <app-mobile-icon name="chevron-left" />
+        </button>
+        <span mobileHeaderTrailing aria-hidden="true"></span>
+      </app-mobile-header>
 
-      <h1>{{ projectName() }}</h1>
+      <h1>Sessions</h1>
 
-      @if (sessions().length === 0) {
-        <p class="muted">No sessions in this project right now.</p>
-      }
-
-      <ul class="list">
-        @for (s of visibleSessions(); track s.id) {
-          <li>
-            <button class="row" [class.looping]="s.chip.kind === 'loop'" (click)="open(s)">
-              <span
-                class="dot lg"
-                [class.looping]="s.chip.kind === 'loop'"
-                [style.background]="color(s.status)"
-              ></span>
-              <span class="info">
-                <span class="name">
-                  {{ s.name }}
-                  @if (s.hasUnreadCompletion) { <span class="unread"></span> }
-                </span>
-                <span class="meta">{{ s.provider }}{{ s.model ? ' · ' + s.model : '' }}</span>
-              </span>
-              <span
-                class="chip"
-                [class.attention]="s.chip.kind === 'attention'"
-                [class.loop]="s.chip.kind === 'loop'"
-              >{{ s.chip.label }}</span>
-              <span class="chevron">›</span>
-            </button>
-          </li>
+      <div class="session-list">
+        @for (session of visibleSessions(); track session.id) {
+          <app-mobile-session-row [row]="session" (activate)="open(session)" />
+        } @empty {
+          <div class="mobile-empty-state">
+            <app-mobile-icon name="history" />
+            <h2>No sessions yet</h2>
+            <p>Start a session in this project to see it here.</p>
+          </div>
         }
-      </ul>
+      </div>
 
       @if (hiddenCount() > 0) {
-        <button class="show-more" (click)="showMore()">{{ showMoreLabel() }}</button>
+        <button class="show-more mobile-pressable" type="button" (click)="showMore()">{{ showMoreLabel() }}</button>
       }
 
-      <button class="fab" (click)="newSession()">＋ New</button>
+      <div class="mobile-bottom-dock sessions-dock">
+        <button class="mobile-primary-button" type="button" (click)="newSession()" [disabled]="!online()">
+          <app-mobile-icon name="compose" />
+          New session
+        </button>
+      </div>
     </section>
   `,
   styles: [
     `
-      .screen { padding: 16px; }
-      .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-      .back { background: none; border: none; color: var(--accent-action); font-size: 17px; }
-      .conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-secondary); }
-      .conn .dot.on { background: var(--accent-online); }
-      h1 { margin: 4px 0 16px; word-break: break-word; }
-      .muted { color: var(--text-secondary); }
-      .list { list-style: none; padding: 0; margin: 0; }
-      .row {
-        width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 4px;
-        background: transparent; border: none; color: var(--text); text-align: left;
-      }
-      .row.looping { color: var(--text); }
-      .dot.lg { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-      .dot.lg.looping {
-        background: #a78bfa !important;
-        box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.22);
-      }
-      .info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-      .name { font-size: 17px; display: flex; align-items: center; gap: 6px; }
-      .unread { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-action); }
-      .meta { font-size: 13px; color: var(--text-secondary); }
-      .chip {
-        font-size: 12px; color: var(--text-secondary); background: var(--surface);
-        padding: 4px 10px; border-radius: var(--radius-pill); text-transform: capitalize; white-space: nowrap;
-      }
-      .chip.attention { color: var(--accent-attention); background: rgba(255, 159, 10, 0.15); }
-      .chip.loop {
-        color: #d8b4fe;
-        background: rgba(167, 139, 250, 0.16);
-        box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.3);
-      }
-      .chevron { color: var(--text-secondary); font-size: 20px; }
-      .show-more {
-        width: 100%; background: transparent; border: none; color: var(--accent-action);
-        padding: 14px; font-size: 15px; margin-bottom: 80px;
-      }
-      .fab {
-        position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom));
-        background: #fff; color: #000; border: none; border-radius: var(--radius-pill);
-        padding: 14px 22px; font-size: 16px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-      }
+      .sessions-screen { min-height: 100%; padding: var(--space-3) var(--mobile-gutter) calc(var(--dock-height) + var(--space-12)); }
+      h1 { margin: var(--space-8) 0 var(--space-3); font-size: var(--font-size-xl); }
+      .session-list { display: grid; }
+      .mobile-empty-state > app-mobile-icon { color: var(--text-secondary); font-size: 2.5rem; }
+      .mobile-empty-state h2, .mobile-empty-state p { margin: 0; }
+      .show-more { width: 100%; min-height: var(--control-size); border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--accent-action); font-size: var(--font-size-sm); }
+      .sessions-dock { justify-content: flex-end; }
+      .sessions-dock .mobile-primary-button { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45); }
     `,
   ],
 })
@@ -167,56 +126,68 @@ export class SessionsComponent {
   private readonly gateway = inject(GatewayClient);
   private readonly router = inject(Router);
 
-  readonly projectKey = input<string>('');
+  readonly projectKey = input('');
 
   protected readonly online = this.gateway.online;
-  protected readonly color = statusColor;
-
-  /** Show the most recent sessions first; reveal the rest in pages via "Show more". */
   protected readonly visibleCount = signal(SESSION_PAGE_SIZE);
-
   protected readonly sessions = computed<SessionRow[]>(() => {
     const key = this.projectKey();
-
     const live: SessionRow[] = (this.gateway.snapshot()?.instances ?? [])
-      .filter((i) => (i.workingDirectory || '__no_workspace__') === key)
-      .map((i) => {
-        const row = {
-          id: i.id,
-          name: i.displayName,
-          provider: i.provider,
-          model: i.model,
-          status: i.status,
-          pendingApprovalCount: i.pendingApprovalCount,
-          hasUnreadCompletion: i.hasUnreadCompletion,
-          isLooping: i.isLooping === true,
+      .filter((instance) => (instance.workingDirectory || '__no_workspace__') === key)
+      .map((instance) => {
+        const chip = sessionChipForRow({
           live: true,
-          lastActivity: i.lastActivity,
+          isLooping: instance.isLooping === true,
+          status: instance.status,
+          pendingApprovalCount: instance.pendingApprovalCount,
+        });
+        return {
+          id: instance.id,
+          title: instance.displayName,
+          subtitle: [instance.provider, instance.model].filter(Boolean).join(' · '),
+          status: instance.status,
+          statusLabel: chip.label,
+          tone: sessionTone({
+            live: true,
+            isLooping: instance.isLooping === true,
+            status: instance.status,
+            pendingApprovalCount: instance.pendingApprovalCount,
+          }),
+          pendingApprovalCount: instance.pendingApprovalCount,
+          unread: instance.hasUnreadCompletion,
+          isLooping: instance.isLooping === true,
+          live: true,
+          lastActivity: instance.lastActivity,
+          chip,
         };
-        return { ...row, chip: sessionChipForRow(row) };
       });
 
-    // Persisted (closed) sessions for this project. A history session that is
-    // still live is already represented by the live instance above, so skip it.
-    const liveHistoryHandled = new Set(live.map((r) => r.id));
+    const liveHistoryHandled = new Set(live.map((row) => row.id));
     const past: SessionRow[] = this.gateway
       .historySessions()
-      .filter((h) => (h.workingDirectory || '__no_workspace__') === key)
-      .filter((h) => !(h.live && h.instanceId && liveHistoryHandled.has(h.instanceId)))
-      .map((h) => {
-        const row = {
-          id: h.id,
-          name: h.name,
-          provider: h.provider ?? 'session',
-          model: h.model ?? undefined,
+      .filter((session) => (session.workingDirectory || '__no_workspace__') === key)
+      .filter((session) => !(session.live && session.instanceId && liveHistoryHandled.has(session.instanceId)))
+      .map((session) => {
+        const chip = sessionChipForRow({
+          live: false,
+          isLooping: false,
           status: 'idle',
           pendingApprovalCount: 0,
-          hasUnreadCompletion: false,
+        });
+        return {
+          id: session.id,
+          title: session.name,
+          subtitle: [session.provider ?? 'session', session.model].filter(Boolean).join(' · '),
+          status: 'idle',
+          statusLabel: chip.label,
+          tone: 'history',
+          pendingApprovalCount: 0,
+          unread: false,
           isLooping: false,
           live: false,
-          lastActivity: h.lastActiveAt,
+          lastActivity: session.lastActiveAt,
+          chip,
         };
-        return { ...row, chip: sessionChipForRow(row) };
       });
 
     return [...live, ...past].sort((a, b) => {
@@ -224,36 +195,26 @@ export class SessionsComponent {
       return b.lastActivity - a.lastActivity;
     });
   });
-
-  /** The slice currently shown (most recent first), capped by visibleCount. */
-  protected readonly visibleSessions = computed<SessionRow[]>(() =>
-    this.sessions().slice(0, this.visibleCount()),
-  );
-
-  /** How many sessions are hidden behind "Show more". */
-  protected readonly hiddenCount = computed(() =>
-    Math.max(0, this.sessions().length - this.visibleCount()),
-  );
+  protected readonly visibleSessions = computed(() => this.sessions().slice(0, this.visibleCount()));
+  protected readonly hiddenCount = computed(() => Math.max(0, this.sessions().length - this.visibleCount()));
   protected readonly nextPageSize = computed(() => nextSessionsPageSize(this.hiddenCount()));
   protected readonly showMoreLabel = computed(() => sessionsShowMoreLabel(this.hiddenCount()));
-
-  protected showMore(): void {
-    this.visibleCount.update((n) => n + this.nextPageSize());
-  }
-
   protected readonly projectName = computed(() => {
-    const project = this.gateway.snapshot()?.projects.find((p) => p.key === this.projectKey());
+    const project = this.gateway.snapshot()?.projects.find((item) => item.key === this.projectKey());
     if (project) return project.name;
     const key = this.projectKey();
     if (key === '__no_workspace__') return 'No workspace';
     return key.split('/').filter(Boolean).pop() || 'Sessions';
   });
 
+  protected showMore(): void {
+    this.visibleCount.update((count) => count + this.nextPageSize());
+  }
+
   protected open(session: SessionRow): void {
     if (session.live) {
       void this.router.navigate(['/projects', this.projectKey(), 'sessions', session.id]);
     } else {
-      // Past session → read-only transcript (history id is already namespaced).
       void this.router.navigate(['/history', session.id]);
     }
   }

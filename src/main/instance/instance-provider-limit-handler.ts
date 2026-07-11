@@ -25,6 +25,14 @@ export interface InstanceProviderLimitHandlerDeps {
   resendInput: (instanceId: string, prompt: string) => void;
   /** Live provider quota snapshot, used to derive the reset time. */
   getQuotaSnapshot: (provider: ProviderId) => ProviderQuotaSnapshot | null;
+  /**
+   * Fire-and-forget quota snapshot refresh, invoked when a park attempt finds
+   * no reset hint from ANY source (structured error, text parse, telemetry,
+   * or the cached snapshot). Never awaited from the park path — it only primes
+   * the snapshot so the *next* limit error on this provider has a fresh window
+   * to derive a reset time from.
+   */
+  refreshQuotaSnapshot?: (provider: ProviderId) => void;
   /** Working directory for the instance (needed by the durable automation). */
   getWorkspaceCwd: (instanceId: string) => string | undefined;
   /**
@@ -81,20 +89,30 @@ export class InstanceProviderLimitHandler {
   /**
    * Park + schedule a resume when a regular-session turn stops on a provider
    * limit. Returns `'skipped'` (a no-op that leaves normal error handling
-   * intact) when the feature is off, the provider is unresolved, the instance
-   * is already parked, or no reset time can be derived.
+   * intact) when the feature is off, the provider is unresolved, or no reset
+   * time can be derived. Returns `'already-parked'` — instead of re-parking —
+   * when the instance is already parked, so a caller receiving a second
+   * throttled turn (e.g. from a send path that bypasses the renderer's
+   * quota-park gate) can acknowledge it without duplicating the park message
+   * or touching status.
    */
-  maybePark(params: MaybeParkParams): 'parked' | 'skipped' {
+  maybePark(params: MaybeParkParams): 'parked' | 'already-parked' | 'skipped' {
     const deps = this.deps;
     if (!deps) return 'skipped';
     if (!deps.isEnabled()) return 'skipped';
-    if (this.parked.has(params.instanceId)) return 'skipped';
+    if (this.parked.has(params.instanceId)) return 'already-parked';
 
     const providerId = toProviderId(params.provider);
     if (!providerId) return 'skipped';
 
     const resumeAt = this.deriveResumeAt(params.resetAtHint, providerId);
-    if (resumeAt === null) return 'skipped';
+    if (resumeAt === null) {
+      // Every hint source came up empty — prime the snapshot for next time
+      // instead of leaving this provider's quota view stale until the next
+      // scheduled poll.
+      deps.refreshQuotaSnapshot?.(providerId);
+      return 'skipped';
+    }
 
     const workspaceCwd = deps.getWorkspaceCwd(params.instanceId);
     if (!workspaceCwd) {

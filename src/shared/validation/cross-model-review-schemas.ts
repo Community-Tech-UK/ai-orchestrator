@@ -50,7 +50,7 @@ export const TieredReviewResultJsonSchema = z.object({
   boundaries_checked: z.array(IssueSchema).max(30).optional(),
   assumptions: z.array(z.object({
     assumption: z.string().trim().min(1).max(1000),
-    severity: z.enum(['high', 'medium', 'low']),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
   })).max(20).optional(),
   integration_risks: z.array(IssueSchema).max(20).optional(),
   scores: z.object({

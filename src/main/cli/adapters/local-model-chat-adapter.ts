@@ -1,8 +1,6 @@
 import type { LocalModelEndpointProvider } from '../../../shared/types/local-model-runtime.types';
 import {
-  LOCAL_REVIEW_TOOL_NAMES,
   type LocalReviewToolDefinition,
-  type LocalReviewToolName,
 } from '../../review/local-review.types';
 import type {
   ContextUsage,
@@ -31,7 +29,8 @@ export interface LocalModelChatMessage {
 
 export interface LocalModelToolCall {
   id: string;
-  name: LocalReviewToolName;
+  /** Untrusted model output; the bounded runner returns typed errors for unknown names. */
+  name: string;
   arguments: unknown;
 }
 
@@ -46,7 +45,7 @@ export type LocalModelToolTurnMessage =
       role: 'tool';
       content: string;
       toolCallId: string;
-      toolName: LocalReviewToolName;
+      toolName: string;
     };
 
 export interface LocalModelToolTurnResult {
@@ -81,13 +80,10 @@ export function normalizeLocalModelToolCall(
   if (typeof id !== 'string' || id.length === 0) {
     throw new LocalModelToolResponseError('Tool call is missing a non-empty id');
   }
-  if (
-    typeof name !== 'string'
-    || !LOCAL_REVIEW_TOOL_NAMES.includes(name as LocalReviewToolName)
-  ) {
-    throw new LocalModelToolResponseError(`Tool call has an unsupported name: ${String(name)}`);
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new LocalModelToolResponseError('Tool call is missing a non-empty name');
   }
-  return { id, name: name as LocalReviewToolName, arguments: args };
+  return { id, name, arguments: args };
 }
 
 export interface LocalModelChatAdapter extends BaseCliAdapter {

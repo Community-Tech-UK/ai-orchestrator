@@ -74,6 +74,7 @@ export const PROVIDER_CHANNELS = {
   MODELS_UNIFIED_CATALOG: 'models:unified-catalog',
   MODELS_CLI_PUSH: 'models:cli-push',
   MODELS_LOCAL_MODEL_INVENTORY: 'models:local-model-inventory',
+  MODELS_LOCAL_REVIEWER_QUALIFY: 'models:local-reviewer-qualify',
   MODELS_LOCAL_MODEL_INVENTORY_UPDATED: 'models:local-model-inventory-updated',
   // Catalog-updated push (main -> renderer) — fires when any source refreshes.
   MODELS_CATALOG_UPDATED: 'models:catalog-updated',

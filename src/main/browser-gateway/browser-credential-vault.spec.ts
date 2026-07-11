@@ -3,6 +3,8 @@ import {
   CredentialVault,
   CredentialVaultError,
   generateStrongPassword,
+  secretVerificationDigest,
+  verifyFilledSecret,
   type BwCommandResult,
   type BwRunner,
   type VaultOriginBinding,
@@ -18,6 +20,7 @@ const AGENT_FOLDER_ID = 'folder-agent';
 class FakeBw implements BwRunner {
   readonly commands: string[][] = [];
   private readonly items = new Map<string, { folderId: string | null; username: string; password: string }>();
+  private readonly fieldsById = new Map<string, Array<{ name: string; value: string }>>();
   private folderExists = true;
   private nextId = 1;
 
@@ -28,6 +31,11 @@ class FakeBw implements BwRunner {
   /** Directly seed an item (used to plant an out-of-folder / personal item). */
   seedItem(id: string, folderId: string | null, username: string, password: string): void {
     this.items.set(id, { folderId, username, password });
+  }
+
+  /** Seed named Bitwarden custom fields on an item (generic-secret tests). */
+  seedFields(id: string, fields: Array<{ name: string; value: string }>): void {
+    this.fieldsById.set(id, fields);
   }
 
   async run(args: string[]): Promise<BwCommandResult> {
@@ -63,6 +71,11 @@ class FakeBw implements BwRunner {
           id: args[2],
           folderId: item.folderId,
           login: { username: item.username, password: item.password },
+          fields: (this.fieldsById.get(args[2] as string) ?? []).map((field) => ({
+            name: field.name,
+            value: field.value,
+            type: 0,
+          })),
         }),
       );
     }
@@ -218,6 +231,108 @@ describe('CredentialVault.getSecretForFill (security invariants)', () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(CredentialVaultError);
     expect((error as Error).message).not.toContain('SUPER-SECRET-PW');
+  });
+});
+
+describe('CredentialVault.getGenericSecretForFill (bank / generic secrets)', () => {
+  function seedBoundItemWithFields(
+    bw: FakeBw,
+    bindings: MemoryBindings,
+    fields: Array<{ name: string; value: string }>,
+  ): string {
+    const ref = 'supplier-1';
+    bw.seedItem(ref, AGENT_FOLDER_ID, 'supplier', 'unused-pw');
+    bw.seedFields(ref, fields);
+    bindings.put({
+      vaultItemRef: ref,
+      origin: 'https://portal.example.gov.uk',
+      username: 'supplier',
+      createdAt: 1,
+    });
+    return ref;
+  }
+
+  it('resolves a bank account number from a named custom field, case/format-insensitively', async () => {
+    const bw = new FakeBw();
+    const { vault, bindings } = makeVault(bw);
+    const ref = seedBoundItemWithFields(bw, bindings, [
+      { name: 'Account Number', value: '12345678' },
+      { name: 'Sort Code', value: '01-02-03' },
+      { name: 'IBAN', value: 'GB33BUKB20201555555555' },
+    ]);
+
+    expect(
+      await vault.getGenericSecretForFill({ vaultItemRef: ref, origin: 'https://portal.example.gov.uk', kind: 'bank_account_number' }),
+    ).toBe('12345678');
+    expect(
+      await vault.getGenericSecretForFill({ vaultItemRef: ref, origin: 'https://portal.example.gov.uk', kind: 'bank_sort_code' }),
+    ).toBe('01-02-03');
+    expect(
+      await vault.getGenericSecretForFill({ vaultItemRef: ref, origin: 'https://portal.example.gov.uk', kind: 'iban' }),
+    ).toBe('GB33BUKB20201555555555');
+  });
+
+  it('resolves an arbitrary named field by its exact (normalized) name', async () => {
+    const bw = new FakeBw();
+    const { vault, bindings } = makeVault(bw);
+    const ref = seedBoundItemWithFields(bw, bindings, [{ name: 'Charity Number', value: 'CH-9981' }]);
+
+    expect(
+      await vault.getGenericSecretForFill({
+        vaultItemRef: ref,
+        origin: 'https://portal.example.gov.uk',
+        kind: 'arbitrary_named_vault_field',
+        fieldName: 'charity number',
+      }),
+    ).toBe('CH-9981');
+  });
+
+  it('enforces the SAME folder-jail and origin-binding guarantees as login secrets', async () => {
+    const bw = new FakeBw();
+    const { vault, bindings } = makeVault(bw);
+    const ref = seedBoundItemWithFields(bw, bindings, [{ name: 'IBAN', value: 'GB00SECRET' }]);
+
+    // Wrong origin → anti-phishing refusal.
+    await expect(
+      vault.getGenericSecretForFill({ vaultItemRef: ref, origin: 'https://evil.example', kind: 'iban' }),
+    ).rejects.toMatchObject({ code: 'origin_mismatch' });
+
+    // Out-of-folder personal item → jail refusal.
+    bw.seedItem('personal-iban', 'folder-personal', 'james', 'x');
+    bw.seedFields('personal-iban', [{ name: 'IBAN', value: 'GB00PERSONAL' }]);
+    bindings.put({ vaultItemRef: 'personal-iban', origin: 'https://portal.example.gov.uk', username: 'james', createdAt: 1 });
+    await expect(
+      vault.getGenericSecretForFill({ vaultItemRef: 'personal-iban', origin: 'https://portal.example.gov.uk', kind: 'iban' }),
+    ).rejects.toMatchObject({ code: 'item_outside_agent_folder' });
+  });
+
+  it('throws custom_field_not_found (never a value) when the field is absent', async () => {
+    const bw = new FakeBw();
+    const { vault, bindings } = makeVault(bw);
+    const ref = seedBoundItemWithFields(bw, bindings, [{ name: 'Account Number', value: '12345678' }]);
+
+    const error = await vault
+      .getGenericSecretForFill({ vaultItemRef: ref, origin: 'https://portal.example.gov.uk', kind: 'policy_number' })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CredentialVaultError);
+    expect((error as CredentialVaultError).code).toBe('custom_field_not_found');
+    expect((error as Error).message).not.toContain('12345678');
+  });
+});
+
+describe('worker-side secret verification (no value leaves the worker)', () => {
+  it('verifies a correct read-back and rejects a wrong or empty one', () => {
+    expect(verifyFilledSecret('12345678', '12345678')).toBe(true);
+    expect(verifyFilledSecret('12345678', '1234')).toBe(false);
+    expect(verifyFilledSecret('12345678', undefined)).toBe(false);
+    expect(verifyFilledSecret('12345678', '')).toBe(false);
+  });
+
+  it('is a stable non-reversible digest (same input → same hash, different input → different)', () => {
+    expect(secretVerificationDigest('abc')).toBe(secretVerificationDigest('abc'));
+    expect(secretVerificationDigest('abc')).not.toBe(secretVerificationDigest('abd'));
+    // The digest does not contain the plaintext.
+    expect(secretVerificationDigest('super-secret')).not.toContain('super-secret');
   });
 });
 

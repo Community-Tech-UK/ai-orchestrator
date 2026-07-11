@@ -84,6 +84,7 @@ import { enrichSpawnError } from './base-cli-adapter-utils';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { isSessionNotFoundText } from './resume-error-classifier';
+import { isProviderNotice } from '../provider-notice';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 import { discoverCodexModels } from './codex/model-list';
 import { wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
@@ -557,7 +558,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // so the user can simply retry. App-server mode keeps the stricter
       // behavior because a failed turn there may have broken the persistent
       // thread/client; that path has its own recovery.
-      const isRecoverable = !this.useAppServer || this.isRecoverableTurnError(errText);
+      //
+      // A provider rate/usage-limit turn is its own named condition, kept
+      // separate from isRecoverableTurnError's transient-error regexes: the
+      // account is throttled, not the thread — the app-server thread is alive
+      // either way, so this is recoverable-because-provider-limit regardless
+      // of app-server vs. exec mode. instance-communication.ts's
+      // tryParkOnProviderLimit() parks the session on this same rethrown error.
+      const isProviderLimit = isProviderNotice(errText);
+      const isRecoverable = !this.useAppServer || isProviderLimit || this.isRecoverableTurnError(errText);
       this.emit('status', (isRecoverable ? 'idle' : 'error') as InstanceStatus);
       throw error;
     }

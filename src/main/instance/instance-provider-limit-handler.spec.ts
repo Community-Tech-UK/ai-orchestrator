@@ -34,6 +34,7 @@ interface Harness {
   snapshot: { value: ProviderQuotaSnapshot | null };
   resumableIds: Set<string>;
   fireScheduled: (instanceId: string) => void;
+  refreshCalls: ProviderId[];
 }
 
 function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}): Harness {
@@ -44,6 +45,7 @@ function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}):
   const snapshot = { value: null as ProviderQuotaSnapshot | null };
   let scheduleCalls = 0;
   let cancels = 0;
+  const refreshCalls: ProviderId[] = [];
   // Capture the scheduler's resumeInstance callback so a test can "fire" it.
   const scheduled = new Map<string, (instanceId: string, opts?: { resumePromptFallback?: string }) => void>();
 
@@ -53,6 +55,7 @@ function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}):
     setWaitReason: (id, wr) => waitReasons.set(id, wr),
     resendInput: (id, prompt) => resends.push({ instanceId: id, prompt }),
     getQuotaSnapshot: () => snapshot.value,
+    refreshQuotaSnapshot: (provider) => refreshCalls.push(provider),
     getWorkspaceCwd: () => '/tmp/workspace',
     isResumable: (id) => resumableIds.has(id),
     scheduleResume: ({ request, resumeInstance }) => {
@@ -75,6 +78,7 @@ function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}):
     snapshot,
     resumableIds,
     fireScheduled: (instanceId) => scheduled.get(instanceId)?.(instanceId),
+    refreshCalls,
   };
 }
 
@@ -116,6 +120,16 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
     expect(h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: null, reason: 'x', resumePrompt: null })).toBe('skipped');
   });
 
+  it('fire-and-forgets a quota snapshot refresh on a park-miss (no hint from any source)', () => {
+    expect(h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: null, reason: 'x', resumePrompt: null })).toBe('skipped');
+    expect(h.refreshCalls).toEqual(['claude']);
+  });
+
+  it('does not refresh the snapshot when a park actually succeeds', () => {
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: null });
+    expect(h.refreshCalls).toEqual([]);
+  });
+
   it('derives the reset time from the most-constrained quota window when no hint is given', () => {
     const soon = Date.now() + 30_000;
     const later = Date.now() + 90_000;
@@ -131,7 +145,7 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
   it('does not double-park an already-parked instance', () => {
     const resumeAt = Date.now() + 60_000;
     expect(h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: resumeAt, reason: 'x', resumePrompt: null })).toBe('parked');
-    expect(h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: resumeAt, reason: 'x', resumePrompt: null })).toBe('skipped');
+    expect(h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: resumeAt, reason: 'x', resumePrompt: null })).toBe('already-parked');
     expect(h.scheduleCalls).toBe(1);
   });
 });

@@ -101,6 +101,21 @@ describe('LoopConfigPanelComponent', () => {
     expect(options).not.toContainEqual({ label: 'Gemini', value: 'gemini' });
   });
 
+  it('offers Grok Build and persists it as the ping-pong reviewer', () => {
+    const options = Array.from(
+      fixture.nativeElement.querySelectorAll('#loop-cfg-pp-reviewer option'),
+      (option: Element) => ({
+        label: (option as HTMLOptionElement).textContent?.trim(),
+        value: (option as HTMLOptionElement).value,
+      }),
+    );
+
+    expect(options).toContainEqual({ label: 'Grok Build', value: 'grok' });
+    component.pingPongReviewerProvider.set('grok');
+    expect(component.buildConfig()?.completion?.crossModelReview?.pingPong?.reviewerProvider)
+      .toBe('grok');
+  });
+
   it('emits the canonical Antigravity provider for ping-pong review', () => {
     component.pingPongReviewerProvider.set('antigravity');
 

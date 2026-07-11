@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="aio-doc-review" content="v1">
+<meta name="aio-doc-review-title" content="{{TITLE}}">
+<meta name="aio-doc-review-source" content="{{SOURCE}}">
+<meta name="aio-doc-review-id" content="{{REVIEW_ID}}">
+<title>{{TITLE}} — review</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #1b1f24;
+    --muted: #5c6672;
+    --line: #d9dee4;
+    --accent: #2f6feb;
+    --ok: #1f8a4c;
+    --ok-bg: #e7f6ec;
+    --reject: #c23a3a;
+    --reject-bg: #fbe9e9;
+    --shadow: 0 1px 3px rgba(20, 28, 40, 0.12), 0 8px 24px rgba(20, 28, 40, 0.08);
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171b;
+      --panel: #1d2126;
+      --ink: #e8ebef;
+      --muted: #9aa4b0;
+      --line: #333a42;
+      --accent: #5b8cff;
+      --ok: #59c98a;
+      --ok-bg: #16311f;
+      --reject: #f08585;
+      --reject-bg: #351919;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 28px 20px 160px; }
+  header.doc { margin-bottom: 20px; }
+  header.doc h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; }
+  header.doc .meta { color: var(--muted); font-size: 13px; }
+  header.doc .meta code { font-size: 12px; }
+  section[data-review-item] {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin: 16px 0;
+    box-shadow: var(--shadow);
+  }
+  section[data-review-item] > h2,
+  section[data-review-item] > h3 { margin-top: 0; }
+  section[data-decision-id] { border-left: 3px solid var(--accent); }
+  .decision-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  pre {
+    background: rgba(127, 127, 127, 0.1);
+    padding: 12px 14px;
+    border-radius: 8px;
+    overflow: auto;
+    font-size: 13px;
+  }
+  code { font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: rgba(127, 127, 127, 0.08); }
+  a { color: var(--accent); }
+
+  /* Review runtime chrome (injected controls) */
+  .rv-item-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+  }
+  .rv-toggle {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .rv-toggle button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    padding: 6px 14px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .rv-toggle button + button { border-left: 1px solid var(--line); }
+  .rv-toggle button:hover { background: rgba(127, 127, 127, 0.1); }
+  .rv-toggle button[aria-pressed="true"][data-choice="approve"] { background: var(--ok-bg); color: var(--ok); font-weight: 700; }
+  .rv-toggle button[aria-pressed="true"][data-choice="reject"] { background: var(--reject-bg); color: var(--reject); font-weight: 700; }
+  .rv-comment {
+    flex: 1 1 260px;
+    min-width: 200px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 13px;
+    resize: vertical;
+    min-height: 34px;
+  }
+  .rv-comment:focus, .rv-toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* Standalone verdict bar */
+  .rv-bar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -4px 20px rgba(20, 28, 40, 0.12);
+    padding: 12px 20px;
+    z-index: 50;
+  }
+  .rv-bar .rv-bar-inner { max-width: 860px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .rv-bar .rv-overall { display: inline-flex; gap: 6px; }
+  .rv-btn {
+    appearance: none;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 8px 14px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 100ms ease, background 120ms ease, border-color 120ms ease;
+  }
+  .rv-btn:hover { background: rgba(127, 127, 127, 0.12); }
+  .rv-btn:active { transform: scale(0.96); }
+  .rv-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+  .rv-btn.rv-primary { background: var(--accent); color: #fff; border-color: var(--accent); margin-left: auto; }
+  .rv-general {
+    flex: 1 1 320px;
+    min-width: 220px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 13px;
+  }
+  .rv-hint { color: var(--muted); font-size: 12px; flex-basis: 100%; }
+  @media (prefers-reduced-motion: reduce) { .rv-btn, .rv-toggle button { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="doc">
+    <h1>{{TITLE}}</h1>
+    <div class="meta">
+      Review artifact · generated {{GENERATED_AT}}
+      <span data-source-line>· source <code>{{SOURCE}}</code></span>
+    </div>
+  </header>
+
+  <!-- AIO_CONTENT_START -->
+  <!--
+    Reviewable content goes here. Each reviewable section is:
+      <section data-review-item="stable-id" data-review-title="Short title"> ... </section>
+    A numbered decision point additionally carries data-decision-id="1":
+      <section data-review-item="d1" data-review-title="Store: ElectronStore or SQLite?" data-decision-id="1"> ... </section>
+    The review runtime injects approve/reject + comment controls into every section at runtime.
+  -->
+  {{CONTENT}}
+  <!-- AIO_CONTENT_END -->
+</div>
+
+<script>
+/* AIO doc-review runtime v1. No external requests. Standalone + embedded (postMessage) modes. */
+(function () {
+  "use strict";
+  var EMBEDDED = window.parent && window.parent !== window;
+  var TYPE = "aio-review/";
+  var meta = function (name) {
+    var el = document.querySelector('meta[name="' + name + '"]');
+    return el ? el.getAttribute("content") || "" : "";
+  };
+  var TITLE = meta("aio-doc-review-title");
+  var SOURCE = meta("aio-doc-review-source");
+  var REVIEW_ID = meta("aio-doc-review-id");
+  // Present only when the artifact is being served by the local capture server
+  // (serve-review.mjs injects it). When set, standalone Submit POSTs decisions back to the
+  // server (same-origin, loopback) instead of downloading a file. Absent on a bare file.
+  var CAPTURE_TOKEN = meta("aio-doc-review-capture");
+
+  // Collect reviewable items in document order.
+  var nodes = Array.prototype.slice.call(document.querySelectorAll("[data-review-item]"));
+  var items = nodes.map(function (node) {
+    return {
+      id: node.getAttribute("data-review-item"),
+      title: node.getAttribute("data-review-title") || node.getAttribute("data-review-item"),
+      decisionId: node.getAttribute("data-decision-id") || null,
+      node: node,
+      decision: null, // 'approve' | 'reject' | null
+      comment: ""
+    };
+  });
+  var byId = {};
+  items.forEach(function (it) { byId[it.id] = it; });
+  var overall = null; // 'approved' | 'changes_requested' | 'rejected'
+  var general = "";
+
+  function post(type, payload) {
+    if (!EMBEDDED) return;
+    var msg = { type: TYPE + type };
+    if (payload) for (var k in payload) if (payload.hasOwnProperty(k)) msg[k] = payload[k];
+    // Host validates origin/shape; sandboxed iframe without allow-same-origin has null origin, so use "*".
+    window.parent.postMessage(msg, "*");
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function renderItemControls(it) {
+    var wrap = el("div", "rv-item-controls");
+    var toggle = el("div", "rv-toggle");
+    ["approve", "reject"].forEach(function (choice) {
+      var b = el("button", null, choice === "approve" ? "Approve" : "Reject");
+      b.setAttribute("data-choice", choice);
+      b.setAttribute("type", "button");
+      b.setAttribute("aria-pressed", "false");
+      b.addEventListener("click", function () {
+        it.decision = it.decision === choice ? null : choice;
+        syncToggle(it, toggle);
+        post("decision", { itemId: it.id, decisionId: it.decisionId, decision: it.decision });
+      });
+      toggle.appendChild(b);
+    });
+    var comment = el("textarea", "rv-comment");
+    comment.setAttribute("rows", "1");
+    comment.setAttribute("placeholder", "Comment (optional)");
+    // Post on every input (not just change/blur) so the embedded host's mirror is always
+    // current — otherwise clicking a host-side Submit before the field blurs would drop
+    // the last-typed comment (blur → change → postMessage is queued behind the click).
+    comment.addEventListener("input", function () {
+      it.comment = comment.value;
+      post("comment", { itemId: it.id, comment: it.comment });
+    });
+    it._commentEl = comment;
+    it._toggleEl = toggle;
+    wrap.appendChild(toggle);
+    wrap.appendChild(comment);
+    it.node.appendChild(wrap);
+  }
+
+  function syncToggle(it, toggle) {
+    var buttons = toggle.querySelectorAll("button");
+    for (var i = 0; i < buttons.length; i++) {
+      var choice = buttons[i].getAttribute("data-choice");
+      buttons[i].setAttribute("aria-pressed", it.decision === choice ? "true" : "false");
+    }
+  }
+
+  function markDecisionTags() {
+    items.forEach(function (it) {
+      if (!it.decisionId) return;
+      var tag = el("span", "decision-tag", "Decision " + it.decisionId);
+      it.node.insertBefore(tag, it.node.firstChild);
+    });
+  }
+
+  function computeOverallFallback() {
+    // If James never touches the overall bar, infer from per-item decisions.
+    var anyReject = items.some(function (it) { return it.decision === "reject"; });
+    var anyApprove = items.some(function (it) { return it.decision === "approve"; });
+    if (anyReject) return "changes_requested";
+    if (anyApprove) return "approved";
+    return "changes_requested";
+  }
+
+  function decisionsPayload() {
+    var effectiveOverall = overall || computeOverallFallback();
+    return {
+      reviewId: REVIEW_ID,
+      title: TITLE,
+      source: SOURCE,
+      overall: effectiveOverall,
+      general: general,
+      items: items.map(function (it) {
+        return {
+          id: it.id,
+          title: it.title,
+          decisionId: it.decisionId,
+          decision: it.decision,
+          comment: it.comment
+        };
+      })
+    };
+  }
+
+  var OVERALL_LABEL = {
+    approved: "APPROVED",
+    changes_requested: "CHANGES REQUESTED",
+    rejected: "REJECTED"
+  };
+
+  // Collapse newlines so one item never spills into extra numbered lines.
+  function flat(value) {
+    return String(value == null ? "" : value).replace(/\s*[\r\n]+\s*/g, " ").trim();
+  }
+
+  function toMarkdown() {
+    var d = decisionsPayload();
+    var lines = [];
+    lines.push("## Document review feedback — " + (flat(d.title) || "(untitled)") + " (review " + (d.reviewId || "n/a") + ")");
+    lines.push("Overall: " + (OVERALL_LABEL[d.overall] || "CHANGES REQUESTED"));
+    var n = 0;
+    d.items.forEach(function (it) {
+      var comment = flat(it.comment);
+      if (!it.decision && !comment) return;
+      n += 1;
+      var verb = it.decision === "approve" ? "approve" : (it.decision === "reject" ? "reject" : "note");
+      var line = n + ". [" + flat(it.title) + "] " + verb;
+      if (comment) line += " — " + comment;
+      lines.push(line);
+    });
+    var general = flat(d.general);
+    if (general) lines.push("General: " + general);
+    return lines.join("\n") + "\n";
+  }
+
+  // ---- Standalone chrome (verdict bar + export) ----
+  function buildStandaloneBar() {
+    var bar = el("div", "rv-bar");
+    var inner = el("div", "rv-bar-inner");
+    var overallWrap = el("div", "rv-overall");
+    var overallBtns = {};
+    [["approved", "Approve"], ["changes_requested", "Request changes"], ["rejected", "Reject"]].forEach(function (pair) {
+      var b = el("button", "rv-btn", pair[1]);
+      b.setAttribute("type", "button");
+      b.setAttribute("aria-pressed", "false");
+      b.addEventListener("click", function () {
+        overall = overall === pair[0] ? null : pair[0];
+        for (var k in overallBtns) overallBtns[k].setAttribute("aria-pressed", overall === k ? "true" : "false");
+      });
+      overallBtns[pair[0]] = b;
+      overallWrap.appendChild(b);
+    });
+    var gen = el("input", "rv-general");
+    gen.setAttribute("type", "text");
+    gen.setAttribute("placeholder", "General feedback (optional)");
+    gen.addEventListener("input", function () { general = gen.value; });
+
+    var served = !!CAPTURE_TOKEN;
+    var primaryBtn = el("button", "rv-btn rv-primary", served ? "Submit decisions" : "Export decisions");
+    primaryBtn.setAttribute("type", "button");
+
+    var hint = el("div", "rv-hint", served
+      ? "Toggle Approve/Reject and add comments per section, set the overall verdict, then Submit — your decisions go straight back to the agent. No download."
+      : "Toggle Approve/Reject and add comments per section, set the overall verdict, then Export decisions — the JSON downloads and a Markdown summary is copied to your clipboard.");
+
+    primaryBtn.addEventListener("click", function () {
+      if (!served) { exportDecisions(); return; }
+      primaryBtn.disabled = true;
+      hint.textContent = "Sending…";
+      submitToServer().then(function () {
+        hint.textContent = "✓ Decisions sent — you can close this tab.";
+        primaryBtn.textContent = "Sent";
+      }).catch(function () {
+        // Server unreachable (e.g. it already shut down) — fall back to the download path.
+        primaryBtn.disabled = false;
+        hint.textContent = "Couldn't reach the review server; downloaded a file and copied a Markdown summary instead.";
+        exportDecisions();
+      });
+    });
+
+    inner.appendChild(overallWrap);
+    inner.appendChild(gen);
+    inner.appendChild(primaryBtn);
+    inner.appendChild(hint);
+    bar.appendChild(inner);
+    document.body.appendChild(bar);
+  }
+
+  // Same-origin POST to the local capture server (loopback). Relative URL, so a bare file
+  // opened without a server simply fails here and the caller falls back to download.
+  function submitToServer() {
+    return fetch("/decisions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-aio-review-token": CAPTURE_TOKEN },
+      body: JSON.stringify(decisionsPayload())
+    }).then(function (r) {
+      if (!r || !r.ok) throw new Error("capture failed");
+      return true;
+    });
+  }
+
+  function baseName() {
+    var path = (location.pathname || "artifact").split("/").pop() || "artifact";
+    return path.replace(/\.html?$/i, "") || "artifact";
+  }
+
+  function exportDecisions() {
+    var json = JSON.stringify(decisionsPayload(), null, 2);
+    try {
+      var blob = new Blob([json], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = el("a");
+      a.href = url;
+      a.download = baseName() + ".decisions.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    } catch (e) { /* download may be blocked; clipboard copy below still helps */ }
+    var md = toMarkdown();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(md).catch(function () { /* ignore */ });
+    }
+  }
+
+  // ---- Embedded host protocol ----
+  function applyInit(data) {
+    if (data.overall) overall = data.overall;
+    if (typeof data.general === "string") general = data.general;
+    var comments = data.comments || [];
+    comments.forEach(function (c) {
+      var it = byId[c.itemId];
+      if (!it) return;
+      if (typeof c.comment === "string") {
+        it.comment = c.comment;
+        if (it._commentEl) it._commentEl.value = c.comment;
+      }
+      if (c.decision === "approve" || c.decision === "reject" || c.decision === null) {
+        it.decision = c.decision;
+        if (it._toggleEl) syncToggle(it, it._toggleEl);
+      }
+    });
+  }
+
+  function onHostMessage(ev) {
+    if (!EMBEDDED || ev.source !== window.parent) return;
+    var data = ev.data;
+    if (!data || typeof data.type !== "string" || data.type.indexOf(TYPE) !== 0) return;
+    var kind = data.type.slice(TYPE.length);
+    if (kind === "init") applyInit(data);
+    else if (kind === "request-state") post("state", decisionsPayload());
+  }
+
+  // ---- Boot ----
+  markDecisionTags();
+  items.forEach(renderItemControls);
+  if (!SOURCE) {
+    var sl = document.querySelector("[data-source-line]");
+    if (sl) sl.parentNode.removeChild(sl);
+  }
+  if (EMBEDDED) {
+    window.addEventListener("message", onHostMessage);
+    post("ready", {
+      reviewVersion: "v1",
+      reviewId: REVIEW_ID,
+      title: TITLE,
+      source: SOURCE,
+      items: items.map(function (it) { return { id: it.id, title: it.title, decisionId: it.decisionId }; })
+    });
+  } else {
+    buildStandaloneBar();
+  }
+})();
+</script>
+</body>
+</html>

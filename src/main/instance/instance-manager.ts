@@ -335,6 +335,25 @@ export class InstanceManager extends EventEmitter {
       onChildExit: (childId, child, exitCode) => this.handleChildExit(childId, child, exitCode),
       onOutput: (id, content) => this.stuckDetector.recordOutput(id, content),
       onToolStateChange: (id, state) => this.stuckDetector.updateState(id, state),
+      // 2026-07-11 park-fix plan §Phase 5: investigated whether a Loop-Mode
+      // iteration could reach this hook and double-park alongside the loop's
+      // own LoopProviderLimitHandler (loop-provider-limit-handler.ts). It
+      // cannot, today: Loop Mode turns never call InstanceCommunicationManager
+      // .sendInput()/setupAdapterEvents() at all. The chain is
+      // LoopCoordinator.invokeChild() -> invokeLoopChildIteration()
+      // (loop-child-invoker.ts) -> emits 'loop:invoke-iteration' ->
+      // registerDefaultLoopInvoker (default-invokers.ts) -> raw
+      // `adapter.sendMessage()` on an adapter the invoker owns directly
+      // (persistentLoopAdapters), never registered with this instance's
+      // InstanceCommunicationManager. So this hook — and `tryParkOnProviderLimit`
+      // in instance-communication.ts — never fires for a loop-driven turn; only
+      // LoopProviderLimitHandler.handleProviderLimit() can park a loop. If a
+      // future change routes loop turns through InstanceManager.sendInput (as
+      // the parent/child `message-child` orchestration path already does for
+      // non-loop child instances), this comment's premise breaks and this hook
+      // needs a loop-ownership guard (e.g. via `this.orchestrationMgr
+      // .hasActiveWork(id)`, already used by StuckProcessDetector above) before
+      // it fires.
       onProviderLimitTurn: (params) => {
         const instance = this.state.getInstance(params.instanceId);
         if (!instance) return 'skipped';
@@ -388,6 +407,14 @@ export class InstanceManager extends EventEmitter {
         } catch {
           return null;
         }
+      },
+      refreshQuotaSnapshot: (provider) => {
+        void getProviderQuotaService().refresh(provider).catch((err) => {
+          logger.debug('Provider-limit park-miss snapshot refresh failed', {
+            provider,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
       },
       getWorkspaceCwd: (id) => this.state.getInstance(id)?.workingDirectory,
       isResumable: (id) => {

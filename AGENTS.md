@@ -9,7 +9,7 @@ AI Orchestrator is an Electron 40 + Angular 21 desktop app that coordinates Clau
 - Never commit or push unless the user explicitly asks.
 - Never modify code on a server. Make changes locally and use the normal deployment pipeline.
 - Never put secrets, credentials, tokens, OAuth values, private keys, passwords, or realistic secret-like values in repo files, tests, fixtures, screenshots, logs, or examples. Use environment variables, ignored local files, OS keychain storage, runtime discovery, or obvious placeholders.
-- Do not commit unfinished plans or specs. After full implementation and verification, rename them with `_completed` before committing.
+- Do not commit unfinished plans or specs. After full implementation and verification, rename them with `_completed` before committing. Checks that genuinely need a rebuilt or restarted app, a human, or an external service may be deferred into a `_livetest.md` doc first — see Live-Test Deferral below.
 - Preserve unrelated work in a dirty tree. Do not discard, reset, or overwrite user changes.
 
 ## Before Writing Code
@@ -57,6 +57,19 @@ Split docs by audience: **Markdown for machines, HTML for humans.**
 - Never commit rendered HTML, and never treat an HTML artifact as the source of truth. Apply agreed changes to the Markdown source, then re-render.
 - Plain-language decision docs keep the numbered-items convention (it matches how James answers — by number).
 - `_completed` conventions and the loop evidence ladder are unchanged by this policy.
+
+## Live-Test Deferral (`_livetest.md`)
+
+A plan may be renamed `_completed` while some checks still await live validation, provided every remaining item genuinely requires a rebuilt or restarted app, human interaction, or an external service. All code, tests, lint, and other agent-runnable gates must already pass. Anything verifiable with unit or integration tests, the dev app (including renderer store seeding), or the CLI must be verified in-loop, never deferred.
+
+Before renaming the plan:
+
+1. Create `<plan-stem>_livetest.md` beside the plan. For each deferred check record the exact steps (commands or UI actions), the expected observable result, required flags or settings, and why it cannot run now. Add a header noting prerequisites (rebuild, restart, which instance) and a link back to the plan.
+2. Move the deferred sections out of the plan, leaving a one-line pointer to the livetest doc. Never add content to the plan after it is `_completed`.
+3. Rename the plan `_completed` last — the rename is the loop-completion trigger.
+4. In the completion summary, describe the items as deferred live checks recorded in the livetest doc. Do not claim they are verified.
+
+The livetest doc is itself a plan: run it against the rebuilt app (typically by dragging `*_livetest.md` files into a loop) and rename it `_livetest_completed.md` only when every check passes with evidence. Searching for `*_livetest.md` lists all pending live testing.
 
 ## TypeScript and Angular Conventions
 

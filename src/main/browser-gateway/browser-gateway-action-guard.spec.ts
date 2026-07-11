@@ -126,6 +126,26 @@ describe('BrowserGatewayActionGuard captcha/2FA escalation routing', () => {
   });
 });
 
+describe('BrowserGatewayActionGuard never-grantable hard stop', () => {
+  // A payment field can never be authorized by any grant OR approval (grant
+  // policy refuses it). Creating a per-action approval for it produced an
+  // approval the user could approve but which could never permit the action —
+  // the loop reported in the Constellia repro. It must terminate instead.
+  it('returns a terminal deny for a payment hard stop, with no approval request', async () => {
+    const { guard, raise, createRequest } = makeGuard();
+    const result = resultOf(
+      await drive(guard, 'payment_field_never_automated', 'payment'),
+    );
+
+    expect(createRequest).not.toHaveBeenCalled();
+    expect(raise).not.toHaveBeenCalled();
+    expect(result.decision).toBe('denied');
+    expect(result.outcome).toBe('not_run');
+    expect(result.reason).toBe('payment_field_never_automated');
+    expect((result as { requestId?: string }).requestId).toBeUndefined();
+  });
+});
+
 describe('BrowserGatewayActionGuard legal-declaration auto-fire', () => {
   it('auto-fires a binding declaration under a campaign grant and records an audit note', async () => {
     const { guard, createRequest, raise, result } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT] });

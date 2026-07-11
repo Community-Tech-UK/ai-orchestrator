@@ -15,6 +15,7 @@ const TOOL_NAMES = [
   'browser.select',
   'browser.execute_fill_plan',
   'browser.fill_credential',
+  'browser.fill_secret',
   'browser.create_agent_credential',
   'browser.upload_file',
   'browser.download_file',
@@ -340,6 +341,48 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         description: 'Recency window in ms (default 15 minutes).',
       },
     }),
+  }, ['profileId', 'targetId', 'vaultItemRef', 'fields']),
+  'browser.fill_secret': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    vaultItemRef: {
+      ...stringProp,
+      description:
+        'Opaque vault item reference (NOT a secret). Generic secrets (bank account '
+        + 'number, sort code, IBAN, BIC/SWIFT, tax id, policy number, or a named field) '
+        + 'are resolved from named custom fields in the main process and typed directly '
+        + 'into the page — never sent to or returned from the model, logged, or audited. '
+        + "Requires a standing 'secret_fill' authorization bound to the live origin and "
+        + 'the semantic secret type.',
+    },
+    fields: {
+      type: 'array',
+      items: objectSchema({
+        selector: { ...selectorProp, description: 'CSS selector for the secret input.' },
+        secretType: {
+          type: 'string',
+          enum: [
+            'bank_account_number',
+            'bank_sort_code',
+            'iban',
+            'bic_swift',
+            'tax_identifier',
+            'policy_number',
+            'arbitrary_named_vault_field',
+          ],
+          description:
+            'The semantic secret type to resolve from the vault item. Bank fields are '
+            + 'financial_identity; tax/arbitrary fields are sensitive_identity. The value '
+            + 'is resolved and verified in the worker and never returned.',
+        },
+        fieldName: {
+          ...stringProp,
+          description:
+            "Required only for 'arbitrary_named_vault_field': the NON-secret custom-field "
+            + 'name to resolve (e.g. "Charity Number").',
+        },
+      }, ['selector', 'secretType']),
+    },
   }, ['profileId', 'targetId', 'vaultItemRef', 'fields']),
   'browser.create_agent_credential': objectSchema({
     profileId: profileIdProp,

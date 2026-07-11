@@ -56,8 +56,12 @@ export function getReviewResultConcernItems(result: ReviewResult): string[] {
   }
 
   for (const assumption of result.assumptions ?? []) {
-    if (assumption.severity === 'high' && isMeaningfulConcernText(assumption.assumption)) {
-      items.push(`High-severity assumption: ${assumption.assumption.trim()}`);
+    if (
+      (assumption.severity === 'critical' || assumption.severity === 'high') &&
+      isMeaningfulConcernText(assumption.assumption)
+    ) {
+      const label = assumption.severity === 'critical' ? 'Critical-severity' : 'High-severity';
+      items.push(`${label} assumption: ${assumption.assumption.trim()}`);
     }
   }
 

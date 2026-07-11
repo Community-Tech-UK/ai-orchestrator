@@ -154,7 +154,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/cli-verification-extension.ts': 936,
   'src/main/orchestration/consensus-coordinator.ts': 859,
   'src/main/orchestration/consensus.ts': 759,
-  'src/main/orchestration/cross-model-review-service.ts': 827,
+  // Raised 844 -> 907 for the reviewer format-repair retry + shared operation deadline.
+  'src/main/orchestration/cross-model-review-service.ts': 907,
   'src/main/orchestration/debate-coordinator.ts': 1179,
   // Re-tightened after extracting loop-branch-selector-helpers.ts.
   'src/main/orchestration/default-invokers.ts': 1590,

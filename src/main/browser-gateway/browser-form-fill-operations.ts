@@ -70,7 +70,10 @@ export interface FillOperationDeps {
    */
   driverType: (profileId: string, targetId: string, selector: string, value: string) => Promise<void>;
   refreshTargetOrigin: (profileId: string, targetId: string) => Promise<string>;
-  credentialVault?: Pick<CredentialVault, 'getSecretForFill' | 'createAgentCredential'>;
+  credentialVault?: Pick<
+    CredentialVault,
+    'getSecretForFill' | 'createAgentCredential' | 'getGenericSecretForFill'
+  >;
   credentialAuthorizations?: Pick<CredentialAuthorizationService, 'check'>;
   /** Mailbox one-time-code reader; absent = email_code fills unavailable. */
   emailCodeReader?: Pick<BrowserEmailCodeReader, 'fetchCode'>;

@@ -144,6 +144,7 @@ import type {
   BrowserGatewayCreateAgentCredentialRequest,
   BrowserGatewayExecuteFillPlanRequest,
   BrowserGatewayFillCredentialRequest,
+  BrowserGatewayFillSecretRequest,
   BrowserGatewayFindOrOpenRequest,
   BrowserGatewayListTargetsRequest,
   BrowserGatewayMutatingActionRequest,
@@ -160,6 +161,7 @@ import {
   createAgentCredentialOperation,
   type FillOperationDeps,
 } from './browser-form-fill-operations';
+import { fillSecretOperation } from './browser-secret-fill-operation';
 import {
   normalizeExistingTabControlReadback,
   verifyGatewayFillFormReadback,
@@ -1567,6 +1569,21 @@ export class BrowserGatewayService {
     request: BrowserGatewayFillCredentialRequest,
   ): Promise<BrowserGatewayResult<{ filled: number } | null>> {
     return fillCredentialOperation(this.fillOperationDeps(), request);
+  }
+
+  /**
+   * Fill GENERIC secret fields (bank account/sort code/IBAN/BIC/tax id/policy
+   * number/named field) from the vault via the secret broker WITHOUT the value
+   * ever entering model context, a tool result, a log, or the audit trail. The
+   * request carries only opaque references; the secret is resolved in-process
+   * (folder + origin jailed), typed straight into the page, and verified in the
+   * worker by non-reversible digest. Gated by a standing `secret_fill`
+   * authorization bound to (profile scope, live origin, semantic secret type).
+   */
+  async fillSecret(
+    request: BrowserGatewayFillSecretRequest,
+  ): Promise<BrowserGatewayResult<{ filled: number; verified: number } | null>> {
+    return fillSecretOperation(this.fillOperationDeps(), request);
   }
 
   async createAgentCredential(

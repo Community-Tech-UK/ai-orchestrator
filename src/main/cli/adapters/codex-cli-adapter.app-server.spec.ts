@@ -823,6 +823,32 @@ describe('CodexCliAdapter', () => {
       expect(statuses).toEqual(['busy', 'idle']);
     });
 
+    it('emits status=idle (not error) in app-server mode for a usage-limit rejection', async () => {
+      // Regression for the 2026-07-11 park-fix incident: a Codex usage-limit
+      // turn rejects sendInput() directly rather than emitting 'error', so it
+      // never reached the on('error') park hook and instead dropped the
+      // instance to 'error' status, wiping the message queue.
+      const adapter = await spawnExecAdapter();
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: unknown }).appServerClient = {};
+      vi.spyOn(
+        adapter as unknown as { appServerSendMessage(m: string, a?: unknown): Promise<void> },
+        'appServerSendMessage'
+      ).mockRejectedValue(
+        new Error(
+          "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 5:01 PM. - [codex_error_info: usageLimitExceeded]"
+        )
+      );
+
+      const statuses = collectStatuses(adapter);
+      await expect(adapter.sendInput('retry me')).rejects.toThrow(/usage limit/i);
+
+      // The thread is alive — the account is throttled, not the session — so
+      // this stays idle (and rethrows, letting instance-communication.ts's
+      // tryParkOnProviderLimit park the session instead of erroring it).
+      expect(statuses).toEqual(['busy', 'idle']);
+    });
+
     it('emits status=error in app-server mode for fatal auth errors', async () => {
       const adapter = await spawnExecAdapter();
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;

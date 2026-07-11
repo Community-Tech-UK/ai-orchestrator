@@ -54,6 +54,51 @@ function isTerminableAdapter(adapter: unknown): adapter is { terminate: (gracefu
   return typeof (adapter as Record<string, unknown>)?.['terminate'] === 'function';
 }
 
+function isInterruptibleAdapter(adapter: unknown): adapter is { interrupt: () => unknown } {
+  return typeof (adapter as Record<string, unknown>)?.['interrupt'] === 'function';
+}
+
+function cancelAdapter(adapter: unknown): void {
+  if (isInterruptibleAdapter(adapter)) {
+    try {
+      adapter.interrupt();
+    } catch {
+      // Force termination below remains the authoritative cancellation path.
+    }
+  }
+  if (isTerminableAdapter(adapter)) {
+    try {
+      void Promise.resolve(adapter.terminate(false)).catch(() => undefined);
+    } catch {
+      // Cancellation must settle even if a non-conforming adapter throws here.
+    }
+  }
+}
+
+export async function sendAbortableReviewerMessage(
+  adapter: { sendMessage: (message: CliMessage) => Promise<CliResponse> },
+  message: CliMessage,
+  signal: AbortSignal,
+  onAbort?: () => void,
+): Promise<CliResponse> {
+  if (signal.aborted) throw new Error('Review cancelled');
+  let removeAbortListener: (() => void) | undefined;
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    const handleAbort = () => {
+      onAbort?.();
+      cancelAdapter(adapter);
+      reject(new Error('Review cancelled'));
+    };
+    signal.addEventListener('abort', handleAbort, { once: true });
+    removeAbortListener = () => signal.removeEventListener('abort', handleAbort);
+  });
+  try {
+    return await Promise.race([adapter.sendMessage(message), cancelled]);
+  } finally {
+    removeAbortListener?.();
+  }
+}
+
 export class ProviderReviewExecutionHost implements ReviewExecutionHost {
   getWorkingDirectory(): string | undefined {
     return undefined;
@@ -86,6 +131,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
       },
     });
 
+    let cancelled = false;
     try {
       if (!isCliAdapterLike(adapter)) {
         throw new Error(`CLI adapter "${provider}" does not support sendMessage`);
@@ -93,10 +139,15 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
       if (signal.aborted) {
         throw new Error('Review cancelled');
       }
-      const response = await adapter.sendMessage({ role: 'user', content: prompt });
+      const response = await sendAbortableReviewerMessage(
+        adapter,
+        { role: 'user', content: prompt },
+        signal,
+        () => { cancelled = true; },
+      );
       return response.content;
     } finally {
-      if (isTerminableAdapter(adapter)) {
+      if (!cancelled && isTerminableAdapter(adapter)) {
         await adapter.terminate(false);
       }
     }

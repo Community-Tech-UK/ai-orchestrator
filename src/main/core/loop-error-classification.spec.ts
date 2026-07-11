@@ -85,6 +85,25 @@ describe('classifyLoopError', () => {
     vi.useRealTimers();
   });
 
+  it('parses a Codex-style plain-text reset time when there is no Retry-After header (2026-07-11 park-fix Phase 6)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 0, 1, 15, 42, 0, 0));
+
+    const classified = classifyLoopError(
+      errorWithProviderFields(
+        "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 5:01 PM. - [codex_error_info: usageLimitExceeded]",
+        { status: 429 },
+      ),
+      { provider: 'codex', model: 'codex-test' },
+    );
+
+    expect(classified.reason).toBe('rate_limit');
+    // now=15:42, reset=17:01 → 1h19m
+    expect(classified.retryAfterMs).toBe(79 * 60_000);
+
+    vi.useRealTimers();
+  });
+
   it('classifies 5xx provider failures as retryable transient errors', () => {
     const classified = classifyLoopError(
       errorWithProviderFields('Internal server error', { status: 503 }),

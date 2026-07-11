@@ -122,7 +122,7 @@ describe('CrossModelReviewService headless review', () => {
     expect(result.infrastructureErrors).toEqual([]);
   });
 
-  it('preserves explicit headless reviewers while aliasing legacy Gemini', async () => {
+  it('normalizes explicit headless reviewers and excludes the default Claude builder', async () => {
     const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('finding'));
     const service = CrossModelReviewService.getInstance();
     service.setReviewExecutionHost({
@@ -139,25 +139,41 @@ describe('CrossModelReviewService headless review', () => {
       reviewers: ['claude', 'gemini', 'antigravity'],
     });
 
-    expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(2);
-    expect(dispatchReviewerPrompt).toHaveBeenNthCalledWith(
-      1,
-      'claude',
-      expect.any(String),
-      REPO_CWD,
-      expect.any(AbortSignal),
-    );
-    expect(dispatchReviewerPrompt).toHaveBeenNthCalledWith(
-      2,
+    expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(1);
+    expect(dispatchReviewerPrompt).toHaveBeenCalledWith(
       'antigravity',
       expect.any(String),
       REPO_CWD,
       expect.any(AbortSignal),
     );
     expect(result.reviewers).toEqual([
-      { provider: 'claude', status: 'used' },
       { provider: 'antigravity', status: 'used' },
     ]);
+  });
+
+  it('excludes the builder from explicit reviewers after provider alias normalization', async () => {
+    const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('finding'));
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => REPO_CWD,
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt,
+    });
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD',
+      cwd: REPO_CWD,
+      content: 'diff',
+      taskDescription: 'Review',
+      primaryProvider: 'gemini',
+      reviewers: ['gemini', 'antigravity', 'codex'],
+    });
+
+    expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(1);
+    expect(dispatchReviewerPrompt).toHaveBeenCalledWith(
+      'codex', expect.any(String), REPO_CWD, expect.any(AbortSignal),
+    );
+    expect(result.reviewers).toEqual([{ provider: 'codex', status: 'used' }]);
   });
 
   it('truncates an oversized payload before dispatching to the reviewer', async () => {

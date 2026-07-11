@@ -172,6 +172,21 @@ export class ProviderIpcService {
     }>;
   }
 
+  async qualifyLocalReviewer(selectorId: string): Promise<{
+    success: boolean;
+    data?: { status: 'verified' | 'unverified'; reason?: string };
+    error?: { message: string };
+  }> {
+    if (!this.api?.qualifyLocalReviewer) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.qualifyLocalReviewer(selectorId) as Promise<{
+      success: boolean;
+      data?: { status: 'verified' | 'unverified'; reason?: string };
+      error?: { message: string };
+    }>;
+  }
+
   /**
    * Subscribe to unified-catalog refreshes (main -> renderer). Returns an
    * unsubscribe function; a no-op outside Electron.

@@ -104,3 +104,22 @@ portals. After a rebuild + restart the whole pipeline comes up hands-free.
   budget tripwire, or the supervised In-Tend registration steps. These are real
   external actions and must be completed from a rebuilt, freshly restarted
   Harness-spawned agent before this file can be marked complete.
+
+## Closure (2026-07-10)
+
+Closed by James as implemented. The autonomy config, standing campaigns,
+credential authorizations, fill plans, email-code reader, budget tripwires, and
+vault auto-unlock are all implemented; focused gate 12 files / 152 tests plus the
+runner/unlock/campaign gate 6 files / 71 tests green. Operator-owned bootstrap
+verified present live 2026-07-10: 5 procurement campaigns (In-Tend, DBT Jaggaer,
+Constellia, ProContract, Public Contracts Scotland), profile `aio-procurement`,
+all approvedBy user, budget maxSubmits:5 / maxNewAccounts:1.
+
+DEFERRED, not performed: the live external pilot (dry-run signup, logout/relogin,
+budget tripwire, supervised West Berkshire In-Tend registration). James granted
+authorization to run it on 2026-07-10, but it is BLOCKED on a rebuild + restart:
+this running Harness is the pre-fix build (campaign-expiry + vault-PATH bugs), so
+every campaign is expired-but-active and `claim_campaign_lease` returns
+"Campaign has expired". Run the pilot from a rebuilt, freshly restarted Harness;
+the safety guardrails (budget/tripwire) must be live before any real submit.
+This rename records implementation completeness, not a completed live pilot.

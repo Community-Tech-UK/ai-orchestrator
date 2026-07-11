@@ -6,6 +6,7 @@ import {
   signal,
 } from '@angular/core';
 import { AppLockService } from '../../core/app-lock.service';
+import { MobileIconComponent } from '../../shared/mobile-icon.component';
 
 /**
  * Full-screen biometric gate shown whenever {@link AppLockService} reports the
@@ -18,11 +19,12 @@ import { AppLockService } from '../../core/app-lock.service';
   standalone: true,
   selector: 'app-lock-screen',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MobileIconComponent],
   template: `
     <div class="lock" role="dialog" aria-modal="true" aria-label="App locked">
       <div class="brand">
-        <span class="glyph" aria-hidden="true">🔒</span>
-        <h1>harness</h1>
+        <span class="glyph"><app-mobile-icon name="lock" /></span>
+        <h1>Harness</h1>
         <p class="muted">Locked</p>
       </div>
 
@@ -30,7 +32,7 @@ import { AppLockService } from '../../core/app-lock.service';
         <p class="error">{{ error() }}</p>
       }
 
-      <button class="cta" (click)="attempt()" [disabled]="busy()">
+      <button class="mobile-primary-button unlock-button" type="button" (click)="attempt()" [disabled]="busy()">
         @if (busy()) {
           Authenticating…
         } @else {
@@ -44,7 +46,7 @@ import { AppLockService } from '../../core/app-lock.service';
       .lock {
         position: fixed;
         inset: 0;
-        z-index: 1000;
+        z-index: var(--z-lock);
         background: var(--bg);
         display: flex;
         flex-direction: column;
@@ -63,6 +65,13 @@ import { AppLockService } from '../../core/app-lock.service';
         text-align: center;
       }
       .glyph {
+        display: grid;
+        width: 72px;
+        height: 72px;
+        place-items: center;
+        border: 1px solid var(--separator);
+        border-radius: var(--radius-pill);
+        background: var(--surface-raised);
         font-size: 48px;
         line-height: 1;
       }
@@ -78,18 +87,8 @@ import { AppLockService } from '../../core/app-lock.service';
         margin: 0;
         max-width: 280px;
       }
-      .cta {
-        background: #fff;
-        color: #000;
-        border: none;
-        border-radius: var(--radius-pill);
-        padding: 14px 28px;
-        font-size: 16px;
-        font-weight: 600;
+      .unlock-button {
         min-width: 220px;
-      }
-      .cta:disabled {
-        opacity: 0.6;
       }
     `,
   ],

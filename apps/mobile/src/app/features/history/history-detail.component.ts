@@ -15,6 +15,8 @@ import { GatewayClient } from '../../core/gateway-client.service';
 import type { MobileMessageDto } from '../../core/models';
 import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
+import { MobileHeaderComponent } from '../../shared/mobile-header.component';
+import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import { renderMobileMarkdown } from '../../shared/mobile-markdown';
 import {
   buildDisplayItems,
@@ -32,16 +34,26 @@ import {
   standalone: true,
   selector: 'app-history-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CopyButtonComponent, CodeCopyDirective],
+  imports: [
+    CopyButtonComponent,
+    CodeCopyDirective,
+    MobileHeaderComponent,
+    MobileIconComponent,
+  ],
   template: `
     <section class="screen">
-      <header class="top">
-        <button class="back" (click)="back()">‹</button>
-        <span class="info">
-          <span class="name">Past session</span>
-          <span class="sub">read-only</span>
-        </span>
-      </header>
+      <app-mobile-header class="history-header" title="Past session" subtitle="Read-only">
+        <button
+          mobileHeaderLeading
+          class="mobile-icon-button"
+          type="button"
+          (click)="back()"
+          aria-label="Back to history"
+        >
+          <app-mobile-icon name="chevron-left" />
+        </button>
+        <span mobileHeaderTrailing aria-hidden="true"></span>
+      </app-mobile-header>
 
       <div class="scroll-wrap">
         <div #scrollEl class="transcript" appCodeCopy (scroll)="onScroll()">
@@ -55,9 +67,20 @@ import {
                 <div class="stamp">{{ item.label }}</div>
               } @else if (item.kind === 'tools') {
                 <div class="tool-group">
-                  <button class="tool-toggle" (click)="toggleTools(item.id)">
-                    <span class="tool-caret">{{ expandedTools().has(item.id) ? '▾' : '▸' }}</span>
-                    🔧 {{ item.items.length }} tool {{ item.items.length === 1 ? 'call' : 'calls' }}
+                  <button
+                    class="tool-toggle"
+                    type="button"
+                    (click)="toggleTools(item.id)"
+                    [attr.aria-label]="toolGroupLabel(item)"
+                    [attr.aria-expanded]="expandedTools().has(item.id)"
+                  >
+                    <app-mobile-icon
+                      class="tool-caret"
+                      [class.tool-caret--expanded]="expandedTools().has(item.id)"
+                      name="chevron-down"
+                    />
+                    <app-mobile-icon name="tool" />
+                    {{ item.items.length }} tool {{ item.items.length === 1 ? 'call' : 'calls' }}
                   </button>
                   @if (expandedTools().has(item.id)) {
                     @for (t of item.items; track t.id) {
@@ -95,16 +118,12 @@ import {
           <div class="scroll-btns">
             @if (!atTop()) {
               <button class="scroll-btn" (click)="scrollToTop()" aria-label="Scroll to top">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="18 15 12 9 6 15"></polyline>
-                </svg>
+                <app-mobile-icon class="scroll-icon--up" name="chevron-down" />
               </button>
             }
             @if (!atBottom()) {
               <button class="scroll-btn" (click)="scrollToBottom()" aria-label="Scroll to bottom">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
+                <app-mobile-icon name="chevron-down" />
               </button>
             }
           </div>
@@ -123,32 +142,31 @@ import {
           env(safe-area-inset-bottom) env(safe-area-inset-left);
       }
       .screen { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-      .top { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-      .back { background: none; border: none; color: var(--accent-action); font-size: 26px; line-height: 1; }
-      .info { display: flex; flex-direction: column; min-width: 0; }
-      .name { font-size: 17px; font-weight: 600; }
-      .sub { font-size: 13px; color: var(--text-secondary); }
+      .history-header { flex: none; padding: var(--space-2) var(--mobile-gutter) 0; }
       .scroll-wrap { flex: 1; position: relative; min-height: 0; display: flex; }
-      .transcript { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+      .transcript { flex: 1; overflow-y: auto; padding: var(--space-4) var(--mobile-gutter); display: flex; flex-direction: column; gap: var(--space-3); }
       .scroll-btns {
         position: absolute; right: 12px; bottom: 12px; z-index: 4;
         display: flex; flex-direction: column; gap: 8px;
       }
       .scroll-btn {
-        width: 40px; height: 40px; border-radius: 50%;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        width: var(--control-size); height: var(--control-size); border-radius: 50%;
+        border: 1px solid var(--separator);
         background: rgba(44, 44, 46, 0.92); color: var(--text);
         display: flex; align-items: center; justify-content: center;
+        font-size: 1.1rem;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
       }
+      .scroll-icon--up { transform: rotate(180deg); }
       .stamp { align-self: center; color: var(--text-secondary); font-size: 13px; text-align: center; }
       .tool-group { display: flex; flex-direction: column; gap: 4px; }
       .tool-toggle {
-        align-self: flex-start; display: flex; align-items: center; gap: 6px;
+        min-height: var(--control-size); align-self: flex-start; display: flex; align-items: center; gap: 6px;
         background: none; border: none; color: var(--text-secondary);
-        font-size: 13px; padding: 2px 0;
+        border-radius: var(--radius-sm); font-size: 13px; padding: 0 var(--space-2);
       }
-      .tool-caret { font-size: 11px; width: 10px; }
+      .tool-caret { font-size: 1rem; transition: transform var(--motion-press) ease-out; }
+      .tool-caret--expanded { transform: rotate(180deg); }
       .tool-line {
         color: var(--text-secondary); font-size: 13px; padding-left: 16px;
         font-family: 'SF Mono', ui-monospace, monospace;
@@ -199,6 +217,10 @@ export class HistoryDetailComponent implements OnInit {
       else next.add(id);
       return next;
     });
+  }
+
+  protected toolGroupLabel(item: Extract<DisplayItem, { kind: 'tools' }>): string {
+    return `Show ${item.items.length} tool ${item.items.length === 1 ? 'call' : 'calls'}`;
   }
 
   /** Scroll-position flags driving the floating up/down buttons. */

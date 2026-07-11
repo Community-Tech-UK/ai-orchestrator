@@ -89,11 +89,9 @@
         <label for="loop-cfg-pp-reviewer">Reviewer</label>
         <select id="loop-cfg-pp-reviewer" [ngModel]="pingPongReviewerProvider()" (ngModelChange)="pingPongReviewerProvider.set($event)">
           <option value="auto">Auto (a different model)</option>
-          <option value="codex">Codex</option>
-          <option value="antigravity">Antigravity</option>
-          <option value="copilot">Copilot</option>
-          <option value="claude">Claude</option>
-          <option value="cursor">Cursor</option>
+          @for (option of pingPongReviewerOptions; track option.id) {
+            <option [value]="option.id">{{ option.label }}</option>
+          }
         </select>
       </div>
       <div>

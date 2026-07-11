@@ -105,6 +105,36 @@ describe('LocalReviewerCapabilityService', () => {
     expect(factory).toHaveBeenCalledTimes(2);
   });
 
+  it('retries a cached failure while deduplicating concurrent explicit retries', async () => {
+    const retryTurn = deferred<LocalModelToolTurnResult>();
+    const factory = vi.fn()
+      .mockResolvedValueOnce({
+        sendToolTurn: vi.fn().mockRejectedValue(new Error('endpoint stopped')),
+      } satisfies LocalModelToolTurnClient)
+      .mockResolvedValueOnce({
+        sendToolTurn: vi.fn()
+          .mockReturnValueOnce(retryTurn.promise)
+          .mockResolvedValueOnce({ content: '{"ok":true,"evidence":"synthetic"}', toolCalls: [] }),
+      } satisfies LocalModelToolTurnClient);
+    const service = new LocalReviewerCapabilityService({ clientFactory: factory });
+    await service.qualify(TARGET);
+
+    const first = service.retry(TARGET);
+    const second = service.retry(TARGET);
+    retryTurn.resolve({
+      content: '',
+      toolCalls: [{
+        id: 'retry-1',
+        name: 'workspace_read',
+        arguments: { path: '__aio_local_review_probe__.txt' },
+      }],
+    });
+
+    await expect(first).resolves.toEqual({ status: 'verified' });
+    await expect(second).resolves.toEqual({ status: 'verified' });
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
   it('bounds a hung client factory and caches the timed-out failure', async () => {
     const factory = vi.fn().mockReturnValue(new Promise<LocalModelToolTurnClient>(() => undefined));
     const service = new LocalReviewerCapabilityService({ clientFactory: factory, timeoutMs: 10 });
@@ -205,6 +235,62 @@ describe('LocalReviewerCapabilityService', () => {
     await service.qualify({ ...TARGET, modelId: 'qwen-local-v2' });
 
     expect(factory).toHaveBeenCalledTimes(3);
+  });
+
+  it('requalifies a verified model after the cache TTL expires', async () => {
+    let now = 1_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const factory = vi.fn()
+      .mockResolvedValueOnce(clientWith(
+        {
+          content: '',
+          toolCalls: [{ id: 'first', name: 'workspace_read', arguments: { path: '__aio_local_review_probe__.txt' } }],
+        },
+        { content: '{"ok":true,"evidence":"synthetic"}', toolCalls: [] },
+      ))
+      .mockResolvedValueOnce(clientWith(
+        {
+          content: '',
+          toolCalls: [{ id: 'second', name: 'workspace_read', arguments: { path: '__aio_local_review_probe__.txt' } }],
+        },
+        { content: '{"ok":true,"evidence":"synthetic"}', toolCalls: [] },
+      ));
+    const service = new LocalReviewerCapabilityService({ clientFactory: factory, cacheTtlMs: 500 });
+
+    await service.qualify(TARGET);
+    now += 499;
+    await service.qualify(TARGET);
+    now += 2;
+    await service.qualify(TARGET);
+
+    expect(factory).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
+
+  it('aborts a pending probe when its target is invalidated', async () => {
+    const staleClient: LocalModelToolTurnClient = {
+      sendToolTurn: () => new Promise<LocalModelToolTurnResult>(() => undefined),
+    };
+    const freshClient = clientWith(
+      {
+        content: '',
+        toolCalls: [{ id: 'fresh', name: 'workspace_read', arguments: { path: '__aio_local_review_probe__.txt' } }],
+      },
+      { content: '{"ok":true,"evidence":"synthetic"}', toolCalls: [] },
+    );
+    const factory = vi.fn().mockResolvedValueOnce(staleClient).mockResolvedValueOnce(freshClient);
+    const service = new LocalReviewerCapabilityService({ clientFactory: factory, timeoutMs: 60_000 });
+
+    const stale = service.qualify(TARGET);
+    await vi.waitFor(() => expect(factory).toHaveBeenCalledOnce());
+    service.invalidate(TARGET);
+
+    await expect(Promise.race([
+      stale,
+      new Promise((resolve) => setTimeout(() => resolve('timed-out'), 250)),
+    ])).resolves.toMatchObject({ status: 'unverified' });
+    await expect(service.qualify(TARGET)).resolves.toEqual({ status: 'verified' });
+    expect(factory).toHaveBeenCalledTimes(2);
   });
 
   it('rejects cloud-marked Ollama IDs before creating a client', async () => {

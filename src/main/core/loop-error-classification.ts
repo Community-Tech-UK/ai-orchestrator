@@ -1,5 +1,6 @@
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { FailoverError, type FailoverReason } from './failover-error';
+import { parseResetHintFromText } from '../instance/instance-provider-limit-detection';
 
 export interface LoopErrorClassificationContext {
   readonly provider?: string;
@@ -270,11 +271,14 @@ function parseRateLimitResetMs(value: string | undefined): number | null {
   return Math.max(0, epochMs - Date.now());
 }
 
+// Delegates to the shared reset-hint parser (2026-07-11 park-fix Phase 6) so
+// Codex loop parks get an exact reset time from plain-text notices ("try
+// again at 5:01 PM", "in 45 minutes") instead of only the ISO-timestamp
+// pattern this function used to match on its own.
 function parseResetTimestampFromText(text: string): number | null {
-  const match = /\breset(?:s)?\s+at\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s.,;]+)/i.exec(text);
-  if (!match?.[1]) return null;
-  const parsed = Date.parse(match[1]);
-  return Number.isFinite(parsed) ? Math.max(0, parsed - Date.now()) : null;
+  const now = Date.now();
+  const resetAt = parseResetHintFromText(text, now);
+  return resetAt !== null ? Math.max(0, resetAt - now) : null;
 }
 
 function extractServerWindowTokens(text: string): number | undefined {

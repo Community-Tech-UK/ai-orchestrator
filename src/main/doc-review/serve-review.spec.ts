@@ -11,11 +11,8 @@ import { afterEach, describe, expect, it } from 'vitest';
  */
 
 const SERVER = join(
-  process.cwd(),
-  '.claude',
-  'skills',
-  'doc-review-artifact',
-  'references',
+  __dirname,
+  'assets',
   'serve-review.mjs',
 );
 

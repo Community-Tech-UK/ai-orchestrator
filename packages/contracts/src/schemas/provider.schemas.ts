@@ -247,6 +247,11 @@ export const ModelsCLIPushPayloadSchema = z.object({
   })).max(500),
 });
 
+export const ModelsLocalReviewerQualifyPayloadSchema = z.object({
+  selectorId: z.string().min(1).max(4_096).startsWith('lm://'),
+  ipcAuthToken: z.string().optional(),
+}).strict();
+
 // ============ Ecosystem Payloads ============
 
 export const EcosystemListPayloadSchema = z.object({

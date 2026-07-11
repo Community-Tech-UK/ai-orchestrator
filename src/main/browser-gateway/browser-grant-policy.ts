@@ -48,13 +48,21 @@ export function requiresAutonomousGrant(
 }
 
 /**
- * Action classes that can NEVER be authorized by any grant, autonomous or not.
- * `payment` fields (card/CVV/IBAN/sort code) have no automated path — the
- * classifier hard-stops them and grantMatches refuses them outright, so even a
- * blanket autonomous campaign grant cannot fill a payment form.
+ * Action classes that can NEVER be authorized by an ordinary permission grant or
+ * per-action approval, autonomous or not:
+ *  - `payment` (card/CVV) has no automated path at all.
+ *  - `financial_identity` / `sensitive_identity` (bank + tax/ID secrets) are
+ *    fillable ONLY through the secret broker under a standing secret-fill
+ *    authorization — never via a raw `browser.type` grant.
+ * grantMatches refuses all three, so even a blanket autonomous campaign grant
+ * cannot fill them through the ordinary path.
  */
 export function actionClassNeverGrantable(actionClass: BrowserActionClass): boolean {
-  return actionClass === 'payment';
+  return (
+    actionClass === 'payment' ||
+    actionClass === 'financial_identity' ||
+    actionClass === 'sensitive_identity'
+  );
 }
 
 export function findMatchingBrowserGrant(

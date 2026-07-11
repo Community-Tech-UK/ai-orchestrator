@@ -7,6 +7,8 @@ export type BrowserActionClass =
   | 'file-download'
   | 'submit'
   | 'destructive'
+  | 'financial_identity'
+  | 'sensitive_identity'
   | 'payment'
   | 'unknown';
 

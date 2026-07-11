@@ -523,4 +523,84 @@ describe('InstanceMessagingStore', () => {
       { message: 'new direction', files: undefined, kind: 'steer' },
     ]);
   });
+
+  describe('quota-park gating (2026-07-11 park-fix)', () => {
+    it('does not drain a quota-parked instance even though it sits at idle', async () => {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({
+        status: 'idle',
+        waitReason: { kind: 'quota-park', provider: 'codex', resumeAt: Date.now() + 5 * 60_000 },
+      }));
+      currentStateService.messageQueue.set(
+        new Map([['inst-1', [{ message: 'queued while parked' }]]])
+      );
+
+      // Let the 2s watchdog (drainAllReadyQueues) tick.
+      await vi.advanceTimersByTimeAsync(2100);
+
+      expect(ipcMock.sendInput).not.toHaveBeenCalled();
+      expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+    });
+
+    it('does not drain via a direct processMessageQueue call while quota-parked', async () => {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({
+        status: 'idle',
+        waitReason: { kind: 'quota-park', provider: 'codex', resumeAt: Date.now() + 5 * 60_000 },
+      }));
+      currentStateService.messageQueue.set(
+        new Map([['inst-1', [{ message: 'queued while parked' }]]])
+      );
+
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(ipcMock.sendInput).not.toHaveBeenCalled();
+      expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+    });
+
+    it('queues a send instead of delivering it while the instance is quota-parked', async () => {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({
+        status: 'idle',
+        waitReason: { kind: 'quota-park', provider: 'codex', resumeAt: Date.now() + 5 * 60_000 },
+      }));
+
+      await currentStore.sendInput('inst-1', 'are you there?');
+
+      expect(ipcMock.sendInput).not.toHaveBeenCalled();
+      expect(currentStore.getMessageQueue('inst-1')).toEqual([
+        { message: 'are you there?', files: undefined },
+      ]);
+    });
+
+    it('drains normally once the park clears on the next idle transition', async () => {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({
+        status: 'idle',
+        waitReason: { kind: 'quota-park', provider: 'codex', resumeAt: Date.now() + 5 * 60_000 },
+      }));
+      currentStateService.messageQueue.set(
+        new Map([['inst-1', [{ message: 'queued while parked' }]]])
+      );
+      ipcMock.sendInput.mockResolvedValue({ success: true });
+
+      // Still parked — the watchdog must not drain it.
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(ipcMock.sendInput).not.toHaveBeenCalled();
+
+      // Park clears (mirrors main's resumeNow clearing waitReason before its
+      // own resend) — the next idle transition should drain normally.
+      currentStateService.updateInstance('inst-1', { waitReason: undefined });
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+      expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+    });
+  });
 });

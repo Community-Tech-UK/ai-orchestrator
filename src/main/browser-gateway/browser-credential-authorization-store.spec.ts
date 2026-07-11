@@ -146,3 +146,89 @@ describe('CredentialAuthorizationService.check', () => {
     ).toBe(false);
   });
 });
+
+describe('CredentialAuthorizationService.check — secret_fill binding', () => {
+  function secretFillAuth(overrides: Partial<CredentialAuthorization> = {}) {
+    const { service } = makeService();
+    service.create(
+      {
+        ...baseAuth(),
+        purposes: ['secret_fill'],
+        allowedSecretTypes: ['bank_account_number', 'iban'],
+        ...overrides,
+      },
+      'auth-1',
+    );
+    return service;
+  }
+
+  it('authorizes a secret_fill for a permitted secret type', () => {
+    const service = secretFillAuth();
+    expect(
+      service.check({
+        profileId: 'profile-1',
+        origin: 'https://portal.example.gov.uk',
+        purpose: 'secret_fill',
+        secretType: 'iban',
+      }).authorized,
+    ).toBe(true);
+  });
+
+  it('refuses a secret type not on the authorization', () => {
+    const service = secretFillAuth();
+    expect(
+      service.check({
+        profileId: 'profile-1',
+        origin: 'https://portal.example.gov.uk',
+        purpose: 'secret_fill',
+        secretType: 'tax_identifier',
+      }),
+    ).toMatchObject({ authorized: false, reason: 'secret_type_not_authorized' });
+  });
+
+  it('refuses a secret_fill with no secret type at all', () => {
+    const service = secretFillAuth();
+    expect(
+      service.check({
+        profileId: 'profile-1',
+        origin: 'https://portal.example.gov.uk',
+        purpose: 'secret_fill',
+      }),
+    ).toMatchObject({ authorized: false, reason: 'secret_type_not_authorized' });
+  });
+
+  it('enforces a selector allowlist when present', () => {
+    const service = secretFillAuth({ allowedSelectors: ['#iban'] });
+    expect(
+      service.check({
+        profileId: 'profile-1',
+        origin: 'https://portal.example.gov.uk',
+        purpose: 'secret_fill',
+        secretType: 'iban',
+        selector: '#iban',
+      }).authorized,
+    ).toBe(true);
+    expect(
+      service.check({
+        profileId: 'profile-1',
+        origin: 'https://portal.example.gov.uk',
+        purpose: 'secret_fill',
+        secretType: 'iban',
+        selector: '#somewhere-else',
+      }),
+    ).toMatchObject({ authorized: false, reason: 'selector_not_authorized' });
+  });
+
+  it('does not let a login authorization satisfy a secret_fill check', () => {
+    const { service } = makeService();
+    service.create(baseAuth(), 'auth-login'); // purposes: login/register only
+    expect(
+      service.check({
+        profileId: 'profile-1',
+        origin: 'https://portal.example.gov.uk',
+        purpose: 'secret_fill',
+        secretType: 'iban',
+      }),
+    ).toMatchObject({ authorized: false, reason: 'purpose_not_authorized' });
+  });
+});

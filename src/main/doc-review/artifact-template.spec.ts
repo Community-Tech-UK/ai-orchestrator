@@ -8,11 +8,8 @@ import { describe, expect, it } from 'vitest';
  * and the "self-contained, no external requests" guarantee must hold.
  */
 const TEMPLATE_PATH = join(
-  process.cwd(),
-  '.claude',
-  'skills',
-  'doc-review-artifact',
-  'references',
+  __dirname,
+  'assets',
   'artifact-template.html',
 );
 

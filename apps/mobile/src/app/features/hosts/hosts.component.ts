@@ -1,105 +1,118 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { HostStore } from '../../core/host-store';
-import { GatewayClient } from '../../core/gateway-client.service';
 import { AppLockService } from '../../core/app-lock.service';
+import { GatewayClient } from '../../core/gateway-client.service';
+import { HostStore } from '../../core/host-store';
+import { MobileHeaderComponent } from '../../shared/mobile-header.component';
+import { MobileIconComponent } from '../../shared/mobile-icon.component';
 
 @Component({
   standalone: true,
   selector: 'app-hosts',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MobileHeaderComponent, MobileIconComponent],
   template: `
-    <section class="screen">
-      <header class="top">
-        <h1>Hosts</h1>
-        <button class="icon" (click)="add()" aria-label="Add host">＋</button>
-      </header>
+    <section class="hosts-screen">
+      <app-mobile-header title="Hosts">
+        <span mobileHeaderLeading aria-hidden="true"></span>
+        <button
+          mobileHeaderTrailing
+          class="mobile-icon-button"
+          type="button"
+          (click)="add()"
+          aria-label="Add host"
+        >
+          <app-mobile-icon name="plus" />
+        </button>
+      </app-mobile-header>
 
       @if (hosts().length === 0) {
-        <div class="empty">
-          <p>No hosts yet.</p>
-          <p class="muted">
-            On your Mac open <strong>Settings → Mobile</strong>, start the gateway, and generate a
-            pairing code.
-          </p>
-          <button class="cta" (click)="add()">Add a host</button>
+        <div class="mobile-empty-state hosts-empty">
+          <app-mobile-icon name="host" />
+          <h1>No hosts yet</h1>
+          <p>On your Mac, open Settings, choose Mobile, start the gateway, and generate a pairing code.</p>
+          <button class="mobile-primary-button" type="button" (click)="add()">
+            <app-mobile-icon name="plus" />
+            Add host
+          </button>
         </div>
       } @else {
-        <ul class="list">
-          @for (h of hosts(); track h.id) {
+        <h1 class="hosts-title">Your hosts</h1>
+        <ul class="host-list">
+          @for (host of hosts(); track host.id) {
             <li>
-              <button class="row" (click)="open(h.id)">
-                <span class="dot" [class.on]="h.id === activeId() && online()"></span>
-                <span class="info">
-                  <span class="name">{{ h.name }}</span>
-                  <span class="addr">{{ h.host }}:{{ h.port }}</span>
+              <button
+                class="host-row mobile-pressable"
+                type="button"
+                (click)="open(host.id)"
+                [attr.aria-label]="hostAriaLabel(host.id, host.name)"
+              >
+                <span
+                  class="host-row__status"
+                  [class.host-row__status--online]="host.id === activeId() && online()"
+                  aria-hidden="true"
+                ></span>
+                <span class="host-row__copy">
+                  <strong>{{ host.name }}</strong>
+                  <small>{{ host.host }}:{{ host.port }}</small>
                 </span>
-                <span class="state">{{ stateLabel(h.id) }}</span>
+                <span class="host-row__state">{{ stateLabel(host.id) }}</span>
+                <app-mobile-icon name="chevron-down" />
               </button>
             </li>
           }
         </ul>
       }
 
-      <div class="settings">
+      <section class="security-section" aria-labelledby="security-heading">
+        <h2 id="security-heading">Security</h2>
         <button
-          class="toggle"
+          class="lock-row mobile-pressable"
+          type="button"
           (click)="toggleLock()"
           [attr.aria-pressed]="lockEnabled()"
           [disabled]="!lockAvailable()"
         >
-          <span class="info">
-            <span class="name">App Lock</span>
-            <span class="addr">{{ lockSubtitle() }}</span>
+          <app-mobile-icon name="lock" />
+          <span class="host-row__copy">
+            <strong>App Lock</strong>
+            <small>{{ lockSubtitle() }}</small>
           </span>
-          <span class="switch" [class.on]="lockEnabled() && lockAvailable()"></span>
+          <span class="switch" [class.switch--on]="lockEnabled() && lockAvailable()" aria-hidden="true"></span>
         </button>
-      </div>
+      </section>
     </section>
   `,
   styles: [
     `
-      .screen { padding: 16px; }
-      .top { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 20px; }
-      .icon {
-        width: 40px; height: 40px; border-radius: 50%;
-        background: var(--surface); color: var(--text); border: none; font-size: 22px;
+      .hosts-screen { min-height: 100%; padding: var(--space-3) var(--mobile-gutter) var(--space-8); }
+      .hosts-title { margin: var(--space-8) 0 var(--space-3); font-size: var(--font-size-xl); }
+      .hosts-empty > app-mobile-icon { color: var(--text-secondary); font-size: 2.75rem; }
+      .hosts-empty h1 { font-size: var(--font-size-xl); }
+      .hosts-empty p { margin: 0; line-height: var(--line-height-normal); }
+      .host-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+      .host-row, .lock-row {
+        display: grid; width: 100%; min-height: 64px; align-items: center; gap: var(--space-3);
+        border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text);
+        padding: var(--space-2) var(--space-3); text-align: left;
       }
-      .list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
-      .row {
-        width: 100%; display: flex; align-items: center; gap: 12px;
-        background: transparent; border: none; color: var(--text);
-        padding: 14px 8px; text-align: left;
-      }
-      .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-secondary); flex: none; }
-      .dot.on { background: var(--accent-online); }
-      .info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-      .name { font-size: 17px; }
-      .addr { font-size: 13px; color: var(--text-secondary); }
-      .state { font-size: 13px; color: var(--text-secondary); }
-      .empty { text-align: center; padding: 48px 16px; color: var(--text); }
-      .muted { color: var(--text-secondary); font-size: 15px; }
-      .cta {
-        margin-top: 16px; background: #fff; color: #000; border: none;
-        border-radius: var(--radius-pill); padding: 12px 24px; font-size: 16px; font-weight: 600;
-      }
-      .settings { margin-top: 24px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px; }
-      .toggle {
-        width: 100%; display: flex; align-items: center; gap: 12px;
-        background: transparent; border: none; color: var(--text);
-        padding: 14px 8px; text-align: left;
-      }
-      .toggle:disabled { opacity: 0.5; }
-      .switch {
-        flex: none; width: 44px; height: 26px; border-radius: var(--radius-pill);
-        background: var(--surface-2); position: relative; transition: background 0.15s ease;
-      }
-      .switch::after {
-        content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
-        border-radius: 50%; background: #fff; transition: transform 0.15s ease;
-      }
-      .switch.on { background: var(--accent-online); }
-      .switch.on::after { transform: translateX(18px); }
+      .host-row { grid-template-columns: 10px minmax(0, 1fr) auto 18px; }
+      .host-row:active, .lock-row:active { background: rgba(255, 255, 255, 0.055); }
+      .host-row__status { width: 9px; height: 9px; border-radius: var(--radius-pill); background: var(--text-tertiary); }
+      .host-row__status--online { background: var(--accent-online); }
+      .host-row__copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+      .host-row__copy strong { overflow: hidden; font-size: var(--font-size-base); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+      .host-row__copy small, .host-row__state { color: var(--text-secondary); font-size: var(--font-size-sm); }
+      .host-row__state { text-transform: capitalize; }
+      .host-row > app-mobile-icon { color: var(--text-secondary); transform: rotate(-90deg); }
+      .security-section { margin-top: var(--space-10); border-top: 1px solid var(--separator); padding-top: var(--space-5); }
+      .security-section h2 { margin: 0 var(--space-3) var(--space-2); color: var(--text-secondary); font-size: var(--font-size-sm); text-transform: uppercase; }
+      .lock-row { grid-template-columns: 24px minmax(0, 1fr) 44px; }
+      .lock-row > app-mobile-icon { color: var(--text-secondary); font-size: 1.25rem; }
+      .switch { position: relative; width: 44px; height: 26px; border-radius: var(--radius-pill); background: var(--surface-2); transition: background var(--motion-press) ease-out; }
+      .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--primitive-white); transition: transform var(--motion-press) ease-out; }
+      .switch--on { background: var(--accent-online); }
+      .switch--on::after { transform: translateX(18px); }
     `,
   ],
 })
@@ -116,12 +129,8 @@ export class HostsComponent {
   protected readonly lockAvailable = this.appLock.available;
 
   protected lockSubtitle(): string {
-    if (!this.lockAvailable()) {
-      return 'Biometrics unavailable on this device';
-    }
-    return this.lockEnabled()
-      ? `Require ${this.appLock.biometryLabel()} to open`
-      : 'Off';
+    if (!this.lockAvailable()) return 'Biometrics unavailable on this device';
+    return this.lockEnabled() ? `Require ${this.appLock.biometryLabel()} to open` : 'Off';
   }
 
   protected toggleLock(): void {
@@ -129,10 +138,13 @@ export class HostsComponent {
   }
 
   protected stateLabel(id: string): string {
-    if (id !== this.activeId()) {
-      return '';
-    }
+    if (id !== this.activeId()) return '';
     return this.gateway.state() === 'connected' ? 'online' : this.gateway.state();
+  }
+
+  protected hostAriaLabel(id: string, name: string): string {
+    const state = this.stateLabel(id);
+    return state ? `Open ${name}, ${state}` : `Open ${name}`;
   }
 
   protected add(): void {

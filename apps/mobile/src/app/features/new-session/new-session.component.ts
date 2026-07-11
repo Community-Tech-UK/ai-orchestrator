@@ -2,181 +2,315 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   OnInit,
   computed,
   effect,
   inject,
   input,
   signal,
+  viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { DraftStore } from '../../core/draft-store';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HapticsService } from '../../core/haptics.service';
+import { HostStore } from '../../core/host-store';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
-import { VoiceInputService } from '../../core/voice-input.service';
 import type {
   MobileAttachmentDto,
   MobileModelCatalog,
   MobileRecentDirDto,
   MobileSessionPlan,
 } from '../../core/models';
+import { VoiceInputService } from '../../core/voice-input.service';
+import { MobileHeaderComponent } from '../../shared/mobile-header.component';
+import { MobileIconComponent } from '../../shared/mobile-icon.component';
+import { MobileSheetComponent } from '../../shared/mobile-sheet.component';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
+import {
+  buildCreateInstanceRequest,
+  canStartSession,
+  newSessionSuccessRoute,
+  providerDisplayName,
+  sessionPlanSummary,
+  shouldPresentDirectorySheet,
+} from './new-session.presentation';
 
 const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok'] as const;
 const DRAFT_KEY = 'new-session';
 
-/**
- * Start a new session on the host. The working directory is picked from the
- * host's recent dirs (never a local file picker — see plan §5.2), plus an
- * optional provider/model and an initial prompt.
- */
 @Component({
   standalone: true,
   selector: 'app-new-session',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, ModelSheetComponent],
+  imports: [
+    FormsModule,
+    MobileHeaderComponent,
+    MobileIconComponent,
+    MobileSheetComponent,
+    ModelSheetComponent,
+  ],
   template: `
-    <section class="screen">
-      <header class="top">
-        <button class="back" (click)="cancel()">‹</button>
-        <h2>New session</h2>
-        <span></span>
-      </header>
+    <section class="new-session-screen">
+      <app-mobile-header title="New session">
+        <button
+          mobileHeaderLeading
+          class="mobile-icon-button"
+          type="button"
+          (click)="cancel()"
+          aria-label="Back to projects"
+        >
+          <app-mobile-icon name="chevron-left" />
+        </button>
+        <span mobileHeaderTrailing aria-hidden="true"></span>
+      </app-mobile-header>
 
-      @if (presetDir()) {
-        <!-- Started from a folder: the working directory is fixed, so skip the
-             chooser and just confirm which folder we're in. -->
-        <span class="lbl">Working directory</span>
-        <div class="dir-fixed">
-          <span class="dname">{{ presetDirName() }}</span>
-          <span class="dpath">{{ presetDir() }}</span>
-        </div>
-      } @else {
-        <span class="lbl">Working directory</span>
-        @if (loadingDirs()) {
-          <p class="muted">Loading the host's recent directories…</p>
-        } @else if (dirs().length === 0) {
-          <p class="muted">No recent directories on the host. Open one on the Mac first.</p>
-        } @else {
-          <ul class="dirs">
-            @for (d of dirs(); track d.path) {
-              <li>
-                <button class="dir" [class.sel]="selectedDir() === d.path" (click)="selectedDir.set(d.path)">
-                  <span class="dname">{{ d.displayName }}{{ d.isPinned ? ' 📌' : '' }}</span>
-                  <span class="dpath">{{ d.path }}</span>
-                </button>
-              </li>
-            }
-          </ul>
-        }
-      }
+      <div class="session-spacer" aria-hidden="true"></div>
 
-      <span class="lbl">Provider</span>
-      <div class="providers">
-        @for (p of providers; track p) {
-          <button class="prov" [class.sel]="provider() === p" (click)="selectProvider(p)">{{ p }}</button>
-        }
+      <div class="session-context" aria-label="Session context">
+        <button class="context-row mobile-pressable" type="button" (click)="openHosts()">
+          <app-mobile-icon name="host" />
+          <span class="context-row__copy">
+            <span>{{ hostName() }}</span>
+            <small>{{ online() ? 'Connected host' : 'Host unavailable' }}</small>
+          </span>
+          <app-mobile-icon class="context-row__chevron" name="chevron-down" />
+        </button>
+
+        <button
+          class="context-row mobile-pressable"
+          type="button"
+          (click)="directorySheetOpen.set(true)"
+          aria-haspopup="dialog"
+        >
+          <app-mobile-icon name="folder" />
+          <span class="context-row__copy">
+            <span>{{ selectedDirLabel() }}</span>
+            <small>{{ selectedDir() || 'Choose where this session should run' }}</small>
+          </span>
+          <app-mobile-icon class="context-row__chevron" name="chevron-down" />
+        </button>
+
+        <button
+          class="context-row mobile-pressable"
+          type="button"
+          (click)="settingsSheetOpen.set(true)"
+          aria-haspopup="dialog"
+        >
+          <app-mobile-icon name="provider" />
+          <span class="context-row__copy">
+            <span>{{ providerDisplay() }}</span>
+            <small>Execution target</small>
+          </span>
+          <app-mobile-icon class="context-row__chevron" name="chevron-down" />
+        </button>
+
+        <button
+          class="context-row mobile-pressable"
+          type="button"
+          (click)="openPlanControl()"
+          aria-haspopup="dialog"
+        >
+          <app-mobile-icon name="settings" />
+          <span class="context-row__copy">
+            <span>{{ planSummary() }}</span>
+            <small>Model and reasoning</small>
+          </span>
+          <app-mobile-icon class="context-row__chevron" name="chevron-down" />
+        </button>
       </div>
 
-      <!-- What this choice actually runs — resolved on the host (auto picks a
-           provider; model + thinking come from the host's settings). -->
-      <p class="plan" [class.dim]="planLoading()">
-        @if (plan(); as p) {
-          <span class="plan-lead">Will run:</span>
-          @if (p.provider !== provider()) {
-            <!-- 'auto', or a chosen provider that isn't installed and got
-                 redirected — name the provider that will actually run. -->
-            <strong>{{ p.providerLabel }}</strong>
-          }
-          <span>{{ p.modelLabel || 'provider default model' }}</span>
-          @if (p.reasoningEffortLabel) {
-            <span class="plan-sep">·</span><span>{{ p.reasoningEffortLabel }} thinking</span>
-          }
-        } @else if (planLoading()) {
-          Resolving what will run…
+      <form class="new-session-composer" (submit)="create($event)">
+        @if (attachments().length > 0) {
+          <div class="composer-attachments" aria-label="Attachments">
+            @for (attachment of attachments(); track attachment) {
+              <figure class="composer-attachment">
+                <img [src]="attachment.data" [alt]="attachment.name" />
+                <button
+                  type="button"
+                  (click)="removeAttachment(attachment)"
+                  [attr.aria-label]="'Remove ' + attachment.name"
+                >
+                  <app-mobile-icon name="close" />
+                </button>
+              </figure>
+            }
+          </div>
         }
-      </p>
 
-      @if (provider() !== 'auto') {
-        <span class="lbl">Model</span>
-        <button class="model-row" type="button" (click)="openModelSheet()">
-          <span>
-            <strong>{{ selectedModelLabel() }}</strong>
-            <small>{{ model() || 'No override' }}</small>
-          </span>
-          <span class="chev">›</span>
-        </button>
-      }
-
-      <span class="lbl">First message</span>
-      <div class="prompt-wrap">
         <textarea
-          rows="4"
+          #composer
+          rows="2"
           [ngModel]="firstPrompt()"
           (ngModelChange)="firstPrompt.set($event)"
-          placeholder="What should the agent do?"
+          name="prompt"
+          placeholder="Ask Harness"
+          aria-label="First message"
           (paste)="onPaste($event)"
         ></textarea>
-        @if (canDictate) {
-          <button
-            type="button"
-            class="mic"
-            [class.listening]="listening()"
-            (click)="toggleDictation()"
-            [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
-              <path d="M19 11a7 7 0 0 1-14 0" />
-              <path d="M12 18v4" />
-            </svg>
-          </button>
-        }
-      </div>
 
-      @if (attachments().length > 0) {
-        <div class="attach-strip">
-          @for (a of attachments(); track a) {
-            <div class="chip">
-              <img [src]="a.data" [alt]="a.name" />
-              <button type="button" class="chip-x" (click)="removeAttachment(a)" aria-label="Remove">×</button>
+        @if (error()) {
+          <p class="composer-error" role="alert">{{ error() }}</p>
+        } @else if (!online()) {
+          <p class="composer-hint">Reconnect to a host to start a session.</p>
+        }
+
+        <div class="composer-toolbar">
+          <div class="composer-toolbar__leading">
+            @if (canAttach) {
+              <button
+                class="composer-tool"
+                type="button"
+                (click)="attachmentSheetOpen.set(true)"
+                [disabled]="attachBusy() || busy()"
+                aria-label="Add attachment"
+              >
+                <app-mobile-icon name="plus" />
+              </button>
+            }
+            <button
+              class="composer-tool"
+              type="button"
+              (click)="settingsSheetOpen.set(true)"
+              aria-label="Session settings"
+            >
+              <app-mobile-icon name="settings" />
+            </button>
+          </div>
+
+          <button
+            class="composer-plan mobile-pressable"
+            type="button"
+            (click)="openPlanControl()"
+            [disabled]="planLoading()"
+          >
+            {{ compactPlanSummary() }}
+          </button>
+
+          @if (canDictate) {
+            <button
+              class="composer-tool"
+              type="button"
+              [class.composer-tool--listening]="listening()"
+              (click)="toggleDictation()"
+              [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate message'"
+            >
+              <app-mobile-icon name="microphone" />
+            </button>
+          }
+
+          <button
+            class="composer-submit"
+            type="submit"
+            [disabled]="!canCreate()"
+            [attr.aria-label]="busy() ? 'Starting session' : 'Start session'"
+          >
+            <app-mobile-icon name="arrow-up" />
+          </button>
+        </div>
+      </form>
+
+      @if (directorySheetOpen()) {
+        <app-mobile-sheet label="Working directory" (dismiss)="directorySheetOpen.set(false)">
+          <header class="sheet-heading">
+            <span class="sheet-eyebrow">Run on {{ hostName() }}</span>
+            <h2>Working directory</h2>
+            <p>Choose a recent folder from the selected host.</p>
+          </header>
+
+          @if (loadingDirs()) {
+            <p class="sheet-state">Loading recent directories…</p>
+          } @else if (dirsError()) {
+            <div class="sheet-state">
+              <p>{{ dirsError() }}</p>
+              <button class="sheet-secondary" type="button" (click)="loadDirectories()">Try again</button>
+            </div>
+          } @else {
+            <div class="sheet-list">
+              @if (presetDir() && !directoryIsRecent()) {
+                <button class="sheet-row" type="button" (click)="chooseDirectory(presetDir())">
+                  <app-mobile-icon name="folder" />
+                  <span><strong>{{ presetDirName() }}</strong><small>{{ presetDir() }}</small></span>
+                  @if (selectedDir() === presetDir()) { <app-mobile-icon name="check" /> }
+                </button>
+              }
+              @for (directory of dirs(); track directory.path) {
+                <button class="sheet-row" type="button" (click)="chooseDirectory(directory.path)">
+                  <app-mobile-icon name="folder" />
+                  <span><strong>{{ directory.displayName }}</strong><small>{{ directory.path }}</small></span>
+                  @if (selectedDir() === directory.path) { <app-mobile-icon name="check" /> }
+                </button>
+              } @empty {
+                @if (!presetDir()) {
+                  <p class="sheet-state">No recent directories. Open a folder on the host, then try again.</p>
+                }
+              }
             </div>
           }
-        </div>
+        </app-mobile-sheet>
       }
 
-      @if (canAttach) {
-        <div class="attach-row">
-          <button
-            type="button"
-            class="attach"
-            (click)="pickImages()"
-            [disabled]="attachBusy() || busy()"
-            aria-label="Add photo"
-          >
-            {{ attachBusy() ? '…' : '＋ Photo' }}
-          </button>
-          <button
-            type="button"
-            class="attach"
-            (click)="pasteImageFromClipboard()"
-            [disabled]="attachBusy() || busy()"
-            aria-label="Paste image from clipboard"
-          >
-            {{ attachBusy() ? '…' : 'Paste image' }}
-          </button>
-        </div>
+      @if (settingsSheetOpen()) {
+        <app-mobile-sheet label="Session settings" (dismiss)="settingsSheetOpen.set(false)">
+          <header class="sheet-heading">
+            <span class="sheet-eyebrow">Harness resolves the final setup</span>
+            <h2>Session settings</h2>
+            <p>Auto uses the host's preferred provider, model, and reasoning level.</p>
+          </header>
+
+          <span class="sheet-section-label">Provider</span>
+          <div class="sheet-list">
+            @for (item of providers; track item) {
+              <button class="sheet-row" type="button" (click)="selectProvider(item)">
+                <app-mobile-icon name="provider" />
+                <span><strong>{{ displayProvider(item) }}</strong><small>{{ item === 'auto' ? 'Use host settings' : 'Run with ' + displayProvider(item) }}</small></span>
+                @if (provider() === item) { <app-mobile-icon name="check" /> }
+              </button>
+            }
+          </div>
+
+          <span class="sheet-section-label">Resolved session</span>
+          <div class="sheet-summary">
+            @if (planLoading()) {
+              <p>Resolving session settings…</p>
+            } @else if (planError()) {
+              <p>{{ planError() }}</p>
+              <button class="sheet-secondary" type="button" (click)="retryPlan()">Try again</button>
+            } @else if (plan(); as resolvedPlan) {
+              <strong>{{ resolvedPlan.providerLabel }}</strong>
+              <span>{{ planSummary() }}</span>
+            }
+          </div>
+
+          @if (provider() !== 'auto') {
+            <button class="sheet-row sheet-row--model" type="button" (click)="openModelSheet()">
+              <app-mobile-icon name="settings" />
+              <span><strong>Model</strong><small>{{ selectedModelLabel() }}</small></span>
+              <app-mobile-icon name="chevron-down" />
+            </button>
+          }
+        </app-mobile-sheet>
       }
 
-      @if (error()) {
-        <p class="error">{{ error() }}</p>
+      @if (attachmentSheetOpen()) {
+        <app-mobile-sheet label="Add attachment" (dismiss)="attachmentSheetOpen.set(false)">
+          <header class="sheet-heading">
+            <h2>Add attachment</h2>
+          </header>
+          <div class="sheet-list">
+            <button class="sheet-row" type="button" (click)="pickImages()" [disabled]="attachBusy()">
+              <app-mobile-icon name="attachment" />
+              <span><strong>Photo Library</strong><small>Select up to five images</small></span>
+            </button>
+            <button class="sheet-row" type="button" (click)="pasteImageFromClipboard()" [disabled]="attachBusy()">
+              <app-mobile-icon name="clipboard" />
+              <span><strong>Paste image</strong><small>Use an image from the clipboard</small></span>
+            </button>
+          </div>
+        </app-mobile-sheet>
       }
-
-      <button class="cta" (click)="create()" [disabled]="busy() || !canCreate()">
-        {{ busy() ? 'Starting…' : 'Start session' }}
-      </button>
 
       @if (modelSheetOpen()) {
         <app-model-sheet
@@ -191,139 +325,39 @@ const DRAFT_KEY = 'new-session';
       }
     </section>
   `,
-  styles: [
-    `
-      .screen { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-      .top { display: flex; align-items: center; justify-content: space-between; }
-      .back { background: none; border: none; color: var(--accent-action); font-size: 26px; line-height: 1; }
-      .lbl { font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
-      .muted { color: var(--text-secondary); }
-      .dirs { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
-      .dir {
-        width: 100%; text-align: left; background: var(--surface); border: 1px solid transparent;
-        border-radius: 12px; padding: 10px 12px; color: var(--text); display: flex; flex-direction: column; gap: 2px;
-      }
-      .dir.sel { border-color: var(--accent-action); }
-      .dir-fixed {
-        width: 100%; background: var(--surface); border: 1px solid var(--accent-action);
-        border-radius: 12px; padding: 10px 12px; color: var(--text); display: flex; flex-direction: column; gap: 2px;
-      }
-      .dname { font-size: 15px; }
-      .dpath { font-size: 12px; color: var(--text-secondary); word-break: break-all; }
-      .attach-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0; }
-      .chip { position: relative; flex: none; }
-      .chip img {
-        width: 56px; height: 56px; object-fit: cover; border-radius: 10px;
-        border: 1px solid rgba(255,255,255,0.12);
-      }
-      .chip-x {
-        position: absolute; top: -6px; right: -6px; width: 20px; height: 20px;
-        border-radius: 50%; border: none; background: rgba(0,0,0,0.75); color: #fff;
-        font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;
-      }
-      .attach-row { display: flex; gap: 8px; flex-wrap: wrap; }
-      .attach {
-        background: var(--surface); border: 1px solid rgba(255,255,255,0.12);
-        color: var(--text); border-radius: var(--radius-pill); padding: 8px 14px; font-size: 14px;
-      }
-      .attach:disabled { opacity: 0.4; }
-      .prompt-wrap { position: relative; }
-      .prompt-wrap textarea { padding-right: 48px; }
-      .mic {
-        position: absolute; right: 8px; bottom: 8px;
-        width: 34px; height: 34px; border-radius: 50%;
-        border: 1px solid rgba(255,255,255,0.12); background: var(--surface-2);
-        color: var(--text); display: flex; align-items: center; justify-content: center;
-      }
-      .mic svg {
-        width: 18px; height: 18px; display: block;
-        fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round;
-      }
-      .mic.listening {
-        background: var(--accent-error); border-color: transparent; color: #fff;
-        animation: mic-pulse 1.4s infinite ease-in-out;
-      }
-      @keyframes mic-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.45); }
-        50% { box-shadow: 0 0 0 8px rgba(255, 69, 58, 0); }
-      }
-      .providers { display: flex; flex-wrap: wrap; gap: 6px; }
-      .prov {
-        background: var(--surface); border: none; color: var(--text-secondary);
-        border-radius: var(--radius-pill); padding: 8px 14px; font-size: 14px; text-transform: capitalize;
-      }
-      .prov.sel { background: var(--accent-action); color: #fff; }
-      .plan {
-        margin: 2px 0 0; font-size: 13px; color: var(--text-secondary);
-        display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; min-height: 18px;
-      }
-      .plan.dim { opacity: 0.5; }
-      .plan strong { color: var(--text); font-weight: 600; }
-      .plan-lead { color: var(--text-secondary); }
-      .plan-sep { color: var(--text-secondary); }
-      .model-row {
-        width: 100%; text-align: left; background: var(--surface); border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 12px; padding: 10px 12px; color: var(--text); display: flex;
-        align-items: center; justify-content: space-between; gap: 12px;
-      }
-      .model-row span:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-      .model-row strong { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .model-row small { color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .chev { color: var(--text-secondary); font-size: 22px; flex: none; }
-      .error { color: var(--accent-error); font-size: 14px; }
-      .cta {
-        margin-top: 12px; background: #fff; color: #000; border: none;
-        border-radius: var(--radius-pill); padding: 14px; font-size: 16px; font-weight: 600;
-      }
-      .cta:disabled { opacity: 0.4; }
-    `,
-  ],
+  styleUrls: ['./new-session.component.scss'],
 })
 export class NewSessionComponent implements OnInit {
   private readonly gateway = inject(GatewayClient);
+  private readonly hostStore = inject(HostStore);
   private readonly images = inject(ImageAttachmentService);
   private readonly drafts = inject(DraftStore);
   private readonly haptics = inject(HapticsService);
   private readonly voice = inject(VoiceInputService);
   private readonly router = inject(Router);
+  private readonly composer = viewChild<ElementRef<HTMLTextAreaElement>>('composer');
 
-  /** Optional working directory key passed from a project's "New" button. */
-  readonly dir = input<string>('');
+  readonly dir = input('');
 
   protected readonly providers = PROVIDERS;
+  protected readonly online = this.gateway.online;
   protected readonly dirs = signal<MobileRecentDirDto[]>([]);
   protected readonly loadingDirs = signal(true);
+  protected readonly dirsError = signal<string | null>(null);
   protected readonly selectedDir = signal('');
+  protected readonly directorySheetOpen = signal(false);
+  protected readonly settingsSheetOpen = signal(false);
+  protected readonly attachmentSheetOpen = signal(false);
   protected readonly attachments = signal<MobileAttachmentDto[]>([]);
   protected readonly attachBusy = signal(false);
   protected readonly canAttach = this.images.available;
   protected readonly canDictate = this.voice.available;
   protected readonly listening = this.voice.listening;
-
-  /**
-   * The working directory this screen was opened against, when launched from a
-   * folder (project card / sessions list). A blank or `__no_workspace__` value
-   * means "no folder" — fall back to the recent-dirs chooser.
-   */
-  protected readonly presetDir = computed(() => {
-    const passed = this.dir();
-    return passed && passed !== '__no_workspace__' ? passed : '';
-  });
-  protected readonly presetDirName = computed(() => {
-    const path = this.presetDir();
-    if (!path) return '';
-    const match = this.dirs().find((d) => d.path === path);
-    if (match) return match.displayName;
-    const parts = path.split(/[\\/]/).filter(Boolean);
-    return parts[parts.length - 1] ?? path;
-  });
   protected readonly provider = signal<(typeof PROVIDERS)[number]>('auto');
   protected readonly model = signal<string | undefined>(undefined);
-  /** Preview of what the chosen provider/model will actually run (from the host). */
   protected readonly plan = signal<MobileSessionPlan | null>(null);
   protected readonly planLoading = signal(false);
-  /** Monotonic token so a stale in-flight plan response can't clobber a newer one. */
-  private planReq = 0;
+  protected readonly planError = signal<string | null>(null);
   protected readonly modelSheetOpen = signal(false);
   protected readonly modelsLoading = signal(false);
   protected readonly modelsError = signal<string | null>(null);
@@ -331,67 +365,177 @@ export class NewSessionComponent implements OnInit {
   protected readonly firstPrompt = signal('');
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+
+  private planReq = 0;
+  private draftReady = false;
+
+  protected readonly presetDir = computed(() => {
+    const passed = this.dir();
+    return passed && passed !== '__no_workspace__' ? passed : '';
+  });
+  protected readonly presetDirName = computed(() => {
+    const path = this.presetDir();
+    const recent = this.dirs().find((directory) => directory.path === path);
+    if (recent) return recent.displayName;
+    return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+  });
+  protected readonly directoryIsRecent = computed(() =>
+    this.dirs().some((directory) => directory.path === this.presetDir()),
+  );
+  protected readonly selectedDirLabel = computed(() => {
+    const path = this.selectedDir();
+    if (!path) return 'Choose working directory';
+    return this.dirs().find((directory) => directory.path === path)?.displayName
+      ?? path.split(/[\\/]/).filter(Boolean).at(-1)
+      ?? path;
+  });
+  protected readonly hostName = computed(
+    () => this.gateway.snapshot()?.hostName ?? this.hostStore.activeHost()?.name ?? 'Choose a host',
+  );
+  protected readonly providerDisplay = computed(() => providerDisplayName(this.provider()));
+  protected readonly planSummary = computed(() =>
+    this.planError() ? 'Resolution unavailable' : sessionPlanSummary(this.plan()),
+  );
+  protected readonly compactPlanSummary = computed(() => {
+    const plan = this.plan();
+    if (!plan) return this.planLoading() ? 'Resolving…' : this.providerDisplay();
+    return [plan.modelLabel || plan.providerLabel, plan.reasoningEffortLabel]
+      .filter((value): value is string => Boolean(value))
+      .join(' · ');
+  });
   protected readonly modelsForProvider = computed(() => this.modelCatalog()?.[this.provider()] ?? []);
   protected readonly selectedModelLabel = computed(() => {
     const id = this.model();
     if (!id) return 'Default';
-    return this.modelsForProvider().find((model) => model.id === id)?.name ?? id;
+    return this.modelsForProvider().find((item) => item.id === id)?.name ?? id;
   });
+  protected readonly canCreate = computed(() =>
+    canStartSession({
+      online: this.online(),
+      directory: this.selectedDir(),
+      busy: this.busy(),
+    }),
+  );
 
   constructor() {
-    // Preselect the directory passed in the query param, when valid.
     effect(() => {
-      const passed = this.dir();
-      if (passed && passed !== '__no_workspace__' && !this.selectedDir()) {
-        this.selectedDir.set(passed);
-      }
+      const preset = this.presetDir();
+      if (preset && !this.selectedDir()) this.selectedDir.set(preset);
     });
-    // Mirror live dictation into the first-message draft while listening.
+
     effect(() => {
-      if (this.voice.listening()) {
-        this.firstPrompt.set(this.voice.text());
-      }
+      if (this.voice.listening()) this.firstPrompt.set(this.voice.text());
     });
-    // Restore an unsent first message (survives iOS evicting the app), then
-    // persist every change; consumed on successful session creation.
+
     void this.drafts.load(DRAFT_KEY).then((text) => {
       if (text && !this.firstPrompt().trim()) this.firstPrompt.set(text);
       this.draftReady = true;
     });
+
     effect(() => {
       const text = this.firstPrompt();
       if (this.draftReady) this.drafts.save(DRAFT_KEY, text);
     });
-    // Live-refresh the "what will run" preview whenever the provider or model
-    // override changes. Resolution happens on the host (installed CLIs + saved
-    // settings), so we ask the gateway rather than guess on the phone.
+
     effect(() => {
       const provider = this.provider();
       const model = this.model();
-      const req = ++this.planReq;
-      this.planLoading.set(true);
-      void this.gateway
-        .sessionPlan(provider, model)
-        .then((plan) => {
-          if (req === this.planReq) {
-            this.plan.set(plan);
-            this.planLoading.set(false);
-          }
-        })
-        .catch(() => {
-          if (req === this.planReq) {
-            this.plan.set(null);
-            this.planLoading.set(false);
-          }
-        });
+      void this.resolvePlan(provider, model);
     });
+
+    effect(() => {
+      const composer = this.composer();
+      const ready = Boolean(this.selectedDir())
+        && !this.directorySheetOpen()
+        && !this.settingsSheetOpen()
+        && !this.attachmentSheetOpen()
+        && !this.modelSheetOpen();
+      if (composer && ready) {
+        queueMicrotask(() => composer.nativeElement.focus({ preventScroll: true }));
+      }
+    });
+
     inject(DestroyRef).onDestroy(() => {
       if (this.voice.listening()) void this.voice.stop();
     });
   }
 
-  /** Blocks persistence until the stored draft has been considered. */
-  private draftReady = false;
+  async ngOnInit(): Promise<void> {
+    if (this.presetDir()) {
+      this.selectedDir.set(this.presetDir());
+      this.loadingDirs.set(false);
+      return;
+    }
+    await this.loadDirectories();
+  }
+
+  protected async loadDirectories(): Promise<void> {
+    this.loadingDirs.set(true);
+    this.dirsError.set(null);
+    try {
+      const directories = await this.gateway.recentDirs();
+      this.dirs.set(directories);
+      if (shouldPresentDirectorySheet(this.presetDir(), directories.map((directory) => directory.path))) {
+        this.directorySheetOpen.set(true);
+      }
+    } catch (err) {
+      this.dirsError.set(this.errorMessage(err));
+    } finally {
+      this.loadingDirs.set(false);
+    }
+  }
+
+  protected chooseDirectory(path: string): void {
+    this.selectedDir.set(path);
+    this.directorySheetOpen.set(false);
+    this.haptics.tap();
+  }
+
+  protected displayProvider(provider: string): string {
+    return providerDisplayName(provider);
+  }
+
+  protected selectProvider(provider: (typeof PROVIDERS)[number]): void {
+    if (this.provider() !== provider) {
+      this.provider.set(provider);
+      this.model.set(undefined);
+    }
+    this.haptics.tap();
+  }
+
+  protected retryPlan(): void {
+    void this.resolvePlan(this.provider(), this.model());
+  }
+
+  protected async openPlanControl(): Promise<void> {
+    if (this.provider() === 'auto') {
+      this.settingsSheetOpen.set(true);
+      return;
+    }
+    await this.openModelSheet();
+  }
+
+  protected async openModelSheet(): Promise<void> {
+    if (this.provider() === 'auto') return;
+    this.settingsSheetOpen.set(false);
+    this.modelSheetOpen.set(true);
+    if (this.modelCatalog() || this.modelsLoading()) return;
+    this.modelsLoading.set(true);
+    this.modelsError.set(null);
+    try {
+      this.modelCatalog.set(await this.gateway.models());
+    } catch (err) {
+      this.modelsError.set(this.errorMessage(err));
+    } finally {
+      this.modelsLoading.set(false);
+    }
+  }
+
+  protected chooseModel(model: string | undefined): void {
+    this.model.set(model);
+    this.modelSheetOpen.set(false);
+    this.haptics.tap();
+  }
 
   protected async toggleDictation(): Promise<void> {
     if (this.voice.listening()) {
@@ -405,38 +549,15 @@ export class NewSessionComponent implements OnInit {
     if (!started) this.haptics.error();
   }
 
-  async ngOnInit(): Promise<void> {
-    // Started from a folder: the directory is fixed, so we skip the chooser and
-    // the recent-dirs fetch entirely (the constructor effect also sets it, but
-    // set it here too so canCreate() is satisfied regardless of effect timing).
-    if (this.presetDir()) {
-      this.selectedDir.set(this.presetDir());
-      this.loadingDirs.set(false);
-      return;
-    }
-    try {
-      const dirs = await this.gateway.recentDirs();
-      this.dirs.set(dirs);
-      if (!this.selectedDir() && dirs[0]) {
-        this.selectedDir.set(dirs[0].path);
-      }
-    } catch (err) {
-      this.error.set(err instanceof Error ? err.message : String(err));
-    } finally {
-      this.loadingDirs.set(false);
-    }
-  }
-
   protected async pickImages(): Promise<void> {
     if (this.attachBusy()) return;
     this.attachBusy.set(true);
     try {
       const picked = await this.images.pickImages();
-      if (picked.length) {
-        this.attachments.update((current) => [...current, ...picked]);
-      }
+      if (picked.length) this.attachments.update((current) => [...current, ...picked]);
+      this.attachmentSheetOpen.set(false);
     } catch {
-      /* user cancelled or the pick failed — nothing to add */
+      /* A cancelled native picker is not an error state. */
     } finally {
       this.attachBusy.set(false);
     }
@@ -447,11 +568,10 @@ export class NewSessionComponent implements OnInit {
     this.attachBusy.set(true);
     try {
       const pasted = await this.images.pasteImageFromClipboard();
-      if (pasted) {
-        this.attachments.update((current) => [...current, pasted]);
-      }
+      if (pasted) this.attachments.update((current) => [...current, pasted]);
+      this.attachmentSheetOpen.set(false);
     } catch {
-      /* paste denied or unsupported — nothing to add */
+      /* Clipboard access can be declined by the user. */
     } finally {
       this.attachBusy.set(false);
     }
@@ -462,74 +582,70 @@ export class NewSessionComponent implements OnInit {
     this.attachBusy.set(true);
     try {
       const pasted = await this.images.attachmentsFromPasteEvent(event);
-      if (pasted.length) {
-        this.attachments.update((current) => [...current, ...pasted]);
-      }
+      if (pasted.length) this.attachments.update((current) => [...current, ...pasted]);
     } catch {
-      /* browser paste data can vary by platform */
+      /* Browser clipboard payloads vary by platform. */
     } finally {
       this.attachBusy.set(false);
     }
   }
 
   protected removeAttachment(attachment: MobileAttachmentDto): void {
-    this.attachments.update((current) => current.filter((a) => a !== attachment));
+    this.attachments.update((current) => current.filter((item) => item !== attachment));
   }
 
-  protected canCreate(): boolean {
-    return this.selectedDir().trim().length > 0;
-  }
-
-  protected selectProvider(provider: (typeof PROVIDERS)[number]): void {
-    if (this.provider() !== provider) {
-      this.provider.set(provider);
-      this.model.set(undefined);
-    }
-  }
-
-  protected async openModelSheet(): Promise<void> {
-    if (this.provider() === 'auto') return;
-    this.modelSheetOpen.set(true);
-    if (this.modelCatalog() || this.modelsLoading()) return;
-    this.modelsLoading.set(true);
-    this.modelsError.set(null);
-    try {
-      this.modelCatalog.set(await this.gateway.models());
-    } catch (err) {
-      this.modelsError.set(err instanceof Error ? err.message : String(err));
-    } finally {
-      this.modelsLoading.set(false);
-    }
-  }
-
-  protected chooseModel(model: string | undefined): void {
-    this.model.set(model);
-    this.modelSheetOpen.set(false);
-  }
-
-  protected async create(): Promise<void> {
+  protected async create(event: Event): Promise<void> {
+    event.preventDefault();
+    if (!this.canCreate()) return;
     this.busy.set(true);
     this.error.set(null);
     try {
-      const attachments = this.attachments();
-      const instance = await this.gateway.createInstance({
-        workingDirectory: this.selectedDir(),
-        provider: this.provider(),
-        model: this.model(),
-        initialPrompt: this.firstPrompt().trim() || undefined,
-        attachments: attachments.length ? attachments : undefined,
-      });
-      this.drafts.clear(DRAFT_KEY); // consumed — don't resurrect it next time
-      const key = instance.workingDirectory || '__no_workspace__';
-      void this.router.navigate(['/projects', key, 'sessions', instance.id]);
+      const instance = await this.gateway.createInstance(
+        buildCreateInstanceRequest({
+          directory: this.selectedDir(),
+          provider: this.provider(),
+          model: this.model(),
+          prompt: this.firstPrompt(),
+          attachments: this.attachments(),
+        }),
+      );
+      this.drafts.clear(DRAFT_KEY);
+      this.haptics.success();
+      void this.router.navigate(newSessionSuccessRoute(instance.workingDirectory, instance.id));
     } catch (err) {
-      this.error.set(err instanceof Error ? err.message : String(err));
+      this.error.set(this.errorMessage(err));
+      this.haptics.error();
     } finally {
       this.busy.set(false);
     }
   }
 
+  protected openHosts(): void {
+    void this.router.navigate(['/']);
+  }
+
   protected cancel(): void {
     void this.router.navigate(['/projects']);
+  }
+
+  private async resolvePlan(provider: string, model: string | undefined): Promise<void> {
+    const request = ++this.planReq;
+    this.planLoading.set(true);
+    this.planError.set(null);
+    try {
+      const plan = await this.gateway.sessionPlan(provider, model);
+      if (request === this.planReq) this.plan.set(plan);
+    } catch (err) {
+      if (request === this.planReq) {
+        this.plan.set(null);
+        this.planError.set(this.errorMessage(err));
+      }
+    } finally {
+      if (request === this.planReq) this.planLoading.set(false);
+    }
+  }
+
+  private errorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
   }
 }

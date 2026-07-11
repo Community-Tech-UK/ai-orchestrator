@@ -108,7 +108,16 @@ export class InMemoryBrowserCampaignStore implements BrowserCampaignStore {
   }
 }
 
-const BLOCKED_ACTION_CLASSES = ['credential', 'payment', 'destructive'];
+// financial_identity / sensitive_identity are broker-only (secret-fill grant +
+// worker resolution); a campaign grant can never cover them, exactly like
+// credential/payment/destructive.
+const BLOCKED_ACTION_CLASSES = [
+  'credential',
+  'payment',
+  'destructive',
+  'financial_identity',
+  'sensitive_identity',
+];
 
 /** Hard ceiling on how long an unattended campaign may run before it must be re-approved. */
 const MAX_CAMPAIGN_DURATION_MS = 14 * 60 * 60 * 1000;

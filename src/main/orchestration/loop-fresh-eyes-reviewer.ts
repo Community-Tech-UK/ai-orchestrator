@@ -162,10 +162,7 @@ export async function runLocalOnlyFreshEyesReview(
   try {
     let reviewService = service;
     if (!reviewService) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getCrossModelReviewService } = require(
-        './cross-model-review-service',
-      ) as typeof import('./cross-model-review-service');
+      const { getCrossModelReviewService } = await import('./cross-model-review-service');
       reviewService = getCrossModelReviewService();
     }
     const result = await reviewService.runHeadlessReview({
@@ -211,12 +208,9 @@ export async function runLocalOnlyFreshEyesReview(
  * service has no reviewers available (degrades safely).
  */
 export const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
-  // Lazy import to avoid pulling the review service into test paths that
-  // mock `getCrossModelReviewService`.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getCrossModelReviewService } = require(
-    './cross-model-review-service',
-  ) as typeof import('./cross-model-review-service');
+  // Lazy import avoids pulling the review service into coordinator startup and
+  // remains mockable in focused tests.
+  const { getCrossModelReviewService } = await import('./cross-model-review-service');
   const service = getCrossModelReviewService();
 
   const content = buildFreshEyesReviewContent(input);
@@ -228,6 +222,7 @@ export const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
       content,
       taskDescription: input.goal,
       reviewers: input.config.reviewers,
+      ...(input.builderProvider ? { primaryProvider: input.builderProvider } : {}),
       reviewDepth: input.config.reviewDepth,
       timeoutSeconds: input.config.timeoutSeconds,
       signal: input.abortSignal,

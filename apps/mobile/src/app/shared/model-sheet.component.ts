@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import type { MobileModelDto } from '../core/models';
+import { MobileIconComponent } from './mobile-icon.component';
+import { MobileSheetComponent } from './mobile-sheet.component';
 
 interface ModelGroup {
   family: string;
@@ -10,105 +12,91 @@ interface ModelGroup {
   standalone: true,
   selector: 'app-model-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MobileIconComponent, MobileSheetComponent],
   template: `
-    <button class="scrim" type="button" (click)="dismiss.emit()" aria-label="Close model picker"></button>
-    <section class="sheet" role="dialog" aria-modal="true" aria-label="Model picker">
-      <header class="head">
+    <app-mobile-sheet label="Model picker" (dismiss)="dismiss.emit()">
+      <header class="model-heading">
         <div>
-          <h3>{{ provider() }} model</h3>
+          <span class="model-eyebrow">{{ provider() || 'Session' }}</span>
+          <h2>Choose model</h2>
           @if (error()) {
-            <p class="error">{{ error() }}</p>
+            <p class="model-error" role="alert">{{ error() }}</p>
           }
         </div>
-        <button class="icon" type="button" (click)="dismiss.emit()" aria-label="Close">&times;</button>
+        <button class="model-close" type="button" (click)="dismiss.emit()" aria-label="Close model picker">
+          <app-mobile-icon name="close" />
+        </button>
       </header>
 
       @if (includeDefault()) {
-        <button class="row" type="button" [class.sel]="selected() === undefined" (click)="choose.emit(undefined)">
+        <button class="model-row" type="button" [class.model-row--selected]="selected() === undefined" (click)="choose.emit(undefined)">
           <span>
-            <strong>Default (auto)</strong>
-            <small>No override</small>
+            <strong>Default</strong>
+            <small>Use the provider's default model</small>
           </span>
-          @if (selected() === undefined) {
-            <span class="check">&#10003;</span>
-          }
+          @if (selected() === undefined) { <app-mobile-icon name="check" /> }
         </button>
       }
 
       @if (loading()) {
-        <p class="muted">Loading models...</p>
+        <p class="model-state">Loading models…</p>
       } @else {
         @if (pinned().length > 0) {
-          <span class="section">Latest</span>
+          <span class="model-section">Latest</span>
           @for (model of pinned(); track model.id) {
-            <button class="row" type="button" [class.sel]="selected() === model.id" (click)="choose.emit(model.id)">
-              <span>
-                <strong>{{ model.name }}</strong>
-                <small>{{ model.id }}</small>
-              </span>
-              @if (selected() === model.id) {
-                <span class="check">&#10003;</span>
-              }
+            <button class="model-row" type="button" [class.model-row--selected]="selected() === model.id" (click)="choose.emit(model.id)">
+              <span><strong>{{ model.name }}</strong><small>{{ model.id }}</small></span>
+              @if (selected() === model.id) { <app-mobile-icon name="check" /> }
             </button>
           }
         }
 
         @if (otherGroups().length > 0) {
-          <button class="fold" type="button" (click)="otherOpen.set(!otherOpen())">
+          <button
+            class="model-fold"
+            type="button"
+            (click)="otherOpen.set(!otherOpen())"
+            [attr.aria-expanded]="otherOpen()"
+          >
             <span>Other versions</span>
-            <span>{{ otherOpen() ? '-' : '+' }}</span>
+            <app-mobile-icon [class.model-fold__icon--open]="otherOpen()" name="chevron-down" />
           </button>
           @if (otherOpen()) {
             @for (group of otherGroups(); track group.family) {
-              <span class="section sub">{{ group.family }}</span>
+              <span class="model-section model-section--family">{{ group.family }}</span>
               @for (model of group.models; track model.id) {
-                <button class="row" type="button" [class.sel]="selected() === model.id" (click)="choose.emit(model.id)">
-                  <span>
-                    <strong>{{ model.name }}</strong>
-                    <small>{{ model.id }}</small>
-                  </span>
-                  @if (selected() === model.id) {
-                    <span class="check">&#10003;</span>
-                  }
+                <button class="model-row" type="button" [class.model-row--selected]="selected() === model.id" (click)="choose.emit(model.id)">
+                  <span><strong>{{ model.name }}</strong><small>{{ model.id }}</small></span>
+                  @if (selected() === model.id) { <app-mobile-icon name="check" /> }
                 </button>
               }
             }
           }
         }
       }
-    </section>
+    </app-mobile-sheet>
   `,
   styles: [
     `
-      :host { position: fixed; inset: 0; z-index: 20; }
-      .scrim { position: absolute; inset: 0; border: none; background: rgba(0,0,0,0.45); }
-      .sheet {
-        position: absolute; left: 0; right: 0; bottom: 0; max-height: 78vh;
-        overflow-y: auto; background: var(--surface-2); color: var(--text);
-        border-radius: 16px 16px 0 0; padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
-        box-shadow: 0 -12px 30px rgba(0,0,0,0.45);
-      }
-      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-      h3 { margin: 0; font-size: 17px; text-transform: capitalize; }
-      .icon { background: none; border: none; color: var(--text-secondary); font-size: 28px; line-height: 1; }
-      .section { display: block; color: var(--text-secondary); font-size: 12px; margin: 14px 4px 6px; text-transform: uppercase; }
-      .section.sub { text-transform: none; font-size: 13px; }
-      .row {
-        width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-        background: var(--surface); border: 1px solid transparent; color: var(--text);
-        border-radius: 10px; padding: 10px 12px; text-align: left; margin-bottom: 6px;
-      }
-      .row.sel { border-color: var(--accent-action); }
-      .row span:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-      strong { font-size: 15px; font-weight: 600; }
-      small { color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .check { color: var(--accent-action); font-size: 18px; flex: none; }
-      .fold {
-        width: 100%; display: flex; justify-content: space-between; align-items: center;
-        background: none; border: none; color: var(--text); padding: 10px 4px; font-size: 15px;
-      }
-      .muted { color: var(--text-secondary); text-align: center; padding: 18px 0; }
-      .error { color: var(--accent-error); font-size: 13px; margin: 4px 0 0; }
+      :host { position: fixed; inset: 0; z-index: var(--z-modal); }
+      .model-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
+      .model-heading h2 { margin: var(--space-1) 0 0; font-size: var(--font-size-xl); text-transform: none; }
+      .model-eyebrow, .model-section { color: var(--text-secondary); font-size: var(--font-size-xs); font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase; }
+      .model-close { display: grid; width: var(--control-size); height: var(--control-size); flex: none; place-items: center; border: 0; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-secondary); font-size: 1.15rem; }
+      .model-error { margin: var(--space-2) 0 0; color: var(--accent-error); font-size: var(--font-size-sm); }
+      .model-section { display: block; margin: var(--space-5) var(--space-3) var(--space-2); }
+      .model-section--family { margin-top: var(--space-4); text-transform: none; }
+      .model-row { display: grid; width: 100%; min-height: 58px; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: var(--space-3); border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--text); padding: var(--space-2) var(--space-3); text-align: left; }
+      .model-row:active { background: rgba(255, 255, 255, 0.055); }
+      .model-row--selected { background: rgba(255, 255, 255, 0.04); border-color: var(--separator); }
+      .model-row > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+      .model-row strong { overflow: hidden; font-size: 0.95rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+      .model-row small { overflow: hidden; color: var(--text-secondary); font-size: var(--font-size-sm); text-overflow: ellipsis; white-space: nowrap; }
+      .model-row > app-mobile-icon { justify-self: end; color: var(--text); font-size: 1.1rem; }
+      .model-fold { display: flex; width: 100%; min-height: var(--control-size); align-items: center; justify-content: space-between; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text); padding: 0 var(--space-3); font-size: 0.95rem; }
+      .model-fold app-mobile-icon { color: var(--text-secondary); transition: transform var(--motion-press) ease-out; }
+      .model-fold__icon--open { transform: rotate(180deg); }
+      .model-state { color: var(--text-secondary); padding: var(--space-8) 0; text-align: center; }
     `,
   ],
 })
@@ -125,9 +113,7 @@ export class ModelSheetComponent {
 
   protected readonly otherOpen = signal(false);
   private readonly visibleModels = computed(() =>
-    this.includeDefault()
-      ? this.models().filter((model) => model.id !== 'auto')
-      : this.models(),
+    this.includeDefault() ? this.models().filter((model) => model.id !== 'auto') : this.models(),
   );
   protected readonly pinned = computed(() => this.visibleModels().filter((model) => model.pinned));
   protected readonly otherGroups = computed<ModelGroup[]>(() => {

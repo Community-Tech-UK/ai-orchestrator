@@ -24,10 +24,28 @@ export const DEFAULT_LOOP_PROMPT =
   'Only declare completion after the plan or inventory has no unfinished items, final verification passes, ' +
   'and the durable completion marker has been written. If a plan file is fully implemented and verified, ' +
   'rename it with _completed before stopping.\n\n' +
+  'When the only unfinished items genuinely require a rebuilt or restarted app, human interaction, or an ' +
+  'external service, record each as a concrete check in a sibling <plan-stem>_livetest.md file: exact steps, ' +
+  'the expected observable result, required flags or settings, and why it cannot run now. Move those sections ' +
+  'out of the plan, then rename the plan with _completed and stop. Describe them in your summary as deferred ' +
+  'live checks recorded in that file. Verify everything runnable with tests, the dev app, or the CLI before ' +
+  'deferring.\n\n' +
   'Before stopping, review your own work with fresh eyes. Fix any issues you find. ' +
   'If blocked, explain the blocker clearly and stop.';
 
 const LEGACY_DEFAULT_LOOP_PROMPTS = [
+  "Continue toward the user's goal. Read relevant files before changing code, " +
+  'choose the maintainable architecture, and make concrete progress this turn. ' +
+  'Do not stop after a partial slice.\n\n' +
+  'Maintain a concrete completion inventory in NOTES.md when no plan file is configured: ' +
+  'list discovered work, check items off as they are fully implemented, and add newly discovered items. ' +
+  'If implementing a plan, update the code and tests until the plan is fully implemented. ' +
+  'Verify with the appropriate checks.\n\n' +
+  'Only declare completion after the plan or inventory has no unfinished items, final verification passes, ' +
+  'and the durable completion marker has been written. If a plan file is fully implemented and verified, ' +
+  'rename it with _completed before stopping.\n\n' +
+  'Before stopping, review your own work with fresh eyes. Fix any issues you find. ' +
+  'If blocked, explain the blocker clearly and stop.',
   "Continue toward the user's goal. Read relevant files before changing code, " +
   'choose the maintainable architecture, and make concrete progress this turn.\n\n' +
   'If implementing a plan, update the code and tests until the plan is fully implemented. ' +

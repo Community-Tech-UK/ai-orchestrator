@@ -314,6 +314,9 @@ export function createProviderDomain(
     getLocalModelInventory: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.MODELS_LOCAL_MODEL_INVENTORY),
 
+    qualifyLocalReviewer: (selectorId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.MODELS_LOCAL_REVIEWER_QUALIFY, withAuth({ selectorId })),
+
     /**
      * Push CLI-discovered models from the renderer into the main-process catalog.
      * Call this after `dynamic-model-catalog.service` finishes discovery for a

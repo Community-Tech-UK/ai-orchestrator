@@ -169,5 +169,21 @@ describe('CrossModelReviewSchemas', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('accepts "critical" assumption severity', () => {
+      const result = TieredReviewResultJsonSchema.safeParse({
+        ...validTieredResult,
+        assumptions: [{ assumption: 'Authorization is configured', severity: 'critical' }],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects an unrecognized assumption severity', () => {
+      const result = TieredReviewResultJsonSchema.safeParse({
+        ...validTieredResult,
+        assumptions: [{ assumption: 'Authorization is configured', severity: 'urgent' }],
+      });
+      expect(result.success).toBe(false);
+    });
   });
 });

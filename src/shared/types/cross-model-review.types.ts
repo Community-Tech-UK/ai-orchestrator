@@ -45,7 +45,7 @@ export interface ReviewResult {
   criticalIssues?: string[];
   traces?: { scenario: string; result: 'pass' | 'fail'; detail: string }[];
   boundariesChecked?: string[];
-  assumptions?: { assumption: string; severity: 'high' | 'medium' | 'low' }[];
+  assumptions?: { assumption: string; severity: 'critical' | 'high' | 'medium' | 'low' }[];
   integrationRisks?: string[];
   timestamp: number;
   durationMs: number;
