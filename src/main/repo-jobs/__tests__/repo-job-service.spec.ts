@@ -1,11 +1,45 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance, InstanceCreateConfig, OutputMessage } from '../../../shared/types/instance.types';
 import { RepoJobService, getRepoJobService } from '../repo-job-service';
 import { BackgroundTaskManager } from '../../tasks/background-task-manager';
+
+const { createVcsManagerMock } = vi.hoisted(() => ({
+  createVcsManagerMock: vi.fn((workingDirectory: string) => ({
+    isGitRepository: vi.fn(() => true),
+    findGitRoot: vi.fn(() => workingDirectory),
+    getCurrentBranch: vi.fn(() => 'main'),
+    getBranches: vi.fn(() => [{ name: 'main', current: true }]),
+    getDefaultRemote: vi.fn(() => null),
+    getStatus: vi.fn(() => ({
+      branch: 'main',
+      ahead: 0,
+      behind: 0,
+      staged: [],
+      unstaged: [],
+      untracked: [],
+      hasChanges: false,
+      isClean: true,
+    })),
+    getDiffBetween: vi.fn(() => ({
+      files: [],
+      totalAdditions: 0,
+      totalDeletions: 0,
+    })),
+    getDiffStats: vi.fn(() => ({
+      filesChanged: 0,
+      insertions: 0,
+      deletions: 0,
+    })),
+  })),
+}));
+
+vi.mock('../../workspace/git/vcs-manager', () => ({
+  createVcsManager: createVcsManagerMock,
+  isGitAvailable: vi.fn(() => true),
+}));
 
 let messageCounter = 0;
 let instanceCounter = 0;
@@ -62,15 +96,10 @@ function createMockInstance(config: InstanceCreateConfig): Instance {
   };
 }
 
-function createTestRepo(): string {
-  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-job-service-'));
-  fs.writeFileSync(path.join(repoDir, 'README.md'), '# test repo\n');
-  execFileSync('git', ['init'], { cwd: repoDir });
-  execFileSync('git', ['config', 'user.email', 'repo-job@test.local'], { cwd: repoDir });
-  execFileSync('git', ['config', 'user.name', 'Repo Job Test'], { cwd: repoDir });
-  execFileSync('git', ['add', 'README.md'], { cwd: repoDir });
-  execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir });
-  return repoDir;
+function createTestWorkspace(): string {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-job-service-'));
+  fs.writeFileSync(path.join(workspaceDir, 'README.md'), '# test repo\n');
+  return workspaceDir;
 }
 
 type WaitForSettledTestOptions = {
@@ -208,6 +237,7 @@ describe('RepoJobService', () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
+    vi.clearAllMocks();
     BackgroundTaskManager._resetForTesting();
     RepoJobService._resetForTesting();
     messageCounter = 0;
@@ -223,7 +253,7 @@ describe('RepoJobService', () => {
 
   it('submits and completes a PR review background job', async () => {
     const { service, createInstanceMock } = buildService();
-    const repoDir = createTestRepo();
+    const repoDir = createTestWorkspace();
     tempDirs.push(repoDir);
 
     const job = service.submitJob({
@@ -243,7 +273,7 @@ describe('RepoJobService', () => {
 
   it('creates a worktree for issue implementation jobs', async () => {
     const { service, worktreeManager } = buildService();
-    const repoDir = createTestRepo();
+    const repoDir = createTestWorkspace();
     tempDirs.push(repoDir);
 
     const job = service.submitJob({
@@ -262,7 +292,7 @@ describe('RepoJobService', () => {
 
   it('includes browser evidence instructions when enabled', async () => {
     const { service, createInstanceMock } = buildService();
-    const repoDir = createTestRepo();
+    const repoDir = createTestWorkspace();
     tempDirs.push(repoDir);
 
     const job = service.submitJob({
@@ -302,7 +332,7 @@ describe('RepoJobService', () => {
         throw new Error('legacy polling sleep should not run');
       },
     });
-    const repoDir = createTestRepo();
+    const repoDir = createTestWorkspace();
     tempDirs.push(repoDir);
 
     const job = service.submitJob({
@@ -320,7 +350,7 @@ describe('RepoJobService', () => {
 
   it('reruns a completed job as a fresh submission', async () => {
     const { service } = buildService();
-    const repoDir = createTestRepo();
+    const repoDir = createTestWorkspace();
     tempDirs.push(repoDir);
 
     const original = service.submitJob({

@@ -31,6 +31,11 @@ function quoteWindowsShellCommand(command: string): string {
   return `"${command.replace(/"/g, '""')}"`;
 }
 
+function isMacAppBundlePath(candidatePath: string): boolean {
+  return process.platform === 'darwin'
+    && /(?:^|\/)[^/]+\.app\/Contents(?:\/|$)/i.test(candidatePath);
+}
+
 /**
  * Information about a detected CLI tool
  */
@@ -494,6 +499,11 @@ export class CliDetectionService {
       } catch {
         real = candidate;
       }
+      // A CLI embedded in a signed macOS application bundle is owned and
+      // updated by that application. It is not a user-managed installation and
+      // must never be presented as a stale copy to remove from PATH. Check the
+      // resolved target too, so a symlink to an app resource remains excluded.
+      if (isMacAppBundlePath(candidate) || isMacAppBundlePath(real)) continue;
       if (seenReal.has(real)) continue;
       seenReal.add(real);
       candidates.push(candidate);

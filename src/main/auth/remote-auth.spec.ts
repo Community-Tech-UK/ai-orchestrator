@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const settings = new Map<string, unknown>();
+const settingsWrites: string[] = [];
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({
@@ -14,6 +15,7 @@ vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     get: (key: string) => settings.get(key),
     set: (key: string, value: unknown) => {
+      settingsWrites.push(key);
       settings.set(key, value);
     },
   }),
@@ -31,6 +33,7 @@ import { _resetRemoteAuthServiceForTesting, RemoteAuthService } from './remote-a
 describe('RemoteAuthService', () => {
   beforeEach(() => {
     settings.clear();
+    settingsWrites.length = 0;
     settings.set('remoteNodesEnrollmentToken', 'legacy-pairing-token');
     _resetRemoteAuthServiceForTesting();
     NodeIdentityStore._resetForTesting();
@@ -322,5 +325,23 @@ describe('RemoteAuthService', () => {
     >;
     expect(persisted['node-1'].platform).toBe('darwin');
     expect(persisted['node-1'].platformSeenAt).toBe(persisted['node-1'].lastSeenAt);
+  });
+
+  it('does not persist an unchanged trusted platform on every heartbeat', () => {
+    const service = new RemoteAuthService();
+    const pairing = service.issuePairingCredential({ label: 'stable-platform' });
+    const paired = service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Worker',
+      token: pairing.token,
+      platform: 'win32',
+    });
+    expect(paired.status).toBe('paired');
+    settingsWrites.length = 0;
+
+    service.recordTrustedPlatform('node-1', 'win32');
+    service.recordTrustedPlatform('node-1', 'win32');
+
+    expect(settingsWrites).toEqual([]);
   });
 });

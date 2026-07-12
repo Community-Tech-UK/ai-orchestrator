@@ -67,7 +67,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
     command: 'codex',
     displayName: 'OpenAI Codex CLI',
     versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
+    versionPattern: /(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)/,
     capabilities: [
       'streaming',
       'tool-use',
