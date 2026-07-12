@@ -134,7 +134,7 @@ describe('provider model lists', () => {
 
   it('pins app-level reasoning defaults for providers that need them', () => {
     expect(getDefaultReasoningEffort('claude')).toBe('high');
-    expect(getDefaultReasoningEffort('codex')).toBe('xhigh');
+    expect(getDefaultReasoningEffort('codex')).toBe('high');
     expect(getDefaultReasoningEffort('gemini')).toBeNull();
   });
 

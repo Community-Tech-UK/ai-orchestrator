@@ -356,7 +356,7 @@ describe('NewSessionDraftService', () => {
     expect(service.reasoningEffort()).toBe('max');
 
     service.setProvider('codex');
-    expect(service.reasoningEffort()).toBe('xhigh');
+    expect(service.reasoningEffort()).toBe('high');
 
     service.setProvider('gemini');
     expect(service.reasoningEffort()).toBeNull();

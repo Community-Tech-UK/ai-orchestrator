@@ -59,6 +59,24 @@ describe('CodebaseIndexingLaneGateway', () => {
     });
   });
 
+  it('passes the Harness user-data path to the indexing lane', async () => {
+    const runtime = new FakeRuntime();
+    const gateway = new CodebaseIndexingLaneGateway({
+      runtime: runtime as unknown as ConstructorParameters<typeof CodebaseIndexingLaneGateway>[0]['runtime'],
+      userDataPath: '/user-data',
+    });
+
+    await gateway.runIndexCodebase({
+      type: 'index-codebase',
+      rootPath: '/repo',
+      storeId: 'codebase:test',
+    });
+
+    expect(runtime.enqueueAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ userDataPath: '/user-data' }),
+    }));
+  });
+
   it('rejects malformed indexing lane results', async () => {
     const runtime = new FakeRuntime();
     runtime.enqueueAndWait.mockResolvedValueOnce({

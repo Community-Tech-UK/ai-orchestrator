@@ -118,7 +118,7 @@ export function deleteStore(
     }
   }
 
-  // CASCADE will delete sections, search_index, sessions
+  // CASCADE will delete sections and sessions.
   const stmt = db.prepareCached(`DELETE FROM context_stores WHERE id = ?`);
   stmt.run(storeId);
 }

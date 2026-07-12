@@ -40,7 +40,7 @@ describe('RlmStorageMaintenanceStore', () => {
     expect(store.visible()).toBe(true);
   });
 
-  it('previews, runs once, receives progress, and refreshes final health', async () => {
+  it('previews, runs once, clears terminal progress, and refreshes final health', async () => {
     let release!: () => void;
     api.rlmStorageRunMaintenance.mockImplementation(() => new Promise((resolve) => {
       release = () => resolve({ success: true, data: successResult() });
@@ -55,28 +55,69 @@ describe('RlmStorageMaintenanceStore', () => {
     api.emitProgress({ operationId: 'op-1', stage: 'pruning' } as RlmMaintenanceProgress);
     expect(store.progress()?.stage).toBe('pruning');
     expect(api.rlmStorageRunMaintenance).toHaveBeenCalledOnce();
+    api.emitProgress({ operationId: 'op-1', stage: 'complete' } as RlmMaintenanceProgress);
     release();
     await first;
-    expect(store.result()?.status).toBe('success');
-    expect(api.rlmStorageGetHealth).toHaveBeenCalledOnce();
+    expect(store.progress()).toBeNull();
+    expect(store.result()).toEqual(successResult());
+    expect(api.rlmStorageGetHealth).toHaveBeenCalledTimes(2);
   });
 
-  it('surfaces failed IPC and restores an active operation', async () => {
+  it('surfaces failed preview IPC', async () => {
     api.rlmStoragePreviewMaintenance.mockResolvedValue({
       success: false,
       error: { code: 'FAILED', message: 'preview unavailable', timestamp: 1 },
     });
+    const store = new RlmStorageMaintenanceStore();
+    await store.openPreview();
+    expect(store.error()).toBe('preview unavailable');
+  });
+
+  it('restores an active operation and opens the modal', async () => {
     api.rlmStorageGetMaintenanceStatus.mockResolvedValue({
       success: true,
       data: { status: 'running', operationId: 'op-1', stage: 'backing-up', startedAt: 1 },
     });
     const store = new RlmStorageMaintenanceStore();
-    await store.openPreview();
-    expect(store.error()).toBe('preview unavailable');
     await store.restoreStatus();
-    expect(store.result()?.status).toBe('running');
+    expect(store.result()).toBeNull();
+    expect(store.progress()).toEqual({
+      operationId: 'op-1',
+      stage: 'backing-up',
+      message: 'RLM storage maintenance is in progress',
+      startedAt: 1,
+      updatedAt: expect.any(Number),
+    });
     expect(store.busy()).toBe(true);
     expect(store.modalOpen()).toBe(true);
+  });
+
+  it('restores a terminal result without opening the modal or retaining progress', async () => {
+    api.rlmStorageGetMaintenanceStatus.mockResolvedValue({ success: true, data: successResult() });
+    const store = new RlmStorageMaintenanceStore();
+    api.emitProgress({ operationId: 'op-1', stage: 'complete' } as RlmMaintenanceProgress);
+
+    await store.restoreStatus();
+
+    expect(store.result()).toEqual(successResult());
+    expect(store.modalOpen()).toBe(false);
+    expect(store.progress()).toBeNull();
+    expect(store.busy()).toBe(false);
+  });
+
+  it('clears stale progress when the run IPC fails', async () => {
+    api.rlmStorageRunMaintenance.mockResolvedValue({
+      success: false,
+      error: { code: 'FAILED', message: 'maintenance unavailable', timestamp: 1 },
+    });
+    const store = new RlmStorageMaintenanceStore();
+    await store.openPreview();
+    api.emitProgress({ operationId: 'op-1', stage: 'pruning' } as RlmMaintenanceProgress);
+
+    await store.run();
+
+    expect(store.error()).toBe('maintenance unavailable');
+    expect(store.progress()).toBeNull();
   });
 });
 

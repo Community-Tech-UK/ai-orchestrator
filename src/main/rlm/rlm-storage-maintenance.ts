@@ -11,6 +11,7 @@ import { getLogger } from '../logging/logger';
 import {
   RLM_STALE_STORE_RETENTION_DAYS,
   RLM_STALE_STORE_RETENTION_MS,
+  RLM_BACKUP_RETENTION_COUNT,
   RLM_STORAGE_HARD_LIMIT_BYTES,
   RLM_STORAGE_WARNING_BYTES,
 } from '../../shared/types/rlm-maintenance.types';
@@ -71,6 +72,7 @@ export interface RlmStorageMaintenanceDependencies {
   now(): number;
   createOperationId(): string;
   backupDirectory: string;
+  pruneBackups(keepCount: number): { deleted: number; bytesFreed: number; failed: number };
 }
 
 interface ActiveOperation {
@@ -216,6 +218,13 @@ export class RlmStorageMaintenanceService extends EventEmitter {
       await this.dependencies.reload();
 
       const after = this.dependencies.database.measure();
+      const backupRetention = this.dependencies.pruneBackups(RLM_BACKUP_RETENTION_COUNT);
+      if (backupRetention.failed > 0) {
+        logger.warn('Some old RLM maintenance backup paths could not be removed', {
+          operationId,
+          ...backupRetention,
+        });
+      }
       const databaseHealthy = after.databaseSizeBytes < RLM_STORAGE_HARD_LIMIT_BYTES;
       const loopResumed = Boolean(
         request.loopRunId
@@ -238,6 +247,8 @@ export class RlmStorageMaintenanceService extends EventEmitter {
             - after.databaseSizeBytes - after.externalContentSizeBytes,
         ),
         backupPath: backupPath!,
+        backupsPruned: backupRetention.deleted,
+        backupBytesFreed: backupRetention.bytesFreed,
         externalContentCleanupFailures,
         loopResumed,
         databaseHealthy,
@@ -252,6 +263,9 @@ export class RlmStorageMaintenanceService extends EventEmitter {
         externalContentSizeBeforeBytes: before.externalContentSizeBytes,
         externalContentSizeAfterBytes: after.externalContentSizeBytes,
         verifiedBytesReclaimed: result.status === 'success' ? result.verifiedBytesReclaimed : 0,
+        backupsPruned: backupRetention.deleted,
+        backupBytesFreed: backupRetention.bytesFreed,
+        backupPruneFailures: backupRetention.failed,
         externalContentCleanupFailures,
         loopResumed,
         durationMs: this.dependencies.now() - startedAt,

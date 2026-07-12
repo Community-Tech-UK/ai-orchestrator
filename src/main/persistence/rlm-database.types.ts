@@ -41,37 +41,6 @@ export interface ContextSectionRow {
   content_inline: string | null;
 }
 
-export interface SearchIndexEntry {
-  storeId: string;
-  term: string;
-  sectionId: string;
-  lineNumber: number;
-  position: number;
-  snippet: string;
-}
-
-export interface SearchResultRow {
-  section_id: string;
-  line_number: number;
-  position: number;
-  snippet: string;
-  section_type: string;
-  section_name: string;
-  section_source: string | null;
-  term_matches: number;
-}
-
-export interface SearchResult {
-  sectionId: string;
-  lineNumber: number;
-  position: number;
-  snippet: string;
-  sectionType: string;
-  sectionName: string;
-  sectionSource: string | null;
-  relevance: number;
-}
-
 export interface RLMSessionRow {
   id: string;
   store_id: string;

@@ -34,6 +34,8 @@ describe('codebase indexing lane main entrypoint', () => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('./indexing-service');
+    vi.doUnmock('../rlm/context-manager');
+    vi.doUnmock('../persistence/rlm-database');
   });
 
   function installParentPort(): ElectronParentPort {
@@ -148,6 +150,64 @@ describe('codebase indexing lane main entrypoint', () => {
         completedAt: expect.any(Number),
       },
     });
+  });
+
+  it('reloads persisted RLM stores before each background indexing job', async () => {
+    const parentPort = installParentPort();
+    const events: string[] = [];
+
+    vi.doMock('../rlm/context-manager', () => ({
+      RLMContextManager: {
+        getInstance: () => ({ reloadFromPersistence: () => events.push('reload') }),
+      },
+    }));
+    vi.doMock('../persistence/rlm-database', () => ({
+      RLMDatabase: {
+        getInstance: (config: { dbPath: string; contentDir: string }) => {
+          events.push(`database:${config.dbPath}:${config.contentDir}`);
+          return {};
+        },
+      },
+    }));
+    vi.doMock('./indexing-service', () => ({
+      CodebaseIndexingService: class FakeCodebaseIndexingService extends EventEmitter {
+        cancel = vi.fn();
+
+        async indexCodebase(): Promise<IndexingStats> {
+          events.push('index');
+          return {
+            filesIndexed: 0,
+            chunksCreated: 0,
+            tokensProcessed: 0,
+            duration: 1,
+            errors: [],
+          };
+        }
+      },
+    }));
+
+    await import('./codebase-indexing-lane-main');
+    parentPort.emit('message', {
+      data: {
+        type: 'run-job',
+        jobId: 'job-reload',
+        jobType: 'index-codebase',
+        payload: {
+          type: 'index-codebase',
+          rootPath: '/repo',
+          storeId: 'codebase:created-after-lane-start',
+          force: true,
+          userDataPath: '/user-data',
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(events).toEqual([
+      'database:/user-data/rlm/rlm.db:/user-data/rlm/content',
+      'reload',
+      'index',
+    ]);
   });
 
   it('cancels an active index-codebase job cooperatively', async () => {

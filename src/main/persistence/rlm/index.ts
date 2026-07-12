@@ -51,13 +51,6 @@ export {
   removeSection
 } from './rlm-sections';
 
-// Search operations
-export {
-  indexSection,
-  searchIndex,
-  rebuildIndex
-} from './rlm-search';
-
 // Session operations
 export {
   createSession,

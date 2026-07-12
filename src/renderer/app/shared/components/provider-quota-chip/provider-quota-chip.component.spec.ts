@@ -315,6 +315,21 @@ describe('ProviderQuotaChipComponent', () => {
       expect(stripText).not.toContain('CC0%');
     });
 
+    it('summarizes Antigravity by Gemini five-hour usage instead of the most-used weekly window', () => {
+      store.setSnapshot('antigravity', makeSnapshot('antigravity', 'personal', true, [
+        { ...makeWindow(11, 100), id: 'antigravity.gemini-5h', label: 'Gemini · 5-hour' },
+        { ...makeWindow(81, 100), id: 'antigravity.gemini-weekly', label: 'Gemini · weekly' },
+      ]));
+      store.setWorst({ provider: 'antigravity', window: makeWindow(81, 100) });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+
+      expect(stripText).toContain('AG11%');
+      expect(stripText).not.toContain('AG81%');
+    });
+
     it('shows per-provider freshness and refresh controls in the detail popover', () => {
       const now = Date.now();
       (component as unknown as { nowMs: { set(value: number): void } }).nowMs.set(now);

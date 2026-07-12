@@ -151,14 +151,14 @@ export type ReasoningEffort = typeof REASONING_EFFORTS[number];
  * The reasoning effort a provider runs at when the user hasn't picked one.
  *
  * Claude's CLI defaults to `high` (the "Default" the Claude app badges on the
- * High row), so we surface it explicitly. Codex defaults to `xhigh` so fresh
- * Codex sessions use the largest Codex thinking budget unless the user picks a
- * different level. Providers without an app-level default stay
+ * High row), so we surface it explicitly. Codex also defaults to `high` so
+ * fresh Codex sessions use a strong reasoning budget without automatically
+ * selecting Max. Providers without an app-level default stay
  * provider-decided (`null` -> no `--effort` flag).
  */
 export function getDefaultReasoningEffort(provider: string | null | undefined): ReasoningEffort | null {
   if (provider === 'claude') return 'high';
-  if (provider === 'codex') return 'xhigh';
+  if (provider === 'codex') return 'high';
   if (provider === 'grok') return 'high';
   return null;
 }

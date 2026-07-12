@@ -19,7 +19,6 @@ import type {
   IndexingStats,
   IndexingError,
   IndexStats,
-  FileMetadata,
   ProcessedChunk,
   ChangedFile,
   MerkleNode,
@@ -502,48 +501,10 @@ export class CodebaseIndexingService extends EventEmitter {
         symbols,
       });
 
-      // Save file metadata
-      await this.saveFileMetadata(storeId, chunk.metadata);
       persistedChunks.push({ chunk, sectionId });
     }
 
     return persistedChunks;
-  }
-
-  private async saveFileMetadata(storeId: string, metadata: FileMetadata): Promise<void> {
-    try {
-      const stmt = this.db['db'].prepare(`
-        INSERT OR REPLACE INTO file_metadata (
-          id, store_id, path, relative_path, language, size, lines, hash,
-          last_modified, is_entry_point, is_test_file, is_config_file,
-          framework, imports_json, exports_json, symbols_json,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      stmt.run(
-        generateId('meta'),
-        storeId,
-        metadata.path,
-        metadata.relativePath,
-        metadata.language,
-        metadata.size,
-        metadata.lines,
-        metadata.hash,
-        metadata.lastModified,
-        metadata.isEntryPoint ? 1 : 0,
-        metadata.isTestFile ? 1 : 0,
-        metadata.isConfigFile ? 1 : 0,
-        metadata.framework || null,
-        JSON.stringify(metadata.imports),
-        JSON.stringify(metadata.exports),
-        JSON.stringify(metadata.symbols),
-        Date.now(),
-        Date.now()
-      );
-    } catch (error) {
-      logger.error('Failed to save file metadata', error instanceof Error ? error : undefined);
-    }
   }
 
   // ==========================================================================
@@ -568,11 +529,6 @@ export class CodebaseIndexingService extends EventEmitter {
         this.contextManager.removeSection(storeId, section.id);
       }
 
-      // Remove metadata
-      const metaStmt = this.db['db'].prepare(`
-        DELETE FROM file_metadata WHERE store_id = ? AND path = ?
-      `);
-      metaStmt.run(storeId, filePath);
     } catch (error) {
       logger.error('Failed to remove file from index', error instanceof Error ? error : undefined, { filePath });
     }
@@ -588,9 +544,7 @@ export class CodebaseIndexingService extends EventEmitter {
       }
 
       const db = this.db['db'];
-      db.prepare('DELETE FROM search_index WHERE store_id = ?').run(storeId);
       db.prepare('DELETE FROM vectors WHERE store_id = ?').run(storeId);
-      db.prepare('DELETE FROM file_metadata WHERE store_id = ?').run(storeId);
       db.prepare('DELETE FROM codebase_trees WHERE store_id = ?').run(storeId);
     } catch (error) {
       logger.error('Failed to clear stale codebase index data', error instanceof Error ? error : undefined, { storeId });

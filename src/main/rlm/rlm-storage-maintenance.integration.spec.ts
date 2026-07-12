@@ -47,7 +47,6 @@ describe('RlmMaintenanceDatabaseAdapter (native SQLite)', () => {
     expect(rowCount('context_sections', 'cutoff')).toBe(0);
     expect(rowCount('rlm_sessions', 'stale')).toBe(0);
     expect(rowCount('vectors', 'stale')).toBe(0);
-    expect(rowCount('search_index', 'stale')).toBe(0);
     expect(rowCount('context_stores', 'recent')).toBe(1);
     expect(rowCount('context_stores', 'live')).toBe(1);
     expect(rowCount('context_stores', 'codebase')).toBe(1);
@@ -155,11 +154,6 @@ describe('RlmMaintenanceDatabaseAdapter (native SQLite)', () => {
         (id, store_id, section_id, embedding, dimensions, created_at)
       VALUES (?, ?, ?, ?, 1, ?)
     `).run(`vector-${id}`, id, `section-${id}`, 'embedding', lastAccessed);
-    db.prepare(`
-      INSERT INTO search_index
-        (store_id, term, section_id, line_number, position, snippet)
-      VALUES (?, ?, ?, 1, 0, ?)
-    `).run(id, id, `section-${id}`, id);
   }
 
   function rowCount(table: string, storeId: string): number {

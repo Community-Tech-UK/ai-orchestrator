@@ -1,8 +1,11 @@
 import { parentPort } from 'node:worker_threads';
+import * as path from 'node:path';
 import type {
   LaneInboundMessage,
   LaneOutboundMessage,
 } from '../background-jobs';
+import { RLMContextManager } from '../rlm/context-manager';
+import { RLMDatabase } from '../persistence/rlm-database';
 import { CodebaseIndexingService } from './indexing-service';
 import type { CodebaseIndexingLaneJob } from './codebase-indexing-lane-protocol';
 
@@ -79,6 +82,14 @@ async function handleRun(message: RunJobMessage): Promise<void> {
     return;
   }
 
+  if (message.payload.userDataPath) {
+    const rlmRoot = path.join(message.payload.userDataPath, 'rlm');
+    RLMDatabase.getInstance({
+      dbPath: path.join(rlmRoot, 'rlm.db'),
+      contentDir: path.join(rlmRoot, 'content'),
+    });
+  }
+  RLMContextManager.getInstance().reloadFromPersistence();
   const service = new CodebaseIndexingService();
   activeJobs.set(message.jobId, { service, cancelled: false });
   ensureHeartbeat();

@@ -156,8 +156,6 @@ export function addSection(
         sourceUrl: section.sourceUrl,
         content: section.content
       });
-      // Also index the section for search
-      deps.db.indexSection(store.id, section.id, section.content);
     } catch (error) {
       logger.error('Failed to persist section', error instanceof Error ? error : undefined);
     }
@@ -242,7 +240,6 @@ function addLargeSection(
           sourceUrl: chunkSection.sourceUrl,
           content: chunkSection.content
         });
-        deps.db.indexSection(store.id, chunkSection.id, chunkSection.content);
       } catch (error) {
         logger.error('Failed to persist chunk section', error instanceof Error ? error : undefined);
       }
@@ -345,17 +342,6 @@ export async function addSectionsBatch(
   // Rebuild search index once for all sections
   for (const section of addedSections) {
     updateSearchIndex(store.searchIndex!, section);
-  }
-
-  // Batch index sections in database
-  if (deps.db && deps.persistenceEnabled) {
-    for (const section of addedSections) {
-      try {
-        deps.db.indexSection(store.id, section.id, section.content);
-      } catch (error) {
-        logger.error('Failed to index batch section', error instanceof Error ? error : undefined);
-      }
-    }
   }
 
   // Batch generate embeddings for semantic search

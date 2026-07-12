@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  RLM_BACKUP_RETENTION_COUNT,
   RLM_STALE_STORE_RETENTION_MS,
   RLM_STORAGE_HARD_LIMIT_BYTES,
   RLM_STORAGE_WARNING_BYTES,
@@ -189,6 +190,29 @@ describe('RlmStorageMaintenanceService', () => {
     expect(service.getStatus()).toMatchObject({ status: 'success', operationId: 'op-1' });
   });
 
+  it('prunes older backups only after a successful reload and returns its summary', async () => {
+    const pruneBackups = vi.fn(() => ({ deleted: 2, bytesFreed: 1234, failed: 0 }));
+    const { service, lifecycle } = makeService({}, { pruneBackups });
+
+    await expect(service.run({})).resolves.toMatchObject({
+      status: 'success',
+      backupsPruned: 2,
+      backupBytesFreed: 1234,
+    });
+    expect(pruneBackups).toHaveBeenCalledOnce();
+    expect(pruneBackups).toHaveBeenCalledWith(RLM_BACKUP_RETENTION_COUNT);
+    expect(pruneBackups).toHaveBeenCalledAfter(lifecycle.reload);
+  });
+
+  it('does not prune old backups when maintenance fails', async () => {
+    const pruneBackups = vi.fn(() => ({ deleted: 2, bytesFreed: 1234, failed: 0 }));
+    const { service, database } = makeService({}, { pruneBackups });
+    database.vacuum.mockImplementation(() => { throw new Error('disk full'); });
+
+    await expect(service.run({})).resolves.toMatchObject({ status: 'failed', failedStage: 'compacting' });
+    expect(pruneBackups).not.toHaveBeenCalled();
+  });
+
   it('does not begin another stage after shutdown is requested', async () => {
     const { service, database, lifecycle } = makeService();
     service.requestShutdown();
@@ -244,6 +268,7 @@ function makeService(
     now: () => NOW,
     createOperationId: () => 'op-1',
     backupDirectory: '/backups',
+    pruneBackups: vi.fn(() => ({ deleted: 0, bytesFreed: 0, failed: 0 })),
     ...dependencyOverrides,
   });
   return { service, database, lifecycle };

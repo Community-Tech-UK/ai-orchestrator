@@ -73,10 +73,12 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
           }
 
           @if (store.progress(); as progress) {
-            <div class="progress" role="status" aria-live="polite">
-              <span class="spinner" aria-hidden="true"></span>
-              <div><strong>{{ stageLabel(progress.stage) }}</strong><span>{{ progress.message }}</span></div>
-            </div>
+            @if (progress.stage !== 'complete' && progress.stage !== 'failed') {
+              <div class="progress" role="status" aria-live="polite">
+                <span class="spinner" aria-hidden="true"></span>
+                <div><strong>{{ stageLabel(progress.stage) }}</strong><span>{{ progress.message }}</span></div>
+              </div>
+            }
           }
 
           @if (store.result(); as result) {
@@ -87,6 +89,9 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
                 <span>Database: {{ bytes(result.databaseSizeBeforeBytes) }} before · {{ bytes(result.databaseSizeAfterBytes) }} after</span>
                 <span>External content: {{ bytes(result.externalContentSizeBeforeBytes) }} before · {{ bytes(result.externalContentSizeAfterBytes) }} after</span>
                 <span>Backup: <code>{{ result.backupPath }}</code></span>
+                @if (result.backupsPruned && result.backupsPruned > 0) {
+                  <span>{{ result.backupsPruned }} old backups removed · {{ bytes(result.backupBytesFreed ?? 0) }} freed</span>
+                }
                 @if (result.externalContentCleanupFailures > 0) {
                   <span class="cleanup-warning">{{ result.externalContentCleanupFailures }} external content files could not be removed.</span>
                 }

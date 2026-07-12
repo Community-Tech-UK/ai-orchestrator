@@ -188,7 +188,7 @@ export class NewSessionDraftService {
 
       const sameProvider = draft.provider === provider;
       // Reasoning is per-provider. On a switch, reset to the new provider's
-      // default effort (High for Claude, XHigh for Codex, provider-decided/null
+      // default effort (High for Claude and Codex, provider-decided/null
       // otherwise) rather than always clearing.
       const nextReasoning = sameProvider ? draft.reasoningEffort : getDefaultReasoningEffort(provider);
       const nextLaunchMode = this.resolveDraftLaunchMode(provider, sameProvider ? draft.launchMode : null);

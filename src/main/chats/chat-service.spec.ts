@@ -1110,19 +1110,19 @@ describe('ChatService', () => {
       expect(lastCreate.reasoningEffort).toBe('high');
     });
 
-    it('uses Codex xhigh when createChat omits reasoningEffort', async () => {
+    it('uses Codex high when createChat omits reasoningEffort', async () => {
       const { service, instanceManager } = createHarness();
       const chat = await service.createChat({
         provider: 'codex',
         currentCwd: '/work/project',
         name: 'Default reasoning',
       });
-      expect(chat.chat.reasoningEffort).toBe('xhigh');
+      expect(chat.chat.reasoningEffort).toBe('high');
 
       await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
 
       const lastCreate = instanceManager.creates[instanceManager.creates.length - 1];
-      expect(lastCreate.reasoningEffort).toBe('xhigh');
+      expect(lastCreate.reasoningEffort).toBe('high');
     });
 
     it('keeps explicit null reasoningEffort as provider-decided', async () => {

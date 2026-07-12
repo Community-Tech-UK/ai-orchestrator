@@ -54,6 +54,76 @@ describe('RlmStorageMaintenanceComponent', () => {
     expect(button('Maintenance running…').disabled).toBe(true);
   });
 
+  it('shows the spinner only for in-flight progress', () => {
+    store.modalOpen.set(true);
+    store.result.set(successResult());
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.spinner')).toBeNull();
+
+    store.result.set(null);
+    store.progress.set(progress('pruning'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.spinner')).toBeTruthy();
+
+    store.result.set(successResult());
+    store.progress.set(progress('complete'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.spinner')).toBeNull();
+  });
+
+  it('does not render the modal when mounted with a persisted terminal status', async () => {
+    fixture.destroy();
+    TestBed.resetTestingModule();
+    const api = maintenanceApi(successResult());
+    (window as unknown as { electronAPI: unknown }).electronAPI = api;
+    const actualStore = new RlmStorageMaintenanceStore();
+
+    try {
+      await TestBed.configureTestingModule({
+        imports: [RlmStorageMaintenanceComponent],
+        providers: [{ provide: RlmStorageMaintenanceStore, useValue: actualStore }],
+      }).compileComponents();
+      const terminalFixture = TestBed.createComponent(RlmStorageMaintenanceComponent);
+      terminalFixture.detectChanges();
+      await terminalFixture.whenStable();
+      terminalFixture.detectChanges();
+
+      expect(api.rlmStorageGetMaintenanceStatus).toHaveBeenCalledOnce();
+      expect(actualStore.result()).toEqual(successResult());
+      expect(terminalFixture.nativeElement.querySelector('.modal-backdrop')).toBeNull();
+      terminalFixture.destroy();
+    } finally {
+      actualStore.destroy();
+      delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    }
+  });
+
+  it('renders the current progress when mounted with a persisted running status', async () => {
+    fixture.destroy();
+    TestBed.resetTestingModule();
+    const api = maintenanceApi(runningResult());
+    (window as unknown as { electronAPI: unknown }).electronAPI = api;
+    const actualStore = new RlmStorageMaintenanceStore();
+
+    try {
+      await TestBed.configureTestingModule({
+        imports: [RlmStorageMaintenanceComponent],
+        providers: [{ provide: RlmStorageMaintenanceStore, useValue: actualStore }],
+      }).compileComponents();
+      const runningFixture = TestBed.createComponent(RlmStorageMaintenanceComponent);
+      runningFixture.detectChanges();
+      await runningFixture.whenStable();
+      runningFixture.detectChanges();
+
+      expect(runningFixture.nativeElement.textContent).toContain('Backing up');
+      expect(runningFixture.nativeElement.querySelector('.spinner')).toBeTruthy();
+      runningFixture.destroy();
+    } finally {
+      actualStore.destroy();
+      delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    }
+  });
+
   it('focuses the dialog and closes it with Escape when maintenance is idle', async () => {
     store.modalOpen.set(true);
     fixture.detectChanges();
@@ -95,6 +165,18 @@ describe('RlmStorageMaintenanceComponent', () => {
     expect(text).toContain('/backups/verified.db');
     expect(text).toContain('2 external content files could not be removed');
     expect(text).toContain('still at or above 12 GiB');
+  });
+
+  it('reports retained backup cleanup when old backups were pruned', () => {
+    store.modalOpen.set(true);
+    store.result.set({
+      ...successResult(),
+      backupsPruned: 2,
+      backupBytesFreed: 2 * 1024 ** 3,
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('2 old backups removed · 2.00 GiB freed');
   });
 
   it('shows staged failure and retries through the guarded store', () => {
@@ -164,5 +246,64 @@ function fakeStore() {
     closePreview: vi.fn(),
     run: vi.fn(async () => undefined),
     dismiss: vi.fn(() => dismissed.set(true)),
+  };
+}
+
+function progress(stage: 'pruning' | 'complete') {
+  return {
+    operationId: 'op-1',
+    stage,
+    message: stage === 'complete' ? 'Complete' : 'Pruning stale stores',
+    startedAt: 1,
+    updatedAt: 2,
+  };
+}
+
+function successResult() {
+  return {
+    status: 'success' as const,
+    operationId: 'op-1',
+    storesDeleted: 2,
+    databaseSizeBeforeBytes: 100,
+    databaseSizeAfterBytes: 50,
+    externalContentSizeBeforeBytes: 10,
+    externalContentSizeAfterBytes: 0,
+    verifiedBytesReclaimed: 60,
+    backupPath: '/backups/verified.db',
+    externalContentCleanupFailures: 0,
+    loopResumed: true,
+    databaseHealthy: true,
+    completedAt: 2,
+  };
+}
+
+function runningResult() {
+  return {
+    status: 'running' as const,
+    operationId: 'op-1',
+    stage: 'backing-up' as const,
+    startedAt: 1,
+  };
+}
+
+function maintenanceApi(status: ReturnType<typeof successResult> | ReturnType<typeof runningResult>) {
+  return {
+    rlmStorageGetHealth: vi.fn(async () => ({
+      success: true,
+      data: {
+        level: 'warning' as const,
+        databaseSizeBytes: 10 * 1024 ** 3,
+        externalContentSizeBytes: 20,
+        reclaimableDatabaseBytes: 30,
+        warningThresholdBytes: 10 * 1024 ** 3,
+        hardLimitBytes: 12 * 1024 ** 3,
+        maintenanceRunning: false,
+        checkedAt: 1,
+      },
+    })),
+    rlmStoragePreviewMaintenance: vi.fn(),
+    rlmStorageRunMaintenance: vi.fn(),
+    rlmStorageGetMaintenanceStatus: vi.fn(async () => ({ success: true, data: status })),
+    onRlmStorageMaintenanceProgress: vi.fn(() => () => undefined),
   };
 }

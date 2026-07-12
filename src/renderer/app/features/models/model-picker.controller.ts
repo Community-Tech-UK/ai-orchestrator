@@ -259,7 +259,7 @@ export class ModelPickerController {
     }
 
     if (provider === 'codex') {
-      // Codex defaults to xhigh in the app, but keep an explicit provider-decide
+      // Codex defaults to high in the app, but keep an explicit provider-decide
       // row so users can clear the override and let the CLI decide.
       return markDefault([
         { id: 'default', label: 'Provider', description: 'Let the provider decide' },

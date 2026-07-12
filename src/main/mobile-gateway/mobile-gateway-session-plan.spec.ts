@@ -63,13 +63,13 @@ describe('resolveMobileSessionPlan', () => {
     expect(plan.model).toBe('chosen');
   });
 
-  it('codex defaults to xhigh thinking', async () => {
+  it('codex defaults to high thinking', async () => {
     resolveCliType.mockResolvedValue('codex');
     const plan = await resolveMobileSessionPlan({ provider: 'codex' });
     expect(plan.provider).toBe('codex');
     expect(plan.providerLabel).toBe('Codex');
-    expect(plan.reasoningEffort).toBe('xhigh');
-    expect(plan.reasoningEffortLabel).toBe('Extra high');
+    expect(plan.reasoningEffort).toBe('high');
+    expect(plan.reasoningEffortLabel).toBe('High');
   });
 
   it('a provider without an app-level default reports null thinking', async () => {
