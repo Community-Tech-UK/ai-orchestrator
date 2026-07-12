@@ -220,7 +220,12 @@ function makeService(
     backup: vi.fn(async (targetPath: string) => ({ dbBackupPath: targetPath })),
     verifyBackup: vi.fn(),
     prune: vi.fn(() => ({ storesDeleted: 1, externalContentFiles: ['/content/a.txt'] })),
-    deleteExternalContent: vi.fn(() => 0),
+    deleteExternalContent: vi.fn(() => ({
+      deleted: 1,
+      missing: 0,
+      refused: 0,
+      failed: 0,
+    })),
     vacuum: vi.fn(),
   } satisfies RlmMaintenanceDatabasePort;
   const gateStates: boolean[] = [];

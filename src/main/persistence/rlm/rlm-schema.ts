@@ -75,6 +75,12 @@ export function createTables(db: SqliteDriver): void {
       language TEXT,
       source_url TEXT,
       created_at INTEGER NOT NULL,
+      -- Marker meaning "this section's content lives on disk, not inline".
+      -- NOT an address: nothing resolves content through this value. It records
+      -- the absolute path at write time, so it can name a userData root that no
+      -- longer exists after an app rename or profile migration. Reads, deletes,
+      -- backups and maintenance all re-derive the path from the section id via
+      -- resolveContentPath() in rlm-content.ts. Only its NULL-ness is load-bearing.
       content_file TEXT,
       content_inline TEXT,
       FOREIGN KEY (store_id) REFERENCES context_stores(id) ON DELETE CASCADE

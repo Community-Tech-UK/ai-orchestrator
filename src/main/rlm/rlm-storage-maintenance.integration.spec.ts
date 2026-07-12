@@ -57,9 +57,56 @@ describe('RlmMaintenanceDatabaseAdapter (native SQLite)', () => {
     for (const file of pruned.externalContentFiles) {
       expect(fs.existsSync(file)).toBe(true);
     }
-    expect(adapter.deleteExternalContent(pruned.externalContentFiles)).toBe(0);
+    expect(adapter.deleteExternalContent(pruned.externalContentFiles)).toEqual({
+      deleted: 2,
+      missing: 0,
+      refused: 0,
+      failed: 0,
+    });
     expect(fs.existsSync(pruned.externalContentFiles[0]!)).toBe(false);
     expect(fs.existsSync(contentFile(sectionIdFor('recent')))).toBe(true);
+  });
+
+  it('reports content that was never at its canonical path as missing, not deleted', () => {
+    seedStore('stale', 'old-session', CUTOFF - 1, null, true);
+    const pruned = adapter.prune(CUTOFF, new Set());
+
+    // Simulate content written under a previous userData root: the row says the
+    // section has external content, but nothing is at the canonical path. This
+    // must not be laundered into a successful delete, which is what rmSync
+    // force did and what hid the store-id/section-id mismatch.
+    fs.rmSync(pruned.externalContentFiles[0]!, { force: true });
+
+    expect(adapter.deleteExternalContent(pruned.externalContentFiles)).toEqual({
+      deleted: 0,
+      missing: 1,
+      refused: 0,
+      failed: 0,
+    });
+  });
+
+  it('refuses to delete a path outside the managed content directory', () => {
+    const outsider = path.join(root, 'outside.txt');
+    fs.writeFileSync(outsider, 'not ours to delete');
+
+    expect(adapter.deleteExternalContent([outsider])).toEqual({
+      deleted: 0,
+      missing: 0,
+      refused: 1,
+      failed: 0,
+    });
+    expect(fs.existsSync(outsider)).toBe(true);
+  });
+
+  it('removes the prefix directory once its last section is reclaimed', () => {
+    seedStore('stale', 'old-session', CUTOFF - 1, null, true);
+    const prefixDirectory = path.dirname(contentFile(sectionIdFor('stale')));
+    expect(fs.existsSync(prefixDirectory)).toBe(true);
+
+    const pruned = adapter.prune(CUTOFF, new Set());
+    adapter.deleteExternalContent(pruned.externalContentFiles);
+
+    expect(fs.existsSync(prefixDirectory)).toBe(false);
   });
 
   it('measures database/content storage and leaves no freelist after vacuum', () => {

@@ -29,6 +29,24 @@ export interface RlmMaintenanceInspection {
   protectedCodebaseAutoStoreCount: number;
 }
 
+/**
+ * Outcome of reclaiming external content files for pruned stores.
+ *
+ * `missing` is tracked separately from `failed` on purpose. A file that is not
+ * there cannot be reclaimed, but it also is not a failure: content written
+ * under a previous userData root has no file under the current one. It is still
+ * worth reporting, because "the file wasn't there" is also the signature of a
+ * path-derivation bug, and a plain failure count cannot tell the two apart.
+ */
+export interface ExternalContentCleanupSummary {
+  deleted: number;
+  missing: number;
+  /** Paths that resolved outside the managed content directory. */
+  refused: number;
+  /** Paths that existed but could not be removed. */
+  failed: number;
+}
+
 export interface RlmMaintenanceDatabasePort {
   measure(): RlmMaintenanceMeasurement;
   inspect(cutoffTimestamp: number, protectedSessionIds: Set<string>): RlmMaintenanceInspection;
@@ -39,7 +57,7 @@ export interface RlmMaintenanceDatabasePort {
     storesDeleted: number;
     externalContentFiles: string[];
   };
-  deleteExternalContent(files: string[]): number;
+  deleteExternalContent(files: string[]): ExternalContentCleanupSummary;
   vacuum(): void;
 }
 
@@ -170,9 +188,20 @@ export class RlmStorageMaintenanceService extends EventEmitter {
         this.dependencies.getProtectedSessionIds(),
       );
       storesDeleted = pruned.storesDeleted;
-      externalContentCleanupFailures = this.dependencies.database.deleteExternalContent(
+      const cleanup = this.dependencies.database.deleteExternalContent(
         pruned.externalContentFiles,
       );
+      externalContentCleanupFailures = cleanup.refused + cleanup.failed;
+      if (cleanup.missing > 0) {
+        // Not a failure, but never silent: every one of these is a section the
+        // database says has external content that is not where we look for it.
+        logger.warn('RLM external content was already absent at its canonical path', {
+          operationId,
+          missing: cleanup.missing,
+          deleted: cleanup.deleted,
+          candidates: pruned.externalContentFiles.length,
+        });
+      }
 
       stage = 'compacting';
       this.assertCanStartStage();

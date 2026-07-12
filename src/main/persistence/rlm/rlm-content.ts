@@ -9,16 +9,55 @@ import * as fs from 'fs';
 import { INLINE_THRESHOLD } from './rlm-types';
 
 /**
- * Get the content file path for a section.
+ * Canonical on-disk layout for a section's external content:
+ *
+ *   <contentDir>/<first two chars of section id>/<section id>.txt
+ *
+ * THIS IS THE ONLY DEFINITION OF THE LAYOUT. Everything that reads, writes,
+ * deletes, backs up or verifies external content resolves through here, keyed
+ * on the SECTION id.
+ *
+ * In particular, resolution never trusts `context_sections.content_file`. That
+ * column holds the absolute path captured when the section was written, so it
+ * can name a userData root that no longer exists after an app rename or a
+ * profile migration. It is a "content lives on disk" flag, not an address.
+ * Storage maintenance previously re-derived this layout in its own copy of the
+ * function, and the copies drifted; keep it single-sourced.
+ */
+export function contentRelativePath(sectionId: string): string {
+  return path.join(sectionId.substring(0, 2), `${sectionId}.txt`);
+}
+
+/**
+ * Resolve a section's content path without touching the filesystem.
+ *
+ * Refuses to escape the content directory. Section ids are generated
+ * internally, but a corrupt or hostile id (`../../etc/passwd`) would otherwise
+ * let a read or a delete walk out of the managed tree, and deletes here run
+ * unattended during storage maintenance.
+ */
+export function resolveContentPath(contentDir: string, sectionId: string): string {
+  const root = path.resolve(contentDir);
+  const resolved = path.resolve(root, contentRelativePath(sectionId));
+  if (resolved === root || !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new Error(
+      `Refusing to resolve section content outside the RLM content directory: ${sectionId}`,
+    );
+  }
+  return resolved;
+}
+
+/**
+ * Get the content file path for a section, creating its prefix directory.
  * Distributes files across subdirectories to avoid filesystem limits.
  */
 export function getContentPath(contentDir: string, sectionId: string): string {
-  const prefix = sectionId.substring(0, 2);
-  const dir = path.join(contentDir, prefix);
+  const filePath = resolveContentPath(contentDir, sectionId);
+  const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  return path.join(dir, `${sectionId}.txt`);
+  return filePath;
 }
 
 /**
@@ -32,9 +71,12 @@ export function saveContent(contentDir: string, sectionId: string, content: stri
 
 /**
  * Load content from a file.
+ *
+ * Resolves without creating directories: reading is not a reason to
+ * materialise an empty prefix directory.
  */
 export function loadContent(contentDir: string, sectionId: string): string | null {
-  const filePath = getContentPath(contentDir, sectionId);
+  const filePath = resolveContentPath(contentDir, sectionId);
   if (fs.existsSync(filePath)) {
     return fs.readFileSync(filePath, 'utf-8');
   }
@@ -42,12 +84,36 @@ export function loadContent(contentDir: string, sectionId: string): string | nul
 }
 
 /**
- * Delete content file.
+ * Delete a section's content file.
+ *
+ * Reports whether a file was actually removed. `missing` is not an error: a
+ * section whose content was written under a previous userData root has no file
+ * under the current one. But it is a signal worth surfacing rather than
+ * swallowing, because it is also what a path-derivation bug looks like.
  */
-export function deleteContent(contentDir: string, sectionId: string): void {
-  const filePath = getContentPath(contentDir, sectionId);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
+export function deleteContent(
+  contentDir: string,
+  sectionId: string,
+): 'deleted' | 'missing' {
+  const filePath = resolveContentPath(contentDir, sectionId);
+  if (!fs.existsSync(filePath)) {
+    return 'missing';
+  }
+  fs.unlinkSync(filePath);
+  pruneEmptyPrefixDirectory(filePath);
+  return 'deleted';
+}
+
+/**
+ * Remove a now-empty prefix directory (e.g. content/se/) after its last file
+ * is deleted. These are zero bytes but not zero inodes, and without this the
+ * fan-out tree only ever grows.
+ */
+function pruneEmptyPrefixDirectory(filePath: string): void {
+  try {
+    fs.rmdirSync(path.dirname(filePath));
+  } catch {
+    // Directory is not empty, or already gone. Both are fine.
   }
 }
 

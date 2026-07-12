@@ -3,14 +3,25 @@ import * as path from 'path';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { RLMDatabase } from '../persistence/rlm-database';
-import { getDirectorySize } from '../persistence/rlm/rlm-content';
+import {
+  contentRelativePath,
+  getDirectorySize,
+  resolveContentPath,
+} from '../persistence/rlm/rlm-content';
 import type {
+  ExternalContentCleanupSummary,
   RlmMaintenanceDatabasePort,
   RlmMaintenanceInspection,
   RlmMaintenanceMeasurement,
 } from './rlm-storage-maintenance';
 
 interface StoreCountRow { count: number }
+
+/**
+ * `content_file` is selected only to filter sections that have external content
+ * (`IS NOT NULL`). Its value is never used as an address: paths are always
+ * re-derived from `id`. See rlm-content.ts for why.
+ */
 interface ContentFileRow { id: string; content_file: string }
 
 export class RlmMaintenanceDatabaseAdapter implements RlmMaintenanceDatabasePort {
@@ -92,7 +103,7 @@ export class RlmMaintenanceDatabaseAdapter implements RlmMaintenanceDatabasePort
         FROM context_sections cs
         JOIN context_stores store ON store.id = cs.store_id
         WHERE cs.content_file IS NOT NULL AND ${joined.clause}
-      `).all<ContentFileRow>(...joined.params).map((row) => managedContentPath(
+      `).all<ContentFileRow>(...joined.params).map((row) => resolveContentPath(
         this.database.getContentDir(),
         row.id,
       ));
@@ -103,22 +114,42 @@ export class RlmMaintenanceDatabaseAdapter implements RlmMaintenanceDatabasePort
     return transaction();
   }
 
-  deleteExternalContent(files: string[]): number {
+  deleteExternalContent(files: string[]): ExternalContentCleanupSummary {
     const root = path.resolve(this.database.getContentDir());
-    let failures = 0;
+    const summary: ExternalContentCleanupSummary = {
+      deleted: 0,
+      missing: 0,
+      refused: 0,
+      failed: 0,
+    };
     for (const file of files) {
       const resolved = path.resolve(file);
       if (resolved === root || !resolved.startsWith(`${root}${path.sep}`)) {
-        failures += 1;
+        summary.refused += 1;
         continue;
       }
       try {
-        fs.rmSync(resolved, { force: true });
+        // Deliberately not rmSync(force): force treats "the file was never
+        // there" as success, which makes a silent no-op indistinguishable from
+        // a real delete. That is precisely how a path-derivation bug hides —
+        // maintenance reports a clean run while the content it was supposed to
+        // reclaim is still on disk.
+        if (!fs.existsSync(resolved)) {
+          summary.missing += 1;
+          continue;
+        }
+        fs.unlinkSync(resolved);
+        summary.deleted += 1;
+        try {
+          fs.rmdirSync(path.dirname(resolved));
+        } catch {
+          // Prefix directory still holds other sections, or is already gone.
+        }
       } catch {
-        failures += 1;
+        summary.failed += 1;
       }
     }
-    return failures;
+    return summary;
   }
 
   vacuum(): void {
@@ -163,17 +194,15 @@ export function verifyExternalContentBackup(
   sourceContentDirectory: string,
   backupContentDirectory: string,
 ): void {
-  const sourceRoot = path.resolve(sourceContentDirectory);
   const backupRoot = path.resolve(backupContentDirectory);
   for (const row of rows) {
-    // content_file is an absolute-path marker written when the section was
-    // created. It can retain a previous Electron userData root after an app
-    // rename/migration. Runtime reads and deletes external content by section
-    // ID under the current managed content directory, so backup verification
-    // must resolve the same canonical path rather than trust the stale marker.
-    const sourceFile = managedContentPath(sourceRoot, row.id);
-    const relativePath = path.relative(sourceRoot, sourceFile);
-    const backupFile = path.resolve(backupRoot, relativePath);
+    // Resolve by section id through the one canonical layout (rlm-content.ts),
+    // never through row.content_file. That column records the absolute path at
+    // write time and can name a userData root that no longer exists, so the
+    // backup must be verified at the address the runtime actually reads from.
+    // resolveContentPath throws if a corrupt id escapes the content directory.
+    resolveContentPath(sourceContentDirectory, row.id);
+    const backupFile = path.resolve(backupRoot, contentRelativePath(row.id));
     if (
       !backupFile.startsWith(`${backupRoot}${path.sep}`)
       || !fs.existsSync(backupFile)
@@ -182,15 +211,6 @@ export function verifyExternalContentBackup(
       throw new Error('External-content backup is incomplete');
     }
   }
-}
-
-function managedContentPath(contentDirectory: string, sectionId: string): string {
-  const root = path.resolve(contentDirectory);
-  const resolved = path.resolve(root, sectionId.substring(0, 2), `${sectionId}.txt`);
-  if (resolved === root || !resolved.startsWith(`${root}${path.sep}`)) {
-    throw new Error('SQLite backup references external content outside the RLM content directory');
-  }
-  return resolved;
 }
 
 function eligibleClause(cutoffTimestamp: number, protectedIds: string[], alias: string): {

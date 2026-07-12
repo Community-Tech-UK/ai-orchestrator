@@ -30,6 +30,13 @@ export interface ContextSectionRow {
   language: string | null;
   source_url: string | null;
   created_at: number;
+  /**
+   * Marker meaning "content lives on disk, not inline". NOT an address.
+   * Only its null-ness is load-bearing: the path is always re-derived from the
+   * section id via resolveContentPath() in rlm/rlm-content.ts, because this
+   * value can name a userData root that no longer exists. Do not read a file
+   * from it.
+   */
   content_file: string | null;
   content_inline: string | null;
 }
