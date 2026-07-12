@@ -32,6 +32,7 @@ import {
 import { LoopInspectorProgressComponent } from './loop-inspector-progress.component';
 import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
+import { RlmStorageMaintenanceComponent } from './rlm-storage-maintenance.component';
 
 /**
  * Shows the Loop Mode HUD for one chat:
@@ -51,7 +52,7 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [SlicePipe, LoopInspectorProgressComponent, LoopPastRunsPanelComponent, PromptModalComponent],
+  imports: [SlicePipe, LoopInspectorProgressComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (banner(); as b) {
@@ -102,6 +103,11 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
         }
       </div>
     }
+
+    <app-rlm-storage-maintenance
+      [loopRunId]="active()?.id ?? null"
+      [refreshKey]="active() ? active()!.status + ':' + active()!.totalIterations : null"
+    />
 
     @if (active(); as a) {
       <div class="loop-status" [class.paused]="a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)">

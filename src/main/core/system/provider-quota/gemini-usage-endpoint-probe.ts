@@ -1,35 +1,36 @@
 /**
  * GeminiUsageEndpointProbe
  *
- * Native, self-contained probe for the Antigravity (formerly Gemini CLI) usage
- * quota. It reads the shared `~/.gemini/oauth_creds.json` credential and calls
- * Google's internal Code Assist quota API directly — no dependency on the
- * standalone token-usage-monitor (`~/.usage/*`).
+ * Native, self-contained probe for the Antigravity (AGY) usage quota. It calls
+ * Google's internal Code Assist quota-summary API directly — no dependency on
+ * the standalone token-usage-monitor (`~/.usage/*`).
  *
- * Independence requirements (mirrors the verified monitor flow):
+ * Credential (keychain-first, mirrors the verified monitor flow):
+ *   • AGY 1.1.1 stores its active consumer credential in the OS keyring
+ *     ({@link AgyCredentialsReader}: macOS service `gemini`, account
+ *     `antigravity`). AGY keeps this access token fresh in place, so it is the
+ *     source of truth. Read-only — never written, refreshed, or rotated.
+ *   • Fallback for older installs / non-mac: the shared `~/.gemini/oauth_creds.json`
+ *     credential, with a read-only refresh via the public installed-app OAuth
+ *     client discovered at runtime. Never written back to disk.
+ *
+ * Endpoint requirements:
  *   • Host — `daily-cloudcode-pa.googleapis.com`. The non-`daily-` host does not
  *     serve the Antigravity quota.
- *   • User-Agent — must be NEUTRAL. The endpoint returns 403 PERMISSION_DENIED
- *     for any UA containing "antigravity" or the legacy "GeminiCLI-…".
+ *   • Path — `:retrieveUserQuotaSummary` (grouped 5-hour + weekly buckets). The
+ *     obsolete `:retrieveUserQuota` endpoint returns every remainingFraction=1
+ *     and is not used.
+ *   • User-Agent — must be AGY-compatible. The summary endpoint returns 403
+ *     PERMISSION_DENIED for the neutral legacy UA.
  *   • Project id — discovered self-healingly via the free `loadCodeAssist` call
- *     (it returns `cloudaicompanionProject`), then cached in-memory. No reliance
- *     on the monitor's `~/.usage/gemini_project` file.
- *   • Token refresh — `oauth_creds.json` does not carry the OAuth client, so we
- *     resolve it from (1) env overrides, (2) the creds file if present, then
- *     (3) runtime discovery of the public installed-app client shipped inside
- *     the locally-installed gemini-cli bundle. The secret is therefore never
- *     committed to this repo — it is read at runtime from the user's machine.
- *
- * Read-only token discipline: this probe may use the stored refresh token to
- * obtain a short-lived access token, but it NEVER writes or rotates the stored
- * Gemini credential file.
+ *     (it returns `cloudaicompanionProject`), then cached in-memory.
  *
  * Reauth: when no usable access token can be obtained (signed out, or the
- * refresh token is rejected), the snapshot is returned with `needsReauth: true`
- * so the UI can prompt the user to sign in again.
+ * refresh token is rejected) or the endpoint returns 401/403, the snapshot is
+ * returned with `needsReauth: true` so the UI can prompt the user to sign in.
  */
 
-import { readFile as fsReadFile, readdir, realpath, access } from 'fs/promises';
+import { readFile as fsReadFile } from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type {
@@ -41,17 +42,28 @@ import {
   quotaRemaining,
 } from '../../../../shared/util/provider-quota-format';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
-import { getCliAdditionalPaths } from '../../../cli/cli-environment';
 import { getLogger } from '../../../logging/logger';
+import { AgyCredentialsReader, type AgyCredentialResult } from './agy-credentials-reader';
+import {
+  discoverGeminiOAuthClient,
+  type GeminiOAuthClient,
+} from './gemini-oauth-client-discovery';
+
+// Re-exported so existing importers (and tests) keep a single entry point.
+export {
+  discoverGeminiOAuthClient,
+  type GeminiOAuthClient,
+  type GeminiOAuthDiscoveryDeps,
+} from './gemini-oauth-client-discovery';
 
 const logger = getLogger('GeminiUsageEndpointProbe');
 
 const QUOTA_HOST = 'https://daily-cloudcode-pa.googleapis.com';
-const QUOTA_URL = `${QUOTA_HOST}/v1internal:retrieveUserQuota`;
+const QUOTA_URL = `${QUOTA_HOST}/v1internal:retrieveUserQuotaSummary`;
 const LOAD_URL = `${QUOTA_HOST}/v1internal:loadCodeAssist`;
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-// Neutral UA — the quota endpoint 403s any UA containing "antigravity"/"GeminiCLI".
-const USER_AGENT = 'ai-orchestrator/quota-poller';
+// AGY-compatible UA — the summary endpoint 403s the neutral legacy UA.
+const USER_AGENT = 'antigravity-cli/1.1.1';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const EXPIRY_SKEW_MS = 90_000;
 
@@ -77,6 +89,9 @@ export type GeminiTokenRefreshFetch = (
 /** Resolves the public installed-app OAuth client from the user's machine. */
 export type GeminiOAuthClientDiscovery = () => Promise<GeminiOAuthClient | null>;
 
+/** Reads AGY's keyring credential — the keychain-first source of truth. */
+export type AgyCredentialReadFn = () => Promise<AgyCredentialResult>;
+
 export interface GeminiTokenRefreshOptions {
   signal: AbortSignal;
   timeoutMs: number;
@@ -89,6 +104,8 @@ export interface GeminiUsageEndpointProbeOptions {
   projectId?: string;
   env?: NodeJS.ProcessEnv;
   readFile?: GeminiQuotaFileReader;
+  /** Reads AGY's keyring credential. Defaults to {@link AgyCredentialsReader}. */
+  readAgyCredential?: AgyCredentialReadFn;
   fetchQuota?: GeminiQuotaFetch;
   fetchLoadCodeAssist?: GeminiLoadCodeAssistFetch;
   refreshToken?: GeminiTokenRefreshFetch;
@@ -105,11 +122,6 @@ interface GeminiOAuthCreds {
   client_secret?: string;
 }
 
-interface GeminiOAuthClient {
-  clientId?: string;
-  clientSecret?: string;
-}
-
 /** Outcome of resolving a usable access token. */
 interface AccessTokenResult {
   token: string | null;
@@ -117,14 +129,25 @@ interface AccessTokenResult {
   reason?: 'signed-out' | 'refresh-failed';
 }
 
-interface GeminiQuotaBucket {
-  modelId?: string | null;
+/** A single bucket in a `retrieveUserQuotaSummary` group. */
+interface GeminiSummaryBucket {
+  bucketId?: string | null;
+  displayName?: string | null;
+  /** Window kind, e.g. `5h` or `weekly`. */
+  window?: string | null;
   remainingFraction?: number | string | null;
   resetTime?: string | null;
 }
 
-interface GeminiQuotaPayload {
-  buckets?: GeminiQuotaBucket[] | null;
+/** A group of buckets sharing a weekly + 5-hour limit (e.g. "Gemini Models"). */
+interface GeminiSummaryGroup {
+  displayName?: string | null;
+  description?: string | null;
+  buckets?: GeminiSummaryBucket[] | null;
+}
+
+interface GeminiQuotaSummaryPayload {
+  groups?: GeminiSummaryGroup[] | null;
 }
 
 export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
@@ -137,6 +160,7 @@ export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
   private readonly projectId: string | undefined;
   private readonly env: NodeJS.ProcessEnv;
   private readonly readFile: GeminiQuotaFileReader;
+  private readonly readAgyCredential: AgyCredentialReadFn;
   private readonly fetchQuota: GeminiQuotaFetch;
   private readonly fetchLoadCodeAssist: GeminiLoadCodeAssistFetch;
   private readonly refreshToken: GeminiTokenRefreshFetch;
@@ -161,6 +185,7 @@ export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
     this.projectId = opts.projectId;
     this.env = opts.env ?? process.env;
     this.readFile = opts.readFile ?? ((p) => fsReadFile(p, 'utf8'));
+    this.readAgyCredential = opts.readAgyCredential ?? (() => new AgyCredentialsReader().read());
     this.fetchQuota = opts.fetchQuota ?? defaultFetchQuota;
     this.fetchLoadCodeAssist = opts.fetchLoadCodeAssist ?? defaultFetchLoadCodeAssist;
     this.refreshToken = opts.refreshToken ?? defaultRefreshToken;
@@ -213,9 +238,9 @@ export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
       return failedSnapshot(takenAt, 'Antigravity quota endpoint returned an unexpected body');
     }
 
-    const windows = parseGeminiQuotaPayload(body as GeminiQuotaPayload);
+    const windows = parseGeminiQuotaSummary(body as GeminiQuotaSummaryPayload);
     if (windows.length === 0) {
-      return failedSnapshot(takenAt, 'Antigravity quota endpoint returned no request quota buckets');
+      return failedSnapshot(takenAt, 'Antigravity quota endpoint returned no usable quota buckets');
     }
 
     return {
@@ -259,6 +284,19 @@ export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
       return { token: this.cachedToken.token };
     }
 
+    // 1. AGY keyring (the signed-in source of truth; AGY keeps it fresh in
+    //    place). Read-only. Fall through to the file source when unavailable.
+    try {
+      const { credential } = await this.readAgyCredential();
+      if (credential && (credential.expiresAt === 0 || credential.expiresAt > this.now() + EXPIRY_SKEW_MS)) {
+        return { token: credential.accessToken };
+      }
+    } catch (err) {
+      logger.debug(`Antigravity keyring credential read failed: ${(err as Error).message}`);
+    }
+
+    // 2. Fallback: the retired Gemini CLI's ~/.gemini/oauth_creds.json, with a
+    //    read-only public-client refresh (never written back to disk).
     let raw: string;
     try {
       raw = await this.readFile(path.join(this.configDir, 'oauth_creds.json'));
@@ -336,55 +374,93 @@ export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
   }
 }
 
-export function parseGeminiQuotaPayload(payload: GeminiQuotaPayload): ProviderQuotaWindow[] {
-  const buckets = payload.buckets;
-  if (!Array.isArray(buckets) || buckets.length === 0) return [];
-
-  const aggregate = new Map<string, { minRemaining: number; resetAt: number | null }>();
-  for (const bucket of buckets) {
-    const family = familyOf(bucket.modelId);
-    if (!family) continue;
-    const remaining = numeric(bucket.remainingFraction);
-    if (remaining === null) continue;
-    const resetAt = parseResetAt(bucket.resetTime);
-    const current = aggregate.get(family);
-    if (!current || remaining < current.minRemaining) {
-      aggregate.set(family, { minRemaining: remaining, resetAt });
-    } else if (resetAt && (!current.resetAt || resetAt < current.resetAt)) {
-      current.resetAt = resetAt;
-    }
-  }
+/**
+ * Normalize a `retrieveUserQuotaSummary` payload into quota windows.
+ *
+ * Each group (e.g. "Gemini Models", "Claude and GPT models") carries buckets
+ * sharing a 5-hour and a weekly limit. We emit one window per bucket, ordered
+ * five-hour before weekly within each group and preserving group order, so the
+ * canonical set is: Gemini 5-hour, Gemini weekly, Claude/GPT 5-hour, Claude/GPT
+ * weekly. Unknown future groups/buckets are still normalized as long as they
+ * carry a usable display name and numeric remaining fraction.
+ */
+export function parseGeminiQuotaSummary(payload: GeminiQuotaSummaryPayload): ProviderQuotaWindow[] {
+  const groups = payload.groups;
+  if (!Array.isArray(groups) || groups.length === 0) return [];
 
   const windows: ProviderQuotaWindow[] = [];
-  const order: { family: string; id: string; label: string }[] = [
-    { family: 'pro', id: 'gemini.pro-daily', label: 'Pro daily' },
-    { family: 'flash-lite', id: 'gemini.flash-lite-daily', label: 'Flash-lite daily' },
-    { family: 'flash', id: 'gemini.flash-daily', label: 'Flash daily' },
-  ];
-  for (const item of order) {
-    const entry = aggregate.get(item.family);
-    if (!entry) continue;
-    const used = clampQuotaPercent((1 - entry.minRemaining) * 100);
-    windows.push({
-      kind: 'calendar-period',
-      id: item.id,
-      label: item.label,
-      unit: 'requests',
-      used,
-      limit: 100,
-      remaining: quotaRemaining(100, used),
-      resetsAt: entry.resetAt,
-    });
+  for (const group of groups) {
+    if (!group || typeof group !== 'object') continue;
+    const groupDisplay = typeof group.displayName === 'string' ? group.displayName : '';
+    const buckets = Array.isArray(group.buckets) ? group.buckets : [];
+    // Stable sort (Node's Array.sort is stable) so 5-hour precedes weekly while
+    // any unknown windows keep their original relative order at the end.
+    const ordered = buckets
+      .filter((b): b is GeminiSummaryBucket => !!b && typeof b === 'object')
+      .sort((a, b) => windowRank(a.window) - windowRank(b.window));
+    for (const bucket of ordered) {
+      const remaining = numeric(bucket.remainingFraction);
+      if (remaining === null) continue;
+      const used = clampQuotaPercent((1 - remaining) * 100);
+      windows.push({
+        kind: 'rolling-window',
+        id: windowId(groupDisplay, bucket),
+        label: windowLabel(groupDisplay, bucket),
+        unit: 'requests',
+        used,
+        limit: 100,
+        remaining: quotaRemaining(100, used),
+        resetsAt: parseResetAt(bucket.resetTime),
+      });
+    }
   }
   return windows;
 }
 
-function familyOf(modelId: string | null | undefined): string | null {
-  const model = (modelId ?? '').toLowerCase();
-  if (model.includes('pro')) return 'pro';
-  if (model.includes('flash-lite') || model.includes('flash_lite')) return 'flash-lite';
-  if (model.includes('flash')) return 'flash';
-  return null;
+/** Rank windows so five-hour renders before weekly; unknowns sort last. */
+function windowRank(window: string | null | undefined): number {
+  const w = (window ?? '').toLowerCase();
+  if (w === '5h' || w.includes('5-hour') || w.includes('five')) return 0;
+  if (w === 'weekly' || w.includes('week')) return 1;
+  return 2;
+}
+
+/**
+ * Stable window id derived from the provider plus the bucket id (e.g.
+ * `antigravity.gemini-5h`). Falls back to a slug of the group + window when a
+ * future response omits a bucket id.
+ */
+function windowId(groupDisplay: string, bucket: GeminiSummaryBucket): string {
+  const bucketId = typeof bucket.bucketId === 'string' ? bucket.bucketId.trim() : '';
+  if (bucketId) return `antigravity.${bucketId}`;
+  const groupSlug = slug(groupDisplay) || 'group';
+  const windowSlug = slug(bucket.window ?? bucket.displayName ?? '') || 'window';
+  return `antigravity.${groupSlug}-${windowSlug}`;
+}
+
+/** Human label retaining both group and window meaning, e.g. "Gemini · 5-hour". */
+function windowLabel(groupDisplay: string, bucket: GeminiSummaryBucket): string {
+  const group = groupTag(groupDisplay);
+  const window = windowTag(bucket.window, bucket.displayName);
+  return `${group} · ${window}`;
+}
+
+function groupTag(groupDisplay: string): string {
+  const d = groupDisplay.toLowerCase();
+  if (d.includes('gemini')) return 'Gemini';
+  if (d.includes('claude') || d.includes('gpt')) return 'Claude/GPT';
+  return groupDisplay.trim() || 'Models';
+}
+
+function windowTag(window: string | null | undefined, bucketDisplay: string | null | undefined): string {
+  const w = (window ?? '').toLowerCase();
+  if (w === '5h' || w.includes('5-hour') || w.includes('five')) return '5-hour';
+  if (w === 'weekly' || w.includes('week')) return 'weekly';
+  return (window ?? '').trim() || (bucketDisplay ?? '').trim() || 'window';
+}
+
+function slug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 function numeric(value: number | string | null | undefined): number | null {
@@ -442,128 +518,6 @@ function classifyFetchError(err: unknown): string {
   return err instanceof Error
     ? `Antigravity quota request failed: ${err.message}`
     : 'Antigravity quota request failed';
-}
-
-/** Injectable filesystem ops so the discovery loop is unit-testable. */
-export interface GeminiOAuthDiscoveryDeps {
-  /** Directories to search for the CLI binaries. Defaults to the CLI PATH. */
-  searchDirs?: string[];
-  realpath?: (p: string) => Promise<string>;
-  readdir?: (p: string) => Promise<string[]>;
-  readFile?: (p: string) => Promise<string>;
-  access?: (p: string) => Promise<void>;
-}
-
-/**
- * Build the directory list to search for the Antigravity/Gemini CLI binaries.
- *
- * A packaged Electron app launched from Finder/Dock inherits the stripped
- * launchd PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), which omits user-managed
- * install dirs like `~/.local/bin` (where `agy` lives) and the active nvm bin
- * (where `gemini` lives). Searching only `process.env.PATH` therefore finds
- * neither binary in the GUI app — so we union the CLI-augmented dirs (nvm,
- * `~/.local/bin`, `~/.npm-global/bin`, Homebrew, …) with whatever PATH does
- * carry. This mirrors how the rest of the app resolves provider CLIs.
- */
-function geminiCliSearchDirs(env: NodeJS.ProcessEnv): string[] {
-  const augmented = getCliAdditionalPaths(env);
-  const fromPath = (env['PATH'] ?? '')
-    .split(path.delimiter)
-    .filter(Boolean);
-  return [...new Set([...augmented, ...fromPath])];
-}
-
-/**
- * Discover the public installed-app OAuth client shipped inside the locally
- * installed gemini-cli bundle. The bundle stores it as plain
- * `OAUTH_CLIENT_ID = "…"` / `OAUTH_CLIENT_SECRET = "…"` assignments. Best-effort
- * and read-only; returns null when the CLI isn't installed or the pattern moves.
- *
- * This keeps the (public, non-confidential) client out of this repo — it is read
- * from the user's machine at runtime instead of being committed.
- *
- * Both `agy` and `gemini` are tried, and crucially the search does NOT stop at
- * the first binary it finds on PATH: `agy` now ships as a single compiled
- * Mach-O executable whose directory contains no extractable `.js` bundle, so
- * stopping there yielded no client (→ token refresh failed → a spurious
- * "reauth needed" banner even though the user was signed in). We keep scanning
- * every candidate binary until one bundle actually yields the client.
- */
-export async function discoverGeminiOAuthClient(
-  env: NodeJS.ProcessEnv,
-  deps: GeminiOAuthDiscoveryDeps = {},
-): Promise<GeminiOAuthClient | null> {
-  const searchDirs = deps.searchDirs ?? geminiCliSearchDirs(env);
-  const realpathFn = deps.realpath ?? realpath;
-  const readdirFn = deps.readdir ?? ((p: string) => readdir(p));
-  const readFileFn = deps.readFile ?? ((p: string) => fsReadFile(p, 'utf8'));
-  const accessFn = deps.access ?? ((p: string) => access(p));
-
-  for (const name of ['agy', 'gemini']) {
-    for (const dir of searchDirs) {
-      if (!dir) continue;
-      const binary = path.join(dir, name);
-      try {
-        await accessFn(binary);
-      } catch {
-        continue; // not in this dir; try the next
-      }
-      const client = await extractOAuthClientFromBundle(binary, {
-        realpath: realpathFn,
-        readdir: readdirFn,
-        readFile: readFileFn,
-      });
-      if (client) return client;
-      // Binary exists but its dir yielded no client (e.g. the compiled `agy`);
-      // keep scanning so `gemini`'s JS bundle still gets a chance.
-    }
-  }
-  return null;
-}
-
-/** Scan a CLI binary's bundle directory for the embedded OAuth client. */
-async function extractOAuthClientFromBundle(
-  binary: string,
-  ops: {
-    realpath: (p: string) => Promise<string>;
-    readdir: (p: string) => Promise<string[]>;
-    readFile: (p: string) => Promise<string>;
-  },
-): Promise<GeminiOAuthClient | null> {
-  let resolved = binary;
-  try {
-    resolved = await ops.realpath(binary);
-  } catch {
-    /* use the unresolved path */
-  }
-
-  const bundleDir = path.dirname(resolved);
-  let entries: string[];
-  try {
-    entries = await ops.readdir(bundleDir);
-  } catch {
-    return null;
-  }
-
-  // The client lives in the main entry + lazily-loaded chunk-*.js files.
-  const candidates = entries
-    .filter((name) => name.endsWith('.js'))
-    .sort((a, b) => Number(b.startsWith('chunk-')) - Number(a.startsWith('chunk-')));
-
-  for (const name of candidates) {
-    let text: string;
-    try {
-      text = await ops.readFile(path.join(bundleDir, name));
-    } catch {
-      continue;
-    }
-    const idMatch = /OAUTH_CLIENT_ID\s*=\s*["']([^"']+)["']/.exec(text);
-    const secretMatch = /OAUTH_CLIENT_SECRET\s*=\s*["']([^"']+)["']/.exec(text);
-    if (idMatch?.[1] && secretMatch?.[1]) {
-      return { clientId: idMatch[1], clientSecret: secretMatch[1] };
-    }
-  }
-  return null;
 }
 
 const defaultFetchQuota: GeminiQuotaFetch = async (accessToken, project, { signal, timeoutMs }) => {

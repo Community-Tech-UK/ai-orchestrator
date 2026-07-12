@@ -22,8 +22,11 @@ app-instance-detail .inspector-toggles,
 app-instance-detail .inspector-panels,
 app-instance-detail app-user-action-request,
 app-instance-detail app-input-panel {
-  width: min(880px, 100%);
-  margin: 0 auto;
+  // Left-anchored (not centred) so the transcript jump rail sits hard against
+  // the left edge, just right of the sidebar (Codex-style), and wider so the
+  // conversation uses more of the space right of the sidebar.
+  width: min(1280px, 100%);
+  margin: 0;
 }
 
 app-instance-detail .inspector-toggles {

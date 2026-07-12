@@ -23,7 +23,7 @@ import type {
   AuxiliaryLlmDecision,
   AuxiliaryLlmModelInfo,
 } from '../../shared/types/auxiliary-llm.types';
-import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import { auxiliaryRemoteHooks } from './auxiliary-remote-hooks';
 import {
   probeOllamaEndpoint,
   listOllamaModels,
@@ -34,6 +34,7 @@ import {
 } from './auxiliary-model-client';
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
+import { recordAuxiliaryAttribution } from '../core/system/cost-attribution';
 import { resolveAuxiliaryEndpointApiKey } from './auxiliary-api-key-resolver';
 import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
@@ -43,73 +44,13 @@ import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 // See src/main/instance/__tests__/context-worker-import-isolation.spec.ts.
 
 export { computeNumCtx } from './auxiliary-llm-utils';
+// Re-exported so existing test imports through this module keep working.
+export {
+  __setAuxiliaryRemoteHooksForTesting,
+  __resetAuxiliaryRemoteHooksForTesting,
+} from './auxiliary-remote-hooks';
 
 const AUXILIARY_MODEL_GENERATE_METHOD = 'auxiliaryModel.generate';
-
-// ─── Remote-node access seams ───────────────────────────────────────────────
-// These are lazy-required (not top-level imported) because worker-node-connection
-// and service-rpc-client transitively import electron via remote-auth →
-// settings-manager, which crashes in worker_thread contexts. The indirection
-// also gives tests an injection point (vitest cannot mock a native require()).
-// See src/main/instance/__tests__/context-worker-import-isolation.spec.ts.
-
-function defaultIsNodeConnected(nodeId: string): boolean {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getWorkerNodeConnectionServer } = require('../remote-node/worker-node-connection') as typeof import('../remote-node/worker-node-connection');
-    return getWorkerNodeConnectionServer().isNodeConnected(nodeId);
-  } catch {
-    return false;
-  }
-}
-
-async function defaultSendServiceRpc<T>(
-  nodeId: string,
-  method: string,
-  params: unknown,
-  timeoutMs: number,
-): Promise<T> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { sendServiceRpc } = require('../remote-node/service-rpc-client') as typeof import('../remote-node/service-rpc-client');
-  return sendServiceRpc<T>(nodeId, method, params, timeoutMs);
-}
-
-/**
- * Connected worker nodes (with their reported capabilities). Returns an empty
- * list if the registry cannot be loaded (e.g. worker context).
- */
-function defaultConnectedWorkerNodes(): WorkerNodeInfo[] {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getWorkerNodeRegistry } = require('../remote-node/worker-node-registry') as typeof import('../remote-node/worker-node-registry');
-    return getWorkerNodeRegistry().getAllNodes().filter((n) => n.status === 'connected');
-  } catch {
-    return [];
-  }
-}
-
-let isNodeConnectedLazy = defaultIsNodeConnected;
-let sendServiceRpcLazy: <T>(nodeId: string, method: string, params: unknown, timeoutMs: number) => Promise<T> =
-  defaultSendServiceRpc;
-let getConnectedWorkerNodesLazy = defaultConnectedWorkerNodes;
-
-/** Test-only: override the remote-node access seams. */
-export function __setAuxiliaryRemoteHooksForTesting(hooks: {
-  isNodeConnected?: (nodeId: string) => boolean;
-  sendServiceRpc?: <T>(nodeId: string, method: string, params: unknown, timeoutMs: number) => Promise<T>;
-  connectedWorkerNodes?: () => WorkerNodeInfo[];
-}): void {
-  if (hooks.isNodeConnected) isNodeConnectedLazy = hooks.isNodeConnected;
-  if (hooks.sendServiceRpc) sendServiceRpcLazy = hooks.sendServiceRpc;
-  if (hooks.connectedWorkerNodes) getConnectedWorkerNodesLazy = hooks.connectedWorkerNodes;
-}
-
-/** Test-only: restore the production lazy-require seams. */
-export function __resetAuxiliaryRemoteHooksForTesting(): void {
-  isNodeConnectedLazy = defaultIsNodeConnected;
-  sendServiceRpcLazy = defaultSendServiceRpc;
-  getConnectedWorkerNodesLazy = defaultConnectedWorkerNodes;
-}
 
 const logger = getLogger('AuxiliaryLlmService');
 
@@ -310,6 +251,24 @@ export class AuxiliaryLlmService extends EventEmitter {
         reason: `Routed via ${this.routingMode} to ${endpoint.label}`,
         allowFrontierFallback: slotConfig.allowFrontierFallback,
       };
+      // Record the offload that DID happen. Local endpoints report no dollar
+      // cost, so the token counts are the signal — they quantify the frontier
+      // spend we avoided, which is otherwise unmeasurable.
+      const tokenCounter = getTokenCounter();
+      recordAuxiliaryAttribution({
+        slot,
+        provider: endpoint.provider,
+        endpointId: endpoint.id,
+        model,
+        routedTo: source,
+        escalatedToFrontier: false,
+        usage: {
+          inputTokens:
+            tokenCounter.countTokens(truncated.system) + tokenCounter.countTokens(truncated.user),
+          outputTokens: tokenCounter.countTokens(text),
+        },
+        reason: decision.reason,
+      });
       return { text, decision };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -421,7 +380,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     if (ids.length === 0) return null;
     // Prefer a model already loaded with adequate context (worker endpoints only).
     const loaded = ep.source === 'worker-node'
-      ? workerLoadedContexts(getConnectedWorkerNodesLazy(), ep.workerNodeId, ep.provider, ep.baseUrl)
+      ? workerLoadedContexts(auxiliaryRemoteHooks.connectedWorkerNodes(), ep.workerNodeId, ep.provider, ep.baseUrl)
       : undefined;
     const picked = pickModelForTier(ids, tier, loaded);
     return picked ? { endpoint: ep, model: picked } : null;
@@ -439,8 +398,8 @@ export class AuxiliaryLlmService extends EventEmitter {
     try {
       if (ep.source === 'worker-node') {
         // Healthy only when the node is connected AND its heartbeat reports the local model server up.
-        healthy = !!ep.workerNodeId && isNodeConnectedLazy(ep.workerNodeId)
-          && workerEndpointHealthy(getConnectedWorkerNodesLazy(), ep.workerNodeId, ep.provider, ep.baseUrl);
+        healthy = !!ep.workerNodeId && auxiliaryRemoteHooks.isNodeConnected(ep.workerNodeId)
+          && workerEndpointHealthy(auxiliaryRemoteHooks.connectedWorkerNodes(), ep.workerNodeId, ep.provider, ep.baseUrl);
       } else if (ep.provider === 'ollama') {
         healthy = await probeOllamaEndpoint(ep.baseUrl, PROBE_TIMEOUT_MS);
       } else {
@@ -476,7 +435,7 @@ export class AuxiliaryLlmService extends EventEmitter {
   /** Models a connected worker reported for the given endpoint (no direct dial). */
   private workerNodeModels(ep: AuxiliaryLlmEndpointConfig): AuxiliaryLlmModelInfo[] {
     if (!ep.workerNodeId) return [];
-    for (const node of getConnectedWorkerNodesLazy()) {
+    for (const node of auxiliaryRemoteHooks.connectedWorkerNodes()) {
       if (node.id !== ep.workerNodeId) continue;
       for (const cap of node.capabilities.localModelEndpoints ?? []) {
         if (cap.provider === ep.provider && cap.baseUrl === ep.baseUrl) {
@@ -512,7 +471,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       if (!ep.workerNodeId) {
         throw new Error('Worker-node endpoint missing workerNodeId');
       }
-      const result = await sendServiceRpcLazy<{ text: string }>(
+      const result = await auxiliaryRemoteHooks.sendServiceRpc<{ text: string }>(
         ep.workerNodeId,
         AUXILIARY_MODEL_GENERATE_METHOD,
         {
@@ -606,6 +565,17 @@ export class AuxiliaryLlmService extends EventEmitter {
       reason,
       allowFrontierFallback,
     };
+    // Single choke point for every fallback, so this catches all escalations.
+    // When allowFrontierFallback is true the caller (e.g. ContextCompactor)
+    // re-runs the prompt on a paid frontier model — spend that was previously
+    // invisible because nothing on this path recorded cost.
+    recordAuxiliaryAttribution({
+      slot,
+      provider: 'local-fallback',
+      routedTo: 'fallback',
+      escalatedToFrontier: allowFrontierFallback,
+      reason,
+    });
     return { text, decision };
   }
 
@@ -638,7 +608,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       models: AuxiliaryLlmModelInfo[];
       healthy: boolean;
     }[] = [];
-    for (const node of getConnectedWorkerNodesLazy()) {
+    for (const node of auxiliaryRemoteHooks.connectedWorkerNodes()) {
       for (const cap of node.capabilities.localModelEndpoints ?? []) {
         // Include host:port so a node advertising two endpoints of the same
         // provider (e.g. two Ollama instances on different ports) yields

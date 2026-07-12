@@ -121,6 +121,77 @@ describe('BundledDarwinHelperClient', () => {
     });
   });
 
+  it('serializes requestAccessibility with an empty payload and returns the trust state', async () => {
+    const run = vi.fn<DesktopHelperRunner>(async (_path, input) => {
+      const request = JSON.parse(input) as {
+        id: string;
+        command: string;
+        payload: Record<string, unknown>;
+      };
+      expect(request.command).toBe('requestAccessibility');
+      expect(request.payload).toEqual({});
+      return {
+        stdout: response(request.id, { trusted: false }),
+        stderr: '',
+      };
+    });
+    const client = new BundledDarwinHelperClient({
+      helperPath: '/present/desktop-helper',
+      pathExists: () => true,
+      run,
+    });
+
+    await expect(client.requestAccessibility()).resolves.toBe(false);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a malformed requestAccessibility result', async () => {
+    const run = vi.fn<DesktopHelperRunner>(async (_path, input) => {
+      const request = JSON.parse(input) as { id: string };
+      return {
+        stdout: response(request.id, { trusted: 'yes' }),
+        stderr: '',
+      };
+    });
+    const client = new BundledDarwinHelperClient({
+      helperPath: '/present/desktop-helper',
+      pathExists: () => true,
+      run,
+    });
+
+    await expect(client.requestAccessibility()).rejects.toThrow('computer_use_driver_failed');
+  });
+
+  it('fails requestAccessibility safely when the helper is missing', async () => {
+    const run = vi.fn<DesktopHelperRunner>();
+    const client = new BundledDarwinHelperClient({
+      helperPath: '/missing/desktop-helper',
+      pathExists: () => false,
+      run,
+    });
+
+    await expect(client.requestAccessibility()).rejects.toThrow('computer_use_helper_missing');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('maps a requestAccessibility protocol version mismatch to the stable error', async () => {
+    const run = vi.fn<DesktopHelperRunner>(async (_path, input) => {
+      const request = JSON.parse(input) as { id: string };
+      return {
+        stdout: response(request.id, { trusted: true }, '9.0.0'),
+        stderr: '',
+      };
+    });
+    const client = new BundledDarwinHelperClient({
+      helperPath: '/present/desktop-helper',
+      pathExists: () => true,
+      run,
+    });
+
+    await expect(client.requestAccessibility())
+      .rejects.toThrow('computer_use_helper_version_mismatch');
+  });
+
   it('maps helper app records into desktop descriptors', async () => {
     const run = vi.fn<DesktopHelperRunner>(async (_path, input) => {
       const request = JSON.parse(input) as { id: string };

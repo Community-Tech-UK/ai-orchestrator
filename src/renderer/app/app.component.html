@@ -36,6 +36,7 @@
       </button>
     }
     <app-provider-quota-chip />
+    <app-computer-use-permission-chip />
     @if (resumeToast(); as toast) {
       <span class="title-activity-chip" title="Queued paused traffic is resuming">
         Sending {{ toast.queuedTotal }}
@@ -74,6 +75,10 @@
   @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
     <app-pause-banner />
   }
+
+  <app-update-banner />
+
+  <app-computer-use-permission-banner />
 
   <main class="app-main">
     @if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'unset') {

@@ -1,0 +1,30 @@
+- generic [ref=e3]:
+  - button "Provider quota details" [ref=e8] [cursor=pointer]:
+    - generic [ref=e10]: —
+  - main [ref=e12]:
+    - generic [ref=e14]:
+      - button "Back to workspace" [ref=e16] [cursor=pointer]:
+        - generic [ref=e19]: Back
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - paragraph [ref=e22]: Setup & readiness
+          - heading "Setup status" [level=1] [ref=e23]
+          - paragraph [ref=e24]: Readiness checks are not available in this environment.
+        - generic [ref=e25]:
+          - button "Re-check" [ref=e26] [cursor=pointer]
+          - button "Go to workspace" [ref=e27] [cursor=pointer]
+      - generic [ref=e28]:
+        - paragraph [ref=e29]: Readiness checks aren't available
+        - paragraph [ref=e30]: Startup capability data is only collected when running the desktop app. Try again once the orchestrator has finished starting up.
+        - button "Try again" [ref=e31] [cursor=pointer]
+  - region "Terminal drawer" [ref=e32]:
+    - generic [ref=e33]:
+      - heading "Remote Terminal" [level=3] [ref=e34]
+      - generic [ref=e35]:
+        - combobox "Working directory on the worker (must be inside an allowed root)" [ref=e36]
+        - button "Open" [ref=e37] [cursor=pointer]
+        - generic [ref=e38]: Error
+      - button "Close terminal drawer" [ref=e39] [cursor=pointer]: ×
+    - generic [ref=e40]:
+      - paragraph [ref=e41]: Terminal drawer is not available in this context.
+      - generic "Terminal output" [ref=e42]

@@ -18,6 +18,7 @@ import type {
   DesktopHealthData,
   DesktopHotkeyRequest,
   DesktopListGrantsRequest,
+  DesktopPermissionRequestResult,
   DesktopQueryElementsRequest,
   DesktopQueryElementsResult,
   DesktopRevokeGrantRequest,
@@ -26,6 +27,7 @@ import type {
   DesktopScreenshotRequest,
   DesktopScreenshotResult,
   DesktopSessionLockHolder,
+  DesktopSystemPermission,
   DesktopTypeTextRequest,
   DesktopWaitForRequest,
   DesktopWaitForResult,
@@ -487,6 +489,48 @@ export class DesktopGatewayService {
       grantId: request.grantId,
     }, owned.appId, request.grantId);
     return allowed({ grantId: request.grantId, revoked: Boolean(revoked) });
+  }
+
+  /**
+   * Operator-only macOS system-permission request (Settings tab, permission
+   * banner/chip). Never exposed as an agent MCP tool and never accepts a
+   * caller-supplied instance context: it always audits under the stable
+   * operator id with safe permission/state metadata only.
+   */
+  async requestSystemPermissionForOperator(
+    permission: DesktopSystemPermission,
+  ): Promise<DesktopGatewayResult<DesktopPermissionRequestResult>> {
+    if (!this.isEnabled()) {
+      await this.audit(
+        OPERATOR_CONTEXT,
+        'computer.request_permission',
+        'denied',
+        'not_run',
+        'computer_use_disabled',
+        { permission },
+      );
+      return denied('computer_use_disabled');
+    }
+    try {
+      const result = await this.driver.requestSystemPermission(permission);
+      await this.audit(OPERATOR_CONTEXT, 'computer.request_permission', 'allowed', 'ok', undefined, {
+        permission,
+        state: result.state,
+        nativeRequestAttempted: result.nativeRequestAttempted,
+      });
+      return allowed(result);
+    } catch (error) {
+      const reason = errorReason(error, 'computer_use_driver_failed');
+      await this.audit(
+        OPERATOR_CONTEXT,
+        'computer.request_permission',
+        'denied',
+        'failed',
+        reason,
+        { permission },
+      );
+      return denied(reason, 'failed');
+    }
   }
 
   /**

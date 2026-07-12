@@ -51,8 +51,8 @@ class BetterSqlite3Driver implements SqliteDriver {
     return this.db.transaction(fn) as (...args: A) => R;
   }
 
-  backup(destPath: string): void {
-    this.db.backup(destPath);
+  async backup(destPath: string): Promise<void> {
+    await this.db.backup(destPath);
   }
 
   close(): void {

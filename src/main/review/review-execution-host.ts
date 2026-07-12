@@ -3,6 +3,8 @@ import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getSettingsManager } from '../core/config/settings-manager';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
+import { resolveAntigravityReviewModelPlan } from '../orchestration/antigravity-review-model-routing';
 
 /**
  * Resolve the model a given reviewer CLI should run with for cross-model review.
@@ -30,7 +32,13 @@ export function resolveReviewerModelOverride(provider: string): string | undefin
 export interface ReviewExecutionHost {
   getWorkingDirectory(instanceId: string): string | undefined;
   getTaskDescription(instanceId: string): string | undefined;
-  dispatchReviewerPrompt(provider: string, prompt: string, cwd: string, signal: AbortSignal): Promise<string>;
+  dispatchReviewerPrompt(
+    provider: string,
+    prompt: string,
+    cwd: string,
+    signal: AbortSignal,
+    options?: { modelOverride?: string },
+  ): Promise<string>;
 }
 
 export interface HeadlessReviewRequest {
@@ -113,13 +121,22 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
     prompt: string,
     cwd: string,
     signal: AbortSignal,
+    options?: { modelOverride?: string },
   ): Promise<string> {
     if (signal.aborted) {
       throw new Error('Review cancelled');
     }
 
     const resolvedCli = await resolveCliType(provider as SettingsCliType);
-    const reviewerModel = resolveReviewerModelOverride(provider);
+    const configuredModel = resolveReviewerModelOverride(provider);
+    const reviewerModel = options && Object.hasOwn(options, 'modelOverride')
+      ? options.modelOverride
+      : provider === 'antigravity'
+        ? resolveAntigravityReviewModelPlan(
+            configuredModel,
+            getProviderQuotaService().getSnapshot('antigravity'),
+          )[0]
+        : configuredModel;
     const adapter = getProviderRuntimeService().createAdapter({
       cliType: resolvedCli,
       options: {

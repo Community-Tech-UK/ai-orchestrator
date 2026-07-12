@@ -147,6 +147,22 @@ export interface LoopIteration {
   childInstanceId: string | null;
   tokens: number;
   costCents: number;
+  /**
+   * Cache-read input tokens. Billed at ~10% of the input rate, so folding these
+   * into a flat per-token estimate massively overstates cost — see the pricing
+   * note on {@link LoopIteration.costKnown}.
+   */
+  cacheReadTokens?: number;
+  /** Cache-creation ("write") input tokens. Billed at the full input rate. */
+  cacheWriteTokens?: number;
+  /** Resolved model for this iteration, so cost can be re-derived per-model. */
+  model?: string;
+  /**
+   * True when the provider reported an authoritative dollar cost
+   * (e.g. Claude's `total_cost_usd`). False means `costCents` was derived from
+   * token counts via `computeTokenCost` and is an estimate.
+   */
+  costKnown?: boolean;
   filesChanged: LoopFileChange[];
   /** Workspace-relative paths read by this iteration when the invoker can observe them. */
   filesRead?: string[];

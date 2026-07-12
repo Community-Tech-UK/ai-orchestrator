@@ -5,6 +5,17 @@ export interface ParsedPairingConfig {
   name?: string;
   authToken: string;
   coordinatorUrl: string;
+  /**
+   * Additional coordinator URLs to try when `coordinatorUrl` is unreachable,
+   * in order. The rest of the worker already supports this end-to-end
+   * (`WorkerConfig.coordinatorUrls`, `getConfiguredCoordinatorUrl()`,
+   * `worker-agent.ts` dialling, `worker-mode-runtime-service.ts`) — only the
+   * pair CLI was silently dropping the list, so a Connection Config offering
+   * both a Tailscale hostname and a LAN IP lost its fallback at pairing time.
+   *
+   * Rescued from tag `preserve/pair-both-wip`. Never contains `coordinatorUrl`.
+   */
+  coordinatorUrls?: string[];
   namespace: string;
   maxConcurrentInstances: number;
   workingDirectories: string[];
@@ -60,6 +71,15 @@ export function writePairedWorkerConfig(
     maxConcurrentInstances: parsed.maxConcurrentInstances,
     workingDirectories: [...parsed.workingDirectories],
   };
+  // Persist the fallback list so `getConfiguredCoordinatorUrl()` can use it.
+  // Re-pairing without a list must CLEAR a stale one rather than inherit it
+  // from `...existing`, otherwise a worker keeps dialling a coordinator the
+  // operator has since removed.
+  if (parsed.coordinatorUrls && parsed.coordinatorUrls.length > 0) {
+    next.coordinatorUrls = [...parsed.coordinatorUrls];
+  } else {
+    delete next.coordinatorUrls;
+  }
   delete next.nodeToken;
   delete next.recoveryToken;
   persistConfig(configPath, next);
@@ -114,6 +134,7 @@ function parseJsonPairingConfig(input: string): ParsedPairingConfig {
     name: firstString(config['name']),
     authToken: firstString(config['authToken'], config['token']),
     coordinatorUrl,
+    coordinatorUrls: config['coordinatorUrls'],
     namespace: firstString(config['namespace']),
     maxConcurrentInstances: config['maxConcurrentInstances'],
     workingDirectories: config['workingDirectories'],
@@ -124,6 +145,7 @@ function normalizedParsedConfig(input: {
   name?: string;
   authToken?: string;
   coordinatorUrl?: string;
+  coordinatorUrls?: unknown;
   namespace?: string;
   maxConcurrentInstances?: unknown;
   workingDirectories?: unknown;
@@ -142,15 +164,37 @@ function normalizedParsedConfig(input: {
   const maxConcurrentInstances = isPositiveInteger(input.maxConcurrentInstances)
     ? input.maxConcurrentInstances
     : DEFAULT_MAX_CONCURRENT_INSTANCES;
+  const coordinatorUrls = normalizeCoordinatorUrls(input.coordinatorUrls, coordinatorUrl);
 
   return {
     ...(name ? { name } : {}),
     authToken,
     coordinatorUrl,
+    // Omitted entirely when empty, so an unpaired-from-link config keeps the
+    // same shape it had before this field existed.
+    ...(coordinatorUrls.length > 0 ? { coordinatorUrls } : {}),
     namespace: input.namespace?.trim() || DEFAULT_NAMESPACE,
     maxConcurrentInstances,
     workingDirectories: normalizeWorkingDirectoryInput(input.workingDirectories),
   };
+}
+
+/**
+ * Normalize the fallback coordinator list: drop non-strings and unparseable
+ * URLs, dedupe, and exclude `primary` (which is already `coordinatorUrl`) so a
+ * config listing the primary in both places doesn't dial it twice.
+ */
+function normalizeCoordinatorUrls(value: unknown, primary: string): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>([primary]);
+  const urls: string[] = [];
+  for (const entry of value) {
+    const url = typeof entry === 'string' ? normalizeCoordinatorUrl(entry) : undefined;
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+  }
+  return urls;
 }
 
 function coordinatorFromHostPort(input: {

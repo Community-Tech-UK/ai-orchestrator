@@ -5,6 +5,8 @@ import type {
   DesktopGatewayResult,
   DesktopGrantSummary,
   DesktopHealthData,
+  DesktopPermissionActionResult,
+  DesktopSystemPermission,
 } from '../../../../../shared/types/desktop-gateway.types';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
@@ -53,11 +55,15 @@ export class DesktopGatewayIpcService {
     return this.call(() => this.api?.desktopGetAuditLog(payload));
   }
 
-  async openPermissionSettings(
-    permission: 'screen-recording' | 'accessibility',
-  ): Promise<IpcResponse> {
-    const response = await this.api?.desktopOpenPermissionSettings({ permission });
-    return response ?? { success: false, error: { message: 'Not in Electron' } };
+  /**
+   * Operator request-and-open flow: performs the real native permission
+   * request in the main process, then opens the correct System Settings pane
+   * (with root fallback) when the permission is still missing.
+   */
+  async requestSystemPermission(
+    permission: DesktopSystemPermission,
+  ): Promise<DesktopGatewayIpcResponse<DesktopPermissionActionResult>> {
+    return this.call(() => this.api?.desktopRequestSystemPermission({ permission }));
   }
 
   private async call<T>(

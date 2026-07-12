@@ -16,17 +16,17 @@ import { copyDirectoryRecursive, getDirectorySize } from './rlm-content';
  * Create a backup of the database.
  * Uses SQLite's backup API for WAL-safe consistent backups.
  */
-export function backupDatabase(
+export async function backupDatabase(
   db: SqliteDriver,
   contentDir: string,
   targetPath: string,
   options?: { includeContent?: boolean }
-): {
+): Promise<{
   dbBackupPath: string;
   contentBackupPath?: string;
   dbSizeBytes: number;
   contentSizeBytes?: number;
-} {
+}> {
   const includeContent = options?.includeContent ?? true;
 
   // Ensure target directory exists
@@ -37,7 +37,7 @@ export function backupDatabase(
 
   // Use SQLite's backup API via better-sqlite3's backup method
   // This is WAL-safe and creates a consistent snapshot
-  db.backup(targetPath);
+  await db.backup(targetPath);
 
   const dbStats = fs.statSync(targetPath);
   const result: {

@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   SETTINGS_METADATA,
   type AppSettings,
+  type OrchestrationRoutingPolicyKey,
 } from '../../../shared/types/settings.types';
 import type {
   AuxiliaryLlmProvider,
@@ -134,6 +135,25 @@ const auxiliarySlotMapSchema = z.object({
   verifyOutputSummary: auxiliarySlotSchema.optional(),
 } satisfies Record<AuxiliaryLlmSlot, z.ZodOptional<typeof auxiliarySlotSchema>>).strict();
 const auxiliarySlotPayloadSchema = jsonBackedObjectSchema(auxiliarySlotMapSchema);
+
+// Operator routing policy: which model tier each orchestration gate uses.
+// `.strict()` so an unknown gate name is rejected loudly rather than silently
+// ignored — a typo'd key would otherwise leave that gate on its default and
+// look like the setting simply didn't work.
+const orchestrationRoutingPolicyValueSchema = z.enum(['auto', 'fast', 'balanced', 'powerful']);
+const orchestrationRoutingPolicyMapSchema = z.object({
+  loop: orchestrationRoutingPolicyValueSchema.optional(),
+  workflow: orchestrationRoutingPolicyValueSchema.optional(),
+  verify: orchestrationRoutingPolicyValueSchema.optional(),
+  review: orchestrationRoutingPolicyValueSchema.optional(),
+  debate: orchestrationRoutingPolicyValueSchema.optional(),
+  debateSynthesis: orchestrationRoutingPolicyValueSchema.optional(),
+} satisfies Record<
+  OrchestrationRoutingPolicyKey,
+  z.ZodOptional<typeof orchestrationRoutingPolicyValueSchema>
+>).strict();
+const orchestrationRoutingPolicySchema = jsonBackedObjectSchema(orchestrationRoutingPolicyMapSchema);
+
 const workerModeSchema = z.object({
   role: z.enum(['unset', 'coordinator', 'worker']),
   startWorkerOnLaunch: z.boolean(),
@@ -249,6 +269,7 @@ export const SETTINGS_TOOL_POLICY = {
   crossModelReviewTimeout: open(numberSettingSchema('crossModelReviewTimeout')),
   crossModelReviewTypes: open(z.array(reviewTypeSchema).max(3)),
   crossModelReviewModelByProvider: open(modelByProviderSchema),
+  loopModelByProvider: open(modelByProviderSchema),
   crossModelReviewLocalEnabled: open(z.boolean()),
   crossModelReviewLocalSelectorId: open(settingStringSchema),
   crossModelReviewLocalTimeout: open(z.number().finite().int().min(10).max(600)),
@@ -328,6 +349,11 @@ export const SETTINGS_TOOL_POLICY = {
   auxiliaryLlmQuickModel: open(modelIdSchema),
   auxiliaryLlmQualityModel: open(modelIdSchema),
   auxiliaryLlmRoutingClassificationEnabled: open(z.boolean()),
+  // Strictly validated rather than a free-form string: a bad tier name here
+  // would silently fall back to the default for that gate, hiding the typo.
+  // Agent-writable, consistent with defaultModel / modelUsageByKey, which also
+  // steer spend. It cannot escalate privilege — only pick a model tier.
+  orchestrationRoutingPolicyJson: open(orchestrationRoutingPolicySchema),
 
   // Reactions (event-driven re-prompting)
   reactionsEnabled: open(z.boolean()),

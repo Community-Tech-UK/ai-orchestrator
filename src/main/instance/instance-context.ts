@@ -157,6 +157,7 @@ export class InstanceContextManager implements InstanceContextPort {
    */
   async initializeRlm(instance: Instance): Promise<void> {
     try {
+      instance.rlmStoreSessionId = instance.sessionId;
       const rlmStore = this.rlm.createStore(instance.sessionId);
       this.instanceRlmStores.set(instance.id, rlmStore.id);
       logger.info('Created RLM store for session', { storeId: rlmStore.id, sessionId: instance.sessionId });
@@ -264,6 +265,10 @@ export class InstanceContextManager implements InstanceContextPort {
     }
 
     logger.info('Context compaction complete', { instanceId });
+  }
+
+  async reloadRlmPersistence(): Promise<void> {
+    this.rlm.reloadFromPersistence();
   }
 
   // ============================================

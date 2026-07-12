@@ -39,6 +39,7 @@ export const aliases = {
   '@contracts/schemas/loop': resolve(configDir, './packages/contracts/src/schemas/loop.schemas'),
   '@contracts/schemas/campaign': resolve(configDir, './packages/contracts/src/schemas/campaign.schemas'),
   '@contracts/schemas/doc-review': resolve(configDir, './packages/contracts/src/schemas/doc-review.schemas'),
+  '@contracts/schemas/rlm-maintenance': resolve(configDir, './packages/contracts/src/schemas/rlm-maintenance.schemas'),
   '@contracts/channels/automation': resolve(configDir, './packages/contracts/src/channels/automation.channels'),
   '@contracts/channels/campaign': resolve(configDir, './packages/contracts/src/channels/campaign.channels'),
   '@contracts/channels/pause': resolve(configDir, './packages/contracts/src/channels/pause.channels'),

@@ -129,6 +129,11 @@ export interface GetStatsMsg {
   id: number;
 }
 
+export interface ReloadRlmPersistenceMsg {
+  type: 'reload-rlm-persistence';
+  id: number;
+}
+
 export interface ShutdownMsg {
   type: 'shutdown';
   id: number;
@@ -167,6 +172,7 @@ export type ContextWorkerRpcMsg =
   | CompactContextMsg
   | IngestInitialOutputMsg
   | GetStatsMsg
+  | ReloadRlmPersistenceMsg
   | ShutdownMsg;
 
 export type ContextWorkerFireForgetMsg =

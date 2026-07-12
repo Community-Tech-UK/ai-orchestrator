@@ -3,7 +3,8 @@ import * as path from 'node:path';
 import {
   GeminiUsageEndpointProbe,
   discoverGeminiOAuthClient,
-  parseGeminiQuotaPayload,
+  parseGeminiQuotaSummary,
+  type AgyCredentialReadFn,
   type GeminiOAuthDiscoveryDeps,
   type GeminiQuotaFileReader,
   type GeminiQuotaFetch,
@@ -19,6 +20,31 @@ const CREDS_JSON = JSON.stringify({
   refresh_token: 'gemini-refresh-token',
 });
 
+/** The real AGY summary shape (groups → buckets), as returned live by AGY 1.1.1. */
+function summaryBody(): unknown {
+  return {
+    groups: [
+      {
+        displayName: 'Gemini Models',
+        description: 'Models within this group: Gemini Flash, Gemini Pro',
+        buckets: [
+          { bucketId: 'gemini-weekly', displayName: 'Weekly Limit', window: 'weekly',
+            remainingFraction: 0.5923018, resetTime: '2026-07-17T18:56:30Z' },
+          { bucketId: 'gemini-5h', displayName: 'Five Hour Limit', window: '5h',
+            remainingFraction: 0.7703905, resetTime: '2026-07-11T21:31:54Z' },
+        ],
+      },
+      {
+        displayName: 'Claude and GPT models',
+        buckets: [
+          { bucketId: '3p-weekly', displayName: 'Weekly Limit', window: 'weekly', remainingFraction: 1 },
+          { bucketId: '3p-5h', displayName: 'Five Hour Limit', window: '5h', remainingFraction: 1 },
+        ],
+      },
+    ],
+  };
+}
+
 function reader(files: Record<string, string | null>): GeminiQuotaFileReader {
   return async (filePath) => {
     for (const [suffix, content] of Object.entries(files)) {
@@ -33,25 +59,20 @@ function reader(files: Record<string, string | null>): GeminiQuotaFileReader {
 
 /** Default test discovery: never hit the real filesystem for the OAuth client. */
 const noDiscovery: GeminiOAuthClientDiscovery = async () => null;
+/** Default keyring reader: unavailable, so tests exercise the file fallback. */
+const noKeychain: AgyCredentialReadFn = async () => ({ credential: null, reason: 'not-found' });
 
 describe('GeminiUsageEndpointProbe', () => {
-  it('reads OAuth creds and a configured project, then returns grouped quota percentages', async () => {
+  it('falls back to OAuth creds + a configured project when no keyring credential, then returns grouped windows', async () => {
     const calls: { token: string; project: string }[] = [];
     const fetchQuota: GeminiQuotaFetch = async (token, project) => {
       calls.push({ token, project });
-      return {
-        status: 200,
-        body: {
-          buckets: [
-            { modelId: 'gemini-2.5-pro', remainingFraction: 0.25, resetTime: '2026-06-06T00:00:00Z' },
-            { modelId: 'gemini-2.5-flash', remainingFraction: 0.9, resetTime: '2026-06-06T00:00:00Z' },
-          ],
-        },
-      };
+      return { status: 200, body: summaryBody() };
     };
 
     const probe = new GeminiUsageEndpointProbe({
       readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      readAgyCredential: noKeychain,
       projectId: 'cloudaicompanion-prod',
       fetchQuota,
       discoverOAuthClient: noDiscovery,
@@ -61,20 +82,38 @@ describe('GeminiUsageEndpointProbe', () => {
 
     expect(calls).toEqual([{ token: 'gemini-access-token', project: 'cloudaicompanion-prod' }]);
     expect(snap).toMatchObject({ provider: 'antigravity', ok: true, source: 'admin-api' });
-    expect(snap!.windows).toEqual([
-      expect.objectContaining({
-        id: 'gemini.pro-daily',
-        label: 'Pro daily',
-        used: 75,
-        remaining: 25,
-      }),
-      expect.objectContaining({
-        id: 'gemini.flash-daily',
-        label: 'Flash daily',
-        used: 10,
-        remaining: 90,
-      }),
+    // Five-hour before weekly within each group; Gemini group first.
+    expect(snap!.windows.map((w) => `${w.id}|${w.label}|${w.used}`)).toEqual([
+      'antigravity.gemini-5h|Gemini · 5-hour|22.961',
+      'antigravity.gemini-weekly|Gemini · weekly|40.77',
+      'antigravity.3p-5h|Claude/GPT · 5-hour|0',
+      'antigravity.3p-weekly|Claude/GPT · weekly|0',
     ]);
+    expect(snap!.windows[0]).toMatchObject({
+      kind: 'rolling-window',
+      unit: 'requests',
+      limit: 100,
+      resetsAt: Date.parse('2026-07-11T21:31:54Z'),
+    });
+  });
+
+  it('prefers the AGY keyring credential over the oauth_creds.json file', async () => {
+    const calls: string[] = [];
+    const fetchQuota: GeminiQuotaFetch = async (token) => {
+      calls.push(token);
+      return { status: 200, body: summaryBody() };
+    };
+    const probe = new GeminiUsageEndpointProbe({
+      // Both sources present — the keyring token must win.
+      readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      readAgyCredential: async () => ({ credential: { accessToken: 'agy-keyring-token', expiresAt: 0 } }),
+      projectId: 'cloudaicompanion-prod',
+      fetchQuota,
+      discoverOAuthClient: noDiscovery,
+    });
+    const snap = await probe.probe({ signal: new AbortController().signal });
+    expect(calls).toEqual(['agy-keyring-token']);
+    expect(snap!.ok).toBe(true);
   });
 
   it('seeds the project id self-healingly via loadCodeAssist', async () => {
@@ -83,14 +122,11 @@ describe('GeminiUsageEndpointProbe', () => {
       loadCalls.push(token);
       return { status: 200, project: 'pure-gravity-nm5x8' };
     };
-    const fetchQuota: GeminiQuotaFetch = async (_token, project) => ({
-      status: 200,
-      body: { buckets: [{ modelId: 'gemini-2.5-pro', remainingFraction: 0.5 }] },
-      projectSeen: project,
-    } as { status: number; body: unknown; projectSeen: string });
+    const fetchQuota: GeminiQuotaFetch = async () => ({ status: 200, body: summaryBody() });
 
     const probe = new GeminiUsageEndpointProbe({
       readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      readAgyCredential: noKeychain,
       fetchLoadCodeAssist,
       fetchQuota,
       discoverOAuthClient: noDiscovery,
@@ -106,17 +142,13 @@ describe('GeminiUsageEndpointProbe', () => {
     expect(snap2!.ok).toBe(true);
   });
 
-  it('refreshes an expired token using a discovered OAuth client without touching the refresh token', async () => {
+  it('refreshes an expired file token using a discovered OAuth client without touching the refresh token', async () => {
     const refreshes: string[] = [];
     const refreshToken: GeminiTokenRefreshFetch = async (refreshTokenValue) => {
       refreshes.push(refreshTokenValue);
       return { accessToken: 'fresh-access-token', expiresInSec: 3600 };
     };
-    const fetchQuota: GeminiQuotaFetch = async (token) => ({
-      status: 200,
-      body: { buckets: [{ modelId: 'gemini-2.5-pro', remainingFraction: 0.5 }] },
-      tokenSeen: token,
-    } as { status: number; body: unknown; tokenSeen: string });
+    const fetchQuota: GeminiQuotaFetch = async () => ({ status: 200, body: summaryBody() });
 
     const probe = new GeminiUsageEndpointProbe({
       readFile: reader({
@@ -126,6 +158,7 @@ describe('GeminiUsageEndpointProbe', () => {
           refresh_token: 'existing-refresh-token',
         }),
       }),
+      readAgyCredential: noKeychain,
       projectId: 'cloudaicompanion-prod',
       refreshToken,
       fetchQuota,
@@ -149,10 +182,7 @@ describe('GeminiUsageEndpointProbe', () => {
       refreshCalls.push(opts);
       return { accessToken: 'fresh-access-token', expiresInSec: 3600 };
     };
-    const fetchQuota: GeminiQuotaFetch = async () => ({
-      status: 200,
-      body: { buckets: [{ modelId: 'gemini-2.5-pro', remainingFraction: 0.5 }] },
-    });
+    const fetchQuota: GeminiQuotaFetch = async () => ({ status: 200, body: summaryBody() });
 
     const probe = new GeminiUsageEndpointProbe({
       readFile: reader({
@@ -164,6 +194,7 @@ describe('GeminiUsageEndpointProbe', () => {
           client_secret: 'fixture-client-marker',
         }),
       }),
+      readAgyCredential: noKeychain,
       projectId: 'cloudaicompanion-prod',
       refreshToken,
       fetchQuota,
@@ -181,9 +212,10 @@ describe('GeminiUsageEndpointProbe', () => {
     ]);
   });
 
-  it('flags needsReauth when there is no credential file (signed out)', async () => {
+  it('flags needsReauth when neither keyring nor credential file is available (signed out)', async () => {
     const probe = new GeminiUsageEndpointProbe({
       readFile: reader({ 'oauth_creds.json': null }),
+      readAgyCredential: noKeychain,
       projectId: 'cloudaicompanion-prod',
       discoverOAuthClient: noDiscovery,
     });
@@ -193,7 +225,7 @@ describe('GeminiUsageEndpointProbe', () => {
     expect(snap!.error).toMatch(/not signed in/i);
   });
 
-  it('flags needsReauth when the token is expired and cannot be refreshed', async () => {
+  it('flags needsReauth when the file token is expired and cannot be refreshed', async () => {
     const probe = new GeminiUsageEndpointProbe({
       readFile: reader({
         'oauth_creds.json': JSON.stringify({
@@ -202,6 +234,7 @@ describe('GeminiUsageEndpointProbe', () => {
           refresh_token: 'existing-refresh-token',
         }),
       }),
+      readAgyCredential: noKeychain,
       projectId: 'cloudaicompanion-prod',
       // No env client, no creds client, discovery returns nothing → can't refresh.
       discoverOAuthClient: noDiscovery,
@@ -216,6 +249,7 @@ describe('GeminiUsageEndpointProbe', () => {
     const fetchQuota: GeminiQuotaFetch = async () => ({ status: 401, body: {} });
     const probe = new GeminiUsageEndpointProbe({
       readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      readAgyCredential: noKeychain,
       projectId: 'cloudaicompanion-prod',
       fetchQuota,
       discoverOAuthClient: noDiscovery,
@@ -225,26 +259,38 @@ describe('GeminiUsageEndpointProbe', () => {
     expect(snap!.needsReauth).toBe(true);
   });
 
-  it('parses quota buckets by model family using the lowest remaining fraction', () => {
-    const windows = parseGeminiQuotaPayload({
-      buckets: [
-        { modelId: 'gemini-2.5-pro', remainingFraction: 0.8 },
-        { modelId: 'gemini-1.5-pro', remainingFraction: 0.2 },
-        { modelId: 'gemini-2.5-flash-lite', remainingFraction: 0.7 },
-        { modelId: 'gemini-2.5-flash', remainingFraction: 0.4 },
+  it('parses summary groups into five-hour/weekly windows with clamped used percentages', () => {
+    const windows = parseGeminiQuotaSummary(summaryBody() as Parameters<typeof parseGeminiQuotaSummary>[0]);
+    expect(windows.map((w) => `${w.id}:${w.used}%`)).toEqual([
+      'antigravity.gemini-5h:22.961%',
+      'antigravity.gemini-weekly:40.77%',
+      'antigravity.3p-5h:0%',
+      'antigravity.3p-weekly:0%',
+    ]);
+  });
+
+  it('normalizes an unknown future group when it carries a display name and remaining fraction', () => {
+    const windows = parseGeminiQuotaSummary({
+      groups: [
+        {
+          displayName: 'Future Models',
+          buckets: [
+            { bucketId: 'future-5h', displayName: 'Five Hour Limit', window: '5h', remainingFraction: 0.25 },
+            { displayName: 'Odd bucket', window: 'monthly', remainingFraction: 0.5 },
+          ],
+        },
       ],
     });
-
-    expect(windows.map((w) => `${w.id}:${w.used}%`)).toEqual([
-      'gemini.pro-daily:80%',
-      'gemini.flash-lite-daily:30%',
-      'gemini.flash-daily:60%',
+    expect(windows).toEqual([
+      expect.objectContaining({ id: 'antigravity.future-5h', label: 'Future Models · 5-hour', used: 75 }),
+      expect.objectContaining({ id: 'antigravity.future-models-monthly', label: 'Future Models · monthly', used: 50 }),
     ]);
   });
 
   it('returns ok=false when loadCodeAssist cannot seed a project id', async () => {
     const probe = new GeminiUsageEndpointProbe({
       readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      readAgyCredential: noKeychain,
       fetchLoadCodeAssist: async () => ({ status: 200, project: null }),
       discoverOAuthClient: noDiscovery,
     });

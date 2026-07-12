@@ -4,6 +4,34 @@ export type DesktopCapabilityState =
   | 'unavailable'
   | 'unsupported';
 
+/**
+ * The macOS system permissions Harness can request/register on the operator's
+ * behalf. A closed enum: the renderer can never supply an arbitrary permission
+ * or URL through this seam.
+ */
+export type DesktopSystemPermission = 'screen-recording' | 'accessibility';
+
+/**
+ * Result of a user-initiated native permission request performed by the
+ * process that owns the protected capability (Electron for Screen Recording,
+ * the bundled Swift helper for Accessibility).
+ */
+export interface DesktopPermissionRequestResult {
+  permission: DesktopSystemPermission;
+  /** Capability state re-read after the native request (or current state when no request ran). */
+  state: DesktopCapabilityState;
+  /** True when a real native request/registration was attempted this call. */
+  nativeRequestAttempted: boolean;
+}
+
+/**
+ * The renderer-facing action result: the driver request result plus whether a
+ * System Settings pane (exact pane or Privacy & Security root) was opened.
+ */
+export interface DesktopPermissionActionResult extends DesktopPermissionRequestResult {
+  settingsOpened: boolean;
+}
+
 export type DesktopPolicyStatus =
   | 'allowed'
   | 'denied'

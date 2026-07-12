@@ -87,7 +87,7 @@ export class GeminiQuotaProbe implements ProviderQuotaProbe {
     this.settingsPath = path.join(configDir, 'settings.json');
     this.readFile = opts.readFile ?? defaultReader;
     this.checkAntigravityCli = opts.checkAntigravityCli
-      ?? defaultAntigravityCliAuthCheck(opts.antigravityCliTimeoutMs);
+      ?? createAntigravityCliAuthCheck(opts.antigravityCliTimeoutMs);
   }
 
   async probe(opts: { signal?: AbortSignal } = {}): Promise<ProviderQuotaSnapshot | null> {
@@ -203,7 +203,7 @@ const defaultReader: GeminiFileReader = async (filePath) => {
   return fsReadFile(filePath, 'utf8');
 };
 
-function defaultAntigravityCliAuthCheck(timeoutMs = 5_000): AntigravityCliAuthCheck {
+export function createAntigravityCliAuthCheck(timeoutMs = 5_000): AntigravityCliAuthCheck {
   return async ({ signal }) => {
     return new Promise<boolean>((resolve) => {
       const proc = spawnChild(resolveAntigravityCliCommand(), ['models'], {

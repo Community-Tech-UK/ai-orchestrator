@@ -16,6 +16,7 @@ import { initializePathValidator } from '../security/path-validator';
 import { getLogger } from '../logging/logger';
 import { initTruncationCleanup } from '../util/tool-output-truncation';
 import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manager';
+import { reconcilePrivateCodexRolloutPaths } from '../cli/adapters/codex/codex-private-rollout-reconcile';
 import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-cleanup';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -70,6 +71,7 @@ import { setupInstanceEventForwarding } from './instance-event-forwarding';
 import { initializePauseFeatureRuntime } from './pause-feature-bootstrap';
 import { initializeMainProcessWatchdog } from '../runtime/main-process-watchdog';
 import { LongRunResourceGovernor } from '../runtime/long-run-resource-governor';
+import { RLM_STORAGE_HARD_LIMIT_BYTES } from '../../shared/types/rlm-maintenance.types';
 import { getEventLoopLagMonitor } from '../runtime/event-loop-lag-monitor';
 import { getContextWorkerClient } from '../instance/context-worker-client';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
@@ -415,6 +417,7 @@ export function createInitializationSteps(
     },
     { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
     { name: 'Leaked AIO Codex thread cleanup', fn: () => { cleanupLeakedAioCodexThreads(); } },
+    { name: 'Private Codex rollout-path reconcile', fn: () => { reconcilePrivateCodexRolloutPaths(); } },
     { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); } },
     { name: 'Artifact cleanup maintenance', fn: () => { initializeArtifactCleanupMaintenance(); } },
     {
@@ -427,7 +430,7 @@ export function createInitializationSteps(
           warnRssBytes: 12 * 1024 * 1024 * 1024,
           criticalRssBytes: 18 * 1024 * 1024 * 1024,
           maxCodememDbBytes: 25 * 1024 * 1024 * 1024,
-          maxRlmDbBytes: 12 * 1024 * 1024 * 1024,
+          maxRlmDbBytes: RLM_STORAGE_HARD_LIMIT_BYTES,
         });
         let codememMaintenanceRunning = false;
         let lastCodememMaintenanceStartedAt = 0;
@@ -437,7 +440,8 @@ export function createInitializationSteps(
           const decision = longRunGovernor.evaluate({
             rssBytes: process.memoryUsage().rss,
             codememDbBytes: safeFileSize(path.join(userDataPath, 'codemem.sqlite')),
-            rlmDbBytes: safeFileSize(path.join(userDataPath, 'rlm', 'rlm.db')),
+            rlmDbBytes: safeFileSize(path.join(userDataPath, 'rlm', 'rlm.db'))
+              + safeFileSize(path.join(userDataPath, 'rlm', 'rlm.db-wal')),
             contextWorkerDegraded: getContextWorkerClient().getMetrics().degraded,
             indexWorkerDegraded: codemem.indexWorkerGateway.getMetrics().degraded,
           });

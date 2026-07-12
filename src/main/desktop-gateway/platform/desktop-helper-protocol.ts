@@ -9,11 +9,12 @@ import type {
   DesktopTypeTextRequest,
 } from '../../../shared/types/desktop-gateway.types';
 
-export const DESKTOP_HELPER_PROTOCOL_VERSION = '1.0.0';
+export const DESKTOP_HELPER_PROTOCOL_VERSION = '1.1.0';
 export const DESKTOP_HELPER_MAX_LINE_BYTES = 1024 * 1024;
 
 export type DesktopHelperCommandName =
   | 'health'
+  | 'requestAccessibility'
   | 'listApps'
   | 'accessibilitySnapshot'
   | 'click'
@@ -41,6 +42,13 @@ export interface DesktopHelperHealth {
 
 export interface DesktopHelperClient {
   health(): Promise<DesktopHelperHealth>;
+  /**
+   * Invoke the macOS Accessibility prompt (`AXIsProcessTrustedWithOptions`
+   * with `kAXTrustedCheckOptionPrompt: true`) and return the *current* trust
+   * state. Apple's prompt is asynchronous, so `false` is an expected result
+   * immediately after a first-time prompt — not an execution error.
+   */
+  requestAccessibility(): Promise<boolean>;
   listApps(): Promise<DesktopAppDescriptor[]>;
   accessibilitySnapshot(
     request: DesktopAccessibilitySnapshotRequest,

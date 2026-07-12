@@ -1,5 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { sep } from 'node:path';
 import type { SqliteDriver } from '../../../db/sqlite-driver';
 
 export interface CodexLeakedStateSnapshot {
@@ -62,7 +63,7 @@ export function captureLeakedCodexState(
   return { threadIds, fingerprint: stableSerialize(tables) };
 }
 
-function isOwnedAioRolloutPath(rolloutPath: string, tempRoots: readonly string[]): boolean {
+export function isOwnedAioRolloutPath(rolloutPath: string, tempRoots: readonly string[]): boolean {
   const normalizedPath = normalizePath(rolloutPath);
   return tempRoots.some((root) => {
     const comparablePath = comparablePathForRoot(normalizedPath, root);
@@ -74,6 +75,23 @@ function isOwnedAioRolloutPath(rolloutPath: string, tempRoots: readonly string[]
     return ['codex-browser-mcp-', 'codex-nomcp-', 'codex-aio-']
       .some((prefix) => homeName.startsWith(prefix) && homeName.length > prefix.length);
   });
+}
+
+/**
+ * Compute the persistent AIO-store path for a disposable temp-home rollout
+ * path, mirroring the SQL rewrite in `rewritePrivateRolloutPaths`: normalize
+ * backslashes, take everything after the first `/sessions/`, re-localize the
+ * separators, and root it under `sessionsDir`. Returns null when the path has
+ * no `/sessions/` segment (nothing safe to rewrite).
+ */
+export function persistentRolloutPathFor(rolloutPath: string, sessionsDir: string): string | null {
+  const normalized = rolloutPath.replaceAll('\\', '/');
+  const marker = '/sessions/';
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const suffix = normalized.slice(markerIndex + marker.length);
+  const localized = suffix.split('/').join(sep);
+  return `${sessionsDir}${sep}${localized}`;
 }
 
 function selectRows(db: SqliteDriver, table: string, where: string, params: readonly string[]): unknown[] {

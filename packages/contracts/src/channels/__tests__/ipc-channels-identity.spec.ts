@@ -30,4 +30,14 @@ describe('IPC_CHANNELS identity contract', () => {
       /export\s+type\s+\*\s+from\s+['"]@contracts\/types\/transport['"];?/,
     );
   });
+
+  it('defines the complete RLM storage maintenance channel surface', () => {
+    expect(IPC_CHANNELS).toMatchObject({
+      RLM_STORAGE_GET_HEALTH: 'rlm-storage:get-health',
+      RLM_STORAGE_PREVIEW_MAINTENANCE: 'rlm-storage:preview-maintenance',
+      RLM_STORAGE_RUN_MAINTENANCE: 'rlm-storage:run-maintenance',
+      RLM_STORAGE_GET_MAINTENANCE_STATUS: 'rlm-storage:get-maintenance-status',
+      RLM_STORAGE_MAINTENANCE_PROGRESS: 'rlm-storage:maintenance-progress',
+    });
+  });
 });

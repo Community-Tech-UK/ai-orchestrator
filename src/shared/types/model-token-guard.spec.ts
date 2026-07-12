@@ -29,8 +29,8 @@ const CONCRETE_CLAUDE_ID = /['"`]claude-(?:3|opus|sonnet|haiku)[-.][\w.\-]*['"`]
 
 // Files that legitimately contain raw model ids (data tables, not app logic).
 const ALLOWLIST = new Set<string>([
-  // legacy full id -> bare alias migration map
-  'src/main/core/config/settings-manager.ts',
+  // legacy full id -> bare alias migration map (moved out of settings-manager.ts)
+  'src/main/core/config/settings-migrations.ts',
   // historical pricing keyed by full API id (cost tracking for old models)
   'src/main/rlm/token-counter.ts',
   // generated models.dev catalog snapshot keyed by provider model ids

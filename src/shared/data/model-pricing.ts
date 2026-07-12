@@ -7,9 +7,10 @@
  * Codex/Gemini used a flat $30/M blended rate).
  *
  * Rates in `MODEL_PRICING` are USD per 1M tokens. Cache reads bill at ~10% of
- * the input rate; cache writes at the input rate (Anthropic-style prompt
- * caching). Reasoning/thinking tokens bill at the output rate, so callers
- * should fold them into `outputTokens`.
+ * the input rate. Cache writes bill at the input rate (Anthropic-style prompt
+ * caching) except on GPT-5.6 and later, where OpenAI charges 1.25x — see
+ * {@link getCacheWriteMultiplier}. Reasoning/thinking tokens bill at the output
+ * rate, so callers should fold them into `outputTokens`.
  *
  * Prefer a provider-reported dollar cost (e.g. Claude's `total_cost_usd`) when
  * one is available — it already accounts for the provider's exact cache
@@ -95,6 +96,34 @@ export function getModelRate(model: string | undefined | null): ModelRate {
 }
 
 /**
+ * OpenAI bills cache WRITES at 1.25x the uncached input rate for GPT-5.6 and
+ * later ("For GPT-5.6 and later models, cache writes are billed at 1.25x the
+ * model's uncached input rate, while cache reads continue to receive the 90%
+ * cached-input discount" — openai.com/index/gpt-5-6). Everything older, and
+ * Anthropic-style caching, writes at 1.0x.
+ */
+const OPENAI_CACHE_WRITE_MULTIPLIER = 1.25;
+
+/**
+ * Cache-write multiplier applied on top of the input rate for `model`.
+ *
+ * Version-compared rather than enumerated so the next GPT release inherits the
+ * correct billing instead of silently under-reporting until someone notices.
+ */
+export function getCacheWriteMultiplier(model: string | undefined | null): number {
+  if (!model) return 1;
+  const match = /^gpt-(\d+)(?:\.(\d+))?/.exec(model.trim().toLowerCase());
+  if (!match) return 1;
+
+  const major = Number.parseInt(match[1], 10);
+  const minor = match[2] ? Number.parseInt(match[2], 10) : 0;
+  if (!Number.isFinite(major)) return 1;
+
+  const isGpt56OrLater = major > 5 || (major === 5 && minor >= 6);
+  return isGpt56OrLater ? OPENAI_CACHE_WRITE_MULTIPLIER : 1;
+}
+
+/**
  * Compute the USD cost for a single usage record using per-model
  * input/output/cache pricing. Negative or missing counts are clamped to 0.
  */
@@ -111,7 +140,7 @@ export function computeTokenCost(model: string | undefined | null, usage: TokenC
     output * rate.output +
     reasoning * rate.output +
     cacheRead * rate.input * 0.1 +
-    cacheWrite * rate.input;
+    cacheWrite * rate.input * getCacheWriteMultiplier(model);
 
   return cost / 1_000_000;
 }

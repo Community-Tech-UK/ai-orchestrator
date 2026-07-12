@@ -1,3 +1,50 @@
 @use './settings-row-list' as list;
 
 @include list.settings-row-list;
+
+.loop-models {
+  margin-top: 16px;
+  padding: 16px;
+}
+
+.loop-models__header {
+  margin-bottom: 12px;
+}
+
+.loop-models__title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.loop-models__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+.loop-models__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.loop-models__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.loop-models__name {
+  font-size: 13px;
+}
+
+.loop-models__select {
+  min-width: 240px;
+  max-width: 320px;
+}

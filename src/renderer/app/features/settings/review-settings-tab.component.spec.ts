@@ -232,6 +232,18 @@ describe('ReviewSettingsTabComponent', () => {
     fixture = TestBed.createComponent(ReviewSettingsTabComponent);
   });
 
+  it('shows the configured reviewer model instead of falsely reporting Auto', () => {
+    store.setValue('crossModelReviewProviders', ['codex']);
+    store.setValue('crossModelReviewModelByProvider', { codex: 'gpt-5.6-terra' });
+
+    fixture.detectChanges();
+
+    const select = fixture.nativeElement.querySelector(
+      'select[aria-label="OpenAI Codex CLI model"]',
+    ) as HTMLSelectElement;
+    expect(select.value).toBe('gpt-5.6-terra');
+  });
+
   it('renders Antigravity as a reviewer instead of the retired Gemini CLI', () => {
     fixture.detectChanges();
 

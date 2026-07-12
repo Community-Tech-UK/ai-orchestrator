@@ -1,0 +1,245 @@
+name: Release Harness
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: harness-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Validate and test release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+      - run: npm run release:validate-tag -- "${GITHUB_REF_NAME}"
+      - run: npx tsc --noEmit
+      - run: npx tsc --noEmit -p tsconfig.spec.json
+      - run: npm run lint
+      - run: npm run check:ts-max-loc
+      - run: npm run test:quiet
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            runner: macos-15
+            platform: mac
+            arch: arm64
+            builder_args: --mac --arm64
+            signing_args: --config.forceCodeSigning=true
+          - label: macOS x64
+            runner: macos-15-intel
+            platform: mac
+            arch: x64
+            builder_args: --mac --x64
+            signing_args: --config.forceCodeSigning=true
+          - label: Windows x64
+            runner: windows-2025
+            platform: win
+            arch: x64
+            builder_args: --win nsis --x64
+            signing_args: --config.forceCodeSigning=true
+          - label: Linux x64
+            runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+            builder_args: --linux AppImage --x64
+            signing_args: ""
+          - label: Linux arm64
+            runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            builder_args: --linux AppImage --arm64
+            signing_args: ""
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Select native target architecture
+        shell: bash
+        run: echo "HARNESS_BUILD_ARCH=${{ matrix.arch }}" >> "$GITHUB_ENV"
+
+      - name: Prepare macOS signing credentials
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          for value in "$MAC_CSC_LINK" "$MAC_CSC_KEY_PASSWORD" "$APPLE_API_KEY" "$APPLE_API_KEY_ID" "$APPLE_API_ISSUER"; do
+            if [[ -z "$value" ]]; then
+              echo "A required macOS signing credential is missing." >&2
+              exit 1
+            fi
+          done
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY" > "$key_path"
+          echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
+
+      - name: Require Windows signing credentials
+        if: matrix.platform == 'win'
+        shell: bash
+        env:
+          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$WINDOWS_CSC_LINK" || -z "$WINDOWS_CSC_KEY_PASSWORD" ]]; then
+            echo "A required Windows signing credential is missing." >&2
+            exit 1
+          fi
+
+      - name: Build application
+        run: npm run build
+
+      - name: Package signed update artifacts
+        shell: bash
+        env:
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          WIN_CSC_LINK: ${{ matrix.platform == 'win' && secrets.WINDOWS_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ matrix.platform == 'win' && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm run electron:build -- ${{ matrix.builder_args }} ${{ matrix.signing_args }} --publish never
+
+      - name: Verify macOS signatures and notarization
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find release -type d -name 'Harness.app' -print -quit)"
+          dmg_path="$(find release -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$app_path"
+          test -n "$dmg_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          spctl --assess --type execute --verbose=2 "$app_path"
+          xcrun stapler validate "$app_path"
+
+      - name: Verify Windows signature
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release -Filter 'Harness-*-win-x64.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Signed NSIS installer was not produced.' }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature: $($signature.Status)" }
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-publish
+          find release -maxdepth 1 -type f \( \
+            -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o \
+            -name '*.AppImage' -o -name '*.blockmap' -o -name 'latest*.yml' \
+          \) -exec cp {} release-publish/ \;
+          if [[ "${{ matrix.platform }}" == "mac" ]]; then
+            mv release-publish/latest-mac.yml "release-publish/latest-mac-${{ matrix.arch }}.yml"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harness-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-publish/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: harness-*
+          path: matrix-assets
+
+      - name: Collect assets without overwriting duplicate names
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          while IFS= read -r -d '' file; do
+            target="release-assets/$(basename "$file")"
+            if [[ -e "$target" ]]; then
+              echo "Duplicate release asset: $(basename "$file")" >&2
+              exit 1
+            fi
+            cp "$file" "$target"
+          done < <(find matrix-assets -type f -print0)
+
+      - name: Merge architecture update manifests
+        run: |
+          node scripts/merge-update-manifests.js \
+            release-assets/latest-mac.yml \
+            release-assets/latest-mac-arm64.yml \
+            release-assets/latest-mac-x64.yml
+          rm release-assets/latest-mac-arm64.yml release-assets/latest-mac-x64.yml
+
+      - name: Validate complete release matrix
+        run: npm run release:validate-assets -- release-assets
+
+      - name: Refuse to mutate an existing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "GitHub Release ${GITHUB_REF_NAME} already exists; published releases are immutable." >&2
+            exit 1
+          fi
+
+      - name: Publish immutable stable release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: release-assets/*

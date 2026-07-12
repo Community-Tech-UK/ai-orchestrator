@@ -50,6 +50,52 @@ describe('DesktopGatewayService', () => {
     expect(driver.health).toHaveBeenCalledOnce();
   });
 
+  it('denies operator permission requests without touching the driver while disabled', async () => {
+    const driver = makeDriver();
+    const auditStore = new InMemoryDesktopGatewayAuditStore();
+    const service = makeService({ enabled: false, driver, auditStore });
+
+    await expect(service.requestSystemPermissionForOperator('screen-recording')).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_disabled',
+    });
+    expect(driver.requestSystemPermission).not.toHaveBeenCalled();
+
+    const entries = await auditStore.list({ limit: 10 });
+    expect(entries[0]).toMatchObject({
+      instanceId: 'operator',
+      toolName: 'computer.request_permission',
+      decision: 'denied',
+      reason: 'computer_use_disabled',
+    });
+  });
+
+  it('delegates operator permission requests with the stable operator audit context', async () => {
+    const driver = makeDriver();
+    const auditStore = new InMemoryDesktopGatewayAuditStore();
+    const service = makeService({ enabled: true, driver, auditStore });
+
+    await expect(service.requestSystemPermissionForOperator('accessibility')).resolves.toMatchObject({
+      decision: 'allowed',
+      outcome: 'ok',
+      data: {
+        permission: 'accessibility',
+        state: 'available',
+        nativeRequestAttempted: true,
+      },
+    });
+    expect(driver.requestSystemPermission).toHaveBeenCalledWith('accessibility');
+    expect(driver.requestSystemPermission).toHaveBeenCalledOnce();
+
+    const entries = await auditStore.list({ limit: 10 });
+    expect(entries[0]).toMatchObject({
+      instanceId: 'operator',
+      toolName: 'computer.request_permission',
+      decision: 'allowed',
+      redactedMetadata: expect.objectContaining({ permission: 'accessibility', state: 'available' }),
+    });
+  });
+
   it('annotates apps with allow/deny policy without exposing command lines', async () => {
     const service = makeService({
       allowedApps: [APP.appId],
@@ -883,6 +929,11 @@ function makeDriver(options: {
       accessibility: 'unavailable',
       input: 'unavailable',
       setupActions: [],
+    })),
+    requestSystemPermission: vi.fn(async (permission) => ({
+      permission,
+      state: 'available' as const,
+      nativeRequestAttempted: true,
     })),
     listApps: vi.fn(async () => options.apps ?? [APP]),
     screenshot: vi.fn(async () => options.screenshot ?? {

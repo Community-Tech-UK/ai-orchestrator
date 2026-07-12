@@ -34,10 +34,10 @@ export function createDesktopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.DESKTOP_GET_AUDIT_LOG, payload ?? {});
     },
-    desktopOpenPermissionSettings: (payload: {
+    desktopRequestSystemPermission: (payload: {
       permission: 'screen-recording' | 'accessibility';
     }): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.DESKTOP_OPEN_PERMISSION_SETTINGS, payload);
+      return ipcRenderer.invoke(ch.DESKTOP_REQUEST_SYSTEM_PERMISSION, payload);
     },
     onDesktopChanged: (callback: (payload: unknown) => void): (() => void) => {
       const listener = (_event: unknown, payload: unknown): void => callback(payload);

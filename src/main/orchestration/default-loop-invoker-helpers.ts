@@ -1,8 +1,8 @@
 import { createHash } from 'crypto';
 import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
-import { getDefaultModelForCli } from '../../shared/types/provider.types';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { resolveAutomationDefaultModel } from './automation-model-defaults';
 
 export function enableAdapterResume(adapter: unknown): void {
   const setResume = (adapter as { setResume?: (resume: boolean) => void } | null | undefined)?.setResume;
@@ -12,9 +12,10 @@ export function enableAdapterResume(adapter: unknown): void {
 export async function createPersistentLoopAdapter(opts: {
   provider: LoopProvider;
   workingDirectory: string;
-  /** Routed model for the loop. Falls back to the provider's house default
-   *  when unset — but callers should resolve through the loop's cost-tier
-   *  routing so same-session loops aren't silently pinned to the strong model. */
+  /** Routed model for the loop. Falls back to the operator's automation default
+   *  (`loopModelByProvider`, then the provider's house default) when unset — but
+   *  callers should resolve through the loop's cost-tier routing so same-session
+   *  loops aren't silently pinned to the strong model. */
   model?: string;
   timeoutMs?: number;
   streamIdleTimeoutMs?: number;
@@ -23,7 +24,7 @@ export async function createPersistentLoopAdapter(opts: {
   env?: Record<string, string>;
 }): Promise<unknown> {
   const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
-  const model = opts.model ?? getDefaultModelForCli(cliType);
+  const model = opts.model ?? resolveAutomationDefaultModel(cliType);
   const adapter = getProviderRuntimeService().createAdapter({
     cliType,
     options: {

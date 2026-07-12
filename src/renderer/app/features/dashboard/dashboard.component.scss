@@ -211,7 +211,9 @@
   display: flex;
   justify-content: center;
   overflow: auto;
-  padding: 22px 28px 28px;
+  // Tighter left gutter so the transcript jump rail sits close to the sidebar
+  // and the conversation uses more of the width right of it.
+  padding: 22px 20px 28px 8px;
 }
 
 .workspace-shell.chat-active {

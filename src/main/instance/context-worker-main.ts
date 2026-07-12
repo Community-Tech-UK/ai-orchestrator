@@ -366,6 +366,16 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
       break;
     }
 
+    case 'reload-rlm-persistence': {
+      try {
+        await contextManager.reloadRlmPersistence();
+        respond(msg.id);
+      } catch (err) {
+        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
+      }
+      break;
+    }
+
     case 'shutdown': {
       respond(msg.id);
       exitAfterMessageFlush();

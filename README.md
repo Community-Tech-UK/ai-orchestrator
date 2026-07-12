@@ -78,8 +78,8 @@ ai-orchestrator/
 ## Documentation
 
 - [CLAUDE.md](./CLAUDE.md) - Development conventions and architecture notes
-- [DESIGN.md](./DESIGN.md) - Detailed design document and roadmap
-- [DEVELOPMENT.md](./DEVELOPMENT.md) - Development guide
+- [DESIGN.md](./docs/DESIGN.md) - Detailed design document and roadmap
+- [DEVELOPMENT.md](./docs/DEVELOPMENT.md) - Development guide
 - [aio-mcp CLI](./docs/AIO_MCP_CLI.md) - Human guide for the bundled Harness CLI and repair commands
 - [aio-mcp LLM reference](./docs/llm/AIO_MCP_CLI_REFERENCE.md) - Compact command reference for spawned agents
 

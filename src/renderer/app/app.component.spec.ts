@@ -17,6 +17,7 @@ import { PauseStore } from './core/state/pause/pause.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { SettingsStore } from './core/state/settings.store';
 import { UsageStore } from './core/state/usage.store';
+import { AppUpdateStore } from './core/state/app-update.store';
 import { IpcFacadeService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
@@ -109,6 +110,7 @@ async function setupAppComponent(platform = 'darwin'): Promise<{
       { provide: WorkspaceBenchService, useValue: {} },
       { provide: UsageStore, useValue: { init: vi.fn() } },
       { provide: PromptHistoryStore, useValue: { init: vi.fn() } },
+      { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
       {
         provide: SettingsStore,
         useValue: {
@@ -179,6 +181,7 @@ describe('AppComponent startup banner', () => {
         { provide: WorkspaceBenchService, useValue: {} },
         { provide: UsageStore, useValue: { init: vi.fn() } },
         { provide: PromptHistoryStore, useValue: { init: vi.fn() } },
+        { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
         {
           provide: SettingsStore,
           useValue: {
@@ -253,6 +256,25 @@ describe('AppComponent startup banner', () => {
 });
 
 describe('AppComponent title bar layout', () => {
+  it('mounts the application update banner once at the root', () => {
+    expect(template.match(/<app-update-banner/g)).toHaveLength(1);
+  });
+
+  it('mounts the Computer Use permission banner once above app-main', () => {
+    expect(template.match(/<app-computer-use-permission-banner/g)).toHaveLength(1);
+    expect(template.indexOf('<app-computer-use-permission-banner'))
+      .toBeLessThan(template.indexOf('<main class="app-main">'));
+  });
+
+  it('mounts the Computer Use permission chip once in the title-bar status cluster', () => {
+    expect(template.match(/<app-computer-use-permission-chip/g)).toHaveLength(1);
+    const overlayStart = template.indexOf('class="title-bar-overlay"');
+    const overlayEnd = template.indexOf('</div>', overlayStart);
+    const chipIndex = template.indexOf('<app-computer-use-permission-chip');
+    expect(chipIndex).toBeGreaterThan(overlayStart);
+    expect(chipIndex).toBeLessThan(overlayEnd);
+  });
+
   it('marks Windows shells so content clears the native caption controls', async () => {
     const { fixture } = await setupAppComponent('win32');
     const container = fixture.nativeElement.querySelector('.app-container') as HTMLElement | null;

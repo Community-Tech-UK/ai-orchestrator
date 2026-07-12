@@ -1,6 +1,7 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
+import { createRlmStorageMaintenanceDomain } from './rlm-storage-maintenance.preload';
 
 export function createMemoryDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
@@ -251,12 +252,12 @@ export function createMemoryDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHAN
       return ipcRenderer.invoke(ch.RLM_GET_QUERY_STATS, payload);
     },
 
-    /**
-     * Get RLM storage stats
-     */
+    /** Get RLM storage stats. */
     rlmGetStorageStats: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.RLM_GET_STORAGE_STATS);
     },
+
+    ...createRlmStorageMaintenanceDomain(ipcRenderer, ch),
 
     /**
      * Listen for RLM store-updated events

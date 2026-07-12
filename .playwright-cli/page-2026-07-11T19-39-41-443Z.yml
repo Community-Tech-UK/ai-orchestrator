@@ -1,0 +1,95 @@
+- generic [ref=f1e3]:
+  - button "Provider quota details" [ref=f1e8] [cursor=pointer]:
+    - generic [ref=f1e10]: —
+  - main [ref=f1e12]:
+    - generic [ref=f1e14]:
+      - navigation "Workspace navigation" [ref=f1e16]:
+        - generic [ref=f1e17]:
+          - link "Search" [ref=f1e18] [cursor=pointer]:
+            - /url: /chat-search
+          - link "Automations" [ref=f1e22] [cursor=pointer]:
+            - /url: /automations
+          - link "Browser" [ref=f1e26] [cursor=pointer]:
+            - /url: /browser
+          - link "Plugins" [ref=f1e29] [cursor=pointer]:
+            - /url: /plugins
+        - generic [ref=f1e35]:
+          - button "Tools and Views" [ref=f1e36] [cursor=pointer]
+          - button "Side chat" [ref=f1e39] [cursor=pointer]
+          - button "History" [ref=f1e42] [cursor=pointer]
+          - button "Settings" [ref=f1e47] [cursor=pointer]
+      - complementary [ref=f1e51]:
+        - generic [ref=f1e53]:
+          - generic [ref=f1e54]: Sessions
+          - generic [ref=f1e55]:
+            - button "Start a new chat" [ref=f1e56] [cursor=pointer]
+            - button "Create a new session" [ref=f1e59] [cursor=pointer]
+        - generic [ref=f1e62]:
+          - generic [ref=f1e63]:
+            - generic [ref=f1e64]:
+              - paragraph [ref=f1e65]: Project index
+              - heading "Projects" [level=2] [ref=f1e66]
+            - generic [ref=f1e67]: "0"
+          - generic [ref=f1e68]:
+            - textbox "Filter projects or sessions..." [ref=f1e69]
+            - group "Filter by state" [ref=f1e70]:
+              - button "All" [pressed] [ref=f1e71] [cursor=pointer]
+              - button "Active" [ref=f1e72] [cursor=pointer]
+            - button "Filter and sort options" [ref=f1e74] [cursor=pointer]
+          - generic [ref=f1e78]:
+            - paragraph [ref=f1e79]: No projects yet
+            - paragraph [ref=f1e80]: Create a session to start building a workspace index
+          - generic "Rename session"
+      - main [ref=f1e82]:
+        - generic [ref=f1e89]:
+          - generic [ref=f1e90]:
+            - heading "Start with a brief." [level=1] [ref=f1e91]
+            - generic [ref=f1e92]:
+              - generic [ref=f1e93]: Working directory
+              - button "📁 Select working folder... ▼" [ref=f1e96] [cursor=pointer]:
+                - generic [ref=f1e97]: 📁
+                - generic [ref=f1e98]: Select working folder...
+                - generic [ref=f1e99]: ▼
+          - generic [ref=f1e101]:
+            - generic [ref=f1e102]: New session
+            - generic [ref=f1e107]:
+              - generic [ref=f1e110]:
+                - group "Model selection" [ref=f1e112]:
+                  - button "Claude Opus latest, 1M" [ref=f1e113] [cursor=pointer]:
+                    - generic [ref=f1e115]: Claude
+                    - generic [ref=f1e116]: ·
+                    - generic [ref=f1e117]: Opus latest, 1M
+                    - generic [ref=f1e118]: ▾
+                - button "⚒ Build" [ref=f1e121] [cursor=pointer]:
+                  - generic [ref=f1e122]: ⚒
+                  - generic [ref=f1e124]: Build
+                  - generic [ref=f1e125]: ▼
+                - button "🛡️ YOLO OFF" [ref=f1e126] [cursor=pointer]:
+                  - generic [ref=f1e127]: 🛡️
+                  - generic [ref=f1e128]: YOLO OFF
+              - generic [ref=f1e129]:
+                - textbox "Plan the work, review code, investigate a bug, or coordinate a multi-agent task..." [ref=f1e131]
+                - generic [ref=f1e132]:
+                  - generic [ref=f1e133]:
+                    - button "+" [ref=f1e134] [cursor=pointer]
+                    - generic "Pick a working folder to enable Loop Mode" [ref=f1e137]:
+                      - generic [ref=f1e138]: 🔁
+                      - generic [ref=f1e139]: Loop
+                      - checkbox "Loop" [disabled] [ref=f1e141]
+                  - generic [ref=f1e143]:
+                    - generic [ref=f1e144]: Press Enter to send, Shift+Enter for new line
+                    - generic [ref=f1e145]: Type / for commands, Cmd+K for palette
+                  - generic [ref=f1e146]:
+                    - button "Start a session before using voice" [disabled] [ref=f1e147]
+                    - button "↑" [disabled] [ref=f1e151]
+  - region "Terminal drawer" [ref=f1e153]:
+    - generic [ref=f1e154]:
+      - heading "Remote Terminal" [level=3] [ref=f1e155]
+      - generic [ref=f1e156]:
+        - combobox "Working directory on the worker (must be inside an allowed root)" [ref=f1e157]
+        - button "Open" [ref=f1e158] [cursor=pointer]
+        - generic [ref=f1e159]: Error
+      - button "Close terminal drawer" [ref=f1e160] [cursor=pointer]: ×
+    - generic [ref=f1e161]:
+      - paragraph [ref=f1e162]: Terminal drawer is not available in this context.
+      - generic "Terminal output" [ref=f1e163]

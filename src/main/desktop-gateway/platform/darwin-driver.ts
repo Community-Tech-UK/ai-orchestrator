@@ -3,19 +3,22 @@ import type {
   DesktopAccessibilitySnapshotResult,
   DesktopActionResult,
   DesktopAppDescriptor,
+  DesktopCapabilityState,
   DesktopClickRequest,
   DesktopDragRequest,
   DesktopDriverHealth,
   DesktopHotkeyRequest,
+  DesktopPermissionRequestResult,
   DesktopScrollRequest,
   DesktopScreenshotRequest,
   DesktopScreenshotResult,
+  DesktopSystemPermission,
   DesktopTypeTextRequest,
 } from '../../../shared/types/desktop-gateway.types';
-import { desktopCapturer } from 'electron';
+import { desktopCapturer, systemPreferences } from 'electron';
 import type { DesktopDriver } from './desktop-driver';
 import { BundledDarwinHelperClient } from './darwin-helper-client';
-import type { DesktopHelperClient, DesktopHelperHealth } from './desktop-helper-protocol';
+import type { DesktopHelperClient } from './desktop-helper-protocol';
 
 /**
  * Raw screenshot bytes for a target, resolved by the injected capture backend
@@ -37,6 +40,18 @@ export type DesktopCaptureBackend = (
 export interface DarwinDesktopDriverDeps {
   helper?: DesktopHelperClient;
   captureScreenshot?: DesktopCaptureBackend;
+  /**
+   * Electron `systemPreferences.getMediaAccessStatus('screen')` seam. Screen
+   * Recording health must come from the process that performs the capture
+   * (Electron), never from the helper's own preflight.
+   */
+  getScreenAccessStatus?: () => string;
+  /**
+   * Minimal real `desktopCapturer.getSources()` call used to register Harness
+   * in macOS's Screen Recording list on a user-initiated request. All returned
+   * sources are discarded immediately.
+   */
+  requestScreenAccess?: () => Promise<void>;
   now?: () => number;
 }
 
@@ -53,34 +68,104 @@ export interface DarwinDesktopDriverDeps {
 export class DarwinDesktopDriver implements DesktopDriver {
   private readonly helper: DesktopHelperClient;
   private readonly captureScreenshot: DesktopCaptureBackend;
+  private readonly getScreenAccessStatus: () => string;
+  private readonly requestScreenAccess: () => Promise<void>;
   private readonly now: () => number;
+  /** One in-flight native request per permission so concurrent clicks never stack prompts. */
+  private readonly inflightPermissionRequests
+    = new Map<DesktopSystemPermission, Promise<DesktopPermissionRequestResult>>();
 
   constructor(deps: DarwinDesktopDriverDeps = {}) {
     this.helper = deps.helper ?? new BundledDarwinHelperClient();
     this.captureScreenshot = deps.captureScreenshot ?? defaultCaptureBackend;
+    this.getScreenAccessStatus = deps.getScreenAccessStatus ?? defaultScreenAccessStatus;
+    this.requestScreenAccess = deps.requestScreenAccess ?? defaultScreenAccessRequest;
     this.now = deps.now ?? Date.now;
   }
 
+  /**
+   * Composed permission health. Screen Recording comes from Electron (the
+   * process that captures); Accessibility and input come from the bundled
+   * Swift helper (the process that inspects and synthesizes input). The
+   * helper's legacy `screenRecording` field is intentionally ignored.
+   */
   async health(): Promise<DesktopDriverHealth> {
+    const screenCapture = mapScreenAccessStatus(this.getScreenAccessStatus());
     const helperHealth = await this.helper.health();
     if (helperHealth.mode === 'unavailable') {
       return {
         platform: 'darwin',
         supported: true,
-        screenCapture: 'unavailable',
+        screenCapture,
         accessibility: 'unavailable',
         input: 'unavailable',
-        setupActions: helperHealth.setupActions,
+        setupActions: composeSetupActions(screenCapture, 'unavailable', helperHealth.setupActions),
       };
     }
+    const accessibility: DesktopCapabilityState = helperHealth.accessibility
+      ? 'available'
+      : 'missing_permission';
+    const input: DesktopCapabilityState = helperHealth.accessibility && helperHealth.input
+      ? 'available'
+      : 'missing_permission';
     return {
       platform: 'darwin',
       supported: true,
-      screenCapture: helperHealth.screenRecording ? 'available' : 'missing_permission',
-      accessibility: helperHealth.accessibility ? 'available' : 'missing_permission',
-      input: inputState(helperHealth),
-      setupActions: helperHealth.setupActions,
+      screenCapture,
+      accessibility,
+      input,
+      setupActions: composeSetupActions(screenCapture, accessibility, []),
     };
+  }
+
+  async requestSystemPermission(
+    permission: DesktopSystemPermission,
+  ): Promise<DesktopPermissionRequestResult> {
+    const existing = this.inflightPermissionRequests.get(permission);
+    if (existing) {
+      return existing;
+    }
+    const request = this.performPermissionRequest(permission)
+      .finally(() => this.inflightPermissionRequests.delete(permission));
+    this.inflightPermissionRequests.set(permission, request);
+    return request;
+  }
+
+  private async performPermissionRequest(
+    permission: DesktopSystemPermission,
+  ): Promise<DesktopPermissionRequestResult> {
+    if (permission === 'screen-recording') {
+      if (mapScreenAccessStatus(this.getScreenAccessStatus()) === 'available') {
+        return { permission, state: 'available', nativeRequestAttempted: false };
+      }
+      try {
+        await this.requestScreenAccess();
+      } catch {
+        // The recheck below reports the truthful post-request state.
+      }
+      return {
+        permission,
+        state: mapScreenAccessStatus(this.getScreenAccessStatus()),
+        nativeRequestAttempted: true,
+      };
+    }
+    const before = await this.helper.health();
+    if (before.mode === 'unavailable') {
+      return { permission, state: 'unavailable', nativeRequestAttempted: false };
+    }
+    if (before.accessibility) {
+      return { permission, state: 'available', nativeRequestAttempted: false };
+    }
+    try {
+      await this.helper.requestAccessibility();
+    } catch {
+      // Prompt failure is not fatal; the recheck reports the current state.
+    }
+    const after = await this.helper.health();
+    const state: DesktopCapabilityState = after.mode === 'unavailable'
+      ? 'unavailable'
+      : after.accessibility ? 'available' : 'missing_permission';
+    return { permission, state, nativeRequestAttempted: true };
   }
 
   async listApps(): Promise<DesktopAppDescriptor[]> {
@@ -158,11 +243,60 @@ export class DarwinDesktopDriver implements DesktopDriver {
   }
 }
 
-function inputState(health: DesktopHelperHealth): DesktopDriverHealth['input'] {
-  if (health.input) {
-    return 'available';
+/**
+ * Electron media-access status → gateway capability state.
+ * `granted` is ready; `not-determined`/`denied` are user-fixable via a request
+ * or System Settings; `restricted`/`unknown` (and anything unexpected) cannot
+ * be fixed by the user here.
+ */
+export function mapScreenAccessStatus(status: string): DesktopCapabilityState {
+  switch (status) {
+    case 'granted':
+      return 'available';
+    case 'not-determined':
+    case 'denied':
+      return 'missing_permission';
+    default:
+      return 'unavailable';
   }
-  return health.accessibility ? 'missing_permission' : 'unavailable';
+}
+
+function composeSetupActions(
+  screenCapture: DesktopCapabilityState,
+  accessibility: DesktopCapabilityState,
+  helperSetupActions: string[],
+): string[] {
+  const actions: string[] = [];
+  if (screenCapture !== 'available') {
+    actions.push(
+      'Grant Screen Recording to Harness in System Settings → Privacy & Security → Screen Recording.',
+    );
+  }
+  if (accessibility === 'unavailable') {
+    actions.push(...helperSetupActions);
+  } else if (accessibility !== 'available') {
+    actions.push(
+      'Grant Accessibility to Harness in System Settings → Privacy & Security → Accessibility.',
+    );
+  }
+  return actions;
+}
+
+function defaultScreenAccessStatus(): string {
+  return systemPreferences?.getMediaAccessStatus?.('screen') ?? 'unknown';
+}
+
+async function defaultScreenAccessRequest(): Promise<void> {
+  if (!desktopCapturer?.getSources) {
+    return;
+  }
+  // Exercise the real protected API so macOS registers Harness under Screen &
+  // System Audio Recording; discard every returned source immediately.
+  await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: 1, height: 1 },
+    fetchWindowIcons: false,
+  });
 }
 
 async function defaultCaptureBackend(

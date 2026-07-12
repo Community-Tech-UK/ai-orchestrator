@@ -1,0 +1,116 @@
+- generic [ref=e4]:
+  - link "Skip to main content" [ref=e5] [cursor=pointer]:
+    - /url: "#main-content"
+  - banner [ref=e7]:
+    - generic [ref=e8]:
+      - link "12steps home" [ref=e9] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e11]:
+          - img "12steps" [ref=e13]
+          - generic [ref=e15]: 12steps
+      - generic [ref=e17]:
+        - button "Use dark mode" [ref=e19] [cursor=pointer]
+        - link "Log in" [ref=e23] [cursor=pointer]:
+          - /url: /login
+  - main [ref=e24]:
+    - region [ref=e25]:
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - paragraph [ref=e28]: Private 12-step companion
+          - heading "Your step work stays yours." [level=1] [ref=e29]
+          - paragraph [ref=e30]: 12steps is a zero-knowledge recovery companion for people working one or more fellowships. Journal entries, inventories, and personal reflections are encrypted in your browser before they ever reach the server.
+          - generic [ref=e31]:
+            - link [ref=e32] [cursor=pointer]:
+              - /url: /signup
+            - link "Log in" [ref=e36] [cursor=pointer]:
+              - /url: /login
+          - paragraph [ref=e37]: Your privacy means we cannot see your data, so your Recovery Card is the way back in if you ever lose your password.
+        - complementary "What’s inside" [ref=e38]:
+          - generic [ref=e39]:
+            - img "12steps" [ref=e41]
+            - generic [ref=e43]: What’s inside
+          - list [ref=e44]:
+            - listitem [ref=e45]:
+              - generic [ref=e51]:
+                - paragraph [ref=e52]: Step writing and inventory
+                - paragraph [ref=e53]: All twelve steps each have their own page — written prompts, not worksheets to grade.
+            - listitem [ref=e54]:
+              - generic [ref=e62]:
+                - paragraph [ref=e63]: Multi-fellowship support
+                - paragraph [ref=e64]: AA, NA, Al-Anon, and seven more. Counters and tools adapt to your language.
+            - listitem [ref=e65]:
+              - generic [ref=e71]:
+                - paragraph [ref=e72]: Recovery-first account design
+                - paragraph [ref=e73]: A 12-word Recovery Card replaces password reset. No email recovery, no backdoor.
+    - region [ref=e74]:
+      - heading "Three pillars" [level=2] [ref=e75]
+      - generic [ref=e76]:
+        - article [ref=e77]:
+          - generic [ref=e78]:
+            - generic [ref=e79]: "1"
+            - heading "Zero-knowledge privacy" [level=3] [ref=e80]
+          - paragraph [ref=e81]: The server stores encrypted blobs. Decryption happens in your browser, with a key only you hold. The team behind 12steps cannot read your work.
+        - article [ref=e82]:
+          - generic [ref=e83]:
+            - generic [ref=e84]: "2"
+            - heading "Daily recovery tools" [level=3] [ref=e85]
+          - paragraph [ref=e86]: Journal, insights, prayers, meeting reminders, and quiet progress markers. Nothing gamified. No streaks to lose.
+        - article [ref=e87]:
+          - generic [ref=e88]:
+            - generic [ref=e89]: "3"
+            - heading "Fellowship-aware workflows" [level=3] [ref=e90]
+          - paragraph [ref=e91]: Three Circles, Bottom Lines, Plan of Eating, Spending Plan — only appear when you opt in. The dashboard speaks your program’s language.
+    - region [ref=e92]:
+      - generic [ref=e93]:
+        - generic [ref=e94]:
+          - heading "Works wherever you are" [level=2] [ref=e95]
+          - paragraph [ref=e96]: One encrypted account, every device. Pick up your step work on the web, your phone, or your tablet — changes sync securely across all of them.
+        - list [ref=e97]:
+          - listitem [ref=e98]:
+            - heading "Web" [level=3] [ref=e104]
+            - paragraph [ref=e105]: Installable PWA — works in any modern browser, online or offline.
+          - listitem [ref=e106]:
+            - heading "iOS" [level=3] [ref=e112]
+            - paragraph [ref=e113]: A real native app for iPhone and iPad, with the same encrypted data.
+          - listitem [ref=e114]:
+            - heading "Android" [level=3] [ref=e120]
+            - paragraph [ref=e121]: A real native app on Google Play — your work syncs across every device.
+    - region [ref=e122]:
+      - generic [ref=e123]:
+        - generic [ref=e124]:
+          - heading "Supported fellowships" [level=2] [ref=e125]
+          - paragraph [ref=e126]: Ten programs today. Names are used descriptively only — 12steps is not affiliated with any of them and does not embed copyrighted step wording or fellowship literature.
+        - list [ref=e127]:
+          - listitem [ref=e128]:
+            - generic "Alcoholics Anonymous" [ref=e129]: AA
+          - listitem [ref=e130]:
+            - generic "Narcotics Anonymous" [ref=e131]: NA
+          - listitem [ref=e132]:
+            - generic "Cocaine Anonymous" [ref=e133]: CA
+          - listitem [ref=e134]:
+            - generic "Sexaholics Anonymous" [ref=e135]: SA
+          - listitem [ref=e136]:
+            - generic "Sex Addicts Anonymous" [ref=e137]: SAA
+          - listitem [ref=e138]:
+            - generic "Sex and Love Addicts Anonymous" [ref=e139]: SLAA
+          - listitem [ref=e140]:
+            - generic "Gamblers Anonymous" [ref=e141]: GA
+          - listitem [ref=e142]:
+            - generic "Overeaters Anonymous" [ref=e143]: OA
+          - listitem [ref=e144]:
+            - generic "Debtors Anonymous" [ref=e145]: DA
+          - listitem [ref=e146]:
+            - generic "Al-Anon" [ref=e147]
+    - paragraph [ref=e151]: Not affiliated with any fellowship. Fellowship names are used descriptively only. The app does not embed copyrighted step wording or fellowship literature. 12steps is a tool, not a substitute for a sponsor, a meeting, or professional support.
+  - contentinfo [ref=e153]:
+    - generic [ref=e154]:
+      - paragraph [ref=e155]: © 12steps
+      - navigation "Site links" [ref=e156]:
+        - link "Privacy" [ref=e157] [cursor=pointer]:
+          - /url: /legal/privacy
+        - generic [ref=e158]: ·
+        - link "Terms" [ref=e159] [cursor=pointer]:
+          - /url: /legal/terms
+        - generic [ref=e160]: ·
+        - link "Support" [ref=e161] [cursor=pointer]:
+          - /url: /support

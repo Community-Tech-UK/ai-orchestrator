@@ -583,7 +583,7 @@ export class RLMDatabase extends EventEmitter {
   }> {
     const lockPath = `${this.config.dbPath}.lock`;
     return withLock(lockPath, async () => {
-      const result = backup.backupDatabase(this.db, this.contentDir, targetPath, options);
+      const result = await backup.backupDatabase(this.db, this.contentDir, targetPath, options);
       this.emit('database:backed_up', {
         targetPath,
         dbSizeBytes: result.dbSizeBytes,

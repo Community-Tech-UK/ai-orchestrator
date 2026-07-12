@@ -52,6 +52,7 @@ import type {
   MetricsCollectorStateSnapshot,
   OutcomeTrackerStateSnapshot,
   GetStatsMsg,
+  ReloadRlmPersistenceMsg,
   ProjectMemoryBrief,
   ProjectMemoryBriefRequest,
   ShutdownMsg,
@@ -101,6 +102,7 @@ type RpcMsgWithId =
   | CompactContextMsg
   | IngestInitialOutputMsg
   | GetStatsMsg
+  | ReloadRlmPersistenceMsg
   | ShutdownMsg;
 
 export interface ContextWorkerClientOptions {
@@ -326,6 +328,7 @@ export class ContextWorkerClient implements InstanceContextPort {
   // ── RPC methods ──────────────────────────────────────────────────────────────
 
   async initializeRlm(instance: Instance): Promise<void> {
+    instance.rlmStoreSessionId = instance.sessionId;
     const id = this.nextId();
     await this.postRpc({ type: 'initialize-rlm', id, snapshot: snapshotFromInstance(instance) });
   }
@@ -469,6 +472,11 @@ export class ContextWorkerClient implements InstanceContextPort {
       instance.outputBuffer = instance.outputBuffer.slice(-MAX_RECENT);
     }
     void instanceId; // used implicitly through instance.id in snapshot
+  }
+
+  async reloadRlmPersistence(): Promise<void> {
+    const id = this.nextId();
+    await this.postRpc({ type: 'reload-rlm-persistence', id });
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────────

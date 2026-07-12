@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   computeTokenCost,
+  getCacheWriteMultiplier,
   getModelRate,
   hasModelRate,
   registerModelRates,
@@ -9,6 +10,32 @@ import {
   DEFAULT_MODEL_RATE,
 } from './model-pricing';
 import { CLAUDE_MODELS, MODEL_PRICING, OPENAI_MODELS } from '../types/provider.types';
+
+describe('getCacheWriteMultiplier', () => {
+  it('bills GPT-5.6 and later cache writes at 1.25x the input rate', () => {
+    expect(getCacheWriteMultiplier(OPENAI_MODELS.GPT56_SOL)).toBe(1.25);
+    expect(getCacheWriteMultiplier(OPENAI_MODELS.GPT56_TERRA)).toBe(1.25);
+    expect(getCacheWriteMultiplier(OPENAI_MODELS.GPT56_LUNA)).toBe(1.25);
+    // Version-compared, so a future release inherits the right billing.
+    expect(getCacheWriteMultiplier('gpt-5.7')).toBe(1.25);
+    expect(getCacheWriteMultiplier('gpt-6')).toBe(1.25);
+  });
+
+  it('bills pre-5.6 OpenAI and non-OpenAI cache writes at the plain input rate', () => {
+    expect(getCacheWriteMultiplier(OPENAI_MODELS.GPT55)).toBe(1);
+    expect(getCacheWriteMultiplier(OPENAI_MODELS.GPT53_CODEX)).toBe(1);
+    expect(getCacheWriteMultiplier('gpt-5.4-mini')).toBe(1);
+    expect(getCacheWriteMultiplier(CLAUDE_MODELS.OPUS)).toBe(1);
+    expect(getCacheWriteMultiplier(undefined)).toBe(1);
+    expect(getCacheWriteMultiplier('')).toBe(1);
+  });
+
+  it('applies the multiplier inside computeTokenCost', () => {
+    const rate = MODEL_PRICING[OPENAI_MODELS.GPT56_TERRA];
+    const cost = computeTokenCost(OPENAI_MODELS.GPT56_TERRA, { cacheWriteTokens: 1_000_000 });
+    expect(cost).toBeCloseTo(rate.input * 1.25, 6);
+  });
+});
 
 describe('computeTokenCost', () => {
   it('prices input and output with the per-model rate', () => {

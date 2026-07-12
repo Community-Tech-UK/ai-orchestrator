@@ -14,6 +14,11 @@ interface LoopIterationRow {
   child_instance_id: string | null;
   tokens: number;
   cost_cents: number;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  model: string | null;
+  /** SQLite has no boolean: 1 = provider-reported cost, 0 = estimate, NULL = pre-migration row. */
+  cost_known: number | null;
   files_changed_json: string;
   tool_calls_json: string;
   errors_json: string;
@@ -65,6 +70,13 @@ function rowToLoopIteration(row: LoopIterationRow): LoopIteration {
     verifyStatus: row.verify_status as LoopIteration['verifyStatus'],
     verifyOutputExcerpt: row.verify_output_excerpt,
   };
+  // Cache/model/cost-known are nullable: rows written before migration 015 have
+  // no cache split. Leave them undefined rather than coercing to 0, so an
+  // audit can distinguish "no cache tokens" from "we never recorded them".
+  if (row.cache_read_tokens !== null) iteration.cacheReadTokens = row.cache_read_tokens;
+  if (row.cache_write_tokens !== null) iteration.cacheWriteTokens = row.cache_write_tokens;
+  if (row.model !== null) iteration.model = row.model;
+  if (row.cost_known !== null) iteration.costKnown = row.cost_known === 1;
   if (row.verify_failure_kind) {
     iteration.verifyFailureKind = row.verify_failure_kind as NonNullable<LoopIteration['verifyFailureKind']>;
   }

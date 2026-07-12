@@ -7,7 +7,13 @@ import {
   DesktopListGrantsRequestSchema,
   DesktopRevokeGrantRequestSchema,
 } from '../../../shared/validation/desktop-gateway-schemas';
-import type { DesktopGatewayContext } from '../../../shared/types/desktop-gateway.types';
+import type {
+  DesktopGatewayContext,
+  DesktopGatewayResult,
+  DesktopPermissionActionResult,
+  DesktopPermissionRequestResult,
+  DesktopSystemPermission,
+} from '../../../shared/types/desktop-gateway.types';
 import type { IpcResponse } from '../validated-handler';
 import { getDesktopGatewayService } from '../../desktop-gateway/desktop-gateway-service';
 import { getLogger } from '../../logging/logger';
@@ -16,7 +22,7 @@ const logger = getLogger('DesktopGatewayHandlers');
 
 const EmptyPayloadSchema = z.object({}).strict().optional().default({});
 
-const OpenPermissionSettingsSchema = z.object({
+const RequestSystemPermissionSchema = z.object({
   permission: z.enum(['screen-recording', 'accessibility']),
 }).strict();
 
@@ -27,11 +33,20 @@ const OpenPermissionSettingsSchema = z.object({
  */
 const OPERATOR_CONTEXT: DesktopGatewayContext = { instanceId: 'operator' };
 
-const MACOS_PRIVACY_URLS: Record<'screen-recording' | 'accessibility', string> = {
-  'screen-recording':
+/**
+ * Main-process-owned System Settings URL candidates per permission: the exact
+ * pane first (best effort — not a stable Apple contract), then the Privacy &
+ * Security root as fallback. The renderer can never supply a URL.
+ */
+const MACOS_PRIVACY_URL_CANDIDATES: Record<DesktopSystemPermission, string[]> = {
+  'screen-recording': [
     'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
-  accessibility:
+    'x-apple.systempreferences:com.apple.preference.security',
+  ],
+  accessibility: [
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+    'x-apple.systempreferences:com.apple.preference.security',
+  ],
 };
 
 interface RegisterDesktopGatewayHandlersDeps {
@@ -39,6 +54,8 @@ interface RegisterDesktopGatewayHandlersDeps {
     event: IpcMainInvokeEvent,
     channel: string,
   ) => IpcResponse | null;
+  /** Injectable `shell.openExternal` seam for tests. */
+  openExternal?: (url: string) => Promise<void>;
 }
 
 export function registerDesktopGatewayHandlers(
@@ -75,15 +92,54 @@ export function registerDesktopGatewayHandlers(
     deps,
   );
   register(
-    IPC_CHANNELS.DESKTOP_OPEN_PERMISSION_SETTINGS,
-    OpenPermissionSettingsSchema,
-    async (_service, payload) => {
-      const url = MACOS_PRIVACY_URLS[payload.permission];
-      await shell.openExternal(url);
-      return { opened: true, permission: payload.permission };
-    },
+    IPC_CHANNELS.DESKTOP_REQUEST_SYSTEM_PERMISSION,
+    RequestSystemPermissionSchema,
+    async (service, payload) =>
+      requestSystemPermissionAndOpenSettings(service, payload.permission, deps),
     deps,
   );
+}
+
+/**
+ * Operator flow: perform the real native permission request through the
+ * service/driver, then — only when the permission is still actionable — open
+ * the exact System Settings pane with a Privacy & Security root fallback. The
+ * native result is preserved even when navigation fails so the renderer can
+ * distinguish permission state from settings-launch state.
+ */
+async function requestSystemPermissionAndOpenSettings(
+  service: ReturnType<typeof getDesktopGatewayService>,
+  permission: DesktopSystemPermission,
+  deps: RegisterDesktopGatewayHandlersDeps,
+): Promise<DesktopGatewayResult<DesktopPermissionActionResult>> {
+  const result = await service.requestSystemPermissionForOperator(permission);
+  if (result.decision !== 'allowed' || !result.data) {
+    return result as DesktopGatewayResult<DesktopPermissionActionResult>;
+  }
+  const request: DesktopPermissionRequestResult = result.data;
+  if (request.state === 'available' || request.state === 'unsupported') {
+    // Ready permissions never open System Settings; unsupported platforms
+    // never invoke macOS URLs.
+    return { ...result, data: { ...request, settingsOpened: false } };
+  }
+  const settingsOpened = await openPermissionSettings(permission, deps);
+  return { ...result, data: { ...request, settingsOpened } };
+}
+
+async function openPermissionSettings(
+  permission: DesktopSystemPermission,
+  deps: RegisterDesktopGatewayHandlersDeps,
+): Promise<boolean> {
+  const openExternal = deps.openExternal ?? ((url: string) => shell.openExternal(url));
+  for (const url of MACOS_PRIVACY_URL_CANDIDATES[permission]) {
+    try {
+      await openExternal(url);
+      return true;
+    } catch {
+      // Best-effort pane link: fall through to the next candidate.
+    }
+  }
+  return false;
 }
 
 function register<TPayload>(

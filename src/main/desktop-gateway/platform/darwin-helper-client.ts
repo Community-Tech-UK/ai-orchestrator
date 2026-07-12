@@ -139,6 +139,18 @@ export class BundledDarwinHelperClient implements DesktopHelperClient {
     }
   }
 
+  /**
+   * Ask the helper to show the macOS Accessibility prompt and report the
+   * current trust state. `false` is a valid post-prompt state, never an error.
+   */
+  async requestAccessibility(): Promise<boolean> {
+    const raw = await this.request<{ trusted?: unknown }>('requestAccessibility', {});
+    if (!raw || typeof raw !== 'object' || typeof raw.trusted !== 'boolean') {
+      throw new Error('computer_use_driver_failed');
+    }
+    return raw.trusted;
+  }
+
   async listApps(): Promise<DesktopAppDescriptor[]> {
     const raw = await this.request<RawListAppsResult>('listApps', {});
     if (!Array.isArray(raw.apps)) {

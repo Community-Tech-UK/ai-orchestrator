@@ -6,6 +6,11 @@
  * setup shortcuts, discovered apps, active grants (with revoke), and the audit
  * log. Runtime grant approvals ride the generic permission approval card, so
  * this tab is diagnostics + policy, not an approval queue.
+ *
+ * Permission health, loading, errors, and the request-and-open action come
+ * from the shared {@link ComputerUsePermissionStore} so this tab, the root
+ * banner, and the title-bar chip always agree. Apps, grants, and audit data
+ * remain local to the tab.
  */
 
 import {
@@ -18,6 +23,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SettingsStore } from '../../core/state/settings.store';
+import { ComputerUsePermissionStore } from '../../core/state/computer-use-permission.store';
 import { SettingRowComponent } from './setting-row.component';
 import { DesktopGatewayIpcService } from '../../core/services/ipc/desktop-gateway-ipc.service';
 import type { AppSettings } from '../../../../shared/types/settings.types';
@@ -26,7 +32,7 @@ import type {
   DesktopAuditEntry,
   DesktopCapabilityState,
   DesktopGrantSummary,
-  DesktopHealthData,
+  DesktopSystemPermission,
 } from '../../../../shared/types/desktop-gateway.types';
 
 const COMPUTER_USE_SETTING_KEYS = new Set<string>([
@@ -40,7 +46,7 @@ const COMPUTER_USE_SETTING_KEYS = new Set<string>([
 interface CapabilityRow {
   label: string;
   state: DesktopCapabilityState;
-  permission?: 'screen-recording' | 'accessibility';
+  permission?: DesktopSystemPermission;
 }
 
 @Component({
@@ -53,18 +59,23 @@ interface CapabilityRow {
 })
 export class ComputerUseSettingsTabComponent implements OnInit {
   readonly store = inject(SettingsStore);
+  readonly permissions = inject(ComputerUsePermissionStore);
   private readonly desktop = inject(DesktopGatewayIpcService);
 
   readonly settingRows = computed(() =>
     this.store.metadata.filter((meta) => COMPUTER_USE_SETTING_KEYS.has(meta.key) && !meta.hidden),
   );
 
+  /** Local loading/error cover the tab-owned apps/grants/audit data only. */
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
-  readonly health = signal<DesktopHealthData | null>(null);
+  readonly health = this.permissions.health;
   readonly apps = signal<DesktopAppDescriptor[]>([]);
   readonly grants = signal<DesktopGrantSummary[]>([]);
   readonly auditEntries = signal<DesktopAuditEntry[]>([]);
+
+  readonly permissionsEnabled = computed(() =>
+    this.store.settings().computerUseEnabled === true);
 
   readonly capabilityRows = computed<CapabilityRow[]>(() => {
     const health = this.health();
@@ -88,15 +99,12 @@ export class ComputerUseSettingsTabComponent implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     try {
-      const [health, apps, grants, audit] = await Promise.all([
-        this.desktop.getHealth(),
+      const [apps, grants, audit] = await Promise.all([
         this.desktop.listApps(),
         this.desktop.listGrants({ includeExpired: true }),
         this.desktop.getAuditLog({ limit: 100 }),
+        this.permissions.refresh(),
       ]);
-      if (health.success && health.data?.data) {
-        this.health.set(health.data.data);
-      }
       if (apps.success && apps.data?.data) {
         this.apps.set(apps.data.data.apps);
       }
@@ -119,8 +127,8 @@ export class ComputerUseSettingsTabComponent implements OnInit {
     void this.refresh();
   }
 
-  async openPermission(permission: 'screen-recording' | 'accessibility'): Promise<void> {
-    await this.desktop.openPermissionSettings(permission);
+  async openPermission(permission: DesktopSystemPermission): Promise<void> {
+    await this.permissions.requestPermission(permission);
   }
 
   async revokeGrant(grantId: string): Promise<void> {

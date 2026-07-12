@@ -99,8 +99,9 @@ export type {
   GeminiQuotaProbeOptions,
 } from './gemini-quota-probe';
 
-export { GeminiUsageEndpointProbe, parseGeminiQuotaPayload } from './gemini-usage-endpoint-probe';
+export { GeminiUsageEndpointProbe, parseGeminiQuotaSummary } from './gemini-usage-endpoint-probe';
 export type {
+  AgyCredentialReadFn,
   GeminiQuotaFetch,
   GeminiQuotaFileReader,
   GeminiLoadCodeAssistFetch,
@@ -108,6 +109,15 @@ export type {
   GeminiTokenRefreshFetch,
   GeminiUsageEndpointProbeOptions,
 } from './gemini-usage-endpoint-probe';
+
+export { AgyCredentialsReader } from './agy-credentials-reader';
+export type {
+  AgyCredential,
+  AgyCredentialFailureReason,
+  AgyCredentialResult,
+  AgyCredentialsReaderOptions,
+  AgySecurityExec,
+} from './agy-credentials-reader';
 
 /**
  * Register every default quota probe on the singleton service. Idempotent —

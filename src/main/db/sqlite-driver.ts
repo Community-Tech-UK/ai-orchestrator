@@ -98,12 +98,12 @@ export interface SqliteDriver {
 
   /**
    * Create a consistent snapshot of the database to `destPath` using
-   * SQLite's backup API. Synchronous in better-sqlite3 (WAL-safe internally).
+   * SQLite's asynchronous, WAL-safe backup API.
    *
    * Optional in test backends — sql.js does not support this and should throw.
    * Production code that calls this should run under the native driver only.
    */
-  backup(destPath: string): void;
+  backup(destPath: string): Promise<void>;
 
   /** Release all resources. Idempotent. */
   close(): void;

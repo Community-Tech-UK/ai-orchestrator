@@ -13,16 +13,49 @@ import type {
 import type { QuotaThrottleDecision } from './loop-quota-throttle';
 import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
 
+/**
+ * @deprecated Flat $15 per 1M tokens. This was applied to a token total that
+ * *includes cache reads*, which bill at ~10% of the input rate — so it
+ * overstated real loop spend by roughly 2.75x against the measured blended
+ * rate. Iteration cost now routes through `computeTokenCost` (the single
+ * source of truth in `src/shared/data/model-pricing.ts`), which prices
+ * input/output/cache-read/cache-write per model.
+ *
+ * Retained only so historical rows can be identified and re-priced: a stored
+ * `cost_cents` that exactly equals `ceil(tokens / 1e6 * 1500)` was produced by
+ * this estimator and is not trustworthy.
+ */
 export const COST_PER_M_TOKENS_CENTS = 1500;
 export const DEFAULT_ITERATION_TIMEOUT_MS = 30 * 60 * 1000;
 export const LOOP_BREAKER_OPEN_BACKOFF_MS = 65 * 1000;
 export const LOOP_MAX_BREAKER_OPEN_WAITS = 3;
+
+/**
+ * Per-iteration token usage as reported by the adapter. Mirrors
+ * `TokenCostInput` in `src/shared/data/model-pricing.ts` so it can be handed
+ * straight to `computeTokenCost` when the provider reports no dollar cost.
+ */
+export interface LoopChildUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
 
 export interface LoopChildResult {
   childInstanceId: string | null;
   output: string;
   tokens: number;
   costUsd?: number;
+  /**
+   * Full usage breakdown, when the adapter reported one. Required to price an
+   * iteration correctly: `tokens` alone cannot distinguish a cache read (~10%
+   * of input rate) from a cache write (full input rate).
+   */
+  usage?: LoopChildUsage;
+  /** Resolved model, needed to look up the per-model rate. */
+  model?: string;
   filesChanged: LoopFileChange[];
   filesRead?: string[];
   toolCalls: LoopToolCallRecord[];

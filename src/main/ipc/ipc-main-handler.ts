@@ -107,10 +107,12 @@ import {
   registerTerminalHandlers,
   registerAuxiliaryLlmHandlers,
   registerCampaignHandlers,
+  registerRlmMaintenanceHandlers,
 } from './handlers';
 import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
 import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
 import { getCostTracker } from '../core/system/cost-tracker';
+import { initializeRlmStorageMaintenance } from '../rlm/rlm-storage-maintenance-runtime';
 
 const logger = getLogger('IpcMainHandler');
 
@@ -250,6 +252,10 @@ export class IpcMainHandler {
 
     // Memory stats handlers (basic memory tracking)
     registerMemoryStatsHandlers(this.instanceManager);
+    registerRlmMaintenanceHandlers({
+      service: initializeRlmStorageMaintenance(this.instanceManager),
+      windowManager: this.windowManager,
+    });
 
     // Session, archive, and history handlers
     registerSessionHandlers({

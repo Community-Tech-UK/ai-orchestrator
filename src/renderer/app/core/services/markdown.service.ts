@@ -140,8 +140,8 @@ export class MarkdownService {
     };
 
     // Custom blockquote rendering
-    renderer.blockquote = ({ text }: Tokens.Blockquote): string => {
-      return `<blockquote class="md-blockquote">${text}</blockquote>`;
+    renderer.blockquote = ({ tokens }: Tokens.Blockquote): string => {
+      return `<blockquote class="md-blockquote">\n${renderer.parser.parse(tokens)}</blockquote>\n`;
     };
 
     // Custom table rendering

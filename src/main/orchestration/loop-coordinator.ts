@@ -133,9 +133,9 @@ import type {
   ProviderQuotaSnapshot,
 } from '../../shared/types/provider-quota.types';
 import { isProviderNotice } from '../cli/provider-notice';
+import { resolveIterationCost } from './loop-iteration-cost';
 import { isParkingDecision } from './loop-quota-throttle';
 import {
-  COST_PER_M_TOKENS_CENTS,
   DEFAULT_ITERATION_TIMEOUT_MS,
   LOOP_BREAKER_OPEN_BACKOFF_MS,
   LOOP_MAX_BREAKER_OPEN_WAITS,
@@ -222,6 +222,7 @@ export type {
   LoopChildInvocationCallbackResult,
   LoopChildInvocationError,
   LoopChildResult,
+  LoopChildUsage,
   LoopIntentPersistHook,
   LoopIterationHook,
   LoopRuntimeContext,
@@ -278,6 +279,8 @@ export class LoopCoordinator extends EventEmitter {
    */
   private terminalCleanupPromises = new Map<string, Promise<void>>();
   private resourceGovernor: LoopResourceGovernor | null = null;
+  /** Prevents new child turns while storage maintenance owns the RLM DB. */
+  private maintenanceGate: (() => boolean) | null = null;
   /**
    * P2: maps loopRunId → worktree session id. Populated when `isolateLoopWorkspaces`
    * is true, cleared in terminate(). Used for harvest+cleanup on terminal.
@@ -376,6 +379,7 @@ export class LoopCoordinator extends EventEmitter {
   private contextSurvivalManager: LoopContextSurvivalManager | null = defaultLoopContextSurvivalManager;
   setContextSurvivalManager(manager: LoopContextSurvivalManager | null): void { this.contextSurvivalManager = manager; }
   setResourceGovernor(governor: LoopResourceGovernor | null): void { this.resourceGovernor = governor; }
+  setMaintenanceGate(gate: (() => boolean) | null): void { this.maintenanceGate = gate; }
 
   /**
    * Usage-aware throttling: supplies the latest quota snapshot for a provider
@@ -512,6 +516,7 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.runtimeContexts.clear();
       this.instance.loopControls.clear();
       this.instance.nextObjectivePlanners.clear();
+      this.instance.maintenanceGate = null;
       this.instance.preIterationHooks = [];
       this.instance.iterationHooks = [];
       this.instance.intentPersistHook = null;
@@ -1575,6 +1580,13 @@ export class LoopCoordinator extends EventEmitter {
           return;
         }
       }
+      if (this.maintenanceGate?.()) {
+        // Maintenance is deliberately transparent to loop state: a loop that
+        // was already running remains running, but no child process starts
+        // while the backup/prune/VACUUM/reload critical section is active.
+        await sleep(100);
+        continue;
+      }
       const capHit = checkLoopHardCaps(state);
       if (capHit) {
         const reason = describeLoopCapReason(state, capHit, this.convergenceNotes.get(state.id));
@@ -2083,9 +2095,11 @@ export class LoopCoordinator extends EventEmitter {
       // -- assemble iteration record --
       const iterEnd = Date.now();
       const tokens = childResult.tokens;
-      const costCents = typeof childResult.costUsd === 'number' && Number.isFinite(childResult.costUsd)
-        ? Math.max(0, Math.ceil(childResult.costUsd * 100))
-        : Math.ceil((tokens / 1_000_000) * COST_PER_M_TOKENS_CENTS);
+      const usage = childResult.usage;
+      // See loop-iteration-cost.ts: prefers provider-reported dollars, then a
+      // per-model computeTokenCost over the usage breakdown, and only falls
+      // back to the legacy flat $15/Mtok when no usage was reported at all.
+      const { costCents, costKnown } = resolveIterationCost(childResult);
 
       const prevIter = history[history.length - 1];
       const outputExcerpt = excerpt(childResult.output);
@@ -2110,6 +2124,13 @@ export class LoopCoordinator extends EventEmitter {
         childInstanceId: childResult.childInstanceId,
         tokens,
         costCents,
+        // Persist the cache split + model so loop spend can be audited against
+        // the same rates the CostTracker uses, and so a future re-pricing pass
+        // can distinguish reported cost from an estimate.
+        ...(typeof usage?.cacheReadTokens === 'number' ? { cacheReadTokens: usage.cacheReadTokens } : {}),
+        ...(typeof usage?.cacheWriteTokens === 'number' ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
+        ...(childResult.model ? { model: childResult.model } : {}),
+        costKnown,
         filesChanged: childResult.filesChanged,
         filesRead: childResult.filesRead ?? [],
         toolCalls: childResult.toolCalls,

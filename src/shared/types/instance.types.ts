@@ -279,6 +279,8 @@ export interface Instance {
   providerSessionId: string;
   /** Deprecated alias retained during the provider/history identity split. */
   sessionId: string;
+  /** Session identity used by the currently attached RLM store. */
+  rlmStoreSessionId?: string;
   /** Monotonic restart counter used to reject stale adapter events. */
   restartEpoch: number;
   /** Monotonic adapter-listener generation used to reject stale adapter events. */

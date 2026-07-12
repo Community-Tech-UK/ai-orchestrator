@@ -75,4 +75,5 @@ export interface InstanceContextPort {
 
   // ── Maintenance ─────────────────────────────────────────────────────────────
   compactContext(instanceId: string, instance: Instance): Promise<void>;
+  reloadRlmPersistence?(): Promise<void>;
 }

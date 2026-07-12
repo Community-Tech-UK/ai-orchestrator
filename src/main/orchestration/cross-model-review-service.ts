@@ -55,6 +55,8 @@ import {
 } from './review-execution-batch';
 import { isLikelyReviewRefusal, parseCrossModelReviewResponse } from './review-response-parser';
 import { summarizeHeadlessReview, toHeadlessFindings } from './headless-review-findings';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
+import { resolveAntigravityReviewModelPlan } from './antigravity-review-model-routing';
 const logger = getLogger('CrossModelReviewService');
 
 // Codex and Antigravity both run noticeably slower than other reviewer CLIs
@@ -453,78 +455,94 @@ export class CrossModelReviewService extends EventEmitter {
         if (this.isPaused || getPauseCoordinator().isPaused()) throw new Error('Review skipped while orchestrator is paused');
 
         const resolvedCli = await resolveCliType(reviewerCli as SettingsCliType);
-        const reviewerModel = resolveReviewerModelOverride(reviewerCli);
-        const adapter = getProviderRuntimeService().createAdapter({
-          cliType: resolvedCli,
-          options: {
-            workingDirectory: request.workingDirectory,
-            timeout: timeoutMs,
-            yoloMode: false,
-            ...(isCodex ? { reasoningEffort: 'low' as const } : {}),
-            // When no override is configured, leave `model` unset so the
-            // reviewer CLI uses its own default/auto routing.
-            ...(reviewerModel ? { model: reviewerModel } : {}),
-          },
-        });
+        const configuredModel = resolveReviewerModelOverride(reviewerCli);
+        const reviewerModels = reviewerCli === 'antigravity'
+          ? resolveAntigravityReviewModelPlan(
+              configuredModel,
+              getProviderQuotaService().getSnapshot('antigravity'),
+            )
+          : [configuredModel];
 
-        let cancelled = false;
-        try {
-          if (!isCliAdapterLike(adapter)) {
-            throw new Error(`CLI adapter "${reviewerCli}" does not support sendMessage`);
-          }
-
-          if (operationSignal.aborted || this.isPaused || getPauseCoordinator().isPaused()) {
-            throw new Error('Review cancelled');
-          }
-
-          const prompt = effectiveDepth === 'tiered'
-            ? buildTieredReviewPrompt(request.taskDescription, request.content)
-            : buildStructuredReviewPrompt(request.taskDescription, request.content);
-
-          const initialResponse = await sendAbortableReviewerMessage(
-            adapter,
-            { role: 'user', content: prompt },
-            operationSignal,
-            () => { cancelled = true; },
-          );
-
-          const initialParsed = this.parseReviewResponse(reviewerCli, initialResponse.content, effectiveDepth, Date.now() - startTime);
-          if (initialParsed) return { result: initialParsed, repaired: false };
-
-          if (isLikelyReviewRefusal(initialResponse.content)) {
-            logger.warn('Reviewer refused the review request', { cliType: reviewerCli, reviewId: request.id });
-            return { result: null, repaired: false };
-          }
-
-          logger.info('Reviewer response failed validation — attempting one format-repair retry', {
-            cliType: reviewerCli,
-            reviewId: request.id,
+        for (const [modelIndex, reviewerModel] of reviewerModels.entries()) {
+          const adapter = getProviderRuntimeService().createAdapter({
+            cliType: resolvedCli,
+            options: {
+              workingDirectory: request.workingDirectory,
+              timeout: timeoutMs,
+              yoloMode: false,
+              ...(isCodex ? { reasoningEffort: 'low' as const } : {}),
+              // When no override is configured, leave `model` unset so the
+              // reviewer CLI uses its own default/auto routing.
+              ...(reviewerModel ? { model: reviewerModel } : {}),
+            },
           });
-          const repairResponse = await sendAbortableReviewerMessage(
-            adapter,
-            { role: 'user', content: buildReviewFormatRepairPrompt(effectiveDepth, initialResponse.content) },
-            operationSignal,
-            () => { cancelled = true; },
-          );
-          const repairedParsed = this.parseReviewResponse(reviewerCli, repairResponse.content, effectiveDepth, Date.now() - startTime);
-          if (!repairedParsed) {
-            logger.warn('Reviewer format-repair response also failed validation', {
-              cliType: reviewerCli,
-              reviewId: request.id,
-            });
-            return { result: null, repaired: false };
-          }
-          return { result: repairedParsed, repaired: true };
-        } finally {
-          if (!cancelled && isTerminableAdapter(adapter)) {
-            await adapter.terminate(false).catch((cleanupError: unknown) => {
-              logger.warn('Review adapter cleanup failed', {
+
+          let cancelled = false;
+          try {
+            if (!isCliAdapterLike(adapter)) {
+              throw new Error(`CLI adapter "${reviewerCli}" does not support sendMessage`);
+            }
+
+            if (operationSignal.aborted || this.isPaused || getPauseCoordinator().isPaused()) {
+              throw new Error('Review cancelled');
+            }
+
+            const prompt = effectiveDepth === 'tiered'
+              ? buildTieredReviewPrompt(request.taskDescription, request.content)
+              : buildStructuredReviewPrompt(request.taskDescription, request.content);
+
+            const initialResponse = await sendAbortableReviewerMessage(
+              adapter,
+              { role: 'user', content: prompt },
+              operationSignal,
+              () => { cancelled = true; },
+            );
+
+            const initialParsed = this.parseReviewResponse(reviewerCli, initialResponse.content, effectiveDepth, Date.now() - startTime);
+            if (initialParsed) return { result: initialParsed, repaired: false };
+
+            if (isLikelyReviewRefusal(initialResponse.content)) {
+              logger.warn('Reviewer refused the review request', { cliType: reviewerCli, reviewId: request.id, model: reviewerModel });
+            } else {
+              logger.info('Reviewer response failed validation — attempting one format-repair retry', {
                 cliType: reviewerCli,
-                error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+                reviewId: request.id,
+                model: reviewerModel,
               });
-            });
+              const repairResponse = await sendAbortableReviewerMessage(
+                adapter,
+                { role: 'user', content: buildReviewFormatRepairPrompt(effectiveDepth, initialResponse.content) },
+                operationSignal,
+                () => { cancelled = true; },
+              );
+              const repairedParsed = this.parseReviewResponse(reviewerCli, repairResponse.content, effectiveDepth, Date.now() - startTime);
+              if (repairedParsed) return { result: repairedParsed, repaired: true };
+              logger.warn('Reviewer format-repair response also failed validation', {
+                cliType: reviewerCli,
+                reviewId: request.id,
+                model: reviewerModel,
+              });
+            }
+
+            if (modelIndex < reviewerModels.length - 1) {
+              logger.info('Retrying Antigravity review with fallback model', {
+                reviewId: request.id,
+                fromModel: reviewerModel,
+                toModel: reviewerModels[modelIndex + 1],
+              });
+            }
+          } finally {
+            if (!cancelled && isTerminableAdapter(adapter)) {
+              await adapter.terminate(false).catch((cleanupError: unknown) => {
+                logger.warn('Review adapter cleanup failed', {
+                  cliType: reviewerCli,
+                  error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+                });
+              });
+            }
           }
         }
+        return { result: null, repaired: false };
       });
 
       if (!outcome.result) {
@@ -632,14 +650,35 @@ export class CrossModelReviewService extends EventEmitter {
               ? buildTieredReviewPrompt(request.taskDescription, reviewContent, angle)
               : buildStructuredReviewPrompt(request.taskDescription, reviewContent, angle);
             try {
-              const rawResponse = await host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal);
-              const parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
+              const configuredModel = resolveReviewerModelOverride(reviewer);
+              const reviewerModels = reviewer === 'antigravity'
+                ? resolveAntigravityReviewModelPlan(
+                    configuredModel,
+                    getProviderQuotaService().getSnapshot('antigravity'),
+                  )
+                : [configuredModel];
+              let lastResponseLength = 0;
+              let parsed: ReviewResult | null = null;
+              for (const reviewerModel of reviewerModels) {
+                const needsModelOverride = reviewer === 'antigravity' && reviewerModel !== configuredModel;
+                const rawResponse = needsModelOverride
+                  ? await host.dispatchReviewerPrompt(
+                      reviewer,
+                      prompt,
+                      cwd,
+                      abort.signal,
+                      { modelOverride: reviewerModel },
+                    )
+                  : await host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal);
+                lastResponseLength = rawResponse?.length ?? 0;
+                parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
+                if (parsed) break;
+              }
               if (!parsed) {
-                const len = rawResponse?.length ?? 0;
                 reviewerStatuses.push({
                   provider: reviewer,
                   status: 'failed',
-                  reason: `Reviewer returned unparseable output (${len} chars; expected strict JSON)`,
+                  reason: `Reviewer returned unparseable output (${lastResponseLength} chars; expected strict JSON)`,
                 });
                 continue;
               }

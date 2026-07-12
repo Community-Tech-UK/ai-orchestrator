@@ -5,6 +5,11 @@ import { ProviderReviewExecutionHost, resolveReviewerModelOverride } from './rev
 const hostTestState = vi.hoisted(() => ({
   modelByProvider: {} as Record<string, string>,
   createAdapter: vi.fn(),
+  quotaSnapshot: null as null | {
+    ok: boolean;
+    takenAt: number;
+    windows: Array<{ id: string; label: string; used: number; limit: number }>;
+  },
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -23,11 +28,15 @@ vi.mock('../cli/adapters/adapter-factory', () => ({
 vi.mock('../providers/provider-runtime-service', () => ({
   getProviderRuntimeService: () => ({ createAdapter: hostTestState.createAdapter }),
 }));
+vi.mock('../core/system/provider-quota-service', () => ({
+  getProviderQuotaService: () => ({ getSnapshot: () => hostTestState.quotaSnapshot }),
+}));
 
 describe('resolveReviewerModelOverride', () => {
   beforeEach(() => {
     hostTestState.modelByProvider = {};
     hostTestState.createAdapter.mockReset();
+    hostTestState.quotaSnapshot = null;
   });
 
   it('returns undefined when no entry is configured (CLI auto-routes)', () => {
@@ -66,6 +75,7 @@ describe('ProviderReviewExecutionHost', () => {
   beforeEach(() => {
     hostTestState.modelByProvider = {};
     hostTestState.createAdapter.mockReset();
+    hostTestState.quotaSnapshot = null;
   });
 
   it('interrupts and force-terminates an in-flight reviewer when cancelled', async () => {
@@ -113,5 +123,34 @@ describe('ProviderReviewExecutionHost', () => {
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
     expect(() => abort.abort()).not.toThrow();
     await expect(pending).rejects.toThrow('Review cancelled');
+  });
+
+  it('routes an exhausted Antigravity Gemini override to Sonnet', async () => {
+    hostTestState.modelByProvider = { antigravity: 'Gemini 3.5 Flash (Medium)' };
+    hostTestState.quotaSnapshot = {
+      ok: true,
+      takenAt: Date.now(),
+      windows: [
+        { id: 'antigravity.gemini-5h', label: 'Gemini · 5-hour', used: 100, limit: 100 },
+        { id: 'antigravity.3p-5h', label: 'Claude/GPT · 5-hour', used: 0, limit: 100 },
+      ],
+    };
+    let capturedModel: unknown;
+    hostTestState.createAdapter.mockImplementation(({ options }) => {
+      capturedModel = options.model;
+      return {
+        sendMessage: vi.fn().mockResolvedValue({ content: '{}' }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    await new ProviderReviewExecutionHost().dispatchReviewerPrompt(
+      'antigravity',
+      'review this',
+      '/repo',
+      new AbortController().signal,
+    );
+
+    expect(capturedModel).toBe('Claude Sonnet 4.6 (Thinking)');
   });
 });

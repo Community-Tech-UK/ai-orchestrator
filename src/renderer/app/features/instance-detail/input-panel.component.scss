@@ -1,5 +1,17 @@
 /* Input Panel - Refined message composer */
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .input-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0)),
@@ -15,6 +27,9 @@
 
 .loop-panel-host {
   display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
   margin-bottom: 12px;
 }
 
@@ -387,6 +402,7 @@
 /* Input Row - Message input area */
 .input-row {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 10px;
   min-height: 0;

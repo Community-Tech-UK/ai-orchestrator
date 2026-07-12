@@ -39,6 +39,48 @@ describe('pairing-config', () => {
     });
   });
 
+  // Regression: the pair CLI used to parse coordinatorUrl and silently DROP
+  // coordinatorUrls, so a config offering a Tailscale hostname plus a LAN IP
+  // lost its fallback at pairing time — even though the worker supports the
+  // list end-to-end (WorkerConfig.coordinatorUrls -> getConfiguredCoordinatorUrl
+  // -> worker-agent dialling). Rescued from tag `preserve/pair-both-wip`.
+  it('keeps the coordinatorUrls fallback list, deduped and excluding the primary', () => {
+    const parsed = parsePairingConfigInput(JSON.stringify({
+      authToken: 'pair-token',
+      coordinatorUrl: 'wss://macbook-pro.tail4fc107.ts.net:4878',
+      coordinatorUrls: [
+        'wss://macbook-pro.tail4fc107.ts.net:4878', // the primary — must not be duplicated
+        'ws://192.168.1.9:4878',
+        'ws://192.168.1.9:4878', // dupe within the list
+        42, // not a string
+        'not a url',
+      ],
+    }));
+
+    expect(parsed.coordinatorUrl).toBe('wss://macbook-pro.tail4fc107.ts.net:4878');
+    expect(parsed.coordinatorUrls).toEqual(['ws://192.168.1.9:4878']);
+  });
+
+  it('omits coordinatorUrls entirely when none survive, so the shape is unchanged', () => {
+    const parsed = parsePairingConfigInput(JSON.stringify({
+      authToken: 'pair-token',
+      coordinatorUrl: 'wss://host:4878',
+      coordinatorUrls: ['wss://host:4878'], // only the primary
+    }));
+
+    expect(parsed).not.toHaveProperty('coordinatorUrls');
+  });
+
+  it('ignores a non-array coordinatorUrls rather than throwing', () => {
+    const parsed = parsePairingConfigInput(JSON.stringify({
+      authToken: 'pair-token',
+      coordinatorUrl: 'wss://host:4878',
+      coordinatorUrls: 'ws://192.168.1.9:4878',
+    }));
+
+    expect(parsed).not.toHaveProperty('coordinatorUrls');
+  });
+
   it('strips query and fragment data from pasted coordinator URLs', () => {
     const parsed = parsePairingConfigInput(JSON.stringify({
       authToken: 'pair-token',

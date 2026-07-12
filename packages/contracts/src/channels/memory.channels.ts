@@ -61,6 +61,13 @@ export const MEMORY_CHANNELS = {
   RLM_GET_QUERY_STATS: 'rlm:get-query-stats',
   RLM_GET_STORAGE_STATS: 'rlm:get-storage-stats',
 
+  // RLM storage maintenance
+  RLM_STORAGE_GET_HEALTH: 'rlm-storage:get-health',
+  RLM_STORAGE_PREVIEW_MAINTENANCE: 'rlm-storage:preview-maintenance',
+  RLM_STORAGE_RUN_MAINTENANCE: 'rlm-storage:run-maintenance',
+  RLM_STORAGE_GET_MAINTENANCE_STATUS: 'rlm-storage:get-maintenance-status',
+  RLM_STORAGE_MAINTENANCE_PROGRESS: 'rlm-storage:maintenance-progress',
+
   // RLM events (renderer-bound)
   RLM_STORE_UPDATED: 'rlm:store-updated',
   RLM_SECTION_ADDED: 'rlm:section-added',

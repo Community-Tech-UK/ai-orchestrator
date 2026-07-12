@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
+  recordAuxiliaryAttribution,
   recordCostAttribution,
   recordInstanceTurnAttribution,
   getCostAttributionFilePath,
@@ -106,5 +107,75 @@ describe('cost-attribution', () => {
     expect(() =>
       recordCostAttribution({ source: 'one-shot', taskType: 'verify-orchestration' }),
     ).not.toThrow();
+  });
+
+  describe('auxiliary seam', () => {
+    const readRecords = (): Record<string, unknown>[] =>
+      readFileSync(getCostAttributionFilePath()!, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+    it('records a local offload with token counts and no dollar cost', () => {
+      recordAuxiliaryAttribution({
+        slot: 'compression',
+        provider: 'ollama',
+        endpointId: 'ep-5090',
+        model: 'gemma4',
+        routedTo: 'local',
+        escalatedToFrontier: false,
+        usage: { inputTokens: 4000, outputTokens: 500 },
+      });
+
+      const [rec] = readRecords();
+      expect(rec['source']).toBe('auxiliary');
+      expect(rec['taskType']).toBe('aux:compression');
+      expect(rec['auxRoutedTo']).toBe('local');
+      expect(rec['auxEscalatedToFrontier']).toBe(false);
+      expect(rec['auxEndpointId']).toBe('ep-5090');
+      // Local models report no dollars — the token counts are the signal.
+      expect(rec['costKnown']).toBe(false);
+      expect(rec['usage']).toEqual({ inputTokens: 4000, outputTokens: 500 });
+    });
+
+    it('flags the silent frontier escalation when no local endpoint is healthy', () => {
+      // This is the case that was completely invisible: compaction runs on
+      // every long session, and with allowFrontierFallback:true the caller
+      // quietly re-runs the prompt against a paid model.
+      recordAuxiliaryAttribution({
+        slot: 'compression',
+        routedTo: 'fallback',
+        escalatedToFrontier: true,
+        reason: 'No healthy auxiliary endpoint/model available',
+      });
+
+      const [rec] = readRecords();
+      expect(rec['auxRoutedTo']).toBe('fallback');
+      expect(rec['auxEscalatedToFrontier']).toBe(true);
+      expect(rec['auxReason']).toBe('No healthy auxiliary endpoint/model available');
+    });
+
+    it('distinguishes a fallback that degrades to a heuristic from one that escalates', () => {
+      // Slots with allowFrontierFallback:false (titleGeneration, loopScoring,
+      // ...) fall back to a deterministic heuristic and cost nothing. They must
+      // not be counted as cloud spend.
+      recordAuxiliaryAttribution({
+        slot: 'titleGeneration',
+        routedTo: 'fallback',
+        escalatedToFrontier: false,
+        reason: 'No healthy auxiliary endpoint/model available',
+      });
+
+      const [rec] = readRecords();
+      expect(rec['taskType']).toBe('aux:titleGeneration');
+      expect(rec['auxEscalatedToFrontier']).toBe(false);
+    });
+
+    it('is silenced by the same opt-out flag as the other seams', () => {
+      process.env['AIO_COST_ATTRIBUTION'] = '0';
+      _resetCostAttributionForTesting();
+      recordAuxiliaryAttribution({ slot: 'compression', routedTo: 'local', escalatedToFrontier: false });
+      expect(getCostAttributionFilePath()).toBeNull();
+    });
   });
 });

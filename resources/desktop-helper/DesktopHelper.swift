@@ -3,7 +3,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-private let protocolVersion = "1.0.0"
+private let protocolVersion = "1.1.0"
 private let maxLineBytes = 1_048_576
 private let maxApps = 512
 private let maxWindowsPerApp = 128
@@ -717,6 +717,17 @@ private func execute(_ request: Request) throws -> [String: Any] {
             "accessibility": accessibility,
             "input": accessibility,
         ]
+    case "requestAccessibility":
+        guard request.payload.isEmpty else {
+            throw HelperFailure.invalidRequest
+        }
+        // Prompting is asynchronous: the return value is the *current* trust
+        // state, so `false` right after a first-time prompt is expected and
+        // must not be treated as an execution error.
+        let options = [
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true,
+        ] as CFDictionary
+        return ["trusted": AXIsProcessTrustedWithOptions(options)]
     case "listApps":
         guard request.payload.isEmpty else {
             throw HelperFailure.invalidRequest

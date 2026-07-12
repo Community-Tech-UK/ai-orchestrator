@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   HostListener,
   ElementRef,
+  DestroyRef,
   inject,
   signal,
   effect,
@@ -10,6 +11,7 @@ import {
   Output,
   EventEmitter,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 
 export interface ContextMenuItem {
   id?: string;
@@ -168,6 +170,8 @@ export interface ContextMenuItem {
 })
 export class ContextMenuComponent {
   private el = inject(ElementRef<HTMLElement>);
+  private document = inject(DOCUMENT);
+  private destroyRef = inject(DestroyRef);
 
   protected menuItems = signal<ContextMenuItem[]>([]);
   private menuX = signal(0);
@@ -194,6 +198,11 @@ export class ContextMenuComponent {
   }
 
   constructor() {
+    this.document.addEventListener('pointerdown', this.onDocumentPointerDown, true);
+    this.destroyRef.onDestroy(() => {
+      this.document.removeEventListener('pointerdown', this.onDocumentPointerDown, true);
+    });
+
     effect(() => {
       const visible = this.menuVisible();
       const x = this.menuX();
@@ -216,15 +225,14 @@ export class ContextMenuComponent {
     }
   }
 
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
+  private readonly onDocumentPointerDown = (event: PointerEvent): void => {
     if (this.menuVisible()) {
       const menuEl = this.el.nativeElement.querySelector('.context-menu');
       if (menuEl && !menuEl.contains(event.target as Node)) {
         this.closed.emit();
       }
     }
-  }
+  };
 
   @HostListener('document:keydown.escape')
   onEscape(): void {

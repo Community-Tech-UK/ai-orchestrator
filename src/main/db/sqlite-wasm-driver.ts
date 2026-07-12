@@ -225,7 +225,7 @@ class SqliteWasmDriver implements SqliteDriver {
     };
   }
 
-  backup(destPath: string): void {
+  async backup(destPath: string): Promise<void> {
     throw new Error(
       `SqliteWasmDriver.backup(${JSON.stringify(destPath)}) is not implemented for tests`,
     );

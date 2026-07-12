@@ -7,6 +7,7 @@ import type { AggregatedReview, ReviewResult } from '../../shared/types/cross-mo
 import type { ReviewerPool } from './reviewer-pool';
 import type { CliType } from '../cli/cli-detection';
 import { normalizeReviewerCliList } from './cross-model-review-service.constants';
+import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 
 type TestReviewService = CrossModelReviewService & {
   reviewerPool: ReviewerPool;
@@ -120,6 +121,7 @@ const reviewTestState = vi.hoisted(() => ({
   localTimeout: 120,
   localMaxToolRounds: 12,
   qualityModel: '',
+  quotaSnapshot: null as ProviderQuotaSnapshot | null,
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -149,6 +151,57 @@ vi.mock('../core/circuit-breaker', () => ({
   }),
 }));
 
+vi.mock('../core/system/provider-quota-service', () => ({
+  getProviderQuotaService: () => ({
+    getSnapshot: () => reviewTestState.quotaSnapshot,
+  }),
+}));
+
+function makeAntigravityQuotaSnapshot(
+  geminiUsed: number,
+  thirdPartyUsed = 0,
+  takenAt = Date.now(),
+): ProviderQuotaSnapshot {
+  return {
+    provider: 'antigravity',
+    takenAt,
+    source: 'admin-api',
+    ok: true,
+    windows: [
+      {
+        kind: 'rolling-window',
+        id: 'antigravity.gemini-5h',
+        label: 'Gemini · 5-hour',
+        unit: 'requests',
+        used: geminiUsed,
+        limit: 100,
+        remaining: 100 - geminiUsed,
+        resetsAt: null,
+      },
+      {
+        kind: 'rolling-window',
+        id: 'antigravity.gemini-weekly',
+        label: 'Gemini · weekly',
+        unit: 'requests',
+        used: geminiUsed,
+        limit: 100,
+        remaining: 100 - geminiUsed,
+        resetsAt: null,
+      },
+      {
+        kind: 'rolling-window',
+        id: 'antigravity.3p-5h',
+        label: 'Claude/GPT · 5-hour',
+        unit: 'requests',
+        used: thirdPartyUsed,
+        limit: 100,
+        remaining: 100 - thirdPartyUsed,
+        resetsAt: null,
+      },
+    ],
+  };
+}
+
 describe('CrossModelReviewService', () => {
   beforeEach(() => {
     CrossModelReviewService._resetForTesting();
@@ -158,6 +211,7 @@ describe('CrossModelReviewService', () => {
     reviewTestState.localEnabled = false;
     reviewTestState.localSelectorId = '';
     reviewTestState.qualityModel = '';
+    reviewTestState.quotaSnapshot = null;
     detectionTestState.availableClis = ['gemini', 'codex', 'copilot'];
     vi.mocked(resolveCliType).mockImplementation(async (cli) => {
       if (!cli || cli === 'auto' || cli === 'openai') return 'codex';
@@ -487,6 +541,123 @@ describe('CrossModelReviewService', () => {
     await service.executeOneReview(makeRequest(), 'copilot', 30, new AbortController().signal);
 
     expect(modelKeyPresent).toBe(false);
+  });
+
+  describe('Antigravity quota-aware reviewer model routing', () => {
+    const GEMINI_MODEL = 'Gemini 3.5 Flash (Medium)';
+    const SONNET_MODEL = 'Claude Sonnet 4.6 (Thinking)';
+    const GPT_OSS_MODEL = 'GPT-OSS 120B (Medium)';
+    const validReview = JSON.stringify({
+      correctness: { reasoning: 'ok', score: 4, issues: [] },
+      completeness: { reasoning: 'ok', score: 4, issues: [] },
+      security: { reasoning: 'ok', score: 4, issues: [] },
+      consistency: { reasoning: 'ok', score: 4, issues: [] },
+      overall_verdict: 'APPROVE',
+      summary: 'approved',
+    });
+
+    it('keeps the configured Gemini model while its quota windows have capacity', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
+      reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(99);
+      const models: unknown[] = [];
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+        models.push(options.model);
+        return {
+          sendMessage: async () => ({ content: validReview }),
+          terminate: vi.fn().mockResolvedValue(undefined),
+        };
+      });
+
+      await service.executeOneReview(makeRequest(), 'antigravity', 30, new AbortController().signal);
+
+      expect(models).toEqual([GEMINI_MODEL]);
+    });
+
+    it('routes an exhausted Gemini reviewer to Sonnet', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
+      reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(100);
+      const models: unknown[] = [];
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+        models.push(options.model);
+        return {
+          sendMessage: async () => ({ content: validReview }),
+          terminate: vi.fn().mockResolvedValue(undefined),
+        };
+      });
+
+      await service.executeOneReview(makeRequest(), 'antigravity', 30, new AbortController().signal);
+
+      expect(models).toEqual([SONNET_MODEL]);
+    });
+
+    it('keeps Gemini when the quota snapshot is stale instead of guessing', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
+      reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(100, 0, Date.now() - 20 * 60_000);
+      const models: unknown[] = [];
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+        models.push(options.model);
+        return {
+          sendMessage: async () => ({ content: validReview }),
+          terminate: vi.fn().mockResolvedValue(undefined),
+        };
+      });
+
+      await service.executeOneReview(makeRequest(), 'antigravity', 30, new AbortController().signal);
+
+      expect(models).toEqual([GEMINI_MODEL]);
+    });
+
+    it('falls back from malformed Sonnet output to GPT-OSS under the same review operation', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
+      reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(100);
+      const models: unknown[] = [];
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+        models.push(options.model);
+        return {
+          sendMessage: options.model === SONNET_MODEL
+            ? vi.fn().mockResolvedValue({ content: 'not valid json' })
+            : vi.fn().mockResolvedValue({ content: validReview }),
+          terminate: vi.fn().mockResolvedValue(undefined),
+        };
+      });
+
+      const result = await service.executeOneReview(
+        makeRequest(),
+        'antigravity',
+        30,
+        new AbortController().signal,
+      );
+
+      expect(models).toEqual([SONNET_MODEL, GPT_OSS_MODEL]);
+      expect(result).toMatchObject({ reviewerId: 'antigravity', parseSuccess: true });
+    });
+
+    it('does not try GPT-OSS after Sonnet reports exhaustion of their shared quota pool', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
+      reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(100);
+      const models: unknown[] = [];
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+        models.push(options.model);
+        return {
+          sendMessage: async () => { throw new Error('Claude/GPT quota exceeded'); },
+          terminate: vi.fn().mockResolvedValue(undefined),
+        };
+      });
+
+      await expect(service.executeOneReview(
+        makeRequest(),
+        'antigravity',
+        30,
+        new AbortController().signal,
+      )).rejects.toThrow('quota exceeded');
+
+      expect(models).toEqual([SONNET_MODEL]);
+    });
   });
 
   it('runs codex at low reasoning effort and forces structured depth even for tiered requests', async () => {

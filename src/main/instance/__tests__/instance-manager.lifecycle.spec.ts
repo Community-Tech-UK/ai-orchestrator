@@ -628,7 +628,12 @@ vi.mock('../../../shared/types/error-recovery.types', async (importOriginal) => 
 // ---------------------------------------------------------------------------
 // Provider types mock
 // ---------------------------------------------------------------------------
-vi.mock('../../../shared/types/provider.types', () => ({
+vi.mock('../../../shared/types/provider.types', async (importOriginal) => ({
+  // Spread the real module first. Module-eval-time consumers read constants we
+  // don't stub here (settings-defaults.ts reads CLAUDE_MODELS/OPENAI_MODELS at
+  // module scope), and a bare factory drops them, blowing up the whole suite
+  // before a single test runs. The explicit stubs below still override.
+  ...(await importOriginal<typeof import('../../../shared/types/provider.types')>()),
   COPILOT_MODELS: {
     AUTO: 'auto',
     CLAUDE_SONNET_46: 'claude-sonnet-4.6',

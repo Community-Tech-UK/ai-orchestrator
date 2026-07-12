@@ -13,12 +13,15 @@
   <section class="cu-card" aria-label="Driver health">
     <header class="cu-card__header">
       <h3>Permissions & health</h3>
-      <button type="button" class="cu-btn" (click)="refresh()" [disabled]="loading()">
-        {{ loading() ? 'Refreshing…' : 'Refresh' }}
+      <button type="button" class="cu-btn" (click)="refresh()" [disabled]="loading() || permissions.loading()">
+        {{ (loading() || permissions.loading()) ? 'Refreshing…' : 'Refresh' }}
       </button>
     </header>
 
     @if (error(); as err) {
+      <p class="cu-error">{{ err }}</p>
+    }
+    @if (permissions.error(); as err) {
       <p class="cu-error">{{ err }}</p>
     }
 
@@ -36,8 +39,14 @@
             <span class="cu-caps__label">{{ cap.label }}</span>
             <span class="cu-caps__state">{{ capabilityLabel(cap.state) }}</span>
             @if (cap.state !== 'available' && cap.permission) {
-              <button type="button" class="cu-btn cu-btn--small" (click)="openPermission(cap.permission)">
-                Open settings
+              <button
+                type="button"
+                class="cu-btn cu-btn--small"
+                [disabled]="!permissionsEnabled() || permissions.requesting() !== null"
+                [attr.aria-label]="'Open ' + cap.label + ' settings'"
+                (click)="openPermission(cap.permission)"
+              >
+                {{ permissions.requesting() === cap.permission ? 'Opening…' : 'Open settings' }}
               </button>
             }
           </li>

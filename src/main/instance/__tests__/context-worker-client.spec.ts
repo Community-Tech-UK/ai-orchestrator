@@ -126,7 +126,10 @@ describe('ContextWorkerClient', () => {
   // ── RPC resolution ──────────────────────────────────────────────────────────
 
   it('resolves RPC response by matching id', async () => {
-    const initPromise = client.initializeRlm(makeInstance());
+    const instance = makeInstance();
+    const initPromise = client.initializeRlm(instance);
+
+    expect(instance.rlmStoreSessionId).toBe('sess-1');
 
     const postedMsg = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
     expect(postedMsg).toBeDefined();
@@ -485,6 +488,14 @@ describe('ContextWorkerClient', () => {
   });
 
   // ── compactContext buffer trim ───────────────────────────────────────────────
+
+  it('reloads RLM persistence through a worker RPC', async () => {
+    const promise = client.reloadRlmPersistence();
+    const postedMsg = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number; type: string };
+    expect(postedMsg.type).toBe('reload-rlm-persistence');
+    fakeWorker.emit('message', { type: 'rpc-response', id: postedMsg.id });
+    await expect(promise).resolves.toBeUndefined();
+  });
 
   it('compactContext trims outputBuffer in main process after RPC', async () => {
     const instance = makeInstance({

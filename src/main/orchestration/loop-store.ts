@@ -341,12 +341,13 @@ export class LoopStore {
     this.db.prepare(`
       INSERT OR REPLACE INTO loop_iterations (
         id, loop_run_id, seq, stage, started_at, ended_at, child_instance_id,
-        tokens, cost_cents, files_changed_json, tool_calls_json, errors_json,
+        tokens, cost_cents, cache_read_tokens, cache_write_tokens, model, cost_known,
+        files_changed_json, tool_calls_json, errors_json,
         test_pass_count, test_fail_count, work_hash, output_similarity_to_prev,
         output_excerpt, output_full, progress_verdict, progress_signals_json,
         completion_signals_fired_json, verify_status, verify_output_excerpt,
         verify_failure_kind, final_audit_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       iter.id,
       iter.loopRunId,
@@ -357,6 +358,10 @@ export class LoopStore {
       iter.childInstanceId,
       iter.tokens,
       iter.costCents,
+      iter.cacheReadTokens ?? null,
+      iter.cacheWriteTokens ?? null,
+      iter.model ?? null,
+      iter.costKnown === undefined ? null : (iter.costKnown ? 1 : 0),
       JSON.stringify(iter.filesChanged),
       JSON.stringify(iter.toolCalls),
       JSON.stringify(iter.errors),

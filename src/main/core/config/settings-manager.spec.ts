@@ -55,6 +55,59 @@ vi.mock('../../util/file-lock', () => ({
 }));
 
 import { SettingsManager, type SettingsConflict, type SettingsWriteContext } from './settings-manager';
+import { DEFAULT_REVIEWER_MODEL_BY_PROVIDER } from '../../../shared/types/settings.types';
+import { OPENAI_MODELS } from '../../../shared/types/provider.types';
+
+describe('reviewer model defaults backfill', () => {
+  beforeEach(() => {
+    for (const key of Object.keys(mocks.store)) delete mocks.store[key];
+    mocks.setCalls.length = 0;
+    mocks.storeSet.mockClear();
+  });
+
+  it('backfills missing reviewer models into an existing install', () => {
+    // The shipped state before this change: only cursor was pinned, so every
+    // other reviewer ran on the CLI's own default.
+    mocks.store['crossModelReviewModelByProvider'] = { cursor: 'composer-2.5' };
+
+    new SettingsManager();
+
+    expect(mocks.store['crossModelReviewModelByProvider']).toEqual(
+      DEFAULT_REVIEWER_MODEL_BY_PROVIDER,
+    );
+    expect(
+      (mocks.store['crossModelReviewModelByProvider'] as Record<string, string>)['codex'],
+    ).toBe(OPENAI_MODELS.GPT56_TERRA);
+  });
+
+  it('never overwrites an explicitly chosen reviewer model', () => {
+    mocks.store['crossModelReviewModelByProvider'] = { codex: 'gpt-5.5', cursor: 'composer-2.5' };
+
+    new SettingsManager();
+
+    const persisted = mocks.store['crossModelReviewModelByProvider'] as Record<string, string>;
+    expect(persisted['codex']).toBe('gpt-5.5');
+    expect(persisted['claude']).toBe(DEFAULT_REVIEWER_MODEL_BY_PROVIDER.claude);
+  });
+
+  it('runs exactly once, so a later "auto" choice survives a restart', () => {
+    mocks.store['crossModelReviewModelByProvider'] = { cursor: 'composer-2.5' };
+    new SettingsManager();
+
+    // User then clears codex back to auto (auto == key absence).
+    const afterUserEdit = {
+      ...(mocks.store['crossModelReviewModelByProvider'] as Record<string, string>),
+    };
+    delete afterUserEdit['codex'];
+    mocks.store['crossModelReviewModelByProvider'] = afterUserEdit;
+
+    new SettingsManager();
+
+    expect(
+      (mocks.store['crossModelReviewModelByProvider'] as Record<string, string>)['codex'],
+    ).toBeUndefined();
+  });
+});
 
 describe('SettingsManager locked writes', () => {
   beforeEach(() => {

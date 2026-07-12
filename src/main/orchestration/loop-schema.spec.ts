@@ -110,6 +110,10 @@ describe('loop-schema v9 worktree-columns migration', () => {
     expect(columnNames('loop_terminal_intents')).toEqual(
       expect.arrayContaining(['resume_at']),
     );
+    expect(appliedVersions()).toContain(15);
+    expect(columnNames('loop_iterations')).toEqual(
+      expect.arrayContaining(['cache_read_tokens', 'cache_write_tokens', 'model', 'cost_known']),
+    );
   });
 
   it('re-running migrations is idempotent (no duplicate-application, no error)', () => {
@@ -118,5 +122,59 @@ describe('loop-schema v9 worktree-columns migration', () => {
     // Second boot — must be a no-op, not a "duplicate column" failure.
     expect(() => runLoopMigrations(driver)).not.toThrow();
     expect(appliedVersions()).toEqual(firstPass);
+  });
+});
+
+describe('loop-schema v15 iteration cache/cost columns', () => {
+  it('upgrades a pre-v15 database; legacy iterations keep their data and get NULL cache columns', () => {
+    // 1. Old app: migrations up to v14, so no cache split is recorded at all.
+    runLoopMigrationsUpTo(driver, 14);
+    expect(columnNames('loop_iterations')).not.toContain('cache_read_tokens');
+    expect(columnNames('loop_iterations')).not.toContain('cost_known');
+
+    driver
+      .prepare(
+        `INSERT INTO loop_runs (id, chat_id, config_json, status, started_at, total_iterations)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run('run-v14', 'chat-v14', '{"workspaceCwd":"/p"}', 'completed', 1_700_000_000_000, 1);
+
+    // A legacy iteration priced by the old flat $15/Mtok estimator.
+    driver
+      .prepare(
+        `INSERT INTO loop_iterations
+           (id, loop_run_id, seq, stage, started_at, tokens, cost_cents, work_hash,
+            progress_verdict, verify_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run('iter-v14', 'run-v14', 0, 'IMPLEMENT', 1_700_000_000_000, 1_000_000, 1500, 'wh', 'OK', 'not-run');
+
+    // 2. New app boots.
+    runLoopMigrations(driver);
+    expect(appliedVersions()).toContain(15);
+
+    // 3. The legacy row survives, and its new columns are NULL — NOT zero. An
+    //    audit must be able to tell "we never recorded a cache split" apart
+    //    from "this iteration genuinely used no cache".
+    const row = driver
+      .prepare(
+        `SELECT tokens, cost_cents, cache_read_tokens, cache_write_tokens, model, cost_known
+         FROM loop_iterations WHERE id = 'iter-v14'`,
+      )
+      .get<{
+        tokens: number;
+        cost_cents: number;
+        cache_read_tokens: number | null;
+        cache_write_tokens: number | null;
+        model: string | null;
+        cost_known: number | null;
+      }>();
+
+    expect(row?.tokens).toBe(1_000_000);
+    expect(row?.cost_cents).toBe(1500);
+    expect(row?.cache_read_tokens).toBeNull();
+    expect(row?.cache_write_tokens).toBeNull();
+    expect(row?.model).toBeNull();
+    expect(row?.cost_known).toBeNull();
   });
 });

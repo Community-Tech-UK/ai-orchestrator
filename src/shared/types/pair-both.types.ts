@@ -55,6 +55,18 @@ export interface PairBothConnectionConfig {
   name?: string;
   authToken: string;
   coordinatorUrl: string;
+  /**
+   * Optional ordered fallback coordinator URLs, tried when `coordinatorUrl` is
+   * unreachable. Consumed end-to-end by the worker (`WorkerConfig.coordinatorUrls`,
+   * `getConfiguredCoordinatorUrl()`, `worker-agent.ts`) and now honoured by the
+   * pair CLI, which previously dropped it silently.
+   *
+   * NOTE: `buildCanonicalConnectionConfig()` does not emit this yet — doing so
+   * requires deciding where the alternates come from (e.g. Tailscale hostname
+   * plus LAN IP), which is a product decision, not a plumbing one. Until then
+   * this is populated only by hand-written or scripted configs.
+   */
+  coordinatorUrls?: string[];
   namespace: string;
   maxConcurrentInstances: number;
   workingDirectories: string[];

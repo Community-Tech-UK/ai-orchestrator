@@ -5,13 +5,19 @@
  * orchestration feature that triggered it, so token/dollar spend can be
  * aggregated per task-type instead of only per instance/session.
  *
- * Two seams feed it:
+ * Three seams feed it:
  *   - `invokeCliTextResponse` (default-invokers) — one-shot orchestration
  *     calls (loop iterations, verify/review/debate gates, workflows,
  *     branch-select). `taskType` is the breaker key.
  *   - `recordCompletionCost` (instance-communication) — interactive chat
  *     turns and spawned child instances. `taskType` derives from the
  *     instance's parent/agent shape.
+ *   - `AuxiliaryLlmService.generate` — the 11 helper slots (compaction, memory
+ *     distillation, scoring, titles, ...). `taskType` is `aux:<slot>`. These
+ *     were previously uninstrumented, which made the local-vs-frontier split
+ *     unmeasurable — and three slots (`compression`, `memoryDistillation`,
+ *     `branchScoring`) silently escalate to a frontier model when no local
+ *     endpoint is healthy, so their spend was completely invisible.
  *
  * Enabled by default (opt-out with AIO_COST_ATTRIBUTION=0 or "false") so
  * day-to-day burn is always attributable. Output directory:
@@ -41,7 +47,7 @@ export interface CostAttributionUsage {
 
 export interface CostAttributionRecord {
   /** Which seam produced the record. */
-  source: 'one-shot' | 'instance-turn';
+  source: 'one-shot' | 'instance-turn' | 'auxiliary';
   /**
    * Feature/task-type tag. One-shot calls use the breaker key
    * (`loop-orchestration:claude`, `verify-orchestration`, ...); instance
@@ -58,6 +64,18 @@ export interface CostAttributionRecord {
   usage?: CostAttributionUsage;
   /** False when the provider reported no cost and 0 was assumed. */
   costKnown?: boolean;
+  /** `auxiliary` only: where the slot actually ran. */
+  auxRoutedTo?: 'local' | 'cheap-cloud' | 'fallback';
+  /**
+   * `auxiliary` only: true when no local endpoint was usable AND the slot
+   * permits frontier fallback, so the caller is about to re-run this prompt on
+   * a paid model. Aggregate these to size the silent cloud escalation.
+   */
+  auxEscalatedToFrontier?: boolean;
+  /** `auxiliary` only: which configured endpoint served the call. */
+  auxEndpointId?: string;
+  /** `auxiliary` only: why the slot resolved the way it did. */
+  auxReason?: string;
 }
 
 let cachedDir: string | null | undefined;
@@ -166,6 +184,49 @@ export function recordInstanceTurnAttribution(args: {
     model: args.model,
     usage: args.usage,
     costKnown: args.costKnown,
+  });
+}
+
+/**
+ * Auxiliary-slot seam. Records every helper-slot generation so the local-vs-
+ * frontier split is measurable.
+ *
+ * `escalatedToFrontier` is the number that matters: when a slot with
+ * `allowFrontierFallback: true` finds no healthy local endpoint, the *caller*
+ * silently re-runs the prompt against the frontier model. The aux service
+ * cannot see that call's cost, but it can flag that it is about to happen —
+ * which is the difference between "the 5090 is doing this" and "we are paying
+ * Opus to summarise a conversation".
+ *
+ * Local models report no dollar cost, so `costKnown` is false for them; the
+ * token counts are the useful signal.
+ */
+export function recordAuxiliaryAttribution(args: {
+  slot: string;
+  provider?: string;
+  endpointId?: string;
+  model?: string;
+  /** Where the call actually ran. `fallback` means no endpoint was usable. */
+  routedTo: 'local' | 'cheap-cloud' | 'fallback';
+  /** True when this fallback will be retried against a frontier model by the caller. */
+  escalatedToFrontier: boolean;
+  usage?: CostAttributionUsage;
+  reason?: string;
+}): void {
+  if (!isEnabled()) return;
+  recordCostAttribution({
+    source: 'auxiliary',
+    taskType: `aux:${args.slot}`,
+    provider: args.provider,
+    model: args.model,
+    usage: args.usage,
+    // Local/cheap endpoints don't report dollars; the frontier retry is billed
+    // on the caller's own seam, not here.
+    costKnown: false,
+    auxRoutedTo: args.routedTo,
+    auxEscalatedToFrontier: args.escalatedToFrontier,
+    ...(args.endpointId ? { auxEndpointId: args.endpointId } : {}),
+    ...(args.reason ? { auxReason: args.reason } : {}),
   });
 }
 

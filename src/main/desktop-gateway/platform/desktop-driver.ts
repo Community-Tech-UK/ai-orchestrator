@@ -7,15 +7,25 @@ import type {
   DesktopDragRequest,
   DesktopDriverHealth,
   DesktopHotkeyRequest,
+  DesktopPermissionRequestResult,
   DesktopScrollRequest,
   DesktopScreenshotRequest,
   DesktopScreenshotResult,
+  DesktopSystemPermission,
   DesktopTypeTextRequest,
 } from '../../../shared/types/desktop-gateway.types';
 import { DarwinDesktopDriver } from './darwin-driver';
 
 export interface DesktopDriver {
   health(): Promise<DesktopDriverHealth>;
+  /**
+   * Perform the real user-initiated native permission request for the given
+   * permission and re-read the resulting capability state. Never invoked
+   * merely because the app starts; callers gate on explicit operator action.
+   */
+  requestSystemPermission(
+    permission: DesktopSystemPermission,
+  ): Promise<DesktopPermissionRequestResult>;
   listApps(): Promise<DesktopAppDescriptor[]>;
   screenshot(request: DesktopScreenshotRequest): Promise<DesktopScreenshotResult>;
   accessibilitySnapshot(
@@ -46,6 +56,20 @@ export class UnsupportedDesktopDriver implements DesktopDriver {
       accessibility: 'unsupported',
       input: 'unsupported',
       setupActions: ['Desktop Computer Use is currently supported only on local macOS.'],
+    };
+  }
+
+  /**
+   * Typed unsupported result: no native request runs and no System Settings
+   * URL is ever opened on a non-macOS platform.
+   */
+  async requestSystemPermission(
+    permission: DesktopSystemPermission,
+  ): Promise<DesktopPermissionRequestResult> {
+    return {
+      permission,
+      state: 'unsupported',
+      nativeRequestAttempted: false,
     };
   }
 

@@ -304,6 +304,26 @@ const MIGRATIONS: LoopMigration[] = [
       ALTER TABLE loop_terminal_intents ADD COLUMN resume_at INTEGER;
     `,
   },
+  {
+    // Loop spend was previously stored as a single `cost_cents` with no way to
+    // tell a provider-reported dollar figure from an estimate, and no cache
+    // split at all. That made ~97% of measured spend un-auditable: the legacy
+    // fallback priced `tokens` (which INCLUDES cache reads, billed at ~10% of
+    // the input rate) at a flat $15/Mtok, overstating cost ~2.75x.
+    //
+    // `model` + the cache columns let cost be re-derived per-model via
+    // `computeTokenCost`; `cost_known` marks rows whose cost the provider
+    // actually reported. All nullable — pre-existing rows keep NULL and are
+    // correctly treated as "unknown", not "zero".
+    version: 15,
+    name: '015_loop_iterations_cache_tokens',
+    up: `
+      ALTER TABLE loop_iterations ADD COLUMN cache_read_tokens INTEGER;
+      ALTER TABLE loop_iterations ADD COLUMN cache_write_tokens INTEGER;
+      ALTER TABLE loop_iterations ADD COLUMN model TEXT;
+      ALTER TABLE loop_iterations ADD COLUMN cost_known INTEGER;
+    `,
+  },
 ];
 
 export function createLoopMigrationsTable(db: SqliteDriver): void {

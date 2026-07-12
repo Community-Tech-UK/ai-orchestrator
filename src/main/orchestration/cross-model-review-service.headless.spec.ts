@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CrossModelReviewService } from './cross-model-review-service';
 import type { ReviewExecutionHost } from '../review/review-execution-host';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
+import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 
 const localReviewState = vi.hoisted(() => ({
   enabled: false,
   selectorId: '',
   qualityModel: '',
+  modelByProvider: {} as Record<string, string>,
+  quotaSnapshot: null as ProviderQuotaSnapshot | null,
 }));
 
 vi.mock('../logging/logger', () => ({
@@ -39,6 +42,7 @@ vi.mock('../core/config/settings-manager', () => ({
       crossModelReviewProviders: [],
       crossModelReviewTimeout: 30,
       crossModelReviewTypes: ['code', 'plan', 'architecture'],
+      crossModelReviewModelByProvider: localReviewState.modelByProvider,
       crossModelReviewLocalEnabled: localReviewState.enabled,
       crossModelReviewLocalSelectorId: localReviewState.selectorId,
       crossModelReviewLocalTimeout: 120,
@@ -46,6 +50,10 @@ vi.mock('../core/config/settings-manager', () => ({
       auxiliaryLlmQualityModel: localReviewState.qualityModel,
     }),
   }),
+}));
+
+vi.mock('../core/system/provider-quota-service', () => ({
+  getProviderQuotaService: () => ({ getSnapshot: () => localReviewState.quotaSnapshot }),
 }));
 
 vi.mock('../cli/cli-detection', () => ({
@@ -78,6 +86,8 @@ describe('CrossModelReviewService headless review', () => {
     localReviewState.enabled = false;
     localReviewState.selectorId = '';
     localReviewState.qualityModel = '';
+    localReviewState.modelByProvider = {};
+    localReviewState.quotaSnapshot = null;
   });
 
   it('runs reviewers through a narrow host without an InstanceManager', async () => {
@@ -227,6 +237,52 @@ describe('CrossModelReviewService headless review', () => {
     ]);
     expect(result.reviewers[0].reason).toMatch(/\d+ chars/);
     expect(result.infrastructureErrors).toHaveLength(1);
+  });
+
+  it('falls back from Sonnet to GPT-OSS for a headless review after Gemini quota is exhausted', async () => {
+    localReviewState.modelByProvider = { antigravity: 'Gemini 3.5 Flash (Medium)' };
+    localReviewState.quotaSnapshot = {
+      provider: 'antigravity',
+      takenAt: Date.now(),
+      source: 'admin-api',
+      ok: true,
+      windows: [
+        {
+          kind: 'rolling-window', id: 'antigravity.gemini-5h', label: 'Gemini · 5-hour',
+          unit: 'requests', used: 100, limit: 100, remaining: 0, resetsAt: null,
+        },
+        {
+          kind: 'rolling-window', id: 'antigravity.3p-5h', label: 'Claude/GPT · 5-hour',
+          unit: 'requests', used: 0, limit: 100, remaining: 100, resetsAt: null,
+        },
+      ],
+    };
+    const dispatchReviewerPrompt = vi.fn(async (
+      _provider: string,
+      _prompt: string,
+      _cwd: string,
+      _signal: AbortSignal,
+      options?: { modelOverride?: string },
+    ) => options?.modelOverride === 'GPT-OSS 120B (Medium)'
+      ? reviewerJson('GPT-OSS found the missing null guard.')
+      : 'not valid json');
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => REPO_CWD,
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt,
+    });
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD', cwd: REPO_CWD, content: 'diff', taskDescription: 'Review', reviewers: ['antigravity'],
+    });
+
+    expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(2);
+    expect(dispatchReviewerPrompt.mock.calls.map((call) => call[4]?.modelOverride)).toEqual([
+      'Claude Sonnet 4.6 (Thinking)',
+      'GPT-OSS 120B (Medium)',
+    ]);
+    expect(result.reviewers).toEqual([{ provider: 'antigravity', status: 'used' }]);
   });
 
   it('validates the cwd before dispatch and falls back to process.cwd() for a missing path', async () => {

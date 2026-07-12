@@ -1,15 +1,45 @@
 /** Application settings shared by the main and renderer processes. */
 
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
-import { DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS, type DesktopComputerUseSettings } from './desktop-gateway-settings.types';
+import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
 import type { ModelUsageEntry } from './model-usage.types';
 import type { WorkerModeSettings } from './pair-both.types';
 import type { RemoteReviewerProvider } from './reviewer-provider.types';
 
 export type { ModelUsageEntry } from './model-usage.types';
 
+// Default values live in settings-defaults.ts; re-exported here so importers
+// keep a single module for both the shape and the shipped defaults.
+export {
+  DEFAULT_LOOP_MODEL_BY_PROVIDER,
+  DEFAULT_ORCHESTRATION_ROUTING_POLICY,
+  DEFAULT_ORCHESTRATION_ROUTING_POLICY_JSON,
+  DEFAULT_REVIEWER_MODEL_BY_PROVIDER,
+  DEFAULT_SETTINGS,
+} from './settings-defaults';
+
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type DisplayDensity = 'comfortable' | 'compact';
+
+/**
+ * The orchestration gates whose model tier an operator can pin.
+ *
+ * These are finer-grained than `RoutingIntent` (`loop | workflow | scaffolding |
+ * synthesis`) on purpose: verify, review and non-synthesis debate all share the
+ * `scaffolding` intent, but they are very different jobs with very different
+ * cost/quality trade-offs, and an operator needs to tune them independently.
+ */
+export type OrchestrationRoutingPolicyKey =
+  | 'loop'
+  | 'workflow'
+  | 'verify'
+  | 'review'
+  | 'debate'
+  | 'debateSynthesis';
+
+/** A pinned tier, or `auto` to defer to the router's keyword heuristic. */
+export type OrchestrationRoutingPolicyValue = 'auto' | 'fast' | 'balanced' | 'powerful';
+
 export type SidebarStyle = 'standard' | 'compact';
 export type CanonicalCliType = 'claude' | 'gemini' | 'antigravity' | 'codex' | 'copilot' | 'auto' | 'cursor' | 'grok';
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
@@ -281,6 +311,22 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * getPrimaryModelForProvider, so the default behaviour is true CLI routing.
    */
   crossModelReviewModelByProvider: Record<string, string>;
+  /**
+   * Per-provider model for NON-INTERACTIVE automation (loop iterations and the
+   * orchestration invokers). Keys are CLI names ('claude', 'codex', …).
+   *
+   * This exists because loops do NOT go through the interactive new-session
+   * path: they resolve their model from `getDefaultModelForCli()`, so they
+   * silently inherit whatever the interactive default happens to be. On
+   * 2026-07-10 the codex interactive default moved to `gpt-5.6-sol` and every
+   * loop iteration moved with it — flagship rates on the highest-volume path,
+   * with no user-facing control and no way to see it had happened.
+   *
+   * A missing entry or an empty string means "fall back to the provider's
+   * interactive default", which is the pre-existing behaviour. Interactive
+   * sessions are unaffected by this setting.
+   */
+  loopModelByProvider: Record<string, string>;
   crossModelReviewLocalEnabled: boolean;
   crossModelReviewLocalSelectorId: string;
   crossModelReviewLocalTimeout: number;
@@ -459,6 +505,26 @@ export interface AppSettings extends DesktopComputerUseSettings {
    */
   auxiliaryLlmRoutingClassificationEnabled: boolean;
 
+  /**
+   * Operator-controlled model tier per orchestration gate, as JSON.
+   *
+   * Before this existed, the tier for each gate was hardcoded in
+   * `resolveModelForInvocation`: loop/verify/review/debate/debateSynthesis were
+   * pinned to `balanced` and workflow used keyword-complexity routing. That is
+   * still the default here, so behaviour is unchanged until you override a key.
+   *
+   * `auto` means "fall back to the router's keyword-complexity heuristic".
+   * Any other value pins that gate to a fixed tier.
+   *
+   * This is the cheapest lever on orchestration spend: reviews and verifies are
+   * bounded, read-only, diff-shaped tasks, so `{"review":"fast","verify":"fast"}`
+   * moves them off the expensive tier without touching any code. Conversely a
+   * gate that is producing weak output can be raised in isolation.
+   *
+   * @see DEFAULT_ORCHESTRATION_ROUTING_POLICY
+   */
+  orchestrationRoutingPolicyJson: string;
+
   // Reactions (event-driven re-prompting)
   /**
    * Global master switch for the Reaction Engine (event-driven re-prompting).
@@ -474,217 +540,6 @@ export interface AppSettings extends DesktopComputerUseSettings {
    */
   reactionsPollIntervalMs: number;
 }
-
-/**
- * Default settings values
- */
-export const DEFAULT_SETTINGS: AppSettings = {
-  // General
-  defaultYoloMode: false,
-  defaultWorkingDirectory: '',
-  defaultCli: 'auto',
-  defaultModel: 'opus[1m]',
-  defaultModelByProvider: {},
-  defaultFastMode: false,
-  defaultFastModeByProvider: {},
-  modelUsageByKey: {},
-  residentClaudeSession: true,
-  theme: 'dark',
-
-  // Orchestration
-  maxChildrenPerParent: 10,
-  maxTotalInstances: 20,
-  autoTerminateIdleMinutes: 30,
-  allowNestedOrchestration: false,
-  maxSpawnDepth: 3,
-  defaultMissedRunPolicy: 'notify',
-
-  // Memory Management
-  outputBufferSize: 500, // keep 500 messages in memory per instance
-  enableDiskStorage: true, // save older output to disk
-  maxDiskStorageMB: 500, // 500MB max disk storage
-  memoryWarningThresholdMB: 1024, // warn at 1GB heap
-  autoTerminateOnMemoryPressure: true,
-  persistSessionContent: true,
-  cumulativeTokenCompactionTrigger: 0, // disabled by default (opt-in cost cap)
-  outputStyle: 'default', // no style directive injected unless changed
-
-  // Display
-  fontSize: 14,
-  displayDensity: 'comfortable',
-  sidebarStyle: 'standard',
-  contextWarningThreshold: 80,
-  showToolMessages: true,
-  showThinking: true,
-  thinkingDefaultExpanded: false,
-  showCost: true,
-
-  // Recent Directories
-  maxRecentDirectories: 200,
-
-  // Advanced
-  customModelOverride: '',
-  customModelsByProvider: {},
-  modelCatalogRemoteOverrideUrl: '',
-  parserBufferMaxKB: 1024, // 1MB max parser buffer
-  codememEnabled: true,
-  codememIndexingEnabled: true,
-  codememLspWorkerEnabled: true,
-  codememPrewarmEnabled: true,
-  codememPrewarmMaxConcurrent: 2,
-  codememPrewarmDebounceMs: 1500,
-  codememPrewarmStartupHint: true,
-  commandDiagnosticsAvailable: true,
-  broadRootFileThreshold: 100,
-  chromeDevtoolsAttachEnabled: false,
-  chromeDevtoolsAttachProfileId: '',
-  browserVaultMasterPasswordFile: '',
-  browserVaultAutoUnlock: false,
-  browserAllowSharedTabCredentialFill: false,
-
-  // Regular-session provider-limit auto-resume (default OFF — see interface doc)
-  instanceProviderLimitResumeEnabled: false,
-
-  // Codebase auto-index defaults
-  codebaseAutoIndexEnabled: false,
-  codebaseAutoIndexMaxFiles: 3_000,
-  codebaseAutoIndexMaxBytes: 150 * 1024 * 1024,
-  codebaseAutoIndexConcurrent: 1,
-  codebaseAutoIndexDebounceMs: 15_000,
-  codebaseAutoIndexStartupHint: false,
-
-  // Project knowledge auto-mirror defaults
-  projectKnowledgeAutoMirrorEnabled: true,
-  projectKnowledgeAutoMirrorDebounceMs: 2_000,
-  projectKnowledgeAutoMirrorMaxConcurrent: 1,
-  projectKnowledgeAutoMirrorSkipWithinMs: 30_000,
-  projectKnowledgeAutoMirrorStartupHint: false,
-
-  // Cross-Model Review
-  crossModelReviewEnabled: true,
-  crossModelReviewDepth: 'structured',
-  crossModelReviewMaxReviewers: 2,
-  crossModelReviewProviders: ['cursor', 'antigravity', 'codex'],
-  crossModelReviewTimeout: 30,
-  crossModelReviewTypes: ['code', 'plan', 'architecture'],
-  crossModelReviewModelByProvider: { cursor: 'composer-2.5' },
-  crossModelReviewLocalEnabled: true,
-  crossModelReviewLocalSelectorId: '',
-  crossModelReviewLocalTimeout: 120,
-  crossModelReviewLocalMaxToolRounds: 12,
-
-  // Conversational ping-pong review
-  pingPongReviewerProvider: 'auto',
-  pingPongMaxRounds: 15,
-
-  // Voice STT
-  voiceSttRoutingMode: 'auto',
-  voiceLocalSttEnabled: true,
-  voiceLocalSttWorkerNodeId: '',
-  voiceLocalSttModel: '',
-  voiceLocalSttLanguage: 'en',
-  voiceThisDeviceSttEndpointUrl: '',
-  voiceThisDeviceSttApiKeyEnv: '',
-  voiceLocalSttMaxSegmentMs: 5000,
-
-  // Remote Nodes
-  workerMode: { role: 'unset', startWorkerOnLaunch: true, installWorkerService: false },
-  remoteNodesEnabled: false,
-  remoteNodesServerPort: 4878,
-  remoteNodesServerHost: '0.0.0.0',
-  remoteNodesEnrollmentToken: '',
-  remoteNodesAutoOffloadBrowser: true,
-  remoteNodesAutoOffloadAndroid: true,
-  remoteNodesAutoOffloadGpu: false,
-  remoteNodesNamespace: 'default',
-  remoteNodesRequireTls: false,
-  remoteNodesTlsMode: 'auto' as const,
-  remoteNodesTlsCertPath: '',
-  remoteNodesTlsKeyPath: '',
-  remoteNodesRegisteredNodes: '{}',
-
-  // Thin-client WebSocket API
-  thinClientWsEnabled: true,
-  thinClientWsHost: '127.0.0.1',
-  thinClientWsPort: 4880,
-
-  // Mobile Gateway (phone control app)
-  mobileGatewayEnabled: false,
-  mobileGatewayPort: 4879,
-  mobileGatewayBindInterface: 'tailscale' as const,
-  mobileGatewayDevices: '[]',
-  mobileGatewayTlsCertPath: '',
-  mobileGatewayTlsKeyPath: '',
-  mobileGatewayApnsKeyP8: '',
-  mobileGatewayApnsKeyId: '',
-  mobileGatewayApnsTeamId: '',
-  mobileGatewayApnsBundleId: 'com.shutupandshave.aiorchestrator',
-  mobileGatewayApnsProduction: false,
-
-  // Network (Pause on VPN)
-  pauseFeatureEnabled: true,
-  pauseOnVpnEnabled: true,
-  pauseVpnInterfacePattern: '^(utun[0-9]+|ipsec[0-9]+|ppp[0-9]+|tap[0-9]+)$',
-  pauseTreatExistingVpnAsActive: true,
-  pauseDetectorDiagnostics: false,
-  pauseReachabilityProbeHost: '',
-  pauseReachabilityProbeMode: 'disabled',
-  pauseReachabilityProbeIntervalSec: 30,
-  pauseAllowPrivateRanges: false,
-
-  // MCP Safety
-  mcpCleanupBackupsOnQuit: true,
-  mcpDisableProviderBackups: false,
-  mcpAllowWorldWritableParent: false,
-  ...DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS,
-  // RTK
-  rtkEnabled: true,
-  rtkBundledOnly: false,
-
-  // Notifications
-  notifyOnAgentCompletion: true,
-
-  // CLI Provider Updates
-  cliUpdatePolicy: 'notify',
-
-  // E14 — repo-map injection
-  injectRepoMap: true,
-  repoMapTokenBudget: 2_000,
-
-  // A3 — adapter-layer degraded-output detection (off by default)
-  detectDegradedAdapterOutput: false,
-
-  // D4 — CLI spawn worker offload pilot (off by default)
-  enableSpawnWorkerOffload: false,
-  projectPluginTrust: {},
-
-  // Reactions
-  reactionsEnabled: true,
-  reactionsPollIntervalMs: 60_000,
-
-  // Auxiliary LLM
-  auxiliaryLlmEnabled: true,
-  auxiliaryLlmRoutingMode: 'local-first',
-  auxiliaryLlmAllowRemoteWorkerModels: true,
-  auxiliaryLlmUseLocalhostOllama: true,
-  auxiliaryLlmEndpointsJson: '[]',
-  auxiliaryLlmQuickModel: '',
-  auxiliaryLlmQualityModel: '',
-  auxiliaryLlmRoutingClassificationEnabled: true,
-  auxiliaryLlmSlotsJson: JSON.stringify({
-    compression: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
-    memoryDistillation: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
-    webExtract: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.1, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
-    titleGeneration: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 12000, maxOutputTokens: 512, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
-    routingClassification: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
-    approvalScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
-    loopScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: false },
-    retrievalHypothesis: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 4096, maxOutputTokens: 300, temperature: 0.3, timeoutMs: 2500, requireJson: false, allowFrontierFallback: false },
-    branchScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: true },
-    subQueryExecution: { enabled: false, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
-    verifyOutputSummary: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
-  }),
-};
 
 export { SETTINGS_METADATA } from './settings-metadata';
 export type { SettingMetadata } from './settings-metadata';

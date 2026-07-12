@@ -123,15 +123,24 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
                 }
               </div>
 
+              <!--
+                [selected] per option, not [value] on the select: the value
+                property is set before the @for options exist, so the browser
+                resets to the first option and the row shows "Auto" even when a
+                model override is configured.
+              -->
               <select
                 class="reviewer-list__model"
                 [attr.aria-label]="provider.label + ' model'"
-                [value]="modelFor(provider.id)"
                 (change)="onModelChange(provider.id, $event)"
               >
-                <option value="">Auto (let provider decide)</option>
+                <option value="" [selected]="modelFor(provider.id) === ''">
+                  Auto (let provider decide)
+                </option>
                 @for (model of provider.models; track model.id) {
-                  <option [value]="model.id">{{ model.name }}</option>
+                  <option [value]="model.id" [selected]="model.id === modelFor(provider.id)">
+                    {{ model.name }}
+                  </option>
                 }
               </select>
 
