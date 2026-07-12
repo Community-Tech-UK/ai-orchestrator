@@ -71,11 +71,20 @@ function validateReleaseManifestContents(
 ) {
   const errors = [];
   const available = new Set(names);
+  // Every payload any manifest is entitled to advertise. A manifest naming a
+  // payload from this set that is not its own is advertising another platform's
+  // artifact to its updaters, which must be rejected.
   const allUpdatePayloads = new Set(
     Object.values(MANIFEST_PAYLOADS).flatMap((payloadsForVersion) =>
       payloadsForVersion(version),
     ),
   );
+  // Artifacts that legitimately ship in the release but are not update payloads
+  // (the mac .dmg, blockmaps). electron-builder lists the .dmg in latest-mac.yml
+  // alongside the .zip it actually updates from, and merge-update-manifests.js
+  // preserves every entry, so a manifest referencing one is expected. Anything
+  // outside both sets is not a release artifact at all and must be rejected.
+  const publishedReleaseAssets = new Set(requiredReleaseAssetNames(version));
 
   for (const [manifestName, expectedPayloadsForVersion] of Object.entries(
     MANIFEST_PAYLOADS,
@@ -144,10 +153,10 @@ function validateReleaseManifestContents(
       ) {
         errors.push(`${manifestName} checksum does not match ${assetName}`);
       }
-      if (
-        allUpdatePayloads.has(assetName) &&
-        !expectedPayloads.has(assetName)
-      ) {
+      const isOwnPayload = expectedPayloads.has(assetName);
+      const isForeignPayload = allUpdatePayloads.has(assetName);
+      const isPublishedCompanion = publishedReleaseAssets.has(assetName);
+      if (!isOwnPayload && (isForeignPayload || !isPublishedCompanion)) {
         errors.push(
           `${manifestName} references unexpected update payload ${assetName}`,
         );

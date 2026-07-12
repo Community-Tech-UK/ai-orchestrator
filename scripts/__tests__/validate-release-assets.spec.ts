@@ -167,6 +167,86 @@ files:
       "latest-linux-arm64.yml references unexpected update payload Harness-1.2.3-linux-x64.AppImage",
     );
   });
+
+  it("rejects any extra manifest payload even when it is present in the release assets", () => {
+    const invalid = {
+      ...VALID_MANIFESTS,
+      "latest.yml": `
+version: 1.2.3
+files:
+  - url: Harness-1.2.3-win-x64.exe
+    sha512: win-x64-checksum
+  - url: evil.zip
+    sha512: extra-checksum
+`,
+    };
+
+    const errors = validateReleaseManifestContents(
+      invalid,
+      [...COMPLETE, "evil.zip"],
+      "1.2.3",
+      { ...VALID_SHA512, "evil.zip": "extra-checksum" },
+    );
+
+    expect(errors).toContain(
+      "latest.yml references unexpected update payload evil.zip",
+    );
+  });
+
+  it("accepts a published companion artifact that is not itself an update payload", () => {
+    // electron-builder lists the .dmg in latest-mac.yml next to the .zip it
+    // actually updates from, and merge-update-manifests.js preserves every
+    // entry. Rejecting it would fail every real mac release, so a companion
+    // artifact that ships in the release is allowed. Only foreign payloads and
+    // assets that are not release artifacts at all are rejected.
+    const withDmgCompanion = {
+      ...VALID_MANIFESTS,
+      "latest-mac.yml": `
+version: 1.2.3
+files:
+  - url: Harness-1.2.3-mac-arm64.zip
+    sha512: mac-arm64-checksum
+  - url: Harness-1.2.3-mac-x64.zip
+    sha512: mac-x64-checksum
+  - url: Harness-1.2.3-mac-arm64.dmg
+    sha512: mac-arm64-dmg-checksum
+`,
+    };
+
+    const errors = validateReleaseManifestContents(
+      withDmgCompanion,
+      COMPLETE,
+      "1.2.3",
+      VALID_SHA512,
+    );
+
+    expect(errors).toEqual([]);
+  });
+
+  it("still rejects a manifest advertising another platform's payload", () => {
+    const crossPlatform = {
+      ...VALID_MANIFESTS,
+      "latest.yml": `
+version: 1.2.3
+files:
+  - url: Harness-1.2.3-win-x64.exe
+    sha512: win-x64-checksum
+  - url: Harness-1.2.3-mac-arm64.zip
+    sha512: mac-arm64-checksum
+`,
+    };
+
+    const errors = validateReleaseManifestContents(
+      crossPlatform,
+      COMPLETE,
+      "1.2.3",
+      VALID_SHA512,
+    );
+
+    expect(errors).toContain(
+      "latest.yml references unexpected update payload Harness-1.2.3-mac-arm64.zip",
+    );
+  });
 });
 
 describe("electron-builder update configuration", () => {

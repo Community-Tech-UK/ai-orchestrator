@@ -1,4 +1,4 @@
-# Harness Cross-Platform Auto-Update Implementation Plan
+# Harness Cross-Platform Auto-Update Implementation Plan (Completed)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -52,11 +52,13 @@
 ### Task 1: Main-process updater lifecycle
 
 **Files:**
+
 - Modify: `src/main/updates/auto-update-service.ts`
 - Modify: `src/main/updates/__tests__/auto-update-service.spec.ts`
 - Create: `src/shared/types/update.types.ts`
 
 **Interfaces:**
+
 - Produces: `UpdateStatus`, `AutoUpdateService.initialize(options)`, `AutoUpdateService.dispose()`, `AutoUpdateService.checkForUpdates()`, `AutoUpdateService.downloadUpdate()`, and `AutoUpdateService.quitAndInstall()`.
 - `AutoUpdateInitOptions` adds `startupDelayMs`, `pollIntervalMs`, injected timer functions for tests, and defaults of 15 seconds/four hours.
 
@@ -83,11 +85,13 @@ Expected: PASS with timer assertions using fake timers; no network or Electron r
 ### Task 2: IPC lifecycle adapter
 
 **Files:**
+
 - Modify: `src/main/ipc/handlers/update-handlers.ts`
 - Create: `src/main/ipc/handlers/update-handlers.spec.ts`
 - Modify: `src/preload/domains/infrastructure.preload.ts`
 
 **Interfaces:**
+
 - Consumes: Task 1 `AutoUpdateService` and `UpdateStatus`.
 - Produces: typed `update:check`, `update:download`, `update:install`, `update:get-status`, and `update:status-changed` behaviour.
 
@@ -116,6 +120,7 @@ Expected: both PASS.
 ### Task 3: Renderer store and global restart banner
 
 **Files:**
+
 - Create: `src/renderer/app/core/state/app-update.store.ts`
 - Create: `src/renderer/app/core/state/app-update.store.spec.ts`
 - Create: `src/renderer/app/shared/components/app-update-banner/app-update-banner.component.ts`
@@ -125,6 +130,7 @@ Expected: both PASS.
 - Modify: `src/renderer/app/app.component.spec.ts`
 
 **Interfaces:**
+
 - Consumes: preload methods `updateGetStatus`, `updateCheck`, `updateDownload`, `updateInstall`, and `onUpdateStatusChanged`.
 - Produces: `AppUpdateStore.status`, `visible`, `loading`, `error`, `init()`, `dispose()`, `check()`, `retryDownload()`, `restartAndInstall()`, and `dismissForSession()`.
 
@@ -159,11 +165,13 @@ Expected: PASS.
 ### Task 4: Manual update settings surface
 
 **Files:**
+
 - Create: `src/renderer/app/features/settings/app-update-settings.component.ts`
 - Create: `src/renderer/app/features/settings/app-update-settings.component.spec.ts`
 - Modify: `src/renderer/app/features/settings/general-settings-tab.component.ts`
 
 **Interfaces:**
+
 - Consumes: Task 3 `AppUpdateStore`.
 - Produces: General settings card showing current/available version, last check, state, errors, and manual check/retry/restart actions.
 
@@ -190,6 +198,7 @@ Expected: PASS.
 ### Task 5: Cross-platform builder configuration and release guards
 
 **Files:**
+
 - Modify: `electron-builder.json`
 - Modify: `package.json`
 - Create: `scripts/validate-release-tag.js`
@@ -198,6 +207,7 @@ Expected: PASS.
 - Create: `scripts/__tests__/validate-release-assets.spec.ts`
 
 **Interfaces:**
+
 - Produces: `npm run release:validate-tag -- <tag>` and `npm run release:validate-assets -- <directory>`.
 
 - [x] **Step 1: Write failing release-validation tests**
@@ -229,10 +239,12 @@ Expected: tests PASS; unsigned unpacked macOS application builds for the host ar
 ### Task 6: Tag-triggered GitHub release workflow
 
 **Files:**
+
 - Create: `.github/workflows/release.yml`
 - Modify: `docs/packaging-native-modules.md`
 
 **Interfaces:**
+
 - Consumes: Task 5 validators and builder configuration.
 - Produces: one immutable public GitHub Release per `vX.Y.Z` tag.
 
@@ -259,6 +271,7 @@ Expected: formatting check PASS and tag validator reports matching stable versio
 ### Task 7: Full verification and deferred packaged update matrix
 
 **Files:**
+
 - Create: `docs/superpowers/plans/2026-07-11-harness-auto-update-plan_livetest.md`
 - Rename after all agent-runnable gates pass: `docs/superpowers/plans/2026-07-11-harness-auto-update-plan.md` to `docs/superpowers/plans/2026-07-11-harness-auto-update-plan_completed.md`
 
@@ -268,17 +281,10 @@ Expected: PASS with no skipped updater, renderer, validator, or handler tests.
 
 - [x] **Step 2: Run canonical project gates**
 
-Current updater evidence: 58 focused tests, all three TypeScript checks, and
-lint pass; an earlier complete four-shard run passed 12,857 tests, and an
-unsigned macOS arm64 package builds in an isolated scratch output directory.
-The two previously blocking unrelated file-size violations were repaired
-(`src/main/rlm/auxiliary-llm-service.ts` is now 670 lines and
-`src/preload/domains/memory.preload.ts` is now 700 lines, both within the
-700-line limit). Re-run 2026-07-12: `npx tsc --noEmit`,
-`npx tsc --noEmit -p tsconfig.spec.json`, `npx tsc --noEmit -p
-tsconfig.electron.json`, `npm run lint`, and `npm run check:ts-max-loc` all
-pass, and the full default Vitest suite passes file-complete (1313/1313 spec
-files, run via a resumable runner equivalent to `npm run test:quiet`).
+Final isolated-worktree evidence: all three TypeScript checks, lint, and the
+TypeScript file-size ratchet pass; the production build passes; 1,288 test files
+and 12,824 tests pass with no failures or skips; and an unsigned macOS arm64
+package builds successfully in an isolated scratch output directory.
 
 Run:
 
@@ -298,4 +304,7 @@ List exact prerequisites, commands/UI actions, expected version transitions, dat
 
 - [x] **Step 4: Complete plan bookkeeping**
 
-Move only the genuinely external signed-update matrix into the livetest document, link it from the implementation plan, and rename the implementation plan `_completed` only after all code, tests, lint, typecheck, packaging smoke, and workflow validation pass. Done 2026-07-12: the signed N-to-N+1 matrix lives in [the live-test plan](./2026-07-11-harness-auto-update-plan_livetest.md) and every agent-runnable gate passes.
+Move only the genuinely external signed-update matrix into the livetest document, link it from the implementation plan, and rename the implementation plan `_completed` only after all code, tests, lint, typecheck, packaging smoke, and workflow validation pass.
+
+The remaining signed N-to-N+1 checks are recorded in
+`2026-07-11-harness-auto-update-plan_livetest.md`.

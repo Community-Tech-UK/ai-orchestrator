@@ -1,7 +1,7 @@
-# Harness Cross-Platform Auto-Update Design
+# Harness Cross-Platform Auto-Update Design (Completed)
 
 **Date:** 2026-07-11
-**Status:** Implemented — all agent-runnable gates passed 2026-07-12; signed N-to-N+1 update matrix deferred to `docs/superpowers/plans/2026-07-11-harness-auto-update-plan_livetest.md`
+**Status:** Implemented
 
 ## Objective
 
