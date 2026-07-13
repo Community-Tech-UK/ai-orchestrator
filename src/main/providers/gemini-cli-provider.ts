@@ -23,6 +23,7 @@ import { generateId } from '../../shared/utils/id-generator';
 import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type { ProviderName } from '@contracts/types/provider-runtime-events';
+import { toJsonSafeProviderEventPayload } from './provider-event-raw-payload';
 
 const GEMINI_CAPABILITIES: ProviderAdapterCapabilities = {
   interruption: true,
@@ -121,6 +122,10 @@ export class GeminiCliProvider extends BaseProvider {
       handleEvent: (runtimeEvent) => {
         switch (runtimeEvent.kind) {
           case 'complete':
+            this.pushEvent(runtimeEvent.event, {
+              source: `adapter-event:${runtimeEvent.kind}`,
+              payload: toJsonSafeProviderEventPayload(runtimeEvent.rawPayload),
+            });
             this.pushStatus('idle');
             return true;
           case 'exit':

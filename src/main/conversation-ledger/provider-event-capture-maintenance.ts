@@ -8,7 +8,8 @@ import {
 
 const logger = getLogger('ProviderEventCaptureMaintenance');
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_RETENTION_MS = 30 * DAY_MS;
+export const PROVIDER_EVENT_CAPTURE_RETENTION_DAYS = 30;
+const DEFAULT_RETENTION_MS = PROVIDER_EVENT_CAPTURE_RETENTION_DAYS * DAY_MS;
 const DEFAULT_INTERVAL_MS = DAY_MS;
 const TASK_ID = 'provider-event-capture-maintenance';
 
@@ -58,7 +59,7 @@ export async function runProviderEventCaptureMaintenance(
 ): Promise<number> {
   const now = options.now?.() ?? Date.now();
   const retentionMs = resolvePositiveNumber(
-    options.retentionMs ?? process.env['AIO_PROVIDER_EVENT_CAPTURE_RETENTION_MS'],
+    options.retentionMs,
     DEFAULT_RETENTION_MS,
   );
   const removed = await (options.ledger ?? getConversationLedgerService())

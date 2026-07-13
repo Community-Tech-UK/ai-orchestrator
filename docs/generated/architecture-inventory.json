@@ -5471,7 +5471,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2719
+      "lines": 2733
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave5-orchestration-hud-verification-verdicts-plan_completed.md",
@@ -5483,7 +5483,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2556
+      "lines": 2568
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5574,12 +5574,12 @@
       "lines": 1781
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1715
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 1755
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 1693
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1715
     },
     {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
@@ -5614,12 +5614,12 @@
       "lines": 1540
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1529
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1531
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1523
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1529
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
@@ -6180,6 +6180,10 @@
     {
       "path": "src/main/remote/observer-server.ts",
       "lines": 864
+    },
+    {
+      "path": "docs/superpowers/plans/_archive/2026-07-13-codex-context-pressure-guard-superseded.md",
+      "lines": 862
     },
     {
       "path": "src/main/orchestration/consensus-coordinator.ts",

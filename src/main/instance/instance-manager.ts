@@ -13,7 +13,6 @@
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { ProviderRuntimeEventBus } from '../providers/provider-runtime-event-bus';
-import type { PendingEnvelope } from '../providers/provider-runtime-event-bus';
 import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
@@ -95,7 +94,7 @@ import type {
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
-import { resolveProviderName, resolveRuntimeEventTurnId } from './provider-runtime-helpers';
+import { buildProviderRuntimeEventIngress } from './instance-provider-event-ingress';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
@@ -188,6 +187,9 @@ export class InstanceManager extends EventEmitter {
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private readonly providerEventBus = new ProviderRuntimeEventBus(
     (envelope) => this.emit('provider:normalized-event', envelope),
+    {
+      onRawBackedEvent: (envelope) => this.emit('provider:raw-event', envelope),
+    },
   );
   private readonly handlePause = (): void => {
     this.interruptActiveTurnsForPause();
@@ -388,6 +390,8 @@ export class InstanceManager extends EventEmitter {
       },
       emitProviderRuntimeEvent: (instanceId, event, options) =>
         this.emitProviderRuntimeEvent(instanceId, event, options),
+      captureProviderRuntimeEvent: (instanceId, event, options) =>
+        this.captureProviderRuntimeEvent(instanceId, event, options),
     });
 
     // Wire the (opt-in) regular-session provider-limit auto-resume handler so
@@ -1095,7 +1099,8 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  private emitProviderRuntimeEvent(
+  /** Publish a canonical provider event from any runtime adapter owner. */
+  emitProviderRuntimeEvent(
     instanceId: string,
     event: ProviderRuntimeEvent,
     options?: {
@@ -1105,24 +1110,33 @@ export class InstanceManager extends EventEmitter {
       raw?: ProviderRuntimeEventEnvelope['raw'];
     },
   ): void {
-    const instance = this.state.getInstance(instanceId);
-    const provider = resolveProviderName(instanceId, options?.provider, instance?.provider);
-    if (!provider) {
-      return;
-    }
-
-    const pending: PendingEnvelope = {
-      timestamp: options?.timestamp ?? Date.now(),
-      provider,
+    const pending = buildProviderRuntimeEventIngress({
+      getInstance: (id) => this.state.getInstance(id),
       instanceId,
-      sessionId: options?.sessionId ?? instance?.providerSessionId ?? instance?.sessionId,
-      adapterGeneration: instance?.adapterGeneration,
-      turnId: resolveRuntimeEventTurnId(event, instance),
-      raw: options?.raw,
       event,
-    };
+      options,
+    });
+    if (pending) this.providerEventBus.enqueue(pending);
+  }
 
-    this.providerEventBus.enqueue(pending);
+  /** Capture a non-rendering adapter event, such as a duplicate user echo. */
+  captureProviderRuntimeEvent(
+    instanceId: string,
+    event: ProviderRuntimeEvent,
+    options: {
+      provider?: ProviderName;
+      sessionId?: string;
+      timestamp?: number;
+      raw: ProviderRuntimeEventEnvelope['raw'];
+    },
+  ): void {
+    const pending = buildProviderRuntimeEventIngress({
+      getInstance: (id) => this.state.getInstance(id),
+      instanceId,
+      event,
+      options,
+    });
+    if (pending) this.providerEventBus.captureRawBackedEvent(pending);
   }
 
   // ============================================

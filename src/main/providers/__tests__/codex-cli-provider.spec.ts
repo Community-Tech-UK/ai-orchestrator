@@ -125,9 +125,17 @@ describe('CodexCliProvider inline translation', () => {
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str err', recoverable: false });
   });
 
-  it('complete becomes a status idle envelope (behavior-preserving translation)', () => {
-    adapter.emit('complete', { id: 'complete-1', content: '', role: 'assistant' });
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'status', status: 'idle' });
+  it('preserves complete provenance before transitioning to idle', () => {
+    adapter.emit('complete', {
+      id: 'complete-1', content: '', role: 'assistant', usage: { totalTokens: 42 },
+    });
+    expect(envelopes.slice(-2)).toMatchObject([
+      {
+        event: { kind: 'complete', tokensUsed: 42 },
+        raw: { source: 'adapter-event:complete', payload: { id: 'complete-1' } },
+      },
+      { event: { kind: 'status', status: 'idle' } },
+    ]);
   });
 
   it('exit becomes an exit envelope and clears isActive', () => {

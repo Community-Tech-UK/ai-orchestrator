@@ -5,7 +5,10 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { redactValue } from '../src/main/diagnostics/redaction';
 import type { ProviderEventCaptureRecord } from '../src/main/conversation-ledger/provider-event-capture.types';
-import type { AdapterEventFixtureRecord } from '../src/main/providers/provider-event-fixture-replay';
+import {
+  replayAdapterEventFixture,
+  type AdapterEventFixtureRecord,
+} from '../src/main/providers/provider-event-fixture-replay';
 
 interface CaptureRow {
   event_id: string;
@@ -35,13 +38,68 @@ export function buildProviderFixtureFiles(
   const golden: unknown[] = [];
   for (const capture of captures) {
     const record = fixtureRecordFromCapture(capture);
-    if (record) fixture.push(redactValue(record));
-    golden.push(redactValue(capture.event));
+    if (!record) continue;
+    // The fixture is replayed from raw adapter input, before normal runtime
+    // decoration (adapter generation, turn id) reaches the canonical event.
+    // Derive golden from that same scrubbed input so exported pairs remain
+    // byte-stable rather than encoding metadata replay cannot produce.
+    const scrubbed = sanitizeFixtureRecord(record);
+    const mapped = replayAdapterEventFixture([scrubbed])[0];
+    if (!mapped) continue;
+    fixture.push(scrubbed);
+    golden.push(redactValue(mapped.event));
+  }
+  if (fixture.length === 0) {
+    throw new Error('No replayable adapter-event captures remain after sanitization');
   }
   return {
     fixtureJsonl: toJsonLines(fixture),
     goldenJsonl: toJsonLines(golden),
   };
+}
+
+const SAFE_STRING_KEYS = new Set(['name', 'status', 'type', 'signal', 'source']);
+const FIXTURE_IDENTIFIER_KEY = /^(?:id|(?:session|thread|conversation|rollout|message|event|request|response|tool(?:use)?)_?id|session|thread|conversation|rollout)$/i;
+const ABSOLUTE_PATH = /(^|[\s"'=:(])(?:\/(?:[^\s"'`)]*)|[A-Za-z]:\\(?:[^\s"'`)]+))/g;
+
+/**
+ * Fixture exports are more restrictive than operational log redaction: raw
+ * provider payloads can contain private conversation bodies and identifiers.
+ * Keep only event-shape strings needed by the replay mapper; replace every
+ * other free-form body, while preserving redaction placeholders for paths and
+ * secrets so reviewers can see why a value was removed.
+ */
+function sanitizeFixtureRecord(record: AdapterEventFixtureRecord): AdapterEventFixtureRecord {
+  const redacted = redactValue(record, { redactSessionBodies: true }) as AdapterEventFixtureRecord;
+  return {
+    name: redacted.name,
+    args: redacted.args.map((arg) => sanitizeFixtureValue(arg, undefined, redacted.name)),
+  } as AdapterEventFixtureRecord;
+}
+
+function sanitizeFixtureValue(value: unknown, key: string | undefined, eventName: string): unknown {
+  if (typeof value === 'string') {
+    const withoutPaths = value.replace(ABSOLUTE_PATH, (_match, prefix: string) => `${prefix}<redacted-path>`);
+    if (withoutPaths.includes('<redacted-secret>') || withoutPaths.includes('<redacted-path>')) {
+      return withoutPaths;
+    }
+    if (key && FIXTURE_IDENTIFIER_KEY.test(key)) return '<redacted-id>';
+    if ((key && SAFE_STRING_KEYS.has(key)) || (!key && (eventName === 'status' || eventName === 'exit'))) {
+      return withoutPaths;
+    }
+    return '[omitted-session-body]';
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeFixtureValue(item, undefined, eventName));
+  }
+  if (!value || typeof value !== 'object') return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
+      childKey,
+      sanitizeFixtureValue(childValue, childKey, eventName),
+    ]),
+  );
 }
 
 function fixtureRecordFromCapture(capture: ProviderEventCaptureRecord): AdapterEventFixtureRecord | null {

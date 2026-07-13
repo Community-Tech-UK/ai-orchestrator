@@ -44,7 +44,7 @@ export class ProviderEventCaptureStore {
           capture.createdAt,
           JSON.stringify(toJsonSafeProviderEventPayload(capture.event)),
           capture.raw.source,
-          JSON.stringify({ payload: capture.raw.payload }),
+          JSON.stringify({ payload: toJsonSafeProviderEventPayload(capture.raw.payload) }),
         );
       }
     });

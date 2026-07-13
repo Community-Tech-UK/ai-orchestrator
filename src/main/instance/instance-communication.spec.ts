@@ -144,6 +144,7 @@ describe('InstanceCommunicationManager', () => {
   let adapters: Map<string, CliAdapter>;
   let queueUpdate: ReturnType<typeof vi.fn>;
   let emitProviderRuntimeEvent: ReturnType<typeof vi.fn>;
+  let captureProviderRuntimeEvent: ReturnType<typeof vi.fn>;
   let manager: InstanceCommunicationManager;
 
   async function flushOutputHandlers(): Promise<void> {
@@ -159,6 +160,7 @@ describe('InstanceCommunicationManager', () => {
     adapters = new Map();
     queueUpdate = vi.fn();
     emitProviderRuntimeEvent = vi.fn();
+    captureProviderRuntimeEvent = vi.fn();
 
     manager = new InstanceCommunicationManager({
       getInstance: (id) => (id === instance.id ? instance : undefined),
@@ -173,6 +175,7 @@ describe('InstanceCommunicationManager', () => {
       ingestToRLM: vi.fn(),
       ingestToUnifiedMemory: vi.fn(),
       emitProviderRuntimeEvent,
+      captureProviderRuntimeEvent,
     });
   });
 
@@ -215,6 +218,30 @@ describe('InstanceCommunicationManager', () => {
     }));
   });
 
+  it('captures a CLI user-message echo without republishing the duplicate transcript event', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const message = createMessage('user', 'private prompt echoed by the CLI');
+    const output = vi.fn();
+    manager.on('output', output);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', message);
+    await flushOutputHandlers();
+
+    expect(captureProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      expect.objectContaining({
+        kind: 'output',
+        content: 'private prompt echoed by the CLI',
+        messageType: 'user',
+      }),
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:output' }) }),
+    );
+    expect(emitProviderRuntimeEvent).not.toHaveBeenCalled();
+    expect(output).not.toHaveBeenCalled();
+  });
+
   it('preserves a JSON-safe raw context payload alongside the canonical event', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
@@ -237,6 +264,41 @@ describe('InstanceCommunicationManager', () => {
           }),
         },
       }),
+    );
+  });
+
+  it('forwards tool and spawn adapter events through the raw-backed runtime stream', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('spawned', 4321);
+    (adapter as unknown as EventEmitter).emit('tool_use', {
+      id: 'tool-1',
+      name: 'Read',
+      arguments: { path: 'README.md' },
+    });
+    (adapter as unknown as EventEmitter).emit('tool_result', {
+      id: 'tool-1',
+      name: 'Read',
+      arguments: { path: 'README.md' },
+      result: 'contents',
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      { kind: 'spawned', pid: 4321 },
+      expect.objectContaining({ raw: { source: 'adapter-event:spawned', payload: 4321 } }),
+    );
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      { kind: 'tool_use', toolName: 'Read', toolUseId: 'tool-1', input: { path: 'README.md' } },
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:tool_use' }) }),
+    );
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      { kind: 'tool_result', toolName: 'Read', toolUseId: 'tool-1', success: true, output: 'contents' },
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:tool_result' }) }),
     );
   });
 

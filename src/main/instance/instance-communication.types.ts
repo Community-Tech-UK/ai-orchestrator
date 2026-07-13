@@ -101,4 +101,14 @@ export interface CommunicationDependencies {
       raw?: ProviderRuntimeEventRaw;
     },
   ) => void;
+  captureProviderRuntimeEvent?: (
+    instanceId: string,
+    event: ProviderRuntimeEvent,
+    options: {
+      provider?: ProviderName;
+      sessionId?: string;
+      timestamp?: number;
+      raw: ProviderRuntimeEventRaw;
+    },
+  ) => void;
 }

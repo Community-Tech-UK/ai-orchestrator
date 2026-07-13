@@ -6,7 +6,7 @@
  * each provider at the adapter-event boundary (the same seam used by the
  * four per-provider specs).
  *
- * Matrix: 5 scenarios × 4 providers = 20 test cases.
+ * Matrix: 9 scenarios × 6 providers = 54 test cases.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -222,6 +222,36 @@ const SCENARIOS: readonly Scenario[] = [
     expectedEvent: { kind: 'context', used: 10, total: 100, percentage: 10 },
   },
   {
+    name: 'tool use',
+    fire: (a) => a.emit('tool_use', {
+      id: 'tool-1',
+      name: 'Read',
+      arguments: { path: 'README.md' },
+    }),
+    expectedEvent: {
+      kind: 'tool_use',
+      toolName: 'Read',
+      toolUseId: 'tool-1',
+      input: { path: 'README.md' },
+    },
+  },
+  {
+    name: 'tool result',
+    fire: (a) => a.emit('tool_result', {
+      id: 'tool-1',
+      name: 'Read',
+      arguments: { path: 'README.md' },
+      result: 'file contents',
+    }),
+    expectedEvent: {
+      kind: 'tool_result',
+      toolName: 'Read',
+      toolUseId: 'tool-1',
+      success: true,
+      output: 'file contents',
+    },
+  },
+  {
     name: 'error',
     fire: (a) => a.emit('error', new Error('boom')),
     expectedEvent: { kind: 'error', message: 'boom', recoverable: false },
@@ -236,10 +266,25 @@ const SCENARIOS: readonly Scenario[] = [
     fire: (a) => a.emit('spawned', 1234),
     expectedEvent: { kind: 'spawned', pid: 1234 },
   },
+  {
+    name: 'complete',
+    fire: (a) => a.emit('complete', {
+      id: 'response-1',
+      role: 'assistant',
+      content: 'done',
+      usage: { totalTokens: 42, cost: 0.01, duration: 100 },
+    }),
+    expectedEvent: {
+      kind: 'complete',
+      tokensUsed: 42,
+      costUsd: 0.01,
+      durationMs: 100,
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
-// Matrix: 5 scenarios × 4 providers = 20 test cases
+// Matrix: 9 scenarios × 6 providers = 54 test cases
 // ---------------------------------------------------------------------------
 describe('cross-provider parity', () => {
   for (const scenario of SCENARIOS) {
@@ -254,11 +299,16 @@ describe('cross-provider parity', () => {
 
           scenario.fire(adapter);
 
-          const last = envelopes.at(-1);
-          expect(last).toBeDefined();
-          expect(last!.provider).toBe(providerName);
-          expect(last!.instanceId).toBe('i-parity');
-          expect(last!.event).toMatchObject(scenario.expectedEvent);
+          // Completion is followed by the provider's normal idle transition
+          // for Codex and Gemini, so locate the envelope for this scenario
+          // instead of assuming it is the final emitted event.
+          const matched = envelopes.findLast(
+            (envelope) => envelope.event.kind === scenario.expectedEvent['kind'],
+          );
+          expect(matched).toBeDefined();
+          expect(matched!.provider).toBe(providerName);
+          expect(matched!.instanceId).toBe('i-parity');
+          expect(matched!.event).toMatchObject(scenario.expectedEvent);
         });
       }
     });

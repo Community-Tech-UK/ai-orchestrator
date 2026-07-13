@@ -43,6 +43,7 @@ import type {
   ProviderRuntimeEventRaw,
 } from '@contracts/types/provider-runtime-events';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
+import { toProviderOutputEvent } from '../providers/provider-output-event';
 import type { CommunicationDependencies } from './instance-communication.types';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
@@ -76,6 +77,7 @@ import {
 } from './instance-communication.constants';
 import type { CircuitBreakerState } from './instance-communication.constants';
 import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
+import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -1098,6 +1100,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       // Without this filter, every user message appears twice (our emit + CLI echo),
       // and during --resume replays, historical user messages are re-added.
       if (message.type === 'user') {
+        this.deps.captureProviderRuntimeEvent?.(instanceId, toProviderOutputEvent(message), {
+          timestamp: message.timestamp,
+          raw: { source: 'adapter-event:output', payload: rawAdapterPayload },
+        });
         return;
       }
 
@@ -1457,6 +1463,12 @@ export class InstanceCommunicationManager extends EventEmitter {
           this.deps.processOrchestrationOutput(instanceId, message.content);
         }
       }
+    });
+
+    bindRawAdapterProviderEvents({
+      adapter,
+      isStale: isStaleAdapterEvent,
+      emit: emitProviderRuntimeEvent,
     });
 
     adapter.on('status', (status: InstanceStatus) => {

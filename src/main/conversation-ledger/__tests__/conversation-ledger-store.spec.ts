@@ -217,6 +217,25 @@ describe('ConversationLedgerStore', () => {
       });
     });
 
+    it('serializes a cyclic raw payload without losing the capture batch', () => {
+      const payload: Record<string, unknown> = {};
+      payload['self'] = payload;
+
+      expect(() => store.appendProviderEventCaptures([
+        {
+          eventId: 'cyclic-raw-event', provider: 'claude', instanceId: 'instance-1', sessionId: null,
+          sequence: 0, createdAt: 1,
+          event: { kind: 'status', status: 'busy' },
+          raw: { source: 'adapter-event:status', payload },
+        },
+      ])).not.toThrow();
+
+      expect(store.listProviderEventCaptures({ instanceId: 'instance-1' })[0]?.raw).toEqual({
+        source: 'adapter-event:status',
+        payload: { self: { type: 'circular' } },
+      });
+    });
+
     it('stores raw-backed canonical events independently of conversation threads', () => {
       store.appendProviderEventCaptures([
         {

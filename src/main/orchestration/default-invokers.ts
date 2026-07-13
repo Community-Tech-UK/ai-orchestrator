@@ -690,6 +690,7 @@ import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.type
 import { defaultLoopContextConfig, LOOP_DEFAULT_MAX_TURNS_PER_ITERATION } from '../../shared/types/loop.types';
 import { shouldRecycleLoopContext } from './loop-context-discipline';
 import { attachInvocationActivity, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
+import { observeLoopProviderRuntimeEvents } from './loop-provider-event-capture';
 import {
   createLoopInvocationCapture,
   createToolTimeoutWatchdogWidener,
@@ -1340,7 +1341,14 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           : (adapter) => {
               activeAdapterRef = adapter;
               const stopTracking = trackActiveAdapter(p.loopRunId, adapter);
+              const stopEventCapture = observeLoopProviderRuntimeEvents({
+                adapter,
+                instanceManager,
+                instanceId: p.chatId,
+                provider: p.provider,
+              });
               return () => {
+                stopEventCapture();
                 activeAdapterRef = null;
                 stopTracking();
               };
