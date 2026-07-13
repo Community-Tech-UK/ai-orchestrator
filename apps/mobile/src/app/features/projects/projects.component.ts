@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   effect,
@@ -144,14 +145,14 @@ type OrganizeMode = 'project' | 'chronological';
               <article
                 class="project-group"
                 (pointerdown)="beginRowPress()"
-                (pointerup)="releaseRowPress()"
+                (pointerup)="scheduleRowPressRelease()"
                 (pointercancel)="releaseRowPress()"
               >
                 <div class="project-row">
                   <button
                     type="button"
                     class="project-disclosure mobile-pressable"
-                    (click)="toggleProject(group.project.key)"
+                    (click)="toggleProject(group.project.key); releaseRowPress()"
                     [attr.aria-expanded]="isExpanded(group.project.key)"
                   >
                     <app-mobile-icon name="folder" />
@@ -249,6 +250,7 @@ export class ProjectsComponent implements OnInit {
   protected readonly rowPressActive = signal(false);
   private readonly pendingGroups = signal<ProjectListGroup[] | null>(null);
   private initialDisclosureApplied = false;
+  private rowPressReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly sourceGroups = computed(() =>
     buildProjectGroups(
@@ -280,6 +282,10 @@ export class ProjectsComponent implements OnInit {
   protected readonly projectComposeAriaLabel = projectComposeAriaLabel;
 
   constructor() {
+    inject(DestroyRef).onDestroy(() => {
+      if (this.rowPressReleaseTimer) clearTimeout(this.rowPressReleaseTimer);
+    });
+
     effect(() => {
       const incoming = this.sourceGroups();
       const next = reconcileProjectGroupUpdate(
@@ -314,10 +320,26 @@ export class ProjectsComponent implements OnInit {
   }
 
   protected beginRowPress(): void {
+    if (this.rowPressReleaseTimer) {
+      clearTimeout(this.rowPressReleaseTimer);
+      this.rowPressReleaseTimer = null;
+    }
     this.rowPressActive.set(true);
   }
 
+  protected scheduleRowPressRelease(): void {
+    if (this.rowPressReleaseTimer) return;
+    this.rowPressReleaseTimer = setTimeout(() => {
+      this.rowPressReleaseTimer = null;
+      this.releaseRowPress();
+    }, 0);
+  }
+
   protected releaseRowPress(): void {
+    if (this.rowPressReleaseTimer) {
+      clearTimeout(this.rowPressReleaseTimer);
+      this.rowPressReleaseTimer = null;
+    }
     this.rowPressActive.set(false);
     this.renderedGroups.set(
       releasePendingProjectGroups(this.renderedGroups(), this.pendingGroups()),
@@ -365,6 +387,7 @@ export class ProjectsComponent implements OnInit {
   }
 
   protected openSession(projectKey: string, session: MobileSessionRowView): void {
+    this.releaseRowPress();
     void this.router.navigate(sessionTargetRoute(projectKey, session));
   }
 
@@ -376,6 +399,7 @@ export class ProjectsComponent implements OnInit {
   }
 
   protected newSessionInProject(path: string, event: Event): void {
+    this.releaseRowPress();
     event.stopPropagation();
     this.navigateToNewSession(newSessionNavigation(path || undefined));
   }

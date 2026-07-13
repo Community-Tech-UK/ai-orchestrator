@@ -7,6 +7,8 @@
  * Plan: docs/mobile-app/2026-05-30-mobile-control-app-plan.md
  */
 
+import type { ReasoningEffort } from './provider.types';
+
 /** A paired phone, as persisted by the gateway. The bearer `token` is secret. */
 export interface MobileDevice {
   deviceId: string;
@@ -104,7 +106,7 @@ export interface MobileSessionPlan {
   /** Human label for the model, e.g. 'Opus 4.8', or null for the provider default. */
   modelLabel: string | null;
   /** Reasoning effort a fresh session runs at, or null when provider-decided. */
-  reasoningEffort: string | null;
+  reasoningEffort: ReasoningEffort | null;
   /** Human label for the effort, e.g. 'High', or null when provider-decided. */
   reasoningEffortLabel: string | null;
 }
@@ -275,6 +277,7 @@ export interface MobileCreateInstanceRequest {
   workingDirectory: string;
   provider?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   initialPrompt?: string;
 }
 

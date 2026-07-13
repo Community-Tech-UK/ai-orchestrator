@@ -26,6 +26,54 @@ export type DocReviewStatus = z.infer<typeof DocReviewStatusSchema>;
 export const DocReviewOverallSchema = z.enum(['approved', 'changes_requested', 'rejected']);
 export type DocReviewOverall = z.infer<typeof DocReviewOverallSchema>;
 
+/** Durable owner identity. An instance id is a delivery hint, never the sole identity. */
+export const DocReviewOriginSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('instance'),
+    requestedInstanceId: idSchema,
+    historyThreadId: idSchema,
+    sessionId: idSchema.optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('loop'),
+    loopRunId: idSchema,
+    chatId: idSchema,
+  }).strict(),
+]);
+export type DocReviewOrigin = z.infer<typeof DocReviewOriginSchema>;
+
+export const DocReviewDeliveryStateSchema = z.enum([
+  'not-attempted',
+  'dispatching',
+  'queued',
+  'delivered',
+  'failed',
+]);
+export type DocReviewDeliveryState = z.infer<typeof DocReviewDeliveryStateSchema>;
+
+export const DocReviewDeliveryAttemptSchema = z.object({
+  id: idSchema,
+  state: DocReviewDeliveryStateSchema,
+  mechanism: z.enum([
+    'direct-send', 'deferred-idle', 'await-idle', 'wake', 'continuity-revive',
+    'loop-accept', 'loop-intervene', 'none',
+  ]),
+  targetInstanceId: idSchema.optional(),
+  error: z.string().max(10_000).optional(),
+  at: z.number().int().nonnegative(),
+}).strict();
+export type DocReviewDeliveryAttempt = z.infer<typeof DocReviewDeliveryAttemptSchema>;
+
+/** Current delivery view for the UI. Attempts remain the immutable audit trail. */
+export const DocReviewDeliverySchema = z.object({
+  status: DocReviewDeliveryStateSchema,
+  mechanism: z.string().min(1).max(100),
+  attempts: z.number().int().nonnegative(),
+  targetInstanceId: idSchema.optional(),
+  lastError: z.string().max(10_000).optional(),
+}).strict();
+export type DocReviewDelivery = z.infer<typeof DocReviewDeliverySchema>;
+
 /** Per-item decision. `null` = seen but no verdict set. */
 export const DocReviewItemVerdictSchema = z.enum(['approve', 'reject']).nullable();
 export type DocReviewItemVerdict = z.infer<typeof DocReviewItemVerdictSchema>;
@@ -50,6 +98,8 @@ export const DocReviewSessionSchema = z
   .object({
     id: idSchema,
     instanceId: idSchema,
+    /** Optional only to read pre-delivery-v2 persisted sessions. */
+    origin: DocReviewOriginSchema.optional(),
     workspacePath: z.string().min(1).max(4000),
     title: z.string().min(1).max(500),
     artifactPath: z.string().min(1).max(4000),
@@ -59,6 +109,8 @@ export const DocReviewSessionSchema = z
     generalComment: z.string().max(10_000).optional(),
     createdAt: z.number().int().nonnegative(),
     decidedAt: z.number().int().nonnegative().optional(),
+    deliveryAttempts: z.array(DocReviewDeliveryAttemptSchema).max(1000).default([]),
+    delivery: DocReviewDeliverySchema.optional(),
   })
   .strict();
 export type DocReviewSession = z.infer<typeof DocReviewSessionSchema>;
@@ -91,12 +143,15 @@ export type DocReviewSubmitDecisionPayload = z.infer<typeof DocReviewSubmitDecis
 export const DocReviewDismissPayloadSchema = z.object({ reviewId: idSchema }).strict();
 export type DocReviewDismissPayload = z.infer<typeof DocReviewDismissPayloadSchema>;
 
+export const DocReviewRetryDeliveryPayloadSchema = z.object({ reviewId: idSchema }).strict();
+export type DocReviewRetryDeliveryPayload = z.infer<typeof DocReviewRetryDeliveryPayloadSchema>;
+
 export const DocReviewOpenExternalPayloadSchema = z.object({ reviewId: idSchema }).strict();
 export type DocReviewOpenExternalPayload = z.infer<typeof DocReviewOpenExternalPayloadSchema>;
 
 // ── Change event (main → renderer) ───────────────────────────────────────────
 
-export const DocReviewChangeKindSchema = z.enum(['created', 'decided', 'dismissed']);
+export const DocReviewChangeKindSchema = z.enum(['created', 'decided', 'delivery-updated', 'dismissed']);
 export type DocReviewChangeKind = z.infer<typeof DocReviewChangeKindSchema>;
 
 export const DocReviewChangedEventSchema = z

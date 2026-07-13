@@ -72,6 +72,7 @@ import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-
 import { getAutoTitleService } from './auto-title-service';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { reviveContinuitySession } from './lifecycle/continuity-revival';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import {
@@ -1267,6 +1268,28 @@ export class InstanceManager extends EventEmitter {
     options: HistoryRestoreCoordinatorOptions = {},
   ): Promise<HistoryRestoreCoordinatorResult> {
     return getHistoryRestoreCoordinator().restore(this, entryId, options);
+  }
+
+  /**
+   * Restore an archived continuity record into a new instance and seed it with
+   * an already-persisted document-review verdict. The old runtime identity is
+   * intentionally never resurrected in place: it may have been terminated,
+   * removed from state, or belong to a prior app process.
+   */
+  async reviveFromContinuity(
+    request: {
+      sourceInstanceId: string;
+      initialPrompt: string;
+      reason: 'doc-review-submission';
+    },
+  ): Promise<{ instanceId: string; restoreMode: 'native' | 'replay' }> {
+    if (getPauseCoordinator().isPaused()) {
+      throw new OrchestratorPausedError('Session revival refused while orchestrator is paused');
+    }
+    return reviveContinuitySession({
+      resumeSession: (instanceId, options) => getSessionContinuityManager().resumeSession(instanceId, options),
+      createInstance: (config) => this.createInstance(config),
+    }, request);
   }
 
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {

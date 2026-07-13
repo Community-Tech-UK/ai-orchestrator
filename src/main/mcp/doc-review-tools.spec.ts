@@ -18,6 +18,12 @@ const decidedSession: DocReviewSession = {
   decisions: [{ itemId: 'a', decision: 'approve' }],
   createdAt: 1,
   decidedAt: 2,
+  deliveryAttempts: [{
+    id: 'dra_1', state: 'failed', mechanism: 'continuity-revive', error: 'continuity unavailable', at: 3,
+  }],
+  delivery: {
+    status: 'failed', mechanism: 'continuity-revive', attempts: 1, lastError: 'continuity unavailable',
+  },
 };
 
 describe('doc-review MCP tools', () => {
@@ -80,9 +86,13 @@ describe('doc-review MCP tools', () => {
       found: boolean;
       decided: boolean;
       overall: string;
+      delivery: DocReviewSession['delivery'];
+      deliveryAttempts: DocReviewSession['deliveryAttempts'];
     };
     expect(result.found).toBe(true);
     expect(result.decided).toBe(true);
     expect(result.overall).toBe('approved');
+    expect(result.delivery).toEqual(decidedSession.delivery);
+    expect(result.deliveryAttempts).toEqual(decidedSession.deliveryAttempts);
   });
 });

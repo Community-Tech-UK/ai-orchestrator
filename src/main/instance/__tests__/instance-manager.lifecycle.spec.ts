@@ -1065,6 +1065,49 @@ describe('InstanceManager', () => {
     });
   });
 
+  describe('reviveFromContinuity', () => {
+    it('creates a restored continuation seeded with the durable review feedback', async () => {
+      mockSessionContinuity.resumeSession.mockResolvedValueOnce({
+        instanceId: 'old-instance',
+        sessionId: 'provider-session-1',
+        historyThreadId: 'thread-1',
+        displayName: 'Architecture plan',
+        isRenamed: true,
+        agentId: 'build',
+        modelId: 'opus',
+        provider: 'claude',
+        workingDirectory: TEST_WORKING_DIR,
+        conversationHistory: [
+          { id: 'u1', role: 'user', content: 'Please make a plan.', timestamp: 1 },
+          { id: 'a1', role: 'assistant', content: 'Here is the plan.', timestamp: 2 },
+        ],
+        contextUsage: { used: 12, total: 1000 },
+        pendingTasks: [],
+        environmentVariables: {},
+        activeFiles: [],
+        skillsLoaded: [],
+        hooksActive: [],
+      });
+
+      const revived = await manager.reviveFromContinuity({
+        sourceInstanceId: 'old-instance',
+        initialPrompt: 'review feedback',
+        reason: 'doc-review-submission',
+      });
+      const revivedInstance = manager.getInstance(revived.instanceId)!;
+
+      expect(revived.instanceId).not.toBe('old-instance');
+      expect(revived.restoreMode).toBe('native');
+      expect(revivedInstance.displayName).toBe('Architecture plan');
+      expect(revivedInstance.historyThreadId).toBe('thread-1');
+      expect(revivedInstance.outputBuffer.map((message) => message.content)).toContain('Please make a plan.');
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        expect.stringContaining('review feedback'),
+        undefined,
+      );
+    });
+  });
+
   describe('forkInstance', () => {
     it('keeps the source alive for prompted forks unless supersession is explicit', async () => {
       const source = await manager.createInstance({

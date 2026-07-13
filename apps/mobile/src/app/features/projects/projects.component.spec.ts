@@ -22,5 +22,9 @@ describe('ProjectsComponent structure', () => {
     expect(source).toContain('Connection unavailable');
     expect(source).toContain('beginRowPress()');
     expect(source).toContain('releaseRowPress()');
+    expect(source).toContain('(pointerup)="scheduleRowPressRelease()"');
+    expect(source).toContain('(click)="toggleProject(group.project.key); releaseRowPress()"');
+    expect(source).toContain('protected openSession(projectKey: string, session: MobileSessionRowView): void {\n    this.releaseRowPress();');
+    expect(source).not.toContain('(pointerup)="releaseRowPress()"');
   });
 });

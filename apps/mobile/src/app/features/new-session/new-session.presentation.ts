@@ -1,6 +1,8 @@
 import type {
   MobileAttachmentDto,
   MobileCreateInstanceRequest,
+  MobileReasoningEffort,
+  MobileReasoningOption,
   MobileSessionPlan,
 } from '../../core/models';
 
@@ -14,6 +16,7 @@ export interface CreateInstanceInput {
   directory: string;
   provider: string;
   model: string | undefined;
+  reasoningEffort: MobileReasoningEffort | undefined;
   prompt: string;
   attachments: MobileAttachmentDto[];
 }
@@ -31,6 +34,48 @@ export function sessionPlanSummary(plan: MobileSessionPlan | null): string {
   return [plan.modelLabel || 'Default model', plan.reasoningEffortLabel]
     .filter((value): value is string => Boolean(value))
     .join(' · ');
+}
+
+export function defaultReasoningEffortForProvider(
+  provider: string,
+): MobileReasoningEffort | undefined {
+  return provider === 'claude' || provider === 'codex' || provider === 'grok'
+    ? 'high'
+    : undefined;
+}
+
+export function reasoningOptionsForProvider(provider: string): MobileReasoningOption[] {
+  const markDefault = (options: MobileReasoningOption[]): MobileReasoningOption[] =>
+    options.map((option) =>
+      option.id === defaultReasoningEffortForProvider(provider)
+        ? { ...option, isDefault: true }
+        : option,
+    );
+
+  if (provider === 'claude') {
+    return markDefault([
+      { id: 'low', label: 'Low', description: 'Shorter thinking' },
+      { id: 'medium', label: 'Medium', description: 'Balanced thinking' },
+      { id: 'high', label: 'High', description: "Claude's standard depth" },
+      { id: 'xhigh', label: 'Extra', description: 'Deeper reasoning' },
+      { id: 'max', label: 'Max', description: 'Deepest session-only reasoning' },
+      { id: 'workflow', label: 'Workflow', description: 'Claude Code ultracode mode' },
+    ]);
+  }
+
+  if (provider === 'codex') {
+    return markDefault([
+      { id: 'default', label: 'Provider', description: 'Let the provider decide' },
+      { id: 'none', label: 'Off', description: 'No extra reasoning effort' },
+      { id: 'minimal', label: 'Minimal', description: 'Light reasoning' },
+      { id: 'low', label: 'Low', description: 'Shorter thinking' },
+      { id: 'medium', label: 'Medium', description: 'Balanced thinking' },
+      { id: 'high', label: 'High', description: 'Deeper thinking' },
+      { id: 'xhigh', label: 'Max', description: 'Largest thinking budget' },
+    ]);
+  }
+
+  return [];
 }
 
 export function shouldPresentDirectorySheet(
@@ -52,6 +97,7 @@ export function buildCreateInstanceRequest(
     workingDirectory: input.directory,
     provider: input.provider,
     model: input.model,
+    reasoningEffort: input.reasoningEffort,
     initialPrompt: prompt || undefined,
     attachments: input.attachments.length ? input.attachments : undefined,
   };

@@ -95,6 +95,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * `run_on_node` spawn path. 0 = unbounded. See claude2_todo #18.
    */
   maxSpawnDepth: number;
+  /** Operator-only: revive a terminal chat to deliver a submitted doc review. */
+  docReviewResumeOnSubmit: boolean;
   defaultMissedRunPolicy: DefaultMissedRunPolicy;
 
   // Memory Management

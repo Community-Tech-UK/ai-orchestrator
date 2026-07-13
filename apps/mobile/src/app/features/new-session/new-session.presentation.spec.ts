@@ -5,6 +5,7 @@ import {
   canStartSession,
   newSessionSuccessRoute,
   providerDisplayName,
+  reasoningOptionsForProvider,
   sessionPlanSummary,
   shouldPresentDirectorySheet,
 } from './new-session.presentation';
@@ -14,7 +15,7 @@ const plan: MobileSessionPlan = {
   providerLabel: 'Codex',
   model: 'gpt-5.6',
   modelLabel: 'GPT-5.6',
-  reasoningEffort: 'extra_high',
+  reasoningEffort: 'xhigh',
   reasoningEffortLabel: 'Extra High',
 };
 
@@ -56,6 +57,7 @@ describe('new session presentation', () => {
         directory: '/work/aio',
         provider: 'codex',
         model: 'gpt-5.6',
+        reasoningEffort: 'xhigh',
         prompt: '  Polish mobile UX  ',
         attachments: [attachment],
       }),
@@ -63,6 +65,7 @@ describe('new session presentation', () => {
       workingDirectory: '/work/aio',
       provider: 'codex',
       model: 'gpt-5.6',
+      reasoningEffort: 'xhigh',
       initialPrompt: 'Polish mobile UX',
       attachments: [attachment],
     });
@@ -72,6 +75,7 @@ describe('new session presentation', () => {
         directory: '/work/aio',
         provider: 'auto',
         model: undefined,
+        reasoningEffort: undefined,
         prompt: ' ',
         attachments: [],
       }),
@@ -79,9 +83,20 @@ describe('new session presentation', () => {
       workingDirectory: '/work/aio',
       provider: 'auto',
       model: undefined,
+      reasoningEffort: undefined,
       initialPrompt: undefined,
       attachments: undefined,
     });
+  });
+
+  it('offers the same provider-specific effort levels as the desktop picker', () => {
+    expect(reasoningOptionsForProvider('claude').map((option) => option.id)).toEqual([
+      'low', 'medium', 'high', 'xhigh', 'max', 'workflow',
+    ]);
+    expect(reasoningOptionsForProvider('codex').map((option) => option.id)).toEqual([
+      'default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh',
+    ]);
+    expect(reasoningOptionsForProvider('gemini')).toEqual([]);
   });
 
   it('keeps the existing successful-session route', () => {

@@ -16,6 +16,7 @@ import {
   DocReviewListPayloadSchema,
   DocReviewOpenExternalPayloadSchema,
   DocReviewReadArtifactPayloadSchema,
+  DocReviewRetryDeliveryPayloadSchema,
   DocReviewSubmitDecisionPayloadSchema,
 } from '@contracts/schemas/doc-review';
 import {
@@ -116,6 +117,22 @@ export function registerDocReviewHandlers(deps: { windowManager: WindowManager }
         return { success: true, data: { reviewId: validated.reviewId } };
       } catch (error) {
         return fail('DOC_REVIEW_DISMISS_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.DOC_REVIEW_RETRY_DELIVERY,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          DocReviewRetryDeliveryPayloadSchema,
+          payload,
+          'DOC_REVIEW_RETRY_DELIVERY',
+        );
+        return { success: true, data: await service.retryDelivery(validated.reviewId) };
+      } catch (error) {
+        return fail('DOC_REVIEW_RETRY_DELIVERY_FAILED', error);
       }
     },
   );

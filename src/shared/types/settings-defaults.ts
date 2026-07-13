@@ -103,6 +103,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoTerminateIdleMinutes: 30,
   allowNestedOrchestration: false,
   maxSpawnDepth: 3,
+  docReviewResumeOnSubmit: true,
   defaultMissedRunPolicy: 'notify',
 
   // Memory Management

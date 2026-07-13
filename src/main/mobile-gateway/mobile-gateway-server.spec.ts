@@ -1089,6 +1089,38 @@ describe('MobileGatewayServer', () => {
     );
   });
 
+  it('forwards a valid mobile reasoning effort to createInstance', async () => {
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({
+        workingDirectory: '/repo/gamma',
+        provider: 'codex',
+        reasoningEffort: 'xhigh',
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(source.createInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: 'xhigh' }),
+    );
+  });
+
+  it('ignores an invalid mobile reasoning effort', async () => {
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({
+        workingDirectory: '/repo/gamma',
+        provider: 'codex',
+        reasoningEffort: 'unlimited',
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(source.createInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: undefined }),
+    );
+  });
+
   it('forwards initial-message attachments to createInstance', async () => {
     const token = await pairToken();
     const attachment = {

@@ -1,10 +1,10 @@
-import ElectronStore from 'electron-store';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import { getLogger } from '../logging/logger';
 import { renderPlanArtifact } from './artifact-renderer';
+import { DocReviewStore, type DocReviewStorePort } from './doc-review-store';
 import {
   DOC_REVIEW_DIR_NAME,
   ensureDocReviewIgnored,
@@ -12,11 +12,12 @@ import {
   validateArtifactPath,
 } from './artifact-validator';
 import type {
+  DocReviewDeliveryCoordinator,
   CreateDocReviewSessionInput,
+  DocReviewDeliveryAttempt,
   DocReviewInstanceSink,
   DocReviewOverall,
   DocReviewSession,
-  DocReviewStoreShape,
   SubmitDocReviewDecisionInput,
 } from './doc-review.types';
 
@@ -25,17 +26,8 @@ const logger = getLogger('DocReviewService');
 /** Event name emitted on any session change; consumed by the IPC handler layer. */
 export const DOC_REVIEW_CHANGED_EVENT = 'doc-review:changed';
 
-const STORE_VERSION = 1;
-const DEFAULT_STORE: DocReviewStoreShape = { version: STORE_VERSION, sessions: [] };
-
 /** Decided sessions older than this are pruned on startup. */
 const PRUNE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
-
-interface Store<T> {
-  get<K extends keyof T>(key: K): T[K];
-  set<K extends keyof T>(key: K, value: T[K]): void;
-  set(object: Partial<T>): void;
-}
 
 const OVERALL_LABEL: Record<DocReviewOverall, string> = {
   approved: 'APPROVED',
@@ -93,22 +85,21 @@ export function renderFeedbackBlock(
 
 export class DocReviewService extends EventEmitter {
   private static instance: DocReviewService | null = null;
-  /** Lazily created — constructing ElectronStore needs the electron app, so we defer it
-   *  until a session is actually read/written (wiring the sink/recorder must not touch it). */
-  private store: Store<DocReviewStoreShape> | null = null;
+  /** Lazily created because the RLM database is initialized during app bootstrap. */
+  private store: DocReviewStorePort | null = null;
   private sink: DocReviewInstanceSink | null = null;
+  private deliveryCoordinator: DocReviewDeliveryCoordinator | null = null;
   private approvalRecorder: ((session: DocReviewSession) => void) | null = null;
 
   private constructor() {
     super();
   }
 
-  private getStore(): Store<DocReviewStoreShape> {
+  private static storeFactory: () => DocReviewStorePort = () => new DocReviewStore();
+
+  private getStore(): DocReviewStorePort {
     if (!this.store) {
-      this.store = new ElectronStore<DocReviewStoreShape>({
-        name: 'doc-reviews',
-        defaults: DEFAULT_STORE,
-      }) as unknown as Store<DocReviewStoreShape>;
+      this.store = DocReviewService.storeFactory();
       this.pruneDecided();
     }
     return this.store;
@@ -125,9 +116,19 @@ export class DocReviewService extends EventEmitter {
     this.instance = null;
   }
 
+  static _setStoreFactoryForTesting(factory: (() => DocReviewStorePort) | null): void {
+    this.storeFactory = factory ?? (() => new DocReviewStore());
+  }
+
   /** Wire the sink used to push feedback into instances (called from initialization-steps). */
   setInstanceManager(sink: DocReviewInstanceSink): void {
     this.sink = sink;
+  }
+
+  /** Wire lifecycle-aware delivery after application services are initialized. */
+  setDeliveryCoordinator(coordinator: DocReviewDeliveryCoordinator): void {
+    this.deliveryCoordinator?.dispose?.();
+    this.deliveryCoordinator = coordinator;
   }
 
   /** Wire an audit recorder invoked when a review is APPROVED (durable-approval store). */
@@ -136,11 +137,16 @@ export class DocReviewService extends EventEmitter {
   }
 
   private readSessions(): DocReviewSession[] {
-    return this.getStore().get('sessions') ?? [];
+    return this.getStore().list();
   }
 
   private writeSessions(sessions: DocReviewSession[]): void {
-    this.getStore().set('sessions', sessions);
+    const store = this.getStore();
+    const nextIds = new Set(sessions.map((session) => session.id));
+    for (const existing of store.list()) {
+      if (!nextIds.has(existing.id)) store.remove(existing.id);
+    }
+    for (const session of sessions) store.put(session);
   }
 
   listSessions(status?: DocReviewSession['status']): DocReviewSession[] {
@@ -174,17 +180,25 @@ export class DocReviewService extends EventEmitter {
     const session: DocReviewSession = {
       id: `dr_${randomUUID()}`,
       instanceId: input.instanceId,
+      origin: input.origin ?? {
+        kind: 'instance',
+        requestedInstanceId: input.instanceId,
+        // Old MCP callers do not carry continuity fields. Keep an explicit
+        // degraded value instead of silently treating the ephemeral id as a
+        // durable identity; current application wiring always supplies these.
+        historyThreadId: input.historyThreadId ?? input.instanceId,
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      },
       workspacePath: input.workspacePath,
       title: input.title,
       artifactPath: validation.resolvedPath,
       sourcePath: input.sourcePath || meta.source,
       status: 'pending',
       decisions: [],
+      deliveryAttempts: [],
       createdAt: Date.now(),
     };
-    const sessions = this.readSessions();
-    sessions.push(session);
-    this.writeSessions(sessions);
+    this.getStore().put(session);
     this.emitChanged('created', session);
     logger.info('Doc-review session created', {
       reviewId: session.id,
@@ -201,6 +215,7 @@ export class DocReviewService extends EventEmitter {
    */
   async createReviewFromPlan(input: {
     instanceId: string;
+    origin?: CreateDocReviewSessionInput['origin'];
     workspacePath: string;
     planFile: string;
     title?: string;
@@ -212,19 +227,24 @@ export class DocReviewService extends EventEmitter {
     const markdown = await readFile(planPath, 'utf8');
     const title = input.title || deriveTitle(markdown, input.planFile);
     const slug = `${todayStamp()}-${slugify(title)}`;
+    // A date/title slug is readable but not unique: two loops can review the same
+    // named plan on one day. Keep each submitted artifact immutable so a later
+    // render cannot silently replace the document James actually reviewed.
+    const artifactId = `${slug}-${randomUUID()}`;
     const reviewDir = join(input.workspacePath, DOC_REVIEW_DIR_NAME);
     await mkdir(reviewDir, { recursive: true });
-    const artifactPath = join(reviewDir, `${slug}.html`);
+    const artifactPath = join(reviewDir, `${artifactId}.html`);
     const html = renderPlanArtifact({
       title,
       markdown,
-      reviewId: slug,
+      reviewId: artifactId,
       sourcePath: input.planFile,
       generatedAt: input.generatedAt ?? new Date().toISOString(),
     });
     await writeFile(artifactPath, html, 'utf8');
     return this.createSession({
       instanceId: input.instanceId,
+      origin: input.origin,
       workspacePath: input.workspacePath,
       title,
       artifactPath,
@@ -256,45 +276,171 @@ export class DocReviewService extends EventEmitter {
     reviewId: string,
     input: SubmitDocReviewDecisionInput,
   ): Promise<DocReviewSession> {
-    const sessions = this.readSessions();
-    const session = sessions.find((s) => s.id === reviewId);
+    const session = this.getStore().get(reviewId);
     if (!session) throw new Error(`Unknown review: ${reviewId}`);
     if (session.status !== 'pending') {
       throw new Error(`Review ${reviewId} was already decided`);
     }
 
     const block = renderFeedbackBlock(session, input);
-    if (!this.sink) {
-      throw new Error('Doc-review is not wired to an instance manager');
-    }
-    await this.sink.sendInput(session.instanceId, block);
-
+    // Commit the human decision before delivery. A crash or lifecycle refusal
+    // must leave a recoverable decided review, not erase James's work.
     session.status = input.overall;
     session.decisions = input.decisions;
     session.generalComment = input.generalComment?.trim() || undefined;
     session.decidedAt = Date.now();
-    this.writeSessions(sessions);
-    if (session.status === 'approved' && this.approvalRecorder) {
+    this.getStore().put(session);
+
+    const dispatchingSession = this.persistDispatchingAttempt(reviewId);
+    const attempt = await this.deliver(dispatchingSession, block);
+    // Re-read after async delivery: a queued drain/retry may have appended an
+    // attempt while the lifecycle operation was awaiting, and must not be lost.
+    const deliveredSession = this.getStore().get(reviewId);
+    if (!deliveredSession) throw new Error(`Review ${reviewId} was removed during delivery`);
+    this.appendAttempt(deliveredSession, attempt);
+    this.getStore().put(deliveredSession);
+    if (deliveredSession.status === 'approved' && this.approvalRecorder) {
       try {
-        this.approvalRecorder(session);
+        this.approvalRecorder(deliveredSession);
       } catch (err) {
         logger.warn('Doc-review approval recorder failed', { error: String(err) });
       }
     }
-    this.emitChanged('decided', session);
+    this.emitChanged('decided', deliveredSession);
     logger.info('Doc-review decision submitted', {
       reviewId,
       overall: input.overall,
     });
+    return deliveredSession;
+  }
+
+  /** Append a later recovery attempt without reopening or mutating the decision. */
+  appendDeliveryAttempt(reviewId: string, attempt: DocReviewDeliveryAttempt): DocReviewSession {
+    const session = this.getStore().get(reviewId);
+    if (!session) throw new Error(`Unknown review: ${reviewId}`);
+    this.appendAttempt(session, attempt);
+    this.getStore().put(session);
+    this.emitChanged('delivery-updated', session);
     return session;
+  }
+
+  /** Keep the durable journal idempotent and derive the UI projection from its newest entry. */
+  private appendAttempt(session: DocReviewSession, attempt: DocReviewDeliveryAttempt): void {
+    if (!session.deliveryAttempts.some((candidate) => candidate.id === attempt.id)) {
+      session.deliveryAttempts.push(attempt);
+    }
+    const latest = session.deliveryAttempts.at(-1);
+    if (!latest) return;
+    session.delivery = {
+      status: latest.state,
+      mechanism: latest.mechanism,
+      attempts: session.deliveryAttempts.filter((candidate) => candidate.state !== 'dispatching').length,
+      ...(latest.targetInstanceId ? { targetInstanceId: latest.targetInstanceId } : {}),
+      ...(latest.error ? { lastError: latest.error } : {}),
+    };
+  }
+
+  /**
+   * Write an explicit handoff guard before touching an instance or loop. If the app dies
+   * after the recipient accepted the message but before we record its outcome, startup
+   * leaves this visible instead of guessing and silently sending the same review twice.
+   */
+  private persistDispatchingAttempt(reviewId: string): DocReviewSession {
+    const session = this.getStore().get(reviewId);
+    if (!session) throw new Error(`Unknown review: ${reviewId}`);
+    const targetInstanceId = session.origin?.kind === 'instance'
+      ? session.origin.requestedInstanceId
+      : session.instanceId;
+    this.appendAttempt(session, {
+      id: `dra_${randomUUID()}`,
+      state: 'dispatching',
+      mechanism: 'none',
+      targetInstanceId,
+      at: Date.now(),
+    });
+    this.getStore().put(session);
+    this.emitChanged('delivery-updated', session);
+    return session;
+  }
+
+  /** Retry only decisions whose prior process stopped before or while safe delivery queued. */
+  async recoverUndelivered(): Promise<void> {
+    if (!this.deliveryCoordinator) return;
+    for (const session of this.readSessions()) {
+      if (session.status === 'pending') continue;
+      const latest = session.deliveryAttempts.at(-1);
+      if (latest && latest.state !== 'queued' && latest.state !== 'not-attempted') continue;
+      const feedback = renderFeedbackBlock(session, {
+        overall: session.status,
+        decisions: session.decisions,
+        generalComment: session.generalComment,
+      });
+      const dispatchingSession = this.persistDispatchingAttempt(session.id);
+      const attempt = await this.deliver(dispatchingSession, feedback);
+      this.appendDeliveryAttempt(session.id, attempt);
+    }
+  }
+
+  /** Explicit user-requested retry for a decided review whose delivery failed. */
+  async retryDelivery(reviewId: string): Promise<DocReviewSession> {
+    const session = this.getSession(reviewId);
+    if (!session) throw new Error(`Unknown review: ${reviewId}`);
+    if (session.status === 'pending') {
+      throw new Error(`Review ${reviewId} has not been decided`);
+    }
+    if (session.delivery?.status === 'delivered') return session;
+    const feedback = renderFeedbackBlock(session, {
+      overall: session.status,
+      decisions: session.decisions,
+      generalComment: session.generalComment,
+    });
+    const dispatchingSession = this.persistDispatchingAttempt(reviewId);
+    const attempt = await this.deliver(dispatchingSession, feedback);
+    return this.appendDeliveryAttempt(reviewId, attempt);
+  }
+
+  private async deliver(
+    session: DocReviewSession,
+    feedback: string,
+  ): Promise<DocReviewDeliveryAttempt> {
+    if (this.deliveryCoordinator) {
+      try {
+        return await this.deliveryCoordinator.deliver(session, feedback);
+      } catch (error) {
+        return failedDeliveryAttempt(error);
+      }
+    }
+    if (!this.sink) {
+      return failedDeliveryAttempt(new Error('Doc-review delivery is not wired to an instance manager'));
+    }
+    try {
+      if (this.sink.deliverReviewDecision) {
+        const result = await this.sink.deliverReviewDecision(session.instanceId, feedback);
+        return {
+          id: `dra_${randomUUID()}`,
+          state: result.status,
+          mechanism: result.mechanism,
+          ...(result.targetInstanceId ? { targetInstanceId: result.targetInstanceId } : {}),
+          ...(result.error ? { error: result.error } : {}),
+          at: Date.now(),
+        };
+      }
+      await this.sink.sendInput(session.instanceId, feedback);
+      return {
+        id: `dra_${randomUUID()}`,
+        state: 'delivered',
+        mechanism: 'direct-send',
+        targetInstanceId: session.instanceId,
+        at: Date.now(),
+      };
+    } catch (error) {
+      return failedDeliveryAttempt(error);
+    }
   }
 
   /** Remove a pending review without deciding it. */
   dismiss(reviewId: string): void {
-    const sessions = this.readSessions();
-    const next = sessions.filter((s) => s.id !== reviewId);
-    if (next.length === sessions.length) return;
-    this.writeSessions(next);
+    if (!this.getStore().remove(reviewId)) return;
     this.emit(DOC_REVIEW_CHANGED_EVENT, { kind: 'dismissed', reviewId });
   }
 
@@ -311,9 +457,19 @@ export class DocReviewService extends EventEmitter {
     }
   }
 
-  private emitChanged(kind: 'created' | 'decided', session: DocReviewSession): void {
+  private emitChanged(kind: 'created' | 'decided' | 'delivery-updated', session: DocReviewSession): void {
     this.emit(DOC_REVIEW_CHANGED_EVENT, { kind, reviewId: session.id, session });
   }
+}
+
+function failedDeliveryAttempt(error: unknown): DocReviewDeliveryAttempt {
+  return {
+    id: `dra_${randomUUID()}`,
+    state: 'failed',
+    mechanism: 'none',
+    error: error instanceof Error ? error.message : String(error),
+    at: Date.now(),
+  };
 }
 
 function deriveTitle(markdown: string, planFile: string): string {

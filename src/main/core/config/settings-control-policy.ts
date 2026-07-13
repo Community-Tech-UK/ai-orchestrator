@@ -198,6 +198,7 @@ export const SETTINGS_TOOL_POLICY = {
   autoTerminateIdleMinutes: open(numberSettingSchema('autoTerminateIdleMinutes')),
   allowNestedOrchestration: readOnly(),
   maxSpawnDepth: readOnly(),
+  docReviewResumeOnSubmit: readOnly(),
   defaultMissedRunPolicy: open(missedRunPolicySchema),
   outputBufferSize: open(numberSettingSchema('outputBufferSize')),
   enableDiskStorage: open(z.boolean()),

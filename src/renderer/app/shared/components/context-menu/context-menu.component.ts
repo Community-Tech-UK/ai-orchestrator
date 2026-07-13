@@ -2,16 +2,21 @@ import {
   Component,
   ChangeDetectionStrategy,
   HostListener,
-  ElementRef,
   DestroyRef,
   inject,
   signal,
-  effect,
+  computed,
   Input,
   Output,
   EventEmitter,
+  ViewChild,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
+import {
+  CdkConnectedOverlay,
+  OverlayModule,
+  type ConnectedPosition,
+} from '@angular/cdk/overlay';
 
 export interface ContextMenuItem {
   id?: string;
@@ -26,15 +31,21 @@ export interface ContextMenuItem {
 @Component({
   selector: 'app-context-menu',
   standalone: true,
+  imports: [OverlayModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (menuVisible()) {
+    <ng-template
+      cdkConnectedOverlay
+      [cdkConnectedOverlayOpen]="menuVisible()"
+      [cdkConnectedOverlayOrigin]="menuOrigin()"
+      [cdkConnectedOverlayPositions]="overlayPositions"
+      [cdkConnectedOverlayViewportMargin]="8"
+      [cdkConnectedOverlayFlexibleDimensions]="false"
+      [cdkConnectedOverlayPush]="true"
+    >
       <div
-        #menu
         class="context-menu"
         role="menu"
-        [style.left.px]="menuLeft()"
-        [style.top.px]="menuTop()"
         (contextmenu)="$event.preventDefault()"
       >
         @for (item of menuItems(); track item.id ?? item.label) {
@@ -56,21 +67,14 @@ export interface ContextMenuItem {
           </button>
         }
       </div>
-    }
+    </ng-template>
   `,
   styles: [`
     :host {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 10000;
-      pointer-events: none;
+      display: contents;
     }
 
     .context-menu {
-      position: fixed;
       min-width: 208px;
       max-width: min(280px, calc(100vw - 16px));
       max-height: calc(100vh - 16px);
@@ -83,8 +87,6 @@ export interface ContextMenuItem {
       box-shadow:
         0 18px 42px rgba(0, 0, 0, 0.46),
         inset 0 1px 0 rgba(255, 255, 255, 0.08);
-      pointer-events: all;
-      z-index: 10001;
       backdrop-filter: blur(14px);
       animation: context-menu-pop 90ms ease-out;
       transform-origin: top left;
@@ -169,16 +171,27 @@ export interface ContextMenuItem {
   `],
 })
 export class ContextMenuComponent {
-  private el = inject(ElementRef<HTMLElement>);
   private document = inject(DOCUMENT);
   private destroyRef = inject(DestroyRef);
+  @ViewChild(CdkConnectedOverlay, { static: true })
+  private overlay?: CdkConnectedOverlay;
 
   protected menuItems = signal<ContextMenuItem[]>([]);
   private menuX = signal(0);
   private menuY = signal(0);
   protected menuVisible = signal(false);
-  protected menuLeft = signal(0);
-  protected menuTop = signal(0);
+  protected menuOrigin = computed(() => ({
+    x: this.menuX(),
+    y: this.menuY(),
+  }));
+  protected readonly overlayPositions: ConnectedPosition[] = [
+    {
+      originX: 'start',
+      originY: 'top',
+      overlayX: 'start',
+      overlayY: 'top',
+    },
+  ];
   @Output() closed = new EventEmitter<void>();
 
   @Input() set items(value: ContextMenuItem[] | null | undefined) {
@@ -202,20 +215,6 @@ export class ContextMenuComponent {
     this.destroyRef.onDestroy(() => {
       this.document.removeEventListener('pointerdown', this.onDocumentPointerDown, true);
     });
-
-    effect(() => {
-      const visible = this.menuVisible();
-      const x = this.menuX();
-      const y = this.menuY();
-
-      if (!visible) {
-        return;
-      }
-
-      this.menuLeft.set(x);
-      this.menuTop.set(y);
-      this.scheduleReposition();
-    });
   }
 
   onItemClick(item: ContextMenuItem): void {
@@ -227,8 +226,8 @@ export class ContextMenuComponent {
 
   private readonly onDocumentPointerDown = (event: PointerEvent): void => {
     if (this.menuVisible()) {
-      const menuEl = this.el.nativeElement.querySelector('.context-menu');
-      if (menuEl && !menuEl.contains(event.target as Node)) {
+      const overlayElement = this.overlay?.overlayRef.overlayElement;
+      if (overlayElement && !overlayElement.contains(event.target as Node)) {
         this.closed.emit();
       }
     }
@@ -239,36 +238,6 @@ export class ContextMenuComponent {
     if (this.menuVisible()) {
       this.closed.emit();
     }
-  }
-
-  @HostListener('window:resize')
-  onWindowResize(): void {
-    if (this.menuVisible()) {
-      this.repositionMenu();
-    }
-  }
-
-  private repositionMenu(): void {
-    const menuEl = this.el.nativeElement.querySelector('.context-menu') as HTMLElement | null;
-    if (!menuEl || !this.menuVisible()) {
-      return;
-    }
-
-    const margin = 8;
-    const rect = menuEl.getBoundingClientRect();
-    const maxLeft = window.innerWidth - rect.width - margin;
-    const maxTop = window.innerHeight - rect.height - margin;
-    this.menuLeft.set(Math.max(margin, Math.min(this.menuX(), maxLeft)));
-    this.menuTop.set(Math.max(margin, Math.min(this.menuY(), maxTop)));
-  }
-
-  private scheduleReposition(): void {
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => this.repositionMenu());
-      return;
-    }
-
-    window.setTimeout(() => this.repositionMenu(), 0);
   }
 
   private coerceNumber(value: number | string | null | undefined): number {

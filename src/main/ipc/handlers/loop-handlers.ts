@@ -182,6 +182,16 @@ export function registerLoopHandlers(deps: {
       }
     }
     send(IPC_CHANNELS.LOOP_STATE_CHANGED, data);
+    // A loop review is a gate only while the loop is parked at a real completion
+    // decision. Creating one after a terminal state would falsely imply it can
+    // be resumed, so terminal artifacts are deliberately informational only.
+    if (
+      data.state.status === 'paused'
+      && (data.state.lastCompletionOutcome === 'unverifiable'
+        || data.state.terminalIntentPending?.kind === 'complete')
+    ) {
+      void maybeCreateDocReviewForPausedLoop(coordinator, data.loopRunId);
+    }
   });
   coordinator.on('loop:started', (data: { loopRunId: string; chatId: string }) => {
     // Kickoff-prompt persistence runs synchronously in the LOOP_START IPC
@@ -214,9 +224,6 @@ export function registerLoopHandlers(deps: {
   // LF-7 / LF-3: new terminal + hygiene events.
   coordinator.on('loop:completed-needs-review', (data: unknown) => {
     send(IPC_CHANNELS.LOOP_COMPLETED_NEEDS_REVIEW, data);
-    // Phase 3: auto-create a doc-review for the plan so James can approve it in-app.
-    // Best-effort and fully isolated — never let this affect loop control flow.
-    void maybeCreateDocReviewForCompletedLoop(coordinator, data);
   });
   coordinator.on('loop:notes-curated', (data: unknown) => send(IPC_CHANNELS.LOOP_NOTES_CURATED, data));
   coordinator.on('loop:context-compacted', (data: unknown) => send(IPC_CHANNELS.LOOP_CONTEXT_COMPACTED, data));
@@ -612,17 +619,15 @@ function isTerminalLoopStatus(status: LoopState['status']): boolean {
 }
 
 /**
- * Phase 3: when a loop terminates in `completed-needs-review` and has a plan file, render
- * the plan into a review artifact and create a pending doc-review so James can approve it
- * in-app. Best-effort and fully guarded — a failure here must never affect the loop.
+ * Create the review while a loop is paused at its completion gate. Best effort only: a
+ * rendering failure never changes loop control flow. The stored origin lets the delivery
+ * coordinator invoke accept/intervene/resume under the loop's actual state contract.
  */
-async function maybeCreateDocReviewForCompletedLoop(
+async function maybeCreateDocReviewForPausedLoop(
   coordinator: ReturnType<typeof getLoopCoordinator>,
-  data: unknown,
+  loopRunId: string,
 ): Promise<void> {
   try {
-    const loopRunId = (data as { loopRunId?: unknown })?.loopRunId;
-    if (typeof loopRunId !== 'string') return;
     const loop = coordinator.getLoop(loopRunId);
     const planFile = loop?.config.planFile;
     if (!loop || !planFile) return; // nothing to review without a plan
@@ -632,20 +637,21 @@ async function maybeCreateDocReviewForCompletedLoop(
     const service = getDocReviewService();
     const alreadyPending = service
       .listSessions('pending')
-      .some((s) => s.instanceId === chatId && s.sourcePath === planFile);
+      .some((s) => s.origin?.kind === 'loop' && s.origin.loopRunId === loopRunId);
     if (alreadyPending) return;
 
     await service.createReviewFromPlan({
       instanceId: chatId,
+      origin: { kind: 'loop', loopRunId, chatId },
       workspacePath: loop.config.workspaceCwd,
       planFile,
     });
-    logger.info('Created doc-review for completed-needs-review loop', {
+    logger.info('Created doc-review for paused loop completion gate', {
       loopRunId,
       planFile,
     });
   } catch (err) {
-    logger.warn('Failed to auto-create doc-review for completed loop', {
+    logger.warn('Failed to auto-create doc-review for paused loop', {
       error: err instanceof Error ? err.message : String(err),
     });
   }

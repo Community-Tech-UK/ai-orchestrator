@@ -25,6 +25,7 @@ class FakeService extends EventEmitter {
   getSession = vi.fn((id: string) => (id === session.id ? session : undefined));
   readArtifact = vi.fn(async () => '<html>artifact</html>');
   submitDecision = vi.fn(async () => ({ ...session, status: 'approved' as const }));
+  retryDelivery = vi.fn(async () => ({ ...session, status: 'approved' as const }));
   dismiss = vi.fn();
   resolveArtifactFile = vi.fn(() => '/ws/.aio-review/plan.html');
 }
@@ -100,6 +101,12 @@ describe('registerDocReviewHandlers', () => {
     });
     expect(res.success).toBe(false);
     expect(fake.submitDecision).not.toHaveBeenCalled();
+  });
+
+  it('retries delivery for an already decided review', async () => {
+    const res = await invoke(IPC_CHANNELS.DOC_REVIEW_RETRY_DELIVERY, { reviewId: 'dr_1' });
+    expect(res.success).toBe(true);
+    expect(fake.retryDelivery).toHaveBeenCalledWith('dr_1');
   });
 
   it('opens the validated artifact externally', async () => {

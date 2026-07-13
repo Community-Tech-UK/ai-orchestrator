@@ -1,5 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
-import type { MobileModelDto } from '../core/models';
+import type {
+  MobileModelDto,
+  MobileReasoningEffort,
+  MobileReasoningOption,
+} from '../core/models';
 import { MobileIconComponent } from './mobile-icon.component';
 import { MobileSheetComponent } from './mobile-sheet.component';
 
@@ -36,6 +40,24 @@ interface ModelGroup {
           </span>
           @if (selected() === undefined) { <app-mobile-icon name="check" /> }
         </button>
+      }
+
+      @if (reasoningOptions().length > 0) {
+        <span class="model-section">Reasoning</span>
+        @for (option of reasoningOptions(); track option.id) {
+          <button
+            class="model-row"
+            type="button"
+            [class.model-row--selected]="reasoningSelected(option)"
+            (click)="chooseReasoning.emit(option.id === 'default' ? undefined : option.id)"
+          >
+            <span>
+              <strong>{{ option.label }} @if (option.isDefault) { <small class="model-default-badge">Default</small> }</strong>
+              <small>{{ option.description }}</small>
+            </span>
+            @if (reasoningSelected(option)) { <app-mobile-icon name="check" /> }
+          </button>
+        }
       }
 
       @if (loading()) {
@@ -92,6 +114,7 @@ interface ModelGroup {
       .model-row > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
       .model-row strong { overflow: hidden; font-size: 0.95rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
       .model-row small { overflow: hidden; color: var(--text-secondary); font-size: var(--font-size-sm); text-overflow: ellipsis; white-space: nowrap; }
+      .model-default-badge { margin-left: var(--space-2); color: var(--accent-action); font-size: var(--font-size-xs); font-weight: 600; text-transform: uppercase; }
       .model-row > app-mobile-icon { justify-self: end; color: var(--text); font-size: 1.1rem; }
       .model-fold { display: flex; width: 100%; min-height: var(--control-size); align-items: center; justify-content: space-between; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text); padding: 0 var(--space-3); font-size: 0.95rem; }
       .model-fold app-mobile-icon { color: var(--text-secondary); transition: transform var(--motion-press) ease-out; }
@@ -104,14 +127,23 @@ export class ModelSheetComponent {
   readonly provider = input('');
   readonly models = input<MobileModelDto[]>([]);
   readonly selected = input<string | undefined>(undefined);
+  readonly reasoningOptions = input<MobileReasoningOption[]>([]);
+  readonly selectedReasoning = input<MobileReasoningEffort | undefined>(undefined);
   readonly includeDefault = input(true);
   readonly loading = input(false);
   readonly error = input<string | null>(null);
 
   readonly choose = output<string | undefined>();
+  readonly chooseReasoning = output<MobileReasoningEffort | undefined>();
   readonly dismiss = output<void>();
 
   protected readonly otherOpen = signal(false);
+
+  protected reasoningSelected(option: MobileReasoningOption): boolean {
+    return option.id === 'default'
+      ? this.selectedReasoning() === undefined
+      : this.selectedReasoning() === option.id;
+  }
   private readonly visibleModels = computed(() =>
     this.includeDefault() ? this.models().filter((model) => model.id !== 'auto') : this.models(),
   );

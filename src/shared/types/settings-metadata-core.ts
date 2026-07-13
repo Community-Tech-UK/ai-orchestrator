@@ -162,6 +162,13 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'orchestration',
   },
   {
+    key: 'docReviewResumeOnSubmit',
+    label: 'Resume sessions when document reviews are submitted',
+    description: 'Wake a hibernated session or revive its archived continuity record so it receives your review decision. The decision is saved even when this is off.',
+    type: 'boolean',
+    category: 'orchestration',
+  },
+  {
     key: 'reactionsEnabled',
     label: 'Event-driven reactions (global master switch)',
     description: 'On by default. The engine is willing to react, but only instances you individually arm will auto-react to CI failures, review requests, and merge conflicts (by sending a fix prompt). Turning this off is a global kill switch. Arming is still per-instance and off by default, so default-on never auto-prompts an instance you did not arm.',
