@@ -93,9 +93,11 @@ import {
 import type {
   ProviderName,
   ProviderRuntimeEvent,
+  ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { resolveProviderName, resolveRuntimeEventTurnId } from './provider-runtime-helpers';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
+import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
@@ -570,7 +572,7 @@ export class InstanceManager extends EventEmitter {
     this.state.on('batch-update', (payload) => this.emit('instance:batch-update', payload));
 
     // Communication events
-    this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message));
+    this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message, payload.raw));
     this.communication.on('input-required', (payload) => {
       logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
       void this.handleInputRequired(payload);
@@ -1046,9 +1048,18 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
-  private publishOutput(instanceId: string, message: OutputMessage): void {
+  private publishOutput(
+    instanceId: string,
+    message: OutputMessage,
+    raw?: ProviderRuntimeEventEnvelope['raw'],
+  ): void {
     this.settledTracker.recordActivity(instanceId, message.timestamp);
-    this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message));
+    this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message), {
+      raw: raw ?? {
+        source: 'instance-output',
+        payload: toJsonSafeProviderEventPayload(message),
+      },
+    });
   }
 
   private queueInitialPromptForRenderer(payload: {
@@ -1091,6 +1102,7 @@ export class InstanceManager extends EventEmitter {
       provider?: ProviderName;
       sessionId?: string;
       timestamp?: number;
+      raw?: ProviderRuntimeEventEnvelope['raw'];
     },
   ): void {
     const instance = this.state.getInstance(instanceId);
@@ -1106,6 +1118,7 @@ export class InstanceManager extends EventEmitter {
       sessionId: options?.sessionId ?? instance?.providerSessionId ?? instance?.sessionId,
       adapterGeneration: instance?.adapterGeneration,
       turnId: resolveRuntimeEventTurnId(event, instance),
+      raw: options?.raw,
       event,
     };
 

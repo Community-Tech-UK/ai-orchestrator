@@ -31,6 +31,7 @@ describe('conversation ledger schema', () => {
     expect(tables).toContain('conversation_messages');
     expect(tables).toContain('conversation_sync_cursors');
     expect(tables).toContain('conversation_memory_links');
+    expect(tables).toContain('provider_event_captures');
     expect(tables).toContain('conversation_ledger_migrations');
   });
 

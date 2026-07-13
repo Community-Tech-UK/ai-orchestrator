@@ -188,6 +188,58 @@ describe('InstanceCommunicationManager', () => {
     expect(queueUpdate).not.toHaveBeenCalled();
   });
 
+  it('attaches the original adapter payload when emitting a canonical runtime event', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const message = createMessage('assistant', 'captured answer', {
+      metadata: { nativeMessageId: 'native-1' },
+    });
+
+    const output = vi.fn();
+    manager.on('output', output);
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', message);
+    await flushOutputHandlers();
+
+    expect(output).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: instance.id,
+      message: expect.objectContaining({ type: 'assistant', content: 'captured answer' }),
+      raw: {
+        source: 'adapter-event:output',
+        payload: expect.objectContaining({
+          id: message.id,
+          content: 'captured answer',
+          metadata: { nativeMessageId: 'native-1' },
+        }),
+      },
+    }));
+  });
+
+  it('preserves a JSON-safe raw context payload alongside the canonical event', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 80,
+      total: 100,
+      percentage: 80,
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      expect.objectContaining({ kind: 'context', used: 80 }),
+      expect.objectContaining({
+        raw: {
+          source: 'adapter-event:context',
+          payload: expect.objectContaining({
+            used: 80,
+          }),
+        },
+      }),
+    );
+  });
+
   it('still marks persistent adapters as terminated on exit', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
@@ -346,7 +398,12 @@ describe('InstanceCommunicationManager', () => {
       outputTokens: 20,
       source: 'provider-usage',
       promptWeight: 0.75,
-    }, undefined);
+    }, expect.objectContaining({
+      raw: {
+        source: 'adapter-event:context',
+        payload: expect.objectContaining({ used: 80, total: 100, percentage: 80 }),
+      },
+    }));
   });
 
   describe('cost recording on turn completion', () => {
@@ -527,7 +584,9 @@ describe('InstanceCommunicationManager', () => {
       stopReason: 'end_turn',
       rateLimit: { remaining: 9, resetAt: 1_717_000_060_000 },
       quota: { exhausted: false, message: 'ok' },
-    }, undefined);
+    }, expect.objectContaining({
+      raw: expect.objectContaining({ source: 'adapter-event:complete' }),
+    }));
   });
 
   it('propagates the A3 degradedReason tag onto the complete runtime event', () => {
@@ -545,7 +604,7 @@ describe('InstanceCommunicationManager', () => {
     expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
       instance.id,
       { kind: 'complete', degradedReason: 'delayed' },
-      undefined,
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:complete' }) }),
     );
   });
 
@@ -563,7 +622,7 @@ describe('InstanceCommunicationManager', () => {
     expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
       instance.id,
       { kind: 'complete' },
-      undefined,
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:complete' }) }),
     );
   });
 
@@ -588,7 +647,9 @@ describe('InstanceCommunicationManager', () => {
       stopReason: 'rate_limit',
       rateLimit: { remaining: 0, resetAt: 1_717_000_060_000 },
       quota: { exhausted: true, message: 'quota exhausted' },
-    }, undefined);
+    }, expect.objectContaining({
+      raw: expect.objectContaining({ source: 'adapter-event:error' }),
+    }));
   });
 
   it.each([

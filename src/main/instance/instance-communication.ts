@@ -40,7 +40,9 @@ import { getTodoManager } from '../tasks/todo-manager';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
+  ProviderRuntimeEventRaw,
 } from '@contracts/types/provider-runtime-events';
+import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import type { CommunicationDependencies } from './instance-communication.types';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
@@ -1076,6 +1078,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         provider?: ProviderName;
         sessionId?: string;
         timestamp?: number;
+        raw?: ProviderRuntimeEventRaw;
       },
     ): void => {
       this.deps.emitProviderRuntimeEvent?.(instanceId, event, options);
@@ -1085,6 +1088,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('output')) {
         return;
       }
+      // Persist provenance before instance metadata is added below. The visible
+      // message needs adapter generation/turn tags; the raw capture must remain
+      // the adapter's original event for deterministic replay.
+      const rawAdapterPayload = toJsonSafeProviderEventPayload(message);
 
       // Skip user messages echoed back by the CLI — we add them explicitly
       // in InstanceManager.sendInput() and InstanceLifecycle.createInstance().
@@ -1436,7 +1443,14 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
 
         this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
-        this.emit('output', { instanceId, message });
+        this.emit('output', {
+          instanceId,
+          message,
+          raw: {
+            source: 'adapter-event:output',
+            payload: rawAdapterPayload,
+          },
+        });
 
         // Check for orchestration commands in assistant output
         if (message.type === 'assistant' && message.content) {
@@ -1462,7 +1476,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         });
       }
 
-      emitProviderRuntimeEvent({ kind: 'status', status: normalizedStatus });
+      emitProviderRuntimeEvent(
+        { kind: 'status', status: normalizedStatus },
+        { raw: { source: 'adapter-event:status', payload: toJsonSafeProviderEventPayload(status) } },
+      );
 
       const instance = this.deps.getInstance(instanceId);
       if (instance && instance.status === normalizedStatus) {
@@ -1562,16 +1579,19 @@ export class InstanceCommunicationManager extends EventEmitter {
         });
         return;
       }
-      emitProviderRuntimeEvent({
-        kind: 'context',
-        used: usage.used,
-        total: usage.total,
-        percentage: usage.percentage,
-        ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
-        ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
-        ...(usage.source !== undefined ? { source: usage.source } : {}),
-        ...(usage.promptWeight !== undefined ? { promptWeight: usage.promptWeight } : {}),
-      });
+      emitProviderRuntimeEvent(
+        {
+          kind: 'context',
+          used: usage.used,
+          total: usage.total,
+          percentage: usage.percentage,
+          ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+          ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+          ...(usage.source !== undefined ? { source: usage.source } : {}),
+          ...(usage.promptWeight !== undefined ? { promptWeight: usage.promptWeight } : {}),
+        },
+        { raw: { source: 'adapter-event:context', payload: toJsonSafeProviderEventPayload(usage) } },
+      );
 
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
@@ -1651,7 +1671,9 @@ export class InstanceCommunicationManager extends EventEmitter {
           contentLength: response.content?.length ?? 0,
         });
       }
-      emitProviderRuntimeEvent(this.toProviderCompleteEvent(response));
+      emitProviderRuntimeEvent(this.toProviderCompleteEvent(response), {
+        raw: { source: 'adapter-event:complete', payload: toJsonSafeProviderEventPayload(response) },
+      });
       const completedInstance = this.deps.getInstance(instanceId);
       if (completedInstance) {
         this.recordCompletionCost(instanceId, completedInstance, response);
@@ -1752,12 +1774,15 @@ export class InstanceCommunicationManager extends EventEmitter {
       const recoverableStatelessExecError = isRecoverableStatelessExecTurnError(adapter, error);
       const recoverableAcpPromptTurnError = isRecoverableAcpPromptTurnError(errorMessage);
       const recoverableTurnError = recoverableStatelessExecError || recoverableAcpPromptTurnError;
-      emitProviderRuntimeEvent({
-        kind: 'error',
-        message: errorMessage,
-        recoverable: recoverableTurnError,
-        ...extractProviderErrorDiagnostics(error),
-      });
+      emitProviderRuntimeEvent(
+        {
+          kind: 'error',
+          message: errorMessage,
+          recoverable: recoverableTurnError,
+          ...extractProviderErrorDiagnostics(error),
+        },
+        { raw: { source: 'adapter-event:error', payload: toJsonSafeProviderEventPayload(error) } },
+      );
       const instance = this.deps.getInstance(instanceId);
       logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
 
@@ -2040,7 +2065,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('exit')) {
         return;
       }
-      emitProviderRuntimeEvent({ kind: 'exit', code, signal });
+      emitProviderRuntimeEvent(
+        { kind: 'exit', code, signal },
+        { raw: { source: 'adapter-event:exit', payload: { code, signal } } },
+      );
       logger.info('Adapter exit event', { instanceId, code, signal });
 
       const instance = this.deps.getInstance(instanceId);

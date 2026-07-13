@@ -223,4 +223,17 @@ describe('ProviderRuntimeEventBus', () => {
       event: { kind: 'output' },
     });
   });
+
+  it('preserves an optional raw payload through delayed context coalescing', () => {
+    const pending = makePending('context', 'inst-1', { used: 42 });
+    pending.raw = {
+      source: 'adapter-event:context',
+      payload: { used: 42, total: 200_000 },
+    };
+
+    bus.enqueue(pending);
+    vi.advanceTimersByTime(101);
+
+    expect(emitted[0]?.raw).toEqual(pending.raw);
+  });
 });

@@ -26,6 +26,11 @@ import {
   type LedgerStorePort,
 } from './ledger-store-port';
 import { ConversationLedgerWorkerClient } from './conversation-ledger-worker-client';
+import type {
+  ProviderEventCaptureInput,
+  ProviderEventCaptureQuery,
+  ProviderEventCaptureRecord,
+} from './provider-event-capture.types';
 import { getNativeConversationRegistry, NativeConversationRegistry } from './native-conversation-registry';
 import type { NativeConversationAdapter } from './native-conversation-adapter';
 import { CodexNativeConversationAdapter } from './codex/codex-native-conversation-adapter';
@@ -473,6 +478,22 @@ export class ConversationLedgerService {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
     }
     return records;
+  }
+
+  /** Persist a batch of raw-backed canonical provider events off the main thread. */
+  async appendProviderEventCaptures(captures: ProviderEventCaptureInput[]): Promise<void> {
+    if (captures.length === 0) return;
+    await this.port.appendProviderEventCaptures(captures);
+  }
+
+  async listProviderEventCaptures(
+    query: ProviderEventCaptureQuery,
+  ): Promise<ProviderEventCaptureRecord[]> {
+    return this.port.listProviderEventCaptures(query);
+  }
+
+  async pruneProviderEventCapturesBefore(before: number): Promise<number> {
+    return this.port.pruneProviderEventCapturesBefore(before);
   }
 
   async close(): Promise<void> {

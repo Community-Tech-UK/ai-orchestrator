@@ -1,0 +1,3 @@
+{"name":"status","args":["working"]}
+{"name":"tool_use","args":[{"id":"claude-tool-1","name":"Bash","arguments":{"command":"git status --short"}}]}
+{"name":"tool_result","args":[{"id":"claude-tool-1","name":"Bash","arguments":{"command":"git status --short"},"result":" M src/main/example.ts"}]}

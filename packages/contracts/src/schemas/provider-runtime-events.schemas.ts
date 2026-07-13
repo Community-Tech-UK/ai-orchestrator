@@ -168,5 +168,9 @@ export const ProviderRuntimeEventEnvelopeSchema = z.object({
   model: RequiredModelIdSchema.optional(),
   adapterGeneration: z.number().int().nonnegative().optional(),
   turnId: z.string().optional(),
+  raw: z.object({
+    source: z.string().min(1).max(100),
+    payload: z.unknown(),
+  }).optional(),
   event: ProviderRuntimeEventSchema,
 });

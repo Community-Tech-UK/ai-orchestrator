@@ -153,6 +153,10 @@ describe('BaseProvider adapter bridge', () => {
     await new Promise(r => setImmediate(r));
 
     expect(events[0]?.event).toEqual({ kind: 'status', status: 'busy' });
+    expect(events[0]?.raw).toEqual({
+      source: 'adapter-event:status',
+      payload: 'busy',
+    });
   });
 
   it('allows providers to handle specific normalized events before dispatch', async () => {

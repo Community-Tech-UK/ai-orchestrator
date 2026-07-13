@@ -21,6 +21,8 @@ import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { initializeArtifactCleanupMaintenance } from '../session/artifact-cleanup-maintenance';
+import { getProviderEventCaptureService } from '../conversation-ledger/provider-event-capture-service';
+import { initializeProviderEventCaptureMaintenance } from '../conversation-ledger/provider-event-capture-maintenance';
 import { registerBuiltinTerminationGates } from '../session/builtin-termination-gates';
 import { initLastStopSnapshot } from '../session/last-stop-snapshot';
 import { registerCompactionSummaryRenderer } from '../display-items/compaction-summary-renderer';
@@ -124,6 +126,19 @@ export function createInitializationSteps(
           getConversationLedgerService();
         } catch (error) {
           logger.warn('Conversation ledger initialization failed; IPC handlers will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Provider event capture',
+      fn: () => {
+        try {
+          getProviderEventCaptureService().start(instanceManager);
+          initializeProviderEventCaptureMaintenance();
+        } catch (error) {
+          logger.warn('Provider event capture initialization failed; fixture capture is unavailable this session', {
             error: error instanceof Error ? error.message : String(error),
           });
         }

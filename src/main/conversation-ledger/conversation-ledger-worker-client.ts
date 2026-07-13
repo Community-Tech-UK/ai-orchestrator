@@ -36,6 +36,11 @@ import type {
 } from '../../shared/types/conversation-ledger.types';
 import type { AppendMessageInput, LedgerStoreMethod, LedgerStorePort } from './ledger-store-port';
 import type {
+  ProviderEventCaptureInput,
+  ProviderEventCaptureQuery,
+  ProviderEventCaptureRecord,
+} from './provider-event-capture.types';
+import type {
   LedgerWorkerInboundMsg,
   LedgerWorkerOutboundMsg,
 } from './conversation-ledger-worker-protocol';
@@ -202,6 +207,20 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
     return (await this.call('getLatestCheckpoint', [threadId])) as
       | ConversationCheckpointRecord
       | null;
+  }
+
+  async appendProviderEventCaptures(captures: ProviderEventCaptureInput[]): Promise<void> {
+    await this.call('appendProviderEventCaptures', [captures]);
+  }
+
+  async listProviderEventCaptures(
+    query: ProviderEventCaptureQuery,
+  ): Promise<ProviderEventCaptureRecord[]> {
+    return (await this.call('listProviderEventCaptures', [query])) as ProviderEventCaptureRecord[];
+  }
+
+  async pruneProviderEventCapturesBefore(before: number): Promise<number> {
+    return (await this.call('pruneProviderEventCapturesBefore', [before])) as number;
   }
 
   async close(): Promise<void> {

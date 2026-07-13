@@ -7,7 +7,11 @@ import type {
   SessionDiffStats,
 } from '../../shared/types/instance.types';
 import type { ErrorInfo } from '../../shared/types/ipc.types';
-import type { ProviderName, ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
+import type {
+  ProviderName,
+  ProviderRuntimeEvent,
+  ProviderRuntimeEventRaw,
+} from '@contracts/types/provider-runtime-events';
 import type { TokenBudgetTracker } from '../context/token-budget-tracker.js';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { SessionDiffTracker } from './session-diff-tracker';
@@ -94,6 +98,7 @@ export interface CommunicationDependencies {
       provider?: ProviderName;
       sessionId?: string;
       timestamp?: number;
+      raw?: ProviderRuntimeEventRaw;
     },
   ) => void;
 }

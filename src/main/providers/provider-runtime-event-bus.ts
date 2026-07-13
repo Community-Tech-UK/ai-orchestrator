@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   ProviderName,
   ProviderEventKind,
+  ProviderRuntimeEventRaw,
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
@@ -63,6 +64,7 @@ export interface PendingEnvelope {
   sessionId?: string;
   adapterGeneration?: number;
   turnId?: string;
+  raw?: ProviderRuntimeEventRaw;
   event: ProviderRuntimeEvent;
 }
 
@@ -166,6 +168,7 @@ export class ProviderRuntimeEventBus {
       sessionId: pending.sessionId,
       adapterGeneration: pending.adapterGeneration,
       turnId: pending.turnId,
+      ...(pending.raw ? { raw: pending.raw } : {}),
       event: pending.event,
     };
     this.emitted++;

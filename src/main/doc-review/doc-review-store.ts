@@ -106,7 +106,10 @@ export class DocReviewStore implements DocReviewStorePort {
 
   private openLegacyStore(): LegacyReviewStore | null {
     try {
-      return new ElectronStore<{ sessions: unknown }>({ name: 'doc-reviews' });
+      const store = new ElectronStore<{ sessions: unknown }>({ name: 'doc-reviews' });
+      const get = Reflect.get(store, 'get');
+      if (typeof get !== 'function') return null;
+      return { get: (key) => Reflect.apply(get, store, [key]) };
     } catch {
       return null;
     }

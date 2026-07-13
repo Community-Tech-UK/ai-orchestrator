@@ -532,14 +532,21 @@ describe('InstanceManager provider:normalized-event emission', () => {
     (emitProviderRuntimeEvent as (
       instanceId: string,
       event: ProviderRuntimeEventEnvelope['event'],
-      options?: { provider?: ProviderRuntimeEventEnvelope['provider'] },
-    ) => void)('inst-1', envelope.event, { provider: 'claude' });
+      options?: {
+        provider?: ProviderRuntimeEventEnvelope['provider'];
+        raw?: ProviderRuntimeEventEnvelope['raw'];
+      },
+    ) => void)('inst-1', envelope.event, {
+      provider: 'claude',
+      raw: { source: 'adapter-event:output', payload: { nativeType: 'assistant' } },
+    });
 
     expect(received).toHaveLength(1);
     expect(received[0]).toMatchObject({
       provider: 'claude',
       instanceId: 'inst-1',
       event: envelope.event,
+      raw: { source: 'adapter-event:output', payload: { nativeType: 'assistant' } },
       seq: 0,
     });
   });
