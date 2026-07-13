@@ -9,7 +9,6 @@ const template = readFileSync(TEMPLATE_PATH, 'utf8');
 interface EmbeddedArtifact {
   dom: JSDOM;
   messages: unknown[];
-  parent: { postMessage(message: unknown): void };
 }
 
 function renderEmbeddedArtifact(content: string): EmbeddedArtifact {
@@ -27,7 +26,30 @@ function renderEmbeddedArtifact(content: string): EmbeddedArtifact {
       Object.defineProperty(window, 'parent', { configurable: true, value: parent });
     },
   });
-  return { dom, messages, parent };
+  return { dom, messages };
+}
+
+function renderStandaloneArtifact(content: string): { dom: JSDOM; copied: string[] } {
+  const copied: string[] = [];
+  const html = template
+    .replace(/\{\{TITLE\}\}/g, 'Choice test')
+    .replace(/\{\{SOURCE\}\}/g, '')
+    .replace(/\{\{REVIEW_ID\}\}/g, 'choice-test')
+    .replace(/\{\{GENERATED_AT\}\}/g, '2026-07-13')
+    .replace('{{CONTENT}}', content);
+  const dom = new JSDOM(html, {
+    runScripts: 'dangerously',
+    beforeParse(window) {
+      Object.defineProperty(window.navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: (text: string): Promise<void> => {
+          copied.push(text);
+          return Promise.resolve();
+        } },
+      });
+    },
+  });
+  return { dom, copied };
 }
 
 function click(element: Element): void {
@@ -95,10 +117,20 @@ describe('doc-review artifact choice runtime', () => {
     expect(messagesOfType(messages, 'aio-review/choice').at(-1)).toMatchObject({
       itemId: 'scope', choice: null, choices: ['a', 'b'],
     });
+
+    const init = new dom.window.MessageEvent('message', {
+      source: dom.window.parent,
+      data: {
+        type: 'aio-review/init',
+        comments: [{ itemId: 'scope', decision: 'approve', comment: '', choice: null, choices: ['b'] }],
+      },
+    });
+    dom.window.dispatchEvent(init);
+    expect(checkboxes.map((checkbox) => checkbox.checked)).toEqual([false, true]);
   });
 
   it('keeps Reject authoritative and restores stored choice state through the embedded bridge', () => {
-    const { dom, messages, parent } = renderEmbeddedArtifact(`
+    const { dom, messages } = renderEmbeddedArtifact(`
       <section data-review-item="strategy" data-review-title="Strategy">
         <ul data-review-options data-multi="false">
           <li data-option="a">Loop only</li>
@@ -117,7 +149,7 @@ describe('doc-review artifact choice runtime', () => {
     expect(messagesOfType(messages, 'aio-review/choice').at(-1)).toMatchObject({ choice: 'b' });
 
     dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
-      source: parent,
+      source: dom.window.parent,
       data: {
         type: 'aio-review/init',
         comments: [{ itemId: 'strategy', decision: 'approve', comment: 'restored', choice: 'a', choices: [] }],
@@ -136,5 +168,27 @@ describe('doc-review artifact choice runtime', () => {
     `);
 
     expect(dom.window.document.querySelector('section')?.innerHTML).toMatchInlineSnapshot(`"<p>Existing review text.</p><div class="rv-item-controls"><div class="rv-toggle"><button data-choice="approve" type="button" aria-pressed="false">Approve</button><button data-choice="reject" type="button" aria-pressed="false">Reject</button></div><textarea class="rv-comment" rows="1" placeholder="Comment (optional)"></textarea></div>"`);
+  });
+
+  it('includes a selected standalone choice in the canonical Markdown feedback', () => {
+    const { dom, copied } = renderStandaloneArtifact(`
+      <section data-review-item="strategy" data-review-title="Strategy">
+        <ul data-review-options data-multi="false">
+          <li data-option="a">Loop only</li>
+          <li data-option="b">Loop and chat</li>
+        </ul>
+      </section>
+    `);
+    const { document } = dom.window;
+
+    click(document.querySelector('input[value="b"]')!);
+    click(document.querySelector('.rv-primary')!);
+
+    expect(copied).toEqual([[
+      '## Document review feedback — Choice test (review choice-test)',
+      'Overall: APPROVED',
+      '1. [Strategy] approve — choice: b',
+      '',
+    ].join('\n')]);
   });
 });
