@@ -45,6 +45,8 @@ describe('InstanceDetailComponent history preview restore send', () => {
   };
   let instanceStore: {
     selectedInstance: ReturnType<typeof signal<Instance | null>>;
+    selectedInstanceIdentity: ReturnType<typeof signal<string | null>>;
+    selectedInstanceSessionId: ReturnType<typeof signal<string | null>>;
     selectedInstanceActivity: ReturnType<typeof signal<null>>;
     getSelectedInstanceBusySince: ReturnType<typeof vi.fn>;
     getInstance: ReturnType<typeof vi.fn>;
@@ -73,6 +75,8 @@ describe('InstanceDetailComponent history preview restore send', () => {
     };
     instanceStore = {
       selectedInstance: signal<Instance | null>(null),
+      selectedInstanceIdentity: signal<string | null>(null),
+      selectedInstanceSessionId: signal<string | null>(null),
       selectedInstanceActivity: signal(null),
       getSelectedInstanceBusySince: vi.fn(() => null),
       getInstance: vi.fn(() => createInstance()),

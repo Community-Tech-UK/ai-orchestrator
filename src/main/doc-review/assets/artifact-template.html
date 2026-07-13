@@ -130,6 +130,11 @@
     min-height: 34px;
   }
   .rv-comment:focus, .rv-toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  [data-review-options] { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 7px; }
+  .rv-option { display: flex; align-items: baseline; gap: 8px; cursor: pointer; }
+  .rv-option input { accent-color: var(--accent); }
+  .rv-option-default { color: var(--muted); font-size: 12px; }
+  .rv-option:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
   /* Standalone verdict bar */
   .rv-bar {
@@ -224,11 +229,23 @@
       decisionId: node.getAttribute("data-decision-id") || null,
       node: node,
       decision: null, // 'approve' | 'reject' | null
-      comment: ""
+      comment: "",
+      optionList: node.querySelector("[data-review-options]"),
+      options: [],
+      multi: false,
+      choice: null,
+      choices: []
     };
   });
   var byId = {};
   items.forEach(function (it) { byId[it.id] = it; });
+  items.forEach(function (it) {
+    if (!it.optionList) return;
+    it.multi = it.optionList.getAttribute("data-multi") === "true";
+    it.options = Array.prototype.slice.call(it.optionList.querySelectorAll("li[data-option]")).map(function (node) {
+      return { id: node.getAttribute("data-option"), label: node.textContent || "", isDefault: node.getAttribute("data-option-default") === "true", node: node };
+    }).filter(function (option) { return !!option.id; });
+  });
   var overall = null; // 'approved' | 'changes_requested' | 'rejected'
   var general = "";
 
@@ -277,6 +294,45 @@
     wrap.appendChild(toggle);
     wrap.appendChild(comment);
     it.node.appendChild(wrap);
+    renderChoiceControls(it);
+  }
+
+  function renderChoiceControls(it) {
+    if (!it.optionList || !it.options.length) return;
+    it.options.forEach(function (option) {
+      var input = el("input");
+      input.type = it.multi ? "checkbox" : "radio";
+      input.name = "rv-option-" + it.id;
+      input.value = option.id;
+      input.checked = it.multi ? it.choices.indexOf(option.id) >= 0 : it.choice === option.id;
+      var label = el("label", "rv-option");
+      label.htmlFor = "rv-option-" + it.id + "-" + option.id;
+      input.id = label.htmlFor;
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(option.label));
+      if (option.isDefault) label.appendChild(el("span", "rv-option-default", "(default)"));
+      option.node.textContent = "";
+      option.node.appendChild(label);
+      input.addEventListener("click", function () {
+        if (it.multi) {
+          it.choices = it.options.filter(function (candidate) {
+            var candidateInput = candidate.node.querySelector("input");
+            return candidateInput && candidateInput.checked;
+          }).map(function (candidate) { return candidate.id; });
+        } else if (it.choice === option.id) {
+          it.choice = null;
+          input.checked = false;
+        } else {
+          it.choice = option.id;
+        }
+        if (it.decision !== "reject") {
+          it.decision = "approve";
+          syncToggle(it, it._toggleEl);
+          post("decision", { itemId: it.id, decisionId: it.decisionId, decision: it.decision });
+        }
+        post("choice", { itemId: it.id, decisionId: it.decisionId, choice: it.multi ? null : it.choice, choices: it.multi ? it.choices : [] });
+      });
+    });
   }
 
   function syncToggle(it, toggle) {
@@ -318,7 +374,9 @@
           title: it.title,
           decisionId: it.decisionId,
           decision: it.decision,
-          comment: it.comment
+          comment: it.comment,
+          choice: it.multi ? null : it.choice,
+          choices: it.multi ? it.choices : []
         };
       })
     };
@@ -347,6 +405,8 @@
       n += 1;
       var verb = it.decision === "approve" ? "approve" : (it.decision === "reject" ? "reject" : "note");
       var line = n + ". [" + flat(it.title) + "] " + verb;
+      var selected = Array.isArray(it.choices) && it.choices.length ? it.choices : (it.choice ? [it.choice] : []);
+      if (selected.length) line += " — choice: " + selected.join(", ");
       if (comment) line += " — " + comment;
       lines.push(line);
     });
@@ -461,6 +521,12 @@
         it.decision = c.decision;
         if (it._toggleEl) syncToggle(it, it._toggleEl);
       }
+      if (typeof c.choice === "string" || c.choice === null) it.choice = c.choice;
+      if (Array.isArray(c.choices)) it.choices = c.choices.filter(function (choice) { return typeof choice === "string"; });
+      it.options.forEach(function (option) {
+        var input = option.node.querySelector("input");
+        if (input) input.checked = it.multi ? it.choices.indexOf(option.id) >= 0 : it.choice === option.id;
+      });
     });
   }
 
@@ -487,7 +553,7 @@
       reviewId: REVIEW_ID,
       title: TITLE,
       source: SOURCE,
-      items: items.map(function (it) { return { id: it.id, title: it.title, decisionId: it.decisionId }; })
+      items: items.map(function (it) { return { id: it.id, title: it.title, decisionId: it.decisionId, options: it.options.map(function (option) { return { id: option.id, label: option.label, multi: it.multi, isDefault: option.isDefault }; }) }; })
     });
   } else {
     buildStandaloneBar();

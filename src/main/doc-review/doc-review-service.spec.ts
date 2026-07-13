@@ -188,6 +188,47 @@ describe('DocReviewService', () => {
     expect(sent[0].message.split('\n')).toHaveLength(5);
   });
 
+  it('preserves selected choices in the canonical feedback block', async () => {
+    const { getDocReviewService } = await loadService();
+    const service = getDocReviewService();
+    const sent: string[] = [];
+    service.setInstanceManager({
+      sendInput: async (_id, message) => {
+        sent.push(message);
+      },
+    });
+    const session = await service.createSession({
+      instanceId: 'inst-1',
+      workspacePath: workspace,
+      title: 'Choice Plan',
+      artifactPath: writeArtifact(),
+    });
+
+    await service.submitDecision(session.id, {
+      overall: 'approved',
+      decisions: [
+        {
+          itemId: 'strategy',
+          title: 'Strategy',
+          decisionId: '1',
+          decision: 'approve',
+          choice: 'b',
+        },
+        {
+          itemId: 'scope',
+          title: 'Scope',
+          decisionId: '2',
+          decision: 'approve',
+          choices: ['fast', 'safe'],
+          comment: 'Ship both',
+        },
+      ],
+    });
+
+    expect(sent[0]).toContain('1. [Strategy] approve — choice: b');
+    expect(sent[0]).toContain('2. [Scope] approve — choice: fast, safe — Ship both');
+  });
+
   it('collapses Unicode line separators in comments so they cannot forge extra numbered items', async () => {
     const { getDocReviewService } = await loadService();
     const service = getDocReviewService();

@@ -41,6 +41,20 @@ describe('doc-review artifact template', () => {
     expect(html).toContain('.decisions.json');
   });
 
+  it('supports authored choice lists and keeps the portable template runtime synchronized', () => {
+    const portableTemplate = readFileSync(
+      join(process.cwd(), '.claude', 'skills', 'doc-review-artifact', 'references', 'artifact-template.html'),
+      'utf8',
+    );
+
+    expect(html).toContain('data-review-options');
+    expect(html).toContain('data-multi');
+    expect(html).toContain('post("choice"');
+    expect(html).toContain('choice: it.multi ? null : it.choice');
+    expect(html).toContain('choices: it.multi ? it.choices : []');
+    expect(portableTemplate).toBe(html);
+  });
+
   it('makes no external requests (self-contained; only a same-origin loopback capture)', () => {
     // No absolute URLs anywhere — the artifact can never phone home to an external host.
     expect(html).not.toMatch(/https?:\/\//i);

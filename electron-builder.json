@@ -76,6 +76,7 @@
     "hardenedRuntime": true,
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist",
+    "sign": "scripts/sign-local-macos.js",
     "notarize": true,
     "extendInfo": {
       "NSLocalNetworkUsageDescription": "Harness uses your local network to discover and connect to worker nodes on other machines.",

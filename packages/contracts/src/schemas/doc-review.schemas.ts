@@ -37,6 +37,10 @@ export const DocReviewItemDecisionSchema = z
     decisionId: z.string().max(50).nullable().optional(),
     decision: DocReviewItemVerdictSchema,
     comment: z.string().max(10_000).optional(),
+    /** One selected authored option for a single-choice decision. */
+    choice: z.string().min(1).max(200).nullable().optional(),
+    /** Selected authored options for a multi-choice decision, in document order. */
+    choices: z.array(z.string().min(1).max(200)).max(100).optional(),
   })
   .strict();
 export type DocReviewItemDecision = z.infer<typeof DocReviewItemDecisionSchema>;

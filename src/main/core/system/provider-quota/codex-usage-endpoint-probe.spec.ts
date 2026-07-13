@@ -80,6 +80,24 @@ describe('CodexUsageEndpointProbe', () => {
     ]);
   });
 
+  it('treats a sole long-reset primary window as the weekly quota during the temporary 5-hour removal', () => {
+    const now = Date.UTC(2026, 6, 13, 0, 0, 0);
+    const windows = parseCodexUsagePayload({
+      rate_limit: {
+        primary_window: { used_percent: 4, reset_at: (now + 6 * 24 * 60 * 60 * 1000) / 1000 },
+        secondary_window: { used_percent: null, reset_at: null },
+      },
+    }, now);
+
+    expect(windows).toEqual([
+      expect.objectContaining({
+        id: 'codex.weekly',
+        label: 'Weekly',
+        used: 4,
+      }),
+    ]);
+  });
+
   it('returns ok=false when auth.json is absent instead of mutating refresh tokens', async () => {
     const probe = new CodexUsageEndpointProbe({ readFile: reader(null) });
     const snap = await probe.probe({ signal: new AbortController().signal });

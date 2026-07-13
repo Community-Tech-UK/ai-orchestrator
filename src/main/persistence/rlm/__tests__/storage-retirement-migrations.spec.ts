@@ -69,6 +69,27 @@ describe('storage retirement migrations', () => {
     expect(schemaObjectExists(db, 'index', 'idx_file_metadata_language')).toBe(false);
     expect(schemaObjectExists(db, 'table', 'context_sections')).toBe(true);
   });
+
+  it('recreates both retired schemas and their indexes from the migration down SQL', () => {
+    const db = defaultDriverFactory(':memory:');
+    dbs.push(db);
+    createTables(db);
+
+    for (const name of ['042_drop_search_index', '043_drop_file_metadata']) {
+      const migration = MIGRATIONS.find((candidate) => candidate.name === name);
+      if (!migration) throw new Error(`Missing migration ${name}`);
+      db.exec(migration.down);
+    }
+
+    expect(schemaObjectExists(db, 'table', 'search_index')).toBe(true);
+    expect(schemaObjectExists(db, 'index', 'idx_search_store_term')).toBe(true);
+    expect(schemaObjectExists(db, 'index', 'idx_search_section')).toBe(true);
+    expect(schemaObjectExists(db, 'table', 'file_metadata')).toBe(true);
+    expect(schemaObjectExists(db, 'index', 'idx_file_metadata_store')).toBe(true);
+    expect(schemaObjectExists(db, 'index', 'idx_file_metadata_path')).toBe(true);
+    expect(schemaObjectExists(db, 'index', 'idx_file_metadata_hash')).toBe(true);
+    expect(schemaObjectExists(db, 'index', 'idx_file_metadata_language')).toBe(true);
+  });
 });
 
 function markMigrationsBeforeRetirementApplied(db: SqliteDriver): void {

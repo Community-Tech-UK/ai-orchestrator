@@ -124,12 +124,16 @@ export class ProjectGroupComputationService {
       visibleHistoryChildren,
       context.historySortMode
     );
+    const instanceForRail = this.hasSameChildIds(instance.childrenIds, childrenIds)
+      ? instance
+      : { ...instance, childrenIds };
+
     return {
       kind: 'live',
-      instance: {
-        ...instance,
-        childrenIds,
-      },
+      // Keep the source instance reference when its child relationship did
+      // not change. The rail rebuilds from the shared state on every update;
+      // cloning every row woke every OnPush row during one session's stream.
+      instance: instanceForRail,
       railTitle: instance.displayName,
       hasChildren: immediateChildren.length > 0,
       childrenCount: immediateChildren.length,
@@ -424,6 +428,10 @@ export class ProjectGroupComputationService {
           ? 1
           : 0;
     });
+  }
+
+  private hasSameChildIds(left: readonly string[], right: readonly string[]): boolean {
+    return left.length === right.length && left.every((id, index) => id === right[index]);
   }
 
   private getRailChildSortTimestamp(

@@ -5,7 +5,10 @@ const { spawnSync } = require('child_process');
 function getElectronBuilderArgs(platform = process.platform) {
   switch (platform) {
     case 'darwin':
-      return ['--mac', '--config.mac.identity=null'];
+      return [
+        '--mac',
+        '--config.mac.notarize=false',
+      ];
     case 'win32':
       return ['--win', '--config.win.signAndEditExecutable=false'];
     case 'linux':

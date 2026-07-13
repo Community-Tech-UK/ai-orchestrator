@@ -27,6 +27,10 @@ const logger = getLogger('CodexUsageEndpointProbe');
 const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
 const USER_AGENT = 'codex-cli/usage-poller';
 const DEFAULT_TIMEOUT_MS = 10_000;
+// A genuine five-hour window cannot reset more than five hours away. Leave a
+// generous margin so a sole primary window that resets much later is treated
+// as the weekly-only quota during OpenAI's temporary 5-hour-limit removal.
+const WEEKLY_ONLY_RESET_MIN_MS = 12 * 60 * 60 * 1000;
 
 export type CodexAuthFileReader = (filePath: string) => Promise<string>;
 
@@ -146,16 +150,39 @@ export class CodexUsageEndpointProbe implements ProviderQuotaProbe {
   }
 }
 
-export function parseCodexUsagePayload(payload: CodexUsagePayload): ProviderQuotaWindow[] {
+export function parseCodexUsagePayload(
+  payload: CodexUsagePayload,
+  now = Date.now(),
+): ProviderQuotaWindow[] {
   const rateLimit = payload.rate_limit;
   if (!rateLimit || typeof rateLimit !== 'object') return [];
 
+  const primarySource = rateLimit.primary_window;
+  const secondarySource = rateLimit.secondary_window;
+  const primary = percentWindow('codex.5h', '5-hour', primarySource);
+  const secondary = percentWindow('codex.weekly', 'Weekly', secondarySource);
+
+  // The endpoint normally publishes primary=5-hour and secondary=weekly. On
+  // 13 July 2026 it instead published a single primary window with a roughly
+  // seven-day reset and no usable secondary window while the 5-hour cap was
+  // temporarily removed. Position alone is therefore not a stable meaning.
+  if (primary && !secondary && resetsMoreThan(primarySource, now, WEEKLY_ONLY_RESET_MIN_MS)) {
+    return [{ ...primary, id: 'codex.weekly', label: 'Weekly' }];
+  }
+
   const windows: ProviderQuotaWindow[] = [];
-  const primary = percentWindow('codex.5h', '5-hour', rateLimit.primary_window);
   if (primary) windows.push(primary);
-  const secondary = percentWindow('codex.weekly', 'Weekly', rateLimit.secondary_window);
   if (secondary) windows.push(secondary);
   return windows;
+}
+
+function resetsMoreThan(
+  source: CodexUsageWindowSource | null | undefined,
+  now: number,
+  minimumMs: number,
+): boolean {
+  const resetsAt = parseResetAt(source?.reset_at);
+  return resetsAt !== null && resetsAt - now > minimumMs;
 }
 
 function percentWindow(

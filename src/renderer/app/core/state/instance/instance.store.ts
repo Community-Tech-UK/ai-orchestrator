@@ -80,6 +80,8 @@ export class InstanceStore implements OnDestroy {
   readonly instancesMap = this.queries.instancesMap;
   readonly selectedInstanceId = this.queries.selectedInstanceId;
   readonly selectedInstance = this.queries.selectedInstance;
+  readonly selectedInstanceIdentity = this.queries.selectedInstanceIdentity;
+  readonly selectedInstanceSessionId = this.queries.selectedInstanceSessionId;
   readonly loading = this.queries.loading;
   readonly error = this.queries.error;
   readonly instanceCount = this.queries.instanceCount;

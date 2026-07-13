@@ -18,6 +18,14 @@ export interface DocReviewItemInfo {
   id: string;
   title: string;
   decisionId: string | null;
+  options: readonly DocReviewOptionInfo[];
+}
+
+export interface DocReviewOptionInfo {
+  id: string;
+  label: string;
+  multi: boolean;
+  isDefault: boolean;
 }
 
 /**
@@ -28,6 +36,8 @@ export interface DocReviewItemState {
   info: DocReviewItemInfo;
   decision: DocReviewItemVerdict;
   comment: string;
+  choice: string | null;
+  choices: string[];
 }
 
 export function toItemDecisions(
@@ -39,6 +49,8 @@ export function toItemDecisions(
     decisionId: s.info.decisionId,
     decision: s.decision,
     comment: s.comment.trim() || undefined,
+    choice: s.choice,
+    choices: s.choices,
   }));
 }
 

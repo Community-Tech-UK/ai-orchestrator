@@ -21,6 +21,7 @@
  */
 
 import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -33,6 +34,9 @@ if (!artifactArg) {
 }
 const timeoutMinIdx = args.indexOf('--timeout-min');
 const timeoutMin = timeoutMinIdx >= 0 ? Number(args[timeoutMinIdx + 1]) : 30;
+const stayAlive = args.includes('--stay-alive');
+const onCaptureIdx = args.indexOf('--on-capture');
+const onCapture = onCaptureIdx >= 0 ? args[onCaptureIdx + 1] : null;
 const TIMEOUT_MS = Number.isFinite(timeoutMin) && timeoutMin > 0 ? timeoutMin * 60_000 : 30 * 60_000;
 const MAX_BODY = 1024 * 1024; // 1 MB
 
@@ -42,6 +46,23 @@ const decisionsPath = join(
   basename(artifactPath).replace(/\.html?$/i, '') + '.decisions.json',
 );
 const token = randomUUID();
+let shuttingDown = false;
+
+function closeAfterCapture() {
+  if (stayAlive || shuttingDown) return;
+  shuttingDown = true;
+  setTimeout(() => server.close(() => process.exit(0)), 750).unref();
+}
+
+function runCaptureHook() {
+  if (!onCapture) return;
+  execFile(onCapture, [decisionsPath], {
+    env: { PATH: process.env.PATH || '' },
+    timeout: 60_000,
+  }, (error) => {
+    if (error) process.stderr.write(`Doc-review capture hook failed: ${String(error)}\n`);
+  });
+}
 
 let artifactHtml;
 try {
@@ -78,10 +99,14 @@ function renderBlock(payload) {
   let n = 0;
   for (const item of Array.isArray(payload.items) ? payload.items : []) {
     const comment = flat(item && item.comment);
-    if (!item || (!item.decision && !comment)) continue;
+    const selected = item && Array.isArray(item.choices) && item.choices.length
+      ? item.choices
+      : item && item.choice ? [item.choice] : [];
+    if (!item || (!item.decision && !comment && !selected.length)) continue;
     n += 1;
     const verb = item.decision === 'approve' ? 'approve' : item.decision === 'reject' ? 'reject' : 'note';
     let line = `${n}. [${flat(item.title) || flat(item.id)}] ${verb}`;
+    if (selected.length) line += ` — choice: ${selected.map(flat).join(', ')}`;
     if (comment) line += ` — ${comment}`;
     lines.push(line);
   }
@@ -147,7 +172,8 @@ const server = createServer((req, res) => {
       }
       process.stdout.write(`\n${renderBlock(payload)}\n`);
       process.stdout.write(`AIO_REVIEW_CAPTURED ${decisionsPath}\n`);
-      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true }));
+      runCaptureHook();
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true }), closeAfterCapture);
     });
     return;
   }

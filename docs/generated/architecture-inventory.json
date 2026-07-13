@@ -5602,7 +5602,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1548
+      "lines": 1555
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
@@ -5763,6 +5763,10 @@
     {
       "path": "docs/superpowers/plans/2026-03-11-f11-scale-operations.md",
       "lines": 1253
+    },
+    {
+      "path": "docs/fable_todo_completed.md",
+      "lines": 1246
     },
     {
       "path": "docs/plans/2026-05-12-loop-terminal-control-spec_completed.md",

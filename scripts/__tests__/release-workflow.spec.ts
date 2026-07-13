@@ -43,6 +43,9 @@ describe("Harness release workflow", () => {
     expect(workflowText.match(/npm ci --legacy-peer-deps/g)).toHaveLength(3);
     expect(workflowText).toContain("--config.forceCodeSigning=true");
     expect(workflowText).toContain("codesign --verify --deep --strict");
+    expect(workflowText).toContain(
+      'node scripts/verify-macos-helper-identity.js "$app_path"',
+    );
     expect(workflowText).toContain('xcrun stapler validate "$app_path"');
     expect(workflowText).not.toContain('xcrun stapler validate "$dmg_path"');
     expect(workflowText).toContain("Get-AuthenticodeSignature");
