@@ -145,6 +145,7 @@ jobs:
           test -n "$app_path"
           test -n "$dmg_path"
           codesign --verify --deep --strict --verbose=2 "$app_path"
+          node scripts/verify-macos-helper-identity.js "$app_path"
           spctl --assess --type execute --verbose=2 "$app_path"
           xcrun stapler validate "$app_path"
 

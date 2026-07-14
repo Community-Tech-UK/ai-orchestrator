@@ -3,6 +3,7 @@ export const RLM_STORAGE_HARD_LIMIT_BYTES = 12 * 1024 * 1024 * 1024;
 export const RLM_STALE_STORE_RETENTION_DAYS = 60;
 export const RLM_STALE_STORE_RETENTION_MS =
   RLM_STALE_STORE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+export const RLM_BACKUP_RETENTION_COUNT = 2;
 
 export type RlmStorageHealthLevel = 'healthy' | 'warning' | 'critical';
 export type RlmMaintenanceStage =
@@ -68,6 +69,8 @@ export interface RlmMaintenanceSuccessResult {
   externalContentSizeAfterBytes: number;
   verifiedBytesReclaimed: number;
   backupPath: string;
+  backupsPruned?: number;
+  backupBytesFreed?: number;
   externalContentCleanupFailures: number;
   loopResumed: boolean;
   databaseHealthy: boolean;

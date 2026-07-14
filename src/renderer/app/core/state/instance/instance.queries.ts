@@ -62,6 +62,21 @@ export class InstanceQueries {
     return selected;
   });
 
+  /**
+   * Stable identity for effects that are scoped to the visible instance rather
+   * than to its changing runtime snapshot. A streaming/status update replaces
+   * the instance object, but does not notify consumers of this selector unless
+   * the selected instance itself changes.
+   */
+  readonly selectedInstanceIdentity = computed(() => this.selectedInstance()?.id ?? null);
+
+  /**
+   * The provider session backing the visible instance. Kept separate from the
+   * instance identity so a fresh restart of the same renderer instance still
+   * refreshes session-scoped state exactly once.
+   */
+  readonly selectedInstanceSessionId = computed(() => this.selectedInstance()?.sessionId ?? null);
+
   /** Loading state */
   readonly loading = computed(() => this.stateService.state().loading);
 

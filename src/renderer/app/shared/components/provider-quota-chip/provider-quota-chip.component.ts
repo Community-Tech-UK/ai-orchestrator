@@ -450,6 +450,7 @@ const PROVIDER_CODES: Record<ProviderId, string> = {
 const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, string[]>> = {
   claude: ['claude.weekly'],
   codex: ['codex.weekly'],
+  antigravity: ['antigravity.gemini-5h'],
 };
 /** Fallback reauth instruction when a probe didn't supply its own. */
 const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {

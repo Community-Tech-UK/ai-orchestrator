@@ -86,6 +86,14 @@ It also passes electron-builder's `forceCodeSigning` option for macOS and
 Windows, so a present-but-invalid certificate cannot silently produce an
 unsigned stable build.
 
+`npm run localbuild` also produces a signed macOS app. The project-wide custom
+signer uses electron-builder's imported Developer ID identity for releases and,
+when no release identity was supplied, selects an installed Developer ID
+Application or Apple Development identity. Packaging fails if no real identity
+is available or if Harness and the bundled desktop helper do not end up with the
+same non-empty Team ID. This is required for macOS to attribute the helper's
+Accessibility calls to Harness consistently.
+
 ### Publishing
 
 1. Make sure the normal CI workflow is green.
@@ -104,3 +112,7 @@ For unsigned local macOS packaging, use:
 ```bash
 npm run electron:build -- --mac --dir --config.mac.identity=null --config.mac.notarize=false
 ```
+
+This unsigned command is for packaging diagnostics only. Its ad-hoc signature
+does not provide a stable TCC identity, so Computer Use Accessibility grants may
+appear enabled in System Settings while the desktop helper remains untrusted.

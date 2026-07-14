@@ -44,14 +44,17 @@ const codebaseIndexingLaneResultSchema = z.object({
 
 export interface CodebaseIndexingLaneGatewayOptions {
   runtime?: RuntimeLike;
+  userDataPath?: string;
 }
 
 export class CodebaseIndexingLaneGateway extends EventEmitter implements AutoIndexingTarget {
   private readonly runtime: RuntimeLike;
+  private readonly userDataPath?: string;
 
   constructor(options: CodebaseIndexingLaneGatewayOptions = {}) {
     super();
     this.runtime = options.runtime ?? createDefaultRuntime();
+    this.userDataPath = options.userDataPath ?? getElectronUserDataPath();
     this.runtime.on('progress', (event: { job: BackgroundJobRecord; progress: BackgroundJobProgress }) => {
       if (event.job.lane !== 'indexing' || event.job.type !== 'index-codebase') return;
       this.emit('progress', this.toIndexingProgress(event.progress, event.job));
@@ -64,7 +67,7 @@ export class CodebaseIndexingLaneGateway extends EventEmitter implements AutoInd
       type: 'index-codebase',
       priority: 'background',
       coalesceKey: job.rootPath,
-      payload: job,
+      payload: this.userDataPath ? { ...job, userDataPath: this.userDataPath } : job,
       idempotent: true,
     });
     return parseCodebaseIndexingLaneResult(result);
@@ -213,6 +216,16 @@ export function getCodebaseIndexingLaneGateway(): CodebaseIndexingLaneGateway {
     codebaseIndexingLaneGatewayInstance = new CodebaseIndexingLaneGateway();
   }
   return codebaseIndexingLaneGatewayInstance;
+}
+
+function getElectronUserDataPath(): string | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const electron = require('electron') as typeof import('electron');
+    return electron.app?.getPath?.('userData');
+  } catch {
+    return undefined;
+  }
 }
 
 export function resetCodebaseIndexingLaneGatewayForTesting(): void {

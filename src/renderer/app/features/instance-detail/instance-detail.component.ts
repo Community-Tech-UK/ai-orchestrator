@@ -276,8 +276,15 @@ export class InstanceDetailComponent {
 
   // Keep TodoStore session in sync and reset inspector state on instance change
   private instanceChangeSync = effect(() => {
-    const inst = this.instance();
-    void this.todoStore.setSession(inst?.sessionId ?? null);
+    // Do not subscribe to the full instance snapshot here. Streaming output
+    // and status events replace that object many times per second; treating
+    // each replacement as a session switch reset every inspector and retried
+    // its IPC loads, which made the active conversation visibly flicker.
+    // These primitive selectors update only for a real visible-instance or
+    // provider-session change (including a fresh restart of the same instance).
+    const instanceId = this.store.selectedInstanceIdentity();
+    const sessionId = this.store.selectedInstanceSessionId();
+    void this.todoStore.setSession(sessionId);
 
     // Reset inspector panels on instance change
     this.showTodoInspector.set(false);
@@ -294,7 +301,7 @@ export class InstanceDetailComponent {
     // gate. Guard against a stale resolve landing after a fast instance switch.
     this.showCheckpointInspector.set(false);
     this.checkpointCount.set(0);
-    const checkpointInstanceId = inst?.id;
+    const checkpointInstanceId = instanceId;
     if (checkpointInstanceId) {
       void this.historyIpc
         .listSessionSnapshots(checkpointInstanceId)
@@ -311,7 +318,7 @@ export class InstanceDetailComponent {
     // for this session so the toggle + badge reflect captured human-gated work
     // without leaking backlog from other sessions in the same workspace.
     this.showOutstandingInspector.set(false);
-    const outstandingChatId = inst?.id;
+    const outstandingChatId = instanceId;
     if (outstandingChatId) {
       void this.loopStore.loadOutstanding({ chatId: outstandingChatId, status: 'open' });
     }

@@ -174,7 +174,7 @@ export function removeSection(
     'remove'
   );
 
-  // Delete section (CASCADE deletes search_index entries)
+  // Delete section and dependent records.
   const stmt = db.prepare(`DELETE FROM context_sections WHERE id = ?`);
   stmt.run(sectionId);
 }

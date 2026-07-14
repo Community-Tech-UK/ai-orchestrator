@@ -15,6 +15,8 @@ import {
 import { toItemDecisions } from './doc-review.types';
 import type {
   DocReviewCommentMessage,
+  DocReviewArtifactInit,
+  DocReviewChoiceMessage,
   DocReviewDecisionMessage,
 } from './doc-review-viewer.component';
 import type {
@@ -101,9 +103,11 @@ import type {
             <div class="viewer">
               <app-doc-review-viewer
                 [html]="html"
+                [initialState]="artifactInit()"
                 (ready)="onReady($event)"
                 (decisionChanged)="onDecision($event)"
                 (commentChanged)="onComment($event)"
+                (choiceChanged)="onChoice($event)"
               />
             </div>
             @if (session.status === 'pending') {
@@ -180,6 +184,22 @@ export class DocReviewPageComponent {
   readonly itemStates = signal<DocReviewItemState[]>([]);
   readonly overall = signal<DocReviewOverall | null>(null);
   readonly general = signal('');
+  readonly artifactInit = computed<DocReviewArtifactInit | null>(() => {
+    const states = this.itemStates();
+    if (states.length === 0) return null;
+    const overall = this.overall();
+    return {
+      ...(overall ? { overall } : {}),
+      general: this.general(),
+      comments: states.map((state) => ({
+        itemId: state.info.id,
+        decision: state.decision,
+        comment: state.comment,
+        choice: state.choice,
+        choices: state.choices,
+      })),
+    };
+  });
 
   /** Monotonic token so a slow artifact load for a stale selection is ignored. */
   private loadToken = 0;
@@ -196,7 +216,13 @@ export class DocReviewPageComponent {
   }
 
   onReady(items: DocReviewItemInfo[]): void {
-    this.itemStates.set(items.map((info) => ({ info, decision: null, comment: '' })));
+    this.itemStates.set(items.map((info) => ({
+      info,
+      decision: null,
+      comment: '',
+      choice: null,
+      choices: [],
+    })));
   }
 
   onDecision(message: DocReviewDecisionMessage): void {
@@ -208,6 +234,14 @@ export class DocReviewPageComponent {
   onComment(message: DocReviewCommentMessage): void {
     this.itemStates.update((states) =>
       states.map((s) => (s.info.id === message.itemId ? { ...s, comment: message.comment } : s)),
+    );
+  }
+
+  onChoice(message: DocReviewChoiceMessage): void {
+    this.itemStates.update((states) =>
+      states.map((s) => (s.info.id === message.itemId
+        ? { ...s, choice: message.choice, choices: message.choices }
+        : s)),
     );
   }
 

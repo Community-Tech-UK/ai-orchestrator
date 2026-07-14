@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { isDeepStrictEqual } from 'node:util';
 import { getLogger } from '../logging/logger';
 import type {
   WorkerNodeInfo,
@@ -81,6 +82,10 @@ export class WorkerNodeRegistry extends EventEmitter {
   updateHeartbeat(nodeId: string, capabilities: WorkerNodeCapabilities): void {
     const node = this.nodes.get(nodeId);
     if (!node) return;
+    const localModelsChanged = !isDeepStrictEqual(
+      node.capabilities.localModelEndpoints,
+      capabilities.localModelEndpoints,
+    );
     const updated: WorkerNodeInfo = {
       ...node,
       capabilities: { ...capabilities },
@@ -89,6 +94,9 @@ export class WorkerNodeRegistry extends EventEmitter {
     };
     this.nodes.set(nodeId, updated);
     this.emit('node:updated', updated);
+    if (localModelsChanged) {
+      this.emit('node:local-models-changed', updated);
+    }
   }
 
   // ---------------------------------------------------------------------------

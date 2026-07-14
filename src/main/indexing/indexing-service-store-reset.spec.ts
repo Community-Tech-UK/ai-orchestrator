@@ -128,10 +128,10 @@ describe('CodebaseIndexingService store reset', () => {
     expect(mocks.contextManager.removeSection).toHaveBeenCalledWith('store-1', 'vec-old');
 
     const sql = mocks.statements.map((statement) => statement.sql.replace(/\s+/g, ' ').trim());
-    expect(sql).toContain('DELETE FROM search_index WHERE store_id = ?');
     expect(sql).toContain('DELETE FROM vectors WHERE store_id = ?');
-    expect(sql).toContain('DELETE FROM file_metadata WHERE store_id = ?');
     expect(sql).toContain('DELETE FROM codebase_trees WHERE store_id = ?');
+    expect(sql).not.toContain('DELETE FROM search_index WHERE store_id = ?');
+    expect(sql).not.toContain('DELETE FROM file_metadata WHERE store_id = ?');
     expect(sql.some((statement) => statement.includes('INSERT INTO codebase_trees'))).toBe(true);
   });
 

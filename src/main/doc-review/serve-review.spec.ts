@@ -15,6 +15,14 @@ const SERVER = join(
   'assets',
   'serve-review.mjs',
 );
+const PORTABLE_SERVER = join(
+  process.cwd(),
+  '.claude',
+  'skills',
+  'doc-review-artifact',
+  'references',
+  'serve-review.mjs',
+);
 
 const ARTIFACT_HTML =
   '<!DOCTYPE html><html><head><meta name="aio-doc-review" content="v1">' +
@@ -26,8 +34,8 @@ interface Started {
   stdout: () => string;
 }
 
-function startServer(artifactPath: string): Promise<Started> {
-  const child = spawn('node', [SERVER, artifactPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+function startServer(artifactPath: string, args: string[] = []): Promise<Started> {
+  const child = spawn('node', [SERVER, artifactPath, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', (c) => (out += c.toString()));
   child.stderr.on('data', () => { /* diagnostics only */ });
@@ -54,13 +62,18 @@ describe('serve-review.mjs capture server', () => {
     if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('serves the artifact with a capture token and captures a token-gated submission', async () => {
+  it('keeps the portable capture server synchronized with the in-app asset', () => {
+    expect(readFileSync(PORTABLE_SERVER, 'utf8')).toBe(readFileSync(SERVER, 'utf8'));
+  });
+
+  it('captures durably, responds, and exits to wake the launching agent', async () => {
     tempRoot = mkdtempSync(join(tmpdir(), 'serve-review-'));
     const artifactPath = join(tempRoot, 'plan.html');
     writeFileSync(artifactPath, ARTIFACT_HTML);
 
     const started = await startServer(artifactPath);
     running = started.child;
+    const exited = new Promise<number | null>((resolve) => started.child.once('exit', resolve));
 
     // The served page carries the injected capture meta.
     const page = await fetch(started.url);
@@ -83,7 +96,14 @@ describe('serve-review.mjs capture server', () => {
       title: 'Test Plan',
       overall: 'changes_requested',
       general: 'close',
-      items: [{ id: 'a', title: 'Phase 1', decision: 'reject', comment: 'redo\nthis' }],
+      items: [{
+        id: 'a',
+        title: 'Phase 1',
+        decision: 'reject',
+        choice: 'b',
+        choices: [],
+        comment: 'redo\nthis',
+      }],
     };
     const ok = await fetch(new URL('/decisions', started.url), {
       method: 'POST',
@@ -101,8 +121,59 @@ describe('serve-review.mjs capture server', () => {
     await new Promise((r) => setTimeout(r, 100));
     const out = started.stdout();
     expect(out).toContain('## Document review feedback — Test Plan');
-    expect(out).toContain('1. [Phase 1] reject — redo this');
+    expect(out).toContain('1. [Phase 1] reject — choice: b — redo this');
     expect(out).toContain('AIO_REVIEW_CAPTURED');
+    expect(await exited).toBe(0);
+    running = null;
+  });
+
+  it('keeps serving after capture when --stay-alive is requested', async () => {
+    tempRoot = mkdtempSync(join(tmpdir(), 'serve-review-'));
+    const artifactPath = join(tempRoot, 'plan.html');
+    writeFileSync(artifactPath, ARTIFACT_HTML);
+    const started = await startServer(artifactPath, ['--stay-alive']);
+    running = started.child;
+    const pageHtml = await (await fetch(started.url)).text();
+    const token = /name="aio-doc-review-capture" content="([^"]+)"/.exec(pageHtml)?.[1];
+
+    const response = await fetch(new URL('/decisions', started.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-aio-review-token': token! },
+      body: JSON.stringify({ items: [] }),
+    });
+
+    expect(response.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(started.child.exitCode).toBeNull();
+  });
+
+  it('runs an on-capture executable with the durable decisions path', async () => {
+    tempRoot = mkdtempSync(join(tmpdir(), 'serve-review-'));
+    const artifactPath = join(tempRoot, 'plan.html');
+    const capturedPath = join(tempRoot, 'hook-path.txt');
+    const hookPath = join(tempRoot, 'capture-hook');
+    writeFileSync(artifactPath, ARTIFACT_HTML);
+    writeFileSync(
+      hookPath,
+      `#!/bin/sh\nprintf '%s' "$1" > ${JSON.stringify(capturedPath)}\n`,
+      { mode: 0o755 },
+    );
+    const started = await startServer(artifactPath, ['--on-capture', hookPath]);
+    running = started.child;
+    const pageHtml = await (await fetch(started.url)).text();
+    const token = /name="aio-doc-review-capture" content="([^"]+)"/.exec(pageHtml)?.[1];
+
+    const response = await fetch(new URL('/decisions', started.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-aio-review-token': token! },
+      body: JSON.stringify({ items: [] }),
+    });
+
+    expect(response.status).toBe(200);
+    for (let attempt = 0; attempt < 20 && !existsSync(capturedPath); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(readFileSync(capturedPath, 'utf8')).toBe(join(tempRoot, 'plan.decisions.json'));
   });
 
   it('rejects a non-JSON body', async () => {

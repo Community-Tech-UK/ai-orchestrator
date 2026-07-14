@@ -10,7 +10,11 @@ import {
   viewChild,
 } from '@angular/core';
 import { z } from 'zod';
-import type { DocReviewItemInfo, DocReviewItemVerdict } from './doc-review.types';
+import type {
+  DocReviewItemInfo,
+  DocReviewItemVerdict,
+  DocReviewOptionInfo,
+} from './doc-review.types';
 
 const TYPE_PREFIX = 'aio-review/';
 
@@ -18,6 +22,12 @@ const ItemInfoSchema = z.object({
   id: z.string().min(1).max(200),
   title: z.string().max(500).optional(),
   decisionId: z.string().max(50).nullable().optional(),
+  options: z.array(z.object({
+    id: z.string().min(1).max(200),
+    label: z.string().max(500),
+    multi: z.boolean(),
+    isDefault: z.boolean(),
+  }).strict()).max(100).optional(),
 });
 
 const ReadyMessageSchema = z.object({
@@ -37,6 +47,14 @@ const CommentMessageSchema = z.object({
   comment: z.string().max(10_000),
 });
 
+const ChoiceMessageSchema = z.object({
+  type: z.literal('aio-review/choice'),
+  itemId: z.string().min(1).max(200),
+  decisionId: z.string().max(50).nullable().optional(),
+  choice: z.string().min(1).max(200).nullable(),
+  choices: z.array(z.string().min(1).max(200)).max(100),
+});
+
 export interface DocReviewDecisionMessage {
   itemId: string;
   decision: DocReviewItemVerdict;
@@ -45,6 +63,25 @@ export interface DocReviewDecisionMessage {
 export interface DocReviewCommentMessage {
   itemId: string;
   comment: string;
+}
+
+export interface DocReviewChoiceMessage {
+  itemId: string;
+  choice: string | null;
+  choices: string[];
+}
+
+/** State mirrored back into an artifact after it reports ready or is reloaded. */
+export interface DocReviewArtifactInit {
+  overall?: 'approved' | 'changes_requested' | 'rejected';
+  general?: string;
+  comments: readonly {
+    itemId: string;
+    decision: DocReviewItemVerdict;
+    comment: string;
+    choice: string | null;
+    choices: readonly string[];
+  }[];
 }
 
 /**
@@ -81,11 +118,15 @@ export interface DocReviewCommentMessage {
   ],
 })
 export class DocReviewViewerComponent implements OnInit, OnDestroy {
-  readonly html = input.required<string>();
+  // An input binding is assigned after construction. Defaulting to an empty document lets
+  // the constructor-owned effect establish its dependency before Angular supplies html.
+  readonly html = input('');
+  readonly initialState = input<DocReviewArtifactInit | null>(null);
 
   readonly ready = output<DocReviewItemInfo[]>();
   readonly decisionChanged = output<DocReviewDecisionMessage>();
   readonly commentChanged = output<DocReviewCommentMessage>();
+  readonly choiceChanged = output<DocReviewChoiceMessage>();
 
   private readonly frame = viewChild<ElementRef<HTMLIFrameElement>>('frame');
   private readonly onMessage = (event: MessageEvent): void => this.handleMessage(event);
@@ -100,6 +141,10 @@ export class DocReviewViewerComponent implements OnInit, OnDestroy {
       const html = this.html();
       const frame = this.frame()?.nativeElement;
       if (frame && frame.srcdoc !== html) frame.srcdoc = html;
+    });
+    effect(() => {
+      const state = this.initialState();
+      if (state) this.sendInit(state);
     });
   }
 
@@ -124,6 +169,7 @@ export class DocReviewViewerComponent implements OnInit, OnDestroy {
           id: item.id,
           title: item.title ?? item.id,
           decisionId: item.decisionId ?? null,
+          options: (item.options ?? []).map((option): DocReviewOptionInfo => ({ ...option })),
         })),
       );
       return;
@@ -136,6 +182,21 @@ export class DocReviewViewerComponent implements OnInit, OnDestroy {
     const comment = CommentMessageSchema.safeParse(data);
     if (comment.success) {
       this.commentChanged.emit({ itemId: comment.data.itemId, comment: comment.data.comment });
+      return;
     }
+    const choice = ChoiceMessageSchema.safeParse(data);
+    if (choice.success) {
+      this.choiceChanged.emit({
+        itemId: choice.data.itemId,
+        choice: choice.data.choice,
+        choices: choice.data.choices,
+      });
+    }
+  }
+
+  private sendInit(state: DocReviewArtifactInit): void {
+    const frameWindow = this.frame()?.nativeElement.contentWindow;
+    if (!frameWindow) return;
+    frameWindow.postMessage({ type: `${TYPE_PREFIX}init`, ...state }, '*');
   }
 }

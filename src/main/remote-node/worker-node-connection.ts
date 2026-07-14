@@ -14,10 +14,7 @@ import {
 } from './worker-node-rpc';
 import type { RpcRequest, RpcResponse, RpcNotification, RpcScope } from './worker-node-rpc';
 import { getRemoteNodeConfig } from './remote-node-config';
-import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import { getWorkerNodeRegistry } from './worker-node-registry';
-import { getRemoteNodeRosterService } from './remote-node-roster-service';
-import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from './rpc-schemas';
 import { getRemoteWorkerRepairTracker } from './remote-worker-repair-tracker';
@@ -29,6 +26,7 @@ import {
   summarizeRpcParams,
   withConnectionAddress,
 } from './worker-node-connection-helpers';
+import { bindWorkerNodeRosterUpdates } from './worker-node-roster-updates';
 
 // Re-exported for existing importers (tests, dispatch classification callers).
 export { isWorkerNodeWorkDispatchMethod };
@@ -72,7 +70,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   private readonly disconnectGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly flapDetector = new ConnectionFlapDetector(FLAP_WINDOW_MS, FLAP_THRESHOLD);
   private requestCounter = 0;
-  private broadcastAll: (() => void) | null = null;
+  private stopRosterUpdates: (() => void) | null = null;
 
   static getInstance(): WorkerNodeConnectionServer {
     if (!this.instance) {
@@ -147,21 +145,12 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       });
     });
 
-    const registry = getWorkerNodeRegistry();
-    this.broadcastAll = () => this.broadcastNodesToRenderer();
-    registry.on('node:connected', this.broadcastAll);
-    registry.on('node:disconnected', this.broadcastAll);
-    registry.on('node:updated', this.broadcastAll);
+    this.stopRosterUpdates = bindWorkerNodeRosterUpdates(getWorkerNodeRegistry());
   }
 
   stop(): void {
-    if (this.broadcastAll) {
-      const registry = getWorkerNodeRegistry();
-      registry.removeListener('node:connected', this.broadcastAll);
-      registry.removeListener('node:disconnected', this.broadcastAll);
-      registry.removeListener('node:updated', this.broadcastAll);
-      this.broadcastAll = null;
-    }
+    this.stopRosterUpdates?.();
+    this.stopRosterUpdates = null;
 
     if (!this.wss) return;
 
@@ -199,20 +188,6 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
   isRunning(): boolean {
     return this.wss !== null;
-  }
-
-  broadcastNodesToRenderer(): void {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { BrowserWindow } = require('electron');
-      const nodes = getRemoteNodeRosterService().list();
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.webContents.send(IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, nodes);
-      }
-      void getLocalModelInventoryService().refresh().catch((error) => logger.warn('Local model inventory refresh failed after worker roster update', { error: error instanceof Error ? error.message : String(error) }));
-    } catch {
-      // Not in Electron context (e.g., tests)
-    }
   }
 
   // ---------------------------------------------------------------------------

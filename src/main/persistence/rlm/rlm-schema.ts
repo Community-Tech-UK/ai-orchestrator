@@ -97,26 +97,6 @@ export function createTables(db: SqliteDriver): void {
   `);
   ensureContextSectionSummaryColumns(db);
 
-  // Search Index table (inverted index)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS search_index (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      store_id TEXT NOT NULL,
-      term TEXT NOT NULL,
-      section_id TEXT NOT NULL,
-      line_number INTEGER,
-      position INTEGER,
-      snippet TEXT,
-      FOREIGN KEY (store_id) REFERENCES context_stores(id) ON DELETE CASCADE,
-      FOREIGN KEY (section_id) REFERENCES context_sections(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_search_store_term
-      ON search_index(store_id, term);
-    CREATE INDEX IF NOT EXISTS idx_search_section
-      ON search_index(section_id);
-  `);
-
   // RLM Sessions table
   db.exec(`
     CREATE TABLE IF NOT EXISTS rlm_sessions (

@@ -104,7 +104,7 @@ export async function resolveMobileSessionPlan(params: {
   }
 
   // Mobile new-session sends no reasoning effort, so a fresh session runs at the
-  // provider's built-in default thinking level (Claude=high, Codex=xhigh, others
+  // provider's built-in default thinking level (Claude=high, Codex=high, others
   // provider-decided).
   const reasoningEffort = getDefaultReasoningEffort(resolvedProvider);
 

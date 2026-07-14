@@ -230,6 +230,10 @@ export class RemoteAuthService {
 
   recordTrustedPlatform(nodeId: string, platform: NodePlatform): void {
     this.ensureLoadedFromSettings();
+    const current = getNodeIdentityStore().get(nodeId);
+    if (current?.platform === platform && current.platformSeenAt !== undefined) {
+      return;
+    }
     const touched = getNodeIdentityStore().touch(nodeId, {
       platform,
       platformSeenAt: Date.now(),

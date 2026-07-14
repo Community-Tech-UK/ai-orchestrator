@@ -7,6 +7,7 @@ import { getRLMDatabase } from '../persistence/rlm-database';
 import { getContextWorkerClient } from '../instance/context-worker-client';
 import { RlmStorageMaintenanceService } from './rlm-storage-maintenance';
 import { RlmMaintenanceDatabaseAdapter } from './rlm-storage-maintenance-database';
+import { pruneOldBackups } from './rlm-backup-retention';
 import { registerCleanup } from '../util/cleanup-registry';
 import type { Instance } from '../../shared/types/instance.types';
 
@@ -17,6 +18,7 @@ export function initializeRlmStorageMaintenance(
 ): RlmStorageMaintenanceService {
   if (service) return service;
   const coordinator = getLoopCoordinator();
+  const backupDirectory = path.join(app.getPath('userData'), 'rlm', 'backups');
   let maintenanceActive = false;
   coordinator.setMaintenanceGate(() => maintenanceActive);
   service = new RlmStorageMaintenanceService({
@@ -28,7 +30,8 @@ export function initializeRlmStorageMaintenance(
     resumeLoop: (loopRunId) => coordinator.resumeLoop(loopRunId),
     now: () => Date.now(),
     createOperationId: () => randomUUID(),
-    backupDirectory: path.join(app.getPath('userData'), 'rlm', 'backups'),
+    backupDirectory,
+    pruneBackups: (keepCount) => pruneOldBackups(backupDirectory, keepCount),
   });
   registerCleanup(() => service?.requestShutdown());
   return service;

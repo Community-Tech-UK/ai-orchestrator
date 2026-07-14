@@ -8,8 +8,11 @@ const { getElectronBuilderArgs, getNpmInvocation } = require('../localbuild.js')
 };
 
 describe('getElectronBuilderArgs', () => {
-  it('uses unsigned mac builds on macOS', () => {
-    expect(getElectronBuilderArgs('darwin')).toEqual(['--mac', '--config.mac.identity=null']);
+  it('uses the local real-identity signer for macOS builds', () => {
+    expect(getElectronBuilderArgs('darwin')).toEqual([
+      '--mac',
+      '--config.mac.notarize=false',
+    ]);
   });
 
   it('builds Windows artifacts on Windows', () => {

@@ -63,7 +63,7 @@ describe('ModelPickerController', () => {
     expect(controller.reasoningOptions().map((o) => o.id)).toEqual([
       'default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh',
     ]);
-    expect(controller.reasoningOptions().find((o) => o.id === 'xhigh')?.isDefault).toBe(true);
+    expect(controller.reasoningOptions().find((o) => o.id === 'high')?.isDefault).toBe(true);
   });
 
   it('returns no reasoning options for providers that do not support reasoning', () => {

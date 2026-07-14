@@ -67,7 +67,12 @@ export function renderFeedbackBlock(
   let n = 0;
   for (const decision of input.decisions) {
     const comment = decision.comment ? oneLine(decision.comment) : '';
-    if (!decision.decision && !comment) continue;
+    const selected = decision.choices?.length
+      ? decision.choices
+      : decision.choice
+        ? [decision.choice]
+        : [];
+    if (!decision.decision && !comment && selected.length === 0) continue;
     n += 1;
     const verb =
       decision.decision === 'approve'
@@ -77,6 +82,7 @@ export function renderFeedbackBlock(
           : 'note';
     const title = oneLine(decision.title || decision.itemId);
     let line = `${n}. [${title}] ${verb}`;
+    if (selected.length) line += ` — choice: ${selected.map(oneLine).join(', ')}`;
     if (comment) line += ` — ${comment}`;
     lines.push(line);
   }

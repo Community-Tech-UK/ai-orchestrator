@@ -6,6 +6,7 @@ export type CodebaseIndexingLaneJob =
       rootPath: string;
       storeId?: string;
       force?: boolean;
+      userDataPath?: string;
     };
 
 export interface CodebaseIndexingLaneResult {

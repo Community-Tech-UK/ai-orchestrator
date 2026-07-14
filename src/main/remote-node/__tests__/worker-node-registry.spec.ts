@@ -227,6 +227,33 @@ describe('WorkerNodeRegistry', () => {
       // A heartbeat from any non-connected node indicates it is reachable again
       expect(registry.getNode('hb4')?.status).toBe('connected');
     });
+
+    it('emits a local-model change only when heartbeat capabilities change', () => {
+      const initialEndpoints = [{
+        provider: 'ollama' as const,
+        endpointId: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434',
+        models: ['qwen'],
+        healthy: true,
+      }];
+      registry.registerNode(makeNode('hb-local', {
+        capabilities: makeCapabilities({ localModelEndpoints: initialEndpoints }),
+      }));
+      const handler = vi.fn();
+      registry.on('node:local-models-changed', handler);
+
+      registry.updateHeartbeat('hb-local', makeCapabilities({
+        availableMemoryMB: 3000,
+        localModelEndpoints: structuredClone(initialEndpoints),
+      }));
+      expect(handler).not.toHaveBeenCalled();
+
+      registry.updateHeartbeat('hb-local', makeCapabilities({
+        availableMemoryMB: 2000,
+        localModelEndpoints: [{ ...initialEndpoints[0], models: ['qwen', 'llama3.2'] }],
+      }));
+      expect(handler).toHaveBeenCalledOnce();
+    });
   });
 
   // -------------------------------------------------------------------------

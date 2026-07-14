@@ -15,7 +15,6 @@ import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token
 import type {
   ContextStoreRow,
   ContextSectionRow,
-  SearchResult,
   RLMSessionRow,
   OutcomeRow,
   PatternRow,
@@ -40,7 +39,6 @@ import {
 import { ensureDirectories } from './rlm/rlm-content';
 import * as stores from './rlm/rlm-stores';
 import * as sections from './rlm/rlm-sections';
-import * as search from './rlm/rlm-search';
 import * as sessions from './rlm/rlm-sessions';
 import * as learning from './rlm/rlm-learning';
 import * as vectors from './rlm/rlm-vectors';
@@ -295,23 +293,6 @@ export class RLMDatabase extends EventEmitter {
       sections.removeSection(this.db, this.contentDir, sectionId);
       this.emit('section:removed', { id: sectionId, storeId: section.store_id });
     }
-  }
-
-  // ============================================
-  // Search Index Operations (delegated)
-  // ============================================
-
-  indexSection(storeId: string, sectionId: string, content: string): void {
-    search.indexSection(this.db, storeId, sectionId, content);
-  }
-
-  searchIndex(storeId: string, pattern: string, options?: { limit?: number; caseSensitive?: boolean }): SearchResult[] {
-    return search.searchIndex(this.db, storeId, pattern, options);
-  }
-
-  rebuildIndex(storeId: string): void {
-    const count = search.rebuildIndex(this.db, this.contentDir, storeId);
-    this.emit('index:rebuilt', { storeId, sectionCount: count });
   }
 
   // ============================================

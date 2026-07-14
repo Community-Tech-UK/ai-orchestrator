@@ -113,12 +113,15 @@ export class RlmStorageMaintenanceStore implements OnDestroy {
       const response = await this.api.rlmStorageRunMaintenance(loopRunId);
       if (!response.success || !response.data) {
         this.error.set(response.error?.message ?? 'RLM maintenance failed');
+        this.progress.set(null);
         return;
       }
       this.result.set(response.data);
+      this.progress.set(null);
       await this.refreshHealth();
     } catch (error) {
       this.error.set(error instanceof Error ? error.message : String(error));
+      this.progress.set(null);
     } finally {
       this.busy.set(false);
     }
@@ -129,9 +132,21 @@ export class RlmStorageMaintenanceStore implements OnDestroy {
     try {
       const response = await this.api.rlmStorageGetMaintenanceStatus();
       if (response.success && response.data) {
+        if (response.data.status === 'running') {
+          this.progress.set({
+            operationId: response.data.operationId,
+            stage: response.data.stage,
+            message: 'RLM storage maintenance is in progress',
+            startedAt: response.data.startedAt,
+            updatedAt: Date.now(),
+          });
+          this.busy.set(true);
+          this.modalOpen.set(true);
+          return;
+        }
         this.result.set(response.data);
-        this.busy.set(response.data.status === 'running');
-        this.modalOpen.set(true);
+        this.progress.set(null);
+        this.busy.set(false);
       }
     } catch (error) {
       this.error.set(error instanceof Error ? error.message : String(error));
