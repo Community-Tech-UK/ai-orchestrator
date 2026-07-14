@@ -15,6 +15,7 @@ import type {
 import type { TokenBudgetTracker } from '../context/token-budget-tracker.js';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { SessionDiffTracker } from './session-diff-tracker';
+import type { ProviderId } from '../../shared/types/provider-quota.types';
 
 /**
  * Dependencies required by the communication manager.
@@ -88,6 +89,22 @@ export interface CommunicationDependencies {
     reason: string;
     resumePrompt: string | null;
   }) => 'parked' | 'already-parked' | 'skipped';
+  /**
+   * Consults the durable provider-limit ledger before a new adapter dispatch.
+   * A known active gate is parked before it can consume another provider turn.
+   */
+  checkKnownProviderLimitBeforeSend?: (params: {
+    instanceId: string;
+    provider: Instance['provider'];
+    model: string | null;
+    prompt: string;
+  }) => 'parked' | 'already-parked' | 'skipped';
+  /** Clears an expired provider-limit gate after a verified non-limit completion. */
+  clearProviderLimitAfterSuccessfulTurn?: (params: {
+    provider: ProviderId;
+    model: string | null;
+    now: number;
+  }) => void;
   createSnapshot?: (instanceId: string, name: string, description: string | undefined, trigger: 'checkpoint' | 'auto') => void;
   getBudgetTracker?: (instanceId: string) => TokenBudgetTracker | undefined;
   getContextUsage?: (instanceId: string) => ContextUsage | undefined;

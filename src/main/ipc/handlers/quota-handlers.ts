@@ -2,7 +2,8 @@
  * Provider Quota IPC Handlers
  *
  * Exposes the ProviderQuotaService over IPC and forwards its events
- * (`quota-updated`, `quota-warning`, `quota-exhausted`) to the renderer.
+ * (`quota-updated`, `quota-warning`, `quota-pacing-warning`,
+ * `quota-exhausted`) to the renderer.
  *
  * Mirrors the structure of cost-handlers.ts.
  */
@@ -168,6 +169,10 @@ export function registerQuotaHandlers(deps: {
 
   quotaService.on('quota-warning', (alert) => {
     deps.windowManager.sendToRenderer(IPC_CHANNELS.QUOTA_WARNING, alert);
+  });
+
+  quotaService.on('quota-pacing-warning', (alert) => {
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.QUOTA_PACING_WARNING, alert);
   });
 
   quotaService.on('quota-exhausted', (alert) => {

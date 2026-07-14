@@ -1,4 +1,4 @@
-import { ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -10,12 +10,14 @@ import {
 import type {
   DesktopGatewayContext,
   DesktopGatewayResult,
+  DesktopPermissionRepairResult,
   DesktopPermissionActionResult,
   DesktopPermissionRequestResult,
   DesktopSystemPermission,
 } from '../../../shared/types/desktop-gateway.types';
 import type { IpcResponse } from '../validated-handler';
 import { getDesktopGatewayService } from '../../desktop-gateway/desktop-gateway-service';
+import { repairMacosComputerUsePermissions } from '../../desktop-gateway/macos-permission-repair';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('DesktopGatewayHandlers');
@@ -56,6 +58,10 @@ interface RegisterDesktopGatewayHandlersDeps {
   ) => IpcResponse | null;
   /** Injectable `shell.openExternal` seam for tests. */
   openExternal?: (url: string) => Promise<void>;
+  /** Injectable scoped TCC reset seam for tests. */
+  repairSystemPermissions?: () => Promise<DesktopPermissionRepairResult>;
+  /** Injectable deferred relaunch seam for tests. */
+  scheduleRelaunch?: () => void;
 }
 
 export function registerDesktopGatewayHandlers(
@@ -98,6 +104,44 @@ export function registerDesktopGatewayHandlers(
       requestSystemPermissionAndOpenSettings(service, payload.permission, deps),
     deps,
   );
+  register(
+    IPC_CHANNELS.DESKTOP_REPAIR_SYSTEM_PERMISSIONS,
+    EmptyPayloadSchema,
+    (service) => repairSystemPermissions(service, deps),
+    deps,
+  );
+  register(
+    IPC_CHANNELS.DESKTOP_RELAUNCH_APPLICATION,
+    EmptyPayloadSchema,
+    async () => {
+      scheduleApplicationRelaunch(deps);
+      return { relaunching: true as const };
+    },
+    deps,
+  );
+}
+
+async function repairSystemPermissions(
+  service: ReturnType<typeof getDesktopGatewayService>,
+  deps: RegisterDesktopGatewayHandlersDeps,
+): Promise<DesktopPermissionRepairResult> {
+  const health = await service.health(OPERATOR_CONTEXT);
+  if (health.decision !== 'allowed' || health.data?.enabled !== true) {
+    throw new Error('computer_use_disabled');
+  }
+  return await deps.repairSystemPermissions?.()
+    ?? repairMacosComputerUsePermissions({ isPackaged: app.isPackaged });
+}
+
+function scheduleApplicationRelaunch(deps: RegisterDesktopGatewayHandlersDeps): void {
+  if (deps.scheduleRelaunch) {
+    deps.scheduleRelaunch();
+    return;
+  }
+  setTimeout(() => {
+    app.relaunch();
+    app.quit();
+  }, 0);
 }
 
 /**

@@ -6,6 +6,8 @@
  * Holds at most one snapshot per provider; emits:
  *   - 'quota-updated'   on every snapshot store
  *   - 'quota-warning'   when a window crosses 50/75/90 %
+ *   - 'quota-pacing-warning' when a known-duration window is consumed ahead
+ *     of its elapsed time budget
  *   - 'quota-exhausted' when a window reaches >= 100 %
  *
  * Threshold debouncing: each (provider, windowId, threshold) tuple fires at
@@ -18,9 +20,12 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
+import { classifyLoopError } from '../loop-error-classification';
+import { retryWithBackoff } from '../../util/backoff';
 import type {
   ProviderId,
   ProviderQuotaAlert,
+  ProviderQuotaPacingAlert,
   ProviderQuotaSnapshot,
   ProviderQuotaState,
   ProviderQuotaWindow,
@@ -32,6 +37,21 @@ const logger = getLogger('ProviderQuotaService');
 const PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok'];
 const WARNING_THRESHOLDS: readonly number[] = [50, 75, 90];
 const EXHAUSTED_THRESHOLD = 100;
+const FIVE_HOUR_MS = 5 * 60 * 60 * 1000;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const QUOTA_PROBE_ATTEMPTS = 2;
+
+export interface QuotaPacingConfig {
+  enabled: boolean;
+  utilizationThresholdPercent: number;
+  latestElapsedPercent: number;
+}
+
+export const DEFAULT_QUOTA_PACING_CONFIG: Readonly<QuotaPacingConfig> = Object.freeze({
+  enabled: true,
+  utilizationThresholdPercent: 90,
+  latestElapsedPercent: 72,
+});
 
 /**
  * Probe contract — one implementation per provider. The service treats probes
@@ -59,12 +79,15 @@ export class ProviderQuotaService extends EventEmitter {
   private idleTimer: NodeJS.Timeout | null = null;
   /** Keys: `<provider>:<windowId>:<threshold>`. Once added, suppresses re-emission. */
   private alertedKeys = new Set<string>();
+  /** One early-pacing warning per provider/window lifecycle. */
+  private pacingAlertedKeys = new Set<string>();
   /** Last `used` value seen per (provider, windowId), for window-reset detection. */
   private lastUsed = new Map<string, number>();
   private isPaused = getPauseCoordinator().isPaused();
   private activeAborters = new Set<AbortController>();
   /** When set, refresh() skips probing providers whose CLI is not installed. */
   private cliInstalledCheck: CliInstalledCheck | null = null;
+  private pacingConfig: QuotaPacingConfig = { ...DEFAULT_QUOTA_PACING_CONFIG };
   private readonly handlePause = (): void => {
     this.isPaused = true;
     for (const aborter of this.activeAborters) aborter.abort();
@@ -88,6 +111,26 @@ export class ProviderQuotaService extends EventEmitter {
   /** Install (or clear, with null) the CLI-installed gate used by refresh(). */
   setCliInstalledCheck(check: CliInstalledCheck | null): void {
     this.cliInstalledCheck = check;
+  }
+
+  /** Update the operator-controlled early quota-pacing thresholds. */
+  configurePacing(config: Partial<QuotaPacingConfig>): void {
+    const next: QuotaPacingConfig = {
+      ...this.pacingConfig,
+      ...config,
+    };
+    if (
+      !Number.isFinite(next.utilizationThresholdPercent)
+      || next.utilizationThresholdPercent < 0
+      || next.utilizationThresholdPercent > 100
+      || !Number.isFinite(next.latestElapsedPercent)
+      || next.latestElapsedPercent < 0
+      || next.latestElapsedPercent > 100
+    ) {
+      throw new Error('Quota pacing thresholds must be finite percentages from 0 to 100');
+    }
+    this.pacingConfig = next;
+    this.pacingAlertedKeys.clear();
   }
 
   getSnapshot(provider: ProviderId): ProviderQuotaSnapshot | null {
@@ -170,7 +213,22 @@ export class ProviderQuotaService extends EventEmitter {
     const ac = new AbortController();
     this.activeAborters.add(ac);
     try {
-      const result = await probe.probe({ signal: ac.signal });
+      const result = await retryWithBackoff(
+        () => probe.probe({ signal: ac.signal }),
+        {
+          attempts: QUOTA_PROBE_ATTEMPTS,
+          signal: ac.signal,
+          classify: (error) => classifyLoopError(error, { provider }).category,
+          onRetry: ({ attempt, category, delayMs }) => {
+            logger.debug('Retrying transient provider quota probe', {
+              provider,
+              attempt,
+              category,
+              delayMs,
+            });
+          },
+        },
+      );
       if (result == null) return null;
       const full: ProviderQuotaSnapshot = { ...result, takenAt: Date.now() };
       this.storeSnapshot(provider, full);
@@ -266,6 +324,8 @@ export class ProviderQuotaService extends EventEmitter {
     this.probes.clear();
     this.cliInstalledCheck = null;
     this.alertedKeys.clear();
+    this.pacingAlertedKeys.clear();
+    this.pacingConfig = { ...DEFAULT_QUOTA_PACING_CONFIG };
     this.lastUsed.clear();
     for (const aborter of this.activeAborters) aborter.abort();
     this.activeAborters.clear();
@@ -282,7 +342,10 @@ export class ProviderQuotaService extends EventEmitter {
     this.snapshots.set(provider, snapshot);
     this.detectWindowResets(provider, snapshot);
     this.emit('quota-updated', snapshot);
-    if (snapshot.ok) this.checkThresholds(provider, snapshot);
+    if (snapshot.ok) {
+      this.checkThresholds(provider, snapshot);
+      this.checkPacing(provider, snapshot);
+    }
   }
 
   private detectWindowResets(
@@ -297,6 +360,9 @@ export class ProviderQuotaService extends EventEmitter {
         const prefix = `${provider}:${w.id}:`;
         for (const k of [...this.alertedKeys]) {
           if (k.startsWith(prefix)) this.alertedKeys.delete(k);
+        }
+        for (const k of [...this.pacingAlertedKeys]) {
+          if (k.startsWith(prefix)) this.pacingAlertedKeys.delete(k);
         }
       }
       this.lastUsed.set(memoKey, w.used);
@@ -332,6 +398,35 @@ export class ProviderQuotaService extends EventEmitter {
     }
   }
 
+  private checkPacing(provider: ProviderId, snapshot: ProviderQuotaSnapshot): void {
+    if (!this.pacingConfig.enabled) return;
+
+    for (const window of snapshot.windows) {
+      const durationMs = knownWindowDurationMs(window);
+      if (durationMs === null || window.limit <= 0 || window.resetsAt === null) continue;
+
+      const remainingMs = window.resetsAt - Date.now();
+      if (remainingMs < 0 || remainingMs > durationMs) continue;
+
+      const utilizationPercent = (window.used / window.limit) * 100;
+      const elapsedPercent = ((durationMs - remainingMs) / durationMs) * 100;
+      if (
+        utilizationPercent < this.pacingConfig.utilizationThresholdPercent
+        || elapsedPercent > this.pacingConfig.latestElapsedPercent
+      ) {
+        continue;
+      }
+
+      const key = `${provider}:${window.id}:pacing`;
+      if (this.pacingAlertedKeys.has(key)) continue;
+      this.pacingAlertedKeys.add(key);
+      this.emit('quota-pacing-warning', this.makePacingAlert(provider, window, {
+        utilizationPercent,
+        elapsedPercent,
+      }));
+    }
+  }
+
   private makeAlert(
     provider: ProviderId,
     window: ProviderQuotaWindow,
@@ -339,6 +434,34 @@ export class ProviderQuotaService extends EventEmitter {
   ): ProviderQuotaAlert {
     return { provider, window, threshold, timestamp: Date.now() };
   }
+
+  private makePacingAlert(
+    provider: ProviderId,
+    window: ProviderQuotaWindow,
+    metrics: { utilizationPercent: number; elapsedPercent: number },
+  ): ProviderQuotaPacingAlert {
+    return {
+      provider,
+      window,
+      utilizationPercent: metrics.utilizationPercent,
+      elapsedPercent: metrics.elapsedPercent,
+      utilizationThresholdPercent: this.pacingConfig.utilizationThresholdPercent,
+      latestElapsedPercent: this.pacingConfig.latestElapsedPercent,
+      timestamp: Date.now(),
+    };
+  }
+}
+
+/**
+ * Only infer durations from stable first-party five-hour/weekly window ids or
+ * labels. Calendar and unknown windows are deliberately excluded: without a
+ * trustworthy start instant, their elapsed percentage would be fabricated.
+ */
+function knownWindowDurationMs(window: ProviderQuotaWindow): number | null {
+  const identity = `${window.id} ${window.label}`.toLowerCase();
+  if (/(?:^|[.\s_-])5(?:h|[-\s]?hour)(?:$|[.\s_-])/.test(identity)) return FIVE_HOUR_MS;
+  if (/(?:^|[.\s_-])weekly?(?:$|[.\s_-])/.test(identity)) return WEEK_MS;
+  return null;
 }
 
 // Lazy singleton — same pattern as cost-tracker.ts.

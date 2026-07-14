@@ -281,6 +281,11 @@ export function createInfrastructureDomain(
       ipcRenderer.on(ch.QUOTA_WARNING, handler);
       return () => ipcRenderer.removeListener(ch.QUOTA_WARNING, handler);
     },
+    onQuotaPacingWarning: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on(ch.QUOTA_PACING_WARNING, handler);
+      return () => ipcRenderer.removeListener(ch.QUOTA_PACING_WARNING, handler);
+    },
     onQuotaExhausted: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.QUOTA_EXHAUSTED, handler);

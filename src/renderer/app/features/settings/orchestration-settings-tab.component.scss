@@ -38,13 +38,52 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 36px;
 }
 
 .loop-models__name {
   font-size: 13px;
 }
 
-.loop-models__select {
-  min-width: 240px;
-  max-width: 320px;
+.loop-models__picker {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.loop-models__source {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.loop-models__reset {
+  border: 0;
+  background: transparent;
+  color: var(--primary-color);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.loop-models__reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.loop-models__reset:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-color) 42%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .loop-models__item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .loop-models__picker {
+    justify-content: flex-start;
+  }
 }

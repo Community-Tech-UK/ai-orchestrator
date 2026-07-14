@@ -267,6 +267,34 @@ describe('InstanceCommunicationManager', () => {
     );
   });
 
+  it('clears an expired provider-limit gate after a non-limit turn completes', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    const clearProviderLimitAfterSuccessfulTurn = vi.fn();
+    adapters.set(instance.id, adapter);
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      clearProviderLimitAfterSuccessfulTurn,
+    });
+
+    instance.currentModel = 'claude-sonnet-4-5';
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'r1', content: 'completed normally', role: 'assistant', usage: { outputTokens: 1 },
+    } satisfies CliResponse);
+
+    expect(clearProviderLimitAfterSuccessfulTurn).toHaveBeenCalledWith({
+      provider: 'claude', model: 'claude-sonnet-4-5', now: expect.any(Number),
+    });
+  });
+
   it('forwards tool and spawn adapter events through the raw-backed runtime stream', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
@@ -1661,6 +1689,64 @@ describe('provider-limit park on thrown sendInput errors', () => {
         (m) => m.type === 'system' && m.metadata?.['providerLimitParked'] === true,
       ),
     ).toBe(true);
+  });
+
+  it('does not dispatch a turn when the provider-limit preflight parks a known active gate', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.currentModel = 'claude-sonnet-4-5';
+    const checkKnownProviderLimitBeforeSend = vi.fn().mockReturnValue('parked');
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      checkKnownProviderLimitBeforeSend,
+    });
+
+    await expect(manager.sendInput(instance.id, 'continue the task')).resolves.toBeUndefined();
+
+    expect(checkKnownProviderLimitBeforeSend).toHaveBeenCalledWith({
+      instanceId: instance.id,
+      provider: 'claude',
+      model: 'claude-sonnet-4-5',
+      prompt: 'continue the task',
+    });
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('preserves queued continuity context when the provider-limit preflight parks a turn', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const checkKnownProviderLimitBeforeSend = vi.fn()
+      .mockReturnValueOnce('parked')
+      .mockReturnValueOnce('skipped');
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      checkKnownProviderLimitBeforeSend,
+    });
+    manager.queueContinuityPreamble(instance.id, 'Prior context that must survive the park.');
+
+    await manager.sendInput(instance.id, 'continue the task');
+    await manager.sendInput(instance.id, 'continue the task');
+
+    expect(adapter.sendInput).toHaveBeenCalledWith(
+      'Prior context that must survive the park.\n\ncontinue the task',
+      undefined,
+    );
   });
 
   it('acknowledges an already-parked send quietly: no duplicate park message, no status change', async () => {

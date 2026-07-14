@@ -8,16 +8,20 @@ const { getElectronBuilderArgs, getNpmInvocation } = require('../localbuild.js')
 };
 
 describe('getElectronBuilderArgs', () => {
-  it('uses the local real-identity signer for macOS builds', () => {
+  it('builds only the arm64 DMG with the local real-identity signer on macOS', () => {
     expect(getElectronBuilderArgs('darwin')).toEqual([
       '--mac',
+      'dmg',
+      '--arm64',
       '--config.mac.notarize=false',
     ]);
   });
 
-  it('builds Windows artifacts on Windows', () => {
+  it('builds only the x64 NSIS setup package on Windows', () => {
     expect(getElectronBuilderArgs('win32')).toEqual([
       '--win',
+      'nsis',
+      '--x64',
       '--config.win.signAndEditExecutable=false',
     ]);
   });

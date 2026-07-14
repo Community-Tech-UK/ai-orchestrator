@@ -12,6 +12,7 @@ function makeIngest(
   used: number,
   limit: number,
   windowId = `${provider}.test-window`,
+  windowOverrides: Partial<ProviderQuotaSnapshot['windows'][number]> = {},
 ): Omit<ProviderQuotaSnapshot, 'takenAt' | 'source'> {
   return {
     provider,
@@ -26,6 +27,7 @@ function makeIngest(
         limit,
         remaining: Math.max(0, limit - used),
         resetsAt: null,
+        ...windowOverrides,
       },
     ],
   };
@@ -64,6 +66,7 @@ describe('ProviderQuotaService', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     svc._resetForTesting();
   });
 
@@ -106,6 +109,30 @@ describe('ProviderQuotaService', () => {
     });
   });
 
+  describe('quota pacing', () => {
+    it('emits an early pacing warning when a five-hour window is 90% used before 72% elapsed', () => {
+      const warnings: unknown[] = [];
+      svc.on('quota-pacing-warning', (warning) => warnings.push(warning));
+      const now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+
+      svc.ingestFromAdapter(
+        'claude',
+        makeIngest('claude', 90, 100, 'claude.5h', {
+          label: '5-hour messages',
+          resetsAt: now + 90 * 60_000,
+        }),
+      );
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatchObject({
+        provider: 'claude',
+        utilizationPercent: 90,
+        elapsedPercent: 70,
+      });
+    });
+  });
+
   describe('refresh()', () => {
     it('returns null when no probe is registered', async () => {
       expect(await svc.refresh('codex')).toBeNull();
@@ -118,6 +145,24 @@ describe('ProviderQuotaService', () => {
       expect(out).not.toBeNull();
       expect(svc.getSnapshot('claude')).not.toBeNull();
       expect(probe.calls).toBe(1);
+    });
+
+    it('retries a transient probe failure through the shared backoff policy', async () => {
+      let calls = 0;
+      const probe: ProviderQuotaProbe = {
+        provider: 'claude',
+        async probe() {
+          calls += 1;
+          if (calls === 1) throw new Error('network timeout');
+          return makeSnapshot('claude', 50, 100);
+        },
+      };
+      svc.registerProbe(probe);
+
+      const out = await svc.refresh('claude');
+
+      expect(calls).toBe(2);
+      expect(out).toMatchObject({ provider: 'claude', ok: true });
     });
 
     it('returns null without storing when probe returns null', async () => {

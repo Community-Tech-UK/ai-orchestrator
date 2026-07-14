@@ -116,4 +116,19 @@ describe('startThreadWithRetry', () => {
     expect(request).toHaveBeenCalledTimes(4);
     expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([5_000, 15_000, 15_000]);
   });
+
+  it('stops retrying when its caller aborts during the scheduled backoff', async () => {
+    const controller = new AbortController();
+    const request = vi.fn().mockRejectedValue(rpcTimeoutError());
+    const sleep = vi.fn(async () => {
+      controller.abort(new Error('thread startup cancelled'));
+    });
+
+    await expect(startThreadWithRetry({ request }, PARAMS, {
+      sleep,
+      signal: controller.signal,
+    })).rejects.toThrow('thread startup cancelled');
+
+    expect(request).toHaveBeenCalledTimes(1);
+  });
 });

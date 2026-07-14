@@ -34,6 +34,7 @@ describe('INFRASTRUCTURE_CHANNELS', () => {
     expect(INFRASTRUCTURE_CHANNELS.QUOTA_REFRESH).toBe('quota:refresh');
     expect(INFRASTRUCTURE_CHANNELS.QUOTA_UPDATED).toBe('quota:updated');
     expect(INFRASTRUCTURE_CHANNELS.QUOTA_WARNING).toBe('quota:warning');
+    expect(INFRASTRUCTURE_CHANNELS.QUOTA_PACING_WARNING).toBe('quota:pacing-warning');
     expect(INFRASTRUCTURE_CHANNELS.QUOTA_EXHAUSTED).toBe('quota:exhausted');
   });
 

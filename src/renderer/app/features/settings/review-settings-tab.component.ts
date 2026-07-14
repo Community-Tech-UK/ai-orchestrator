@@ -10,10 +10,11 @@ import {
   type ReviewerNotice,
 } from '../../core/services/ipc/cross-model-review-ipc.service';
 import type { AppSettings } from '../../../../shared/types/settings.types';
-import { getModelsForProvider, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
-import { resolveReviewerModels } from './reviewer-model-options';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import type { PendingSelection } from '../models/compact-model-picker.types';
 import {
   REMOTE_REVIEWER_PROVIDER_DEFINITIONS,
   normalizeRemoteReviewerProvider,
@@ -23,7 +24,6 @@ import {
 interface ReviewerProviderView {
   id: RemoteReviewerProvider;
   label: string;
-  models: ModelDisplayInfo[];
 }
 
 interface LocalReviewerModelView extends ModelDisplayInfo {
@@ -47,7 +47,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
 @Component({
   selector: 'app-review-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent],
+  imports: [SettingRowComponent, CompactModelPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="Cross-model review settings">
@@ -123,26 +123,26 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
                 }
               </div>
 
-              <!--
-                [selected] per option, not [value] on the select: the value
-                property is set before the @for options exist, so the browser
-                resets to the first option and the row shows "Auto" even when a
-                model override is configured.
-              -->
-              <select
-                class="reviewer-list__model"
-                [attr.aria-label]="provider.label + ' model'"
-                (change)="onModelChange(provider.id, $event)"
-              >
-                <option value="" [selected]="modelFor(provider.id) === ''">
-                  Auto (let provider decide)
-                </option>
-                @for (model of provider.models; track model.id) {
-                  <option [value]="model.id" [selected]="model.id === modelFor(provider.id)">
-                    {{ model.name }}
-                  </option>
-                }
-              </select>
+              <div class="reviewer-list__model-picker">
+                <span class="reviewer-list__model-source">
+                  {{ modelFor(provider.id) ? 'Pinned override' : 'Auto' }}
+                </span>
+                <app-compact-model-picker
+                  mode="pending-create"
+                  [providers]="[provider.id]"
+                  [selection]="reviewerSelectionFor(provider.id)"
+                  (selectionChange)="onReviewerModelPicked(provider.id, $event)"
+                />
+                <button
+                  type="button"
+                  class="reviewer-list__model-reset"
+                  [disabled]="!modelFor(provider.id)"
+                  [attr.aria-label]="'Let ' + provider.label + ' choose its review model'"
+                  (click)="resetReviewerModel(provider.id)"
+                >
+                  Auto
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -308,10 +308,6 @@ export class ReviewSettingsTabComponent {
         provider.id,
         {
           ...provider,
-          models: resolveReviewerModels(
-            this.unifiedCatalog.displayModelsForProvider(provider.id),
-            getModelsForProvider(provider.id),
-          ),
         },
       ]),
     ),
@@ -382,15 +378,23 @@ export class ReviewSettingsTabComponent {
     return this.store.get('crossModelReviewModelByProvider')?.[provider] ?? '';
   }
 
-  onModelChange(provider: string, event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
+  reviewerSelectionFor(provider: RemoteReviewerProvider): PendingSelection {
+    return { provider, model: this.modelFor(provider) || 'auto', reasoning: null };
+  }
+
+  onReviewerModelPicked(
+    provider: RemoteReviewerProvider,
+    selection: PendingSelection,
+  ): void {
+    if (selection.provider !== provider || !selection.model) return;
     const next = { ...(this.store.get('crossModelReviewModelByProvider') ?? {}) };
-    if (!value) {
-      // Empty = auto: drop the key so we fall back to CLI default routing.
-      delete next[provider];
-    } else {
-      next[provider] = value;
-    }
+    next[provider] = selection.model;
+    void this.store.set('crossModelReviewModelByProvider', next);
+  }
+
+  resetReviewerModel(provider: RemoteReviewerProvider): void {
+    const next = { ...(this.store.get('crossModelReviewModelByProvider') ?? {}) };
+    delete next[provider];
     void this.store.set('crossModelReviewModelByProvider', next);
   }
 

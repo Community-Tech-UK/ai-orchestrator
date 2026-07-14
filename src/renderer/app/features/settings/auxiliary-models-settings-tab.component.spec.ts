@@ -88,4 +88,17 @@ describe('AuxiliaryModelsSettingsTabComponent', () => {
     const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement | null;
     expect(select).not.toBeNull();
   });
+
+  it('persists a numeric daily cloud-spend cap and clears it when the field is empty', () => {
+    fixture.detectChanges();
+    const component = fixture.componentInstance as unknown as {
+      onDailySpendCapChange(event: Event): void;
+    };
+
+    component.onDailySpendCapChange({ target: { value: '0.25' } } as unknown as Event);
+    component.onDailySpendCapChange({ target: { value: '' } } as unknown as Event);
+
+    expect(store.set).toHaveBeenNthCalledWith(1, 'auxiliaryLlmDailySpendCapUsd', 0.25);
+    expect(store.set).toHaveBeenNthCalledWith(2, 'auxiliaryLlmDailySpendCapUsd', null);
+  });
 });

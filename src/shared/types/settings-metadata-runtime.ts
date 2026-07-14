@@ -185,6 +185,31 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'quotaPacingWarningEnabled',
+    label: 'Warn when quota is being consumed too quickly',
+    description: 'Shows an early warning when a known quota window is mostly used before most of its time has elapsed.',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
+    key: 'quotaPacingUtilizationThresholdPercent',
+    label: 'Quota pacing: usage threshold (%)',
+    description: 'Start an early warning once usage reaches this percentage of a known quota window.',
+    type: 'number',
+    category: 'advanced',
+    min: 0,
+    max: 100,
+  },
+  {
+    key: 'quotaPacingLatestElapsedPercent',
+    label: 'Quota pacing: latest elapsed time (%)',
+    description: 'Only warn when the quota window has used no more than this percentage of its time budget.',
+    type: 'number',
+    category: 'advanced',
+    min: 0,
+    max: 100,
+  },
+  {
     key: 'codebaseAutoIndexMaxFiles',
     label: 'Legacy index: skip folders over this many files',
     description:

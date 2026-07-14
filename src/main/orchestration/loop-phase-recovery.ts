@@ -30,7 +30,11 @@ export async function applyLoopPhaseRecovery(params: {
     return { status: 'continue' };
   }
 
-  const phaseId = await resolveCurrentPhaseId(stageMachine);
+  const resolvedPhaseId = await resolveCurrentPhaseId(stageMachine);
+  if (resolvedPhaseId === null && finalAudit.findings.every(isGlobalProgressFinding)) {
+    return { status: 'continue' };
+  }
+  const phaseId = resolvedPhaseId ?? 'unscoped';
   const findingCodes = finalAudit.findings.map((finding) => finding.code).sort();
   const madeProductionChange = iteration?.filesChanged.some((file) =>
     isReviewDrivenProductionChange(file.path),
@@ -71,14 +75,14 @@ export async function applyLoopPhaseRecovery(params: {
   return { status: 'continue' };
 }
 
-async function resolveCurrentPhaseId(stageMachine: LoopStageMachine): Promise<string> {
+async function resolveCurrentPhaseId(stageMachine: LoopStageMachine): Promise<string | null> {
   try {
     const packet = await readLoopPlanPacket(stageMachine.paths);
     const unresolved = packet?.phases.find((phase) =>
       phase.evidence.length < phase.acceptanceCriteria.length,
     );
     if (unresolved) return unresolved.id;
-    if (packet?.phases[0]) return packet.phases[0].id;
+    if (packet?.phases[0]) return null;
   } catch {
     // Fall through to the ledger heuristic.
   }
@@ -91,6 +95,10 @@ async function resolveCurrentPhaseId(stageMachine: LoopStageMachine): Promise<st
     // Fall through to unscoped recovery.
   }
   return 'unscoped';
+}
+
+function isGlobalProgressFinding(finding: LoopFinalAuditResult['findings'][number]): boolean {
+  return finding.code === 'ledger-open' || finding.code === 'repo-state-unavailable';
 }
 
 async function writePhaseFixSpec(

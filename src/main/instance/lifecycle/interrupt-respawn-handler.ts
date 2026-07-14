@@ -921,7 +921,7 @@ export class InterruptRespawnHandler {
 
             if (hasConversation) {
               const fallbackHistory = await this.deps.buildFallbackHistory(instance, 'resume-failed-fallback');
-              if (triggeredByInterrupt && this.deps.queueContinuityPreamble) {
+              if (this.deps.queueContinuityPreamble) {
                 this.deps.queueContinuityPreamble(instanceId, fallbackHistory);
               } else {
                 await adapter.sendInput(fallbackHistory);
@@ -949,10 +949,10 @@ export class InterruptRespawnHandler {
         instance.processId = pid;
 
         if (!actuallyResumed && shouldResume) {
-          // Already sent continuity message in fallback path above
+          // Already queued/sent continuity in the fallback path above.
         } else if (!shouldResume && hasConversation) {
           const replayContinuity = this.deps.buildReplayContinuityMessage(instance, replayReason);
-          if (triggeredByInterrupt && this.deps.queueContinuityPreamble) {
+          if (this.deps.queueContinuityPreamble) {
             this.deps.queueContinuityPreamble(instanceId, replayContinuity);
           } else {
             await adapter.sendInput(replayContinuity);
@@ -1299,8 +1299,13 @@ export class InterruptRespawnHandler {
             await this.deps.waitForAdapterWritable(instanceId, 3000);
 
             if (hasConversation) {
-              await adapter.sendInput(await this.deps.buildFallbackHistory(instance, 'auto-respawn-fallback'));
-              recoveryInputSent = true;
+              const fallbackHistory = await this.deps.buildFallbackHistory(instance, 'auto-respawn-fallback');
+              if (this.deps.queueContinuityPreamble) {
+                this.deps.queueContinuityPreamble(instanceId, fallbackHistory);
+              } else {
+                await adapter.sendInput(fallbackHistory);
+                recoveryInputSent = true;
+              }
             }
           } else {
             throw spawnError;
@@ -1323,10 +1328,15 @@ export class InterruptRespawnHandler {
         instance.processId = pid;
 
         if (!actuallyResumed && shouldResume) {
-          // Already sent continuity message in fallback path
+          // Already queued/sent continuity in the fallback path.
         } else if (!shouldResume && hasConversation) {
-          await adapter.sendInput(this.deps.buildReplayContinuityMessage(instance, 'auto-respawn'));
-          recoveryInputSent = true;
+          const replayContinuity = this.deps.buildReplayContinuityMessage(instance, 'auto-respawn');
+          if (this.deps.queueContinuityPreamble) {
+            this.deps.queueContinuityPreamble(instanceId, replayContinuity);
+          } else {
+            await adapter.sendInput(replayContinuity);
+            recoveryInputSent = true;
+          }
         }
 
         if (recoveryInputSent) {

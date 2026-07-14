@@ -32,6 +32,16 @@ export interface DesktopPermissionActionResult extends DesktopPermissionRequestR
   settingsOpened: boolean;
 }
 
+/** Result of clearing only Harness's Computer Use TCC registrations. */
+export interface DesktopPermissionRepairResult {
+  resetPermissions: ['screen-recording', 'accessibility'];
+  relaunchRequired: true;
+}
+
+export interface DesktopApplicationRelaunchResult {
+  relaunching: true;
+}
+
 export type DesktopPolicyStatus =
   | 'allowed'
   | 'denied'

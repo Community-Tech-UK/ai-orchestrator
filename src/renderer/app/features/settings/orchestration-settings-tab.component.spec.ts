@@ -1,10 +1,13 @@
+import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { By } from '@angular/platform-browser';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { OrchestrationSettingsTabComponent } from './orchestration-settings-tab.component';
 import { SettingsStore } from '../../core/state/settings.store';
-import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import { OPENAI_MODELS } from '../../../../shared/types/provider.types';
+import { SettingRowComponent } from './setting-row.component';
+import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 
 await resolveComponentResources((url) => {
   if (url.endsWith('.html') || url.endsWith('.scss')) {
@@ -24,43 +27,41 @@ class FakeSettingsStore {
     this.values[key] = value;
   });
 
-  setValue(key: string, value: unknown): void {
-    this.values[key] = value;
-  }
-
-  valueOf(key: string): unknown {
-    return this.values[key];
-  }
 }
 
-class FakeUnifiedCatalogStore {
-  readonly ensureLoaded = vi.fn();
-  // Empty live catalogue → the component falls back to the static model list.
-  readonly displayModelsForProvider = vi.fn(() => []);
+@Component({
+  selector: 'app-compact-model-picker',
+  standalone: true,
+  template: '',
+})
+class CompactModelPickerStubComponent {
+  @Input() mode: unknown;
+  @Input() providers: PickerProvider[] | null = null;
+  @Input() selection: PendingSelection | null = null;
+  @Output() selectionChange = new EventEmitter<PendingSelection>();
 }
 
 describe('OrchestrationSettingsTabComponent', () => {
   let fixture: ComponentFixture<OrchestrationSettingsTabComponent>;
   let store: FakeSettingsStore;
 
-  const selectFor = (provider: string): HTMLSelectElement => {
-    const label = { codex: 'OpenAI Codex CLI', claude: 'Claude Code' }[provider] ?? provider;
-    const element = fixture.nativeElement.querySelector(
-      `select[aria-label="${label} loop model"]`,
-    ) as HTMLSelectElement | null;
-    if (!element) throw new Error(`No loop model select for ${provider}`);
-    return element;
-  };
-
   beforeEach(async () => {
     store = new FakeSettingsStore();
-    await TestBed.configureTestingModule({
+    TestBed.configureTestingModule({
       imports: [OrchestrationSettingsTabComponent],
       providers: [
         { provide: SettingsStore, useValue: store },
-        { provide: UnifiedCatalogStore, useClass: FakeUnifiedCatalogStore },
       ],
-    }).compileComponents();
+    });
+    TestBed.overrideComponent(OrchestrationSettingsTabComponent, {
+      set: {
+        imports: [SettingRowComponent, CompactModelPickerStubComponent],
+        styles: [''],
+        styleUrl: undefined,
+        styleUrls: [],
+      },
+    });
+    await TestBed.compileComponents();
 
     fixture = TestBed.createComponent(OrchestrationSettingsTabComponent);
   });
@@ -75,20 +76,26 @@ describe('OrchestrationSettingsTabComponent', () => {
     }
   });
 
-  it('shows the configured loop model rather than the interactive default', () => {
+  it('shows the configured loop model in the shared session picker', () => {
     fixture.detectChanges();
 
-    // The regression: loops used to silently follow the codex session default
-    // (gpt-5.6-sol). The picker must show what loops will actually run.
-    expect(selectFor('codex').value).toBe(OPENAI_MODELS.GPT56_TERRA);
+    const codexPicker = pickerFor('codex');
+    expect(codexPicker.providers).toEqual(['codex']);
+    expect(codexPicker.selection).toEqual({
+      provider: 'codex',
+      model: OPENAI_MODELS.GPT56_TERRA,
+      reasoning: null,
+    });
   });
 
   it('persists a new loop model choice', () => {
     fixture.detectChanges();
 
-    const select = selectFor('codex');
-    select.value = OPENAI_MODELS.GPT56_LUNA;
-    select.dispatchEvent(new Event('change'));
+    pickerFor('codex').selectionChange.emit({
+      provider: 'codex',
+      model: OPENAI_MODELS.GPT56_LUNA,
+      reasoning: null,
+    });
 
     expect(store.set).toHaveBeenCalledWith('loopModelByProvider', {
       codex: OPENAI_MODELS.GPT56_LUNA,
@@ -98,9 +105,10 @@ describe('OrchestrationSettingsTabComponent', () => {
   it('drops the key when set back to the session default', () => {
     fixture.detectChanges();
 
-    const select = selectFor('codex');
-    select.value = '';
-    select.dispatchEvent(new Event('change'));
+    const reset = fixture.nativeElement.querySelector(
+      'button[aria-label="Use session default for OpenAI Codex CLI loops"]',
+    ) as HTMLButtonElement;
+    reset.click();
 
     expect(store.set).toHaveBeenCalledWith('loopModelByProvider', {});
   });
@@ -108,6 +116,16 @@ describe('OrchestrationSettingsTabComponent', () => {
   it('falls back to the session default for providers with no entry', () => {
     fixture.detectChanges();
 
-    expect(selectFor('claude').value).toBe('');
+    expect(fixture.nativeElement.textContent).toContain('Session default');
+    expect(pickerFor('claude').selection?.provider).toBe('claude');
   });
+
+  function pickerFor(provider: string): CompactModelPickerStubComponent {
+    const picker = fixture.debugElement
+      .queryAll(By.directive(CompactModelPickerStubComponent))
+      .map((debugElement) => debugElement.componentInstance as CompactModelPickerStubComponent)
+      .find((candidate) => candidate.providers?.[0] === provider);
+    if (!picker) throw new Error(`No loop model picker for ${provider}`);
+    return picker;
+  }
 });

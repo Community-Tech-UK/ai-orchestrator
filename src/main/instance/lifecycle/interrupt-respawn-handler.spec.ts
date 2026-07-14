@@ -20,10 +20,27 @@ import type { InterruptResult } from '../../cli/adapters/base-cli-adapter';
 
 // ── Module mocks (hoisted) ────────────────────────────────────────────────────
 
-const { mockSupervisor, mockCircuitBreaker, mockContinuity, mockSessionMutex } = vi.hoisted(() => ({
+const {
+  mockSupervisor,
+  mockCircuitBreaker,
+  mockContinuity,
+  mockCreateAdapter,
+  mockPlanSessionRecovery,
+  mockSessionMutex,
+} = vi.hoisted(() => ({
   mockSupervisor: { recordInterrupt: vi.fn(), recordTurnEnd: vi.fn(), recordAdapterSetup: vi.fn() },
   mockCircuitBreaker: { recordAttempt: vi.fn(() => 0), isOpen: vi.fn(() => false) },
-  mockContinuity: { createSnapshot: vi.fn().mockResolvedValue(null) },
+  mockContinuity: {
+    createSnapshot: vi.fn().mockResolvedValue(null),
+    getSessionState: vi.fn(() => null),
+    writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
+  },
+  mockCreateAdapter: vi.fn(),
+  mockPlanSessionRecovery: vi.fn(() => ({
+    kind: 'fresh',
+    reason: 'test fresh recovery',
+    providerSessionPersisted: false,
+  })),
   // getLockInfo defaults to null (uncontended) so no waitReason churn unless a
   // test opts into contention via mockReturnValue.
   mockSessionMutex: {
@@ -58,12 +75,8 @@ vi.mock('../../session/session-continuity', () => ({
 }));
 
 vi.mock('./session-recovery', () => ({
-  planSessionRecovery: vi.fn().mockResolvedValue({
-    strategy: 'fresh',
-    sessionId: undefined,
-    reason: 'test',
-    providerSessionPersisted: false,
-  }),
+  computeResumeConfigFingerprint: vi.fn(() => 'test-fingerprint'),
+  planSessionRecovery: mockPlanSessionRecovery,
 }));
 
 vi.mock('../../display-items/interrupt-boundary-renderer', () => ({
@@ -72,7 +85,7 @@ vi.mock('../../display-items/interrupt-boundary-renderer', () => ({
 
 vi.mock('../../providers/provider-runtime-service', () => ({
   getProviderRuntimeService: vi.fn(() => ({
-    createAdapter: vi.fn(),
+    createAdapter: mockCreateAdapter,
   })),
 }));
 
@@ -510,5 +523,115 @@ describe('InterruptRespawnHandler.respawnAfterInterrupt() — mutex waitReason (
       (args) => (args[10] as { kind?: string } | null)?.kind === 'mutex',
     );
     expect(mutexCalls).toHaveLength(0);
+  });
+});
+
+describe('InterruptRespawnHandler recovery replay', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCircuitBreaker.recordAttempt.mockReturnValue(0);
+    mockPlanSessionRecovery.mockReturnValue({
+      kind: 'fresh',
+      reason: 'test fresh recovery',
+      providerSessionPersisted: false,
+    });
+    mockSessionMutex.getLockInfo.mockReturnValue(null);
+  });
+
+  it('queues fresh-session continuity for the next user turn instead of running replay under the session lock', async () => {
+    const release = vi.fn();
+    mockSessionMutex.acquire.mockResolvedValue(release);
+    const previousAdapter = makeAdapter();
+    const replacementAdapter = makeAdapter({
+      spawn: vi.fn().mockResolvedValue(84),
+    });
+    mockCreateAdapter.mockReturnValue(replacementAdapter);
+    const instance = makeInstance({
+      status: 'respawning',
+      executionLocation: { type: 'local' },
+      outputBuffer: [{
+        id: 'user-1',
+        type: 'user',
+        content: 'Keep this context',
+        timestamp: Date.now(),
+      }],
+      sessionId: 'old-session',
+    });
+    const state: FakeDepsState = {
+      instance,
+      adapter: previousAdapter,
+      queueUpdateCalls: [],
+      outputMessages: [],
+      transitions: [],
+    };
+    const deps = makeDeps(state);
+    deps.queueContinuityPreamble = vi.fn();
+    const handler = new InterruptRespawnHandler(deps);
+
+    await handler.respawnAfterUnexpectedExit('inst-1');
+
+    expect(deps.queueContinuityPreamble).toHaveBeenCalledWith('inst-1', 'replay preamble');
+    expect(replacementAdapter.sendInput).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+    expect(instance.status).toBe('idle');
+  });
+
+  it('queues transcript fallback after native resume fails instead of replaying it under the session lock', async () => {
+    const release = vi.fn();
+    mockSessionMutex.acquire.mockResolvedValue(release);
+    mockPlanSessionRecovery.mockReturnValue({
+      kind: 'native-resume',
+      reason: 'persisted provider session is resumable',
+      sessionId: 'old-session',
+    });
+    const previousAdapter = makeAdapter();
+    const resumeAdapter = makeAdapter({
+      spawn: vi.fn().mockResolvedValue(81),
+    });
+    const fallbackAdapter = makeAdapter({
+      spawn: vi.fn().mockResolvedValue(82),
+    });
+    mockCreateAdapter
+      .mockReturnValueOnce(resumeAdapter)
+      .mockReturnValueOnce(fallbackAdapter);
+    const instance = makeInstance({
+      status: 'busy',
+      executionLocation: { type: 'local' },
+      outputBuffer: [{
+        id: 'user-1',
+        type: 'user',
+        content: 'Keep this context',
+        timestamp: Date.now(),
+      }],
+      providerSessionPersisted: true,
+      sessionId: 'old-session',
+    });
+    const state: FakeDepsState = {
+      instance,
+      adapter: previousAdapter,
+      queueUpdateCalls: [],
+      outputMessages: [],
+      transitions: [],
+    };
+    const deps = makeDeps(state);
+    deps.getAdapterRuntimeCapabilities = vi.fn(() => ({
+      supportsResume: true,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
+      selfManagedAutoCompaction: false,
+    }));
+    deps.waitForResumeHealth = vi.fn().mockResolvedValue(false);
+    deps.queueContinuityPreamble = vi.fn();
+    const handler = new InterruptRespawnHandler(deps);
+
+    await handler.respawnAfterInterrupt('inst-1');
+
+    expect(resumeAdapter.terminate).toHaveBeenCalledWith(true);
+    expect(deps.queueContinuityPreamble).toHaveBeenCalledWith('inst-1', 'fallback history');
+    expect(fallbackAdapter.sendInput).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+    expect(instance.status).toBe('idle');
   });
 });

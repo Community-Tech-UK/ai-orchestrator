@@ -55,8 +55,12 @@ function makePermissionStore(health: DesktopHealthData | null) {
     loading: signal(false),
     error: signal<string | null>(null),
     requesting: signal<DesktopSystemPermission | null>(null),
+    repairing: signal(false),
+    repairReady: signal(false),
     refresh: vi.fn(async () => undefined),
     requestPermission: vi.fn(async () => undefined),
+    repairPermissions: vi.fn(async () => undefined),
+    relaunchApplication: vi.fn(async () => undefined),
   };
 }
 
@@ -177,5 +181,21 @@ describe('ComputerUseSettingsTabComponent', () => {
     expect(desktop.listApps).toHaveBeenCalledOnce();
     expect(desktop.listGrants).toHaveBeenCalledOnce();
     expect(desktop.getAuditLog).toHaveBeenCalledOnce();
+  });
+
+  it('offers repair and relaunch controls inside AIO settings', () => {
+    configure();
+    permissionStore.repairReady.set(true);
+    const fixture = render();
+
+    fixture.nativeElement
+      .querySelector<HTMLButtonElement>('[aria-label="Repair macOS permissions"]')
+      ?.click();
+    fixture.nativeElement
+      .querySelector<HTMLButtonElement>('[aria-label="Restart AIO"]')
+      ?.click();
+
+    expect(permissionStore.repairPermissions).toHaveBeenCalledOnce();
+    expect(permissionStore.relaunchApplication).toHaveBeenCalledOnce();
   });
 });

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
-import { signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, signal } from '@angular/core';
+import { By } from '@angular/platform-browser';
 import { ReviewSettingsTabComponent } from './review-settings-tab.component';
 import { SettingsStore } from '../../core/state/settings.store';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
@@ -12,6 +13,8 @@ import {
 import type { SettingMetadata } from '../../../../shared/types/settings-metadata.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
+import { SettingRowComponent } from './setting-row.component';
+import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 
 await resolveComponentResources((url) => {
   if (url.endsWith('.html') || url.endsWith('.scss')) {
@@ -211,6 +214,18 @@ class FakeReviewHealth {
   }
 }
 
+@Component({
+  selector: 'app-compact-model-picker',
+  standalone: true,
+  template: '',
+})
+class CompactModelPickerStubComponent {
+  @Input() mode: unknown;
+  @Input() providers: PickerProvider[] | null = null;
+  @Input() selection: PendingSelection | null = null;
+  @Output() selectionChange = new EventEmitter<PendingSelection>();
+}
+
 describe('ReviewSettingsTabComponent', () => {
   let fixture: ComponentFixture<ReviewSettingsTabComponent>;
   let store: FakeSettingsStore;
@@ -219,7 +234,7 @@ describe('ReviewSettingsTabComponent', () => {
   beforeEach(async () => {
     store = new FakeSettingsStore();
     reviewHealth = new FakeReviewHealth();
-    await TestBed.configureTestingModule({
+    TestBed.configureTestingModule({
       imports: [ReviewSettingsTabComponent],
       providers: [
         { provide: SettingsStore, useValue: store },
@@ -227,21 +242,68 @@ describe('ReviewSettingsTabComponent', () => {
         { provide: ProviderIpcService, useClass: FakeProviderIpc },
         { provide: CrossModelReviewIpcService, useValue: reviewHealth },
       ],
-    }).compileComponents();
+    });
+    TestBed.overrideComponent(ReviewSettingsTabComponent, {
+      set: {
+        imports: [SettingRowComponent, CompactModelPickerStubComponent],
+        styles: [''],
+        styleUrl: undefined,
+        styleUrls: [],
+      },
+    });
+    await TestBed.compileComponents();
 
     fixture = TestBed.createComponent(ReviewSettingsTabComponent);
   });
 
-  it('shows the configured reviewer model instead of falsely reporting Auto', () => {
+  it('shows the configured reviewer model in the shared session picker', () => {
     store.setValue('crossModelReviewProviders', ['codex']);
     store.setValue('crossModelReviewModelByProvider', { codex: 'gpt-5.6-terra' });
 
     fixture.detectChanges();
 
-    const select = fixture.nativeElement.querySelector(
-      'select[aria-label="OpenAI Codex CLI model"]',
-    ) as HTMLSelectElement;
-    expect(select.value).toBe('gpt-5.6-terra');
+    const picker = reviewerPickerFor('codex');
+    expect(picker.providers).toEqual(['codex']);
+    expect(picker.selection).toEqual({
+      provider: 'codex',
+      model: 'gpt-5.6-terra',
+      reasoning: null,
+    });
+  });
+
+  it('persists shared-picker model choices and can reset a reviewer to auto', () => {
+    store.setValue('crossModelReviewProviders', ['codex']);
+    store.setValue('crossModelReviewModelByProvider', { codex: 'gpt-5.6-terra' });
+    fixture.detectChanges();
+
+    reviewerPickerFor('codex').selectionChange.emit({
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+      reasoning: null,
+    });
+    expect(store.set).toHaveBeenCalledWith('crossModelReviewModelByProvider', {
+      codex: 'gpt-5.6-sol',
+    });
+
+    store.setValue('crossModelReviewModelByProvider', { codex: 'gpt-5.6-sol' });
+    fixture.detectChanges();
+    const reset = fixture.nativeElement.querySelector(
+      'button[aria-label="Let OpenAI Codex CLI choose its review model"]',
+    ) as HTMLButtonElement;
+    reset.click();
+    expect(store.set).toHaveBeenCalledWith('crossModelReviewModelByProvider', {});
+  });
+
+  it('shows true CLI auto routing instead of previewing a pinned primary model', () => {
+    store.setValue('crossModelReviewProviders', ['codex']);
+    store.setValue('crossModelReviewModelByProvider', {});
+    fixture.detectChanges();
+
+    expect(reviewerPickerFor('codex').selection).toEqual({
+      provider: 'codex',
+      model: 'auto',
+      reasoning: null,
+    });
   });
 
   it('renders Antigravity as a reviewer instead of the retired Gemini CLI', () => {
@@ -473,4 +535,13 @@ describe('ReviewSettingsTabComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.reviewer-list__health')).toBeNull();
   });
+
+  function reviewerPickerFor(provider: string): CompactModelPickerStubComponent {
+    const picker = fixture.debugElement
+      .queryAll(By.directive(CompactModelPickerStubComponent))
+      .map((debugElement) => debugElement.componentInstance as CompactModelPickerStubComponent)
+      .find((candidate) => candidate.providers?.[0] === provider);
+    if (!picker) throw new Error(`No reviewer model picker for ${provider}`);
+    return picker;
+  }
 });

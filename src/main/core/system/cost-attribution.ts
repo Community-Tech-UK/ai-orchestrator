@@ -28,7 +28,7 @@
  * after a single warning.
  */
 
-import { appendFileSync, mkdirSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getLogger } from '../../logging/logger';
 
@@ -76,6 +76,8 @@ export interface CostAttributionRecord {
   auxEndpointId?: string;
   /** `auxiliary` only: why the slot resolved the way it did. */
   auxReason?: string;
+  /** Pre-dispatch reservation used to enforce the configured daily aux cap. */
+  auxiliarySpendReservationUsd?: number;
 }
 
 let cachedDir: string | null | undefined;
@@ -228,6 +230,84 @@ export function recordAuxiliaryAttribution(args: {
     ...(args.endpointId ? { auxEndpointId: args.endpointId } : {}),
     ...(args.reason ? { auxReason: args.reason } : {}),
   });
+}
+
+export interface AuxiliarySpendReservation {
+  capUsd: number;
+  amountUsd: number;
+  slot: string;
+  provider?: string;
+  endpointId?: string;
+  model?: string;
+}
+
+/**
+ * Durably reserve an auxiliary cloud call's worst-case cost before dispatch.
+ * The append is synchronous, so consecutive service calls cannot both observe
+ * the same remaining balance in one Electron main process. Failed calls keep
+ * their reservation deliberately: releasing an uncertain remote charge would
+ * make a configured cap advisory rather than hard.
+ */
+export function reserveAuxiliarySpend(
+  reservation: AuxiliarySpendReservation,
+): { allowed: boolean; spentUsd: number } {
+  if (
+    !isEnabled()
+    || !Number.isFinite(reservation.capUsd)
+    || reservation.capUsd < 0
+    || !Number.isFinite(reservation.amountUsd)
+    || reservation.amountUsd < 0
+  ) {
+    return { allowed: false, spentUsd: 0 };
+  }
+
+  try {
+    const file = getCostAttributionFilePath();
+    if (!file) return { allowed: false, spentUsd: 0 };
+
+    const spentUsd = readReservedAuxiliarySpend(file);
+    if (spentUsd + reservation.amountUsd > reservation.capUsd) {
+      return { allowed: false, spentUsd };
+    }
+
+    const line = JSON.stringify({
+      ts: Date.now(),
+      source: 'auxiliary',
+      taskType: `aux:${reservation.slot}`,
+      ...(reservation.provider ? { provider: reservation.provider } : {}),
+      ...(reservation.model ? { model: reservation.model } : {}),
+      ...(reservation.endpointId ? { auxEndpointId: reservation.endpointId } : {}),
+      auxiliarySpendReservationUsd: reservation.amountUsd,
+    });
+    appendFileSync(file, line + '\n', 'utf8');
+    return { allowed: true, spentUsd: spentUsd + reservation.amountUsd };
+  } catch (err) {
+    if (!warnedOnce) {
+      warnedOnce = true;
+      logger.warn('Auxiliary spend reservation failed; capped cloud dispatch denied', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return { allowed: false, spentUsd: 0 };
+  }
+}
+
+function readReservedAuxiliarySpend(file: string): number {
+  if (!existsSync(file)) return 0;
+  let total = 0;
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (!line) continue;
+    try {
+      const record = JSON.parse(line) as { source?: unknown; auxiliarySpendReservationUsd?: unknown };
+      const amount = record.auxiliarySpendReservationUsd;
+      if (record.source === 'auxiliary' && typeof amount === 'number' && Number.isFinite(amount) && amount >= 0) {
+        total += amount;
+      }
+    } catch {
+      // A partial trailing line must never turn a spend cap into an outage.
+    }
+  }
+  return total;
 }
 
 /** Test-only: clear cached directory resolution and warning latch. */

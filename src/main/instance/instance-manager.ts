@@ -84,7 +84,9 @@ import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters
 import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
 import { getContextEngine } from '../context/context-engine.js';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
+import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
+import { createProviderLimitCommunicationCallbacks } from './instance-provider-limit-runtime';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
@@ -359,17 +361,8 @@ export class InstanceManager extends EventEmitter {
       // needs a loop-ownership guard (e.g. via `this.orchestrationMgr
       // .hasActiveWork(id)`, already used by StuckProcessDetector above) before
       // it fires.
-      onProviderLimitTurn: (params) => {
-        const instance = this.state.getInstance(params.instanceId);
-        if (!instance) return 'skipped';
-        return getInstanceProviderLimitHandler().maybePark({
-          instanceId: params.instanceId,
-          provider: instance.provider,
-          resetAtHint: params.resetAtHint,
-          reason: params.reason,
-          resumePrompt: params.resumePrompt,
-        });
-      },
+      ...createProviderLimitCommunicationCallbacks((id) => this.state.getInstance(id)),
+      clearProviderLimitAfterSuccessfulTurn: getProviderLimitLedgerPort().clearAfterSuccessfulTurn,
       createSnapshot: (id, name, desc, trigger) => {
         try {
           getSessionContinuityManager().createSnapshot(id, name, desc, trigger);
@@ -394,9 +387,8 @@ export class InstanceManager extends EventEmitter {
         this.captureProviderRuntimeEvent(instanceId, event, options),
     });
 
-    // Wire the (opt-in) regular-session provider-limit auto-resume handler so
-    // it can park an instance, drive the quota-park countdown chip, and re-send
-    // the throttled turn once the window resets. Mirrors the loop path.
+    // Wire the opt-in regular-session provider-limit handler to park an instance,
+    // drive its countdown chip, and re-send the throttled turn after reset.
     getInstanceProviderLimitHandler().configure({
       isEnabled: () => this.settings.get('instanceProviderLimitResumeEnabled') === true,
       setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
@@ -423,11 +415,9 @@ export class InstanceManager extends EventEmitter {
           });
         });
       },
+      providerLimitLedger: getProviderLimitLedgerPort(),
       getWorkspaceCwd: (id) => this.state.getInstance(id)?.workingDirectory,
-      isResumable: (id) => {
-        const inst = this.state.getInstance(id);
-        return !!inst && inst.status !== 'terminated' && inst.status !== 'failed';
-      },
+      isResumable: (id) => { const inst = this.state.getInstance(id); return !!inst && inst.status !== 'terminated' && inst.status !== 'failed'; },
     });
 
     // Lifecycle manager needs dependencies

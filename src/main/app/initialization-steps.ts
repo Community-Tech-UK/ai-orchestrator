@@ -92,6 +92,7 @@ import {
 } from './remote-gateway-initialization-steps';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
 
 const logger = getLogger('AppInitialization');
@@ -205,6 +206,7 @@ export function createInitializationSteps(
                 auxiliaryLlmRoutingMode: settings.get('auxiliaryLlmRoutingMode'),
                 auxiliaryLlmAllowRemoteWorkerModels: settings.get('auxiliaryLlmAllowRemoteWorkerModels'),
                 auxiliaryLlmUseLocalhostOllama: settings.get('auxiliaryLlmUseLocalhostOllama'),
+                auxiliaryLlmDailySpendCapUsd: settings.get('auxiliaryLlmDailySpendCapUsd'),
                 auxiliaryLlmEndpointsJson: settings.get('auxiliaryLlmEndpointsJson'),
                 auxiliaryLlmSlotsJson: settings.get('auxiliaryLlmSlotsJson'),
                 auxiliaryLlmQuickModel: settings.get('auxiliaryLlmQuickModel'),
@@ -220,6 +222,27 @@ export function createInitializationSteps(
           settings.on('setting-changed', applyAuxiliaryConfig);
         } catch (error) {
           logger.warn('Auxiliary LLM service initialization failed; helper calls will use primary LLM', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Quota pacing',
+      fn: () => {
+        try {
+          const settings = getSettingsManager();
+          const applyQuotaPacingConfig = () => {
+            getProviderQuotaService().configurePacing({
+              enabled: settings.get('quotaPacingWarningEnabled'),
+              utilizationThresholdPercent: settings.get('quotaPacingUtilizationThresholdPercent'),
+              latestElapsedPercent: settings.get('quotaPacingLatestElapsedPercent'),
+            });
+          };
+          applyQuotaPacingConfig();
+          settings.on('setting-changed', applyQuotaPacingConfig);
+        } catch (error) {
+          logger.warn('Quota pacing initialization failed; default pacing thresholds remain active', {
             error: error instanceof Error ? error.message : String(error),
           });
         }

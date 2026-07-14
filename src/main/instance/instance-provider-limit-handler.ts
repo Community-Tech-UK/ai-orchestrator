@@ -1,5 +1,6 @@
 import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/instance.types';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
+import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { getLogger } from '../logging/logger';
 import {
   scheduleInstanceProviderLimitResume,
@@ -33,6 +34,8 @@ export interface InstanceProviderLimitHandlerDeps {
    * to derive a reset time from.
    */
   refreshQuotaSnapshot?: (provider: ProviderId) => void;
+  /** Durable cross-instance provider-limit cache. Injectable for focused tests. */
+  providerLimitLedger?: Pick<ProviderLimitLedger, 'record' | 'getActive'>;
   /** Working directory for the instance (needed by the durable automation). */
   getWorkspaceCwd: (instanceId: string) => string | undefined;
   /**
@@ -54,12 +57,16 @@ export interface InstanceProviderLimitHandlerDeps {
 export interface MaybeParkParams {
   instanceId: string;
   provider: InstanceProvider;
+  /** The resolved provider model when known; null/undefined means account scope. */
+  model?: string | null;
   /** Reset time parsed from the provider error/notice, if any (epoch ms). */
   resetAtHint: number | null;
   reason: string;
   /** The user turn to re-send on resume; null when unknown. */
   resumePrompt: string | null;
 }
+
+export type MaybeParkKnownParams = Omit<MaybeParkParams, 'resetAtHint'>;
 
 interface ParkEntry {
   cancel: () => void;
@@ -99,13 +106,37 @@ export class InstanceProviderLimitHandler {
   maybePark(params: MaybeParkParams): 'parked' | 'already-parked' | 'skipped' {
     const deps = this.deps;
     if (!deps) return 'skipped';
-    if (!deps.isEnabled()) return 'skipped';
     if (this.parked.has(params.instanceId)) return 'already-parked';
 
     const providerId = toProviderId(params.provider);
     if (!providerId) return 'skipped';
 
-    const resumeAt = this.deriveResumeAt(params.resetAtHint, providerId);
+    const now = Date.now();
+    const resetAtHint = typeof params.resetAtHint === 'number' && params.resetAtHint > now
+      ? params.resetAtHint
+      : null;
+    const knownLimit = deps.providerLimitLedger?.getActive({
+      provider: providerId,
+      model: params.model ?? null,
+      now,
+    }) ?? null;
+    const snapshotResumeAt = this.deriveResumeFromSnapshot(
+      deps.getQuotaSnapshot(providerId),
+    );
+    const detectedResumeAt = resetAtHint ?? snapshotResumeAt;
+    const resumeAt = detectedResumeAt ?? knownLimit?.resumeAt ?? null;
+
+    if (detectedResumeAt !== null) {
+      deps.providerLimitLedger?.record({
+        provider: providerId,
+        model: params.model ?? null,
+        detectedAt: now,
+        resumeAt: detectedResumeAt,
+        source: resetAtHint !== null ? 'provider-limit-signal' : 'quota-snapshot',
+        instanceId: params.instanceId,
+      });
+    }
+
     if (resumeAt === null) {
       // Every hint source came up empty — prime the snapshot for next time
       // instead of leaving this provider's quota view stale until the next
@@ -113,6 +144,39 @@ export class InstanceProviderLimitHandler {
       deps.refreshQuotaSnapshot?.(providerId);
       return 'skipped';
     }
+
+    return this.park(params, providerId, resumeAt);
+  }
+
+  /**
+   * Consult the durable ledger before dispatching a new regular-session turn.
+   * Unlike {@link maybePark}, a miss is intentionally silent: preflight runs
+   * for every send, so it must not start a quota probe or write another row.
+   */
+  maybeParkKnown(params: MaybeParkKnownParams): 'parked' | 'already-parked' | 'skipped' {
+    const deps = this.deps;
+    if (!deps) return 'skipped';
+    if (this.parked.has(params.instanceId)) return 'already-parked';
+
+    const providerId = toProviderId(params.provider);
+    if (!providerId) return 'skipped';
+    const knownLimit = deps.providerLimitLedger?.getActive({
+      provider: providerId,
+      model: params.model ?? null,
+      now: Date.now(),
+    }) ?? null;
+    if (!knownLimit) return 'skipped';
+
+    return this.park(params, providerId, knownLimit.resumeAt);
+  }
+
+  private park(
+    params: MaybeParkKnownParams,
+    providerId: ProviderId,
+    resumeAt: number,
+  ): 'parked' | 'already-parked' | 'skipped' {
+    const deps = this.deps;
+    if (!deps || !deps.isEnabled()) return 'skipped';
 
     const workspaceCwd = deps.getWorkspaceCwd(params.instanceId);
     if (!workspaceCwd) {
@@ -241,12 +305,6 @@ export class InstanceProviderLimitHandler {
 
   isParked(instanceId: string): boolean {
     return this.parked.has(instanceId);
-  }
-
-  private deriveResumeAt(resetAtHint: number | null, provider: ProviderId): number | null {
-    const now = Date.now();
-    if (typeof resetAtHint === 'number' && resetAtHint > now) return resetAtHint;
-    return this.deriveResumeFromSnapshot(this.deps?.getQuotaSnapshot(provider) ?? null);
   }
 
   /**

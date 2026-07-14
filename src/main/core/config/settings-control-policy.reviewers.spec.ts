@@ -40,6 +40,28 @@ describe('reviewer settings control policy', () => {
     });
   });
 
+  it('accepts an optional non-negative auxiliary daily spend cap', () => {
+    expect(coerceWritableSettingValue('auxiliaryLlmDailySpendCapUsd', 0.25).value).toBe(0.25);
+    expect(coerceWritableSettingValue('auxiliaryLlmDailySpendCapUsd', null).value).toBeNull();
+    expect(() => coerceWritableSettingValue('auxiliaryLlmDailySpendCapUsd', -0.01))
+      .toThrow('Invalid value for auxiliaryLlmDailySpendCapUsd');
+  });
+
+  it('keeps quota pacing operator-configurable within safe percentage bounds', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      quotaPacingWarningEnabled: true,
+      quotaPacingUtilizationThresholdPercent: 90,
+      quotaPacingLatestElapsedPercent: 72,
+    });
+    expect(coerceWritableSettingValue('quotaPacingWarningEnabled', false).value).toBe(false);
+    expect(coerceWritableSettingValue('quotaPacingUtilizationThresholdPercent', 85).value).toBe(85);
+    expect(coerceWritableSettingValue('quotaPacingLatestElapsedPercent', 60).value).toBe(60);
+    expect(() => coerceWritableSettingValue('quotaPacingUtilizationThresholdPercent', 101))
+      .toThrow('Invalid value for quotaPacingUtilizationThresholdPercent');
+    expect(() => coerceWritableSettingValue('quotaPacingLatestElapsedPercent', -1))
+      .toThrow('Invalid value for quotaPacingLatestElapsedPercent');
+  });
+
   it.each([
     ['crossModelReviewLocalEnabled', true],
     ['crossModelReviewLocalSelectorId', 'lm://worker-node/node-1/ollama/ollama/qwen'],

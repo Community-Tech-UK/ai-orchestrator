@@ -7,6 +7,7 @@ const LONG_HOLD_WARNING_MS = 30_000;
 const DEFAULT_ACQUIRE_TIMEOUT_MS = 120_000;
 
 interface LockInfo {
+  token: symbol;
   source: string;
   acquiredAt: number;
   owner?: {
@@ -49,7 +50,7 @@ export function isSessionMutexTimeout(err: unknown): err is SessionMutexTimeoutE
 export class SessionMutex {
   private chains = new Map<string, Promise<void>>();
   private holders = new Map<string, LockInfo>();
-  private forceResolvers = new Map<string, () => void>();
+  private forceResolvers = new Map<string, { token: symbol; resolve: () => void }>();
 
   /**
    * Acquire a lock for `instanceId`.
@@ -67,6 +68,8 @@ export class SessionMutex {
     timeoutMs = DEFAULT_ACQUIRE_TIMEOUT_MS,
   ): Promise<() => void> {
     const prev = this.chains.get(instanceId) ?? Promise.resolve();
+    const token = Symbol(source);
+    let timedOut = false;
 
     let releaseFn!: () => void;
     const next = new Promise<void>((resolve) => {
@@ -76,7 +79,16 @@ export class SessionMutex {
     // Chain: wait for previous holder, then register ourselves.
     // The chain settles when the previous holder calls its release function.
     const acquisition = prev.then(() => {
+      if (timedOut) {
+        // A timed-out caller has already abandoned this acquisition and will
+        // never receive a release function. Preserve queue order, but skip
+        // ownership and immediately unblock the next waiter.
+        releaseFn();
+        return;
+      }
+
       const info: LockInfo = {
+        token,
         source,
         acquiredAt: Date.now(),
         owner,
@@ -95,7 +107,7 @@ export class SessionMutex {
       this.holders.set(instanceId, info);
 
       // Store force-resolver so forceRelease can unblock
-      this.forceResolvers.set(instanceId, releaseFn);
+      this.forceResolvers.set(instanceId, { token, resolve: releaseFn });
     });
 
     this.chains.set(instanceId, next);
@@ -103,6 +115,7 @@ export class SessionMutex {
     if (timeoutMs > 0) {
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
+          timedOut = true;
           const holderInfo = this.getLockInfo(instanceId);
           const err = new SessionMutexTimeoutError(
             instanceId,
@@ -138,9 +151,15 @@ export class SessionMutex {
       released = true;
 
       const info = this.holders.get(instanceId);
-      if (info?.warningTimer) clearTimeout(info.warningTimer);
-      this.holders.delete(instanceId);
-      this.forceResolvers.delete(instanceId);
+      if (info?.token === token) {
+        if (info.warningTimer) clearTimeout(info.warningTimer);
+        this.holders.delete(instanceId);
+
+        const forceResolver = this.forceResolvers.get(instanceId);
+        if (forceResolver?.token === token) {
+          this.forceResolvers.delete(instanceId);
+        }
+      }
 
       releaseFn();
     };
@@ -152,10 +171,10 @@ export class SessionMutex {
     this.holders.delete(instanceId);
 
     const resolver = this.forceResolvers.get(instanceId);
-    if (resolver) {
+    if (resolver && info?.token === resolver.token) {
       this.forceResolvers.delete(instanceId);
       logger.warn('Force-released lock', { instanceId, source: info?.source, owner: info?.owner });
-      resolver();
+      resolver.resolve();
     }
   }
 

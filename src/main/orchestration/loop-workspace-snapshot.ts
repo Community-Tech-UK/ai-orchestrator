@@ -33,6 +33,8 @@ const WORKSPACE_SNAPSHOT_IGNORED_DIRS = new Set([
   '.turbo',
   '.vite',
   'build',
+  'build-device',
+  'build-simulator',
   'coverage',
   'dist',
   'node_modules',
@@ -291,4 +293,44 @@ export function mergeFileChanges(...groups: LoopFileChange[][]): LoopFileChange[
     }
   }
   return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Compare two `git diff HEAD` snapshots and return only paths whose dirty
+ * state changed during the iteration. This lets Git recover tracked edits
+ * that a bounded filesystem walk missed without re-reporting dirt that was
+ * already present before the iteration started.
+ */
+export function diffFileChangeSnapshots(
+  before: readonly LoopFileChange[],
+  after: readonly LoopFileChange[],
+): LoopFileChange[] {
+  const beforeByPath = new Map(before.map((change) => [change.path, change]));
+  const afterByPath = new Map(after.map((change) => [change.path, change]));
+  const paths = new Set([...beforeByPath.keys(), ...afterByPath.keys()]);
+  const changes: LoopFileChange[] = [];
+
+  for (const filePath of [...paths].sort()) {
+    const previous = beforeByPath.get(filePath);
+    const current = afterByPath.get(filePath);
+    if (sameFileChange(previous, current)) continue;
+    changes.push(current ?? {
+      path: filePath,
+      additions: 0,
+      deletions: 0,
+      contentHash: '',
+    });
+  }
+
+  return changes;
+}
+
+function sameFileChange(
+  left: LoopFileChange | undefined,
+  right: LoopFileChange | undefined,
+): boolean {
+  return left?.path === right?.path
+    && left?.additions === right?.additions
+    && left?.deletions === right?.deletions
+    && left?.contentHash === right?.contentHash;
 }

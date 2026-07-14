@@ -6,6 +6,7 @@ import {
   recordAuxiliaryAttribution,
   recordCostAttribution,
   recordInstanceTurnAttribution,
+  reserveAuxiliarySpend,
   getCostAttributionFilePath,
   _resetCostAttributionForTesting,
 } from './cost-attribution';
@@ -176,6 +177,28 @@ describe('cost-attribution', () => {
       _resetCostAttributionForTesting();
       recordAuxiliaryAttribution({ slot: 'compression', routedTo: 'local', escalatedToFrontier: false });
       expect(getCostAttributionFilePath()).toBeNull();
+    });
+
+    it('atomically reserves daily auxiliary spend before a cloud dispatch', () => {
+      const first = reserveAuxiliarySpend({
+        capUsd: 0.01,
+        amountUsd: 0.004,
+        slot: 'compression',
+        provider: 'openai-compatible',
+        endpointId: 'cloud-1',
+        model: 'gpt-5.4-mini',
+      });
+      const second = reserveAuxiliarySpend({
+        capUsd: 0.01,
+        amountUsd: 0.007,
+        slot: 'compression',
+        provider: 'openai-compatible',
+        endpointId: 'cloud-1',
+        model: 'gpt-5.4-mini',
+      });
+
+      expect(first).toEqual({ allowed: true, spentUsd: 0.004 });
+      expect(second).toEqual({ allowed: false, spentUsd: 0.004 });
     });
   });
 });

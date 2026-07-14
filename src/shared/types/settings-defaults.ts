@@ -151,6 +151,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)
   instanceProviderLimitResumeEnabled: false,
+  quotaPacingWarningEnabled: true,
+  quotaPacingUtilizationThresholdPercent: 90,
+  quotaPacingLatestElapsedPercent: 72,
 
   // Codebase auto-index defaults
   codebaseAutoIndexEnabled: false,
@@ -275,6 +278,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auxiliaryLlmRoutingMode: 'local-first',
   auxiliaryLlmAllowRemoteWorkerModels: true,
   auxiliaryLlmUseLocalhostOllama: true,
+  auxiliaryLlmDailySpendCapUsd: null,
   auxiliaryLlmEndpointsJson: '[]',
   auxiliaryLlmQuickModel: '',
   auxiliaryLlmQualityModel: '',

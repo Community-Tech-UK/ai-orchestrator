@@ -132,6 +132,7 @@ import type {
   ProviderId,
   ProviderQuotaSnapshot,
 } from '../../shared/types/provider-quota.types';
+import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { isProviderNotice } from '../cli/provider-notice';
 import { resolveIterationCost } from './loop-iteration-cost';
 import { isParkingDecision } from './loop-quota-throttle';
@@ -417,6 +418,11 @@ export class LoopCoordinator extends EventEmitter {
   /** Opt into riding paid overage credits (decision #3 alternative). */
   setAllowOverage(allow: boolean): void {
     this.providerLimitHandler.setAllowOverage(allow);
+  }
+
+  /** Bind the durable cross-runtime provider-limit ledger (runtime / tests). */
+  setProviderLimitLedger(ledger: Pick<ProviderLimitLedger, 'record' | 'getActive'> | null): void {
+    this.providerLimitHandler.setProviderLimitLedger(ledger);
   }
 
   /** Override provider-limit resume scheduling (production automation wiring / tests). */
@@ -1619,6 +1625,13 @@ export class LoopCoordinator extends EventEmitter {
       // quota window. At ≥90% (or exhausted, or already on paid overage) we
       // park instead of starting a turn that would spill into real money.
       if (state.status === 'running') {
+        const ledgerOutcome = this.providerLimitHandler.maybeParkKnownProviderLimit(
+          state,
+          this.downshiftModelByLoop.get(state.id) ?? null,
+        );
+        if (ledgerOutcome === 'terminated') return;
+        if (ledgerOutcome === 'parked') continue;
+
         const throttle = this.providerLimitHandler.evaluateLoopQuotaThrottle(state);
         if (throttle.action === 'downshift' && throttle.downshift) {
           this.downshiftModelByLoop.set(state.id, throttle.downshift.model);

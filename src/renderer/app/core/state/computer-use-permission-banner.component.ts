@@ -35,6 +35,11 @@ import type { DesktopSystemPermission } from '../../../../shared/types/desktop-g
             @if (store.error(); as err) {
               <span class="banner-error">{{ err }}</span>
             }
+            @if (store.repairReady()) {
+              <span class="repair-note">
+                Registrations reset. Enable both permissions, then restart AIO.
+              </span>
+            }
           </div>
         </div>
 
@@ -43,13 +48,33 @@ import type { DesktopSystemPermission } from '../../../../shared/types/desktop-g
             <button
               type="button"
               class="banner-btn primary"
-              [disabled]="store.requesting() !== null"
+              [disabled]="store.requesting() !== null || store.repairing()"
               [attr.aria-label]="'Open ' + label(permission) + ' settings'"
               (click)="request(permission)"
             >
               {{ store.requesting() === permission
                 ? 'Opening…'
                 : 'Open ' + label(permission) + ' settings' }}
+            </button>
+          }
+          @if (store.repairReady()) {
+            <button
+              type="button"
+              class="banner-btn primary"
+              aria-label="Restart AIO"
+              (click)="restart()"
+            >
+              Restart AIO
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="banner-btn"
+              [disabled]="store.requesting() !== null || store.repairing()"
+              aria-label="Repair macOS permissions"
+              (click)="repair()"
+            >
+              {{ store.repairing() ? 'Repairing…' : 'Repair permissions' }}
             </button>
           }
           <button
@@ -124,6 +149,10 @@ import type { DesktopSystemPermission } from '../../../../shared/types/desktop-g
       color: #fca5a5;
     }
 
+    .banner-copy .repair-note {
+      color: #fde68a;
+    }
+
     .banner-actions {
       flex: 0 0 auto;
       display: flex;
@@ -185,6 +214,14 @@ export class ComputerUsePermissionBannerComponent {
 
   protected async request(permission: DesktopSystemPermission): Promise<void> {
     await this.store.requestPermission(permission);
+  }
+
+  protected async repair(): Promise<void> {
+    await this.store.repairPermissions();
+  }
+
+  protected async restart(): Promise<void> {
+    await this.store.relaunchApplication();
   }
 
   protected dismiss(): void {

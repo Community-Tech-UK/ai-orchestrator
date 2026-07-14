@@ -58,6 +58,46 @@ describe('applyLoopPhaseRecovery', () => {
     expect(outstanding).toContain('Should audit gate mode be default?');
     expect(outstanding).toContain('Keep observe mode until smoke-tested.');
   });
+
+  it('does not attribute a global open-ledger blocker to a phase whose packet is complete', async () => {
+    fs.mkdirSync(stageMachine.paths.phasesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stageMachine.paths.phasesDir, 'phase-2.md'),
+      [
+        '## Phase 2: WS2',
+        '',
+        'Acceptance Criteria:',
+        '- Shared resilience is runtime-wired.',
+        '',
+        'Required Commands:',
+        '- npm run test:quiet',
+        '',
+        'Evidence:',
+        '- src/main/util/backoff.spec.ts:1',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      stageMachine.paths.tasks,
+      ['- [x] WS2 — shared resilience kit.', '- [ ] WS3 — redaction egress completion.', ''].join('\n'),
+      'utf8',
+    );
+    const state = minimalLoopState();
+    const finalAudit = failedAudit();
+
+    const decisions = [];
+    decisions.push(await applyLoopPhaseRecovery({ state, iteration: undefined, finalAudit, stageMachine }));
+    decisions.push(await applyLoopPhaseRecovery({ state, iteration: undefined, finalAudit, stageMachine }));
+    decisions.push(await applyLoopPhaseRecovery({ state, iteration: undefined, finalAudit, stageMachine }));
+
+    expect(decisions).toEqual([
+      { status: 'continue' },
+      { status: 'continue' },
+      { status: 'continue' },
+    ]);
+    expect(state.phaseRecovery).toBeUndefined();
+  });
 });
 
 function minimalLoopState(): LoopState {

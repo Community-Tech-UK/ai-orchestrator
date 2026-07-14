@@ -280,6 +280,7 @@ export function registerAuxiliaryLlmHandlers(): void {
         auxiliaryLlmRoutingMode?: string;
         auxiliaryLlmAllowRemoteWorkerModels?: boolean;
         auxiliaryLlmUseLocalhostOllama?: boolean;
+        auxiliaryLlmDailySpendCapUsd?: number | null;
         auxiliaryLlmEndpointsJson?: string;
         auxiliaryLlmSlotsJson?: string;
         auxiliaryLlmQuickModel?: string;
@@ -293,6 +294,7 @@ export function registerAuxiliaryLlmHandlers(): void {
         'auxiliaryLlmRoutingMode',
         'auxiliaryLlmAllowRemoteWorkerModels',
         'auxiliaryLlmUseLocalhostOllama',
+        'auxiliaryLlmDailySpendCapUsd',
         'auxiliaryLlmEndpointsJson',
         'auxiliaryLlmSlotsJson',
         'auxiliaryLlmQuickModel',
@@ -313,6 +315,7 @@ export function registerAuxiliaryLlmHandlers(): void {
         auxiliaryLlmRoutingMode: current.auxiliaryLlmRoutingMode,
         auxiliaryLlmAllowRemoteWorkerModels: current.auxiliaryLlmAllowRemoteWorkerModels,
         auxiliaryLlmUseLocalhostOllama: current.auxiliaryLlmUseLocalhostOllama,
+        auxiliaryLlmDailySpendCapUsd: current.auxiliaryLlmDailySpendCapUsd,
         auxiliaryLlmEndpointsJson: current.auxiliaryLlmEndpointsJson,
         auxiliaryLlmSlotsJson: current.auxiliaryLlmSlotsJson,
         auxiliaryLlmQuickModel: current.auxiliaryLlmQuickModel,

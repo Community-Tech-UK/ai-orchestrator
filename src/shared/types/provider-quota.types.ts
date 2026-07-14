@@ -126,3 +126,18 @@ export interface ProviderQuotaAlert {
   /** Epoch ms. */
   timestamp: number;
 }
+
+/**
+ * Early-warning alert for a quota window that is being consumed faster than
+ * the window is elapsing. Only windows with a known fixed duration can emit
+ * this alert, so calendar/unknown windows never get a fabricated pace.
+ */
+export interface ProviderQuotaPacingAlert {
+  provider: ProviderId;
+  window: ProviderQuotaWindow;
+  utilizationPercent: number;
+  elapsedPercent: number;
+  utilizationThresholdPercent: number;
+  latestElapsedPercent: number;
+  timestamp: number;
+}

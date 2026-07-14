@@ -24,6 +24,23 @@
   }
 }
 
+.cu-card__actions,
+.cu-repair-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cu-repair-status {
+  justify-content: space-between;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.1);
+  font-size: 12px;
+}
+
 .cu-btn {
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
   background: transparent;

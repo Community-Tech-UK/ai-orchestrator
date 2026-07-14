@@ -94,10 +94,7 @@ function loadScale(): number {
 
 // ─── Abstract Base Client ───────────────────────────────────────────────────
 
-/**
- * Base class for JSON-RPC communication with the Codex app-server.
- * Subclasses implement transport-specific `sendMessage()` and `close()`.
- */
+/** Base JSON-RPC client shared by direct and broker transports. */
 export abstract class AppServerClientBase {
   readonly cwd: string;
   readonly transport: 'direct' | 'broker';
@@ -119,6 +116,9 @@ export abstract class AppServerClientBase {
   getExitError(): Error | null {
     return this.exitError;
   }
+
+  isRunning(): boolean { return !this.closed; }
+  getPid(): number | undefined { return undefined; }
 
   constructor(cwd: string, transport: 'direct' | 'broker') {
     this.cwd = cwd;
@@ -432,7 +432,7 @@ class SpawnedAppServerClient extends AppServerClientBase {
   }
 
   /** Returns the PID of the spawned process, if running. */
-  getPid(): number | undefined {
+  override getPid(): number | undefined {
     return this.proc?.pid;
   }
 }

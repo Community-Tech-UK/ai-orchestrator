@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  diffFileChangeSnapshots,
   snapshotFileChangesViaGit,
   snapshotFileChangesViaWorkspace,
   snapshotWorkspaceFiles,
@@ -88,6 +89,27 @@ describe('snapshotWorkspaceFiles (filesystem walk)', () => {
     const changes = snapshotFileChangesViaWorkspace(before, workspace, { maxFiles: testSnapshotCap });
     expect(changes.map((c) => c.path)).toContain('unstablepvp/src/main/java/Main.java');
   }, 30_000);
+
+  it('does not let generated Xcode build-device output exhaust the snapshot before source files', () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-snap-'));
+    const testSnapshotCap = 10;
+    for (let i = 0; i < 12; i++) {
+      write(
+        workspace,
+        `apps/mobile/ios/build-device/Build/Intermediates.noindex/object-${i}.o`,
+        `object ${i}`,
+      );
+    }
+    write(workspace, 'src/main/orchestration/loop-coordinator.ts', 'export const version = 1;');
+
+    const before = snapshotWorkspaceFiles(workspace, { maxFiles: testSnapshotCap });
+    write(workspace, 'src/main/orchestration/loop-coordinator.ts', 'export const version = 2;');
+
+    const changes = snapshotFileChangesViaWorkspace(before, workspace, { maxFiles: testSnapshotCap });
+    expect(changes.map((change) => change.path)).toContain(
+      'src/main/orchestration/loop-coordinator.ts',
+    );
+  });
 });
 
 describe('snapshotFileChangesViaGit', () => {
@@ -154,5 +176,20 @@ describe('snapshotFileChangesViaGit', () => {
       vi.doUnmock('fs');
       vi.resetModules();
     }
+  });
+});
+
+describe('diffFileChangeSnapshots', () => {
+  it('reports a tracked file changed during the iteration even when it was already dirty', () => {
+    const before = [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'before' }];
+    const after = [{ path: 'src/app.ts', additions: 2, deletions: 0, contentHash: 'after' }];
+
+    expect(diffFileChangeSnapshots(before, after)).toEqual(after);
+  });
+
+  it('does not report unchanged pre-existing git dirt', () => {
+    const dirty = [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'same' }];
+
+    expect(diffFileChangeSnapshots(dirty, dirty)).toEqual([]);
   });
 });

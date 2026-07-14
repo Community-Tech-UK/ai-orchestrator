@@ -95,6 +95,7 @@ export const INFRASTRUCTURE_CHANNELS = {
   QUOTA_SET_POLL_INTERVAL: 'quota:set-poll-interval',
   QUOTA_UPDATED: 'quota:updated',
   QUOTA_WARNING: 'quota:warning',
+  QUOTA_PACING_WARNING: 'quota:pacing-warning',
   QUOTA_EXHAUSTED: 'quota:exhausted',
 
   // Usage Statistics

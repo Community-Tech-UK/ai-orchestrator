@@ -8,7 +8,10 @@ import type {
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { AutomationPreflightReport, AutomationTemplate } from '../../../../shared/types/task-preflight.types';
-import type { ReasoningEffort } from '../../../../shared/types/provider.types';
+import {
+  getPrimaryModelForProvider,
+  type ReasoningEffort,
+} from '../../../../shared/types/provider.types';
 import { NO_WORKSPACE_KEY } from '../../../../shared/utils/workspace-key';
 import { AutomationStore, type AutomationDraft } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
@@ -365,44 +368,45 @@ export class AutomationsPageComponent {
 
   // --- Model picker ----------------------------------------------------------
 
-  /**
-   * Providers offered by the inline model picker, locked to the form's chosen
-   * provider so the picker lists that provider's models only. Empty when the
-   * provider is "auto" (the picker is hidden and the orchestrator chooses).
-   */
-  readonly modelPickerProviders = computed<PickerProvider[]>(() => {
-    const provider = this.form().provider;
-    return provider && provider !== 'auto' ? [provider as PickerProvider] : [];
-  });
+  /** Same concrete provider set offered by the main-session model picker. */
+  readonly modelPickerProviders = computed<PickerProvider[]>(() => [
+    'claude',
+    'codex',
+    'gemini',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+  ]);
 
   /**
-   * Current picker selection derived from the form. Null when the provider is
-   * "auto"; the template only renders the picker for a concrete provider, so
-   * the non-null assertion at the binding site is safe.
+   * Current picker selection derived from the form. The picker is only rendered
+   * for a pinned provider; Claude is a defensive fallback while the form is in
+   * automatic mode.
    */
-  readonly modelPickerSelection = computed<PendingSelection | null>(() => {
+  readonly modelPickerSelection = computed<PendingSelection>(() => {
     const model = this.form();
-    if (!model.provider || model.provider === 'auto') {
-      return null;
-    }
     return {
-      provider: model.provider as PickerProvider,
+      provider: model.provider && model.provider !== 'auto'
+        ? model.provider as PickerProvider
+        : 'claude',
       model: model.model || null,
       reasoning: (model.reasoningEffort || null) as ReasoningEffort | null,
     };
   });
 
-  /**
-   * Provider `<select>` change. A model id is provider-specific, so switching
-   * provider invalidates any pinned model and its reasoning tier — clear both
-   * so the picker re-seeds to the new provider's default instead of carrying a
-   * stale, unrunnable model id.
-   */
-  onProviderChange(provider: AutomationFormModel['provider']): void {
-    if (provider === this.form().provider) {
-      return;
+  useAutomaticModelSelection(): void {
+    this.patchForm({ provider: 'auto', model: '', reasoningEffort: '' });
+  }
+
+  pinModelSelection(): void {
+    if (this.form().provider === 'auto') {
+      this.patchForm({
+        provider: 'claude',
+        model: getPrimaryModelForProvider('claude') ?? '',
+        reasoningEffort: '',
+      });
     }
-    this.patchForm({ provider, model: '', reasoningEffort: '' });
   }
 
   /**
@@ -412,9 +416,18 @@ export class AutomationsPageComponent {
    * existing effort rather than silently clearing it.
    */
   onModelPicked(selection: PendingSelection): void {
-    const patch: Partial<AutomationFormModel> = { model: selection.model ?? '' };
+    // Local runtimes require a node/runtime target that automation actions do
+    // not currently persist, and are intentionally absent from providers.
+    if (selection.provider === 'local-model') return;
+    const current = this.form();
+    const patch: Partial<AutomationFormModel> = {
+      provider: selection.provider,
+      model: selection.model ?? '',
+    };
     if (selection.reasoning !== null) {
       patch.reasoningEffort = selection.reasoning as AutomationFormModel['reasoningEffort'];
+    } else if (selection.provider !== current.provider) {
+      patch.reasoningEffort = '';
     }
     this.patchForm(patch);
   }
@@ -422,7 +435,7 @@ export class AutomationsPageComponent {
   async save(): Promise<void> {
     const model = this.form();
     const report = await this.runPreflightForForm();
-    if (!report?.okToSave || (report.warnings.length > 0 && !this.preflightAcknowledged())) {
+    if (!report?.okToSave) {
       return;
     }
 

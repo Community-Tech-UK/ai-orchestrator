@@ -3,6 +3,7 @@ import type {
   ProviderId,
   ProviderQuotaSnapshot,
 } from '../../shared/types/provider-quota.types';
+import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { getLogger } from '../logging/logger';
 import {
   evaluateQuotaThrottle,
@@ -19,6 +20,7 @@ export class LoopProviderLimitHandler {
   private quotaSnapshotProvider: (provider: ProviderId) => ProviderQuotaSnapshot | null = () => null;
   private quotaSnapshotRefresher: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null = null;
   private allowOverage = false;
+  private providerLimitLedger: Pick<ProviderLimitLedger, 'record' | 'getActive'> | null = null;
   private resumeCancellers = new Map<string, () => void>();
   private providerLimitResumeScheduler: ProviderLimitResumeScheduler | null = null;
 
@@ -40,6 +42,10 @@ export class LoopProviderLimitHandler {
 
   setAllowOverage(allow: boolean): void {
     this.allowOverage = allow;
+  }
+
+  setProviderLimitLedger(ledger: Pick<ProviderLimitLedger, 'record' | 'getActive'> | null): void {
+    this.providerLimitLedger = ledger;
   }
 
   setProviderLimitResumeScheduler(scheduler: ProviderLimitResumeScheduler | null): void {
@@ -69,6 +75,31 @@ export class LoopProviderLimitHandler {
 
   deriveProviderLimitResume(state: LoopState): { resumeAt: number | null; windowId?: string } {
     return this.deriveResumeFromSnapshot(this.readQuotaSnapshot(state));
+  }
+
+  /**
+   * Avoid rediscovering an active limit observed by another runtime. A loop
+   * has no persisted resolved model, so model-scoped lookup is used only for
+   * an active downshift; the normal lookup safely consults account scope.
+   */
+  maybeParkKnownProviderLimit(
+    state: LoopState,
+    model: string | null = null,
+  ): 'parked' | 'terminated' | 'skipped' {
+    const knownLimit = this.providerLimitLedger?.getActive({
+      provider: this.quotaIdForLoopProvider(state),
+      model,
+      now: Date.now(),
+    });
+    if (!knownLimit) return 'skipped';
+
+    return this.handleProviderLimit(state, {
+      reason: `Parked on a recorded provider limit from ${knownLimit.source}`,
+      resumeAt: knownLimit.resumeAt,
+      source: 'quota',
+      action: 'throttle',
+      recordLimit: false,
+    });
   }
 
   async deriveProviderLimitResumeAfterRefresh(
@@ -127,6 +158,8 @@ export class LoopProviderLimitHandler {
       action: QuotaThrottleDecision['action'] | 'notice' | 'wakeup';
       windowId?: string;
       mustStop?: boolean;
+      /** False when parking from an existing durable gate rather than a new signal. */
+      recordLimit?: boolean;
     },
   ): 'parked' | 'terminated' | 'skipped' {
     const now = Date.now();
@@ -138,6 +171,27 @@ export class LoopProviderLimitHandler {
     }
 
     const willResume = typeof reset === 'number' && reset > now;
+    if (willResume && opts.recordLimit !== false) {
+      try {
+        this.providerLimitLedger?.record({
+          provider: this.quotaIdForLoopProvider(state),
+          // The loop config does not retain the router's resolved model.
+          // Persist account scope instead of guessing a model-specific gate.
+          model: null,
+          detectedAt: now,
+          resumeAt: reset as number,
+          source: `loop-${opts.source}`,
+          instanceId: state.id,
+        });
+      } catch (err) {
+        // A durability failure must not turn a valid limit signal into a paid retry.
+        logger.warn('Failed to record loop provider limit in durable ledger', {
+          loopRunId: state.id,
+          provider: this.quotaIdForLoopProvider(state),
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     this.deps.emit('loop:provider-limit', {
       loopRunId: state.id,
       reason: opts.reason,

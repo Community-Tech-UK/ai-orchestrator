@@ -371,6 +371,34 @@ describe('CodexCliAdapter', () => {
   });
 
   describe('dual-mode configuration', () => {
+    it('reports app-server transport liveness and its direct child PID', () => {
+      const adapter = new CodexCliAdapter();
+      const client = {
+        getPid: vi.fn(() => 43_210),
+        isRunning: vi.fn(() => true),
+      };
+      (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+
+      expect(adapter.isRunning()).toBe(true);
+      expect(adapter.getPid()).toBe(43_210);
+    });
+
+    it('does not expose a stale app-server PID after the transport exits', () => {
+      const adapter = new CodexCliAdapter();
+      const client = {
+        getPid: vi.fn(() => 43_210),
+        isRunning: vi.fn(() => false),
+      };
+      (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+
+      expect(adapter.isRunning()).toBe(false);
+      expect(adapter.getPid()).toBeNull();
+    });
+
     it('reports supportsNativeCompaction=false when not in app-server mode', () => {
       const adapter = new CodexCliAdapter();
       expect(adapter.getRuntimeCapabilities().supportsNativeCompaction).toBe(false);

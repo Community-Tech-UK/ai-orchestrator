@@ -131,6 +131,14 @@ export class ComputerUseSettingsTabComponent implements OnInit {
     await this.permissions.requestPermission(permission);
   }
 
+  async repairPermissions(): Promise<void> {
+    await this.permissions.repairPermissions();
+  }
+
+  async restartApplication(): Promise<void> {
+    await this.permissions.relaunchApplication();
+  }
+
   async revokeGrant(grantId: string): Promise<void> {
     const response = await this.desktop.revokeGrant({ grantId, reason: 'Revoked from Settings' });
     if (response.success) {

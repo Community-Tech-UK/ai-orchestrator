@@ -381,6 +381,16 @@ export class AdvancedSettingsTabComponent {
       ],
     },
     {
+      id: 'quota-pacing-heading',
+      title: 'Quota pacing',
+      description: 'Early warnings when a known provider quota window is being used faster than its time budget. Calendar and unknown windows are excluded because their elapsed time cannot be measured reliably.',
+      keys: [
+        'quotaPacingWarningEnabled',
+        'quotaPacingUtilizationThresholdPercent',
+        'quotaPacingLatestElapsedPercent',
+      ],
+    },
+    {
       id: 'project-knowledge-mirror-heading',
       title: 'Knowledge Graph auto-build',
       description: 'Keeps the Knowledge Graph up to date as you work by copying code structure into it automatically. Leave the defaults unless the auto-build is too slow on large projects.',

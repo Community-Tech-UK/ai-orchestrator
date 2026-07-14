@@ -22,6 +22,8 @@ import { SettingsStore } from './settings.store';
 
 export const MANUAL_SETTINGS_INSTRUCTION
   = 'Could not open System Settings. Open Privacy & Security manually.';
+export const PERMISSION_REPAIR_FAILED
+  = 'Could not repair Harness permissions in macOS.';
 
 export const PERMISSION_LABELS: Record<DesktopSystemPermission, string> = {
   'screen-recording': 'Screen Recording',
@@ -40,12 +42,16 @@ export class ComputerUsePermissionStore {
   private readonly _error = signal<string | null>(null);
   private readonly _dismissed = signal(false);
   private readonly _requesting = signal<DesktopSystemPermission | null>(null);
+  private readonly _repairing = signal(false);
+  private readonly _repairReady = signal(false);
   private refreshInFlight: Promise<void> | null = null;
 
   readonly health = this._health.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
   readonly requesting = this._requesting.asReadonly();
+  readonly repairing = this._repairing.asReadonly();
+  readonly repairReady = this._repairReady.asReadonly();
 
   /** The store is inert unless all three activation conditions hold. */
   readonly active = computed(() =>
@@ -184,6 +190,41 @@ export class ComputerUsePermissionStore {
     }
   }
 
+  /**
+   * Clear only Harness's stale macOS permission registrations, then start the
+   * normal Screen Recording registration flow. Accessibility remains a
+   * separate explicit click so native permission prompts never stack.
+   */
+  async repairPermissions(): Promise<void> {
+    if (!this.active() || this._requesting() !== null || this._repairing()) {
+      return;
+    }
+    this._repairing.set(true);
+    this._error.set(null);
+    try {
+      const response = await this.desktop.repairSystemPermissions();
+      if (!response.success || !response.data?.relaunchRequired) {
+        throw new Error(PERMISSION_REPAIR_FAILED);
+      }
+      this._repairReady.set(true);
+      await this.requestPermission('screen-recording');
+    } catch {
+      this._error.set(PERMISSION_REPAIR_FAILED);
+    } finally {
+      this._repairing.set(false);
+    }
+  }
+
+  async relaunchApplication(): Promise<void> {
+    if (!this.active() || !this._repairReady()) {
+      return;
+    }
+    const response = await this.desktop.relaunchApplication();
+    if (!response.success) {
+      this._error.set(response.error?.message ?? 'Could not restart AIO.');
+    }
+  }
+
   /** Collapse the banner into the chip for the current enabled period. Not persisted. */
   dismissBanner(): void {
     this._dismissed.set(true);
@@ -212,5 +253,7 @@ export class ComputerUsePermissionStore {
     this._error.set(null);
     this._dismissed.set(false);
     this._requesting.set(null);
+    this._repairing.set(false);
+    this._repairReady.set(false);
   }
 }

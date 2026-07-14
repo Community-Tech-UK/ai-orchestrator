@@ -14,10 +14,24 @@ function createClientDispatchHarness() {
 
   return Reflect.construct(Base, ['/tmp/project', 'direct']) as {
     handleLine(line: string): void;
+    handleExit(error?: Error): void;
+    isRunning(): boolean;
     setContextDiagnosticsCollector(collector: CodexContextPressureCollector | null): void;
     setNotificationHandler(handler: ((notification: { method: string; params: Record<string, unknown> }) => void) | null): void;
   };
 }
+
+describe('app-server transport liveness', () => {
+  it('reports running until the transport exits', () => {
+    const client = createClientDispatchHarness();
+
+    expect(client.isRunning()).toBe(true);
+
+    client.handleExit(new Error('synthetic disconnect'));
+
+    expect(client.isRunning()).toBe(false);
+  });
+});
 
 describe('app-server notification diagnostics', () => {
   it('records allowed transport notifications before the primary handler with a hashed thread correlation', () => {

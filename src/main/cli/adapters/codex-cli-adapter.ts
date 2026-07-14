@@ -545,10 +545,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return fakePid;
   }
 
-  /**
-   * Sends a message and emits events.
-   * Routes to app-server or exec mode based on current configuration.
-   */
+  override isRunning(): boolean { return this.useAppServer ? this.isSpawned && (this.appServerClient?.isRunning() ?? false) : super.isRunning(); }
+  override getPid(): number | null { return this.useAppServer && this.appServerClient?.isRunning() ? this.appServerClient.getPid() ?? null : super.getPid(); }
+
+  /** Sends input through app-server or exec mode and emits normalized events. */
   protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
@@ -859,7 +859,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           if (candidate?.id) {
             const requestedSessionId = candidate.id;
             try {
-              const resumeResult = await client.request('thread/resume', {
+              const resumeResult = await resumeThreadWithRetry(client, {
                 threadId: requestedSessionId,
                 cwd,
                 model: this.cliConfig.model || null,
@@ -898,7 +898,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         if (scanResult) {
           try {
             const requestedSessionId = scanResult.threadId;
-            const resumeResult = await client.request('thread/resume', {
+            const resumeResult = await resumeThreadWithRetry(client, {
               threadId: requestedSessionId,
               cwd,
               model: this.cliConfig.model || null,
