@@ -16,8 +16,14 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
 }));
 
 import { CodexCliAdapter } from './codex-cli-adapter';
+import * as codexCliAdapterModule from './codex-cli-adapter';
 import { CodexHomeManager } from './codex/codex-home-manager';
+import type {
+  CodexContextDiagnosticRecord,
+  CodexContextDiagnosticSink,
+} from './codex/context-pressure-diagnostics';
 import { createMockProcess } from './codex-cli-adapter.test-helpers';
+import { getLogger } from '../../logging/logger';
 
 // These tests drive the adapter through real PassThrough streams and real
 // `setTimeout`-scheduled process output rather than fake timers, so the default
@@ -27,14 +33,342 @@ import { createMockProcess } from './codex-cli-adapter.test-helpers';
 // unchanged, only the deadline is relaxed.
 vi.setConfig({ testTimeout: 15_000, hookTimeout: 15_000 });
 
+const originalContextDiagnosticsFlag = process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'];
+
+function restoreContextDiagnosticsFlag(): void {
+  if (originalContextDiagnosticsFlag === undefined) {
+    delete process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'];
+  } else {
+    process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] = originalContextDiagnosticsFlag;
+  }
+}
+
+function createSyntheticTurnClient(notifications: Array<{ method: string; params: Record<string, unknown> }>) {
+  const client = {
+    notificationHandler: null as ((notification: { method: string; params: Record<string, unknown> }) => void) | null,
+    exitPromise: new Promise<void>(() => {
+      // Intentionally pending for the lifetime of the synthetic turn.
+    }),
+    request: vi.fn(async (method: string) => {
+      if (method !== 'turn/start') throw new Error(`Unexpected synthetic RPC: ${method}`);
+      for (const notification of notifications) {
+        client.notificationHandler?.(notification);
+      }
+      return { turn: { id: 'turn-1', status: 'inProgress' } };
+    }),
+    setNotificationHandler(handler: typeof client.notificationHandler): void {
+      this.notificationHandler = handler;
+    },
+  };
+  return client;
+}
+
+async function runCompleteSyntheticTurn(adapter: CodexCliAdapter) {
+  const notifications = [
+    {
+      method: 'turn/started',
+      params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+    },
+    {
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'command-1', type: 'commandExecution', command: 'synthetic-command', aggregatedOutput: 'ok', exitCode: 0 },
+      },
+    },
+    {
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'thread-1',
+        tokenUsage: {
+          last: { totalTokens: 120, inputTokens: 100, cachedInputTokens: 80, outputTokens: 20, reasoningOutputTokens: 4 },
+          total: { totalTokens: 500, inputTokens: 450, cachedInputTokens: 300, outputTokens: 50, reasoningOutputTokens: 10 },
+          modelContextWindow: 1_000,
+        },
+      },
+    },
+    {
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'message-1', type: 'agentMessage', phase: 'final_answer', text: 'Synthetic assistant response' },
+      },
+    },
+    {
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-1',
+        turn: {
+          id: 'turn-1',
+          status: 'completed',
+          usage: { input_tokens: 100, output_tokens: 20 },
+        },
+      },
+    },
+  ];
+  const client = createSyntheticTurnClient(notifications);
+  const outputs: Array<{ content: string; type: string }> = [];
+  const contexts: Array<{ total: number; used: number }> = [];
+  const completions: Array<{ content: string }> = [];
+  adapter.on('output', (output: { content: string; type: string }) => outputs.push(output));
+  adapter.on('context', (context: { total: number; used: number }) => contexts.push(context));
+  adapter.on('complete', (response: { content: string }) => completions.push(response));
+  (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+  (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+  await (adapter as unknown as {
+    appServerSendMessageInner(message: string): Promise<void>;
+  }).appServerSendMessageInner('Synthetic user message');
+
+  return { completions, contexts, outputs };
+}
+
 describe('CodexCliAdapter', () => {
   afterEach(() => {
+    restoreContextDiagnosticsFlag();
     listBrowserApprovalRequestsMock.mockReset();
     listBrowserApprovalRequestsMock.mockReturnValue([]);
     vi.restoreAllMocks();
   });
 
   // ─── New tests for app-server hardening (Phase 2/3) ────────────────
+
+  describe('context-pressure diagnostics', () => {
+    it('enables diagnostics only for the exact flag value 1', () => {
+      const isEnabled = (codexCliAdapterModule as unknown as {
+        isCodexContextDiagnosticsEnabled?: (env?: NodeJS.ProcessEnv) => boolean;
+      }).isCodexContextDiagnosticsEnabled;
+
+      expect(isEnabled).toBeTypeOf('function');
+      expect(isEnabled?.({ AIO_CODEX_CONTEXT_DIAGNOSTICS: '1' })).toBe(true);
+      expect(isEnabled?.({ AIO_CODEX_CONTEXT_DIAGNOSTICS: 'true' })).toBe(false);
+      expect(isEnabled?.({ AIO_CODEX_CONTEXT_DIAGNOSTICS: '01' })).toBe(false);
+      expect(isEnabled?.({})).toBe(false);
+    });
+
+    it('is disabled by default and leaves a complete app-server turn unchanged', async () => {
+      delete process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'];
+      const diagnosticInfo = vi.spyOn(getLogger('CodexContextDiagnostics'), 'info');
+      const adapter = new CodexCliAdapter();
+
+      const result = await runCompleteSyntheticTurn(adapter);
+
+      expect(diagnosticInfo).not.toHaveBeenCalled();
+      expect((adapter as unknown as { contextDiagnostics: unknown }).contextDiagnostics).toBeNull();
+      expect(result.outputs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'assistant', content: 'Synthetic assistant response' }),
+      ]));
+      expect(result.contexts).toEqual([
+        expect.objectContaining({ used: 120, total: 1_000 }),
+      ]);
+      expect(result.completions).toEqual([
+        expect.objectContaining({ content: 'Synthetic assistant response' }),
+      ]);
+    });
+
+    it('records the enabled root/subagent lifecycle in numeric order', () => {
+      process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] = '1';
+      const records: CodexContextDiagnosticRecord[] = [];
+      vi.spyOn(getLogger('CodexContextDiagnostics'), 'info').mockImplementation((message, data) => {
+        if (message === 'context-pressure-observation') {
+          records.push(data as unknown as CodexContextDiagnosticRecord);
+        }
+      });
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+
+      for (const notification of [
+        { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } },
+        { method: 'item/completed', params: { threadId: 'thread-1', item: { type: 'commandExecution', aggregatedOutput: 'abc' } } },
+        {
+          method: 'thread/tokenUsage/updated',
+          params: {
+            threadId: 'thread-1',
+            tokenUsage: {
+              last: { totalTokens: 100, inputTokens: 90, cachedInputTokens: 50, outputTokens: 10, reasoningOutputTokens: 4 },
+              total: { totalTokens: 500, inputTokens: 450, cachedInputTokens: 300, outputTokens: 50, reasoningOutputTokens: 20 },
+              modelContextWindow: 1_000,
+            },
+          },
+        },
+        { method: 'item/completed', params: { threadId: 'subagent-1', item: { type: 'dynamicToolCall', output: 'subagent-output' } } },
+        { method: 'item/completed', params: { threadId: 'thread-1', item: { type: 'mcpToolCall', output: 'xy' } } },
+        {
+          method: 'thread/tokenUsage/updated',
+          params: {
+            threadId: 'thread-1',
+            tokenUsage: {
+              last: { totalTokens: 140, inputTokens: 125, cachedInputTokens: 70, outputTokens: 15, reasoningOutputTokens: 6 },
+              total: { totalTokens: 580, inputTokens: 520, cachedInputTokens: 340, outputTokens: 60, reasoningOutputTokens: 26 },
+              modelContextWindow: 1_000,
+            },
+          },
+        },
+        { method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } } },
+      ]) {
+        internals.handleTurnNotification(state, notification);
+      }
+
+      expect(records.map((record) => record.kind)).toEqual([
+        'turn-start',
+        'item-completed',
+        'token-usage',
+        'item-completed',
+        'item-completed',
+        'token-usage',
+        'turn-complete',
+      ]);
+      expect(records.filter((record) => record.kind === 'item-completed')).toEqual([
+        expect.objectContaining({ itemSequence: 1, itemClass: 'command', rootThread: true }),
+        expect.objectContaining({ itemSequence: 2, itemClass: 'dynamic', rootThread: false }),
+        expect.objectContaining({ itemSequence: 3, itemClass: 'mcp', rootThread: true }),
+      ]);
+      expect(records.filter((record) => record.kind === 'token-usage')).toEqual([
+        expect.objectContaining({ requestSequence: 1, rootItemsSincePreviousUsage: 1 }),
+        expect.objectContaining({ requestSequence: 2, rootItemsSincePreviousUsage: 1 }),
+      ]);
+      expect(records.at(-1)).toMatchObject({
+        kind: 'turn-complete',
+        requestSequence: 2,
+        rootItems: 2,
+        subagentItems: 1,
+        completionStatus: 'completed',
+      });
+    });
+
+    it.each([
+      ['failed', 'failed'],
+      ['interrupted', 'interrupted'],
+      [null, 'unknown'],
+    ] as const)('records %s terminal turns as %s', (turnStatus, expectedStatus) => {
+      process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] = '1';
+      const records: CodexContextDiagnosticRecord[] = [];
+      vi.spyOn(getLogger('CodexContextDiagnostics'), 'info').mockImplementation((message, data) => {
+        if (message === 'context-pressure-observation') records.push(data as unknown as CodexContextDiagnosticRecord);
+      });
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        completeTurn(state: unknown, turn: { id: string; status: string } | null): void;
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(state: unknown, notification: { method: string; params: Record<string, unknown> }): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      internals.handleTurnNotification(state, {
+        method: 'turn/started',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+      });
+
+      if (turnStatus === null) {
+        internals.completeTurn(state, null);
+      } else {
+        internals.handleTurnNotification(state, {
+          method: 'turn/completed',
+          params: { threadId: 'thread-1', turn: { id: 'turn-1', status: turnStatus } },
+        });
+      }
+
+      expect(records.at(-1)).toMatchObject({
+        kind: 'turn-complete',
+        completionStatus: expectedStatus,
+      });
+    });
+
+    it('finishes an abandoned active diagnostic turn as unknown in capture cleanup', async () => {
+      process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] = '1';
+      const records: CodexContextDiagnosticRecord[] = [];
+      vi.spyOn(getLogger('CodexContextDiagnostics'), 'info').mockImplementation((message, data) => {
+        if (message === 'context-pressure-observation') records.push(data as unknown as CodexContextDiagnosticRecord);
+      });
+      const adapter = new CodexCliAdapter({ timeout: 1 });
+      const client = createSyntheticTurnClient([{
+        method: 'turn/started',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+      }]);
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+      vi.useFakeTimers();
+      try {
+        const capture = (adapter as unknown as { captureTurn(input: unknown[]): Promise<unknown> })
+          .captureTurn([{ type: 'text', text: 'synthetic', text_elements: [] }]);
+        const rejection = expect(capture).rejects.toThrow(/no notifications received/i);
+        await vi.advanceTimersByTimeAsync(2);
+        await rejection;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(records.at(-1)).toMatchObject({
+        kind: 'turn-complete',
+        completionStatus: 'unknown',
+      });
+    });
+
+    it('records manual compaction RPC stages without changing the existing return values', async () => {
+      process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] = '1';
+      const records: CodexContextDiagnosticRecord[] = [];
+      vi.spyOn(getLogger('CodexContextDiagnostics'), 'info').mockImplementation((message, data) => {
+        if (message === 'context-pressure-observation') {
+          records.push(data as unknown as CodexContextDiagnosticRecord);
+        }
+      });
+      const adapter = new CodexCliAdapter();
+      const request = vi.fn()
+        .mockResolvedValueOnce({ success: true })
+        .mockRejectedValueOnce(new Error('synthetic compaction failure'));
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+      await expect(adapter.compactContext()).resolves.toBe(true);
+      await expect(adapter.compactContext()).resolves.toBe(false);
+
+      expect(records.filter((record) => record.kind === 'compaction-rpc')).toEqual([
+        expect.objectContaining({ stage: 'requested' }),
+        expect.objectContaining({ stage: 'accepted' }),
+        expect.objectContaining({ stage: 'requested' }),
+        expect.objectContaining({ stage: 'failed' }),
+      ]);
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(request).toHaveBeenNthCalledWith(1, 'thread/compact/start', { threadId: 'thread-1' });
+      expect(request).toHaveBeenNthCalledWith(2, 'thread/compact/start', { threadId: 'thread-1' });
+    });
+
+    it('isolates a throwing sink and logs one bounded warning while the turn completes normally', async () => {
+      process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] = '1';
+      const warning = vi.spyOn(getLogger('CodexContextDiagnostics'), 'warn').mockImplementation(() => undefined);
+      const adapter = new CodexCliAdapter();
+      const throwingSink: CodexContextDiagnosticSink = {
+        write: () => {
+          throw new Error('synthetic sink failure containing raw notification data');
+        },
+      };
+      (adapter as unknown as { contextDiagnosticsSink: CodexContextDiagnosticSink }).contextDiagnosticsSink = throwingSink;
+
+      const result = await runCompleteSyntheticTurn(adapter);
+
+      expect(result.outputs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'assistant', content: 'Synthetic assistant response' }),
+      ]));
+      expect(result.contexts).toEqual([
+        expect.objectContaining({ used: 120, total: 1_000 }),
+      ]);
+      expect(result.completions).toHaveLength(1);
+      expect(warning).toHaveBeenCalledTimes(1);
+      expect(warning).toHaveBeenCalledWith('Context-pressure diagnostic write failed');
+      expect(JSON.stringify(warning.mock.calls)).not.toContain('synthetic sink failure');
+      expect(JSON.stringify(warning.mock.calls)).not.toContain('thread/tokenUsage/updated');
+    });
+  });
 
   describe('dual-mode configuration', () => {
     it('reports supportsNativeCompaction=false when not in app-server mode', () => {
@@ -299,6 +633,98 @@ describe('CodexCliAdapter', () => {
         cumulativeTokens: 500_000,
         isEstimated: true,
       });
+    });
+
+    it('maps camelCase incident usage fields to current occupancy and cumulative processing', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      const contextEvents: { cumulativeTokens?: number; percentage: number; total: number; used: number }[] = [];
+      adapter.on('context', (usage) => contextEvents.push(usage));
+
+      internals.handleTurnNotification(state, {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          tokenUsage: {
+            last: {
+              totalTokens: 242_865,
+              inputTokens: 242_356,
+              cachedInputTokens: 241_408,
+              outputTokens: 509,
+              reasoningOutputTokens: 301,
+            },
+            total: {
+              totalTokens: 18_910_442,
+              inputTokens: 18_885_729,
+              cachedInputTokens: 18_555_136,
+              outputTokens: 24_713,
+              reasoningOutputTokens: 10_153,
+            },
+            modelContextWindow: 258_400,
+          },
+        },
+      });
+
+      expect(contextEvents).toHaveLength(1);
+      expect(contextEvents[0]).toMatchObject({
+        used: 242_865,
+        total: 258_400,
+        cumulativeTokens: 18_910_442,
+      });
+      expect(contextEvents[0].percentage).toBeCloseTo(93.9880, 4);
+    });
+
+    it('maps snake_case incident usage fields to current occupancy and cumulative processing', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      const contextEvents: { cumulativeTokens?: number; percentage: number; total: number; used: number }[] = [];
+      adapter.on('context', (usage) => contextEvents.push(usage));
+
+      internals.handleTurnNotification(state, {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          token_usage: {
+            last_token_usage: {
+              total_tokens: 242_865,
+              input_tokens: 242_356,
+              cached_input_tokens: 241_408,
+              output_tokens: 509,
+              reasoning_output_tokens: 301,
+            },
+            total_token_usage: {
+              total_tokens: 18_910_442,
+              input_tokens: 18_885_729,
+              cached_input_tokens: 18_555_136,
+              output_tokens: 24_713,
+              reasoning_output_tokens: 10_153,
+            },
+            model_context_window: 258_400,
+          },
+        },
+      });
+
+      expect(contextEvents).toHaveLength(1);
+      expect(contextEvents[0]).toMatchObject({
+        used: 242_865,
+        total: 258_400,
+        cumulativeTokens: 18_910_442,
+      });
+      expect(contextEvents[0].percentage).toBeCloseTo(93.9880, 4);
     });
 
     it('emits assistant deltas with a stable id and reconciles the final item', () => {

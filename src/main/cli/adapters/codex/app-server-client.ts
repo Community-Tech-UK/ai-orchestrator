@@ -16,6 +16,7 @@
  */
 
 import { ChildProcess, spawn, spawnSync } from 'child_process';
+import { createHash } from 'node:crypto';
 import net from 'net';
 import readline from 'readline';
 import { getLogger } from '../../../logging/logger';
@@ -41,6 +42,7 @@ import {
   DEFAULT_OPT_OUT_NOTIFICATIONS,
   SERVICE_NAME,
 } from './app-server-types';
+import type { CodexContextPressureCollector } from './context-pressure-diagnostics';
 
 const logger = getLogger('CodexAppServerClient');
 
@@ -96,7 +98,7 @@ function loadScale(): number {
  * Base class for JSON-RPC communication with the Codex app-server.
  * Subclasses implement transport-specific `sendMessage()` and `close()`.
  */
-abstract class AppServerClientBase {
+export abstract class AppServerClientBase {
   readonly cwd: string;
   readonly transport: 'direct' | 'broker';
 
@@ -106,6 +108,7 @@ abstract class AppServerClientBase {
   protected lineBuffer = '';
   /** Current notification handler. Public for save/restore in turn capture. */
   notificationHandler: AppServerNotificationHandler | null = null;
+  private contextDiagnosticsCollector: CodexContextPressureCollector | null = null;
   protected exitError: Error | null = null;
 
   /** Resolves when the connection/process exits. */
@@ -131,6 +134,10 @@ abstract class AppServerClientBase {
    */
   setNotificationHandler(handler: AppServerNotificationHandler | null): void {
     this.notificationHandler = handler;
+  }
+
+  setContextDiagnosticsCollector(collector: CodexContextPressureCollector | null): void {
+    this.contextDiagnosticsCollector = collector;
   }
 
   /**
@@ -259,8 +266,10 @@ abstract class AppServerClientBase {
 
     // Notification (no id field, has method)
     if ('method' in message && typeof message['method'] === 'string') {
+      const notification = message as unknown as AppServerNotification;
+      this.recordTransportContextDiagnostics(notification);
       if (this.notificationHandler) {
-        this.notificationHandler(message as unknown as AppServerNotification);
+        this.notificationHandler(notification);
       }
       return;
     }
@@ -271,6 +280,21 @@ abstract class AppServerClientBase {
         id: message['id'],
         error: { code: -32601, message: 'Method not supported by client' },
       });
+    }
+  }
+
+  private recordTransportContextDiagnostics(notification: AppServerNotification): void {
+    const collector = this.contextDiagnosticsCollector;
+    if (!collector) return;
+    if (notification.method !== 'thread/tokenUsage/updated' && notification.method !== 'thread/compacted') return;
+
+    try {
+      const threadId = notification.params?.['threadId'];
+      if (typeof threadId !== 'string') return;
+      const correlation = createHash('sha256').update(threadId).digest('hex').slice(0, 12);
+      collector.recordTransportNotification(notification, correlation);
+    } catch {
+      // Transport diagnostics are observational and must never affect routing.
     }
   }
 
