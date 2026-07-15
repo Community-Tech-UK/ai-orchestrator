@@ -63,7 +63,6 @@ describe('local macOS signer', () => {
     expect(signApp).toHaveBeenCalledExactlyOnceWith({
       ...options,
       identity: 'AAA111',
-      timestamp: 'none',
     });
     expect(verifyIdentity).toHaveBeenCalledExactlyOnceWith('/tmp/Harness.app');
   });
@@ -85,7 +84,6 @@ describe('local macOS signer', () => {
       app: '/tmp/Harness.app',
       platform: 'darwin',
       identity: 'RELEASE-CERTIFICATE-HASH',
-      timestamp: 'none',
     });
   });
 });
