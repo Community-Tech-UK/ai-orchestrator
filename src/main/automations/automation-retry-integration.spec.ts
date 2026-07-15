@@ -236,6 +236,107 @@ describe('AutomationRunner retry/streak interaction (B10b)', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Tests: wait-failures (awaiting human approval/input) are NOT retried
+//
+// Regression guard: a guarded automation whose session parks at
+// waiting_for_permission previously failed AND retried up to maxAttempts,
+// spawning an identical parked session per attempt. Those failures are
+// deterministic ("needs a human"), so they must fail once without retrying.
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('AutomationRunner wait-failures are non-retryable', () => {
+  let db: SqliteDriver;
+  let store: AutomationStore;
+  let capturedRetries: { originalRun: AutomationRun; nextAttempt: number; maxAttempts: number; delayMs: number }[];
+
+  beforeEach(() => {
+    resetAutomationEventsForTesting();
+    db = createDb();
+    store = makeStore(db, 3);
+    capturedRetries = [];
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function makeRunner(maxRetryAttempts = 3, baseDelay = 100): AutomationRunner {
+    const runner = new AutomationRunner(
+      store,
+      getAutomationEvents(),
+      () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }),
+      maxRetryAttempts,
+      baseDelay,
+    );
+    runner.setRetryScheduler((originalRun, nextAttempt, maxAttempts, delayMs) => {
+      capturedRetries.push({ originalRun, nextAttempt, maxAttempts, delayMs });
+    });
+    return runner;
+  }
+
+  it('handleTerminalRun with retryable=false skips the retry loop even when attempts remain', async () => {
+    const id = await createTestAutomation(store);
+    const runner = makeRunner(3);
+
+    const automation = await store.get(id);
+    const d = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000, { maxAttempts: 3, attempt: 1 });
+    if (d.kind !== 'started') return;
+
+    const reason = 'Automation requires unattended permission approval';
+    const failedRun = store.terminalizeRun(d.run.id, 'failed', reason, undefined, 2_000)!;
+
+    // attempt 1 of 3 — retryable path would normally schedule a retry here.
+    (runner as unknown as {
+      handleTerminalRun: (r: AutomationRun, o?: { retryable?: boolean }) => void;
+    }).handleTerminalRun(failedRun, { retryable: false });
+
+    // No retry scheduled → no duplicate parked session.
+    expect(capturedRetries).toHaveLength(0);
+    // Recorded as a final give-up: streak advances by exactly one, same as it
+    // would after exhausting retries — semantics preserved, duplicates removed.
+    const after = await store.get(id);
+    expect(after?.consecutiveFailures).toBe(1);
+    expect(after?.lastFailureReason).toBe(reason);
+  });
+
+  it('a run parked at waiting_for_permission fails once without scheduling retries', async () => {
+    const id = await createTestAutomation(store);
+    const runner = makeRunner(3);
+
+    const automation = await store.get(id);
+    const d = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000, { maxAttempts: 3, attempt: 1 });
+    if (d.kind !== 'started') return;
+
+    const instanceId = 'inst-parked';
+    // Seed the runner's tracking as if this instance was dispatched for the run.
+    (runner as unknown as {
+      trackingByInstance: Map<string, { runId: string; automationId: string; seenAssistantOutput: boolean; outputChunks: unknown[] }>;
+      instanceByRun: Map<string, string>;
+    }).trackingByInstance.set(instanceId, {
+      runId: d.run.id,
+      automationId: id,
+      seenAssistantOutput: false,
+      outputChunks: [],
+    });
+    (runner as unknown as { instanceByRun: Map<string, string> }).instanceByRun.set(d.run.id, instanceId);
+
+    // The session reaches the permission gate — drive the reconcile path.
+    (runner as unknown as { reconcileInstanceState: (i: unknown) => void }).reconcileInstanceState({
+      id: instanceId,
+      status: 'waiting_for_permission',
+      outputBuffer: [],
+    });
+
+    // Wait-failure: run fails, but no retry is armed (no duplicate spawns).
+    expect(capturedRetries).toHaveLength(0);
+    const after = await store.get(id);
+    expect(after?.consecutiveFailures).toBe(1);
+    expect(after?.lastFailureReason).toBe('Automation requires unattended permission approval');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Tests: scheduler timer lifecycle
 // ──────────────────────────────────────────────────────────────────────────────
 

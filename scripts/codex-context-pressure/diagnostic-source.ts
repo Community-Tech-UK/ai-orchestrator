@@ -15,6 +15,7 @@ import {
   type AnalysisTimelineEvent,
   type CodexContextAnalysisSummary,
   type DiagnosticKind,
+  type ItemClass,
 } from './types';
 
 export async function parseDiagnosticLog(path: string, state: AnalysisState): Promise<void> {
@@ -64,7 +65,7 @@ function sanitizeDiagnosticRecord(value: unknown, sequence: number): AnalysisTim
       return withNumbers(base, data, ['turnSequence', 'baselineUsedTokens']);
     case 'item-completed': {
       const itemClass = data['itemClass'];
-      if (!ITEM_CLASSES.has(itemClass as never)
+      if (!ITEM_CLASSES.has(itemClass as ItemClass)
         || typeof data['rootThread'] !== 'boolean'
         || !validNumbers(data, [
           'turnSequence', 'itemSequence', 'observedPayloadBytes', 'serializedItemBytes',

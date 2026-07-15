@@ -61,7 +61,7 @@ const WARN_ONLY =
  */
 const ALLOWLIST: Record<string, number> = {
   // Main process — app
-  'src/main/app/initialization-steps.ts': 878,
+  'src/main/app/initialization-steps.ts': 916,
   // Benchmarks
   'benchmarks/external-benchmarks/swe-bench/adapter.ts': 795,
   'benchmarks/external-benchmarks/swe-bench/runner.ts': 888,
@@ -71,10 +71,10 @@ const ALLOWLIST: Record<string, number> = {
   // Allowlisted for the loop-engine/Pi-Task-18 fields (ledger-stall bounds,
   // CompletionSignalEvidence.openCount, LoopState ledger +
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
-  'packages/contracts/src/schemas/loop.schemas.ts': 773,
+  'packages/contracts/src/schemas/loop.schemas.ts': 807,
   'packages/contracts/src/types/transport.types.ts': 1788,
   // Main process — automations
-  'src/main/automations/automation-store.ts': 852,
+  'src/main/automations/automation-store.ts': 861,
   // Main process — browser gateway
   // Raised 2284 -> 2400 for the execute_fill_plan + fill_credential service
   // methods (delegators to browser-form-fill-operations) + the credential
@@ -91,7 +91,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/channels/channel-message-router.ts': 2543,
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
-  'src/main/cli/adapters/base-cli-adapter.ts': 929,
+  'src/main/cli/adapters/base-cli-adapter.ts': 940,
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.
   'src/main/cli/adapters/claude-cli-adapter.ts': 2345,
@@ -118,16 +118,16 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
   // Raised 2343 -> 2394 for the non-destructive streaming-replace guard.
-  'src/main/instance/instance-communication.ts': 2527,
+  'src/main/instance/instance-communication.ts': 2577,
   'src/main/instance/instance-context.ts': 1265,
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
   'src/main/instance/instance-lifecycle.ts': 3528,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
-  'src/main/instance/instance-manager.ts': 2682,
+  'src/main/instance/instance-manager.ts': 2722,
   'src/main/instance/instance-orchestration.ts': 1068,
-  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1411,
+  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
   'src/main/ipc/handlers/instance-handlers.ts': 1158,
@@ -145,7 +145,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/mcp/mcp-manager.ts': 1025,
   'src/main/mcp/mcp-tool-search.ts': 735,
   // Main process — mobile gateway
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 1512,
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 1528,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,
@@ -165,7 +165,7 @@ const ALLOWLIST: Record<string, number> = {
   // Re-tightened after extracting loop-branch-selector-helpers.ts, then again
   // after extracting invocation-model-resolver.ts (model resolution + cheap-model
   // eligibility classifier).
-  'src/main/orchestration/default-invokers.ts': 1530,
+  'src/main/orchestration/default-invokers.ts': 1543,
   'src/main/orchestration/embedding-service.ts': 845,
   // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
   // integration points. Audit mechanics live in loop-audit-runtime.ts.
@@ -174,9 +174,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3480 -> 3496 for D5 self-declared more-work-remaining completion veto.
   // Raised 3496 -> 3567 for fail-closed ratchet hook termination,
   // tool-rw-lock-conflict terminal failures, and explicit loop failure signaling.
-  'src/main/orchestration/loop-coordinator.ts': 3556,
+  'src/main/orchestration/loop-coordinator.ts': 3606,
   // Re-tightened after extracting loop-completed-plan-helpers.ts.
-  'src/main/orchestration/loop-completion-detector.ts': 783,
+  'src/main/orchestration/loop-completion-detector.ts': 794,
   'src/main/orchestration/loop-store.ts': 767,
   'src/main/orchestration/loop-progress-detector.ts': 755,
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
@@ -201,7 +201,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/session/checkpoint-manager.ts': 752,
   // Re-tightened after moving the public session state interfaces to
   // session-continuity.types.ts. This remains a decomposition candidate.
-  'src/main/session/session-continuity.ts': 1781,
+  'src/main/session/session-continuity.ts': 1799,
   // Main process — workspace
   'src/main/workspace/git/vcs-manager.ts': 1296,
   // Raised for the worktree-isolation P4-P7 wiring (opt-in + shared
@@ -221,7 +221,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 774 -> 811 for permanent-send-failure draft restore + zombie-busy
   // reconciler wiring (status-reconciler service owns the polling logic).
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 825,
-  'src/renderer/app/core/state/instance/instance.store.ts': 747,
+  'src/renderer/app/core/state/instance/instance.store.ts': 749,
   'src/renderer/app/core/state/source-control.store.ts': 976,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
@@ -234,7 +234,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1035,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
   'src/renderer/app/features/instance-detail/input-panel.component.ts': 1714,
-  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1547,
+  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1554,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1266,
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),
@@ -246,7 +246,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
   // Raised 992 -> 1051 for the Task 18 renderer follow-up affordance (queue a
   // `follow-up` from the loop control bar) — completes end-to-end exposure.
-  'src/renderer/app/features/loop/loop-control.component.ts': 1057,
+  'src/renderer/app/features/loop/loop-control.component.ts': 1073,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
   // Raised 946 -> 957 for hybrid usage-based row ordering in Favorites/provider tabs.

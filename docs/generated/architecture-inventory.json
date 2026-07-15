@@ -5454,7 +5454,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3525
+      "lines": 3549
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
@@ -5885,10 +5885,6 @@
       "lines": 1159
     },
     {
-      "path": "scripts/analyze-codex-context-pressure.ts",
-      "lines": 1154
-    },
-    {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1151
     },
@@ -6081,6 +6077,10 @@
       "lines": 976
     },
     {
+      "path": "src/main/automations/automation-retry-integration.spec.ts",
+      "lines": 973
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-21-mcp-multi-provider-management-design.md",
       "lines": 969
     },
@@ -6195,10 +6195,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-error-recovery-resilience.COMPLETED.md",
       "lines": 876
-    },
-    {
-      "path": "src/main/automations/automation-retry-integration.spec.ts",
-      "lines": 872
     },
     {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",

@@ -329,11 +329,16 @@ export class AutomationRunner {
     }
 
     if (WAIT_STATUSES.has(event.status)) {
+      // A run that parks awaiting human approval/input is a deterministic
+      // "needs a human" outcome, not a transient error — retrying just spawns
+      // an identical session that walks to the same gate and re-parks. Mark it
+      // non-retryable so the run fails once without duplicating sessions.
       this.failTrackedInstance(
         envelope.instanceId,
         event.status === 'waiting_for_permission'
           ? 'Automation requires unattended permission approval'
           : 'Automation requires unattended user input',
+        { retryable: false },
       );
       return;
     }
@@ -376,11 +381,14 @@ export class AutomationRunner {
     }
 
     if (WAIT_STATUSES.has(instance.status)) {
+      // See handleInstanceEvent: parking for human approval/input is not a
+      // transient failure, so it must not trigger the retry loop.
       this.failTrackedInstance(
         instance.id,
         instance.status === 'waiting_for_permission'
           ? 'Automation requires unattended permission approval'
           : 'Automation requires unattended user input',
+        { retryable: false },
       );
       return;
     }
@@ -394,6 +402,7 @@ export class AutomationRunner {
     instanceId: string,
     status: Exclude<AutomationRunStatus, 'pending' | 'running'>,
     error?: string,
+    options?: { retryable?: boolean },
   ): void {
     const tracking = this.trackingByInstance.get(instanceId);
     if (!tracking) {
@@ -415,11 +424,15 @@ export class AutomationRunner {
       return;
     }
 
-    this.handleTerminalRun(run);
+    this.handleTerminalRun(run, options);
   }
 
-  private failTrackedInstance(instanceId: string, reason: string): void {
-    this.completeTrackedInstance(instanceId, 'failed', reason);
+  private failTrackedInstance(
+    instanceId: string,
+    reason: string,
+    options?: { retryable?: boolean },
+  ): void {
+    this.completeTrackedInstance(instanceId, 'failed', reason, options);
   }
 
   private isOneTimeRun(run: AutomationRun): boolean {
@@ -451,7 +464,11 @@ export class AutomationRunner {
     return this.threadWakeupRunner;
   }
 
-  private handleTerminalRun(run: AutomationRun): void {
+  private handleTerminalRun(run: AutomationRun, options?: { retryable?: boolean }): void {
+    // Whether a failed run is eligible for the retry/backoff loop. Wait-failures
+    // (awaiting human approval/input) pass retryable=false so they fail once
+    // instead of re-spawning duplicate parked sessions up to maxAttempts.
+    const retryable = options?.retryable ?? true;
     this.events.emitRunChanged({ automationId: run.automationId, run });
     this.events.emitRunTerminal({
       automationId: run.automationId,
@@ -490,7 +507,7 @@ export class AutomationRunner {
     if (run.status === 'failed') {
       const attempt = run.attempt ?? 1;
       const maxAttempts = run.maxAttempts ?? 1;
-      if (attempt < maxAttempts && this.retryScheduler) {
+      if (retryable && attempt < maxAttempts && this.retryScheduler) {
         const delayMs = computeRetryDelayMs(run.automationId, attempt, this.baseRetryDelayMs);
         logger.info('Scheduling automation retry', {
           automationId: run.automationId,
@@ -544,6 +561,7 @@ export class AutomationRunner {
       // failed AND attempt < maxAttempts AND a retryScheduler is registered.
       const hasRetryPending =
         run.status === 'failed' &&
+        retryable &&
         (run.attempt ?? 1) < (run.maxAttempts ?? 1) &&
         this.retryScheduler !== null;
       if (!hasRetryPending) {
