@@ -896,6 +896,9 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     crossModelReviewOnStarted: (callback: (data: unknown) => void) =>
       ipcRenderer.on('cross-model-review:started', (_e, data) => callback(data)),
 
+    crossModelReviewOnDiscarded: (callback: (data: unknown) => void) =>
+      ipcRenderer.on(ch.CROSS_MODEL_REVIEW_DISCARDED, (_e, data) => callback(data)),
+
     crossModelReviewOnAllUnavailable: (callback: (data: unknown) => void) =>
       ipcRenderer.on('cross-model-review:all-unavailable', (_e, data) => callback(data)),
 

@@ -333,6 +333,10 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       message.content,
       provider as string,
       firstUserPrompt,
+      message.id,
+      typeof message.metadata?.['accumulatedContent'] === 'string'
+        ? message.metadata['accumulatedContent']
+        : undefined,
     );
   });
 
@@ -359,6 +363,9 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   });
   crossModelReview.on('review:result', (data) => {
     windowManager.sendToRenderer('cross-model-review:result', data);
+  });
+  crossModelReview.on('review:discarded', (data) => {
+    windowManager.sendToRenderer(IPC_CHANNELS.CROSS_MODEL_REVIEW_DISCARDED, data);
   });
   crossModelReview.on('review:all-unavailable', (data) => {
     windowManager.sendToRenderer('cross-model-review:all-unavailable', data);

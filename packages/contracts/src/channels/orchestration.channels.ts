@@ -111,6 +111,7 @@ export const ORCHESTRATION_CHANNELS = {
   // Cross-Model Review
   CROSS_MODEL_REVIEW_RESULT: 'cross-model-review:result',
   CROSS_MODEL_REVIEW_STARTED: 'cross-model-review:started',
+  CROSS_MODEL_REVIEW_DISCARDED: 'cross-model-review:discarded',
   CROSS_MODEL_REVIEW_ALL_UNAVAILABLE: 'cross-model-review:all-unavailable',
   CROSS_MODEL_REVIEW_REVIEWER_UNAVAILABLE: 'cross-model-review:reviewer-unavailable',
   CROSS_MODEL_REVIEW_REVIEWER_RATE_LIMITED: 'cross-model-review:reviewer-rate-limited',
