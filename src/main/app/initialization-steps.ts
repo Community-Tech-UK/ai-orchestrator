@@ -94,6 +94,7 @@ import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
+import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autostart';
 
 const logger = getLogger('AppInitialization');
 const CODEMEM_MAINTENANCE_COOLDOWN_MS = 30 * 60 * 1000;
@@ -297,6 +298,7 @@ export function createInitializationSteps(
       },
     },
     { name: 'Pause feature', fn: () => initializePauseFeatureRuntime() },
+    { name: 'Worker mode autostart', fn: () => { maybeStartWorkerModeOnLaunch(); } },
     { name: 'Hook approvals', fn: () => getHookManager().loadApprovals() },
     {
       name: 'Remote observer',

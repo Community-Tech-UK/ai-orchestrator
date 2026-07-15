@@ -6154,7 +6154,7 @@
     },
     {
       "path": "src/main/app/initialization-steps.ts",
-      "lines": 917
+      "lines": 919
     },
     {
       "path": "src/main/context/context-compactor.ts",
