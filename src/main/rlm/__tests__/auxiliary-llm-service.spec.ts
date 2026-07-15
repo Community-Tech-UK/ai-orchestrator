@@ -94,6 +94,7 @@ function baseSettings(overrides: Partial<{
   auxiliaryLlmRoutingMode: 'off' | 'local-first' | 'cheap-first' | 'manual-only';
   auxiliaryLlmAllowRemoteWorkerModels: boolean;
   auxiliaryLlmUseLocalhostOllama: boolean;
+  auxiliaryLlmDailySpendCapUsd: number | null;
   auxiliaryLlmEndpointsJson: string;
   auxiliaryLlmSlotsJson: string;
   auxiliaryLlmQuickModel: string;
@@ -104,6 +105,7 @@ function baseSettings(overrides: Partial<{
     auxiliaryLlmRoutingMode: 'local-first' as const,
     auxiliaryLlmAllowRemoteWorkerModels: true,
     auxiliaryLlmUseLocalhostOllama: true,
+    auxiliaryLlmDailySpendCapUsd: null,
     auxiliaryLlmEndpointsJson: '[]',
     auxiliaryLlmQuickModel: '',
     auxiliaryLlmQualityModel: '',
@@ -193,6 +195,25 @@ describe('AuxiliaryLlmService — local-first routing', () => {
     expect(mocks.generateOpenAi).not.toHaveBeenCalled();
   });
 
+  it('retries a transient auxiliary generation failure through the shared backoff policy', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(true);
+    mocks.listOllama.mockResolvedValue([
+      { id: 'llama3', name: 'llama3', provider: 'ollama', endpointId: 'aaa' },
+    ]);
+    mocks.generateOllama.mockReset()
+      .mockRejectedValueOnce(new Error('temporary network timeout'))
+      .mockResolvedValueOnce('recovered auxiliary result');
+    service.configure(baseSettings());
+
+    const { text, decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(text).toBe('recovered auxiliary result');
+    expect(decision.source).toBe('local');
+    expect(mocks.generateOllama).toHaveBeenCalledTimes(2);
+  });
+
   it('falls back to next endpoint when localhost Ollama is unhealthy', async () => {
     const service = await getService();
     const mocks = await getMocks();
@@ -248,6 +269,86 @@ describe('AuxiliaryLlmService — local-first routing', () => {
     const request = mocks.generateOpenAi.mock.calls[0]?.[2];
     expect(request?.systemPrompt).toBe('sys prompt \uD83D\uDE00 zerowidth');
     expect(request?.userPrompt).toBe('user prompt \uD83D\uDE00 zerowidth');
+  });
+});
+
+describe('AuxiliaryLlmService — daily spend cap', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { AuxiliaryLlmService } = await import('../auxiliary-llm-service');
+    AuxiliaryLlmService._resetForTesting();
+  });
+
+  it('does not dispatch a priced cloud call whose worst-case cost exceeds the configured cap', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([
+      { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini', provider: 'openai-compatible', endpointId: 'ep1' },
+    ]);
+
+    service.configure(baseSettings({
+      auxiliaryLlmRoutingMode: 'manual-only',
+      auxiliaryLlmDailySpendCapUsd: 0.000001,
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'ep1', label: 'Metered cloud', provider: 'openai-compatible',
+        baseUrl: 'https://example.invalid', source: 'manual', enabled: true,
+      }]),
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', endpointId: 'ep1', model: 'gpt-5.4-mini', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
+      }),
+    }));
+
+    const { decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(decision.source).toBe('fallback');
+    expect(decision.allowFrontierFallback).toBe(false);
+    expect(decision.reason).toContain('daily spend cap');
+    expect(mocks.generateOpenAi).not.toHaveBeenCalled();
+  });
+
+  it('keeps local auxiliary execution available when the cap is zero', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(true);
+    mocks.listOllama.mockResolvedValue([
+      { id: 'llama3', name: 'llama3', provider: 'ollama', endpointId: 'local' },
+    ]);
+    mocks.generateOllama.mockResolvedValue('local result');
+    service.configure(baseSettings({ auxiliaryLlmDailySpendCapUsd: 0 }));
+
+    const { text, decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(text).toBe('local result');
+    expect(decision.source).toBe('local');
+    expect(mocks.generateOllama).toHaveBeenCalledOnce();
+  });
+
+  it('does not dispatch an unknown-priced cloud model while the cap is active', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([
+      { id: 'private-model', name: 'private-model', provider: 'openai-compatible', endpointId: 'ep1' },
+    ]);
+    service.configure(baseSettings({
+      auxiliaryLlmRoutingMode: 'manual-only',
+      auxiliaryLlmDailySpendCapUsd: 1,
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'ep1', label: 'Private cloud', provider: 'openai-compatible',
+        baseUrl: 'https://example.invalid', source: 'manual', enabled: true,
+      }]),
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', endpointId: 'ep1', model: 'private-model', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
+      }),
+    }));
+
+    const { decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(decision.source).toBe('fallback');
+    expect(decision.allowFrontierFallback).toBe(false);
+    expect(decision.reason).toContain('no known price');
+    expect(mocks.generateOpenAi).not.toHaveBeenCalled();
   });
 });
 

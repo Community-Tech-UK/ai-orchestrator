@@ -21,6 +21,8 @@ import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { initializeArtifactCleanupMaintenance } from '../session/artifact-cleanup-maintenance';
+import { getProviderEventCaptureService } from '../conversation-ledger/provider-event-capture-service';
+import { initializeProviderEventCaptureMaintenance } from '../conversation-ledger/provider-event-capture-maintenance';
 import { registerBuiltinTerminationGates } from '../session/builtin-termination-gates';
 import { initLastStopSnapshot } from '../session/last-stop-snapshot';
 import { registerCompactionSummaryRenderer } from '../display-items/compaction-summary-renderer';
@@ -90,6 +92,7 @@ import {
 } from './remote-gateway-initialization-steps';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
 
 const logger = getLogger('AppInitialization');
@@ -124,6 +127,19 @@ export function createInitializationSteps(
           getConversationLedgerService();
         } catch (error) {
           logger.warn('Conversation ledger initialization failed; IPC handlers will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Provider event capture',
+      fn: () => {
+        try {
+          getProviderEventCaptureService().start(instanceManager);
+          initializeProviderEventCaptureMaintenance();
+        } catch (error) {
+          logger.warn('Provider event capture initialization failed; fixture capture is unavailable this session', {
             error: error instanceof Error ? error.message : String(error),
           });
         }
@@ -190,6 +206,7 @@ export function createInitializationSteps(
                 auxiliaryLlmRoutingMode: settings.get('auxiliaryLlmRoutingMode'),
                 auxiliaryLlmAllowRemoteWorkerModels: settings.get('auxiliaryLlmAllowRemoteWorkerModels'),
                 auxiliaryLlmUseLocalhostOllama: settings.get('auxiliaryLlmUseLocalhostOllama'),
+                auxiliaryLlmDailySpendCapUsd: settings.get('auxiliaryLlmDailySpendCapUsd'),
                 auxiliaryLlmEndpointsJson: settings.get('auxiliaryLlmEndpointsJson'),
                 auxiliaryLlmSlotsJson: settings.get('auxiliaryLlmSlotsJson'),
                 auxiliaryLlmQuickModel: settings.get('auxiliaryLlmQuickModel'),
@@ -205,6 +222,27 @@ export function createInitializationSteps(
           settings.on('setting-changed', applyAuxiliaryConfig);
         } catch (error) {
           logger.warn('Auxiliary LLM service initialization failed; helper calls will use primary LLM', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Quota pacing',
+      fn: () => {
+        try {
+          const settings = getSettingsManager();
+          const applyQuotaPacingConfig = () => {
+            getProviderQuotaService().configurePacing({
+              enabled: settings.get('quotaPacingWarningEnabled'),
+              utilizationThresholdPercent: settings.get('quotaPacingUtilizationThresholdPercent'),
+              latestElapsedPercent: settings.get('quotaPacingLatestElapsedPercent'),
+            });
+          };
+          applyQuotaPacingConfig();
+          settings.on('setting-changed', applyQuotaPacingConfig);
+        } catch (error) {
+          logger.warn('Quota pacing initialization failed; default pacing thresholds remain active', {
             error: error instanceof Error ? error.message : String(error),
           });
         }

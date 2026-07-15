@@ -784,20 +784,26 @@ vi.mock('../../../shared/types/command.types', () => ({
 // ---------------------------------------------------------------------------
 // RLM database mock (avoid SQLite binary issues)
 // ---------------------------------------------------------------------------
-vi.mock('../../persistence/rlm-database', () => ({
-  RLMDatabase: vi.fn().mockImplementation(() => ({
+vi.mock('../../persistence/rlm-database', () => {
+  const rawDb = {
+    prepareCached: vi.fn(() => ({
+      run: vi.fn(() => ({ changes: 0, lastInsertRowid: 0 })),
+      get: vi.fn(() => undefined),
+      all: vi.fn(() => []),
+    })),
+  };
+  const rlmDatabase = {
     initialize: vi.fn().mockResolvedValue(undefined),
     query: vi.fn().mockReturnValue([]),
     insert: vi.fn(),
     close: vi.fn(),
-  })),
-  getRLMDatabase: vi.fn(() => ({
-    initialize: vi.fn().mockResolvedValue(undefined),
-    query: vi.fn().mockReturnValue([]),
-    insert: vi.fn(),
-    close: vi.fn(),
-  })),
-}));
+    getRawDb: vi.fn(() => rawDb),
+  };
+  return {
+    RLMDatabase: vi.fn().mockImplementation(() => rlmDatabase),
+    getRLMDatabase: vi.fn(() => rlmDatabase),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Codemem mock — CodememService's field initializer calls `new Database()`

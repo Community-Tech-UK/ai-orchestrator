@@ -121,7 +121,17 @@ import type {
                 (submitted)="onSubmit(session)"
               />
             } @else {
-              <p class="decided-note">Decided {{ session.decidedAt ? formatTime(session.decidedAt) : '' }} — {{ statusLabel(session) }}.</p>
+              <p class="decided-note">
+                Decided {{ session.decidedAt ? formatTime(session.decidedAt) : '' }} — {{ statusLabel(session) }}.
+                @if (session.delivery; as delivery) {
+                  Delivery: {{ delivery.status }} via {{ delivery.mechanism }}
+                  @if (delivery.targetInstanceId) { to {{ delivery.targetInstanceId }} }
+                  @if (delivery.lastError) { — {{ delivery.lastError }} }
+                  @if (delivery.status !== 'delivered') {
+                    <button type="button" [disabled]="store.busy()" (click)="retryDelivery(session)">Retry delivery</button>
+                  }
+                }
+              </p>
             }
           } @else {
             <p class="empty">Loading artifact…</p>
@@ -249,6 +259,10 @@ export class DocReviewPageComponent {
     const overall = this.overall();
     if (!overall) return;
     await this.store.submit(session.id, overall, toItemDecisions(this.itemStates()), this.general() || undefined);
+  }
+
+  async retryDelivery(session: DocReviewSession): Promise<void> {
+    await this.store.retryDelivery(session.id);
   }
 
   formatTime(ts: number): string {

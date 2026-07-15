@@ -30,4 +30,11 @@ describe('NewSessionComponent structure', () => {
     expect(source).toContain('(submit)="create($event)"');
     expect(source).toContain('buildCreateInstanceRequest');
   });
+
+  it('wires reasoning effort into the model sheet and session request', () => {
+    expect(source).toContain('[reasoningOptions]="reasoningOptions()"');
+    expect(source).toContain('[selectedReasoning]="reasoningEffort()"');
+    expect(source).toContain('(chooseReasoning)="chooseReasoningEffort($event)"');
+    expect(source).toContain('reasoningEffort: this.reasoningEffort()');
+  });
 });

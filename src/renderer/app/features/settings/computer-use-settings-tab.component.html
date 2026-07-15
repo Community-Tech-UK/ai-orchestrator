@@ -13,9 +13,20 @@
   <section class="cu-card" aria-label="Driver health">
     <header class="cu-card__header">
       <h3>Permissions & health</h3>
-      <button type="button" class="cu-btn" (click)="refresh()" [disabled]="loading() || permissions.loading()">
-        {{ (loading() || permissions.loading()) ? 'Refreshing…' : 'Refresh' }}
-      </button>
+      <div class="cu-card__actions">
+        <button
+          type="button"
+          class="cu-btn"
+          aria-label="Repair macOS permissions"
+          (click)="repairPermissions()"
+          [disabled]="!permissionsEnabled() || permissions.repairing() || permissions.requesting() !== null"
+        >
+          {{ permissions.repairing() ? 'Repairing…' : 'Repair macOS permissions' }}
+        </button>
+        <button type="button" class="cu-btn" (click)="refresh()" [disabled]="loading() || permissions.loading()">
+          {{ (loading() || permissions.loading()) ? 'Refreshing…' : 'Refresh' }}
+        </button>
+      </div>
     </header>
 
     @if (error(); as err) {
@@ -23,6 +34,19 @@
     }
     @if (permissions.error(); as err) {
       <p class="cu-error">{{ err }}</p>
+    }
+    @if (permissions.repairReady()) {
+      <div class="cu-repair-status" role="status">
+        <span>Registrations reset. Enable both permissions, then restart AIO.</span>
+        <button
+          type="button"
+          class="cu-btn"
+          aria-label="Restart AIO"
+          (click)="restartApplication()"
+        >
+          Restart AIO
+        </button>
+      </div>
     }
 
     @if (health(); as h) {

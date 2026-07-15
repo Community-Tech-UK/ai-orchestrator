@@ -98,8 +98,14 @@ import {
 } from './codex/exec-helpers';
 import { CompactionGate } from './codex/compaction-gate';
 import { recoverFromInputCap } from './codex/input-cap-recovery';
+import { CodexContextPressureCollector, type CodexContextDiagnosticRecord, type CodexContextDiagnosticSink } from './codex/context-pressure-diagnostics';
 
 const logger = getLogger('CodexCliAdapter');
+const contextDiagnosticsLogger = getLogger('CodexContextDiagnostics');
+
+export function isCodexContextDiagnosticsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] === '1';
+}
 // ─── Local Types ────────────────────────────────────────────────────────────
 
 type CodexApprovalMode = 'suggest' | 'auto-edit' | 'full-auto';
@@ -223,6 +229,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private cumulativeCostUsd = 0;
   /** Per-turn token occupancy from the most recent API call (for context bar). */
   private lastTurnTokens = 0;
+  private readonly contextDiagnostics: CodexContextPressureCollector | null;
+  private contextDiagnosticsSink: CodexContextDiagnosticSink | null;
+  private contextDiagnosticsWarningLogged = false;
   /** Whether we've received a thread/tokenUsage/updated notification (accurate source). */
   private hasTokenUsageNotification = false;
   /** Bounded gate that lets a per-turn-cap retry wait for compaction to land. */
@@ -300,8 +309,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
     super(adapterConfig);
 
     this.cliConfig = config;
+    this.contextDiagnosticsSink = isCodexContextDiagnosticsEnabled()
+      ? { write: (record) => contextDiagnosticsLogger.info('context-pressure-observation', record as Record<string, unknown>) }
+      : null;
+    this.contextDiagnostics = this.contextDiagnosticsSink ? new CodexContextPressureCollector({ write: (record) => this.writeContextDiagnosticRecord(record) }) : null;
     this.sessionId = config.sessionId || `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.shouldResumeNextTurn = Boolean(this.supportsNativeResume() && config.resume && config.sessionId);
+  }
+
+  private writeContextDiagnosticRecord(record: CodexContextDiagnosticRecord): void {
+    try {
+      this.contextDiagnosticsSink?.write(record);
+    } catch {
+      if (this.contextDiagnosticsWarningLogged) return;
+      this.contextDiagnosticsWarningLogged = true;
+      try { contextDiagnosticsLogger.warn('Context-pressure diagnostic write failed'); } catch { /* isolated */ }
+    }
   }
 
   setActivityDetector(detector: ActivityStateDetector): void {
@@ -522,10 +545,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return fakePid;
   }
 
-  /**
-   * Sends a message and emits events.
-   * Routes to app-server or exec mode based on current configuration.
-   */
+  override isRunning(): boolean { return this.useAppServer ? this.isSpawned && (this.appServerClient?.isRunning() ?? false) : super.isRunning(); }
+  override getPid(): number | null { return this.useAppServer && this.appServerClient?.isRunning() ? this.appServerClient.getPid() ?? null : super.getPid(); }
+
+  /** Sends input through app-server or exec mode and emits normalized events. */
   protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
@@ -658,12 +681,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     try {
+      this.contextDiagnostics?.recordCompactionRpc('requested');
       await this.appServerClient.request('thread/compact/start', {
         threadId: this.appServerThreadId,
       });
+      this.contextDiagnostics?.recordCompactionRpc('accepted');
       logger.info('Context compacted via app-server', { threadId: this.appServerThreadId });
       return true;
     } catch (err) {
+      this.contextDiagnostics?.recordCompactionRpc('failed');
       logger.warn('Context compaction failed', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -727,6 +753,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     // For persistent mode we need to establish a connection and keep the client alive.
     const client = await this.connectAppServer(cwd);
+    client.setContextDiagnosticsCollector?.(this.contextDiagnostics);
 
     // Resume-attempt bookkeeping accumulates locally and commits to `this.*`
     // only after the abandoned-attempt (init epoch) check: a late init racing
@@ -832,7 +859,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           if (candidate?.id) {
             const requestedSessionId = candidate.id;
             try {
-              const resumeResult = await client.request('thread/resume', {
+              const resumeResult = await resumeThreadWithRetry(client, {
                 threadId: requestedSessionId,
                 cwd,
                 model: this.cliConfig.model || null,
@@ -871,7 +898,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         if (scanResult) {
           try {
             const requestedSessionId = scanResult.threadId;
-            const resumeResult = await client.request('thread/resume', {
+            const resumeResult = await resumeThreadWithRetry(client, {
               threadId: requestedSessionId,
               cwd,
               model: this.cliConfig.model || null,
@@ -1556,6 +1583,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       return await completionOrCrash;
     } finally {
+      if (!state.completed) this.contextDiagnostics?.completeTurn('unknown');
       this.turnInProgress = false;
       this.currentTurnId = null;
       if (this.currentTurnCompletion === turnCompletion) {
@@ -1616,6 +1644,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (state.completed) {
       return;
     }
+
+    this.recordContextPressureNotification(state, notification);
 
     const { method, params } = notification;
 
@@ -2060,6 +2090,24 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
   }
 
+  private recordContextPressureNotification(state: TurnCaptureState, notification: AppServerNotification): void {
+    const collector = this.contextDiagnostics;
+    if (!collector) return;
+
+    const { method, params } = notification;
+    if (method === 'turn/started' && params['threadId'] === state.threadId) {
+      collector.startTurn(this.lastTurnTokens > 0 ? this.lastTurnTokens : null);
+    } else if (method === 'item/completed' && params['item']) {
+      const threadId = params['threadId'];
+      collector.recordItemCompleted(params['item'], !threadId || threadId === state.threadId);
+    } else if (method === 'thread/tokenUsage/updated') {
+      const usage = params['tokenUsage'] ?? params['token_usage'];
+      if (usage) collector.recordTokenUsage(usage);
+    } else if (method === 'thread/compacted') {
+      collector.recordCompactionObserved();
+    }
+  }
+
   private handleAgentMessageDelta(state: TurnCaptureState, params: Record<string, unknown>): void {
     const threadId = params['threadId'] as string | undefined;
     if (threadId && threadId !== state.threadId) {
@@ -2257,6 +2305,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
    */
   private completeTurn(state: TurnCaptureState, turn: TurnCaptureState['finalTurn']): void {
     if (state.completed) return;
+    const completionStatus = turn?.status === 'completed' || turn?.status === 'interrupted' || turn?.status === 'failed' ? turn.status : 'unknown';
+    this.contextDiagnostics?.completeTurn(completionStatus);
     this.reconcileCompletedTurnAgentMessages(state, turn);
     state.completed = true;
     state.finalTurn = turn;

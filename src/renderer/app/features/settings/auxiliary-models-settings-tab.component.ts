@@ -101,6 +101,29 @@ interface SlotTestState {
         </div>
       </div>
 
+      <div class="card">
+        <div class="field-row">
+          <div>
+            <div class="field-label">Daily cloud spend cap (USD)</div>
+            <div class="field-hint">
+              Leave blank for no cap. When set, local models remain free and a
+              metered auxiliary request is reserved at its maximum configured
+              output cost before it is sent. Unknown-priced cloud models are blocked.
+            </div>
+          </div>
+          <input
+            id="auxiliary-daily-spend-cap"
+            type="number"
+            min="0"
+            step="0.01"
+            class="field-input"
+            placeholder="Unlimited"
+            [value]="dailySpendCapInputValue()"
+            (change)="onDailySpendCapChange($event)"
+          />
+        </div>
+      </div>
+
       <!-- Routing mode -->
       <div class="card">
         <div class="field-row">
@@ -437,7 +460,6 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   protected readonly probeResult = signal<boolean | null>(null);
   protected readonly probeError = signal<string | null>(null);
 
-  /** Per-slot test state, keyed by slot, so each row shows its own result inline. */
   protected readonly slotTests = signal<Partial<Record<AuxiliaryLlmSlot, SlotTestState>>>({});
 
   protected slotTest(slot: AuxiliaryLlmSlot): SlotTestState | undefined {
@@ -491,6 +513,22 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   onUseLocalhostOllamaChange(event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
     void this.settingsStore.set('auxiliaryLlmUseLocalhostOllama', checked);
+  }
+
+  protected dailySpendCapInputValue(): string {
+    const cap = this.settingsStore.get('auxiliaryLlmDailySpendCapUsd');
+    return cap === null || cap === undefined ? '' : String(cap);
+  }
+
+  onDailySpendCapChange(event: Event): void {
+    const raw = (event.target as HTMLInputElement).value.trim();
+    if (raw === '') {
+      void this.settingsStore.set('auxiliaryLlmDailySpendCapUsd', null);
+      return;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) return;
+    void this.settingsStore.set('auxiliaryLlmDailySpendCapUsd', value);
   }
 
   onRoutingClassificationChange(event: Event): void {

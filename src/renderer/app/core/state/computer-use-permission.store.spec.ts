@@ -39,6 +39,8 @@ describe('ComputerUsePermissionStore', () => {
   const desktop = {
     getHealth: vi.fn(),
     requestSystemPermission: vi.fn(),
+    repairSystemPermissions: vi.fn(),
+    relaunchApplication: vi.fn(),
   };
   let settings: ReturnType<typeof signal<AppSettings>>;
   let initialized: ReturnType<typeof signal<boolean>>;
@@ -86,6 +88,17 @@ describe('ComputerUsePermissionStore', () => {
           settingsOpened: true,
         },
       },
+    });
+    desktop.repairSystemPermissions.mockResolvedValue({
+      success: true,
+      data: {
+        resetPermissions: ['screen-recording', 'accessibility'],
+        relaunchRequired: true,
+      },
+    });
+    desktop.relaunchApplication.mockResolvedValue({
+      success: true,
+      data: { relaunching: true },
     });
   });
 
@@ -289,5 +302,43 @@ describe('ComputerUsePermissionStore', () => {
     await store.requestPermission('screen-recording');
 
     expect(store.error()).toBe('computer_use_disabled');
+  });
+
+  it('repairs the scoped registrations and opens the first native permission step', async () => {
+    const store = setup();
+    await flush();
+
+    await store.repairPermissions();
+
+    expect(desktop.repairSystemPermissions).toHaveBeenCalledOnce();
+    expect(desktop.requestSystemPermission)
+      .toHaveBeenCalledExactlyOnceWith('screen-recording');
+    expect(store.repairReady()).toBe(true);
+    expect(store.repairing()).toBe(false);
+  });
+
+  it('surfaces repair failure without opening either permission pane', async () => {
+    desktop.repairSystemPermissions.mockResolvedValue({
+      success: false,
+      error: { message: 'computer_use_permission_repair_failed' },
+    });
+    const store = setup();
+    await flush();
+
+    await store.repairPermissions();
+
+    expect(desktop.requestSystemPermission).not.toHaveBeenCalled();
+    expect(store.error()).toBe('Could not repair Harness permissions in macOS.');
+    expect(store.repairReady()).toBe(false);
+  });
+
+  it('requests a main-process relaunch after the repair flow', async () => {
+    const store = setup();
+    await flush();
+
+    await store.repairPermissions();
+    await store.relaunchApplication();
+
+    expect(desktop.relaunchApplication).toHaveBeenCalledOnce();
   });
 });

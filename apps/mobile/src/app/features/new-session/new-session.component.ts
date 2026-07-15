@@ -22,6 +22,7 @@ import type {
   MobileAttachmentDto,
   MobileModelCatalog,
   MobileRecentDirDto,
+  MobileReasoningEffort,
   MobileSessionPlan,
 } from '../../core/models';
 import { VoiceInputService } from '../../core/voice-input.service';
@@ -32,8 +33,10 @@ import { ModelSheetComponent } from '../../shared/model-sheet.component';
 import {
   buildCreateInstanceRequest,
   canStartSession,
+  defaultReasoningEffortForProvider,
   newSessionSuccessRoute,
   providerDisplayName,
+  reasoningOptionsForProvider,
   sessionPlanSummary,
   shouldPresentDirectorySheet,
 } from './new-session.presentation';
@@ -317,9 +320,12 @@ const DRAFT_KEY = 'new-session';
           [provider]="provider()"
           [models]="modelsForProvider()"
           [selected]="model()"
+          [reasoningOptions]="reasoningOptions()"
+          [selectedReasoning]="reasoningEffort()"
           [loading]="modelsLoading()"
           [error]="modelsError()"
           (choose)="chooseModel($event)"
+          (chooseReasoning)="chooseReasoningEffort($event)"
           (dismiss)="modelSheetOpen.set(false)"
         />
       }
@@ -355,6 +361,7 @@ export class NewSessionComponent implements OnInit {
   protected readonly listening = this.voice.listening;
   protected readonly provider = signal<(typeof PROVIDERS)[number]>('auto');
   protected readonly model = signal<string | undefined>(undefined);
+  protected readonly reasoningEffort = signal<MobileReasoningEffort | undefined>(undefined);
   protected readonly plan = signal<MobileSessionPlan | null>(null);
   protected readonly planLoading = signal(false);
   protected readonly planError = signal<string | null>(null);
@@ -404,6 +411,7 @@ export class NewSessionComponent implements OnInit {
       .join(' · ');
   });
   protected readonly modelsForProvider = computed(() => this.modelCatalog()?.[this.provider()] ?? []);
+  protected readonly reasoningOptions = computed(() => reasoningOptionsForProvider(this.provider()));
   protected readonly selectedModelLabel = computed(() => {
     const id = this.model();
     if (!id) return 'Default';
@@ -440,7 +448,8 @@ export class NewSessionComponent implements OnInit {
     effect(() => {
       const provider = this.provider();
       const model = this.model();
-      void this.resolvePlan(provider, model);
+      const reasoningEffort = this.reasoningEffort();
+      void this.resolvePlan(provider, model, reasoningEffort);
     });
 
     effect(() => {
@@ -499,12 +508,13 @@ export class NewSessionComponent implements OnInit {
     if (this.provider() !== provider) {
       this.provider.set(provider);
       this.model.set(undefined);
+      this.reasoningEffort.set(defaultReasoningEffortForProvider(provider));
     }
     this.haptics.tap();
   }
 
   protected retryPlan(): void {
-    void this.resolvePlan(this.provider(), this.model());
+    void this.resolvePlan(this.provider(), this.model(), this.reasoningEffort());
   }
 
   protected async openPlanControl(): Promise<void> {
@@ -533,6 +543,12 @@ export class NewSessionComponent implements OnInit {
 
   protected chooseModel(model: string | undefined): void {
     this.model.set(model);
+    this.modelSheetOpen.set(false);
+    this.haptics.tap();
+  }
+
+  protected chooseReasoningEffort(reasoningEffort: MobileReasoningEffort | undefined): void {
+    this.reasoningEffort.set(reasoningEffort);
     this.modelSheetOpen.set(false);
     this.haptics.tap();
   }
@@ -605,6 +621,7 @@ export class NewSessionComponent implements OnInit {
           directory: this.selectedDir(),
           provider: this.provider(),
           model: this.model(),
+          reasoningEffort: this.reasoningEffort(),
           prompt: this.firstPrompt(),
           attachments: this.attachments(),
         }),
@@ -628,12 +645,16 @@ export class NewSessionComponent implements OnInit {
     void this.router.navigate(['/projects']);
   }
 
-  private async resolvePlan(provider: string, model: string | undefined): Promise<void> {
+  private async resolvePlan(
+    provider: string,
+    model: string | undefined,
+    reasoningEffort: MobileReasoningEffort | undefined,
+  ): Promise<void> {
     const request = ++this.planReq;
     this.planLoading.set(true);
     this.planError.set(null);
     try {
-      const plan = await this.gateway.sessionPlan(provider, model);
+      const plan = await this.gateway.sessionPlan(provider, model, reasoningEffort);
       if (request === this.planReq) this.plan.set(plan);
     } catch (err) {
       if (request === this.planReq) {

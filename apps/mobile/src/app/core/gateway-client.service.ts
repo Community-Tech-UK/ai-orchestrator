@@ -12,6 +12,7 @@ import type {
   MobilePauseDto,
   MobilePromptDto,
   MobileRecentDirDto,
+  MobileReasoningEffort,
   MobileRespondRequest,
   MobileServerEvent,
   MobileSnapshot,
@@ -440,9 +441,14 @@ export class GatewayClient {
    * the chosen provider ('auto' or specific) and optional model override. The
    * host resolves it because it depends on the host's installed CLIs + settings.
    */
-  async sessionPlan(provider: string, model?: string): Promise<MobileSessionPlan> {
+  async sessionPlan(
+    provider: string,
+    model?: string,
+    reasoningEffort?: MobileReasoningEffort,
+  ): Promise<MobileSessionPlan> {
     const params = new URLSearchParams({ provider });
     if (model) params.set('model', model);
+    if (reasoningEffort) params.set('reasoningEffort', reasoningEffort);
     return this.request<MobileSessionPlan>('GET', `/api/session-plan?${params.toString()}`);
   }
 

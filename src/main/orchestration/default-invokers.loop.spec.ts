@@ -34,6 +34,7 @@ const hoisted = vi.hoisted(() => ({
   deleteAutomation: vi.fn(),
   resolveCliType: vi.fn(),
   getBreaker: vi.fn(),
+  setProviderLimitLedger: vi.fn(),
   providerLimitSchedulerRef: { current: null as unknown as ((request: {
     loopRunId: string;
     chatId: string;
@@ -145,6 +146,7 @@ describe('Loop Mode invoker plumbing', () => {
     // (used by the #20 safety advisor) to match the real coordinator contract.
     hoisted.loopCoordinatorRef.current = Object.assign(new EventEmitter(), {
       registerIterationHook: vi.fn(() => () => undefined),
+      setProviderLimitLedger: hoisted.setProviderLimitLedger,
       setProviderLimitResumeScheduler: vi.fn((fn) => {
         hoisted.providerLimitSchedulerRef.current = fn;
       }),
@@ -165,6 +167,7 @@ describe('Loop Mode invoker plumbing', () => {
     hoisted.getBreaker.mockImplementation(() => ({
       execute: vi.fn(async <T>(fn: () => Promise<T>) => fn()),
     }));
+    hoisted.setProviderLimitLedger.mockReset();
     // Build a fresh adapter object that's also an EventEmitter so we can
     // simulate stream:idle events.
     const adapterEmitter = new EventEmitter() as unknown as EventEmitter & {
@@ -201,6 +204,16 @@ describe('Loop Mode invoker plumbing', () => {
       });
     });
   }
+
+  it('wires the durable provider-limit ledger into the loop coordinator', () => {
+    registerDefaultLoopInvoker({} as never);
+
+    expect(hoisted.setProviderLimitLedger).toHaveBeenCalledTimes(1);
+    expect(hoisted.setProviderLimitLedger).toHaveBeenCalledWith(expect.objectContaining({
+      record: expect.any(Function),
+      getActive: expect.any(Function),
+    }));
+  });
 
   it('forwards workspaceCwd to the adapter spawn options as workingDirectory', async () => {
     registerDefaultLoopInvoker({} as never);

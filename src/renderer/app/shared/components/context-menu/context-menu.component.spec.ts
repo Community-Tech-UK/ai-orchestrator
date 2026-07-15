@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Component } from '@angular/core';
 import { By } from '@angular/platform-browser';
+import { CdkConnectedOverlay } from '@angular/cdk/overlay';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { ContextMenuComponent, type ContextMenuItem } from './context-menu.component';
 
@@ -48,8 +49,13 @@ describe('ContextMenuComponent', () => {
     fixture.detectChanges();
   }
 
-  function menuComponent(): ContextMenuComponent {
-    return fixture.debugElement.query(By.directive(ContextMenuComponent)).componentInstance as ContextMenuComponent;
+  function renderedMenu(): HTMLElement | null {
+    return document.body.querySelector('.context-menu');
+  }
+
+  function connectedOverlay(): CdkConnectedOverlay {
+    const debugNode = fixture.debugElement.queryAllNodes(By.directive(CdkConnectedOverlay))[0];
+    return debugNode.injector.get(CdkConnectedOverlay);
   }
 
   it('renders dividers before divided actions without adding extra menu items', () => {
@@ -58,16 +64,26 @@ describe('ContextMenuComponent', () => {
       { id: 'fork', label: 'Fork from here', divider: true, action: vi.fn() },
     ]);
 
-    const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelectorAll('.context-menu-divider')).toHaveLength(1);
-    expect(host.querySelectorAll('button[role="menuitem"]')).toHaveLength(2);
+    const menu = renderedMenu();
+    expect(menu?.querySelectorAll('.context-menu-divider')).toHaveLength(1);
+    expect(menu?.querySelectorAll('button[role="menuitem"]')).toHaveLength(2);
+  });
+
+  it('mounts the menu in the document overlay so clipping ancestors cannot cover it', () => {
+    render([{ id: 'copy', label: 'Copy', action: vi.fn() }]);
+
+    const fixtureHost = fixture.nativeElement as HTMLElement;
+    const menu = renderedMenu();
+    expect(fixtureHost.querySelector('.context-menu')).toBeNull();
+    expect(menu).not.toBeNull();
+    expect(menu!.closest('.cdk-overlay-container')).not.toBeNull();
   });
 
   it('closes and runs the selected action', () => {
     const action = vi.fn();
     render([{ id: 'copy', label: 'Copy', action }]);
 
-    const button = (fixture.nativeElement as HTMLElement).querySelector('button') as HTMLButtonElement;
+    const button = renderedMenu()?.querySelector('button') as HTMLButtonElement;
     button.click();
 
     expect(fixture.componentInstance.closed).toHaveBeenCalledTimes(1);
@@ -78,34 +94,20 @@ describe('ContextMenuComponent', () => {
     const action = vi.fn();
     render([{ id: 'copy', label: 'Copy', disabled: true, action }]);
 
-    const button = (fixture.nativeElement as HTMLElement).querySelector('button') as HTMLButtonElement;
+    const button = renderedMenu()?.querySelector('button') as HTMLButtonElement;
     button.click();
 
     expect(fixture.componentInstance.closed).not.toHaveBeenCalled();
     expect(action).not.toHaveBeenCalled();
   });
 
-  it('keeps the menu inside the viewport when repositioned', () => {
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 300 });
-    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 200 });
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      right: 200,
-      bottom: 160,
-      width: 200,
-      height: 160,
-      toJSON: () => ({}),
-    } as DOMRect);
-
+  it('pushes the point-anchored menu inside an eight-pixel viewport margin', () => {
     render([{ id: 'copy', label: 'Copy', action: vi.fn() }], { x: 280, y: 190 });
-    menuComponent().onWindowResize();
-    fixture.detectChanges();
 
-    const menu = (fixture.nativeElement as HTMLElement).querySelector('.context-menu') as HTMLElement;
-    expect(menu.style.left).toBe('92px');
-    expect(menu.style.top).toBe('32px');
+    const overlay = connectedOverlay();
+    expect(overlay.origin).toEqual({ x: 280, y: 190 });
+    expect(overlay.viewportMargin).toBe(8);
+    expect(overlay.flexibleDimensions).toBe(false);
+    expect(overlay.push).toBe(true);
   });
 });

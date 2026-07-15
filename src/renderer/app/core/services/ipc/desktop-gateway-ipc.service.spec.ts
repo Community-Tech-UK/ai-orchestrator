@@ -7,6 +7,8 @@ describe('DesktopGatewayIpcService', () => {
   const api = {
     desktopGetHealth: vi.fn(),
     desktopRequestSystemPermission: vi.fn(),
+    desktopRepairSystemPermissions: vi.fn(),
+    desktopRelaunchApplication: vi.fn(),
   };
   let currentApi: typeof api | null = api;
 
@@ -75,6 +77,33 @@ describe('DesktopGatewayIpcService', () => {
       decision: 'denied',
       reason: 'computer_use_disabled',
     });
+  });
+
+  it('forwards the fixed permission repair and relaunch actions without payloads', async () => {
+    api.desktopRepairSystemPermissions.mockResolvedValue({
+      success: true,
+      data: {
+        resetPermissions: ['screen-recording', 'accessibility'],
+        relaunchRequired: true,
+      },
+    });
+    api.desktopRelaunchApplication.mockResolvedValue({
+      success: true,
+      data: { relaunching: true },
+    });
+    const service = TestBed.inject(DesktopGatewayIpcService);
+
+    await expect(service.repairSystemPermissions()).resolves.toMatchObject({
+      success: true,
+      data: { relaunchRequired: true },
+    });
+    await expect(service.relaunchApplication()).resolves.toEqual({
+      success: true,
+      data: { relaunching: true },
+    });
+
+    expect(api.desktopRepairSystemPermissions).toHaveBeenCalledExactlyOnceWith();
+    expect(api.desktopRelaunchApplication).toHaveBeenCalledExactlyOnceWith();
   });
 
   it('normalizes the non-Electron case to a typed failure', async () => {

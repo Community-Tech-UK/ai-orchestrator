@@ -18,6 +18,12 @@ import type {
   ConversationThreadUpsertInput,
   ReconciliationResult,
 } from '../../shared/types/conversation-ledger.types';
+import { ProviderEventCaptureStore } from './provider-event-capture-store';
+import type {
+  ProviderEventCaptureInput,
+  ProviderEventCaptureQuery,
+  ProviderEventCaptureRecord,
+} from './provider-event-capture.types';
 
 const logger = getLogger('ConversationLedgerStore');
 
@@ -93,7 +99,11 @@ interface CheckpointRow {
 }
 
 export class ConversationLedgerStore {
-  constructor(private readonly db: SqliteDriver) {}
+  private readonly providerEventCaptures: ProviderEventCaptureStore;
+
+  constructor(private readonly db: SqliteDriver) {
+    this.providerEventCaptures = new ProviderEventCaptureStore(db);
+  }
 
   upsertThread(input: ConversationThreadUpsertInput): ConversationThreadRecord {
     const now = Date.now();
@@ -532,6 +542,20 @@ export class ConversationLedgerStore {
       LIMIT 1
     `).get<CheckpointRow>(threadId);
     return row ? checkpointRowToRecord(row) : null;
+  }
+
+  appendProviderEventCaptures(captures: ProviderEventCaptureInput[]): void {
+    this.providerEventCaptures.append(captures);
+  }
+
+  listProviderEventCaptures(
+    query: ProviderEventCaptureQuery,
+  ): ProviderEventCaptureRecord[] {
+    return this.providerEventCaptures.list(query);
+  }
+
+  pruneProviderEventCapturesBefore(before: number): number {
+    return this.providerEventCaptures.pruneBefore(before);
   }
 
   private upsertMessage(threadId: string, input: ConversationMessageUpsertInput): string {

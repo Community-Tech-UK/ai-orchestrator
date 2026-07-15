@@ -13,7 +13,6 @@
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { ProviderRuntimeEventBus } from '../providers/provider-runtime-event-bus';
-import type { PendingEnvelope } from '../providers/provider-runtime-event-bus';
 import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
@@ -72,6 +71,7 @@ import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-
 import { getAutoTitleService } from './auto-title-service';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { reviveContinuitySession } from './lifecycle/continuity-revival';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import {
@@ -84,7 +84,9 @@ import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters
 import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
 import { getContextEngine } from '../context/context-engine.js';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
+import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
+import { createProviderLimitCommunicationCallbacks } from './instance-provider-limit-runtime';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
@@ -92,9 +94,11 @@ import {
 import type {
   ProviderName,
   ProviderRuntimeEvent,
+  ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
-import { resolveProviderName, resolveRuntimeEventTurnId } from './provider-runtime-helpers';
+import { buildProviderRuntimeEventIngress } from './instance-provider-event-ingress';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
+import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
@@ -185,6 +189,9 @@ export class InstanceManager extends EventEmitter {
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private readonly providerEventBus = new ProviderRuntimeEventBus(
     (envelope) => this.emit('provider:normalized-event', envelope),
+    {
+      onRawBackedEvent: (envelope) => this.emit('provider:raw-event', envelope),
+    },
   );
   private readonly handlePause = (): void => {
     this.interruptActiveTurnsForPause();
@@ -354,17 +361,8 @@ export class InstanceManager extends EventEmitter {
       // needs a loop-ownership guard (e.g. via `this.orchestrationMgr
       // .hasActiveWork(id)`, already used by StuckProcessDetector above) before
       // it fires.
-      onProviderLimitTurn: (params) => {
-        const instance = this.state.getInstance(params.instanceId);
-        if (!instance) return 'skipped';
-        return getInstanceProviderLimitHandler().maybePark({
-          instanceId: params.instanceId,
-          provider: instance.provider,
-          resetAtHint: params.resetAtHint,
-          reason: params.reason,
-          resumePrompt: params.resumePrompt,
-        });
-      },
+      ...createProviderLimitCommunicationCallbacks((id) => this.state.getInstance(id)),
+      clearProviderLimitAfterSuccessfulTurn: getProviderLimitLedgerPort().clearAfterSuccessfulTurn,
       createSnapshot: (id, name, desc, trigger) => {
         try {
           getSessionContinuityManager().createSnapshot(id, name, desc, trigger);
@@ -385,11 +383,12 @@ export class InstanceManager extends EventEmitter {
       },
       emitProviderRuntimeEvent: (instanceId, event, options) =>
         this.emitProviderRuntimeEvent(instanceId, event, options),
+      captureProviderRuntimeEvent: (instanceId, event, options) =>
+        this.captureProviderRuntimeEvent(instanceId, event, options),
     });
 
-    // Wire the (opt-in) regular-session provider-limit auto-resume handler so
-    // it can park an instance, drive the quota-park countdown chip, and re-send
-    // the throttled turn once the window resets. Mirrors the loop path.
+    // Wire the opt-in regular-session provider-limit handler to park an instance,
+    // drive its countdown chip, and re-send the throttled turn after reset.
     getInstanceProviderLimitHandler().configure({
       isEnabled: () => this.settings.get('instanceProviderLimitResumeEnabled') === true,
       setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
@@ -416,11 +415,9 @@ export class InstanceManager extends EventEmitter {
           });
         });
       },
+      providerLimitLedger: getProviderLimitLedgerPort(),
       getWorkspaceCwd: (id) => this.state.getInstance(id)?.workingDirectory,
-      isResumable: (id) => {
-        const inst = this.state.getInstance(id);
-        return !!inst && inst.status !== 'terminated' && inst.status !== 'failed';
-      },
+      isResumable: (id) => { const inst = this.state.getInstance(id); return !!inst && inst.status !== 'terminated' && inst.status !== 'failed'; },
     });
 
     // Lifecycle manager needs dependencies
@@ -569,7 +566,7 @@ export class InstanceManager extends EventEmitter {
     this.state.on('batch-update', (payload) => this.emit('instance:batch-update', payload));
 
     // Communication events
-    this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message));
+    this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message, payload.raw));
     this.communication.on('input-required', (payload) => {
       logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
       void this.handleInputRequired(payload);
@@ -1045,9 +1042,18 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
-  private publishOutput(instanceId: string, message: OutputMessage): void {
+  private publishOutput(
+    instanceId: string,
+    message: OutputMessage,
+    raw?: ProviderRuntimeEventEnvelope['raw'],
+  ): void {
     this.settledTracker.recordActivity(instanceId, message.timestamp);
-    this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message));
+    this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message), {
+      raw: raw ?? {
+        source: 'instance-output',
+        payload: toJsonSafeProviderEventPayload(message),
+      },
+    });
   }
 
   private queueInitialPromptForRenderer(payload: {
@@ -1083,32 +1089,44 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  private emitProviderRuntimeEvent(
+  /** Publish a canonical provider event from any runtime adapter owner. */
+  emitProviderRuntimeEvent(
     instanceId: string,
     event: ProviderRuntimeEvent,
     options?: {
       provider?: ProviderName;
       sessionId?: string;
       timestamp?: number;
+      raw?: ProviderRuntimeEventEnvelope['raw'];
     },
   ): void {
-    const instance = this.state.getInstance(instanceId);
-    const provider = resolveProviderName(instanceId, options?.provider, instance?.provider);
-    if (!provider) {
-      return;
-    }
-
-    const pending: PendingEnvelope = {
-      timestamp: options?.timestamp ?? Date.now(),
-      provider,
+    const pending = buildProviderRuntimeEventIngress({
+      getInstance: (id) => this.state.getInstance(id),
       instanceId,
-      sessionId: options?.sessionId ?? instance?.providerSessionId ?? instance?.sessionId,
-      adapterGeneration: instance?.adapterGeneration,
-      turnId: resolveRuntimeEventTurnId(event, instance),
       event,
-    };
+      options,
+    });
+    if (pending) this.providerEventBus.enqueue(pending);
+  }
 
-    this.providerEventBus.enqueue(pending);
+  /** Capture a non-rendering adapter event, such as a duplicate user echo. */
+  captureProviderRuntimeEvent(
+    instanceId: string,
+    event: ProviderRuntimeEvent,
+    options: {
+      provider?: ProviderName;
+      sessionId?: string;
+      timestamp?: number;
+      raw: ProviderRuntimeEventEnvelope['raw'];
+    },
+  ): void {
+    const pending = buildProviderRuntimeEventIngress({
+      getInstance: (id) => this.state.getInstance(id),
+      instanceId,
+      event,
+      options,
+    });
+    if (pending) this.providerEventBus.captureRawBackedEvent(pending);
   }
 
   // ============================================
@@ -1267,6 +1285,28 @@ export class InstanceManager extends EventEmitter {
     options: HistoryRestoreCoordinatorOptions = {},
   ): Promise<HistoryRestoreCoordinatorResult> {
     return getHistoryRestoreCoordinator().restore(this, entryId, options);
+  }
+
+  /**
+   * Restore an archived continuity record into a new instance and seed it with
+   * an already-persisted document-review verdict. The old runtime identity is
+   * intentionally never resurrected in place: it may have been terminated,
+   * removed from state, or belong to a prior app process.
+   */
+  async reviveFromContinuity(
+    request: {
+      sourceInstanceId: string;
+      initialPrompt: string;
+      reason: 'doc-review-submission';
+    },
+  ): Promise<{ instanceId: string; restoreMode: 'native' | 'replay' }> {
+    if (getPauseCoordinator().isPaused()) {
+      throw new OrchestratorPausedError('Session revival refused while orchestrator is paused');
+    }
+    return reviveContinuitySession({
+      resumeSession: (instanceId, options) => getSessionContinuityManager().resumeSession(instanceId, options),
+      createInstance: (config) => this.createInstance(config),
+    }, request);
   }
 
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {

@@ -30,6 +30,11 @@ import type {
   ReconciliationResult,
 } from '../../shared/types/conversation-ledger.types';
 import type { ConversationLedgerStore } from './conversation-ledger-store';
+import type {
+  ProviderEventCaptureInput,
+  ProviderEventCaptureQuery,
+  ProviderEventCaptureRecord,
+} from './provider-event-capture.types';
 
 /** A message to append with its sequence assigned by the store, not the caller. */
 export type AppendMessageInput =
@@ -69,6 +74,9 @@ export interface LedgerStorePort {
     input: ConversationCheckpointUpsertInput,
   ): Promise<ConversationCheckpointRecord>;
   getLatestCheckpoint(threadId: string): Promise<ConversationCheckpointRecord | null>;
+  appendProviderEventCaptures(captures: ProviderEventCaptureInput[]): Promise<void>;
+  listProviderEventCaptures(query: ProviderEventCaptureQuery): Promise<ProviderEventCaptureRecord[]>;
+  pruneProviderEventCapturesBefore(before: number): Promise<number>;
   /** Release resources (close the DB / terminate the worker). */
   close(): Promise<void>;
 }
@@ -155,6 +163,20 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
     return this.store.getLatestCheckpoint(threadId);
   }
 
+  async appendProviderEventCaptures(captures: ProviderEventCaptureInput[]): Promise<void> {
+    this.store.appendProviderEventCaptures(captures);
+  }
+
+  async listProviderEventCaptures(
+    query: ProviderEventCaptureQuery,
+  ): Promise<ProviderEventCaptureRecord[]> {
+    return this.store.listProviderEventCaptures(query);
+  }
+
+  async pruneProviderEventCapturesBefore(before: number): Promise<number> {
+    return this.store.pruneProviderEventCapturesBefore(before);
+  }
+
   async close(): Promise<void> {
     this.db?.close();
   }
@@ -174,4 +196,7 @@ export type LedgerStoreMethod =
   | 'appendMessagesWithThreadTouch'
   | 'replaceThreadMessagesFromImport'
   | 'writeCheckpoint'
-  | 'getLatestCheckpoint';
+  | 'getLatestCheckpoint'
+  | 'appendProviderEventCaptures'
+  | 'listProviderEventCaptures'
+  | 'pruneProviderEventCapturesBefore';

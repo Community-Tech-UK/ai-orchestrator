@@ -14,6 +14,8 @@ export const DOC_REVIEW_CHANNELS = {
   DOC_REVIEW_DISMISS: 'doc-review:dismiss',
   /** Open the artifact in the external browser (Phase 1 standalone mode inside the app). */
   DOC_REVIEW_OPEN_EXTERNAL: 'doc-review:open-external',
+  /** Retry delivery of an already-recorded decision without reopening it. */
+  DOC_REVIEW_RETRY_DELIVERY: 'doc-review:retry-delivery',
 
   // Events (main → renderer)
   /** A review session was created, decided, or dismissed. */

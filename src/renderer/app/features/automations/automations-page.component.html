@@ -296,31 +296,39 @@
                 </label>
 
                 <div class="form-grid">
-                  <label>
-                    <span>Provider</span>
-                    <select name="provider" [ngModel]="form().provider" (ngModelChange)="onProviderChange($event)">
-                      <option value="auto">Auto</option>
-                      <option value="claude">Claude</option>
-                      <option value="codex">Codex</option>
-                      <option value="gemini">Gemini</option>
-                      <option value="copilot">Copilot</option>
-                      <option value="cursor">Cursor</option>
-                    </select>
-                  </label>
-                  <!-- eslint-disable-next-line @angular-eslint/template/label-has-associated-control -->
-                  <label>
-                    <span>Model</span>
+                  <div class="model-choice">
+                    <span class="model-choice__label">Model</span>
+                    <div class="model-choice__mode" role="group" aria-label="Automation model routing">
+                      <button
+                        type="button"
+                        class="model-choice__mode-btn"
+                        [class.is-active]="form().provider === 'auto'"
+                        [attr.aria-pressed]="form().provider === 'auto'"
+                        (click)="useAutomaticModelSelection()"
+                      >
+                        Auto
+                      </button>
+                      <button
+                        type="button"
+                        class="model-choice__mode-btn"
+                        [class.is-active]="form().provider !== 'auto'"
+                        [attr.aria-pressed]="form().provider !== 'auto'"
+                        (click)="pinModelSelection()"
+                      >
+                        Pinned
+                      </button>
+                    </div>
                     @if (form().provider === 'auto') {
-                      <span class="hint">Auto — the orchestrator picks the provider and model. Choose a provider to pin a specific model.</span>
+                      <span class="hint">The orchestrator picks the provider and model for each run.</span>
                     } @else {
                       <app-compact-model-picker
                         mode="pending-create"
                         [providers]="modelPickerProviders()"
-                        [selection]="modelPickerSelection()!"
+                        [selection]="modelPickerSelection()"
                         (selectionChange)="onModelPicked($event)"
                       />
                     }
-                  </label>
+                  </div>
                   <label>
                     <span>Agent</span>
                     <input name="agentId" [ngModel]="form().agentId" (ngModelChange)="patchForm({ agentId: $event })" />

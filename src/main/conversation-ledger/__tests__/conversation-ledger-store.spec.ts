@@ -196,4 +196,88 @@ describe('ConversationLedgerStore', () => {
       expect(store.getLatestCheckpoint(b.id)).toBeNull();
     });
   });
+
+  describe('provider event captures', () => {
+    it('serializes cyclic canonical metadata without losing the capture batch', () => {
+      const metadata: Record<string, unknown> = {};
+      metadata['self'] = metadata;
+
+      expect(() => store.appendProviderEventCaptures([
+        {
+          eventId: 'cyclic-event', provider: 'claude', instanceId: 'instance-1', sessionId: null,
+          sequence: 0, createdAt: 1,
+          event: { kind: 'output', content: 'safe', metadata },
+          raw: { source: 'adapter-event:output', payload: { message: 'safe' } },
+        },
+      ])).not.toThrow();
+
+      expect(store.listProviderEventCaptures({ instanceId: 'instance-1' })[0]?.event).toMatchObject({
+        kind: 'output',
+        metadata: { self: { type: 'circular' } },
+      });
+    });
+
+    it('serializes a cyclic raw payload without losing the capture batch', () => {
+      const payload: Record<string, unknown> = {};
+      payload['self'] = payload;
+
+      expect(() => store.appendProviderEventCaptures([
+        {
+          eventId: 'cyclic-raw-event', provider: 'claude', instanceId: 'instance-1', sessionId: null,
+          sequence: 0, createdAt: 1,
+          event: { kind: 'status', status: 'busy' },
+          raw: { source: 'adapter-event:status', payload },
+        },
+      ])).not.toThrow();
+
+      expect(store.listProviderEventCaptures({ instanceId: 'instance-1' })[0]?.raw).toEqual({
+        source: 'adapter-event:status',
+        payload: { self: { type: 'circular' } },
+      });
+    });
+
+    it('stores raw-backed canonical events independently of conversation threads', () => {
+      store.appendProviderEventCaptures([
+        {
+          eventId: 'evt-1',
+          provider: 'claude',
+          instanceId: 'instance-1',
+          sessionId: 'session-1',
+          sequence: 4,
+          createdAt: 100,
+          event: { kind: 'output', content: 'hello' },
+          raw: { source: 'adapter-event:output', payload: { nativeId: 'n-1', text: 'hello' } },
+        },
+      ]);
+
+      expect(store.listProviderEventCaptures({ instanceId: 'instance-1' })).toEqual([
+        expect.objectContaining({
+          eventId: 'evt-1',
+          provider: 'claude',
+          sequence: 4,
+          event: { kind: 'output', content: 'hello' },
+          raw: { source: 'adapter-event:output', payload: { nativeId: 'n-1', text: 'hello' } },
+        }),
+      ]);
+    });
+
+    it('prunes only captures older than the supplied retention boundary', () => {
+      store.appendProviderEventCaptures([
+        {
+          eventId: 'old', provider: 'codex', instanceId: 'instance-1', sessionId: null,
+          sequence: 0, createdAt: 10, event: { kind: 'status', status: 'busy' },
+          raw: { source: 'adapter-event:status', payload: 'busy' },
+        },
+        {
+          eventId: 'fresh', provider: 'codex', instanceId: 'instance-1', sessionId: null,
+          sequence: 1, createdAt: 100, event: { kind: 'status', status: 'idle' },
+          raw: { source: 'adapter-event:status', payload: 'idle' },
+        },
+      ]);
+
+      expect(store.pruneProviderEventCapturesBefore(50)).toBe(1);
+      expect(store.listProviderEventCaptures({ instanceId: 'instance-1' }).map((capture) => capture.eventId))
+        .toEqual(['fresh']);
+    });
+  });
 });

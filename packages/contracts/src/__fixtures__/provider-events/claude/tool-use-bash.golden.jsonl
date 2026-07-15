@@ -1,0 +1,3 @@
+{"kind":"status","status":"working"}
+{"kind":"tool_use","toolName":"Bash","toolUseId":"claude-tool-1","input":{"command":"git status --short"}}
+{"kind":"tool_result","toolName":"Bash","toolUseId":"claude-tool-1","success":true,"output":" M src/main/example.ts"}

@@ -1,0 +1,2 @@
+{"kind":"output","content":"Hello from Claude.","messageType":"assistant","messageId":"claude-message-1","timestamp":1000}
+{"kind":"complete","tokensUsed":12,"durationMs":50}

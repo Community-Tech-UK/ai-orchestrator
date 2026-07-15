@@ -39,6 +39,12 @@ export function createDesktopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.DESKTOP_REQUEST_SYSTEM_PERMISSION, payload);
     },
+    desktopRepairSystemPermissions: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.DESKTOP_REPAIR_SYSTEM_PERMISSIONS, {});
+    },
+    desktopRelaunchApplication: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.DESKTOP_RELAUNCH_APPLICATION, {});
+    },
     onDesktopChanged: (callback: (payload: unknown) => void): (() => void) => {
       const listener = (_event: unknown, payload: unknown): void => callback(payload);
       ipcRenderer.on(ch.DESKTOP_CHANGED, listener);

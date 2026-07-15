@@ -98,6 +98,18 @@ export class DocReviewStore implements OnDestroy {
     });
   }
 
+  async retryDelivery(reviewId: string): Promise<boolean> {
+    return this.runBusy(async () => {
+      const response = await this.ipc.retryDelivery(reviewId);
+      if (!response.success) {
+        this._error.set(response.error?.message ?? 'Failed to retry review delivery.');
+        return false;
+      }
+      if (response.data) this.upsert(response.data);
+      return true;
+    });
+  }
+
   async openExternal(reviewId: string): Promise<void> {
     const response = await this.ipc.openExternal(reviewId);
     if (!response.success) {

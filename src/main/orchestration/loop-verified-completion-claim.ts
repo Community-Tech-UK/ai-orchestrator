@@ -1,4 +1,5 @@
 import type { LoopIteration } from '../../shared/types/loop.types';
+import { parseAgentMoreWorkRemaining } from './loop-completion-detector';
 import { claimsCompletion } from './safety-critic';
 
 const POSITIVE_VERIFICATION_RE =
@@ -17,5 +18,7 @@ function hasPositiveVerificationEvidence(iteration: LoopIteration): boolean {
 
 export function isVerifiedNoChangeCompletionClaim(iteration: LoopIteration): boolean {
   const output = iteration.outputFull || iteration.outputExcerpt || '';
-  return claimsCompletion(output) && hasPositiveVerificationEvidence(iteration);
+  return !parseAgentMoreWorkRemaining(output)
+    && claimsCompletion(output)
+    && hasPositiveVerificationEvidence(iteration);
 }

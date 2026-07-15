@@ -20,6 +20,13 @@ let reviewDir = '';
 async function loadService() {
   const mod = await import('./doc-review-service');
   mod.DocReviewService._resetForTesting();
+  const sessions = new Map<string, import('@contracts/schemas/doc-review').DocReviewSession>();
+  mod.DocReviewService._setStoreFactoryForTesting(() => ({
+    list: () => [...sessions.values()],
+    get: (reviewId) => sessions.get(reviewId),
+    put: (session) => { sessions.set(session.id, structuredClone(session)); },
+    remove: (reviewId) => sessions.delete(reviewId),
+  }));
   return mod;
 }
 
@@ -70,6 +77,8 @@ describe('DocReviewService', () => {
 
     const session = await service.createSession({
       instanceId: 'inst-1',
+      historyThreadId: 'thread-1',
+      sessionId: 'provider-session-1',
       workspacePath: workspace,
       title: 'Test Plan',
       artifactPath,
@@ -77,6 +86,12 @@ describe('DocReviewService', () => {
 
     expect(session.status).toBe('pending');
     expect(session.instanceId).toBe('inst-1');
+    expect(session.origin).toEqual({
+      kind: 'instance',
+      requestedInstanceId: 'inst-1',
+      historyThreadId: 'thread-1',
+      sessionId: 'provider-session-1',
+    });
     expect(service.listSessions('pending')).toHaveLength(1);
   });
 
@@ -157,6 +172,10 @@ describe('DocReviewService', () => {
     const sent: { id: string; message: string }[] = [];
     service.setInstanceManager({
       sendInput: async (id, message) => {
+        expect(service.getSession(session.id)).toMatchObject({
+          status: 'changes_requested',
+          deliveryAttempts: [expect.objectContaining({ state: 'dispatching', mechanism: 'none' })],
+        });
         sent.push({ id, message });
       },
     });
@@ -186,6 +205,204 @@ describe('DocReviewService', () => {
     expect(sent[0].message).toContain('General: nearly there');
     // Multi-line comments never spill into new numbered lines.
     expect(sent[0].message.split('\n')).toHaveLength(5);
+  });
+
+  it('persists James\'s decision before a delivery failure and records the failure for retry', async () => {
+    const { getDocReviewService } = await loadService();
+    const service = getDocReviewService();
+    service.setInstanceManager({
+      sendInput: async () => {
+        throw new Error('instance is unavailable');
+      },
+    });
+    const session = await service.createSession({
+      instanceId: 'inst-1',
+      workspacePath: workspace,
+      title: 'Test Plan',
+      artifactPath: writeArtifact(),
+    });
+
+    const decided = await service.submitDecision(session.id, {
+      overall: 'approved',
+      decisions: [],
+    });
+
+    expect(decided.status).toBe('approved');
+    expect(decided.delivery?.status).toBe('failed');
+    expect(decided.delivery?.attempts).toBe(1);
+    expect(decided.delivery?.lastError).toContain('instance is unavailable');
+    expect(service.getSession(session.id)?.status).toBe('approved');
+  });
+
+  it('persists an interrupted-delivery guard before invoking lifecycle delivery', async () => {
+    const { getDocReviewService } = await loadService();
+    const service = getDocReviewService();
+    const session = await service.createSession({
+      instanceId: 'inst-1', workspacePath: workspace, title: 'Guarded delivery', artifactPath: writeArtifact('guarded.html'),
+    });
+    let sawDispatchGuard = false;
+    const deliver = vi.fn(async () => {
+      sawDispatchGuard = service.getSession(session.id)?.deliveryAttempts.some(
+        (attempt) => attempt.state === 'dispatching' && attempt.mechanism === 'none',
+      ) === true;
+      return { id: 'dra_done', state: 'delivered' as const, mechanism: 'direct-send' as const, at: 2 };
+    });
+    service.setDeliveryCoordinator({ deliver });
+
+    await service.submitDecision(session.id, { overall: 'approved', decisions: [] });
+
+    expect(deliver).toHaveBeenCalledOnce();
+    expect(sawDispatchGuard).toBe(true);
+  });
+
+  it('keeps a decision queued when the delivery sink defers it to the next safe turn', async () => {
+    const { getDocReviewService } = await loadService();
+    const service = getDocReviewService();
+    service.setInstanceManager({
+      sendInput: async () => undefined,
+      deliverReviewDecision: async () => ({
+        status: 'queued',
+        mechanism: 'await-idle',
+      }),
+    });
+    const session = await service.createSession({
+      instanceId: 'inst-1',
+      workspacePath: workspace,
+      title: 'Test Plan',
+      artifactPath: writeArtifact(),
+    });
+
+    const decided = await service.submitDecision(session.id, {
+      overall: 'changes_requested',
+      decisions: [],
+    });
+
+    expect(decided.delivery).toMatchObject({
+      status: 'queued',
+      mechanism: 'await-idle',
+      attempts: 1,
+    });
+  });
+
+  it('retries a failed persisted delivery without reopening the review decision', async () => {
+    const { getDocReviewService } = await loadService();
+    const service = getDocReviewService();
+    const deliver = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'attempt-1', state: 'failed', mechanism: 'direct-send', error: 'runtime unavailable', at: 1,
+      })
+      .mockResolvedValueOnce({
+        id: 'attempt-2', state: 'delivered', mechanism: 'continuity-revive', targetInstanceId: 'revived-1', at: 2,
+      });
+    service.setDeliveryCoordinator({ deliver });
+    const pending = await service.createSession({
+      instanceId: 'inst-1',
+      workspacePath: workspace,
+      title: 'Test Plan',
+      artifactPath: writeArtifact(),
+    });
+    await service.submitDecision(pending.id, { overall: 'approved', decisions: [] });
+
+    const retried = await service.retryDelivery(pending.id);
+
+    expect(retried.status).toBe('approved');
+    expect(retried.delivery).toMatchObject({
+      status: 'delivered',
+      mechanism: 'continuity-revive',
+      attempts: 2,
+      targetInstanceId: 'revived-1',
+    });
+    expect(deliver).toHaveBeenCalledTimes(2);
+  });
+
+  it('disposes replaced lifecycle delivery coordinators so their listeners cannot leak', async () => {
+    const { getDocReviewService } = await loadService();
+    const service = getDocReviewService();
+    const dispose = vi.fn();
+
+    service.setDeliveryCoordinator({
+      deliver: vi.fn(),
+      dispose,
+    } as never);
+    service.setDeliveryCoordinator({ deliver: vi.fn() });
+
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it('records a recovered delivery attempt only once when a concurrent caller shares it', async () => {
+    const { getDocReviewService } = await loadService();
+    const service = getDocReviewService();
+    const session = await service.createSession({
+      instanceId: 'inst-1',
+      workspacePath: workspace,
+      title: 'Test Plan',
+      artifactPath: writeArtifact('dedupe.html'),
+    });
+    const attempt = {
+      id: 'dra_shared', state: 'delivered' as const, mechanism: 'direct-send' as const, at: 5,
+      targetInstanceId: 'inst-1',
+    };
+
+    service.appendDeliveryAttempt(session.id, attempt);
+    const result = service.appendDeliveryAttempt(session.id, attempt);
+
+    expect(result.deliveryAttempts).toEqual([attempt]);
+    expect(result.delivery).toMatchObject({ status: 'delivered', attempts: 1 });
+  });
+
+  it('reconciles a persisted queued delivery after the service is recreated', async () => {
+    const mod = await loadService();
+    const first = mod.getDocReviewService();
+    const queued = vi.fn().mockResolvedValue({
+      id: 'dra_queued', state: 'queued', mechanism: 'await-idle', at: 1, targetInstanceId: 'inst-1',
+    });
+    first.setDeliveryCoordinator({ deliver: queued });
+    const session = await first.createSession({
+      instanceId: 'inst-1', workspacePath: workspace, title: 'Restart recovery', artifactPath: writeArtifact('restart.html'),
+    });
+    await first.submitDecision(session.id, { overall: 'approved', decisions: [] });
+
+    mod.DocReviewService._resetForTesting();
+    const restarted = mod.getDocReviewService();
+    const delivered = vi.fn().mockResolvedValue({
+      id: 'dra_delivered', state: 'delivered', mechanism: 'direct-send', at: 2, targetInstanceId: 'inst-1',
+    });
+    restarted.setDeliveryCoordinator({ deliver: delivered });
+    await restarted.recoverUndelivered();
+
+    expect(delivered).toHaveBeenCalledOnce();
+    expect(restarted.getSession(session.id)?.delivery).toMatchObject({
+      status: 'delivered', attempts: 2, targetInstanceId: 'inst-1',
+    });
+  });
+
+  it('does not automatically resend a delivery interrupted after its durable dispatch guard', async () => {
+    const mod = await import('./doc-review-service');
+    mod.DocReviewService._resetForTesting();
+    const sessions = new Map<string, import('@contracts/schemas/doc-review').DocReviewSession>();
+    mod.DocReviewService._setStoreFactoryForTesting(() => ({
+      list: () => [...sessions.values()],
+      get: (reviewId) => sessions.get(reviewId),
+      put: (stored) => { sessions.set(stored.id, structuredClone(stored)); },
+      remove: (reviewId) => sessions.delete(reviewId),
+    }));
+    const service = mod.getDocReviewService();
+    const session = await service.createSession({
+      instanceId: 'inst-1', workspacePath: workspace, title: 'Interrupted', artifactPath: writeArtifact('interrupted.html'),
+    });
+    const interrupted = sessions.get(session.id)!;
+    interrupted.status = 'approved';
+    interrupted.decidedAt = 1;
+    interrupted.deliveryAttempts = [{ id: 'dra_guard', state: 'dispatching', mechanism: 'none', at: 2 }];
+    interrupted.delivery = { status: 'dispatching', mechanism: 'none', attempts: 0 };
+    sessions.set(session.id, interrupted);
+    const deliver = vi.fn();
+    service.setDeliveryCoordinator({ deliver });
+
+    await service.recoverUndelivered();
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(service.getSession(session.id)?.delivery).toMatchObject({ status: 'dispatching' });
   });
 
   it('preserves selected choices in the canonical feedback block', async () => {
@@ -327,6 +544,25 @@ describe('DocReviewService', () => {
     expect(session.artifactPath).toContain('.aio-review');
     // The rendered artifact is a valid v1 artifact reachable through readArtifact.
     await expect(service.readArtifact(session.id)).resolves.toContain('aio-doc-review');
+  });
+
+  it('gives same-title plan reviews distinct immutable artifact paths', async () => {
+    const { getDocReviewService } = await loadService();
+    const service = getDocReviewService();
+    const planPath = join(workspace, 'DUPLICATE.md');
+    writeFileSync(planPath, '# Repeated Plan\n\n## Phase\n\nFirst version.\n');
+
+    const first = await service.createReviewFromPlan({
+      instanceId: 'chat-1', workspacePath: workspace, planFile: 'DUPLICATE.md', generatedAt: '2026-07-13',
+    });
+    writeFileSync(planPath, '# Repeated Plan\n\n## Phase\n\nSecond version.\n');
+    const second = await service.createReviewFromPlan({
+      instanceId: 'chat-2', workspacePath: workspace, planFile: 'DUPLICATE.md', generatedAt: '2026-07-13',
+    });
+
+    expect(second.artifactPath).not.toBe(first.artifactPath);
+    await expect(service.readArtifact(first.id)).resolves.toContain('First version.');
+    await expect(service.readArtifact(second.id)).resolves.toContain('Second version.');
   });
 
   it('invokes the approval recorder only when a review is approved', async () => {

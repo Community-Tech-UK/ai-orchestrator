@@ -1,0 +1,189 @@
+#!/usr/bin/env tsx
+import Database from 'better-sqlite3';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { redactValue } from '../src/main/diagnostics/redaction';
+import type { ProviderEventCaptureRecord } from '../src/main/conversation-ledger/provider-event-capture.types';
+import {
+  replayAdapterEventFixture,
+  type AdapterEventFixtureRecord,
+} from '../src/main/providers/provider-event-fixture-replay';
+
+interface CaptureRow {
+  event_id: string;
+  provider: ProviderEventCaptureRecord['provider'];
+  instance_id: string;
+  session_id: string | null;
+  sequence: number;
+  created_at: number;
+  event_json: string;
+  raw_source: string;
+  raw_json: string;
+}
+
+export interface ProviderFixtureFiles {
+  fixtureJsonl: string;
+  goldenJsonl: string;
+}
+
+/**
+ * Convert durable capture records to checked-in JSONL fixture text. The caller
+ * owns persistence; this pure step redacts before anything reaches disk.
+ */
+export function buildProviderFixtureFiles(
+  captures: readonly ProviderEventCaptureRecord[],
+): ProviderFixtureFiles {
+  const fixture: AdapterEventFixtureRecord[] = [];
+  const golden: unknown[] = [];
+  for (const capture of captures) {
+    const record = fixtureRecordFromCapture(capture);
+    if (!record) continue;
+    // The fixture is replayed from raw adapter input, before normal runtime
+    // decoration (adapter generation, turn id) reaches the canonical event.
+    // Derive golden from that same scrubbed input so exported pairs remain
+    // byte-stable rather than encoding metadata replay cannot produce.
+    const scrubbed = sanitizeFixtureRecord(record);
+    const mapped = replayAdapterEventFixture([scrubbed])[0];
+    if (!mapped) continue;
+    fixture.push(scrubbed);
+    golden.push(redactValue(mapped.event));
+  }
+  if (fixture.length === 0) {
+    throw new Error('No replayable adapter-event captures remain after sanitization');
+  }
+  return {
+    fixtureJsonl: toJsonLines(fixture),
+    goldenJsonl: toJsonLines(golden),
+  };
+}
+
+const SAFE_STRING_KEYS = new Set(['name', 'status', 'type', 'signal', 'source']);
+const FIXTURE_IDENTIFIER_KEY = /^(?:id|(?:session|thread|conversation|rollout|message|event|request|response|tool(?:use)?)_?id|session|thread|conversation|rollout)$/i;
+const ABSOLUTE_PATH = /(^|[\s"'=:(])(?:\/(?:[^\s"'`)]*)|[A-Za-z]:\\(?:[^\s"'`)]+))/g;
+
+/**
+ * Fixture exports are more restrictive than operational log redaction: raw
+ * provider payloads can contain private conversation bodies and identifiers.
+ * Keep only event-shape strings needed by the replay mapper; replace every
+ * other free-form body, while preserving redaction placeholders for paths and
+ * secrets so reviewers can see why a value was removed.
+ */
+function sanitizeFixtureRecord(record: AdapterEventFixtureRecord): AdapterEventFixtureRecord {
+  const redacted = redactValue(record, { redactSessionBodies: true }) as AdapterEventFixtureRecord;
+  return {
+    name: redacted.name,
+    args: redacted.args.map((arg) => sanitizeFixtureValue(arg, undefined, redacted.name)),
+  } as AdapterEventFixtureRecord;
+}
+
+function sanitizeFixtureValue(value: unknown, key: string | undefined, eventName: string): unknown {
+  if (typeof value === 'string') {
+    const withoutPaths = value.replace(ABSOLUTE_PATH, (_match, prefix: string) => `${prefix}<redacted-path>`);
+    if (withoutPaths.includes('<redacted-secret>') || withoutPaths.includes('<redacted-path>')) {
+      return withoutPaths;
+    }
+    if (key && FIXTURE_IDENTIFIER_KEY.test(key)) return '<redacted-id>';
+    if ((key && SAFE_STRING_KEYS.has(key)) || (!key && (eventName === 'status' || eventName === 'exit'))) {
+      return withoutPaths;
+    }
+    return '[omitted-session-body]';
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeFixtureValue(item, undefined, eventName));
+  }
+  if (!value || typeof value !== 'object') return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
+      childKey,
+      sanitizeFixtureValue(childValue, childKey, eventName),
+    ]),
+  );
+}
+
+function fixtureRecordFromCapture(capture: ProviderEventCaptureRecord): AdapterEventFixtureRecord | null {
+  const name = capture.raw.source.startsWith('adapter-event:')
+    ? capture.raw.source.slice('adapter-event:'.length)
+    : null;
+  if (!name || !isAdapterEventName(name)) return null;
+  if (name === 'exit') {
+    const value = capture.raw.payload as { code?: unknown; signal?: unknown } | null;
+    return { name, args: [value?.code ?? null, value?.signal ?? null] };
+  }
+  return { name, args: [capture.raw.payload] };
+}
+
+function isAdapterEventName(value: string): value is AdapterEventFixtureRecord['name'] {
+  return [
+    'output', 'tool_use', 'tool_result', 'status', 'context',
+    'error', 'complete', 'exit', 'spawned',
+  ].includes(value);
+}
+
+function toJsonLines(values: readonly unknown[]): string {
+  return values.map((value) => JSON.stringify(value)).join('\n') + (values.length > 0 ? '\n' : '');
+}
+
+function readCaptureRows(dbPath: string, instanceId: string, limit: number): ProviderEventCaptureRecord[] {
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    return db.prepare(`
+      SELECT event_id, provider, instance_id, session_id, sequence, created_at,
+             event_json, raw_source, raw_json
+      FROM provider_event_captures
+      WHERE instance_id = ?
+      ORDER BY created_at ASC, sequence ASC
+      LIMIT ?
+    `).all(instanceId, limit).map((row) => {
+      const capture = row as CaptureRow;
+      const raw = JSON.parse(capture.raw_json) as { payload?: unknown };
+      return {
+        eventId: capture.event_id,
+        provider: capture.provider,
+        instanceId: capture.instance_id,
+        sessionId: capture.session_id,
+        sequence: capture.sequence,
+        createdAt: capture.created_at,
+        event: JSON.parse(capture.event_json) as ProviderEventCaptureRecord['event'],
+        raw: { source: capture.raw_source, payload: raw.payload },
+      };
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function parseArgs(argv: string[]): { dbPath: string; instanceId: string; scenario: string; limit: number } {
+  const valueFor = (name: string): string | undefined => {
+    const index = argv.indexOf(name);
+    return index >= 0 ? argv[index + 1] : undefined;
+  };
+  const dbPath = valueFor('--db');
+  const instanceId = valueFor('--instance');
+  const scenario = valueFor('--scenario');
+  const limit = Number(valueFor('--limit') ?? 1_000);
+  if (!dbPath || !instanceId || !scenario || !Number.isFinite(limit) || limit < 1) {
+    throw new Error('Usage: tsx scripts/capture-provider-fixture.ts --db <conversation-ledger.db> --instance <id> --scenario <name> [--limit <n>]');
+  }
+  return { dbPath, instanceId, scenario, limit: Math.min(Math.floor(limit), 10_000) };
+}
+
+function main(): void {
+  const { dbPath, instanceId, scenario, limit } = parseArgs(process.argv.slice(2));
+  const captures = readCaptureRows(resolve(dbPath), instanceId, limit);
+  if (captures.length === 0) throw new Error(`No provider event captures found for instance ${instanceId}`);
+  const { fixtureJsonl, goldenJsonl } = buildProviderFixtureFiles(captures);
+  const outputDir = join(
+    process.cwd(),
+    'packages/contracts/src/__fixtures__/provider-events',
+    captures[0]!.provider,
+  );
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(join(outputDir, `${scenario}.jsonl`), fixtureJsonl, 'utf8');
+  writeFileSync(join(outputDir, `${scenario}.golden.jsonl`), goldenJsonl, 'utf8');
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

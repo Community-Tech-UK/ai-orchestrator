@@ -19,6 +19,7 @@ import { readCodexAuthMode } from '../providers/codex-auth-mode';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { recordCostAttribution } from '../core/system/cost-attribution';
+import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import { getModelRouter, resolveRoutedModel } from '../routing';
@@ -690,6 +691,7 @@ import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.type
 import { defaultLoopContextConfig, LOOP_DEFAULT_MAX_TURNS_PER_ITERATION } from '../../shared/types/loop.types';
 import { shouldRecycleLoopContext } from './loop-context-discipline';
 import { attachInvocationActivity, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
+import { observeLoopProviderRuntimeEvents } from './loop-provider-event-capture';
 import {
   createLoopInvocationCapture,
   createToolTimeoutWatchdogWidener,
@@ -718,6 +720,7 @@ export {
   parseTestCounts,
 } from './default-loop-invoker-helpers';
 import {
+  diffFileChangeSnapshots,
   mergeFileChanges,
   snapshotFileChangesViaGit,
   snapshotFileChangesViaWorkspace,
@@ -1057,6 +1060,13 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     );
   }
 
+  const setProviderLimitLedger = (coordinator as {
+    setProviderLimitLedger?: (ledger: ReturnType<typeof getProviderLimitLedgerPort>) => void;
+  }).setProviderLimitLedger;
+  if (typeof setProviderLimitLedger === 'function') {
+    setProviderLimitLedger.call(coordinator, getProviderLimitLedgerPort());
+  }
+
   const setProviderLimitResumeScheduler = (coordinator as {
     setProviderLimitResumeScheduler?: (fn: (request: ProviderLimitResumeRequest) => (() => void) | void) => void;
     resumeLoop?: (loopRunId: string) => boolean;
@@ -1287,6 +1297,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       // When isolation is active, snapshot the worktree (executionCwd), not the
       // repo root — the agent edits the worktree and the diff must reflect that.
       const workspaceBefore = snapshotWorkspaceFiles(workspaceDir);
+      const gitBefore = snapshotFileChangesViaGit(workspaceDir);
       const result = await invokeCliTextResponse({
         instanceManager,
         // When borrowing the parent instance's adapter, pass the instance id so
@@ -1340,7 +1351,14 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           : (adapter) => {
               activeAdapterRef = adapter;
               const stopTracking = trackActiveAdapter(p.loopRunId, adapter);
+              const stopEventCapture = observeLoopProviderRuntimeEvents({
+                adapter,
+                instanceManager,
+                instanceId: p.chatId,
+                provider: p.provider,
+              });
               return () => {
+                stopEventCapture();
                 activeAdapterRef = null;
                 stopTracking();
               };
@@ -1354,10 +1372,13 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       }
 
       const workspaceDelta = snapshotFileChangesViaWorkspace(workspaceBefore, workspaceDir);
-      const workspaceDeltaPaths = new Set(workspaceDelta.map((change) => change.path));
+      const gitDelta = diffFileChangeSnapshots(
+        gitBefore,
+        snapshotFileChangesViaGit(workspaceDir),
+      );
       const filesChanged = mergeFileChanges(
         workspaceDelta,
-        snapshotFileChangesViaGit(workspaceDir).filter((change) => workspaceDeltaPaths.has(change.path)),
+        gitDelta,
       );
       // FU-5: derive structured signals from the actual iteration output.
       // testPassCount/testFailCount feeds the D / D-prime signals;

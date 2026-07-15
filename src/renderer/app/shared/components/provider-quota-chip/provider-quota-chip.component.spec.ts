@@ -17,6 +17,7 @@ import { ProviderQuotaChipComponent } from './provider-quota-chip.component';
 import { ProviderQuotaStore } from '../../../core/state/provider-quota.store';
 import type {
   ProviderId,
+  ProviderQuotaPacingAlert,
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
 } from '../../../../../shared/types/provider-quota.types';
@@ -29,15 +30,20 @@ class FakeProviderQuotaStore {
   private snaps = signal<Record<ProviderId, ProviderQuotaSnapshot | null>>({
     claude: null, codex: null, gemini: null, copilot: null, cursor: null,
   });
+  private pacing = signal<ProviderQuotaPacingAlert | null>(null);
 
   readonly mostConstrainedWindow = computed(() => this.worst());
   readonly snapshots = computed(() => this.snaps());
+  readonly lastPacingWarning = computed(() => this.pacing());
 
   setWorst(value: { provider: ProviderId; window: ProviderQuotaWindow } | null): void {
     this.worst.set(value);
   }
   setSnapshot(provider: ProviderId, snap: ProviderQuotaSnapshot | null): void {
     this.snaps.update((s) => ({ ...s, [provider]: snap }));
+  }
+  setPacingWarning(value: ProviderQuotaPacingAlert | null): void {
+    this.pacing.set(value);
   }
 }
 
@@ -203,6 +209,45 @@ describe('ProviderQuotaChipComponent', () => {
   });
 
   describe('strip and popover', () => {
+    it('marks the provider that is consuming a quota window ahead of its time budget', () => {
+      const window = makeWindow(90, 100, Date.now() + 90 * 60_000);
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [window]));
+      store.setPacingWarning({
+        provider: 'claude',
+        window,
+        utilizationPercent: 90,
+        elapsedPercent: 70,
+        utilizationThresholdPercent: 90,
+        latestElapsedPercent: 72,
+        timestamp: Date.now(),
+      });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('[data-testid="quota-pacing-claude"]')?.textContent).toContain('⚡');
+    });
+
+    it('clears a stale pacing badge when a refreshed quota window has reset below its warning threshold', () => {
+      const warnedWindow = makeWindow(90, 100, Date.now() + 90 * 60_000);
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [warnedWindow]));
+      store.setPacingWarning({
+        provider: 'claude',
+        window: warnedWindow,
+        utilizationPercent: 90,
+        elapsedPercent: 70,
+        utilizationThresholdPercent: 90,
+        latestElapsedPercent: 72,
+        timestamp: Date.now(),
+      });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="quota-pacing-claude"]')).toBeTruthy();
+
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(5, 100)]));
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('[data-testid="quota-pacing-claude"]')).toBeFalsy();
+    });
+
     it('renders one compact provider entry per snapshot and opens details on click', () => {
       store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(95, 100)]));
       store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [

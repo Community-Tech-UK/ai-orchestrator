@@ -160,6 +160,77 @@ describe('LoopCoordinator usage-aware throttling', () => {
     }
   });
 
+  it('parks before spawning when another runtime recorded an active provider-limit gate', async () => {
+    const resumeAt = Date.now() + 120_000;
+    const scheduler = vi.fn(() => () => { /* noop */ });
+    const ledger = {
+      getActive: vi.fn(() => ({
+        id: 'regular-session-limit',
+        provider: 'claude' as const,
+        model: null,
+        detectedAt: Date.now() - 1_000,
+        resumeAt,
+        source: 'provider-limit-signal',
+        instanceId: 'interactive-instance',
+      })),
+      record: vi.fn(),
+    };
+    let invokeCount = 0;
+    coordinator.setProviderLimitResumeScheduler(scheduler);
+    coordinator.setProviderLimitLedger(ledger);
+    coordinator.setQuotaSnapshotProvider(() => snapshot([win({ used: 20 })]));
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      invokeCount += 1;
+      p.callback(iterationResult('this must not run while the ledger gate is active'));
+    });
+
+    const state = await startLoop('chat-ledger-preflight');
+    try {
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      expect(invokeCount).toBe(0);
+      expect(ledger.getActive).toHaveBeenCalledWith({
+        provider: 'claude',
+        model: null,
+        now: expect.any(Number),
+      });
+      expect(scheduler).toHaveBeenCalledWith(expect.objectContaining({
+        loopRunId: state.id,
+        resumeAt,
+        reason: expect.stringContaining('recorded provider limit'),
+      }));
+      expect(ledger.record).not.toHaveBeenCalled();
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('records a newly observed loop provider limit for other runtimes', async () => {
+    const resumeAt = Date.now() + 120_000;
+    const scheduler = vi.fn(() => () => { /* noop */ });
+    const ledger = {
+      getActive: vi.fn(() => null),
+      record: vi.fn(),
+    };
+    coordinator.setProviderLimitResumeScheduler(scheduler);
+    coordinator.setProviderLimitLedger(ledger);
+    coordinator.setQuotaSnapshotProvider(() => snapshot([win({ used: 95, resetsAt: resumeAt })]));
+
+    const state = await startLoop('chat-ledger-record');
+    try {
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      expect(ledger.record).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'claude',
+        model: null,
+        resumeAt,
+        source: 'loop-quota',
+        instanceId: state.id,
+      }));
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('preventive: downshifts to sonnet before spawning when weekly all-model usage is high', async () => {
     let invokeCount = 0;
     const models: (string | undefined)[] = [];

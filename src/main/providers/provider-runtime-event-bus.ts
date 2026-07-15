@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   ProviderName,
   ProviderEventKind,
+  ProviderRuntimeEventRaw,
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
@@ -46,6 +47,12 @@ export interface ProviderRuntimeEventBusOptions {
   contextFlushIntervalMs?: number;
   /** Minimum interval between same-status events per instance in ms (default: 200). */
   statusDedupeIntervalMs?: number;
+  /**
+   * Receives every raw-backed ingress before this bus applies renderer-facing
+   * coalescing or deduplication. This is intentionally a separate stream: it
+   * preserves forensic fidelity without changing UI/event-bus backpressure.
+   */
+  onRawBackedEvent?: (envelope: ProviderRuntimeEventEnvelope) => void;
 }
 
 export interface ProviderRuntimeEventBusMetrics {
@@ -63,6 +70,7 @@ export interface PendingEnvelope {
   sessionId?: string;
   adapterGeneration?: number;
   turnId?: string;
+  raw?: ProviderRuntimeEventRaw;
   event: ProviderRuntimeEvent;
 }
 
@@ -80,8 +88,10 @@ export class ProviderRuntimeEventBus {
   private readonly contextFlushIntervalMs: number;
   private readonly statusDedupeIntervalMs: number;
   private readonly emitFn: (envelope: ProviderRuntimeEventEnvelope) => void;
+  private readonly onRawBackedEvent?: (envelope: ProviderRuntimeEventEnvelope) => void;
 
   private seqByInstance = new Map<string, number>();
+  private rawCaptureSeqByInstance = new Map<string, number>();
   private pendingContext = new Map<string, PendingContextEntry>();
   private lastStatusByInstance = new Map<string, LastStatusEntry>();
 
@@ -96,6 +106,7 @@ export class ProviderRuntimeEventBus {
     this.emitFn = emitFn;
     this.contextFlushIntervalMs = options.contextFlushIntervalMs ?? 100;
     this.statusDedupeIntervalMs = options.statusDedupeIntervalMs ?? 200;
+    this.onRawBackedEvent = options.onRawBackedEvent;
   }
 
   /**
@@ -103,6 +114,7 @@ export class ProviderRuntimeEventBus {
    * Context events are coalesced. Status events are deduplicated.
    */
   enqueue(pending: PendingEnvelope): void {
+    this.captureRawBackedEvent(pending);
     const kind = pending.event.kind;
 
     if (CRITICAL_KINDS.has(kind)) {
@@ -124,6 +136,27 @@ export class ProviderRuntimeEventBus {
     this.emitNow(pending);
   }
 
+  /**
+   * Send a raw-backed adapter event to the forensic stream without publishing
+   * it to renderer consumers. Used for intentionally non-rendering events,
+   * such as a provider's echoed user message.
+   */
+  captureRawBackedEvent(pending: PendingEnvelope): void {
+    if (!pending.raw || !this.onRawBackedEvent) return;
+    this.onRawBackedEvent({
+      eventId: randomUUID(),
+      seq: this.nextRawCaptureSeq(pending.instanceId),
+      timestamp: pending.timestamp,
+      provider: pending.provider,
+      instanceId: pending.instanceId,
+      sessionId: pending.sessionId,
+      adapterGeneration: pending.adapterGeneration,
+      turnId: pending.turnId,
+      raw: pending.raw,
+      event: pending.event,
+    });
+  }
+
   metrics(): ProviderRuntimeEventBusMetrics {
     return {
       emitted: this.emitted,
@@ -143,6 +176,7 @@ export class ProviderRuntimeEventBus {
       this.emitNow(entry.pending);
     }
     this.seqByInstance.delete(instanceId);
+    this.rawCaptureSeqByInstance.delete(instanceId);
     this.lastStatusByInstance.delete(instanceId);
   }
 
@@ -166,6 +200,7 @@ export class ProviderRuntimeEventBus {
       sessionId: pending.sessionId,
       adapterGeneration: pending.adapterGeneration,
       turnId: pending.turnId,
+      ...(pending.raw ? { raw: pending.raw } : {}),
       event: pending.event,
     };
     this.emitted++;
@@ -216,6 +251,12 @@ export class ProviderRuntimeEventBus {
   private nextSeq(instanceId: string): number {
     const next = this.seqByInstance.get(instanceId) ?? 0;
     this.seqByInstance.set(instanceId, next + 1);
+    return next;
+  }
+
+  private nextRawCaptureSeq(instanceId: string): number {
+    const next = this.rawCaptureSeqByInstance.get(instanceId) ?? 0;
+    this.rawCaptureSeqByInstance.set(instanceId, next + 1);
     return next;
   }
 }

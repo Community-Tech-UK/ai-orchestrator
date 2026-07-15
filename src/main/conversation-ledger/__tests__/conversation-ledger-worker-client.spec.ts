@@ -83,4 +83,28 @@ describe('ConversationLedgerWorkerClient', () => {
     respond(worker, (msg as { id: number }).id, [{ id: 'm1', threadId: 'thread-1', sequence: 1, content: 'hi' }]);
     await expect(promise).resolves.toMatchObject([{ id: 'm1', sequence: 1 }]);
   });
+
+  it('round-trips a raw provider-event capture batch through the worker protocol', async () => {
+    const promise = client.appendProviderEventCaptures([
+      {
+        eventId: 'event-1',
+        provider: 'claude',
+        instanceId: 'instance-1',
+        sessionId: 'session-1',
+        sequence: 2,
+        createdAt: 100,
+        event: { kind: 'output', content: 'captured' },
+        raw: { source: 'adapter-event:output', payload: { nativeId: 'n-1' } },
+      },
+    ]);
+
+    const msg = lastPosted(worker);
+    expect(msg).toMatchObject({
+      type: 'store-call',
+      method: 'appendProviderEventCaptures',
+      args: [expect.arrayContaining([expect.objectContaining({ eventId: 'event-1' })])],
+    });
+    respond(worker, (msg as { id: number }).id);
+    await expect(promise).resolves.toBeUndefined();
+  });
 });

@@ -18,6 +18,8 @@
  */
 
 import { getLogger } from '../../../logging/logger';
+import { retryWithBackoff } from '../../../util/backoff';
+import { ErrorCategory } from '../../../../shared/types/error-recovery.types';
 import { isTransientRpcTimeoutError } from './thread-start-retry';
 import type { AppServerRequestParams, AppServerResponseResult } from './app-server-types';
 
@@ -38,6 +40,8 @@ export interface ResumeThreadWithRetryOptions {
   retryDelaysMs?: readonly number[];
   /** Injectable sleep for tests. */
   sleep?: (ms: number) => Promise<void>;
+  /** Cancels a pending retry when the enclosing resume operation ends. */
+  signal?: AbortSignal;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -50,31 +54,27 @@ export async function resumeThreadWithRetry(
 ): Promise<ThreadResumeResult> {
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  }));
 
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await client.request('thread/resume', params);
-    } catch (error) {
-      lastError = error;
-      if (!isTransientRpcTimeoutError(error) || attempt === maxAttempts) {
-        throw error;
-      }
-      const delayMs = retryDelaysMs[Math.min(attempt - 1, retryDelaysMs.length - 1)] ?? 5_000;
-      logger.warn('thread/resume timed out — retrying with backoff (host may be overloaded)', {
-        attempt,
-        maxAttempts,
-        delayMs,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      await sleep(delayMs);
-    }
-  }
-
-  // Unreachable: the loop either returns or throws on the last attempt.
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  return retryWithBackoff(
+    () => client.request('thread/resume', params),
+    {
+      attempts: maxAttempts,
+      classify: (error) => (
+        isTransientRpcTimeoutError(error) ? ErrorCategory.TRANSIENT : ErrorCategory.PERMANENT
+      ),
+      delayForAttempt: (attempt) => (
+        retryDelaysMs[Math.min(attempt, retryDelaysMs.length - 1)] ?? 5_000
+      ),
+      onRetry: ({ attempt, delayMs, error }) => {
+        logger.warn('thread/resume timed out — retrying with backoff (host may be overloaded)', {
+          attempt,
+          maxAttempts,
+          delayMs,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+      signal: options.signal,
+      sleep: options.sleep ? (delayMs) => options.sleep!(delayMs) : undefined,
+    },
+  );
 }

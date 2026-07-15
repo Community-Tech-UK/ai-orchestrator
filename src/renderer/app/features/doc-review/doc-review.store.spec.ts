@@ -26,6 +26,7 @@ describe('DocReviewStore', () => {
     readArtifact: vi.fn(),
     submitDecision: vi.fn(),
     dismiss: vi.fn(),
+    retryDelivery: vi.fn(),
     openExternal: vi.fn(),
     onChanged: vi.fn((cb: (event: unknown) => void) => {
       changedCallback = cb;
@@ -95,5 +96,23 @@ describe('DocReviewStore', () => {
     const ok = await store.submit('dr_1', 'approved', []);
     expect(ok).toBe(true);
     expect(store.pendingCount()).toBe(0);
+  });
+
+  it('retries a failed delivery and replaces the decided session with its new delivery state', async () => {
+    ipc.retryDelivery.mockResolvedValue({
+      success: true,
+      data: makeSession({
+        status: 'approved',
+        decidedAt: 5,
+        delivery: { status: 'delivered', mechanism: 'continuity-revive', attempts: 2 },
+      }),
+    });
+    const store = TestBed.inject(DocReviewStore);
+    await store.refresh();
+
+    const ok = await store.retryDelivery('dr_1');
+
+    expect(ok).toBe(true);
+    expect(store.sessions()[0].delivery?.status).toBe('delivered');
   });
 });

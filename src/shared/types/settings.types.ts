@@ -95,6 +95,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * `run_on_node` spawn path. 0 = unbounded. See claude2_todo #18.
    */
   maxSpawnDepth: number;
+  /** Operator-only: revive a terminal chat to deliver a submitted doc review. */
+  docReviewResumeOnSubmit: boolean;
   defaultMissedRunPolicy: DefaultMissedRunPolicy;
 
   // Memory Management
@@ -230,6 +232,12 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * Default OFF: unattended resumes can spend quota while the user is away.
    */
   instanceProviderLimitResumeEnabled: boolean;
+  /** Enable early warnings when known quota windows are consumed ahead of time. */
+  quotaPacingWarningEnabled: boolean;
+  /** Utilization percentage that begins an ahead-of-window pacing warning. */
+  quotaPacingUtilizationThresholdPercent: number;
+  /** Latest elapsed-window percentage eligible for a pacing warning. */
+  quotaPacingLatestElapsedPercent: number;
   /**
    * Hard cap on file count during preflight. Workspaces over this are
    * recorded as `'too_large'` and never auto-indexed — the user must use the
@@ -486,6 +494,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * such as embeddings still use.
    */
   auxiliaryLlmUseLocalhostOllama: boolean;
+  /** Optional hard daily USD ceiling for metered auxiliary cloud calls. */
+  auxiliaryLlmDailySpendCapUsd: number | null;
   auxiliaryLlmEndpointsJson: string;
   auxiliaryLlmSlotsJson: string;
   /**

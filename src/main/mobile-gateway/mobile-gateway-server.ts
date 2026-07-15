@@ -73,6 +73,10 @@ import {
 } from './mobile-gateway-device-token-handlers';
 import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
+import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from '../../shared/types/provider.types';
 
 export {
   buildProjects,
@@ -98,6 +102,7 @@ const MESSAGE_REPLAY_LIMIT = 300;
 const WS_HEARTBEAT_MS = 30_000;
 
 const VALID_PROVIDERS = new Set(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
+const VALID_REASONING_EFFORTS = new Set<string>(REASONING_EFFORTS);
 
 /** Minimal EventEmitter surface the gateway subscribes to / detaches from. */
 interface EmitterLike {
@@ -1354,7 +1359,11 @@ export class MobileGatewayServer {
   private async handleSessionPlan(res: ServerResponse, url: URL): Promise<void> {
     const provider = url.searchParams.get('provider') ?? undefined;
     const model = url.searchParams.get('model') ?? undefined;
-    const plan = await resolveMobileSessionPlan({ provider, model });
+    const requestedEffort = url.searchParams.get('reasoningEffort');
+    const reasoningEffort = requestedEffort && VALID_REASONING_EFFORTS.has(requestedEffort)
+      ? requestedEffort as ReasoningEffort
+      : undefined;
+    const plan = await resolveMobileSessionPlan({ provider, model, reasoningEffort });
     this.sendJson(res, 200, plan);
   }
 
@@ -1363,6 +1372,7 @@ export class MobileGatewayServer {
       workingDirectory?: unknown;
       provider?: unknown;
       model?: unknown;
+      reasoningEffort?: unknown;
       initialPrompt?: unknown;
       attachments?: unknown;
       forceNodeId?: unknown;
@@ -1384,6 +1394,11 @@ export class MobileGatewayServer {
     const provider =
       typeof body.provider === 'string' && VALID_PROVIDERS.has(body.provider)
         ? (body.provider as InstanceCreateConfig['provider'])
+        : undefined;
+    const reasoningEffort =
+      typeof body.reasoningEffort === 'string'
+        && VALID_REASONING_EFFORTS.has(body.reasoningEffort)
+        ? body.reasoningEffort as ReasoningEffort
         : undefined;
 
     // Optional remote targeting: spawn on a specific worker node. Accept either
@@ -1410,6 +1425,7 @@ export class MobileGatewayServer {
       attachments,
       provider,
       modelOverride: typeof body.model === 'string' ? body.model : undefined,
+      reasoningEffort,
       forceNodeId,
     };
     const instance = await this.source().createInstance(config);

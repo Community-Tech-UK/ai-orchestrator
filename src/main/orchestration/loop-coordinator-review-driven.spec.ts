@@ -580,6 +580,72 @@ describe('LoopCoordinator review-driven completion', () => {
     }
   }, 30_000);
 
+  it('does not audit a verified no-change claim when the agent explicitly declares more work', async () => {
+    const output = [
+      'Completed WS2 and verified 152 tests pass.',
+      'WS3 through WS16 remain open in LOOP_TASKS.md.',
+      '[[LOOP:MORE_WORK_REMAINING]]',
+    ].join('\n');
+    const tasks = [
+      '# Loop Tasks',
+      '',
+      '- [x] WS2 — shared resilience kit.',
+      '- [ ] WS3 — redaction egress completion.',
+      '- [ ] WS4 — remaining implementation.',
+      '',
+    ].join('\n');
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { loopRunId: string; workspaceCwd: string };
+      const paths = resolveLoopArtifactPaths(p.workspaceCwd, p.loopRunId);
+      mkdirSync(paths.phasesDir, { recursive: true });
+      writeFileSync(
+        join(paths.phasesDir, 'phase-2.md'),
+        [
+          '## Phase 2: WS2',
+          '',
+          'Acceptance Criteria:',
+          '- Shared resilience is runtime-wired.',
+          '',
+          'Required Commands:',
+          '- npm run test:quiet',
+          '',
+          'Evidence:',
+          '- src/main/util/backoff.spec.ts:1',
+          '',
+        ].join('\n'),
+      );
+    });
+    driveLoop(
+      Array.from({ length: 5 }, () => childResult(output, [], { testPassCount: 152 })),
+      { tasks },
+    );
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-rd-more-work-verified', {
+        initialPrompt: 'implement every open workstream',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 20 },
+        completion: reviewDrivenCompletion({ maxStalledReviewIterations: 10 }),
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'off',
+          planPacketMode: 'off',
+          cleanlinessScan: true,
+        },
+      });
+
+      await waitForCondition(() => (coordinator.getLoop(state!.id)?.totalIterations ?? 0) >= 4);
+
+      const current = coordinator.getLoop(state.id);
+      expect(current?.status).toBe('running');
+      expect(current?.latestFinalAudit).toBeUndefined();
+      expect(current?.phaseRecovery).toBeUndefined();
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 30_000);
+
   it('resets the clean-pass streak when production code changes', async () => {
     // clean, then a production change (resets), then clean → only 1 in the
     // streak, so it must NOT have converged after these three iterations.

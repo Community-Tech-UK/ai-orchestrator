@@ -1,0 +1,2 @@
+{"kind":"output","content":"Hello from Codex.","messageType":"assistant","messageId":"codex-message-1","timestamp":2000}
+{"kind":"complete","tokensUsed":10,"costUsd":0.001}

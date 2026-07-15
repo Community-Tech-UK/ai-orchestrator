@@ -6,12 +6,12 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
-import { getModelsForProvider, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
-import { UnifiedCatalogStore } from '../models/unified-catalog.store';
-import { resolveReviewerModels } from './reviewer-model-options';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
+import { getDefaultModelForCli } from '../../../../shared/types/provider.types';
 
 /** Providers that can run a loop. Mirrors LoopProvider in loop.types.ts. */
-const LOOP_PROVIDER_DEFINITIONS: readonly { id: string; label: string }[] = [
+const LOOP_PROVIDER_DEFINITIONS: readonly { id: PickerProvider; label: string }[] = [
   { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'OpenAI Codex CLI' },
   { id: 'gemini', label: 'Gemini CLI' },
@@ -22,15 +22,14 @@ const LOOP_PROVIDER_DEFINITIONS: readonly { id: string; label: string }[] = [
 ] as const;
 
 interface LoopProviderView {
-  id: string;
+  id: PickerProvider;
   label: string;
-  models: ModelDisplayInfo[];
 }
 
 @Component({
   selector: 'app-orchestration-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent],
+  imports: [SettingRowComponent, CompactModelPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="Orchestration settings">
@@ -60,24 +59,26 @@ interface LoopProviderView {
         @for (provider of loopProviders(); track provider.id) {
           <li class="loop-models__item">
             <span class="loop-models__name">{{ provider.label }}</span>
-            <!--
-              [selected] on each option, not [value] on the select: binding the
-              value property alone sets it before the @for options exist, so the
-              browser silently resets it to the first option and the picker lies
-              about what loops will actually run.
-            -->
-            <select
-              class="loop-models__select"
-              [attr.aria-label]="provider.label + ' loop model'"
-              (change)="onLoopModelChange(provider.id, $event)"
-            >
-              <option value="" [selected]="modelFor(provider.id) === ''">Session default</option>
-              @for (model of provider.models; track model.id) {
-                <option [value]="model.id" [selected]="model.id === modelFor(provider.id)">
-                  {{ model.name }}
-                </option>
-              }
-            </select>
+            <div class="loop-models__picker">
+              <span class="loop-models__source">
+                {{ modelFor(provider.id) ? 'Pinned override' : 'Session default' }}
+              </span>
+              <app-compact-model-picker
+                mode="pending-create"
+                [providers]="[provider.id]"
+                [selection]="selectionFor(provider.id)"
+                (selectionChange)="onLoopModelPicked(provider.id, $event)"
+              />
+              <button
+                type="button"
+                class="loop-models__reset"
+                [disabled]="!modelFor(provider.id)"
+                [attr.aria-label]="'Use session default for ' + provider.label + ' loops'"
+                (click)="resetLoopModel(provider.id)"
+              >
+                Use default
+              </button>
+            </div>
           </li>
         }
       </ol>
@@ -87,36 +88,34 @@ interface LoopProviderView {
 })
 export class OrchestrationSettingsTabComponent {
   store = inject(SettingsStore);
-  private unifiedCatalog = inject(UnifiedCatalogStore);
-
-  constructor() {
-    this.unifiedCatalog.ensureLoaded();
-  }
 
   readonly loopProviders = computed<LoopProviderView[]>(() =>
-    LOOP_PROVIDER_DEFINITIONS.map((provider) => ({
-      ...provider,
-      models: resolveReviewerModels(
-        this.unifiedCatalog.displayModelsForProvider(provider.id),
-        getModelsForProvider(provider.id),
-      ),
-    })),
+    LOOP_PROVIDER_DEFINITIONS.map((provider) => ({ ...provider })),
   );
 
   /** Current loop model for a provider, or '' when following the session default. */
-  modelFor(provider: string): string {
+  modelFor(provider: PickerProvider): string {
     return this.store.get('loopModelByProvider')?.[provider] ?? '';
   }
 
-  onLoopModelChange(provider: string, event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
+  selectionFor(provider: PickerProvider): PendingSelection {
+    return {
+      provider,
+      model: this.modelFor(provider) || getDefaultModelForCli(provider) || null,
+      reasoning: null,
+    };
+  }
+
+  onLoopModelPicked(provider: PickerProvider, selection: PendingSelection): void {
+    if (selection.provider !== provider || !selection.model) return;
     const next = { ...(this.store.get('loopModelByProvider') ?? {}) };
-    if (!value) {
-      // Empty = follow the provider's interactive default (pre-existing behaviour).
-      delete next[provider];
-    } else {
-      next[provider] = value;
-    }
+    next[provider] = selection.model;
+    void this.store.set('loopModelByProvider', next);
+  }
+
+  resetLoopModel(provider: PickerProvider): void {
+    const next = { ...(this.store.get('loopModelByProvider') ?? {}) };
+    delete next[provider];
     void this.store.set('loopModelByProvider', next);
   }
 

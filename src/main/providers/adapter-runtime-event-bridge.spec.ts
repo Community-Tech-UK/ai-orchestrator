@@ -1,11 +1,34 @@
 import { EventEmitter } from 'events';
 import { describe, expect, it } from 'vitest';
 import {
+  mapAdapterRuntimeEvent,
   observeAdapterRuntimeEvents,
   type NormalizedAdapterRuntimeEvent,
 } from './adapter-runtime-event-bridge';
 
 describe('observeAdapterRuntimeEvents', () => {
+  it('maps adapter events purely while retaining the original context payload', () => {
+    const raw = {
+      used: 10,
+      total: 100,
+      prompt_tokens: 7,
+      completion_tokens: 3,
+      providerDiagnostic: 'native-only',
+    };
+
+    expect(mapAdapterRuntimeEvent('context', [raw])).toEqual({
+      event: {
+        kind: 'context',
+        used: 10,
+        total: 100,
+        percentage: 10,
+        inputTokens: 7,
+        outputTokens: 3,
+      },
+      rawPayload: raw,
+    });
+  });
+
   it('normalizes raw adapter events into provider runtime events', () => {
     const adapter = new EventEmitter();
     const events: NormalizedAdapterRuntimeEvent[] = [];

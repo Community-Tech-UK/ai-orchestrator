@@ -290,6 +290,19 @@ export type ProviderRuntimeEvent =
   | ProviderSpawnedEvent
   | ProviderCompleteEvent;
 
+/**
+ * JSON-safe source payload retained alongside its canonical event. Runtime
+ * producers normalize non-JSON values (for example Error and bigint) before
+ * constructing this field, so envelopes remain safe to send through Electron
+ * IPC and to persist in the local event-capture ledger.
+ */
+export interface ProviderRuntimeEventRaw {
+  /** Stable producer seam, for example `adapter-event:output`. */
+  source: string;
+  /** Provider/adapter payload after JSON-safety normalization. */
+  payload: unknown;
+}
+
 // ============================================
 // Event Envelope
 // ============================================
@@ -315,5 +328,7 @@ export interface ProviderRuntimeEventEnvelope {
   readonly adapterGeneration?: number;
   /** Provider-native turn ID associated with this event, when known. */
   readonly turnId?: string;
+  /** Optional replay payload captured at the adapter event boundary. */
+  readonly raw?: ProviderRuntimeEventRaw;
   readonly event: ProviderRuntimeEvent;
 }

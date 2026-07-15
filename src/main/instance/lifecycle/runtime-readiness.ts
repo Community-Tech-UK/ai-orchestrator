@@ -48,9 +48,10 @@ export class RuntimeReadinessCoordinator {
   /**
    * Wait until the just-spawned CLI proves it accepted native resume.
    *
-   * Positive signal: any normalized output event from the adapter, or a
-   * writable quiet Claude stream. Claude `--print --resume` can accept stdin
-   * without emitting output until the next user message.
+   * Positive signal: definitive provider resume proof, any normalized output
+   * event from the adapter, or a writable quiet Claude stream. Both Codex
+   * app-server and Claude can accept resume without emitting output until the
+   * next user message.
    * Negative signal: process liveness failure or a session-not-found error.
    */
   async waitForResumeHealth(
@@ -61,6 +62,11 @@ export class RuntimeReadinessCoordinator {
     const adapter = this.deps.getAdapter(instanceId);
     if (!this.isLive(instanceId, adapter)) {
       return false;
+    }
+
+    const initialProof = this.getResumeProof(adapter);
+    if (initialProof !== null) {
+      return initialProof;
     }
 
     return new Promise<boolean>((resolve) => {
@@ -85,13 +91,23 @@ export class RuntimeReadinessCoordinator {
           return;
         }
 
+        const proof = this.getResumeProof(adapter);
+        if (proof !== null) {
+          finish(proof);
+          return;
+        }
+
         if (this.hasQuietResumeReadiness(adapter)) {
           finish(true);
         }
       }, pollIntervalMs);
 
       const timer = setTimeout(() => {
-        finish(this.isLive(instanceId, adapter) && this.hasQuietResumeReadiness(adapter));
+        const proof = this.getResumeProof(adapter);
+        finish(
+          this.isLive(instanceId, adapter)
+          && (proof ?? this.hasQuietResumeReadiness(adapter)),
+        );
       }, timeoutMs);
 
       stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {

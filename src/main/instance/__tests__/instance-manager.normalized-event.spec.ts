@@ -532,16 +532,74 @@ describe('InstanceManager provider:normalized-event emission', () => {
     (emitProviderRuntimeEvent as (
       instanceId: string,
       event: ProviderRuntimeEventEnvelope['event'],
-      options?: { provider?: ProviderRuntimeEventEnvelope['provider'] },
-    ) => void)('inst-1', envelope.event, { provider: 'claude' });
+      options?: {
+        provider?: ProviderRuntimeEventEnvelope['provider'];
+        raw?: ProviderRuntimeEventEnvelope['raw'];
+      },
+    ) => void)('inst-1', envelope.event, {
+      provider: 'claude',
+      raw: { source: 'adapter-event:output', payload: { nativeType: 'assistant' } },
+    });
 
     expect(received).toHaveLength(1);
     expect(received[0]).toMatchObject({
       provider: 'claude',
       instanceId: 'inst-1',
       event: envelope.event,
+      raw: { source: 'adapter-event:output', payload: { nativeType: 'assistant' } },
       seq: 0,
     });
+  });
+
+  it('emits every raw-backed ingress before renderer status deduplication', () => {
+    const manager = new InstanceManager();
+    const rawEvents: ProviderRuntimeEventEnvelope[] = [];
+    const normalizedEvents: ProviderRuntimeEventEnvelope[] = [];
+    manager.on('provider:raw-event', (env) => rawEvents.push(env));
+    manager.on('provider:normalized-event', (env) => normalizedEvents.push(env));
+
+    const emitProviderRuntimeEvent = capturedCommunicationDeps?.['emitProviderRuntimeEvent'];
+    expect(typeof emitProviderRuntimeEvent).toBe('function');
+    const emit = emitProviderRuntimeEvent as (
+      instanceId: string,
+      event: ProviderRuntimeEventEnvelope['event'],
+      options: { provider: ProviderRuntimeEventEnvelope['provider']; raw: NonNullable<ProviderRuntimeEventEnvelope['raw']> },
+    ) => void;
+    const raw = { source: 'adapter-event:status', payload: 'busy' };
+
+    emit('inst-raw', { kind: 'status', status: 'busy' }, { provider: 'claude', raw });
+    emit('inst-raw', { kind: 'status', status: 'busy' }, { provider: 'claude', raw });
+
+    expect(rawEvents).toHaveLength(2);
+    expect(rawEvents.map((event) => event.seq)).toEqual([0, 1]);
+    expect(normalizedEvents).toHaveLength(1);
+  });
+
+  it('captures a user echo without publishing a duplicate renderer event', () => {
+    const manager = new InstanceManager();
+    const rawEvents: ProviderRuntimeEventEnvelope[] = [];
+    const normalizedEvents: ProviderRuntimeEventEnvelope[] = [];
+    manager.on('provider:raw-event', (env) => rawEvents.push(env));
+    manager.on('provider:normalized-event', (env) => normalizedEvents.push(env));
+
+    const captureProviderRuntimeEvent = capturedCommunicationDeps?.['captureProviderRuntimeEvent'];
+    expect(typeof captureProviderRuntimeEvent).toBe('function');
+    (captureProviderRuntimeEvent as (
+      instanceId: string,
+      event: ProviderRuntimeEventEnvelope['event'],
+      options: { provider: ProviderRuntimeEventEnvelope['provider']; raw: NonNullable<ProviderRuntimeEventEnvelope['raw']> },
+    ) => void)('inst-user-echo', {
+      kind: 'output',
+      content: 'user prompt',
+      messageType: 'user',
+    }, {
+      provider: 'claude',
+      raw: { source: 'adapter-event:output', payload: { type: 'user', content: 'user prompt' } },
+    });
+
+    expect(rawEvents).toHaveLength(1);
+    expect(rawEvents[0]).toMatchObject({ event: { kind: 'output', messageType: 'user' } });
+    expect(normalizedEvents).toHaveLength(0);
   });
 });
 

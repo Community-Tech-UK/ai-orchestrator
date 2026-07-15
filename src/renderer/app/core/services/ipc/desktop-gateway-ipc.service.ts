@@ -5,7 +5,9 @@ import type {
   DesktopGatewayResult,
   DesktopGrantSummary,
   DesktopHealthData,
+  DesktopApplicationRelaunchResult,
   DesktopPermissionActionResult,
+  DesktopPermissionRepairResult,
   DesktopSystemPermission,
 } from '../../../../../shared/types/desktop-gateway.types';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
@@ -66,12 +68,29 @@ export class DesktopGatewayIpcService {
     return this.call(() => this.api?.desktopRequestSystemPermission({ permission }));
   }
 
+  async repairSystemPermissions(): Promise<IpcResponse<DesktopPermissionRepairResult>> {
+    return this.callDirect(() => this.api?.desktopRepairSystemPermissions());
+  }
+
+  async relaunchApplication(): Promise<IpcResponse<DesktopApplicationRelaunchResult>> {
+    return this.callDirect(() => this.api?.desktopRelaunchApplication());
+  }
+
   private async call<T>(
     fn: () => Promise<IpcResponse> | undefined,
   ): Promise<DesktopGatewayIpcResponse<T>> {
     const response = await fn();
     return response
       ? response as DesktopGatewayIpcResponse<T>
+      : { success: false, error: { message: 'Not in Electron' } };
+  }
+
+  private async callDirect<T>(
+    fn: () => Promise<IpcResponse> | undefined,
+  ): Promise<IpcResponse<T>> {
+    const response = await fn();
+    return response
+      ? response as IpcResponse<T>
       : { success: false, error: { message: 'Not in Electron' } };
   }
 }

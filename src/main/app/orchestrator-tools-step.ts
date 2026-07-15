@@ -28,6 +28,9 @@ import {
 import { getAutomationEvents } from '../automations/automation-events';
 import { createAutomationToolImplementations } from '../automations/automation-tool-impl';
 import { getDocReviewService } from '../doc-review/doc-review-service';
+import { DocReviewDeliveryCoordinator } from '../doc-review/doc-review-delivery-coordinator';
+import { getLoopCoordinator } from '../orchestration/loop-coordinator';
+import { getPauseCoordinator } from '../pause/pause-coordinator';
 import type { Instance } from '../../shared/types/instance.types';
 import type { NodePlacementPrefs, WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -159,10 +162,22 @@ export function createOrchestratorToolsStep(
             ? instanceManager.getInstance(callerInstanceId)?.workingDirectory
             : undefined,
       });
-      // Wire doc-review so submitted decisions can be pushed back into the
-      // requesting instance as a user message.
-      getDocReviewService().setInstanceManager({
-        sendInput: (id, message) => instanceManager.sendInput(id, message),
+      // Persisted review decisions are delivered through lifecycle policy, not a
+      // bare sendInput side effect. A later idle/resume event drains queued work.
+      const docReviewService = getDocReviewService();
+      docReviewService.setDeliveryCoordinator(new DocReviewDeliveryCoordinator({
+        instanceManager,
+        pauseCoordinator: getPauseCoordinator(),
+        loopCoordinator: getLoopCoordinator(),
+        resumeOnSubmit: () => getSettingsManager().get('docReviewResumeOnSubmit') !== false,
+        recordRecoveredAttempt: (reviewId, attempt) => {
+          docReviewService.appendDeliveryAttempt(reviewId, attempt);
+        },
+      }));
+      void docReviewService.recoverUndelivered().catch((error) => {
+        logger.warn('Failed to recover queued doc-review deliveries', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
@@ -521,8 +536,11 @@ export function createOrchestratorToolsStep(
           if (!workspacePath) {
             throw new Error('Calling instance has no working directory for the review artifact');
           }
+          const requestingInstance = instanceManager.getInstance(instanceId);
           const session = await getDocReviewService().createSession({
             instanceId,
+            historyThreadId: requestingInstance?.historyThreadId,
+            sessionId: requestingInstance?.providerSessionId,
             workspacePath,
             artifactPath,
             title,

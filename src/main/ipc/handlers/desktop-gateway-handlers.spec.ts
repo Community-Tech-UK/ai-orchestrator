@@ -9,6 +9,16 @@ type Handler = (event: unknown, payload: unknown) => Promise<unknown>;
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, Handler>(),
   openExternal: vi.fn(async (_url: string) => undefined),
+  repairSystemPermissions: vi.fn(async () => ({
+    resetPermissions: ['screen-recording', 'accessibility'] as const,
+    relaunchRequired: true as const,
+  })),
+  scheduleRelaunch: vi.fn(),
+  health: vi.fn(async () => ({
+    decision: 'allowed' as const,
+    outcome: 'ok' as const,
+    data: { enabled: true },
+  })),
   requestSystemPermissionForOperator:
     vi.fn(async (_permission: string): Promise<DesktopGatewayResult<DesktopPermissionRequestResult>> => ({
       decision: 'allowed',
@@ -33,7 +43,7 @@ vi.mock('electron', () => ({
 vi.mock('../../desktop-gateway/desktop-gateway-service', () => ({
   getDesktopGatewayService: () => ({
     requestSystemPermissionForOperator: mocks.requestSystemPermissionForOperator,
-    health: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
+    health: mocks.health,
     listApps: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
     listGrantsForOperator: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
     revokeGrantForOperator: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
@@ -44,6 +54,8 @@ vi.mock('../../desktop-gateway/desktop-gateway-service', () => ({
 import { registerDesktopGatewayHandlers } from './desktop-gateway-handlers';
 
 const CHANNEL = 'desktop:request-system-permission';
+const REPAIR_CHANNEL = 'desktop:repair-system-permissions';
+const RELAUNCH_CHANNEL = 'desktop:relaunch-application';
 
 interface HandlerResponse {
   success: boolean;
@@ -54,8 +66,12 @@ interface HandlerResponse {
 }
 
 function invoke(payload: unknown): Promise<HandlerResponse> {
-  const handler = mocks.handlers.get(CHANNEL);
-  if (!handler) throw new Error(`Missing handler for ${CHANNEL}`);
+  return invokeChannel(CHANNEL, payload) as Promise<HandlerResponse>;
+}
+
+function invokeChannel(channel: string, payload: unknown): Promise<unknown> {
+  const handler = mocks.handlers.get(channel);
+  if (!handler) throw new Error(`Missing handler for ${channel}`);
   return handler({}, payload) as Promise<HandlerResponse>;
 }
 
@@ -228,5 +244,72 @@ describe('desktop-gateway-handlers request-system-permission', () => {
 
     expect(openExternal).toHaveBeenCalledOnce();
     expect(mocks.openExternal).not.toHaveBeenCalled();
+  });
+});
+
+describe('desktop-gateway-handlers permission repair', () => {
+  beforeEach(() => {
+    mocks.handlers.clear();
+    vi.clearAllMocks();
+  });
+
+  it('runs the fixed main-process repair and returns its relaunch requirement', async () => {
+    registerDesktopGatewayHandlers({
+      repairSystemPermissions: mocks.repairSystemPermissions,
+      scheduleRelaunch: mocks.scheduleRelaunch,
+    });
+
+    const response = await invokeChannel(REPAIR_CHANNEL, {});
+
+    expect(mocks.repairSystemPermissions).toHaveBeenCalledOnce();
+    expect(response).toEqual({
+      success: true,
+      data: {
+        resetPermissions: ['screen-recording', 'accessibility'],
+        relaunchRequired: true,
+      },
+    });
+  });
+
+  it('rejects renderer-supplied repair targets before touching TCC', async () => {
+    registerDesktopGatewayHandlers({
+      repairSystemPermissions: mocks.repairSystemPermissions,
+    });
+
+    const response = await invokeChannel(REPAIR_CHANNEL, {
+      service: 'All',
+      bundleId: 'com.apple.Terminal',
+    }) as HandlerResponse;
+
+    expect(response.success).toBe(false);
+    expect(mocks.repairSystemPermissions).not.toHaveBeenCalled();
+  });
+
+  it('does not reset permissions while Computer Use is disabled', async () => {
+    mocks.health.mockResolvedValueOnce({
+      decision: 'allowed',
+      outcome: 'ok',
+      data: { enabled: false },
+    });
+    registerDesktopGatewayHandlers({
+      repairSystemPermissions: mocks.repairSystemPermissions,
+    });
+
+    const response = await invokeChannel(REPAIR_CHANNEL, {}) as HandlerResponse;
+
+    expect(response.success).toBe(false);
+    expect(mocks.repairSystemPermissions).not.toHaveBeenCalled();
+  });
+
+  it('schedules an app relaunch only from the dedicated empty-payload action', async () => {
+    registerDesktopGatewayHandlers({
+      repairSystemPermissions: mocks.repairSystemPermissions,
+      scheduleRelaunch: mocks.scheduleRelaunch,
+    });
+
+    const response = await invokeChannel(RELAUNCH_CHANNEL, {});
+
+    expect(response).toEqual({ success: true, data: { relaunching: true } });
+    expect(mocks.scheduleRelaunch).toHaveBeenCalledOnce();
   });
 });

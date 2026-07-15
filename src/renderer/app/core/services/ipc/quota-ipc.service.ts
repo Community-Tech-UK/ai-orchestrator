@@ -68,6 +68,13 @@ export class QuotaIpcService {
     });
   }
 
+  onQuotaPacingWarning(callback: (data: unknown) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onQuotaPacingWarning((data) => {
+      this.ngZone.run(() => callback(data));
+    });
+  }
+
   onQuotaExhausted(callback: (data: unknown) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onQuotaExhausted((data) => {

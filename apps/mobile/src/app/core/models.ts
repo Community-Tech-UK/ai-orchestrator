@@ -32,6 +32,23 @@ export interface MobileModelDto {
 
 export type MobileModelCatalog = Record<string, MobileModelDto[]>;
 
+export type MobileReasoningEffort =
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+  | 'workflow';
+
+export interface MobileReasoningOption {
+  id: 'default' | MobileReasoningEffort;
+  label: string;
+  description: string;
+  isDefault?: boolean;
+}
+
 /**
  * Preview of what a new session will actually start with (resolved on the host).
  * Mirrors MobileSessionPlan in src/shared/types/mobile-gateway.types.ts.
@@ -41,7 +58,7 @@ export interface MobileSessionPlan {
   providerLabel: string;
   model: string | null;
   modelLabel: string | null;
-  reasoningEffort: string | null;
+  reasoningEffort: MobileReasoningEffort | null;
   reasoningEffortLabel: string | null;
 }
 
@@ -148,6 +165,7 @@ export interface MobileCreateInstanceRequest {
   workingDirectory: string;
   provider?: string;
   model?: string;
+  reasoningEffort?: MobileReasoningEffort;
   initialPrompt?: string;
   attachments?: MobileAttachmentDto[];
 }

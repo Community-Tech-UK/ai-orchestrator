@@ -144,6 +144,7 @@ describe('InstanceCommunicationManager', () => {
   let adapters: Map<string, CliAdapter>;
   let queueUpdate: ReturnType<typeof vi.fn>;
   let emitProviderRuntimeEvent: ReturnType<typeof vi.fn>;
+  let captureProviderRuntimeEvent: ReturnType<typeof vi.fn>;
   let manager: InstanceCommunicationManager;
 
   async function flushOutputHandlers(): Promise<void> {
@@ -159,6 +160,7 @@ describe('InstanceCommunicationManager', () => {
     adapters = new Map();
     queueUpdate = vi.fn();
     emitProviderRuntimeEvent = vi.fn();
+    captureProviderRuntimeEvent = vi.fn();
 
     manager = new InstanceCommunicationManager({
       getInstance: (id) => (id === instance.id ? instance : undefined),
@@ -173,6 +175,7 @@ describe('InstanceCommunicationManager', () => {
       ingestToRLM: vi.fn(),
       ingestToUnifiedMemory: vi.fn(),
       emitProviderRuntimeEvent,
+      captureProviderRuntimeEvent,
     });
   });
 
@@ -186,6 +189,145 @@ describe('InstanceCommunicationManager', () => {
     expect(instance.status).toBe('idle');
     expect(instance.processId).toBe(12345);
     expect(queueUpdate).not.toHaveBeenCalled();
+  });
+
+  it('attaches the original adapter payload when emitting a canonical runtime event', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const message = createMessage('assistant', 'captured answer', {
+      metadata: { nativeMessageId: 'native-1' },
+    });
+
+    const output = vi.fn();
+    manager.on('output', output);
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', message);
+    await flushOutputHandlers();
+
+    expect(output).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: instance.id,
+      message: expect.objectContaining({ type: 'assistant', content: 'captured answer' }),
+      raw: {
+        source: 'adapter-event:output',
+        payload: expect.objectContaining({
+          id: message.id,
+          content: 'captured answer',
+          metadata: { nativeMessageId: 'native-1' },
+        }),
+      },
+    }));
+  });
+
+  it('captures a CLI user-message echo without republishing the duplicate transcript event', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const message = createMessage('user', 'private prompt echoed by the CLI');
+    const output = vi.fn();
+    manager.on('output', output);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', message);
+    await flushOutputHandlers();
+
+    expect(captureProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      expect.objectContaining({
+        kind: 'output',
+        content: 'private prompt echoed by the CLI',
+        messageType: 'user',
+      }),
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:output' }) }),
+    );
+    expect(emitProviderRuntimeEvent).not.toHaveBeenCalled();
+    expect(output).not.toHaveBeenCalled();
+  });
+
+  it('preserves a JSON-safe raw context payload alongside the canonical event', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 80,
+      total: 100,
+      percentage: 80,
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      expect.objectContaining({ kind: 'context', used: 80 }),
+      expect.objectContaining({
+        raw: {
+          source: 'adapter-event:context',
+          payload: expect.objectContaining({
+            used: 80,
+          }),
+        },
+      }),
+    );
+  });
+
+  it('clears an expired provider-limit gate after a non-limit turn completes', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    const clearProviderLimitAfterSuccessfulTurn = vi.fn();
+    adapters.set(instance.id, adapter);
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      clearProviderLimitAfterSuccessfulTurn,
+    });
+
+    instance.currentModel = 'claude-sonnet-4-5';
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'r1', content: 'completed normally', role: 'assistant', usage: { outputTokens: 1 },
+    } satisfies CliResponse);
+
+    expect(clearProviderLimitAfterSuccessfulTurn).toHaveBeenCalledWith({
+      provider: 'claude', model: 'claude-sonnet-4-5', now: expect.any(Number),
+    });
+  });
+
+  it('forwards tool and spawn adapter events through the raw-backed runtime stream', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('spawned', 4321);
+    (adapter as unknown as EventEmitter).emit('tool_use', {
+      id: 'tool-1',
+      name: 'Read',
+      arguments: { path: 'README.md' },
+    });
+    (adapter as unknown as EventEmitter).emit('tool_result', {
+      id: 'tool-1',
+      name: 'Read',
+      arguments: { path: 'README.md' },
+      result: 'contents',
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      { kind: 'spawned', pid: 4321 },
+      expect.objectContaining({ raw: { source: 'adapter-event:spawned', payload: 4321 } }),
+    );
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      { kind: 'tool_use', toolName: 'Read', toolUseId: 'tool-1', input: { path: 'README.md' } },
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:tool_use' }) }),
+    );
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      { kind: 'tool_result', toolName: 'Read', toolUseId: 'tool-1', success: true, output: 'contents' },
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:tool_result' }) }),
+    );
   });
 
   it('still marks persistent adapters as terminated on exit', () => {
@@ -346,7 +488,12 @@ describe('InstanceCommunicationManager', () => {
       outputTokens: 20,
       source: 'provider-usage',
       promptWeight: 0.75,
-    }, undefined);
+    }, expect.objectContaining({
+      raw: {
+        source: 'adapter-event:context',
+        payload: expect.objectContaining({ used: 80, total: 100, percentage: 80 }),
+      },
+    }));
   });
 
   describe('cost recording on turn completion', () => {
@@ -527,7 +674,9 @@ describe('InstanceCommunicationManager', () => {
       stopReason: 'end_turn',
       rateLimit: { remaining: 9, resetAt: 1_717_000_060_000 },
       quota: { exhausted: false, message: 'ok' },
-    }, undefined);
+    }, expect.objectContaining({
+      raw: expect.objectContaining({ source: 'adapter-event:complete' }),
+    }));
   });
 
   it('propagates the A3 degradedReason tag onto the complete runtime event', () => {
@@ -545,7 +694,7 @@ describe('InstanceCommunicationManager', () => {
     expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
       instance.id,
       { kind: 'complete', degradedReason: 'delayed' },
-      undefined,
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:complete' }) }),
     );
   });
 
@@ -563,7 +712,7 @@ describe('InstanceCommunicationManager', () => {
     expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
       instance.id,
       { kind: 'complete' },
-      undefined,
+      expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:complete' }) }),
     );
   });
 
@@ -588,7 +737,9 @@ describe('InstanceCommunicationManager', () => {
       stopReason: 'rate_limit',
       rateLimit: { remaining: 0, resetAt: 1_717_000_060_000 },
       quota: { exhausted: true, message: 'quota exhausted' },
-    }, undefined);
+    }, expect.objectContaining({
+      raw: expect.objectContaining({ source: 'adapter-event:error' }),
+    }));
   });
 
   it.each([
@@ -1538,6 +1689,64 @@ describe('provider-limit park on thrown sendInput errors', () => {
         (m) => m.type === 'system' && m.metadata?.['providerLimitParked'] === true,
       ),
     ).toBe(true);
+  });
+
+  it('does not dispatch a turn when the provider-limit preflight parks a known active gate', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.currentModel = 'claude-sonnet-4-5';
+    const checkKnownProviderLimitBeforeSend = vi.fn().mockReturnValue('parked');
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      checkKnownProviderLimitBeforeSend,
+    });
+
+    await expect(manager.sendInput(instance.id, 'continue the task')).resolves.toBeUndefined();
+
+    expect(checkKnownProviderLimitBeforeSend).toHaveBeenCalledWith({
+      instanceId: instance.id,
+      provider: 'claude',
+      model: 'claude-sonnet-4-5',
+      prompt: 'continue the task',
+    });
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('preserves queued continuity context when the provider-limit preflight parks a turn', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const checkKnownProviderLimitBeforeSend = vi.fn()
+      .mockReturnValueOnce('parked')
+      .mockReturnValueOnce('skipped');
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      checkKnownProviderLimitBeforeSend,
+    });
+    manager.queueContinuityPreamble(instance.id, 'Prior context that must survive the park.');
+
+    await manager.sendInput(instance.id, 'continue the task');
+    await manager.sendInput(instance.id, 'continue the task');
+
+    expect(adapter.sendInput).toHaveBeenCalledWith(
+      'Prior context that must survive the park.\n\ncontinue the task',
+      undefined,
+    );
   });
 
   it('acknowledges an already-parked send quietly: no duplicate park message, no status change', async () => {

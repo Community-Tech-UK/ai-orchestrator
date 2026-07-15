@@ -28,6 +28,9 @@ export function createDocReviewDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     docReviewDismiss: (payload: { reviewId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.DOC_REVIEW_DISMISS, payload),
 
+    docReviewRetryDelivery: (payload: { reviewId: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.DOC_REVIEW_RETRY_DELIVERY, payload),
+
     docReviewOpenExternal: (payload: { reviewId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.DOC_REVIEW_OPEN_EXTERNAL, payload),
 

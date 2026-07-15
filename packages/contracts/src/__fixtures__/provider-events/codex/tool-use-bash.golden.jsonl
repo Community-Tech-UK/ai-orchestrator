@@ -1,0 +1,2 @@
+{"kind":"tool_use","toolName":"Bash","toolUseId":"codex-tool-1","input":{"command":"pwd"}}
+{"kind":"tool_result","toolName":"Bash","toolUseId":"codex-tool-1","success":true,"output":"/workspace"}

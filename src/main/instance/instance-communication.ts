@@ -40,14 +40,21 @@ import { getTodoManager } from '../tasks/todo-manager';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
+  ProviderRuntimeEventRaw,
 } from '@contracts/types/provider-runtime-events';
+import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
+import { toProviderOutputEvent } from '../providers/provider-output-event';
 import type { CommunicationDependencies } from './instance-communication.types';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 import { detectCompletionProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
-import { tryParkOnProviderLimit as tryParkOnProviderLimitImpl } from './instance-communication-provider-limit';
+import {
+  applyPlanModeTurnHint,
+  shouldSkipKnownProviderLimitDispatch,
+  tryParkOnProviderLimit as tryParkOnProviderLimitImpl,
+} from './instance-communication-provider-limit';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
@@ -74,6 +81,7 @@ import {
 } from './instance-communication.constants';
 import type { CircuitBreakerState } from './instance-communication.constants';
 import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
+import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -515,18 +523,6 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
   }
 
-  private applyPlanModeTurnHint(
-    instance: Instance,
-    message: string,
-    isAutoContinuation: boolean,
-  ): string {
-    if (isAutoContinuation) return message;
-    if (instance.provider !== 'claude') return message;
-    if (!instance.planMode.enabled || instance.planMode.state !== 'planning') return message;
-    if (/\bultrathink\b/i.test(message)) return message;
-    return `ultrathink\n\n${message}`;
-  }
-
   /**
    * Attempt to park a regular session on a provider rate/usage limit.
    * Shared by two turn-outcome paths that both need it: the adapter's
@@ -683,6 +679,15 @@ export class InstanceCommunicationManager extends EventEmitter {
       throw new Error('Cannot send empty message: no text content and no attachments');
     }
 
+    if (shouldSkipKnownProviderLimitDispatch(this.deps.checkKnownProviderLimitBeforeSend, {
+      instanceId,
+      provider: instance.provider,
+      model: instance.currentModel ?? null,
+      prompt: message,
+    })) {
+      logger.info('Skipped adapter dispatch because the provider has an active known limit', { instanceId });
+      return;
+    }
     // Track last sent message for retry-after-compaction
     this.lastSentMessages.set(instanceId, { message, attachments, contextBlock });
 
@@ -710,8 +715,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     const isAutoContinuation = options?.autoContinuation === true;
     const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
-    const finalMessage = this.applyPlanModeTurnHint(instance, finalMessageBase, isAutoContinuation);
-
+    const finalMessage = applyPlanModeTurnHint(instance, finalMessageBase, isAutoContinuation);
     await assertInstanceLifecycleHookAllowed(
       'PreSampling',
       instance,
@@ -1076,6 +1080,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         provider?: ProviderName;
         sessionId?: string;
         timestamp?: number;
+        raw?: ProviderRuntimeEventRaw;
       },
     ): void => {
       this.deps.emitProviderRuntimeEvent?.(instanceId, event, options);
@@ -1085,12 +1090,20 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('output')) {
         return;
       }
+      // Persist provenance before instance metadata is added below. The visible
+      // message needs adapter generation/turn tags; the raw capture must remain
+      // the adapter's original event for deterministic replay.
+      const rawAdapterPayload = toJsonSafeProviderEventPayload(message);
 
       // Skip user messages echoed back by the CLI — we add them explicitly
       // in InstanceManager.sendInput() and InstanceLifecycle.createInstance().
       // Without this filter, every user message appears twice (our emit + CLI echo),
       // and during --resume replays, historical user messages are re-added.
       if (message.type === 'user') {
+        this.deps.captureProviderRuntimeEvent?.(instanceId, toProviderOutputEvent(message), {
+          timestamp: message.timestamp,
+          raw: { source: 'adapter-event:output', payload: rawAdapterPayload },
+        });
         return;
       }
 
@@ -1436,13 +1449,26 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
 
         this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
-        this.emit('output', { instanceId, message });
+        this.emit('output', {
+          instanceId,
+          message,
+          raw: {
+            source: 'adapter-event:output',
+            payload: rawAdapterPayload,
+          },
+        });
 
         // Check for orchestration commands in assistant output
         if (message.type === 'assistant' && message.content) {
           this.deps.processOrchestrationOutput(instanceId, message.content);
         }
       }
+    });
+
+    bindRawAdapterProviderEvents({
+      adapter,
+      isStale: isStaleAdapterEvent,
+      emit: emitProviderRuntimeEvent,
     });
 
     adapter.on('status', (status: InstanceStatus) => {
@@ -1462,7 +1488,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         });
       }
 
-      emitProviderRuntimeEvent({ kind: 'status', status: normalizedStatus });
+      emitProviderRuntimeEvent(
+        { kind: 'status', status: normalizedStatus },
+        { raw: { source: 'adapter-event:status', payload: toJsonSafeProviderEventPayload(status) } },
+      );
 
       const instance = this.deps.getInstance(instanceId);
       if (instance && instance.status === normalizedStatus) {
@@ -1562,16 +1591,19 @@ export class InstanceCommunicationManager extends EventEmitter {
         });
         return;
       }
-      emitProviderRuntimeEvent({
-        kind: 'context',
-        used: usage.used,
-        total: usage.total,
-        percentage: usage.percentage,
-        ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
-        ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
-        ...(usage.source !== undefined ? { source: usage.source } : {}),
-        ...(usage.promptWeight !== undefined ? { promptWeight: usage.promptWeight } : {}),
-      });
+      emitProviderRuntimeEvent(
+        {
+          kind: 'context',
+          used: usage.used,
+          total: usage.total,
+          percentage: usage.percentage,
+          ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+          ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+          ...(usage.source !== undefined ? { source: usage.source } : {}),
+          ...(usage.promptWeight !== undefined ? { promptWeight: usage.promptWeight } : {}),
+        },
+        { raw: { source: 'adapter-event:context', payload: toJsonSafeProviderEventPayload(usage) } },
+      );
 
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
@@ -1640,6 +1672,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('complete')) {
         return;
       }
+      const providerLimitSignal = detectCompletionProviderLimit(
+        response,
+        readAdapterRateLimitTelemetry(adapter),
+      );
       // A3: when the adapter-layer classifier tagged this turn as degraded
       // (only possible with `detectDegradedAdapterOutput` enabled), surface it
       // as an observable warning. The normalized event below also carries the
@@ -1651,11 +1687,20 @@ export class InstanceCommunicationManager extends EventEmitter {
           contentLength: response.content?.length ?? 0,
         });
       }
-      emitProviderRuntimeEvent(this.toProviderCompleteEvent(response));
+      emitProviderRuntimeEvent(this.toProviderCompleteEvent(response), {
+        raw: { source: 'adapter-event:complete', payload: toJsonSafeProviderEventPayload(response) },
+      });
       const completedInstance = this.deps.getInstance(instanceId);
       if (completedInstance) {
         this.recordCompletionCost(instanceId, completedInstance, response);
         this.recordEstimationTelemetry(completedInstance, response);
+        if (!providerLimitSignal && completedInstance.provider !== 'auto') {
+          this.deps.clearProviderLimitAfterSuccessfulTurn?.({
+            provider: completedInstance.provider,
+            model: completedInstance.currentModel ?? null,
+            now: Date.now(),
+          });
+        }
         dispatchInstanceLifecycleHook('PostSampling', completedInstance, {
           modelResponse: response.content,
           responseTokens: response.usage?.outputTokens,
@@ -1673,12 +1718,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       // ("You've hit your session limit · resets 6:30pm") rather than throwing.
       // Park + schedule a resume so the turn is re-sent after the window resets.
       if (this.deps.onProviderLimitTurn) {
-        const signal = detectCompletionProviderLimit(response, readAdapterRateLimitTelemetry(adapter));
-        if (signal) {
+        if (providerLimitSignal) {
           this.deps.onProviderLimitTurn({
             instanceId,
-            resetAtHint: signal.resetAtHint,
-            reason: signal.reason,
+            resetAtHint: providerLimitSignal.resetAtHint,
+            reason: providerLimitSignal.reason,
             resumePrompt: this.lastSentMessages.get(instanceId)?.message ?? null,
           });
         }
@@ -1752,12 +1796,15 @@ export class InstanceCommunicationManager extends EventEmitter {
       const recoverableStatelessExecError = isRecoverableStatelessExecTurnError(adapter, error);
       const recoverableAcpPromptTurnError = isRecoverableAcpPromptTurnError(errorMessage);
       const recoverableTurnError = recoverableStatelessExecError || recoverableAcpPromptTurnError;
-      emitProviderRuntimeEvent({
-        kind: 'error',
-        message: errorMessage,
-        recoverable: recoverableTurnError,
-        ...extractProviderErrorDiagnostics(error),
-      });
+      emitProviderRuntimeEvent(
+        {
+          kind: 'error',
+          message: errorMessage,
+          recoverable: recoverableTurnError,
+          ...extractProviderErrorDiagnostics(error),
+        },
+        { raw: { source: 'adapter-event:error', payload: toJsonSafeProviderEventPayload(error) } },
+      );
       const instance = this.deps.getInstance(instanceId);
       logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
 
@@ -2040,7 +2087,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('exit')) {
         return;
       }
-      emitProviderRuntimeEvent({ kind: 'exit', code, signal });
+      emitProviderRuntimeEvent(
+        { kind: 'exit', code, signal },
+        { raw: { source: 'adapter-event:exit', payload: { code, signal } } },
+      );
       logger.info('Adapter exit event', { instanceId, code, signal });
 
       const instance = this.deps.getInstance(instanceId);

@@ -1,0 +1,2 @@
+{"kind":"context","used":24,"total":1000,"percentage":2.4,"inputTokens":18,"outputTokens":6,"source":"provider-usage"}
+{"kind":"output","content":"Hello from Gemini.","messageType":"assistant","messageId":"gemini-message-1","timestamp":3000}

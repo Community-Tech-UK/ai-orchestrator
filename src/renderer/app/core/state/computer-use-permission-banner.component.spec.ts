@@ -12,6 +12,8 @@ function makeStore() {
   const requesting = signal<DesktopSystemPermission | null>(null);
   const error = signal<string | null>(null);
   const health = signal<{ setupActions: string[] } | null>(null);
+  const repairing = signal(false);
+  const repairReady = signal(false);
   return {
     bannerVisible,
     missingPermissions,
@@ -19,7 +21,11 @@ function makeStore() {
     requesting,
     error,
     health,
+    repairing,
+    repairReady,
     requestPermission: vi.fn(async () => undefined),
+    repairPermissions: vi.fn(async () => undefined),
+    relaunchApplication: vi.fn(async () => undefined),
     dismissBanner: vi.fn(() => bannerVisible.set(false)),
   };
 }
@@ -84,6 +90,29 @@ describe('ComputerUsePermissionBannerComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.banner-error')?.textContent)
       .toContain('Open Privacy & Security manually');
+  });
+
+  it('offers an in-app repair action for stale macOS registrations', () => {
+    const fixture = render();
+    const repair = fixture.nativeElement
+      .querySelector<HTMLButtonElement>('[aria-label="Repair macOS permissions"]');
+
+    repair?.click();
+
+    expect(store.repairPermissions).toHaveBeenCalledOnce();
+  });
+
+  it('offers an in-app relaunch after permission registrations were repaired', () => {
+    store.repairReady.set(true);
+    const fixture = render();
+    const restart = fixture.nativeElement
+      .querySelector<HTMLButtonElement>('[aria-label="Restart AIO"]');
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Registrations reset. Enable both permissions, then restart AIO.',
+    );
+    restart?.click();
+    expect(store.relaunchApplication).toHaveBeenCalledOnce();
   });
 
   it('uses the error tone and setup actions when the driver is unavailable', () => {

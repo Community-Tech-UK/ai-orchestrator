@@ -41,6 +41,8 @@ describe('mobile visual primitives', () => {
     expect(source).toContain('<app-mobile-sheet label="Model picker"');
     expect(source).toContain('<app-mobile-icon name="check" />');
     expect(source).toContain('<app-mobile-icon name="close" />');
+    expect(source).toContain('Reasoning');
+    expect(source).toContain('chooseReasoning.emit');
   });
 
   it('uses a vector lock mark and labelled shared unlock action', () => {

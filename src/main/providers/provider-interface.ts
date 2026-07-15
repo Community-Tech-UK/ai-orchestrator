@@ -19,6 +19,7 @@ import type {
   ProviderName,
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
+  ProviderRuntimeEventRaw,
 } from '@contracts/types/provider-runtime-events';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import {
@@ -26,6 +27,7 @@ import {
   type AdapterRuntimeEventSource,
   type NormalizedAdapterRuntimeEvent,
 } from './adapter-runtime-event-bridge';
+import { toJsonSafeProviderEventPayload } from './provider-event-raw-payload';
 import { toProviderOutputEvent } from './provider-output-event';
 import {
   attachQuotaAutoRefresh,
@@ -64,7 +66,7 @@ export abstract class BaseProvider implements ProviderAdapter {
    * subscribe-to-self bridge in Task 8 routes legacy `emit('output', …)`
    * through this helper via the normalizer.
    */
-  protected pushEvent(event: ProviderRuntimeEvent): void {
+  protected pushEvent(event: ProviderRuntimeEvent, raw?: ProviderRuntimeEventRaw): void {
     const envelope: ProviderRuntimeEventEnvelope = {
       eventId: randomUUID(),
       seq: this._seq++,
@@ -73,6 +75,7 @@ export abstract class BaseProvider implements ProviderAdapter {
       instanceId: this.instanceId,
       sessionId: this.sessionId || undefined,
       model: this.getDiagnosticsModel(),
+      ...(raw ? { raw } : {}),
       event,
     };
     if (process.env['NODE_ENV'] !== 'production') {
@@ -150,7 +153,10 @@ export abstract class BaseProvider implements ProviderAdapter {
     const stopObserving = observeAdapterRuntimeEvents(adapter, (runtimeEvent) => {
       const handled = options.handleEvent?.(runtimeEvent) ?? false;
       if (!handled) {
-        this.pushEvent(runtimeEvent.event);
+        this.pushEvent(runtimeEvent.event, {
+          source: `adapter-event:${runtimeEvent.kind}`,
+          payload: toJsonSafeProviderEventPayload(runtimeEvent.rawPayload),
+        });
       }
     });
 

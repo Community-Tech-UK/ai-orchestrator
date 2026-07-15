@@ -13,5 +13,7 @@ export const DESKTOP_CHANNELS = {
   DESKTOP_REVOKE_GRANT: 'desktop:revoke-grant',
   DESKTOP_GET_AUDIT_LOG: 'desktop:get-audit-log',
   DESKTOP_REQUEST_SYSTEM_PERMISSION: 'desktop:request-system-permission',
+  DESKTOP_REPAIR_SYSTEM_PERMISSIONS: 'desktop:repair-system-permissions',
+  DESKTOP_RELAUNCH_APPLICATION: 'desktop:relaunch-application',
   DESKTOP_CHANGED: 'desktop:changed',
 } as const;

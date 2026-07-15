@@ -14,6 +14,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Automation } from '../../../../shared/types/automation.types';
+import type { PendingSelection } from '../models/compact-model-picker.types';
 import { AutomationStore } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { AutomationsPageComponent } from './automations-page.component';
@@ -109,6 +110,8 @@ describe('AutomationsPageComponent row actions', () => {
     runNow: ReturnType<typeof vi.fn>;
     cancelPending: ReturnType<typeof vi.fn>;
     markSeen: ReturnType<typeof vi.fn>;
+    runPreflight: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -129,6 +132,12 @@ describe('AutomationsPageComponent row actions', () => {
       runNow: vi.fn().mockResolvedValue(undefined),
       cancelPending: vi.fn().mockResolvedValue(undefined),
       markSeen: vi.fn().mockResolvedValue(undefined),
+      runPreflight: vi.fn().mockResolvedValue({
+        okToSave: true,
+        warnings: [],
+        blockers: [],
+      }),
+      create: vi.fn().mockResolvedValue(true),
     };
 
     TestBed.overrideComponent(AutomationsPageComponent, {
@@ -199,6 +208,107 @@ describe('AutomationsPageComponent row actions', () => {
     await fixture.whenStable();
 
     expect(store.delete).toHaveBeenCalledWith('automation-1');
+  });
+
+  it('saves a selected model even when preflight returns advisory warnings', async () => {
+    store.runPreflight.mockResolvedValue({
+      okToSave: true,
+      warnings: ['This unattended automation may require network access.'],
+      blockers: [],
+    });
+    const component = fixture.componentInstance;
+    const automation = makeAutomation({
+      action: {
+        prompt: 'Check the repo',
+        workingDirectory: '/repo',
+        provider: 'claude',
+        model: 'claude-fable-5',
+      },
+    });
+    automations.set([automation]);
+    component.select(automation);
+    component.editSelected();
+    component.onModelPicked({
+      provider: 'claude',
+      model: 'opus[1m]',
+      reasoning: null,
+    });
+
+    await component.save();
+
+    expect(store.update).toHaveBeenCalledWith(
+      'automation-1',
+      expect.objectContaining({
+        action: expect.objectContaining({
+          provider: 'claude',
+          model: 'opus[1m]',
+        }),
+      }),
+    );
+  });
+
+  it('still blocks saving when preflight reports a real blocker', async () => {
+    store.runPreflight.mockResolvedValue({
+      okToSave: false,
+      warnings: [],
+      blockers: ['Working directory does not exist.'],
+    });
+    const component = fixture.componentInstance;
+    const automation = makeAutomation();
+    component.select(automation);
+    component.editSelected();
+
+    await component.save();
+
+    expect(store.update).not.toHaveBeenCalled();
+  });
+
+  it('uses the full session provider list and adopts provider changes from the model picker', () => {
+    const component = fixture.componentInstance;
+    const automation = makeAutomation({
+      action: {
+        prompt: 'Check the repo',
+        workingDirectory: '/repo',
+        provider: 'claude',
+        model: 'opus[1m]',
+      },
+    });
+    automations.set([automation]);
+    component.select(automation);
+    component.editSelected();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('app-compact-model-picker')).not.toBeNull();
+    expect(component.modelPickerProviders()).toEqual([
+      'claude',
+      'codex',
+      'gemini',
+      'antigravity',
+      'copilot',
+      'cursor',
+      'grok',
+    ]);
+    expect(fixture.nativeElement.querySelector('select[name="provider"]')).toBeNull();
+
+    component.onModelPicked({
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+      reasoning: 'high',
+    } satisfies PendingSelection);
+
+    expect(component.form().provider).toBe('codex');
+    expect(component.form().model).toBe('gpt-5.6-sol');
+    expect(component.form().reasoningEffort).toBe('high');
+  });
+
+  it('pins the model shown by default instead of saving an empty model override', () => {
+    const component = fixture.componentInstance;
+    component.startCreate();
+
+    component.pinModelSelection();
+
+    expect(component.form().provider).toBe('claude');
+    expect(component.form().model).toBe('opus[1m]');
   });
 
   function findButton(label: string): HTMLButtonElement {

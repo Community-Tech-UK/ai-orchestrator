@@ -50,6 +50,10 @@ export class DocReviewIpcService {
     return this.call(() => this.api?.docReviewDismiss({ reviewId }));
   }
 
+  async retryDelivery(reviewId: string): Promise<IpcResponse<DocReviewSession>> {
+    return this.call(() => this.api?.docReviewRetryDelivery({ reviewId }));
+  }
+
   async openExternal(reviewId: string): Promise<IpcResponse<{ reviewId: string }>> {
     return this.call(() => this.api?.docReviewOpenExternal({ reviewId }));
   }

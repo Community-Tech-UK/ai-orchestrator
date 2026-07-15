@@ -72,6 +72,13 @@ describe('resolveMobileSessionPlan', () => {
     expect(plan.reasoningEffortLabel).toBe('High');
   });
 
+  it('uses an explicit mobile reasoning override in the preview', async () => {
+    resolveCliType.mockResolvedValue('codex');
+    const plan = await resolveMobileSessionPlan({ provider: 'codex', reasoningEffort: 'xhigh' });
+    expect(plan.reasoningEffort).toBe('xhigh');
+    expect(plan.reasoningEffortLabel).toBe('Extra high');
+  });
+
   it('a provider without an app-level default reports null thinking', async () => {
     resolveCliType.mockResolvedValue('gemini');
     const plan = await resolveMobileSessionPlan({ provider: 'gemini' });

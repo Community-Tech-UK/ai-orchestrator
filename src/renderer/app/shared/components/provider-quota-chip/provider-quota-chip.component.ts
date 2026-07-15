@@ -86,6 +86,13 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
               <span class="provider-entry" [style.color]="entry.fg">
                 <span class="provider-code">{{ entry.code }}</span>
                 <span class="provider-value">{{ entry.value }}</span>
+                @if (pacingProvider() === entry.provider) {
+                  <span
+                    class="pacing-badge"
+                    [attr.data-testid]="'quota-pacing-' + entry.provider"
+                    title="Quota is being consumed ahead of this window's time budget"
+                  >⚡</span>
+                }
               </span>
             }
           } @else {
@@ -159,6 +166,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
     .provider-code { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
+    .pacing-badge { color: #f6c453; font-size: 0.72rem; line-height: 1; }
     .text { text-transform: none; }
     .aux { opacity: 0.75; font-weight: 500; }
     .popover {
@@ -227,6 +235,22 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     const band = this.colourBand();
     if (band) return BAND_COLORS[band];
     return NEUTRAL;
+  });
+
+  /** Provider with the most recent early pacing warning, if it remains visible. */
+  readonly pacingProvider = computed<ProviderId | null>(() => {
+    const warning = this.store.lastPacingWarning();
+    const snapshot = warning ? this.store.snapshots()[warning.provider] : null;
+    const currentWindow = snapshot?.windows.find((window) => window.id === warning?.window.id);
+    if (
+      !warning
+      || !currentWindow
+      || currentWindow.limit <= 0
+      || (currentWindow.used / currentWindow.limit) * 100 < warning.utilizationThresholdPercent
+    ) {
+      return null;
+    }
+    return warning.provider;
   });
 
   readonly primaryText = computed<string>(() => {

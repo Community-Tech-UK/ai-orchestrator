@@ -7,10 +7,17 @@ function getElectronBuilderArgs(platform = process.platform) {
     case 'darwin':
       return [
         '--mac',
+        'dmg',
+        '--arm64',
         '--config.mac.notarize=false',
       ];
     case 'win32':
-      return ['--win', '--config.win.signAndEditExecutable=false'];
+      return [
+        '--win',
+        'nsis',
+        '--x64',
+        '--config.win.signAndEditExecutable=false',
+      ];
     case 'linux':
       return ['--linux'];
     default:

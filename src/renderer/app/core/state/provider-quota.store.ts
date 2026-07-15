@@ -12,6 +12,7 @@ import { QuotaIpcService } from '../services/ipc/quota-ipc.service';
 import type {
   ProviderId,
   ProviderQuotaAlert,
+  ProviderQuotaPacingAlert,
   ProviderQuotaSnapshot,
   ProviderQuotaState,
   ProviderQuotaWindow,
@@ -33,6 +34,8 @@ export class ProviderQuotaStore {
   private _state = signal<ProviderQuotaState>(EMPTY_STATE);
   /** Most recent threshold-warning event (50/75/90 %). Null until observed. */
   private _lastWarning = signal<ProviderQuotaAlert | null>(null);
+  /** Most recent ahead-of-window-budget warning, for quota/detail badges. */
+  private _lastPacingWarning = signal<ProviderQuotaPacingAlert | null>(null);
   /** Most recent exhaustion event (>=100 %). Null until observed. */
   private _lastExhausted = signal<ProviderQuotaAlert | null>(null);
   private _initialized = signal(false);
@@ -49,6 +52,7 @@ export class ProviderQuotaStore {
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
   readonly lastWarning = this._lastWarning.asReadonly();
+  readonly lastPacingWarning = this._lastPacingWarning.asReadonly();
   readonly lastExhausted = this._lastExhausted.asReadonly();
 
   /** Most-constrained window across all providers. Drives the global chip. */
@@ -202,6 +206,9 @@ export class ProviderQuotaStore {
       }),
       this.ipc.onQuotaWarning((data) => {
         this._lastWarning.set(data as ProviderQuotaAlert);
+      }),
+      this.ipc.onQuotaPacingWarning((data) => {
+        this._lastPacingWarning.set(data as ProviderQuotaPacingAlert);
       }),
       this.ipc.onQuotaExhausted((data) => {
         this._lastExhausted.set(data as ProviderQuotaAlert);

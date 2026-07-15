@@ -223,4 +223,51 @@ describe('ProviderRuntimeEventBus', () => {
       event: { kind: 'output' },
     });
   });
+
+  it('preserves an optional raw payload through delayed context coalescing', () => {
+    const pending = makePending('context', 'inst-1', { used: 42 });
+    pending.raw = {
+      source: 'adapter-event:context',
+      payload: { used: 42, total: 200_000 },
+    };
+
+    bus.enqueue(pending);
+    vi.advanceTimersByTime(101);
+
+    expect(emitted[0]?.raw).toEqual(pending.raw);
+  });
+
+  it('taps every raw-backed ingress before context coalescing and status deduplication', () => {
+    const captured: ProviderRuntimeEventEnvelope[] = [];
+    const captureBus = new ProviderRuntimeEventBus(
+      (envelope) => emitted.push(envelope),
+      {
+        contextFlushIntervalMs: 100,
+        statusDedupeIntervalMs: 200,
+        onRawBackedEvent: (envelope) => captured.push(envelope),
+      },
+    );
+    const raw = { source: 'adapter-event:context' as const, payload: { source: 'adapter' } };
+
+    captureBus.enqueue({ ...makePending('context', 'inst-1', { used: 100 }), raw });
+    captureBus.enqueue({ ...makePending('context', 'inst-1', { used: 200 }), raw });
+    captureBus.enqueue({ ...makePending('context', 'inst-1', { used: 300 }), raw });
+    captureBus.enqueue({
+      ...makePending('status', 'inst-1', { status: 'busy' }),
+      raw: { source: 'adapter-event:status', payload: 'busy' },
+    });
+    captureBus.enqueue({
+      ...makePending('status', 'inst-1', { status: 'busy' }),
+      raw: { source: 'adapter-event:status', payload: 'busy' },
+    });
+
+    expect(captured).toHaveLength(5);
+    expect(captured.map((envelope) => envelope.seq)).toEqual([0, 1, 2, 3, 4]);
+    expect(captured.map((envelope) => envelope.event.kind)).toEqual([
+      'context', 'context', 'context', 'status', 'status',
+    ]);
+
+    vi.advanceTimersByTime(101);
+    expect(emitted).toHaveLength(2);
+  });
 });

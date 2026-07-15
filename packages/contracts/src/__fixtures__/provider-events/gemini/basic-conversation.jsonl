@@ -1,0 +1,2 @@
+{"name":"context","args":[{"used":24,"total":1000,"prompt_tokens":18,"completion_tokens":6,"source":"provider-usage"}]}
+{"name":"output","args":[{"id":"gemini-message-1","timestamp":3000,"type":"assistant","content":"Hello from Gemini."}]}

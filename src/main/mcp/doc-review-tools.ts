@@ -87,7 +87,7 @@ export function createDocReviewToolDefinitions(
     {
       name: 'get_doc_review_result',
       description:
-        'Poll the status of a review created with request_doc_review. Returns pending until James decides, then the overall verdict and per-item decisions. Decisions also arrive automatically as a user message, so polling is optional.',
+        'Poll the status of a review created with request_doc_review. Returns pending until James decides, then the overall verdict, per-item decisions, and durable delivery outcome. A delivered result also arrives as a user message; queued, failed, or interrupted delivery remains visible here.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -116,6 +116,8 @@ export function createDocReviewToolDefinitions(
           overall: session.status === 'pending' ? null : session.status,
           decisions: session.decisions,
           generalComment: session.generalComment,
+          delivery: session.delivery,
+          deliveryAttempts: session.deliveryAttempts,
         };
       },
     },

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   InstanceProviderLimitHandler,
   type InstanceProviderLimitHandlerDeps,
@@ -142,11 +142,74 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
     expect(h.waitReasons.get('i1')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt: later });
   });
 
+  it('records a detected model limit and parks a second instance from that known limit', () => {
+    const resumeAt = Date.now() + 60_000;
+    const events: Array<{ provider: ProviderId; model: string | null; resumeAt: number; instanceId: string | null }> = [];
+    const ledger = {
+      record: vi.fn((event) => events.push(event)),
+      getActive: vi.fn(() => events.length > 0 ? events[0] : null),
+    };
+    h = makeHarness({ providerLimitLedger: ledger } as Partial<InstanceProviderLimitHandlerDeps>);
+
+    expect(h.handler.maybePark({
+      instanceId: 'first',
+      provider: CLAUDE,
+      model: 'claude-sonnet-4-5',
+      resetAtHint: resumeAt,
+      reason: 'limit',
+      resumePrompt: null,
+    })).toBe('parked');
+    expect(events).toMatchObject([{
+      provider: 'claude',
+      model: 'claude-sonnet-4-5',
+      resumeAt,
+      instanceId: 'first',
+    }]);
+
+    expect(h.handler.maybePark({
+      instanceId: 'second',
+      provider: CLAUDE,
+      model: 'claude-sonnet-4-5',
+      resetAtHint: null,
+      reason: 'known limit',
+      resumePrompt: null,
+    })).toBe('parked');
+    expect(h.waitReasons.get('second')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt });
+  });
+
   it('does not double-park an already-parked instance', () => {
     const resumeAt = Date.now() + 60_000;
     expect(h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: resumeAt, reason: 'x', resumePrompt: null })).toBe('parked');
     expect(h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: resumeAt, reason: 'x', resumePrompt: null })).toBe('already-parked');
     expect(h.scheduleCalls).toBe(1);
+  });
+});
+
+describe('InstanceProviderLimitHandler.maybeParkKnown', () => {
+  it('parks from a matching active ledger gate without recording or probing again', () => {
+    const resumeAt = Date.now() + 60_000;
+    const ledger = {
+      record: vi.fn(),
+      getActive: vi.fn(() => ({ resumeAt })),
+    };
+    const h = makeHarness({ providerLimitLedger: ledger } as Partial<InstanceProviderLimitHandlerDeps>);
+
+    expect(h.handler.maybeParkKnown({
+      instanceId: 'second',
+      provider: CLAUDE,
+      model: 'claude-sonnet-4-5',
+      reason: 'known active limit',
+      resumePrompt: 'continue the task',
+    })).toBe('parked');
+
+    expect(ledger.getActive).toHaveBeenCalledWith({
+      provider: 'claude',
+      model: 'claude-sonnet-4-5',
+      now: expect.any(Number),
+    });
+    expect(ledger.record).not.toHaveBeenCalled();
+    expect(h.refreshCalls).toEqual([]);
+    expect(h.waitReasons.get('second')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt });
   });
 });
 

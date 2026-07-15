@@ -64,6 +64,7 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = {
 export async function resolveMobileSessionPlan(params: {
   provider?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
 }): Promise<MobileSessionPlan> {
   const settings = getSettingsManager().getAll();
 
@@ -103,10 +104,7 @@ export async function resolveMobileSessionPlan(params: {
     }
   }
 
-  // Mobile new-session sends no reasoning effort, so a fresh session runs at the
-  // provider's built-in default thinking level (Claude=high, Codex=high, others
-  // provider-decided).
-  const reasoningEffort = getDefaultReasoningEffort(resolvedProvider);
+  const reasoningEffort = params.reasoningEffort ?? getDefaultReasoningEffort(resolvedProvider);
 
   return {
     provider: resolvedProvider,

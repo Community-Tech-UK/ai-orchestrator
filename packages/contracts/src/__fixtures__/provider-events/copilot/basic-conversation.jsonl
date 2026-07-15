@@ -1,0 +1,3 @@
+{"name":"status","args":["busy"]}
+{"name":"output","args":[{"id":"copilot-message-1","timestamp":4000,"type":"assistant","content":"Hello from Copilot."}]}
+{"name":"exit","args":[0,null]}

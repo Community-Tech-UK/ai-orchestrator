@@ -13,6 +13,7 @@
 import { generateId } from '../../shared/utils/id-generator';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { ContextUsage, Instance, OutputMessage } from '../../shared/types/instance.types';
+import type { CommunicationDependencies } from './instance-communication.types';
 import { detectErrorProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
 
 export interface TryParkOnProviderLimitDeps {
@@ -87,4 +88,24 @@ export function tryParkOnProviderLimit(
   deps.addToOutputBuffer(instance, stillParkedMessage);
   deps.emitOutput(instanceId, stillParkedMessage);
   return true;
+}
+
+/** Applies Claude's interactive planning hint without affecting automated turns. */
+export function applyPlanModeTurnHint(
+  instance: Instance,
+  message: string,
+  isAutoContinuation: boolean,
+): string {
+  if (isAutoContinuation || instance.provider !== 'claude') return message;
+  if (!instance.planMode.enabled || instance.planMode.state !== 'planning') return message;
+  return /\bultrathink\b/i.test(message) ? message : `ultrathink\n\n${message}`;
+}
+
+/** Returns true when an active durable limit has taken ownership of the turn. */
+export function shouldSkipKnownProviderLimitDispatch(
+  check: CommunicationDependencies['checkKnownProviderLimitBeforeSend'],
+  params: NonNullable<Parameters<NonNullable<CommunicationDependencies['checkKnownProviderLimitBeforeSend']>>[0]>,
+): boolean {
+  const outcome = check?.(params);
+  return outcome === 'parked' || outcome === 'already-parked';
 }

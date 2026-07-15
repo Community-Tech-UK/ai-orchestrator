@@ -17,6 +17,29 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
     expect(() => ProviderRuntimeEventEnvelopeSchema.parse(baseEnv)).not.toThrow();
   });
 
+  it('accepts an additive JSON-safe raw provider payload', () => {
+    const parsed = ProviderRuntimeEventEnvelopeSchema.parse({
+      ...baseEnv,
+      raw: {
+        source: 'adapter-event:output',
+        payload: {
+          id: 'native-message-1',
+          content: 'hello',
+          nested: [1, true, null],
+        },
+      },
+    });
+
+    expect(parsed.raw).toEqual({
+      source: 'adapter-event:output',
+      payload: {
+        id: 'native-message-1',
+        content: 'hello',
+        nested: [1, true, null],
+      },
+    });
+  });
+
   it('accepts envelope model ids up to the dynamic catalog limit', () => {
     expect(maxCatalogModelId).toHaveLength(512);
 

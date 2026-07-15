@@ -34,7 +34,9 @@ import {
 } from './auxiliary-model-client';
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
+import { retryAuxiliaryGeneration } from './auxiliary-generation-retry';
 import { recordAuxiliaryAttribution } from '../core/system/cost-attribution';
+import { AuxiliaryDailySpendCap } from './auxiliary-daily-spend-cap';
 import { resolveAuxiliaryEndpointApiKey } from './auxiliary-api-key-resolver';
 import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
@@ -42,20 +44,15 @@ import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 // transitively import electron via remote-auth → settings-manager, which
 // crashes in worker_thread contexts. We must NOT top-level-import them.
 // See src/main/instance/__tests__/context-worker-import-isolation.spec.ts.
-
 export { computeNumCtx } from './auxiliary-llm-utils';
 // Re-exported so existing test imports through this module keep working.
 export {
   __setAuxiliaryRemoteHooksForTesting,
   __resetAuxiliaryRemoteHooksForTesting,
 } from './auxiliary-remote-hooks';
-
 const AUXILIARY_MODEL_GENERATE_METHOD = 'auxiliaryModel.generate';
-
 const logger = getLogger('AuxiliaryLlmService');
-
 // ─── Constants ────────────────────────────────────────────────────────────────
-
 const HEALTH_CACHE_TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 5_000;
 
@@ -73,6 +70,7 @@ type AuxiliaryLlmConfigSubset = Pick<
   | 'auxiliaryLlmRoutingMode'
   | 'auxiliaryLlmAllowRemoteWorkerModels'
   | 'auxiliaryLlmUseLocalhostOllama'
+  | 'auxiliaryLlmDailySpendCapUsd'
   | 'auxiliaryLlmEndpointsJson'
   | 'auxiliaryLlmSlotsJson'
   | 'auxiliaryLlmQuickModel'
@@ -106,6 +104,7 @@ export class AuxiliaryLlmService extends EventEmitter {
   private slots: AuxiliaryLlmSlotConfigMap = parseDefaultSlots();
   private quickModel = '';
   private qualityModel = '';
+  private readonly dailySpendCap = new AuxiliaryDailySpendCap();
 
   // endpointId → health cache entry
   private healthCache = new Map<string, HealthCacheEntry>();
@@ -132,6 +131,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     this.routingMode = settings.auxiliaryLlmRoutingMode;
     this.allowRemoteWorkerModels = settings.auxiliaryLlmAllowRemoteWorkerModels;
     this.useLocalhostOllama = settings.auxiliaryLlmUseLocalhostOllama;
+    this.dailySpendCap.configure(settings.auxiliaryLlmDailySpendCapUsd);
     this.quickModel = settings.auxiliaryLlmQuickModel?.trim() ?? '';
     this.qualityModel = settings.auxiliaryLlmQualityModel?.trim() ?? '';
 
@@ -238,6 +238,22 @@ export class AuxiliaryLlmService extends EventEmitter {
       endpoint.provider === 'ollama'
         ? 'local'
         : 'cheap-cloud';
+
+    const spendCapReason = this.dailySpendCap.reserve({
+      slot,
+      provider: endpoint.provider,
+      endpointId: endpoint.id,
+      model,
+      maxOutputTokens: slotConfig.maxOutputTokens,
+      systemPrompt: truncated.system,
+      userPrompt: truncated.user,
+      source,
+    });
+    if (spendCapReason) {
+      // This also prevents callers such as ContextCompactor from escaping the
+      // cap by re-running the same prompt on a primary frontier model.
+      return this.buildFallback(slot, spendCapReason, false);
+    }
 
     // Actually call the model
     try {
@@ -459,6 +475,19 @@ export class AuxiliaryLlmService extends EventEmitter {
     slotConfig: AuxiliaryLlmSlotConfig,
     systemPrompt: string,
     userPrompt: string
+  ): Promise<string> {
+    return retryAuxiliaryGeneration(
+      () => this.callEndpointOnce(ep, model, slotConfig, systemPrompt, userPrompt),
+      { endpointId: ep.id, provider: ep.provider },
+    );
+  }
+
+  private async callEndpointOnce(
+    ep: AuxiliaryLlmEndpointConfig,
+    model: string,
+    slotConfig: AuxiliaryLlmSlotConfig,
+    systemPrompt: string,
+    userPrompt: string,
   ): Promise<string> {
     // OpenAI-compatible servers ignore numCtx; Ollama uses it to avoid clipping long prompts.
     const tokenCounter = getTokenCounter();

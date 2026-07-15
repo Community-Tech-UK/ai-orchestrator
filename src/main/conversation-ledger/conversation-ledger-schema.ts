@@ -1,6 +1,6 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const CONVERSATION_LEDGER_SCHEMA_VERSION = 2;
+export const CONVERSATION_LEDGER_SCHEMA_VERSION = 3;
 
 interface LedgerMigration {
   version: number;
@@ -107,6 +107,28 @@ const MIGRATIONS: LedgerMigration[] = [
 
       CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_checkpoints_thread_seq
         ON conversation_checkpoints(thread_id, up_to_sequence);
+    `,
+  },
+  {
+    version: 3,
+    name: '003_provider_event_captures',
+    up: `
+      CREATE TABLE IF NOT EXISTS provider_event_captures (
+        event_id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        instance_id TEXT NOT NULL,
+        session_id TEXT,
+        sequence INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        event_json TEXT NOT NULL,
+        raw_source TEXT NOT NULL,
+        raw_json TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_provider_event_captures_instance_created
+        ON provider_event_captures(instance_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_provider_event_captures_created
+        ON provider_event_captures(created_at ASC);
     `,
   },
 ];

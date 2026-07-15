@@ -49,6 +49,23 @@ export type NormalizedAdapterRuntimeEvent =
   | NormalizedAdapterRuntimeEventBase<'exit', { code: number | null; signal: string | null }>
   | NormalizedAdapterRuntimeEventBase<'spawned', number>;
 
+export type AdapterRuntimeEventName =
+  | 'output'
+  | 'tool_use'
+  | 'tool_result'
+  | 'status'
+  | 'context'
+  | 'error'
+  | 'complete'
+  | 'exit'
+  | 'spawned';
+
+export interface MappedAdapterRuntimeEvent {
+  event: ProviderRuntimeEvent;
+  rawPayload: unknown;
+  timestamp?: number;
+}
+
 interface ProviderApiDiagnostics {
   requestId?: string;
   stopReason?: string;
@@ -60,102 +77,36 @@ export function observeAdapterRuntimeEvents(
   adapter: AdapterRuntimeEventSource,
   onEvent: (event: NormalizedAdapterRuntimeEvent) => void,
 ): () => void {
-  const emit = <K extends ProviderRuntimeEventKind>(
-    event: ProviderRuntimeEventOfKind<K>,
-    rawPayload: NormalizedAdapterRuntimeRawPayload<K>,
+  const emit = (
+    event: ProviderRuntimeEvent,
+    rawPayload: unknown,
     timestamp = Date.now(),
   ): void => {
-    const normalizedEvent: NormalizedAdapterRuntimeEventBase<K, NormalizedAdapterRuntimeRawPayload<K>> = {
+    const normalizedEvent = {
       kind: event.kind,
       eventId: randomUUID(),
       timestamp,
       event,
       rawPayload,
-    };
+    } as NormalizedAdapterRuntimeEvent;
 
-    onEvent(normalizedEvent as NormalizedAdapterRuntimeEvent);
+    onEvent(normalizedEvent);
   };
 
-  const onOutput = (message: OutputMessage | string): void => {
-    const normalized = normalizeOutputMessage(message);
-    if (!normalized) {
-      return;
-    }
-    emit(toProviderOutputEvent(normalized), message, normalized.timestamp);
+  const emitMapped = (name: AdapterRuntimeEventName, args: unknown[]): void => {
+    const mapped = mapAdapterRuntimeEvent(name, args);
+    if (mapped) emit(mapped.event, mapped.rawPayload, mapped.timestamp);
   };
 
-  const onToolUse = (toolCall: CliToolCall): void => {
-    emit({
-      kind: 'tool_use',
-      toolName: toolCall.name,
-      toolUseId: toolCall.id,
-      input: toolCall.arguments,
-    }, toolCall);
-  };
-
-  const onToolResult = (toolCall: CliToolCall): void => {
-    emit({
-      kind: 'tool_result',
-      toolName: toolCall.name,
-      toolUseId: toolCall.id,
-      success: true,
-      output: toolCall.result,
-    }, toolCall);
-  };
-
-  const onStatus = (status: string): void => {
-    emit({ kind: 'status', status }, status);
-  };
-
-  const onContext = (usage: unknown): void => {
-    const normalized = normalizeContextUsage(usage);
-    if (!normalized) {
-      return;
-    }
-
-    emit({
-      kind: 'context',
-      used: normalized.used,
-      total: normalized.total,
-      percentage: normalized.percentage,
-      ...(normalized.inputTokens !== undefined ? { inputTokens: normalized.inputTokens } : {}),
-      ...(normalized.outputTokens !== undefined ? { outputTokens: normalized.outputTokens } : {}),
-      ...(normalized.source !== undefined ? { source: normalized.source } : {}),
-      ...(normalized.promptWeight !== undefined ? { promptWeight: normalized.promptWeight } : {}),
-      ...(normalized.promptWeightBreakdown !== undefined ? { promptWeightBreakdown: normalized.promptWeightBreakdown } : {}),
-    }, normalized);
-  };
-
-  const onError = (error: Error | string): void => {
-    const diagnostics = extractProviderApiDiagnostics(error);
-    emit({
-      kind: 'error',
-      message: error instanceof Error ? error.message : String(error),
-      recoverable: false,
-      ...diagnostics,
-    }, error);
-  };
-
-  const onComplete = (response: CliResponse): void => {
-    const event: ProviderRuntimeEventOfKind<'complete'> = {
-      kind: 'complete',
-      ...definedNumberField('tokensUsed', response.usage?.totalTokens),
-      ...definedNumberField('costUsd', response.usage?.cost),
-      ...definedNumberField('durationMs', response.usage?.duration),
-      // A3: surface the adapter-layer degraded-output tag (absent on healthy turns).
-      ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
-      ...extractProviderApiDiagnostics(response.metadata),
-    };
-    emit(event, response);
-  };
-
-  const onExit = (code: number | null, signal: string | null): void => {
-    emit({ kind: 'exit', code, signal }, { code, signal });
-  };
-
-  const onSpawned = (pid: number): void => {
-    emit({ kind: 'spawned', pid }, pid);
-  };
+  const onOutput = (message: OutputMessage | string): void => emitMapped('output', [message]);
+  const onToolUse = (toolCall: CliToolCall): void => emitMapped('tool_use', [toolCall]);
+  const onToolResult = (toolCall: CliToolCall): void => emitMapped('tool_result', [toolCall]);
+  const onStatus = (status: string): void => emitMapped('status', [status]);
+  const onContext = (usage: unknown): void => emitMapped('context', [usage]);
+  const onError = (error: Error | string): void => emitMapped('error', [error]);
+  const onComplete = (response: CliResponse): void => emitMapped('complete', [response]);
+  const onExit = (code: number | null, signal: string | null): void => emitMapped('exit', [code, signal]);
+  const onSpawned = (pid: number): void => emitMapped('spawned', [pid]);
 
   adapter.on('output', onOutput);
   adapter.on('tool_use', onToolUse);
@@ -178,6 +129,73 @@ export function observeAdapterRuntimeEvents(
     adapter.off('exit', onExit);
     adapter.off('spawned', onSpawned);
   };
+}
+
+/** Pure adapter-event mapper used by the runtime bridge and fixture replay. */
+export function mapAdapterRuntimeEvent(
+  name: AdapterRuntimeEventName,
+  args: readonly unknown[],
+): MappedAdapterRuntimeEvent | null {
+  switch (name) {
+    case 'output': {
+      const rawPayload = args[0] as OutputMessage | string;
+      const normalized = normalizeOutputMessage(rawPayload);
+      return normalized ? { event: toProviderOutputEvent(normalized), rawPayload, timestamp: normalized.timestamp } : null;
+    }
+    case 'tool_use': {
+      const rawPayload = args[0] as CliToolCall;
+      return { event: { kind: 'tool_use', toolName: rawPayload.name, toolUseId: rawPayload.id, input: rawPayload.arguments }, rawPayload };
+    }
+    case 'tool_result': {
+      const rawPayload = args[0] as CliToolCall;
+      return { event: { kind: 'tool_result', toolName: rawPayload.name, toolUseId: rawPayload.id, success: true, output: rawPayload.result }, rawPayload };
+    }
+    case 'status': {
+      const rawPayload = args[0] as string;
+      return { event: { kind: 'status', status: rawPayload }, rawPayload };
+    }
+    case 'context': {
+      const rawPayload = args[0];
+      const normalized = normalizeContextUsage(rawPayload);
+      if (!normalized) return null;
+      return {
+        event: {
+          kind: 'context', used: normalized.used, total: normalized.total, percentage: normalized.percentage,
+          ...(normalized.inputTokens !== undefined ? { inputTokens: normalized.inputTokens } : {}),
+          ...(normalized.outputTokens !== undefined ? { outputTokens: normalized.outputTokens } : {}),
+          ...(normalized.source !== undefined ? { source: normalized.source } : {}),
+          ...(normalized.promptWeight !== undefined ? { promptWeight: normalized.promptWeight } : {}),
+          ...(normalized.promptWeightBreakdown !== undefined ? { promptWeightBreakdown: normalized.promptWeightBreakdown } : {}),
+        }, rawPayload,
+      };
+    }
+    case 'error': {
+      const rawPayload = args[0] as Error | string;
+      return { event: { kind: 'error', message: rawPayload instanceof Error ? rawPayload.message : String(rawPayload), recoverable: false, ...extractProviderApiDiagnostics(rawPayload) }, rawPayload };
+    }
+    case 'complete': {
+      const rawPayload = args[0] as CliResponse;
+      return {
+        event: {
+          kind: 'complete',
+          ...definedNumberField('tokensUsed', rawPayload.usage?.totalTokens),
+          ...definedNumberField('costUsd', rawPayload.usage?.cost),
+          ...definedNumberField('durationMs', rawPayload.usage?.duration),
+          ...(rawPayload.degradedReason ? { degradedReason: rawPayload.degradedReason } : {}),
+          ...extractProviderApiDiagnostics(rawPayload.metadata),
+        }, rawPayload,
+      };
+    }
+    case 'exit': {
+      const code = args[0] as number | null;
+      const signal = args[1] as string | null;
+      return { event: { kind: 'exit', code, signal }, rawPayload: { code, signal } };
+    }
+    case 'spawned': {
+      const rawPayload = args[0] as number;
+      return { event: { kind: 'spawned', pid: rawPayload }, rawPayload };
+    }
+  }
 }
 
 function normalizeOutputMessage(message: OutputMessage | string): OutputMessage | null {

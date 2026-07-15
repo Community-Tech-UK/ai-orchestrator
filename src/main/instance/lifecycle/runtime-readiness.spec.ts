@@ -130,6 +130,25 @@ describe('RuntimeReadinessCoordinator.waitForResumeHealth', () => {
     expect(result).toBe(true);
   });
 
+  it('resolves immediately when a quiet adapter has definitive native-resume proof', async () => {
+    const adapter = makeAdapter('codex-cli');
+    adapter.getResumeAttemptResult = vi.fn(() => ({
+      source: 'native',
+      confirmed: true,
+      requestedSessionId: 'thread-1',
+      actualSessionId: 'thread-1',
+    }));
+    const coord = new RuntimeReadinessCoordinator(makeDeps(adapter as unknown as CliAdapter));
+    let result: boolean | undefined;
+
+    void coord.waitForResumeHealth('inst-1', 5_000, 200).then((value) => {
+      result = value;
+    });
+    await Promise.resolve();
+
+    expect(result).toBe(true);
+  });
+
   it('resolves false on timeout when instance is not live', async () => {
     const adapter = makeAdapter() as unknown as CliAdapter;
     const deps: RuntimeReadinessDeps = {

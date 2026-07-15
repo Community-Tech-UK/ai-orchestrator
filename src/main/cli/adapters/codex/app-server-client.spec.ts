@@ -1,5 +1,161 @@
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { terminateProcessTree, checkAppServerAvailability, ProtocolError } from './app-server-client';
+import * as appServerClientModule from './app-server-client';
+import { CodexContextPressureCollector, type CodexContextDiagnosticRecord } from './context-pressure-diagnostics';
+
+const { terminateProcessTree, checkAppServerAvailability, ProtocolError } = appServerClientModule;
+
+function createClientDispatchHarness() {
+  const Base = (appServerClientModule as unknown as {
+    AppServerClientBase?: new (cwd: string, transport: 'direct' | 'broker') => unknown;
+  }).AppServerClientBase;
+  expect(Base).toBeTypeOf('function');
+  if (!Base) throw new Error('AppServerClientBase is not exported');
+
+  return Reflect.construct(Base, ['/tmp/project', 'direct']) as {
+    handleLine(line: string): void;
+    handleExit(error?: Error): void;
+    isRunning(): boolean;
+    setContextDiagnosticsCollector(collector: CodexContextPressureCollector | null): void;
+    setNotificationHandler(handler: ((notification: { method: string; params: Record<string, unknown> }) => void) | null): void;
+  };
+}
+
+describe('app-server transport liveness', () => {
+  it('reports running until the transport exits', () => {
+    const client = createClientDispatchHarness();
+
+    expect(client.isRunning()).toBe(true);
+
+    client.handleExit(new Error('synthetic disconnect'));
+
+    expect(client.isRunning()).toBe(false);
+  });
+});
+
+describe('app-server notification diagnostics', () => {
+  it('records allowed transport notifications before the primary handler with a hashed thread correlation', () => {
+    const client = createClientDispatchHarness();
+    const order: string[] = [];
+    const records: CodexContextDiagnosticRecord[] = [];
+    const collector = new CodexContextPressureCollector({
+      write: (record) => {
+        records.push(record);
+        order.push(record.kind);
+      },
+    });
+    const rawThreadId = 'synthetic-private-thread-id';
+    const expectedCorrelation = createHash('sha256').update(rawThreadId).digest('hex').slice(0, 12);
+
+    client.setContextDiagnosticsCollector(collector);
+    client.setNotificationHandler((notification) => order.push(`handled:${notification.method}`));
+
+    client.handleLine(JSON.stringify({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: rawThreadId,
+        tokenUsage: {
+          last: { totalTokens: 12, inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningOutputTokens: 1 },
+          total: { totalTokens: 34, inputTokens: 30, cachedInputTokens: 8, outputTokens: 4, reasoningOutputTokens: 2 },
+          modelContextWindow: 100,
+        },
+      },
+    }));
+    client.handleLine(JSON.stringify({
+      method: 'thread/compacted',
+      params: { threadId: rawThreadId },
+    }));
+
+    expect(order).toEqual([
+      'transport-usage',
+      'handled:thread/tokenUsage/updated',
+      'transport-compaction',
+      'handled:thread/compacted',
+    ]);
+    expect(records).toEqual([
+      expect.objectContaining({
+        kind: 'transport-usage',
+        threadCorrelation: expectedCorrelation,
+        contextWindow: 100,
+        last: {
+          totalTokens: 12,
+          inputTokens: 10,
+          cachedInputTokens: 4,
+          outputTokens: 2,
+          reasoningOutputTokens: 1,
+        },
+        cumulative: {
+          totalTokens: 34,
+          inputTokens: 30,
+          cachedInputTokens: 8,
+          outputTokens: 4,
+          reasoningOutputTokens: 2,
+        },
+      }),
+      expect.objectContaining({
+        kind: 'transport-compaction',
+        threadCorrelation: expectedCorrelation,
+      }),
+    ]);
+    expect(expectedCorrelation).toMatch(/^[a-f0-9]{12}$/);
+    expect(JSON.stringify(records)).not.toContain(rawThreadId);
+  });
+
+  it('does not create transport records for other notification methods', () => {
+    const client = createClientDispatchHarness();
+    const records: CodexContextDiagnosticRecord[] = [];
+    const handled: string[] = [];
+    client.setContextDiagnosticsCollector(new CodexContextPressureCollector({
+      write: (record) => records.push(record),
+    }));
+    client.setNotificationHandler((notification) => handled.push(notification.method));
+
+    for (const method of ['turn/started', 'item/completed', 'turn/completed', 'error']) {
+      client.handleLine(JSON.stringify({ method, params: { threadId: 'raw-thread-id' } }));
+    }
+
+    expect(records).toEqual([]);
+    expect(handled).toEqual(['turn/started', 'item/completed', 'turn/completed', 'error']);
+  });
+
+  it('skips allowed transport records when the thread id is missing or non-string', () => {
+    const client = createClientDispatchHarness();
+    const records: CodexContextDiagnosticRecord[] = [];
+    const handled: string[] = [];
+    client.setContextDiagnosticsCollector(new CodexContextPressureCollector({
+      write: (record) => records.push(record),
+    }));
+    client.setNotificationHandler((notification) => handled.push(notification.method));
+
+    client.handleLine(JSON.stringify({ method: 'thread/compacted', params: {} }));
+    client.handleLine(JSON.stringify({
+      method: 'thread/tokenUsage/updated',
+      params: { threadId: 42, tokenUsage: { last: { totalTokens: 1 } } },
+    }));
+
+    expect(records).toEqual([]);
+    expect(handled).toEqual(['thread/compacted', 'thread/tokenUsage/updated']);
+  });
+
+  it('routes malformed allowed notifications even when params are absent or null', () => {
+    const client = createClientDispatchHarness();
+    const records: CodexContextDiagnosticRecord[] = [];
+    const handled: string[] = [];
+    client.setContextDiagnosticsCollector(new CodexContextPressureCollector({
+      write: (record) => records.push(record),
+    }));
+    client.setNotificationHandler((notification) => handled.push(notification.method));
+
+    expect(() => client.handleLine(JSON.stringify({ method: 'thread/compacted' }))).not.toThrow();
+    expect(() => client.handleLine(JSON.stringify({
+      method: 'thread/tokenUsage/updated',
+      params: null,
+    }))).not.toThrow();
+
+    expect(records).toEqual([]);
+    expect(handled).toEqual(['thread/compacted', 'thread/tokenUsage/updated']);
+  });
+});
 
 // ─── terminateProcessTree ───────────────────────────────────────────────────
 

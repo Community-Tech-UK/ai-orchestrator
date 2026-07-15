@@ -1,3 +1,86 @@
 @use './settings-row-list' as list;
 
 @include list.settings-row-list;
+
+.default-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-md);
+}
+
+.default-model__info {
+  min-width: 0;
+}
+
+.default-model__label {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.default-model__description {
+  max-width: 620px;
+  margin: var(--spacing-2xs) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.default-model__control {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.default-model__modes {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken-bg);
+}
+
+.default-model__mode {
+  padding: var(--spacing-2xs) var(--spacing-sm);
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.default-model__mode.is-active {
+  background: var(--surface-raised-bg, var(--bg-elevated));
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--border-color);
+}
+
+.default-model__mode:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-color) 42%, transparent);
+  outline-offset: 2px;
+}
+
+.default-model__hint {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 760px) {
+  .default-model {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .default-model__control {
+    justify-content: flex-start;
+  }
+}
