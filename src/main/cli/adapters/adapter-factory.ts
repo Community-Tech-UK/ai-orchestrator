@@ -352,6 +352,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   const additionalMcpConfig = buildCopilotAdditionalMcpConfig(copilotMcpServers);
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
+    contextCapabilityProfile: 'copilot-acp',
     command: launch.command,
     args: [
       ...launch.argsPrefix,

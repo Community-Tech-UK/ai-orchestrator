@@ -109,6 +109,7 @@ import {
   registerCampaignHandlers,
   registerRlmMaintenanceHandlers,
   registerNotificationHandlers,
+  registerContextEvidenceHandlers,
 } from './handlers';
 import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
 import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
@@ -284,6 +285,10 @@ export class IpcMainHandler {
     registerWorkflowHandlers();
     registerDiagnosticsHandlers();
     registerNotificationHandlers({ windowManager: this.windowManager });
+    registerContextEvidenceHandlers({
+      instanceManager: this.instanceManager,
+      windowManager: this.windowManager,
+    });
 
     // RTK token-savings panel
     registerRtkHandlers();

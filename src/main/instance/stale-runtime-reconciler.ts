@@ -42,7 +42,28 @@ export interface ReconcilerInstanceView {
 
 export interface ReconcilerDeps {
   getInstances(): ReconcilerInstanceView[];
+  /** Whether this instance currently owns a resident OS process worth probing. */
+  shouldProbeProcess(instanceId: string): boolean;
   markRuntimeLost(instanceId: string): void;
+}
+
+/**
+ * Resolve whether a runtime adapter owns the exact resident local process
+ * persisted on the instance. Unknown adapter shapes retain the reconciler's
+ * legacy probe.
+ */
+export function shouldProbeAdapterProcess(adapter: unknown, storedPid: number | null | undefined): boolean {
+  const candidate = adapter as {
+    getAdapterCapabilities?: () => { residentSession: boolean };
+    getPid?: () => number | null;
+  } | null | undefined;
+  if (typeof candidate?.getAdapterCapabilities !== 'function' || typeof candidate.getPid !== 'function') {
+    return true;
+  }
+  const currentPid = candidate.getPid();
+  return candidate.getAdapterCapabilities().residentSession
+    && currentPid !== null
+    && currentPid === storedPid;
 }
 
 /** Returns true if the OS process is still alive. */
@@ -88,6 +109,7 @@ export class StaleRuntimeReconciler {
       if (!LIVE_PROCESS_STATUSES.has(inst.status)) continue;
       if (inst.processId === null) continue;
       if (hasSyntheticStartupPid(inst)) continue;
+      if (!this.deps.shouldProbeProcess(inst.id)) continue;
       if (!isProcessAlive(inst.processId)) {
         logger.warn('Stale runtime detected — CLI process is gone', {
           instanceId: inst.id,

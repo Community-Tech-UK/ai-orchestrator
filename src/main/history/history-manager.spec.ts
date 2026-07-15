@@ -791,7 +791,7 @@ describe('HistoryManager', () => {
     expect(entry?.nativeResumeFailedAt).toBeUndefined();
   });
 
-  it('deduplicates legacy history entries by session identity on load', async () => {
+  it('backfills and persists distinct app history identities for legacy provider-ID collisions', async () => {
     const storageDir = path.join(userDataDir, 'conversation-history');
     fs.mkdirSync(storageDir, { recursive: true });
 
@@ -838,14 +838,106 @@ describe('HistoryManager', () => {
         2
       )
     );
+    for (const entry of duplicateEntries) {
+      fs.writeFileSync(
+        path.join(storageDir, `${entry.id}.json.gz`),
+        zlib.gzipSync(JSON.stringify({ entry, messages: [] }))
+      );
+    }
 
     const { HistoryManager } = await import('./history-manager');
     const manager = new HistoryManager();
+    await manager.startupTasks;
 
     const entries = manager.getEntries();
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.id).toBe('entry-newest');
-    expect(entries[0]?.sessionId).toBe('session-central-auth');
+    expect(entries).toHaveLength(2);
+    expect(new Set(entries.map((entry) => entry.historyThreadId)).size).toBe(2);
+    expect(entries.every((entry) => entry.historyThreadId !== 'session-central-auth')).toBe(true);
+
+    const persistedIds = new Map(entries.map((entry) => [entry.id, entry.historyThreadId]));
+    const reloaded = new HistoryManager();
+    await reloaded.startupTasks;
+    expect(new Map(reloaded.getEntries().map((entry) => [entry.id, entry.historyThreadId])))
+      .toEqual(persistedIds);
+
+    for (const entry of entries) {
+      const conversation = await reloaded.loadConversation(entry.id);
+      expect(conversation?.entry.historyThreadId).toBe(entry.historyThreadId);
+    }
+  });
+
+  it('rotates a factory-derived session alias while preserving an independent app history id', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+    const aliased = {
+      id: 'entry-aliased', displayName: 'Aliased', createdAt: 1, endedAt: 2,
+      workingDirectory: '/tmp/aliased', messageCount: 0, firstUserMessage: '',
+      lastUserMessage: '', status: 'completed' as const,
+      originalInstanceId: 'instance-aliased', parentId: null,
+      sessionId: 'provider-session-aliased', historyThreadId: 'provider-session-aliased',
+    };
+    const independent = {
+      id: 'entry-independent', displayName: 'Independent', createdAt: 1, endedAt: 3,
+      workingDirectory: '/tmp/independent', messageCount: 0, firstUserMessage: '',
+      lastUserMessage: '', status: 'completed' as const,
+      originalInstanceId: 'instance-independent', parentId: null,
+      sessionId: 'provider-session-independent', historyThreadId: 'app-history-independent',
+    };
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [independent, aliased], lastUpdated: 0 }),
+    );
+    for (const entry of [aliased, independent]) {
+      fs.writeFileSync(
+        path.join(storageDir, `${entry.id}.json.gz`),
+        zlib.gzipSync(JSON.stringify({ entry, messages: [] })),
+      );
+    }
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    const byId = new Map(manager.getEntries().map((entry) => [entry.id, entry]));
+
+    expect(byId.get(aliased.id)?.historyThreadId).not.toBe(aliased.sessionId);
+    expect(byId.get(independent.id)?.historyThreadId).toBe(independent.historyThreadId);
+
+    const stableAlias = byId.get(aliased.id)?.historyThreadId;
+    const reloaded = new HistoryManager();
+    await reloaded.startupTasks;
+    expect(reloaded.getEntries().find((entry) => entry.id === aliased.id)?.historyThreadId)
+      .toBe(stableAlias);
+    expect((await reloaded.loadConversation(aliased.id))?.entry.historyThreadId).toBe(stableAlias);
+    expect((await reloaded.loadConversation(independent.id))?.entry.historyThreadId)
+      .toBe(independent.historyThreadId);
+  });
+
+  it('rotates and persists a factory-derived alias recovered from an orphan gzip', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+    const orphan = {
+      id: 'entry-orphan-alias', displayName: 'Orphan', createdAt: 1, endedAt: 2,
+      workingDirectory: '/tmp/orphan', messageCount: 0, firstUserMessage: '',
+      lastUserMessage: '', status: 'completed' as const,
+      originalInstanceId: 'instance-orphan', parentId: null,
+      sessionId: 'provider-session-orphan', historyThreadId: 'provider-session-orphan',
+    };
+    fs.writeFileSync(
+      path.join(storageDir, `${orphan.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({ entry: orphan, messages: [] })),
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    const recovered = manager.getEntries()[0];
+
+    expect(recovered.historyThreadId).not.toBe(orphan.sessionId);
+    expect((await manager.loadConversation(orphan.id))?.entry.historyThreadId)
+      .toBe(recovered.historyThreadId);
+    const reloaded = new HistoryManager();
+    await reloaded.startupTasks;
+    expect(reloaded.getEntries()[0]?.historyThreadId).toBe(recovered.historyThreadId);
   });
 
   it('persists an AI title to the index and conversation file via setEntryAiTitle', async () => {

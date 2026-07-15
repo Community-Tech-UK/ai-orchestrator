@@ -54,9 +54,13 @@ export async function resumeThreadWithRetry(
 ): Promise<ThreadResumeResult> {
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+  const metadataOnlyParams: ThreadResumeParams = {
+    ...params,
+    excludeTurns: true,
+  };
 
   return retryWithBackoff(
-    () => client.request('thread/resume', params),
+    () => client.request('thread/resume', metadataOnlyParams),
     {
       attempts: maxAttempts,
       classify: (error) => (

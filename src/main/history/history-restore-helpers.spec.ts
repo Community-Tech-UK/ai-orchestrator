@@ -141,12 +141,12 @@ describe('getMessagesForRestoreTranscript', () => {
 describe('getNativeResumeSessionId', () => {
   it('returns sessionId when nativeResumeFailedAt is null', () => {
     const entry = makeEntry({ sessionId: 'sess-abc', nativeResumeFailedAt: null });
-    expect(getNativeResumeSessionId(entry, [], 'claude')).toBe('sess-abc');
+    expect(getNativeResumeSessionId(entry)).toBe('sess-abc');
   });
 
-  it('returns historyThreadId when no sessionId but historyThreadId set', () => {
+  it('does not treat an app historyThreadId as a provider-native resume handle', () => {
     const entry = makeEntry({ historyThreadId: 'thread-xyz', nativeResumeFailedAt: null });
-    expect(getNativeResumeSessionId(entry, [], 'claude')).toBe('thread-xyz');
+    expect(getNativeResumeSessionId(entry)).toBeUndefined();
   });
 
   it('returns undefined when nativeResumeFailedAt is set and historyThreadId equals sessionId', () => {
@@ -155,43 +155,37 @@ describe('getNativeResumeSessionId', () => {
       historyThreadId: 'same-id',
       nativeResumeFailedAt: 1000,
     });
-    expect(getNativeResumeSessionId(entry, [], 'claude')).toBeUndefined();
+    expect(getNativeResumeSessionId(entry)).toBeUndefined();
   });
 
-  it('returns undefined when historyThreadId is in the failed set (uuid)', () => {
-    // UUID format required for claude provider
+  it('does not substitute an app history UUID after native resume fails', () => {
     const uuid = 'a1b2c3d4-e5f6-1789-abcd-ef0123456789';
     const entry = makeEntry({
       sessionId: 'other-id',
       historyThreadId: uuid,
       nativeResumeFailedAt: 1000,
     });
-    const failedMsg = makeMsg({
-      type: 'error',
-      content: `session not found for session id: ${uuid}`,
-    });
-    expect(getNativeResumeSessionId(entry, [failedMsg], 'claude')).toBeUndefined();
+    expect(getNativeResumeSessionId(entry)).toBeUndefined();
   });
 
-  it('returns historyThreadId when it is a valid UUID and not in the failed set', () => {
+  it('does not revive a failed provider session from an app-owned UUID', () => {
     const uuid = 'a1b2c3d4-e5f6-1789-abcd-ef0123456789';
     const entry = makeEntry({
       sessionId: 'other-id',
       historyThreadId: uuid,
       nativeResumeFailedAt: 1000,
     });
-    // No failed messages
-    expect(getNativeResumeSessionId(entry, [], 'claude')).toBe(uuid);
+    expect(getNativeResumeSessionId(entry)).toBeUndefined();
   });
 
-  it('returns undefined for non-claude provider when nativeResumeFailedAt is set', () => {
+  it('returns undefined when provider resume has failed even with an app history UUID', () => {
     const uuid = 'a1b2c3d4-e5f6-1789-abcd-ef0123456789';
     const entry = makeEntry({
       sessionId: 'other-id',
       historyThreadId: uuid,
       nativeResumeFailedAt: 1000,
     });
-    expect(getNativeResumeSessionId(entry, [], 'gemini')).toBeUndefined();
+    expect(getNativeResumeSessionId(entry)).toBeUndefined();
   });
 });
 

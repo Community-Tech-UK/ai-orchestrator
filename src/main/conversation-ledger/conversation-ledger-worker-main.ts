@@ -41,6 +41,23 @@ import type {
   ConversationThreadUpsertInput,
 } from '../../shared/types/conversation-ledger.types';
 import type {
+  ContextEvidenceEventInput,
+  ConversationEvidenceDeletionInput,
+  EvidenceAccessLogInput,
+  EvidenceCardMetadataInput,
+  EvidenceCardListQuery,
+  EvidenceFailureInput,
+  EvidenceFinalizeInput,
+  EvidenceListQuery,
+  EvidenceBlobReferenceQuery,
+  EvidenceMaintenanceQuery,
+  EvidenceMetadataSearchQuery,
+  EvidenceBlobReplacementInput,
+  EvidenceRangeAuthorizationInput,
+  EvidenceStageInput,
+  LegacyMarkerCompareAndSwapInput,
+} from './context-evidence-ledger.types';
+import type {
   LedgerWorkerInboundMsg,
   LedgerWorkerOutboundMsg,
 } from './conversation-ledger-worker-protocol';
@@ -135,6 +152,73 @@ function callStore(method: LedgerStoreMethod, args: unknown[]): unknown {
       return store.listProviderEventCaptures(args[0] as ProviderEventCaptureQuery);
     case 'pruneProviderEventCapturesBefore':
       return store.pruneProviderEventCapturesBefore(args[0] as number);
+    case 'stageEvidence':
+      return store.contextEvidence.stageEvidence(args[0] as EvidenceStageInput);
+    case 'prepareEvidenceBlob':
+      return store.contextEvidence.prepareEvidenceBlob(args[0] as EvidenceFinalizeInput);
+    case 'finalizeEvidence':
+      return store.contextEvidence.finalizeEvidence(args[0] as EvidenceFinalizeInput);
+    case 'failEvidence':
+      return store.contextEvidence.failEvidence(args[0] as EvidenceFailureInput);
+    case 'getEvidence':
+      return store.contextEvidence.getEvidence(args[0] as string, args[1] as string);
+    case 'listEvidence':
+      return store.contextEvidence.listEvidence(args[0] as string, args[1] as EvidenceListQuery | undefined);
+    case 'listEvidenceForMaintenance':
+      return store.contextEvidence.listEvidenceForMaintenance(args[0] as EvidenceMaintenanceQuery);
+    case 'listReferencedEvidenceBlobRefs':
+      return store.contextEvidence.listReferencedEvidenceBlobRefs(args[0] as EvidenceBlobReferenceQuery);
+    case 'replaceEvidenceBlob':
+      return store.contextEvidence.replaceEvidenceBlob(args[0] as EvidenceBlobReplacementInput);
+    case 'searchEvidenceMetadata':
+      return store.contextEvidence.searchEvidenceMetadata(
+        args[0] as string,
+        args[1] as EvidenceMetadataSearchQuery,
+      );
+    case 'authorizeEvidenceRange':
+      return store.contextEvidence.authorizeEvidenceRange(args[0] as EvidenceRangeAuthorizationInput);
+    case 'storeEvidenceCard':
+      return store.contextEvidence.storeEvidenceCard(args[0] as EvidenceCardMetadataInput);
+    case 'getEvidenceCard':
+      return store.contextEvidence.getEvidenceCard(args[0] as string, args[1] as string);
+    case 'listEvidenceCards':
+      return store.contextEvidence.listEvidenceCards(
+        args[0] as string,
+        args[1] as EvidenceCardListQuery | undefined,
+      );
+    case 'getContextEvidenceConversationMetrics':
+      return store.contextEvidence.getConversationMetrics(args[0] as string);
+    case 'logEvidenceAccess':
+      store.contextEvidence.logEvidenceAccess(args[0] as EvidenceAccessLogInput);
+      return undefined;
+    case 'recordContextEvidenceEvent':
+      store.contextEvidence.recordContextEvidenceEvent(args[0] as ContextEvidenceEventInput);
+      return undefined;
+    case 'softDeleteConversationWithEvidence':
+      return store.contextEvidence.softDeleteConversationWithEvidence(args[0] as ConversationEvidenceDeletionInput);
+    case 'claimEvidenceDeletions':
+      return store.contextEvidence.claimEvidenceDeletions(
+        args[0] as number,
+        args[1] as number,
+        args[2] as number | undefined,
+      );
+    case 'completeEvidenceDeletion':
+      return store.contextEvidence.completeEvidenceDeletion(
+        args[0] as string,
+        args[1] as string,
+        args[2] as number,
+      );
+    case 'failEvidenceDeletion':
+      return store.contextEvidence.failEvidenceDeletion(
+        args[0] as string,
+        args[1] as string,
+        args[2] as string,
+        args[3] as number,
+      );
+    case 'compareAndSwapLegacyOutputMarker':
+      return store.contextEvidence.compareAndSwapLegacyOutputMarker(args[0] as LegacyMarkerCompareAndSwapInput);
+    case 'listLegacyOutputCacheMarkers':
+      return store.contextEvidence.listLegacyOutputCacheMarkers();
     default: {
       const exhaustive: never = method;
       throw new Error(`Unknown ledger store method: ${String(exhaustive)}`);

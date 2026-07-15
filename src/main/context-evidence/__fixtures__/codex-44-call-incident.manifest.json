@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "incident": {
+    "initialInputTokens": 20344,
+    "modelRequests": 45,
+    "currentOccupancyTokens": 246825,
+    "contextWindowTokens": 258400,
+    "cumulativeProcessingTokens": 5693312
+  },
+  "controlledUngovernedBaseline": {
+    "cumulativeInputTokens": 5693312,
+    "cachedInputTokens": 5446487,
+    "cacheAssumption": "perfect-prefix-reuse; current occupancy excluded from cached input"
+  },
+  "generator": {
+    "algorithm": "quotient-remainder-ascii",
+    "groups": [
+      {
+        "category": "web",
+        "toolName": "web",
+        "callCount": 28,
+        "externalizableCount": 18,
+        "resultCharacters": 580831,
+        "fillCharacter": "w"
+      },
+      {
+        "category": "shell-file-database",
+        "toolName": "shell-file-database",
+        "callCount": 14,
+        "externalizableCount": 6,
+        "resultCharacters": 278427,
+        "fillCharacter": "s"
+      },
+      {
+        "category": "tool-discovery",
+        "toolName": "tool-discovery",
+        "callCount": 2,
+        "externalizableCount": 1,
+        "resultCharacters": 41274,
+        "fillCharacter": "d"
+      }
+    ]
+  }
+}

@@ -270,4 +270,26 @@ describe('InstanceTerminationCoordinator', () => {
     expect(deps.importTranscript).not.toHaveBeenCalled();
     expect(deps.deleteInstance).toHaveBeenCalledWith(instance.id);
   });
+
+  it('drains evidence before transcript archiving, mining, and instance deletion', async () => {
+    const order: string[] = [];
+    const instance = makeInstance({
+      outputBuffer: [
+        makeMessage('1', 'user', 'A'.repeat(60)),
+        makeMessage('2', 'assistant', 'B'.repeat(60)),
+        makeMessage('3', 'assistant', 'C'.repeat(60)),
+        makeMessage('4', 'user', 'D'.repeat(60)),
+      ],
+    });
+    instances.set(instance.id, instance);
+    deps.drainContextEvidence = vi.fn(async () => { order.push('drain'); });
+    deps.archiveInstance = vi.fn(async () => { order.push('archive'); });
+    deps.importTranscript = vi.fn(() => { order.push('mine'); });
+    deps.deleteInstance = vi.fn(() => { order.push('delete'); });
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id);
+
+    expect(order).toEqual(['drain', 'archive', 'mine', 'delete']);
+  });
 });

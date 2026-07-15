@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConversationLedgerService } from '../../conversation-ledger';
 import { NativeConversationRegistry } from '../../conversation-ledger/native-conversation-registry';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
@@ -272,6 +272,99 @@ describe('orchestrator MCP tools', () => {
         },
       ],
     });
+  });
+
+  it('captures an AIO-owned MCP result with the canonical tool-call identity before returning it', async () => {
+    const db = createDb();
+    const ledger = createLedger();
+    const conversation = await ledger.startConversation({
+      provider: 'orchestrator', metadata: { scope: 'instance', historyThreadId: 'history-1' },
+    });
+    const toolCall = (await ledger.appendMessage(conversation.id, {
+      role: 'assistant', phase: 'tool_call', content: 'list_remote_nodes({})',
+      rawJson: { metadata: { kind: 'tool_call' } }, createdAt: 1,
+    })).messages[0]!;
+    const boundedResult = { evidenceId: 'evidence-1', truncated: true };
+    const captureAioMcpResult = vi.fn(async () => ({
+      providerResult: boundedResult,
+      capture: { status: 'captured' },
+    }));
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      ledger,
+      instanceId: 'instance-1',
+      listRemoteNodes: async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }),
+      contextEvidence: {
+        conversationId: conversation.id,
+        mode: 'shadow',
+        providerWindowTokens: 200_000,
+        coordinator: evidenceCoordinatorStub(captureAioMcpResult),
+      },
+    });
+
+    const result = await tools.find((tool) => tool.name === 'list_remote_nodes')!.handler({});
+
+    expect(captureAioMcpResult).toHaveBeenCalledWith({
+      queueId: 'instance-1',
+      conversationId: conversation.id,
+      captureKey: `mcp:${toolCall.id}:list_remote_nodes`,
+      turnRef: toolCall.id,
+      toolCallRef: toolCall.id,
+      toolName: 'list_remote_nodes',
+      result: { connectedCount: 0, totalCount: 0, nodes: [] },
+      providerWindowTokens: 200_000,
+    });
+    expect(result).toEqual(boundedResult);
+  });
+
+  it('blocks an explicit failed capture result in enforce mode', async () => {
+    const db = createDb();
+    const ledger = createLedger();
+    const conversation = await ledger.startConversation({ provider: 'orchestrator', metadata: {} });
+    await ledger.appendMessage(conversation.id, {
+      role: 'assistant', phase: 'tool_call', content: 'list_remote_nodes({})', createdAt: 1,
+    });
+    const tool = createOrchestratorToolDefinitions({
+      db,
+      ledger,
+      instanceId: 'instance-1',
+      listRemoteNodes: async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }),
+      contextEvidence: {
+        conversationId: conversation.id,
+        mode: 'enforce',
+        coordinator: evidenceCoordinatorStub(vi.fn(async () => ({
+          providerResult: { connectedCount: 0, totalCount: 0, nodes: [] },
+          capture: { status: 'failed', errorCode: 'FIXTURE' },
+        }))),
+      },
+    }).find((candidate) => candidate.name === 'list_remote_nodes')!;
+
+    await expect(tool.handler({})).rejects.toThrow('EVIDENCE_CAPTURE_REQUIRED');
+  });
+
+  it('passes capture failures through in shadow and blocks the result in enforce', async () => {
+    const db = createDb();
+    const ledger = createLedger();
+    const conversation = await ledger.startConversation({ provider: 'orchestrator', metadata: {} });
+    await ledger.appendMessage(conversation.id, {
+      role: 'assistant', phase: 'tool_call', content: 'list_remote_nodes({})', createdAt: 1,
+    });
+    const createTools = (mode: 'shadow' | 'enforce') => createOrchestratorToolDefinitions({
+      db,
+      ledger,
+      instanceId: 'instance-1',
+      listRemoteNodes: async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }),
+      contextEvidence: {
+        conversationId: conversation.id,
+        mode,
+        coordinator: evidenceCoordinatorStub(vi.fn(async () => {
+          throw new Error('capture failed');
+        })),
+      },
+    }).find((tool) => tool.name === 'list_remote_nodes')!;
+
+    await expect(createTools('shadow').handler({})).resolves.toMatchObject({ totalCount: 0 });
+    await expect(createTools('enforce').handler({})).rejects.toThrow('EVIDENCE_CAPTURE_REQUIRED');
   });
 
   it('describes remote worker tools with Windows PC and inspect-first language', () => {
@@ -1073,4 +1166,15 @@ class CancellingGitBatchService extends GitBatchService {
     }
     throw new Error('git_batch_pull did not pass cancellation state into GitBatchService');
   }
+}
+
+function evidenceCoordinatorStub(captureAioMcpResult: ReturnType<typeof vi.fn>) {
+  return {
+    list: vi.fn(async () => []),
+    search: vi.fn(async () => []),
+    read: vi.fn(async () => ({})),
+    compare: vi.fn(async () => ({})),
+    verify: vi.fn(async () => ({})),
+    captureAioMcpResult,
+  };
 }

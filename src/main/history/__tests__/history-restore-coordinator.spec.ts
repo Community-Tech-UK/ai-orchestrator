@@ -147,6 +147,17 @@ describe('HistoryRestoreCoordinator', () => {
     expect(config['resume']).toBeUndefined();
   });
 
+  it('fails closed when a history source has not backfilled an app-owned identity', async () => {
+    loadConversation.mockResolvedValue(conversation({
+      historyThreadId: null,
+      sessionId: 'provider-native-collision',
+    }));
+
+    await expect(coordinator.restore(manager, 'entry-1', { forceFallback: true }))
+      .rejects.toMatchObject({ code: 'HISTORY_IDENTITY_MISSING' });
+    expect(createInstance).not.toHaveBeenCalled();
+  });
+
   it('throws a typed error when the history entry is missing', async () => {
     loadConversation.mockResolvedValue(null);
 

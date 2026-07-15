@@ -1,6 +1,5 @@
 // src/main/context/__tests__/output-persistence.spec.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as path from 'node:path';
 
 vi.mock('../../logging/logger', () => ({
   getLogger: vi.fn(() => ({
@@ -31,7 +30,66 @@ vi.mock('fs/promises', () => ({
   unlink: (...args: unknown[]) => mockUnlink(...args),
 }));
 
-import { OutputPersistenceManager, getOutputPersistenceManager } from '../output-persistence';
+import {
+  OutputPersistenceManager,
+  getOutputPersistenceManager,
+  type OutputPersistenceCaptureContext,
+} from '../output-persistence';
+
+function captureContext(
+  overrides: Partial<OutputPersistenceCaptureContext> = {},
+): OutputPersistenceCaptureContext {
+  return {
+    provider: 'codex',
+    conversationId: 'conversation-1',
+    turnRef: 'loop-1:iteration:3',
+    logicalCallId: 'loop-1:iteration:3:output',
+    sourceKind: 'other',
+    captureMode: 'post-retention',
+    captureCompleteness: 'complete',
+    observedBoundary: 'after-provider-retention',
+    ...overrides,
+  };
+}
+
+function evidenceRecord(byteCount: number) {
+  return {
+    id: 'evidence-1',
+    conversationId: 'conversation-1',
+    provider: 'codex',
+    turnRef: 'loop-1:iteration:3',
+    toolCallRef: 'loop-1:iteration:3:output',
+    toolName: 'loop-iteration-output',
+    sourceKind: 'other' as const,
+    status: 'complete' as const,
+    keyedContentId: 'a'.repeat(64),
+    byteCount,
+    mimeType: 'text/plain',
+    sensitivity: 'normal' as const,
+    provenanceTrust: 'runtime-authenticated' as const,
+    createdAt: 1,
+    completedAt: 2,
+    keyVersion: 1,
+    captureMode: 'post-retention' as const,
+    captureCompleteness: 'complete' as const,
+  };
+}
+
+function createModeAwareManager(mode: 'off' | 'shadow' | 'enforce') {
+  const capture = vi.fn();
+  const read = vi.fn();
+  const recordMigrationError = vi.fn();
+  return {
+    manager: new OutputPersistenceManager({
+      getMode: () => mode,
+      getCoordinator: () => ({ capture, read }),
+      recordMigrationError,
+    } as never),
+    capture,
+    read,
+    recordMigrationError,
+  };
+}
 
 describe('OutputPersistenceManager', () => {
   beforeEach(() => {
@@ -75,144 +133,177 @@ describe('OutputPersistenceManager', () => {
     });
   });
 
-  describe('maybeExternalize — large output (exceeds threshold)', () => {
-    it('writes full content to cache file when default threshold exceeded', async () => {
-      const manager = OutputPersistenceManager.getInstance();
-      const large = 'z'.repeat(51_000);
-      const result = await manager.maybeExternalize('default', large);
+  describe('maybeExternalize — explicit off mode', () => {
+    it.each([
+      ['default', 51_000],
+      ['grep', 20_001],
+      ['web_fetch', 100_001],
+    ])('preserves provider-visible %s output inline without plaintext fallback', async (toolName, size) => {
+      const { manager, capture } = createModeAwareManager('off');
+      const output = 'z'.repeat(size);
 
-      expect(mockWriteFile).toHaveBeenCalledOnce();
-      expect(result).toContain('[Full output saved:');
-      expect(result).toContain('51000 chars');
-      expect(result).not.toContain('delegate a sub-agent');
-    });
+      await expect(manager.maybeExternalize(toolName, output, {
+        captureContext: captureContext(),
+      })).resolves.toBe(output);
 
-    it('adds a sub-agent inspection hint when configured for delegated retrieval', async () => {
-      const manager = OutputPersistenceManager.getInstance();
-      manager.configure({ delegateInspectionHint: true });
-      const large = 'z'.repeat(51_000);
-      const result = await manager.maybeExternalize('default', large);
-
-      expect(result).toContain('[Full output saved:');
-      expect(result).toContain('delegate a sub-agent');
-      expect(result).toContain('do not read it yourself');
-    });
-
-    it('truncated preview contains first 2K and last 1K of original content', async () => {
-      const manager = OutputPersistenceManager.getInstance();
-      const prefix = 'START'.repeat(500);
-      const middle = 'X'.repeat(50_000);
-      const suffix = 'END'.repeat(400);
-      const large = prefix + middle + suffix;
-
-      const result = await manager.maybeExternalize('default', large);
-
-      expect(result.startsWith(large.slice(0, 2000))).toBe(true);
-      expect(result).toContain(large.slice(-1000));
-    });
-
-    it('exceeds grep threshold at 20K chars', async () => {
-      const manager = OutputPersistenceManager.getInstance();
-      const output = 'b'.repeat(20_001);
-      const result = await manager.maybeExternalize('grep', output);
-      expect(mockWriteFile).toHaveBeenCalledOnce();
-      expect(result).toContain('[Full output saved:');
-    });
-
-    it('exceeds web_fetch threshold at 100K chars', async () => {
-      const manager = OutputPersistenceManager.getInstance();
-      const output = 'c'.repeat(100_001);
-      const result = await manager.maybeExternalize('web_fetch', output);
-      expect(mockWriteFile).toHaveBeenCalledOnce();
-      expect(result).toContain('[Full output saved:');
-    });
-
-    it('uses sha256 hash as filename (64 hex chars)', async () => {
-      const manager = OutputPersistenceManager.getInstance();
-      const large = 'd'.repeat(51_000);
-      await manager.maybeExternalize('default', large);
-
-      const writePath = mockWriteFile.mock.calls[0][0] as string;
-      const filename = path.basename(writePath);
-      expect(filename).toMatch(/^[0-9a-f]{64}\.txt$/);
-    });
-
-    it('identical content produces the same hash (dedup-friendly)', async () => {
-      const manager = OutputPersistenceManager.getInstance();
-      const content = 'e'.repeat(51_000);
-      await manager.maybeExternalize('default', content);
-      await manager.maybeExternalize('default', content);
-      const path1 = mockWriteFile.mock.calls[0][0] as string;
-      const path2 = mockWriteFile.mock.calls[1][0] as string;
-      expect(path1).toBe(path2);
+      expect(capture).not.toHaveBeenCalled();
+      expect(mockMkdir).not.toHaveBeenCalled();
+      expect(mockWriteFile).not.toHaveBeenCalled();
     });
   });
 
-  describe('retrieve', () => {
-    it('returns full content for a known hash', async () => {
-      mockReadFile.mockResolvedValueOnce('full content here');
-      const manager = OutputPersistenceManager.getInstance();
-      const content = await manager.retrieve('abc123');
-      expect(content).toBe('full content here');
+  describe('evidence-backed compatibility facade', () => {
+    it('preserves the only full output when capture context is missing instead of writing plaintext', async () => {
+      const { manager, recordMigrationError } = createModeAwareManager('off');
+      const output = 'legacy caller output '.repeat(4_000);
+
+      await expect(manager.maybeExternalize('loop-iteration-output', output)).resolves.toBe(output);
+      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(recordMigrationError).toHaveBeenCalledWith(expect.objectContaining({
+        code: 'OUTPUT_PERSISTENCE_CAPTURE_CONTEXT_MISSING',
+      }));
     });
 
-    it('returns null when file does not exist', async () => {
-      const err = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-      mockReadFile.mockRejectedValueOnce(err);
-      const manager = OutputPersistenceManager.getInstance();
-      const content = await manager.retrieve('nonexistent');
-      expect(content).toBeNull();
+    it.each(['shadow', 'enforce'] as const)(
+      '%s mode never creates a plaintext output-cache file',
+      async (mode) => {
+        const { manager, capture, read } = createModeAwareManager(mode);
+        const output = 'captured output '.repeat(4_000);
+        capture.mockResolvedValue({
+          capture: { status: 'captured', record: evidenceRecord(Buffer.byteLength(output)) },
+        });
+        read.mockResolvedValue({
+          evidenceId: 'evidence-1', startByte: 0, endByte: 16,
+          content: '[BEGIN UNTRUSTED EVIDENCE evidence-1]\npreview\n[END UNTRUSTED EVIDENCE evidence-1]',
+          tokenCount: 20, tokenLimit: 1024, truncated: true,
+          citation: { evidenceId: 'evidence-1', startByte: 0, endByte: 16, contentDigest: 'b'.repeat(64) },
+          captureCompleteness: 'complete',
+        });
+
+        await manager.maybeExternalize('loop-iteration-output', output, {
+          captureContext: captureContext(),
+        });
+
+        expect(mockMkdir).not.toHaveBeenCalled();
+        expect(mockWriteFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it('shadow mode captures the full bytes but leaves provider-visible output unchanged', async () => {
+      const { manager, capture, read } = createModeAwareManager('shadow');
+      const output = 'shadow output '.repeat(5_000);
+      let capturedContent = '';
+      capture.mockImplementation(async (input: { content: Uint8Array }) => {
+        capturedContent = Buffer.from(input.content).toString('utf8');
+        return {
+          capture: { status: 'captured', record: evidenceRecord(Buffer.byteLength(output)) },
+        };
+      });
+
+      await expect(manager.maybeExternalize('loop-iteration-output', output, {
+        captureContext: captureContext(),
+      })).resolves.toBe(output);
+
+      expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+        conversationId: 'conversation-1',
+        turnRef: 'loop-1:iteration:3',
+        toolCallRef: 'loop-1:iteration:3:output',
+        provider: 'codex',
+        sourceKind: 'other',
+        captureMode: 'post-retention',
+        captureCompleteness: 'complete',
+        observedBoundary: 'after-provider-retention',
+      }));
+      expect(capturedContent).toBe(output);
+      expect(read).not.toHaveBeenCalled();
     });
 
-    it('returns null and logs on unexpected read error', async () => {
-      mockReadFile.mockRejectedValueOnce(new Error('disk error'));
-      const manager = OutputPersistenceManager.getInstance();
-      const content = await manager.retrieve('badhash');
-      expect(content).toBeNull();
+    it('enforce mode returns bounded authenticated head/tail citations without a cache path', async () => {
+      const { manager, capture, read } = createModeAwareManager('enforce');
+      const completion = '<promise>DONE</promise>';
+      const output = `${'large result\n'.repeat(5_000)}${completion}`;
+      capture.mockResolvedValue({
+        capture: { status: 'captured', record: evidenceRecord(Buffer.byteLength(output)) },
+      });
+      read
+        .mockResolvedValueOnce({
+          evidenceId: 'evidence-1', startByte: 0, endByte: 32,
+          content: '[BEGIN UNTRUSTED EVIDENCE evidence-1]\nlarge result\n[END UNTRUSTED EVIDENCE evidence-1]',
+          tokenCount: 20, tokenLimit: 1024, truncated: false,
+          citation: { evidenceId: 'evidence-1', startByte: 0, endByte: 32, contentDigest: 'b'.repeat(64) },
+          captureCompleteness: 'complete',
+        })
+        .mockResolvedValueOnce({
+          evidenceId: 'evidence-1', startByte: Buffer.byteLength(output) - Buffer.byteLength(completion),
+          endByte: Buffer.byteLength(output),
+          content: `[BEGIN UNTRUSTED EVIDENCE evidence-1]\n${completion}\n[END UNTRUSTED EVIDENCE evidence-1]`,
+          tokenCount: 20, tokenLimit: 1024, truncated: false,
+          citation: {
+            evidenceId: 'evidence-1',
+            startByte: Buffer.byteLength(output) - Buffer.byteLength(completion),
+            endByte: Buffer.byteLength(output),
+            contentDigest: 'c'.repeat(64),
+          },
+          captureCompleteness: 'complete',
+        });
+
+      const result = await manager.maybeExternalize('loop-iteration-output', output, {
+        captureContext: captureContext(),
+      });
+
+      expect(result).toContain('[evidence:evidence-1@0-32#');
+      expect(result).toContain(completion);
+      expect(result).not.toContain('/tmp/test-app-data/output-cache');
+      expect(result.length).toBeLessThan(output.length);
+      expect(read).toHaveBeenCalledTimes(2);
     });
-  });
 
-  describe('cleanup', () => {
-    it('removes files older than 24 hours', async () => {
-      const now = Date.now();
-      const oldMtime = new Date(now - 25 * 60 * 60 * 1000);
-      const newMtime = new Date(now - 1 * 60 * 60 * 1000);
+    it.each(['shadow', 'enforce'] as const)(
+      '%s mode preserves the only full output when canonical ownership is unresolved',
+      async (mode) => {
+        const { manager, capture, recordMigrationError } = createModeAwareManager(mode);
+        const output = 'ownerless output '.repeat(4_000);
 
-      mockReaddir.mockResolvedValueOnce(['old.txt', 'new.txt']);
-      mockStat
-        .mockResolvedValueOnce({ mtime: oldMtime })
-        .mockResolvedValueOnce({ mtime: newMtime });
+        await expect(manager.maybeExternalize('loop-iteration-output', output, {
+          captureContext: captureContext({ conversationId: undefined }),
+        })).resolves.toBe(output);
 
-      const manager = OutputPersistenceManager.getInstance();
-      await manager.cleanup();
+        expect(capture).not.toHaveBeenCalled();
+        expect(mockWriteFile).not.toHaveBeenCalled();
+        expect(recordMigrationError).toHaveBeenCalledWith(expect.objectContaining({
+          code: 'OUTPUT_PERSISTENCE_OWNERSHIP_UNRESOLVED',
+          provider: 'codex',
+          toolName: 'loop-iteration-output',
+        }));
+        expect(JSON.stringify(recordMigrationError.mock.calls)).not.toContain(output.slice(0, 100));
+      },
+    );
 
-      expect(mockUnlink).toHaveBeenCalledOnce();
-      expect(mockUnlink.mock.calls[0][0] as string).toContain('old.txt');
-    });
+    it('enforce mode preserves full output when durable capture fails', async () => {
+      const { manager, capture, recordMigrationError } = createModeAwareManager('enforce');
+      const output = 'capture failure output '.repeat(3_000);
+      capture.mockResolvedValue({
+        capture: {
+          status: 'failed',
+          errorCode: 'CAPTURE_BLOB_WRITE_FAILED',
+          disclosure: 'Encrypted evidence storage failed.',
+        },
+      });
 
-    it('does not remove files younger than 24 hours', async () => {
-      const recentMtime = new Date(Date.now() - 1 * 60 * 60 * 1000);
-      mockReaddir.mockResolvedValueOnce(['recent.txt']);
-      mockStat.mockResolvedValueOnce({ mtime: recentMtime });
+      await expect(manager.maybeExternalize('loop-iteration-output', output, {
+        captureContext: captureContext(),
+      })).resolves.toBe(output);
 
-      const manager = OutputPersistenceManager.getInstance();
-      await manager.cleanup();
-
-      expect(mockUnlink).not.toHaveBeenCalled();
-    });
-
-    it('tolerates stat errors on individual files during cleanup', async () => {
-      mockReaddir.mockResolvedValueOnce(['broken.txt']);
-      mockStat.mockRejectedValueOnce(new Error('stat failed'));
-
-      const manager = OutputPersistenceManager.getInstance();
-      await expect(manager.cleanup()).resolves.not.toThrow();
+      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(recordMigrationError).toHaveBeenCalledWith(expect.objectContaining({
+        code: 'CAPTURE_BLOB_WRITE_FAILED',
+      }));
     });
   });
 
   describe('configureThreshold', () => {
     it('respects custom per-tool threshold set via configure()', async () => {
-      const manager = OutputPersistenceManager.getInstance();
+      const { manager } = createModeAwareManager('off');
       manager.configure({ thresholds: { custom_tool: 5000 } });
 
       const small = 'f'.repeat(4999);
@@ -223,9 +314,11 @@ describe('OutputPersistenceManager', () => {
       mockWriteFile.mockClear();
 
       const large = 'f'.repeat(5001);
-      const resultLarge = await manager.maybeExternalize('custom_tool', large);
-      expect(resultLarge).toContain('[Full output saved:');
-      expect(mockWriteFile).toHaveBeenCalledOnce();
+      const resultLarge = await manager.maybeExternalize('custom_tool', large, {
+        captureContext: captureContext(),
+      });
+      expect(resultLarge).toBe(large);
+      expect(mockWriteFile).not.toHaveBeenCalled();
     });
   });
 });

@@ -43,6 +43,29 @@ describe('maybeExternalizeLoopOutput (LF-1)', () => {
     );
   });
 
+  it('passes canonical loop evidence ownership and capture truth unchanged', async () => {
+    const big = 'y'.repeat(LOOP_OUTPUT_EXTERNALIZE_THRESHOLD + 1);
+    const captureContext = {
+      provider: 'codex',
+      conversationId: 'conversation-1',
+      providerThreadRef: 'provider-thread-1',
+      turnRef: 'loop:loop-1:iteration:4',
+      logicalCallId: 'loop-1:4:output',
+      sourceKind: 'other' as const,
+      captureMode: 'post-retention' as const,
+      captureCompleteness: 'complete' as const,
+      observedBoundary: 'after-provider-retention' as const,
+    };
+
+    await maybeExternalizeLoopOutput(big, true, externalize, { captureContext });
+
+    expect(externalize).toHaveBeenCalledWith(
+      'loop-iteration-output',
+      big,
+      { captureContext },
+    );
+  });
+
   it('degrades to the full output when the externalizer throws', async () => {
     const boom = vi.fn(async () => { throw new Error('cache write failed'); });
     const big = 'z'.repeat(LOOP_OUTPUT_EXTERNALIZE_THRESHOLD + 1);

@@ -66,6 +66,22 @@ export interface MappedAdapterRuntimeEvent {
   timestamp?: number;
 }
 
+export interface AdapterToolResultCapturePayload {
+  content: Uint8Array;
+  mimeType: 'text/plain;charset=utf-8';
+}
+
+/** Own the exact UTF-8 bytes AIO received from an adapter tool-result event. */
+export function getAdapterToolResultCapturePayload(
+  toolCall: Pick<CliToolCall, 'result'>,
+): AdapterToolResultCapturePayload | null {
+  if (toolCall.result === undefined) return null;
+  return {
+    content: new TextEncoder().encode(toolCall.result),
+    mimeType: 'text/plain;charset=utf-8',
+  };
+}
+
 interface ProviderApiDiagnostics {
   requestId?: string;
   stopReason?: string;

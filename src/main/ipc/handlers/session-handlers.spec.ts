@@ -107,60 +107,20 @@ describe('getMessagesForRestoreTranscript', () => {
 });
 
 describe('getNativeResumeSessionId', () => {
-  it('uses the stable thread id for old rows whose archived session id is already known failed', () => {
-    const failedSessionId = '66061320-7298-4d9b-9552-25f024f5e90d';
-    const nativeSessionId = 'd813b60a-de12-4f83-9a09-8cc9d0714d12';
-    const messages: OutputMessage[] = [
-      {
-        id: 'error-1',
-        timestamp: 1,
-        type: 'error',
-        content: `No conversation found with session ID: ${failedSessionId}`,
-      },
-      {
-        id: 'notice-1',
-        timestamp: 2,
-        type: 'system',
-        content: 'Previous Claude CLI session could not be restored natively.',
-        metadata: {
-          isRestoreNotice: true,
-          systemMessageKind: 'restore-fallback',
-          originalSessionId: failedSessionId,
-        },
-      },
-    ];
-
-    expect(getNativeResumeSessionId(
-      {
-        sessionId: failedSessionId,
-        historyThreadId: nativeSessionId,
-        nativeResumeFailedAt: 123,
-      },
-      messages,
-      'claude'
-    )).toBe(nativeSessionId);
+  it('returns the provider session id for a healthy row', () => {
+    const sessionId = '66061320-7298-4d9b-9552-25f024f5e90d';
+    expect(getNativeResumeSessionId({
+      sessionId,
+      nativeResumeFailedAt: null,
+    })).toBe(sessionId);
   });
 
-  it('does not retry the stable thread id once that id has failed too', () => {
-    const fallbackSessionId = '66061320-7298-4d9b-9552-25f024f5e90d';
-    const nativeSessionId = 'd813b60a-de12-4f83-9a09-8cc9d0714d12';
-    const messages: OutputMessage[] = [
-      {
-        id: 'error-1',
-        timestamp: 1,
-        type: 'error',
-        content: `No conversation found with session ID: ${nativeSessionId}`,
-      },
-    ];
-
-    expect(getNativeResumeSessionId(
-      {
-        sessionId: fallbackSessionId,
-        historyThreadId: nativeSessionId,
-        nativeResumeFailedAt: 123,
-      },
-      messages,
-      'claude'
-    )).toBeUndefined();
+  it('does not resume once native resume has failed', () => {
+    // The app-owned historyThreadId is never handed back to the provider as a
+    // native resume handle; a failed row falls to replay fallback instead.
+    expect(getNativeResumeSessionId({
+      sessionId: '66061320-7298-4d9b-9552-25f024f5e90d',
+      nativeResumeFailedAt: 123,
+    })).toBeUndefined();
   });
 });

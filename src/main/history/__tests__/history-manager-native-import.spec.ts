@@ -3,6 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import * as zlib from 'zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ConversationThreadRecord } from '../../../shared/types/conversation-ledger.types';
+import type { Instance } from '../../../shared/types/instance.types';
+import type { InstanceManager } from '../../instance/instance-manager';
 
 describe('HistoryManager — native Claude transcript import', () => {
   let userDataDir = '';
@@ -96,6 +99,8 @@ describe('HistoryManager — native Claude transcript import', () => {
     const entry = entries[0];
     expect(entry.id).toBe(sessionId);
     expect(entry.sessionId).toBe(sessionId);
+    expect(entry.historyThreadId).toEqual(expect.any(String));
+    expect(entry.historyThreadId).not.toBe(sessionId);
     expect(entry.workingDirectory).toBe('/Users/me/Demo');
     expect(entry.firstUserMessage).toContain('Initial question');
     expect(entry.messageCount).toBe(2);
@@ -105,10 +110,119 @@ describe('HistoryManager — native Claude transcript import', () => {
 
     const conversation = await manager.loadConversation(entry.id);
     expect(conversation).not.toBeNull();
+    expect(conversation!.entry.historyThreadId).toBe(entry.historyThreadId);
     expect(conversation!.messages).toHaveLength(2);
     expect(conversation!.messages[0].type).toBe('user');
     expect(conversation!.messages[1].type).toBe('assistant');
     expect(conversation!.messages[1].content).toBe('Here is the answer.');
+  });
+
+  it('keeps a native provider ID collision out of ownership across import and repeated restore', async () => {
+    const providerSessionId = 'provider-native-collision';
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    writeJsonl(path.join(projectsDir, '-Users-me-Demo', `${providerSessionId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'u-collision',
+        timestamp: '2026-04-10T09:00:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId: providerSessionId,
+        message: { role: 'user', content: 'Verify canonical ownership' },
+      },
+    ]);
+
+    const { HistoryManager } = await import('../history-manager');
+    const { HistoryRestoreCoordinator } = await import('../history-restore-coordinator');
+    const { EvidenceConversationResolver } = await import('../../context-evidence/evidence-conversation-resolver');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    await (manager as unknown as {
+      importNativeClaudeTranscripts: (projectsDir: string) => Promise<void>;
+    }).importNativeClaudeTranscripts(projectsDir);
+
+    const imported = manager.getEntries()[0];
+    expect(imported.historyThreadId).not.toBe(providerSessionId);
+    const importedConversation = await manager.loadConversation(imported.id);
+    expect(importedConversation).not.toBeNull();
+
+    // Reproduce the persisted shape created by the old instance factories:
+    // a nonblank historyThreadId copied directly from the provider session.
+    const legacyEntry = { ...imported, historyThreadId: providerSessionId };
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [legacyEntry], lastUpdated: 0 }),
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${legacyEntry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({ ...importedConversation, entry: legacyEntry })),
+    );
+
+    const migratedManager = new HistoryManager();
+    await migratedManager.startupTasks;
+    const migrated = migratedManager.getEntries()[0];
+    expect(migrated.historyThreadId).not.toBe(providerSessionId);
+    const createdInstances: Instance[] = [];
+    const instanceManager = {
+      createInstance: vi.fn(async (config: { historyThreadId?: string; initialOutputBuffer?: Instance['outputBuffer'] }) => {
+        const instance = {
+          id: `restored-${createdInstances.length + 1}`,
+          historyThreadId: config.historyThreadId,
+          sessionId: providerSessionId,
+          providerSessionId,
+          provider: 'claude',
+          workingDirectory: '/Users/me/Demo',
+          outputBuffer: config.initialOutputBuffer ?? [],
+          status: 'idle',
+          readyPromise: Promise.resolve(),
+        } as Instance;
+        createdInstances.push(instance);
+        return instance;
+      }),
+      queueContinuityPreamble: vi.fn(),
+    } as unknown as InstanceManager;
+    const coordinator = new HistoryRestoreCoordinator({
+      history: () => migratedManager,
+      outputStorage: () => ({ storeMessages: vi.fn() }),
+    });
+
+    const first = await coordinator.restore(instanceManager, migrated.id, { forceFallback: true });
+    const reloadedManager = new HistoryManager();
+    await reloadedManager.startupTasks;
+    const second = await new HistoryRestoreCoordinator({
+      history: () => reloadedManager,
+      outputStorage: () => ({ storeMessages: vi.fn() }),
+    }).restore(instanceManager, migrated.id, { forceFallback: true });
+    expect(first.historyThreadId).toBe(second.historyThreadId);
+    expect(first.historyThreadId).not.toBe(providerSessionId);
+
+    const collision = {
+      id: providerSessionId,
+      provider: 'orchestrator',
+      sourceKind: 'orchestrator',
+      metadata: { scope: 'instance', historyThreadId: providerSessionId },
+    } as ConversationThreadRecord;
+    const startConversation = vi.fn(async (input: { metadata: Record<string, unknown> }) => ({
+      ...collision,
+      id: 'created-canonical',
+      metadata: input.metadata,
+    }));
+    const resolver = new EvidenceConversationResolver({
+      ledger: {
+        getThread: vi.fn(async (id: string) => id === collision.id ? collision : null),
+        listConversations: vi.fn(async () => [collision]),
+        startConversation,
+      },
+    });
+    const ownership = await resolver.resolve(createdInstances[0], { mode: 'enforce' });
+
+    expect(ownership).toMatchObject({
+      status: 'resolved',
+      conversationId: 'created-canonical',
+    });
+    expect(startConversation).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ historyThreadId: first.historyThreadId }),
+    }));
   });
 
   it('skips transcripts whose sessionId is already in the index', async () => {

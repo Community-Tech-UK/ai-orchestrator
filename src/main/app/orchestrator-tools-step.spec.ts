@@ -13,6 +13,7 @@ const captured = vi.hoisted(() => ({
       nodeId: string;
       extensionRelay?: { enabled: boolean };
     }) => Promise<unknown>;
+    resolveContextEvidence?: (instanceId: string) => unknown;
   },
   registry: {
     getAllNodes: vi.fn(),
@@ -88,6 +89,10 @@ vi.mock('../automations/automation-tool-impl', () => ({
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
+}));
+
+vi.mock('../context-evidence/context-evidence-coordinator', () => ({
+  getContextEvidenceCoordinator: () => ({ id: 'coordinator' }),
 }));
 
 import { createOrchestratorToolsStep } from './orchestrator-tools-step';
@@ -278,6 +283,28 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
         androidDeviceKind: 'emulator',
       },
     }));
+  });
+
+  it('injects only canonical enabled instance evidence ownership into MCP', async () => {
+    await startStep({
+      getInstance: vi.fn((id: string) => id === 'enabled'
+        ? {
+            contextEvidence: { mode: 'shadow', conversationId: 'ledger-1' },
+            contextUsage: { used: 50_000, total: 200_000, percentage: 25 },
+          }
+        : id === 'off'
+          ? { contextEvidence: { mode: 'off', conversationId: 'ledger-2' } }
+          : undefined),
+    });
+
+    expect(captured.initializeOptions?.resolveContextEvidence?.('enabled')).toEqual({
+      coordinator: { id: 'coordinator' },
+      conversationId: 'ledger-1',
+      mode: 'shadow',
+      providerWindowTokens: 200_000,
+    });
+    expect(captured.initializeOptions?.resolveContextEvidence?.('off')).toBeNull();
+    expect(captured.initializeOptions?.resolveContextEvidence?.('missing')).toBeNull();
   });
 
   it('infers Android placement from an Android run_on_node prompt', async () => {

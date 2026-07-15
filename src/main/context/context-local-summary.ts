@@ -3,6 +3,7 @@ import {
   extractFileOperationsFromTurns,
   summarizeFileOperations,
 } from './file-operation-extractor';
+import { hasAuthenticatedEvidencePreview } from './microcompact';
 
 /**
  * Generate a local summary without an API call.
@@ -39,7 +40,9 @@ export function generateLocalSummary(turns: ConversationTurn[], priorSummary: st
   for (const turn of turns) {
     for (const tc of turn.toolCalls ?? []) {
       const result = tc.output
-        ? tc.output.slice(0, 80).replace(/\n/g, ' ')
+        ? hasAuthenticatedEvidencePreview(tc)
+          ? `authenticated evidence ${tc.evidencePreview.evidenceId} retained separately`
+          : tc.output.slice(0, 80).replace(/\n/g, ' ')
         : 'no output';
       toolLines.push(`- \`${tc.name}\`: ${result}`);
     }

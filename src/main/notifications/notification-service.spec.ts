@@ -115,6 +115,11 @@ describe('NotificationService', () => {
 
   it('rechecks quiet hours before a queued digest is delivered', async () => {
     vi.useFakeTimers();
+    // Pin the clock to a deterministic hour inside the quiet window enabled below.
+    // Without this the service reads the real wall-clock time (via Date.now), so
+    // the digest recheck would spuriously deliver when the suite runs during an
+    // hour the window excludes (e.g. hour 23 for a 0..23 window).
+    vi.setSystemTime(new Date(2026, 6, 14, 3, 0, 0));
     try {
       let quietHours = { enabled: false, startHour: 22, endHour: 7 };
       const desktop: DesktopNotificationPort = { isSupported: vi.fn(() => true), show: vi.fn() };

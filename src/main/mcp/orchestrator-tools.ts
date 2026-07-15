@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { ConversationLedgerService } from '../conversation-ledger';
-import type { ConversationMessageRecord } from '../../shared/types/conversation-ledger.types';
 import type { OperatorRunStatus } from '../../shared/types/operator.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { ChatStore } from '../chats/chat-store';
@@ -19,6 +18,15 @@ import {
 import { createReleaseToolDefinitions, type ReleaseToolDependencies } from './orchestrator-release-tools';
 import { createFileTransferToolDefinitions, type FileTransferToolContext } from './orchestrator-file-transfer-tools';
 import type { CreateAutomationFn, DeleteAutomationFn, ListAutomationsFn, PostponeAutomationFn, UpdateAutomationFn } from './orchestrator-automation-tools';
+import {
+  createOrchestratorEvidenceToolDefinitions,
+  type OrchestratorEvidenceToolContext,
+} from './orchestrator-evidence-tools';
+import {
+  hasFailedEvidenceCapture,
+  providerResultAfterCapture,
+} from './orchestrator-evidence-capture-result';
+import { resolveOrchestratorToolSourceContext } from './orchestrator-tool-source-context';
 
 const ProviderModelIdSchema = z.string().min(1).max(512);
 
@@ -284,14 +292,7 @@ export interface OrchestratorToolRuntimeContext extends FileTransferToolContext 
   requestDocReview?: RequestDocReviewFn | null;
   getDocReviewResult?: GetDocReviewResultFn | null;
   releaseTools?: ReleaseToolDependencies;
-}
-
-const SOURCE_CONTEXT_MESSAGE_LIMIT = 200;
-
-interface SourceContext {
-  chatId: string | null;
-  threadId: string;
-  sourceMessageId: string;
+  contextEvidence?: Omit<OrchestratorEvidenceToolContext, 'instanceId'> | null;
 }
 
 export function createOrchestratorToolDefinitions(
@@ -301,7 +302,7 @@ export function createOrchestratorToolDefinitions(
   const chatStore = new ChatStore(context.db);
   const gitBatchService = context.gitBatchService ?? getGitBatchService();
 
-  return [
+  const tools: McpServerToolDefinition[] = [
     {
       name: 'git_batch_pull',
       description: 'Discover Git repositories below a root path and safely fetch plus fast-forward pull clean tracking branches. Dirty, detached, divergent, no-upstream, and no-remote repositories are skipped with reasons.',
@@ -329,7 +330,7 @@ export function createOrchestratorToolDefinitions(
       },
       handler: async (args) => {
         const parsed = GitBatchPullArgsSchema.parse(args);
-        const source = await resolveSourceContext({
+        const source = await resolveOrchestratorToolSourceContext({
           chatStore,
           ledger: context.ledger ?? null,
           instanceId: context.instanceId ?? null,
@@ -637,63 +638,54 @@ export function createOrchestratorToolDefinitions(
     ...createAutomationToolDefinitions(context),
     ...createDocReviewToolDefinitions(context),
     ...createReleaseToolDefinitions(context.releaseTools),
+    ...(context.contextEvidence && context.instanceId
+      ? createOrchestratorEvidenceToolDefinitions({
+          ...context.contextEvidence,
+          instanceId: context.instanceId,
+        })
+      : []),
   ];
-}
-
-async function resolveSourceContext(input: {
-  chatStore: ChatStore;
-  ledger: ConversationLedgerService | null;
-  instanceId: string | null;
-}): Promise<SourceContext> {
-  const chat = input.instanceId ? input.chatStore.getByInstanceId(input.instanceId) : null;
-  const fallbackMessageId = `mcp-tool:${Date.now()}`;
-  if (!chat) {
-    return {
-      chatId: null,
-      threadId: 'mcp-standalone',
-      sourceMessageId: fallbackMessageId,
-    };
-  }
-
-  let sourceMessageId = fallbackMessageId;
-  if (input.ledger) {
-    try {
-      const conversation = await input.ledger.getRecentConversation(
-        chat.ledgerThreadId,
-        SOURCE_CONTEXT_MESSAGE_LIMIT,
-      );
-      const latestToolCall = findLatestMessage(conversation.messages, (message) =>
-        message.phase === 'tool_call'
-        || asRecord(message.rawJson?.['metadata'])?.['kind'] === 'tool_call'
-      );
-      const latestUser = findLatestMessage(conversation.messages, (message) => message.role === 'user');
-      sourceMessageId = latestToolCall?.id ?? latestUser?.id ?? sourceMessageId;
-    } catch {
-      sourceMessageId = fallbackMessageId;
-    }
-  }
-
-  return {
-    chatId: chat.id,
-    threadId: chat.ledgerThreadId,
-    sourceMessageId,
-  };
-}
-
-function findLatestMessage(
-  messages: ConversationMessageRecord[],
-  predicate: (message: ConversationMessageRecord) => boolean,
-): ConversationMessageRecord | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (predicate(messages[index])) {
-      return messages[index];
-    }
-  }
-  return null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  const evidence = context.contextEvidence;
+  if (!evidence?.coordinator.captureAioMcpResult || !context.instanceId) return tools;
+  return tools.map((tool) => tool.name.startsWith('evidence_') ? tool : {
+    ...tool,
+    handler: async (args) => {
+      const result = await tool.handler(args);
+      const source = await resolveOrchestratorToolSourceContext({
+        chatStore,
+        ledger: context.ledger ?? null,
+        instanceId: context.instanceId ?? null,
+        preferredConversationId: evidence.conversationId,
+      });
+      if (
+        source.threadId !== evidence.conversationId
+        || source.sourceMessageId.startsWith('mcp-tool:')
+      ) {
+        if (evidence.mode === 'enforce') throw new Error('EVIDENCE_CAPTURE_REQUIRED');
+        return result;
+      }
+      try {
+        const captureResult = await evidence.coordinator.captureAioMcpResult?.({
+          queueId: context.instanceId!,
+          conversationId: evidence.conversationId!,
+          captureKey: `mcp:${source.sourceMessageId}:${tool.name}`,
+          turnRef: source.sourceMessageId,
+          toolCallRef: source.sourceMessageId,
+          toolName: tool.name,
+          result,
+          ...(evidence.providerWindowTokens === undefined
+            ? {}
+            : { providerWindowTokens: evidence.providerWindowTokens }),
+        });
+        if (hasFailedEvidenceCapture(captureResult)) {
+          if (evidence.mode === 'enforce') throw new Error('EVIDENCE_CAPTURE_REQUIRED');
+          return result;
+        }
+        return providerResultAfterCapture(captureResult, result);
+      } catch {
+        if (evidence.mode === 'enforce') throw new Error('EVIDENCE_CAPTURE_REQUIRED');
+      }
+      return result;
+    },
+  });
 }

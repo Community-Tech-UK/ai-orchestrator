@@ -38,7 +38,27 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'generate_play_data_safety_csv',
       'execute_android_play_release',
       'execute_ios_asc_finalization',
+      'evidence_list',
+      'evidence_search',
+      'evidence_read',
+      'evidence_compare',
+      'evidence_verify',
     ]);
+  });
+
+  it('forwards evidence reads without a model-controlled conversation id', async () => {
+    const call = vi.fn(async () => ({ evidenceId: 'evidence-1' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (candidate) => candidate.name === 'evidence_read',
+    );
+
+    await tool!.handler({
+      evidenceId: 'evidence-1', startByte: 0, endByte: 7, tokenLimit: 512,
+    });
+
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.evidence_read', {
+      evidenceId: 'evidence-1', startByte: 0, endByte: 7, tokenLimit: 512,
+    });
   });
 
   it('forwards release tool invocations with canonical method names', async () => {

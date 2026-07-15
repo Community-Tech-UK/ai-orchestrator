@@ -19,6 +19,17 @@ describe('createInstance', () => {
     expect(instance.bareMode).toBe(true);
   });
 
+  it('keeps generated app history identity independent from provider identity', () => {
+    const instance = createInstance({
+      workingDirectory: '/tmp/project',
+      sessionId: 'provider-native-session',
+    });
+
+    expect(instance.sessionId).toBe('provider-native-session');
+    expect(instance.providerSessionId).toBe('provider-native-session');
+    expect(instance.historyThreadId).not.toBe('provider-native-session');
+  });
+
   it('copies the initial output buffer instead of retaining the caller array', () => {
     const initialOutputBuffer: OutputMessage[] = [
       {

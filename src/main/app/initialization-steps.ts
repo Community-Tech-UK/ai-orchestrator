@@ -94,6 +94,9 @@ import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
+import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
+import { createLegacyOutputCacheReconciliationStep } from './legacy-output-cache-initialization';
+export { createLegacyOutputCacheReconciliationStep } from './legacy-output-cache-initialization';
 
 const logger = getLogger('AppInitialization');
 const CODEMEM_MAINTENANCE_COOLDOWN_MS = 30 * 60 * 1000;
@@ -110,6 +113,23 @@ export interface AppInitializationContext {
   isStatelessExecProvider: (provider: string | undefined) => boolean;
   getNodeLatencyForInstance: (instanceId: string) => number | undefined;
   syncRemoteNodeMetricsToLoadBalancer: (nodeId: string) => void;
+}
+
+export function createContextEvidenceInitializationStep(
+  initialize: () => Promise<void> = initializeContextEvidenceRuntime,
+): AppInitializationStep {
+  return {
+    name: 'Context evidence',
+    fn: async () => {
+      try {
+        await initialize();
+      } catch (error) {
+        logger.warn('Context evidence initialization failed; durable capture remains unavailable', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  };
 }
 
 export function createInitializationSteps(
@@ -132,6 +152,8 @@ export function createInitializationSteps(
         }
       },
     },
+    createContextEvidenceInitializationStep(),
+    createLegacyOutputCacheReconciliationStep(),
     {
       name: 'Provider event capture',
       fn: () => {

@@ -4,15 +4,20 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { parseEvidenceCitations } from '../context-evidence/evidence-citation-parser';
+import {
+  isVerifiedEvidencePreview,
+  type VerifiedEvidencePreview,
+} from '../context-evidence/evidence-preview-builder';
 
 const logger = getLogger('Microcompact');
-
-const PLACEHOLDER_TOKEN_COST = 5;
 
 export interface MicrocompactConfig {
   recentTurnsToProtect: number;
   minSavingsTokens: number;
 }
+
+export type AuthenticatedEvidencePreview = VerifiedEvidencePreview;
 
 export interface MicrocompactToolCall {
   id: string;
@@ -21,6 +26,7 @@ export interface MicrocompactToolCall {
   output?: string;
   inputTokens: number;
   outputTokens: number;
+  evidencePreview?: AuthenticatedEvidencePreview;
 }
 
 export interface MicrocompactTurn {
@@ -55,24 +61,29 @@ export class Microcompact {
   compact(turns: MicrocompactTurn[]): MicrocompactResult {
     const result = turns.map(t => ({
       ...t,
-      toolCalls: t.toolCalls?.map(tc => ({ ...tc })),
+      toolCalls: t.toolCalls?.map(tc => ({
+        ...tc,
+        evidencePreview: tc.evidencePreview,
+      })),
     }));
 
     const protectedStartIndex = Math.max(0, result.length - this.config.recentTurnsToProtect);
 
     // First pass: calculate potential savings
     let potentialSavings = 0;
+    let eligibleOutputs = 0;
     for (let i = 0; i < protectedStartIndex; i++) {
       const turn = result[i];
       if (!turn.toolCalls) continue;
       for (const tc of turn.toolCalls) {
-        if (tc.output && tc.outputTokens > PLACEHOLDER_TOKEN_COST) {
-          potentialSavings += tc.outputTokens - PLACEHOLDER_TOKEN_COST;
+        if (hasAuthenticatedEvidencePreview(tc)) {
+          eligibleOutputs++;
+          potentialSavings += tc.outputTokens - tc.evidencePreview.tokenCount;
         }
       }
     }
 
-    if (potentialSavings < this.config.minSavingsTokens) {
+    if (eligibleOutputs === 0 || potentialSavings < this.config.minSavingsTokens) {
       return { turns: result, tokensSaved: 0, turnsCompacted: 0, skipped: true };
     }
 
@@ -86,10 +97,10 @@ export class Microcompact {
 
       let turnCompacted = false;
       for (const tc of turn.toolCalls) {
-        if (tc.output && tc.outputTokens > PLACEHOLDER_TOKEN_COST) {
-          tokensSaved += tc.outputTokens - PLACEHOLDER_TOKEN_COST;
-          tc.output = '[microcompacted]';
-          tc.outputTokens = PLACEHOLDER_TOKEN_COST;
+        if (hasAuthenticatedEvidencePreview(tc)) {
+          tokensSaved += tc.outputTokens - tc.evidencePreview.tokenCount;
+          tc.output = tc.evidencePreview.preview;
+          tc.outputTokens = tc.evidencePreview.tokenCount;
           turnCompacted = true;
         }
       }
@@ -100,4 +111,22 @@ export class Microcompact {
     logger.info('Microcompact completed', { tokensSaved, turnsCompacted });
     return { turns: result, tokensSaved, turnsCompacted, skipped: false };
   }
+}
+
+export function hasAuthenticatedEvidencePreview(
+  toolCall: MicrocompactToolCall,
+): toolCall is MicrocompactToolCall & { evidencePreview: NonNullable<MicrocompactToolCall['evidencePreview']> } {
+  const preview = toolCall.evidencePreview;
+  if (
+    !toolCall.output
+    || !isVerifiedEvidencePreview(preview)
+    || preview.tokenCount < 0
+    || toolCall.outputTokens <= preview.tokenCount
+  ) {
+    return false;
+  }
+
+  const parsed = parseEvidenceCitations(preview.preview);
+  return parsed.malformedMarkers.length === 0
+    && parsed.citations.some(citation => citation.evidenceId === preview.evidenceId);
 }

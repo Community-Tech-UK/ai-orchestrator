@@ -58,6 +58,7 @@ export interface InstanceTerminationDeps {
   clearFirstMessageTracking: (instanceId: string) => void;
   endRlmSession: (instanceId: string) => void;
   deleteOutputStorage: (instanceId: string) => Promise<void>;
+  drainContextEvidence?: (instanceId: string) => Promise<void>;
   archiveInstance: (instance: Instance, status: ConversationEndStatus) => Promise<void>;
   importTranscript: (transcript: string, options: TranscriptImportOptions) => void;
   emitRemoved: (instanceId: string) => void;
@@ -107,6 +108,7 @@ export class InstanceTerminationCoordinator {
       return;
     }
 
+    await this.deps.drainContextEvidence?.(instanceId);
     await this.archiveRootConversation(instanceId, instance);
     await this.maybeMergeSessionBranch(instanceId, instance, graceful, finishedCleanlyOnEntry);
     // Bulk app shutdown has already archived the transcript above; skip only

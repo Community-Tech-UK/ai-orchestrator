@@ -25,6 +25,19 @@ export type { InstanceStatus } from '@contracts/types/instance-events';
 
 export type InstanceLaunchMode = 'orchestrated' | 'interactive';
 
+export interface InstanceContextEvidenceState {
+  mode: import('./settings.types').ContextEvidenceMode;
+  conversationId?: string;
+  ownershipSource?: 'chat-ledger' | 'instance-history';
+  captureFailureCount: number;
+  lastCaptureFailure?: {
+    code: 'unresolved-conversation-ownership';
+    reason: string;
+    disposition: 'preserve-provider-output' | 'pause-before-destructive-action';
+    occurredAt: number;
+  };
+}
+
 // ============================================
 // Session Export Types
 // ============================================
@@ -227,6 +240,13 @@ export interface CommunicationToken {
 
 export type InstanceRecoveryMethod = 'native' | 'replay' | 'fresh' | 'failed';
 
+/** Trusted AIO-owned conversation anchor supplied by an app-owned runtime. */
+export interface EvidenceConversationOwnerReference {
+  kind: 'chat';
+  chatId: string;
+  conversationId: string;
+}
+
 export interface Instance {
   // Identity
   id: string;
@@ -242,6 +262,10 @@ export interface Instance {
   aiTitle?: string;
   createdAt: number;
   historyThreadId: string;
+  /** Explicit app-owned conversation identity; provider-native ids never populate this. */
+  evidenceConversationOwner?: EvidenceConversationOwnerReference;
+  /** Canonical AIO conversation ownership for context evidence, when enabled. */
+  contextEvidence?: InstanceContextEvidenceState;
 
   // Hierarchy
   parentId: string | null;
@@ -444,6 +468,8 @@ export interface InstanceCreateConfig {
   isRenamed?: boolean;
   parentId?: string | null;
   historyThreadId?: string; // Stable app-level thread identity across restore/fallback
+  /** Internal trusted anchor for runtimes already owned by an AIO chat. */
+  evidenceConversationOwner?: EvidenceConversationOwnerReference;
   sessionId?: string;
   resume?: boolean; // Resume a previous session (requires sessionId)
   workingDirectory: string;
@@ -521,7 +547,7 @@ export interface InstanceSummary {
 export function createInstance(config: InstanceCreateConfig): Instance {
   const now = Date.now();
   const sessionId = config.sessionId || crypto.randomUUID();
-  const historyThreadId = config.historyThreadId || sessionId;
+  const historyThreadId = config.historyThreadId || crypto.randomUUID();
   const provider = config.provider || 'auto';
   const agent = config.agentId
     ? getAgentById(config.agentId)
@@ -540,6 +566,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     displayName: config.displayName || (config.workingDirectory && config.workingDirectory.split(/[/\\]/).filter(Boolean).pop()) || `Instance ${now}`,
     createdAt: now,
     historyThreadId,
+    evidenceConversationOwner: config.evidenceConversationOwner,
 
     parentId: config.parentId || null,
     childrenIds: [],

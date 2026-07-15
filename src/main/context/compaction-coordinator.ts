@@ -3,21 +3,27 @@
  *
  * Monitors instance context usage and coordinates automatic compaction.
  *
- * Dual-threshold strategy (inspired by Copilot SDK):
- * - Warning at 75% (notifies renderer)
- * - Background compact at 80% (non-blocking — instance continues working)
- * - Blocking compact at 95% (blocks input until compacted)
+ * The provider-neutral ContextSafetyPolicy owns automatic pressure decisions.
+ * Legacy 75/80/95 warning events remain as deprecated renderer compatibility.
  *
  * Circuit breaker: stops retrying after 3 consecutive failures per instance.
  */
 
 import { EventEmitter } from 'events';
+import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import { getLogger } from '../logging/logger';
-import { LIMITS } from '../../shared/constants/limits';
 import type { ContextUsage } from '../../shared/types/instance.types';
+import type { ContextEvidenceMode } from '../../shared/types/settings.types';
 import { TokenBudgetTracker } from './token-budget-tracker';
 import { CompactionEpochTracker } from './compaction-epoch';
 import { measureAsync } from '../util/slow-operations';
+import type { ProviderContextActionExecutor } from '../context-evidence/provider-context-action-executor';
+import {
+  ContextPolicyRuntime,
+  type ContextPolicyEvent,
+} from './context-policy-runtime';
+
+export type { ContextPolicyEvent } from './context-policy-runtime';
 
 const logger = getLogger('CompactionCoordinator');
 
@@ -45,21 +51,19 @@ const CIRCUIT_BREAKER_MAX_FAILURES = 3;
 const CIRCUIT_BREAKER_RESET_MS = 5 * 60 * 1000;
 
 export class CompactionCoordinator extends EventEmitter {
-  // Thresholds (centralized in LIMITS for discoverability)
-  private readonly WARNING_THRESHOLD = LIMITS.COMPACTION_WARNING_THRESHOLD;
-  private readonly BACKGROUND_THRESHOLD = LIMITS.COMPACTION_BACKGROUND_THRESHOLD;
-  private readonly BLOCKING_THRESHOLD = LIMITS.COMPACTION_BLOCKING_THRESHOLD;
+  private readonly policyRuntime = new ContextPolicyRuntime((event) => {
+    this.emit('context-policy-event', event);
+    try {
+      const result = this.recordPolicyEventCallback?.(event);
+      if (result) void result.catch(() => undefined);
+    } catch {
+      // Diagnostics must never break context processing.
+    }
+  });
 
   // Track which instances have been warned/compacted to avoid re-triggering
   private warnedInstances = new Set<string>();
   private compactingInstances = new Set<string>();
-
-  /** Instances currently undergoing background (non-blocking) compaction */
-  private backgroundCompactingInstances = new Set<string>();
-
-  // Debounce: track last compaction time per instance
-  private lastCompactionTime = new Map<string, number>();
-  private readonly COMPACTION_COOLDOWN_MS = LIMITS.COMPACTION_COOLDOWN_MS;
 
   // Dismissed warnings (reset if percentage increases by >5%)
   private dismissedWarnings = new Map<string, number>(); // instanceId -> percentage when dismissed
@@ -77,26 +81,8 @@ export class CompactionCoordinator extends EventEmitter {
   // Auto-compact enabled (default true)
   private autoCompactEnabled = true;
 
-  /**
-   * Cumulative-input-token compaction trigger (claude2_todo #34b).
-   *
-   * A cost-proxy axis independent of window-%: when an instance's *lifetime*
-   * token spend since its last compaction exceeds this many tokens, a
-   * background compaction is triggered even if the context window is nowhere
-   * near full. This catches long-running sessions (especially self-managing
-   * adapters whose CLI keeps the *window* small while cumulative *cost* climbs)
-   * that the window-% thresholds never fire on.
-   *
-   * `0` = disabled (default), so there is no behavior change unless the user
-   * opts in via the `cumulativeTokenCompactionTrigger` setting. Deliberately
-   * NOT gated on `selfManagedAutoCompaction` — it is an explicit cost cap the
-   * user has chosen, so it applies to every adapter.
-   */
+  /** @deprecated Shared 2x/4x policy thresholds supersede this setting. */
   private cumulativeTokenTrigger = 0;
-
-  /** Per-instance `cumulativeTokens` snapshot taken at the last compaction,
-   *  so the trigger measures spend *since* that compaction (not lifetime). */
-  private cumulativeTokensAtLastCompaction = new Map<string, number>();
 
   /**
    * Context token threshold above which compaction should be chunked
@@ -121,6 +107,14 @@ export class CompactionCoordinator extends EventEmitter {
    * force compaction explicitly.
    */
   private selfManagedAutoCompactionForInstance: ((instanceId: string) => boolean) | null = null;
+  private getContextCapabilitiesForInstance:
+    ((instanceId: string) => ProviderContextCapabilities | null) | null = null;
+  private getContextEvidenceModeForInstance:
+    ((instanceId: string) => ContextEvidenceMode) | null = null;
+  private getProviderActionExecutorForInstance:
+    ((instanceId: string) => ProviderContextActionExecutor | null) | null = null;
+  private recordPolicyEventCallback:
+    ((event: ContextPolicyEvent) => void | Promise<void>) | null = null;
 
   private static instance: CompactionCoordinator | null = null;
 
@@ -139,7 +133,6 @@ export class CompactionCoordinator extends EventEmitter {
     if (CompactionCoordinator.instance) {
       CompactionCoordinator.instance.removeAllListeners();
       CompactionCoordinator.instance.circuitBreakers.clear();
-      CompactionCoordinator.instance.backgroundCompactingInstances.clear();
       CompactionCoordinator.instance = null;
     }
   }
@@ -158,6 +151,10 @@ export class CompactionCoordinator extends EventEmitter {
      * instance. Manual `compactInstance()` is NOT affected.
      */
     selfManagesAutoCompaction?: (instanceId: string) => boolean;
+    getContextCapabilities?: (instanceId: string) => ProviderContextCapabilities | null;
+    getContextEvidenceMode?: (instanceId: string) => ContextEvidenceMode;
+    getProviderActionExecutor?: (instanceId: string) => ProviderContextActionExecutor | null;
+    recordPolicyEvent?: (event: ContextPolicyEvent) => void | Promise<void>;
   }): void {
     if (options.nativeCompact) this.nativeCompactStrategy = options.nativeCompact;
     if (options.restartCompact) this.restartCompactStrategy = options.restartCompact;
@@ -167,6 +164,16 @@ export class CompactionCoordinator extends EventEmitter {
     if (options.selfManagesAutoCompaction) {
       this.selfManagedAutoCompactionForInstance = options.selfManagesAutoCompaction;
     }
+    if (options.getContextCapabilities) {
+      this.getContextCapabilitiesForInstance = options.getContextCapabilities;
+    }
+    if (options.getContextEvidenceMode) {
+      this.getContextEvidenceModeForInstance = options.getContextEvidenceMode;
+    }
+    if (options.getProviderActionExecutor) {
+      this.getProviderActionExecutorForInstance = options.getProviderActionExecutor;
+    }
+    if (options.recordPolicyEvent) this.recordPolicyEventCallback = options.recordPolicyEvent;
   }
 
   /**
@@ -198,122 +205,30 @@ export class CompactionCoordinator extends EventEmitter {
     return this.cumulativeTokenTrigger;
   }
 
-  /**
-   * Called on every contextUsage update (from batch-update events).
-   *
-   * Dual-threshold compaction (inspired by Copilot SDK):
-   * - 75%: Warning (UI notification only)
-   * - 80%: Background compaction (non-blocking — instance keeps working)
-   * - 95%: Blocking compaction (halts input until context is freed)
-   */
+  /** Records the sample synchronously, then serializes shared-policy decisions per instance. */
   onContextUpdate(instanceId: string, usage: ContextUsage): void {
     this.latestUsage.set(instanceId, usage);
-    const percentage = usage.percentage;
+    this.emitLegacyWarning(instanceId, usage.percentage);
 
-    // Check if a dismissed warning should re-appear (usage increased >5% since dismissal)
-    const dismissedAt = this.dismissedWarnings.get(instanceId);
-    if (dismissedAt !== undefined && percentage > dismissedAt + 5) {
-      this.dismissedWarnings.delete(instanceId);
-    }
+    const capabilities = this.getContextCapabilitiesForInstance?.(instanceId) ?? null;
+    const mode = this.getContextEvidenceModeForInstance?.(instanceId) ?? 'off';
+    if (!capabilities || mode === 'off') return;
 
-    // If the adapter self-manages auto-compaction (e.g. Claude CLI compacts
-    // internally at the model's threshold), suppress orchestrator-driven
-    // auto-trigger entirely. Warnings still fire so the UI reflects pressure;
-    // manual `compactInstance()` remains available for explicit user action.
-    const selfManaged = this.isSelfManagedAutoCompaction(instanceId);
+    this.policyRuntime.observe({
+      instanceId,
+      usage,
+      capabilities,
+      mode,
+      autoCompactEnabled: this.autoCompactEnabled,
+      executor: this.getProviderActionExecutorForInstance?.(instanceId) ?? null,
+      circuitBreakerTripped: this.isCircuitBreakerTripped(instanceId),
+      onActionFailure: () => this.recordCircuitBreakerFailure(instanceId),
+      onActionSuccess: () => this.resetCircuitBreaker(instanceId),
+    });
+  }
 
-    // Check circuit breaker — skip auto-compaction if tripped
-    if (this.isCircuitBreakerTripped(instanceId)) {
-      // Still emit warnings for the UI, but don't try to auto-compact
-      if (percentage >= this.BLOCKING_THRESHOLD) {
-        this.emit('context-warning', { instanceId, percentage, level: 'emergency' as const });
-      }
-      return;
-    }
-
-    // ── BLOCKING threshold (95%+) ──
-    // Instance MUST stop and wait for compaction to complete.
-    if (percentage >= this.BLOCKING_THRESHOLD) {
-      this.emit('context-warning', {
-        instanceId,
-        percentage,
-        level: 'emergency' as const,
-      });
-
-      if (
-        !selfManaged
-        && this.autoCompactEnabled
-        && !this.compactingInstances.has(instanceId)
-      ) {
-        void this.triggerBlockingCompact(instanceId, usage);
-      }
-      return;
-    }
-
-    // ── BACKGROUND threshold (80%+) ──
-    // Start compaction in the background — instance keeps working.
-    if (percentage >= this.BACKGROUND_THRESHOLD) {
-      if (!this.dismissedWarnings.has(instanceId)) {
-        this.emit('context-warning', {
-          instanceId,
-          percentage,
-          level: 'critical' as const,
-        });
-      }
-
-      if (
-        !selfManaged
-        && this.autoCompactEnabled
-        && !this.compactingInstances.has(instanceId)
-        && !this.backgroundCompactingInstances.has(instanceId)
-      ) {
-        void this.triggerBackgroundCompact(instanceId, usage);
-      }
-      return;
-    }
-
-    // ── CUMULATIVE-TOKEN trigger (claude2_todo #34b) ──
-    // Cost-proxy axis, independent of window %: when lifetime spend since the
-    // last compaction crosses the configured threshold, compact in the
-    // background. Reached only when % < background threshold (the branches
-    // above return first, so window pressure always takes precedence). Default
-    // 0 = disabled. Not gated on `selfManaged` — it is an explicit cost cap.
-    if (
-      this.cumulativeTokenTrigger > 0
-      && this.autoCompactEnabled
-      && !this.compactingInstances.has(instanceId)
-      && !this.backgroundCompactingInstances.has(instanceId)
-    ) {
-      const baseline = this.cumulativeTokensAtLastCompaction.get(instanceId) ?? 0;
-      const sinceLastCompaction = (usage.cumulativeTokens ?? 0) - baseline;
-      if (sinceLastCompaction >= this.cumulativeTokenTrigger) {
-        logger.info('Cumulative-token compaction trigger fired', {
-          instanceId,
-          sinceLastCompaction,
-          threshold: this.cumulativeTokenTrigger,
-          percentage,
-        });
-        void this.triggerBackgroundCompact(instanceId, usage);
-        return;
-      }
-    }
-
-    // ── WARNING threshold (75%+) ──
-    if (percentage >= this.WARNING_THRESHOLD) {
-      if (!this.warnedInstances.has(instanceId) && !this.dismissedWarnings.has(instanceId)) {
-        this.warnedInstances.add(instanceId);
-        this.emit('context-warning', {
-          instanceId,
-          percentage,
-          level: 'warning' as const,
-        });
-      }
-      return;
-    }
-
-    // Below warning threshold — clear warnings
-    this.warnedInstances.delete(instanceId);
-    this.dismissedWarnings.delete(instanceId);
+  async drainPolicyDecisions(instanceId: string): Promise<void> {
+    await this.policyRuntime.drain(instanceId);
   }
 
   /**
@@ -321,6 +236,53 @@ export class CompactionCoordinator extends EventEmitter {
    */
   dismissWarning(instanceId: string, currentPercentage: number): void {
     this.dismissedWarnings.set(instanceId, currentPercentage);
+  }
+
+  /** Shared proof boundary for provider-native compaction observed outside an AIO request. */
+  recordObservedCompaction(instanceId: string, cumulativeTokens = 0): void {
+    this.policyRuntime.recordObservedCompaction(
+      instanceId,
+      this.latestUsage.get(instanceId),
+      cumulativeTokens,
+    );
+  }
+
+  recordProviderActionProof(
+    instanceId: string,
+    actionCode: string,
+    proofStage: 'requested' | 'acknowledged' | 'observed',
+  ): void {
+    this.policyRuntime.recordProviderActionProof(
+      instanceId,
+      this.latestUsage.get(instanceId),
+      actionCode,
+      proofStage,
+    );
+  }
+
+  private emitLegacyWarning(instanceId: string, percentage: number): void {
+    const dismissedAt = this.dismissedWarnings.get(instanceId);
+    if (dismissedAt !== undefined && percentage > dismissedAt + 5) {
+      this.dismissedWarnings.delete(instanceId);
+    }
+    if (percentage < 75) {
+      this.warnedInstances.delete(instanceId);
+      this.dismissedWarnings.delete(instanceId);
+      return;
+    }
+    if (this.dismissedWarnings.has(instanceId)) return;
+
+    const legacyThreshold = percentage >= 95 ? 95 : percentage >= 80 ? 80 : 75;
+    if (legacyThreshold === 75 && this.warnedInstances.has(instanceId)) return;
+    if (legacyThreshold === 75) this.warnedInstances.add(instanceId);
+    this.emit('context-warning', {
+      instanceId,
+      percentage,
+      level: legacyThreshold === 95 ? 'emergency' : legacyThreshold === 80 ? 'critical' : 'warning',
+      deprecated: true,
+      legacyThreshold,
+      decisionOwner: 'ContextSafetyPolicy',
+    });
   }
 
   /**
@@ -380,11 +342,9 @@ export class CompactionCoordinator extends EventEmitter {
   cleanupInstance(instanceId: string): void {
     this.warnedInstances.delete(instanceId);
     this.compactingInstances.delete(instanceId);
-    this.backgroundCompactingInstances.delete(instanceId);
-    this.lastCompactionTime.delete(instanceId);
     this.dismissedWarnings.delete(instanceId);
     this.latestUsage.delete(instanceId);
-    this.cumulativeTokensAtLastCompaction.delete(instanceId);
+    this.policyRuntime.cleanup(instanceId);
     this.budgetTrackers.delete(instanceId);
     this.epochTrackers.delete(instanceId);
     this.circuitBreakers.delete(instanceId);
@@ -398,70 +358,8 @@ export class CompactionCoordinator extends EventEmitter {
   }
 
   /**
-   * Background compaction (non-blocking).
-   * The instance continues processing while compaction runs.
-   * Fires-and-forgets without awaiting — caller is not blocked.
-   */
-  private async triggerBackgroundCompact(instanceId: string, usage: ContextUsage): Promise<void> {
-    // Check cooldown
-    const lastTime = this.lastCompactionTime.get(instanceId);
-    if (lastTime && Date.now() - lastTime < this.COMPACTION_COOLDOWN_MS) {
-      logger.debug('Skipping background compact (cooldown)', { instanceId });
-      return;
-    }
-
-    this.backgroundCompactingInstances.add(instanceId);
-    logger.info('Background compact triggered (non-blocking)', {
-      instanceId,
-      percentage: usage.percentage,
-    });
-
-    try {
-      const result = await this.executeCompaction(instanceId, false);
-      if (!result.success) {
-        this.recordCircuitBreakerFailure(instanceId);
-        logger.warn('Background compact failed', { instanceId, error: result.error });
-      } else {
-        this.resetCircuitBreaker(instanceId);
-      }
-    } finally {
-      this.backgroundCompactingInstances.delete(instanceId);
-    }
-  }
-
-  /**
-   * Blocking compaction (emergency).
-   * The instance is halted until compaction completes or fails.
-   */
-  private async triggerBlockingCompact(instanceId: string, usage: ContextUsage): Promise<void> {
-    // Check cooldown (shorter for blocking — urgency is higher)
-    const lastTime = this.lastCompactionTime.get(instanceId);
-    const blockingCooldown = this.COMPACTION_COOLDOWN_MS / 2; // 15s for emergencies
-    if (lastTime && Date.now() - lastTime < blockingCooldown) {
-      logger.debug('Skipping blocking compact (cooldown)', { instanceId });
-      return;
-    }
-
-    logger.warn('Blocking compact triggered — instance halted', {
-      instanceId,
-      percentage: usage.percentage,
-    });
-
-    const result = await this.executeCompaction(instanceId, true);
-
-    if (!result.success) {
-      this.recordCircuitBreakerFailure(instanceId);
-      logger.error('Blocking compact failed — instance may be stuck', new Error(result.error ?? 'unknown'), { instanceId });
-    } else {
-      this.resetCircuitBreaker(instanceId);
-    }
-  }
-
-  /**
-   * Returns true when the adapter manages its own internal auto-compaction
-   * (e.g. Claude CLI compacts at the model's threshold). Used to suppress
-   * orchestrator-driven auto-trigger in `onContextUpdate`. Manual
-   * `compactInstance()` is unaffected.
+   * Legacy capability accessor retained for callers and renderer telemetry.
+   * The shared policy does not exempt these providers from pressure rules.
    *
    * Public so tests and callers can verify the gating decision without
    * depending on private state.
@@ -553,9 +451,6 @@ export class CompactionCoordinator extends EventEmitter {
         method = 'restart-with-summary';
       }
 
-      // Always set cooldown to prevent retry loops on failure
-      this.lastCompactionTime.set(instanceId, Date.now());
-
       if (!success) {
         const result: CompactionResult = {
           success: false,
@@ -571,17 +466,14 @@ export class CompactionCoordinator extends EventEmitter {
       this.warnedInstances.delete(instanceId);
       this.dismissedWarnings.delete(instanceId);
 
-      // Reset the cumulative-token baseline (claude2_todo #34b) so the trigger
-      // measures spend *since this compaction*, not lifetime. Prefer the latest
-      // observed usage; fall back to the pre-compaction snapshot.
       const cumulativeNow = this.latestUsage.get(instanceId)?.cumulativeTokens
         ?? previousUsage?.cumulativeTokens;
-      if (typeof cumulativeNow === 'number' && Number.isFinite(cumulativeNow)) {
-        this.cumulativeTokensAtLastCompaction.set(instanceId, cumulativeNow);
-      }
 
       const result: CompactionResult = { success: true, method, blocking, previousUsage };
       this.emit('compaction-completed', { instanceId, result });
+      if (method === 'restart-with-summary') {
+        this.recordObservedCompaction(instanceId, cumulativeNow ?? 0);
+      }
 
       // Emit PostCompact hook event for downstream processing
       // (logging, RLM metrics, memory persistence, etc.)
@@ -595,8 +487,6 @@ export class CompactionCoordinator extends EventEmitter {
       logger.info('Compaction completed', { instanceId, method });
       return result;
     } catch (error) {
-      // Set cooldown even on error to prevent retry loops
-      this.lastCompactionTime.set(instanceId, Date.now());
       const result: CompactionResult = {
         success: false,
         method: 'native',

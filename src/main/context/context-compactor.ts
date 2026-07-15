@@ -14,10 +14,22 @@ import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getLogger } from '../logging/logger';
 import { LIMITS } from '../../shared/constants/limits';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
-import { Microcompact, type MicrocompactTurn, type MicrocompactResult } from './microcompact';
+import {
+  Microcompact,
+  type AuthenticatedEvidencePreview,
+  hasAuthenticatedEvidencePreview,
+  type MicrocompactTurn,
+  type MicrocompactResult,
+} from './microcompact';
 import { ContextCollapse, type CollapsibleTurn, type ApplyResult } from './context-collapse';
 import { buildCompactionPrompt, extractBranchSummaryBlocks, redactSecrets } from './context-compaction-prompt';
 import { generateLocalSummary } from './context-local-summary';
+import {
+  appendEvidenceWorkingSet,
+  cloneConversationTurn,
+  collectEvidenceWorkingSet,
+  projectSourceTurnForPersistence,
+} from './context-evidence-transforms';
 import { extractFileOperationsFromTurns } from './file-operation-extractor';
 import { repairOrphanedToolPairs } from './tool-pair-repair';
 
@@ -59,6 +71,7 @@ export interface ToolCallRecord {
   output?: string;
   inputTokens: number;
   outputTokens: number;
+  evidencePreview?: AuthenticatedEvidencePreview;
 }
 
 export interface CompactionResult {
@@ -116,6 +129,7 @@ export class ContextCompactor extends EventEmitter {
   private config: CompactionConfig;
   private llmService: LLMService | null = null;
   private state: ContextState;
+  private sourceTurns: ConversationTurn[] = [];
   private compactionHistory: CompactionResult[] = [];
   private compactionInProgress = false;
   private microcompact = new Microcompact();
@@ -185,6 +199,7 @@ export class ContextCompactor extends EventEmitter {
     };
 
     this.state.turns.push(fullTurn);
+    this.sourceTurns.push(cloneConversationTurn(fullTurn));
     this.state.totalTokens += turn.tokenCount;
 
     if (turn.toolCalls) {
@@ -243,6 +258,7 @@ export class ContextCompactor extends EventEmitter {
    * Inspired by opencode's two-pass compaction approach.
    */
   pruneToolOutputs(): { prunedTokens: number; prunedTurns: number } {
+    this.rebuildWorkingStateFromSource();
     let protectedTokens = 0;
     let prunableTokens = 0;
     let prunedTurns = 0;
@@ -257,7 +273,7 @@ export class ContextCompactor extends EventEmitter {
         const outputTokens = tc.outputTokens || 0;
         if (protectedTokens < PRUNE_PROTECT_TOKENS) {
           protectedTokens += outputTokens;
-        } else {
+        } else if (hasAuthenticatedEvidencePreview(tc)) {
           prunableTokens += outputTokens;
         }
       }
@@ -287,15 +303,16 @@ export class ContextCompactor extends EventEmitter {
 
       if (!turnProtected) {
         // This turn's tool outputs are outside the protection window — prune them
+        let turnPruned = false;
         for (const tc of turn.toolCalls) {
-          if (tc.output && tc.outputTokens > 0) {
-            const placeholderTokens = 10;
-            totalPruned += Math.max(0, tc.outputTokens - placeholderTokens);
-            tc.output = '[Output pruned for context optimization]';
-            tc.outputTokens = placeholderTokens;
+          if (hasAuthenticatedEvidencePreview(tc)) {
+            totalPruned += tc.outputTokens - tc.evidencePreview.tokenCount;
+            tc.output = tc.evidencePreview.preview;
+            tc.outputTokens = tc.evidencePreview.tokenCount;
+            turnPruned = true;
           }
         }
-        prunedTurns++;
+        if (turnPruned) prunedTurns++;
       }
     }
 
@@ -316,6 +333,7 @@ export class ContextCompactor extends EventEmitter {
    * Perform context compaction with safety timeout, prune pass, and post-verification.
    */
   async compact(): Promise<CompactionResult> {
+    this.rebuildWorkingStateFromSource();
     const originalTokens = this.state.totalTokens;
     const originalTurnCount = this.state.turns.length;
 
@@ -527,7 +545,11 @@ export class ContextCompactor extends EventEmitter {
       const priorSummary = this.state.summaries.length > 0
         ? this.state.summaries[this.state.summaries.length - 1].content
         : null;
-      const localContent = redactSecrets(generateLocalSummary(turns, priorSummary));
+      const localContent = redactSecrets(appendEvidenceWorkingSet(
+        generateLocalSummary(turns, priorSummary),
+        turns,
+        priorSummary,
+      ));
       return {
         id: this.generateId(),
         content: localContent,
@@ -547,13 +569,16 @@ export class ContextCompactor extends EventEmitter {
    * state from earlier compaction rounds survive across multiple compactions.
    */
   private async generateSummary(turns: ConversationTurn[]): Promise<ConversationSummary> {
+    const evidenceWorkingSet = collectEvidenceWorkingSet(turns);
     const conversationText = turns
       .map(t => {
         let text = `[${t.role}]: ${t.content}`;
         if (t.toolCalls && t.toolCalls.length > 0) {
           const toolLines = t.toolCalls.map(tc => {
-            const result = tc.output
-              ? this.toolOutputExcerpt(tc.output)
+            const result = hasAuthenticatedEvidencePreview(tc)
+              ? `authenticated evidence ${tc.evidencePreview.evidenceId} is in the evidence working set`
+              : tc.output
+                ? this.toolOutputExcerpt(tc.output)
               : 'no output';
             return `  tool:${tc.name} → ${result}`;
           });
@@ -580,7 +605,8 @@ export class ContextCompactor extends EventEmitter {
         extractFileOperationsFromTurns(turns),
         // Branch-switch summaries in the compacted window (ledger events or
         // rebuild preambles) are re-anchored so cross-branch context survives.
-        extractBranchSummaryBlocks(turns)
+        extractBranchSummaryBlocks(turns),
+        evidenceWorkingSet,
       );
       const compactionSystemPrompt =
         'You are a context compaction assistant. Produce a structured summary of the provided conversation turns using the section headers given in the prompt. Be concise and preserve key decisions, file names, and pending work.';
@@ -606,7 +632,11 @@ export class ContextCompactor extends EventEmitter {
       summaryContent = generateLocalSummary(turns, priorSummary);
     }
 
-    const redactedContent = redactSecrets(summaryContent);
+    const redactedContent = redactSecrets(appendEvidenceWorkingSet(
+      summaryContent,
+      turns,
+      priorSummary,
+    ));
 
     return {
       id: this.generateId(),
@@ -667,6 +697,7 @@ export class ContextCompactor extends EventEmitter {
    * Returns after the first stage that brings usage below threshold.
    */
   async compactLayered(): Promise<CompactionResult & { stage: string }> {
+    this.rebuildWorkingStateFromSource();
     const originalTokens = this.state.totalTokens;
 
     // Stage 1: Microcompact
@@ -683,6 +714,7 @@ export class ContextCompactor extends EventEmitter {
         output: tc.output,
         inputTokens: tc.inputTokens,
         outputTokens: tc.outputTokens,
+        evidencePreview: tc.evidencePreview,
       })),
     }));
 
@@ -706,7 +738,7 @@ export class ContextCompactor extends EventEmitter {
       content: t.content,
       tokenCount: t.tokenCount,
       timestamp: t.timestamp,
-      collapsible: true,
+      collapsible: !t.toolCalls?.length && !t.content.includes('[evidence:'),
       toolCalls: t.toolCalls?.map(tc => ({ name: tc.name, id: tc.id })),
     }));
 
@@ -814,6 +846,7 @@ export class ContextCompactor extends EventEmitter {
    * Clear all context
    */
   clear(): void {
+    this.sourceTurns = [];
     this.state = {
       turns: [],
       totalTokens: 0,
@@ -830,11 +863,15 @@ export class ContextCompactor extends EventEmitter {
     config: CompactionConfig;
     state: ContextState;
     history: CompactionResult[];
+    sourceTurns: ConversationTurn[];
   } {
+    const state = this.getState();
+    state.turns = state.turns.map(projectSourceTurnForPersistence);
     return {
       config: { ...this.config },
-      state: this.getState(),
+      state,
       history: [...this.compactionHistory],
+      sourceTurns: this.sourceTurns.map(projectSourceTurnForPersistence),
     };
   }
 
@@ -845,6 +882,7 @@ export class ContextCompactor extends EventEmitter {
     config?: Partial<CompactionConfig>;
     state?: Partial<ContextState>;
     history?: CompactionResult[];
+    sourceTurns?: ConversationTurn[];
   }): void {
     if (data.config) {
       this.config = { ...this.config, ...data.config };
@@ -857,6 +895,7 @@ export class ContextCompactor extends EventEmitter {
         summaries: data.state.summaries || [],
         lastCompaction: data.state.lastCompaction,
       };
+      this.sourceTurns = (data.sourceTurns ?? this.state.turns).map(cloneConversationTurn);
     }
     if (data.history) {
       this.compactionHistory = [...data.history];
@@ -893,6 +932,18 @@ export class ContextCompactor extends EventEmitter {
 
   private updateFillRatio(): void {
     this.state.fillRatio = this.state.totalTokens / this.config.maxContextTokens;
+  }
+
+  private rebuildWorkingStateFromSource(): void {
+    if (this.sourceTurns.length === 0) return;
+    const turns = this.sourceTurns.map(cloneConversationTurn);
+    this.state.turns = turns;
+    this.state.totalTokens = turns.reduce((total, turn) => total + turn.tokenCount
+      + (turn.toolCalls ?? []).reduce(
+        (toolTotal, toolCall) => toolTotal + toolCall.inputTokens + toolCall.outputTokens,
+        0,
+      ), 0);
+    this.updateFillRatio();
   }
 
   private estimateTokens(text: string): number {

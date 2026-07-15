@@ -20,6 +20,7 @@ describe('packages/contracts/package.json exports', () => {
       'common', 'instance', 'session', 'provider', 'orchestration',
       'verification', 'settings', 'file-operations', 'security', 'observability',
       'workspace-tools', 'knowledge', 'remote-node', 'plugin', 'webhook',
+      'context-evidence',
     ]) {
       expect(pkg.exports[`./schemas/${domain}`]).toBeDefined();
     }
@@ -30,6 +31,7 @@ describe('packages/contracts/package.json exports', () => {
       'instance', 'file', 'session', 'orchestration', 'memory',
       'provider', 'infrastructure', 'communication', 'learning', 'workspace', 'automation',
       'diagnostics',
+      'context-evidence',
     ]) {
       expect(pkg.exports[`./channels/${domain}`]).toBeDefined();
     }
@@ -39,5 +41,6 @@ describe('packages/contracts/package.json exports', () => {
     expect(pkg.exports['./types/instance-events']).toBeDefined();
     expect(pkg.exports['./types/provider-runtime-events']).toBeDefined();
     expect(pkg.exports['./types/transport']).toBeDefined();
+    expect(pkg.exports['./types/context-evidence']).toBeDefined();
   });
 });

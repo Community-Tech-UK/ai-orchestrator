@@ -51,6 +51,7 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'computerUseDeniedAppsJson',
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',
+  'contextEvidenceModeByProvider',
 ]);
 const metadataByKey = new Map(SETTINGS_METADATA.map((metadata) => [metadata.key, metadata]));
 
@@ -194,6 +195,9 @@ export const SETTINGS_TOOL_POLICY = {
   defaultFastModeByProvider: open(fastModeByProviderSchema),
   modelUsageByKey: open(modelUsageByKeySchema),
   residentClaudeSession: readOnly(),
+  // Rollout posture is a trusted operator decision. Agents may inspect it but
+  // cannot silently advance a provider from off/shadow to enforce mid-run.
+  contextEvidenceModeByProvider: readOnly(),
   theme: open(themeSchema),
   maxChildrenPerParent: open(numberSettingSchema('maxChildrenPerParent')),
   maxTotalInstances: open(numberSettingSchema('maxTotalInstances')),

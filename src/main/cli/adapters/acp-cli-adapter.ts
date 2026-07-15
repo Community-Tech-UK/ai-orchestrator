@@ -76,6 +76,7 @@ import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import type { ProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import { toAcpPromptBlockFromAttachment } from './acp-attachment-blocks';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
+import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 const logger = getLogger('AcpCliAdapter');
 
 const ACP_PROTOCOL_VERSION = 1;
@@ -201,6 +202,7 @@ type AcpElicitationResponse =
 
 export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 'cwd'> {
   adapterName?: string;
+  contextCapabilityProfile?: 'copilot-acp';
   command?: string;
   model?: string;
   systemPrompt?: string;
@@ -333,7 +335,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   getCapabilities(): CliCapabilities {
     return ACP_CAPABILITIES;
   }
-
+  override getAdapterCapabilities() { return { residentSession: true, liveInterrupt: false, liveSteer: false }; }
   override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
     return {
       supportsResume: this.agentCapabilities?.loadSession === true,
@@ -341,6 +343,22 @@ export class AcpCliAdapter extends BaseCliAdapter {
       supportsNativeCompaction: false,
       supportsPermissionPrompts: true,
       supportsDeferPermission: false,
+    };
+  }
+
+  override getContextCapabilities(): ProviderContextCapabilities {
+    if (this.acpConfig.contextCapabilityProfile !== 'copilot-acp') {
+      return super.getContextCapabilities();
+    }
+    return {
+      toolResultControl: 'post-retention',
+      toolResultVisibility: 'full',
+      transcriptControl: 'none',
+      occupancyReporting: 'aggregate-only',
+      cumulativeReporting: 'available',
+      interruptProof: 'none',
+      compactionProof: 'none',
+      sameThreadContinuation: false,
     };
   }
 

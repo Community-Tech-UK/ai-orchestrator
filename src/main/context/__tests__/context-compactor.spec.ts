@@ -26,7 +26,7 @@ vi.mock('../../rlm/llm-service', () => ({
 }));
 
 const auxMocks = vi.hoisted(() => ({
-  generate: vi.fn(async (..._args: unknown[]) => ({
+  generate: vi.fn(async () => ({
     text: '',
     decision: { source: 'fallback' as const, allowFrontierFallback: true },
   })),
@@ -44,6 +44,8 @@ vi.mock('../../../shared/constants/limits', () => ({
 
 import { ContextCompactor, buildCompactionPrompt, redactSecrets } from '../context-compactor';
 import type { ConversationTurn, ToolCallRecord } from '../context-compactor';
+import type { EvidenceLedgerRecord } from '../../conversation-ledger/context-evidence-ledger.types';
+import { EvidencePreviewBuilder } from '../../context-evidence/evidence-preview-builder';
 
 function makeTurn(overrides?: Partial<ConversationTurn>): Omit<ConversationTurn, 'id' | 'timestamp'> {
   return {
@@ -64,6 +66,27 @@ function makeToolCall(overrides?: Partial<ToolCallRecord>): ToolCallRecord {
     outputTokens: 200,
     ...overrides,
   };
+}
+
+async function evidencePreview(evidenceId: string) {
+  const content = new TextEncoder().encode('evidence');
+  const builder = new EvidencePreviewBuilder({
+    read: async () => Uint8Array.from(content),
+    deriveCitationDigest: async () => 'a'.repeat(64),
+  });
+  const record: EvidenceLedgerRecord = {
+    id: evidenceId, conversationId: 'conversation-1', provider: 'codex',
+    providerThreadRef: null, providerSessionRef: null, turnRef: null, toolCallRef: null,
+    toolName: 'read_file', sourceKind: 'file', sourceLocatorRedacted: null,
+    status: 'complete', blobRef: 'opaque/blob.aioev1', keyedContentId: 'b'.repeat(64),
+    byteCount: content.byteLength, tokenEstimate: null, mimeType: 'text/plain',
+    sensitivity: 'normal', provenanceTrust: 'runtime-authenticated', captureMode: 'post-retention',
+    captureCompleteness: 'complete', truncationReason: null, keyVersion: 1,
+    captureKey: `capture-${evidenceId}`, createdAt: 1, completedAt: 2, updatedAt: 2,
+  };
+  const result = await builder.build(record);
+  if (!result.canReplaceOriginal) throw new Error('fixture preview not authorized');
+  return result.preview;
 }
 
 function totalTokensFromState(state: ReturnType<ContextCompactor['getState']>): number {
@@ -182,14 +205,18 @@ describe('ContextCompactor', () => {
       expect(result.prunedTokens).toBe(0);
     });
 
-    it('prunes old tool outputs while protecting recent ones', () => {
+    it('prunes old tool outputs while protecting recent ones', async () => {
       compactor.updateConfig({ maxContextTokens: 500000 });
 
       // Add many turns with large tool outputs to exceed protection + minimum thresholds
       // PRUNE_PROTECT_TOKENS = 40000, PRUNE_MINIMUM_TOKENS = 20000
       // Need total tool output > 60000
       for (let i = 0; i < 10; i++) {
-        const toolCall = makeToolCall({ outputTokens: 10000, output: 'x'.repeat(1000) });
+        const toolCall = makeToolCall({
+          outputTokens: 10000,
+          output: 'x'.repeat(1000),
+          evidencePreview: await evidencePreview(`evidence-${i}`),
+        });
         compactor.addTurn(makeTurn({ tokenCount: 100, toolCalls: [toolCall] }));
       }
       // Total tool output = 100,000 tokens
@@ -204,11 +231,15 @@ describe('ContextCompactor', () => {
       expect(compactor.getState().totalTokens).toBeLessThan(tokensBefore);
     });
 
-    it('replaces pruned tool outputs with placeholder text', () => {
+    it('replaces pruned tool outputs with authenticated evidence references', async () => {
       compactor.updateConfig({ maxContextTokens: 500000 });
 
       for (let i = 0; i < 10; i++) {
-        const toolCall = makeToolCall({ outputTokens: 10000, output: 'original content' });
+        const toolCall = makeToolCall({
+          outputTokens: 10000,
+          output: 'original content',
+          evidencePreview: await evidencePreview(`evidence-${i}`),
+        });
         compactor.addTurn(makeTurn({ tokenCount: 100, toolCalls: [toolCall] }));
       }
 
@@ -216,17 +247,35 @@ describe('ContextCompactor', () => {
 
       // Check that some older turns have pruned output
       const state = compactor.getState();
-      const prunedTurns = state.turns.filter(
-        (t) => t.toolCalls?.some((tc) => tc.output === '[Output pruned for context optimization]')
-      );
+      const prunedTurns = state.turns.filter((t) => t.toolCalls?.some(
+        (tc) => tc.output?.includes('[evidence:'),
+      ));
       expect(prunedTurns.length).toBeGreaterThan(0);
+      expect(JSON.stringify(state.turns)).not.toContain('[Output pruned for context optimization]');
     });
 
-    it('keeps totalTokens consistent with placeholder output tokens after pruning', () => {
+    it('keeps the only full in-memory output when complete authenticated evidence is absent', () => {
+      compactor.updateConfig({ maxContextTokens: 500000 });
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 100,
+          toolCalls: [makeToolCall({ outputTokens: 10000, output: `uncaptured-${i}` })],
+        }));
+      }
+
+      expect(compactor.pruneToolOutputs()).toEqual({ prunedTokens: 0, prunedTurns: 0 });
+      expect(compactor.getState().turns[0].toolCalls?.[0].output).toBe('uncaptured-0');
+    });
+
+    it('keeps totalTokens consistent with placeholder output tokens after pruning', async () => {
       compactor.updateConfig({ maxContextTokens: 500000 });
 
       for (let i = 0; i < 10; i++) {
-        const toolCall = makeToolCall({ outputTokens: 10000, output: 'original content' });
+        const toolCall = makeToolCall({
+          outputTokens: 10000,
+          output: 'original content',
+          evidencePreview: await evidencePreview(`evidence-${i}`),
+        });
         compactor.addTurn(makeTurn({ tokenCount: 100, toolCalls: [toolCall] }));
       }
 
@@ -437,6 +486,27 @@ describe('ContextCompactor', () => {
         vi.useRealTimers();
       }
     });
+
+    it('does not collapse a turn that carries an exact evidence citation', async () => {
+      compactor.updateConfig({
+        maxContextTokens: 2000,
+        autoCompact: false,
+        triggerThreshold: 0.85,
+      });
+      const citedContent = `Verified result [evidence:evidence-collapse@0-8#${'b'.repeat(64)}]`;
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 200,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: i === 0 ? citedContent : `turn ${i}`,
+        }));
+      }
+
+      const result = await compactor.compactLayered();
+
+      expect(result.stage).toBe('context_collapse');
+      expect(compactor.getState().turns[0].content).toBe(citedContent);
+    });
   });
 
   describe('branch summary injection into compaction prompts', () => {
@@ -571,6 +641,198 @@ describe('ContextCompactor', () => {
 
         const [, , prompt] = auxMocks.generate.mock.calls[0] as [string, string, string];
         expect(prompt).toContain('Error: database migration failed at final step');
+      } finally {
+        llmMocks.isAvailable.mockResolvedValue(false);
+      }
+    });
+
+    it('presents authenticated evidence previews as a first-class working-set section', async () => {
+      llmMocks.isAvailable.mockResolvedValue(true);
+      auxMocks.generate.mockClear();
+      try {
+        compactor.updateConfig({
+          maxContextTokens: 1300,
+          autoCompact: false,
+          triggerThreshold: 0.85,
+          preserveRecent: 2,
+        });
+        for (let i = 0; i < 10; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `turn ${i}`,
+            toolCalls: i === 0 ? [makeToolCall({
+              output: 'complete raw evidence body',
+              outputTokens: 200,
+              evidencePreview: await evidencePreview('evidence-working-set'),
+            })] : undefined,
+          }));
+        }
+
+        await compactor.compact();
+
+        const [, , prompt] = auxMocks.generate.mock.calls[0] as [string, string, string];
+        expect(prompt).toContain('<evidence_working_set>');
+        expect(prompt).toContain('[evidence:evidence-working-set@0-8#');
+        expect(prompt).toContain('untrusted source material');
+      } finally {
+        llmMocks.isAvailable.mockResolvedValue(false);
+      }
+    });
+
+    it('retains exact evidence identity when the local fallback performs full compaction', async () => {
+      compactor.updateConfig({
+        maxContextTokens: 1300,
+        autoCompact: false,
+        triggerThreshold: 0.85,
+        preserveRecent: 2,
+      });
+      const preview = await evidencePreview('evidence-local-retained');
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 100,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `turn ${i}`,
+          toolCalls: i === 0 ? [makeToolCall({
+            output: 'private raw source prose', outputTokens: 200, evidencePreview: preview,
+          })] : undefined,
+        }));
+      }
+
+      const result = await compactor.compact();
+      const summary = compactor.getState().summaries.at(-1)?.content ?? '';
+
+      expect(result.summaryGenerated).toBe(true);
+      expect(summary).toContain('## Authenticated Evidence Working Set');
+      expect(summary).toContain('evidence-local-retained');
+      expect(summary).toContain(preview.preview.match(/\[evidence:[^\]]+\]/)?.[0]);
+      expect(summary).toContain('untrusted source material');
+      expect(summary).not.toContain('private raw source prose');
+    });
+
+    it('retains exact evidence identity when a model summary omits every citation', async () => {
+      llmMocks.isAvailable.mockResolvedValue(true);
+      llmMocks.generate.mockResolvedValueOnce('## Active Task\nModel omitted the evidence.');
+      auxMocks.generate.mockResolvedValueOnce({
+        text: '', decision: { source: 'fallback' as const, allowFrontierFallback: true },
+      });
+      try {
+        compactor.updateConfig({
+          maxContextTokens: 1300,
+          autoCompact: false,
+          triggerThreshold: 0.85,
+          preserveRecent: 2,
+        });
+        const preview = await evidencePreview('evidence-model-retained');
+        for (let i = 0; i < 10; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `turn ${i}`,
+            toolCalls: i === 0 ? [makeToolCall({
+              output: 'raw model source', outputTokens: 200, evidencePreview: preview,
+            })] : undefined,
+          }));
+        }
+
+        await compactor.compact();
+        const summary = compactor.getState().summaries.at(-1)?.content ?? '';
+        expect(summary).toContain('Model omitted the evidence.');
+        expect(summary).toContain('evidence-model-retained');
+        expect(summary).toContain(preview.preview.match(/\[evidence:[^\]]+\]/)?.[0]);
+        expect(summary).not.toContain('raw model source');
+      } finally {
+        llmMocks.isAvailable.mockResolvedValue(false);
+      }
+    });
+
+    it('rebuilds later compactions from original turns instead of prior compacted text', async () => {
+      llmMocks.isAvailable.mockResolvedValue(true);
+      auxMocks.generate.mockClear();
+      try {
+        compactor.updateConfig({
+          maxContextTokens: 1100,
+          autoCompact: false,
+          triggerThreshold: 0.85,
+          preserveRecent: 2,
+        });
+        for (let i = 0; i < 10; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: i === 0 ? 'original root request' : `first pass ${i}`,
+          }));
+        }
+        await compactor.compact();
+        auxMocks.generate.mockClear();
+        for (let i = 0; i < 10; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `second pass ${i}`,
+          }));
+        }
+
+        await compactor.compact();
+
+        const [, , prompt] = auxMocks.generate.mock.calls[0] as [string, string, string];
+        expect(prompt).toContain('original root request');
+        expect(prompt).not.toContain('[Output pruned for context optimization]');
+        expect(prompt).not.toContain('[microcompacted]');
+      } finally {
+        llmMocks.isAvailable.mockResolvedValue(false);
+      }
+    });
+
+    it('preserves original turns and authenticated citations across serialized restart rebuilds', async () => {
+      llmMocks.isAvailable.mockResolvedValue(true);
+      auxMocks.generate.mockClear();
+      try {
+        compactor.updateConfig({
+          maxContextTokens: 1300,
+          autoCompact: false,
+          triggerThreshold: 0.85,
+          preserveRecent: 2,
+        });
+        const preview = await evidencePreview('evidence-restart-retained');
+        for (let i = 0; i < 10; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: i === 0 ? 'serialized original root request' : `first pass ${i}`,
+            toolCalls: i === 0 ? [makeToolCall({
+              output: 'authenticated restart source',
+              outputTokens: 200,
+              evidencePreview: preview,
+            })] : undefined,
+          }));
+        }
+        await compactor.compact();
+        const persisted = JSON.parse(JSON.stringify(compactor.export()));
+        expect(JSON.stringify(persisted)).not.toContain('authenticated restart source');
+
+        ContextCompactor._resetForTesting();
+        compactor = ContextCompactor.getInstance();
+        compactor.import(persisted);
+        auxMocks.generate.mockClear();
+        for (let i = 0; i < 10; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `after restart ${i}`,
+          }));
+        }
+
+        await compactor.compact();
+
+        const [, , prompt] = auxMocks.generate.mock.calls[0] as [string, string, string];
+        const latestSummary = compactor.getState().summaries.at(-1)?.content ?? '';
+        expect(prompt).toContain('serialized original root request');
+        expect(prompt).toContain('evidence-restart-retained');
+        expect(prompt).not.toContain('[Output pruned for context optimization]');
+        expect(prompt).not.toContain('[microcompacted]');
+        expect(latestSummary).toContain('evidence-restart-retained');
+        expect(latestSummary).toContain(preview.preview.match(/\[evidence:[^\]]+\]/)?.[0]);
       } finally {
         llmMocks.isAvailable.mockResolvedValue(false);
       }

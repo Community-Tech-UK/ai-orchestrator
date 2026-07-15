@@ -8,7 +8,7 @@
  * never emits the notification for an explicit compaction returns a distinct
  * timeout outcome so callers can fail closed instead of racing a retry.
  */
-export type CompactionGateOutcome = 'observed' | 'timed-out';
+export type CompactionGateOutcome = 'observed' | 'timed-out' | 'cancelled';
 
 export class CompactionGate {
   private readonly waiters = new Set<(outcome: CompactionGateOutcome) => void>();
@@ -38,8 +38,12 @@ export class CompactionGate {
     for (const waiter of [...this.waiters]) waiter('observed');
   }
 
+  hasPendingWaiters(): boolean {
+    return this.waiters.size > 0;
+  }
+
   /** Releases pending waits when the compaction RPC could not be started. */
   cancel(): void {
-    for (const waiter of [...this.waiters]) waiter('timed-out');
+    for (const waiter of [...this.waiters]) waiter('cancelled');
   }
 }

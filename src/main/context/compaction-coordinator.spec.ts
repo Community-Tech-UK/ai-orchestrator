@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ProviderContextActionExecutor } from '../context-evidence/provider-context-action-executor';
 import { CompactionCoordinator } from './compaction-coordinator';
 
 describe('CompactionCoordinator strategy selection', () => {
@@ -253,7 +254,7 @@ describe('CompactionCoordinator cumulative-token trigger (claude2_todo #34b)', (
     expect(restartCompact).not.toHaveBeenCalled();
   });
 
-  it('triggers a background compaction when cumulative spend crosses the threshold at low window %', async () => {
+  it('keeps the legacy custom cumulative trigger as deprecated telemetry only', async () => {
     const { coordinator, restartCompact } = configured();
     coordinator.setCumulativeTokenTrigger(100_000);
     coordinator.onContextUpdate('inst-b', {
@@ -263,7 +264,7 @@ describe('CompactionCoordinator cumulative-token trigger (claude2_todo #34b)', (
       cumulativeTokens: 150_000,
     });
     await flush();
-    expect(restartCompact).toHaveBeenCalledTimes(1);
+    expect(restartCompact).not.toHaveBeenCalled();
   });
 
   it('does NOT trigger when cumulative spend is below the threshold', async () => {
@@ -293,7 +294,7 @@ describe('CompactionCoordinator cumulative-token trigger (claude2_todo #34b)', (
     expect(restartCompact).not.toHaveBeenCalled();
   });
 
-  it('does not fire a second time for the same spend after compacting (no compaction storm)', async () => {
+  it('does not restore a second policy owner when the legacy trigger is configured', async () => {
     const { coordinator, restartCompact } = configured();
     coordinator.setCumulativeTokenTrigger(100_000);
     const usage = {
@@ -304,12 +305,50 @@ describe('CompactionCoordinator cumulative-token trigger (claude2_todo #34b)', (
     };
     coordinator.onContextUpdate('inst-e', usage);
     await flush();
-    expect(restartCompact).toHaveBeenCalledTimes(1);
+    expect(restartCompact).not.toHaveBeenCalled();
 
     // Same cumulative spend arrives again — baseline reset + guards must
     // prevent a re-trigger.
     coordinator.onContextUpdate('inst-e', usage);
     await flush();
-    expect(restartCompact).toHaveBeenCalledTimes(1);
+    expect(restartCompact).not.toHaveBeenCalled();
+  });
+});
+
+describe('CompactionCoordinator shared safety policy', () => {
+  beforeEach(() => {
+    CompactionCoordinator._resetForTesting();
+  });
+
+  it('marks legacy warning events deprecated without using their thresholds as action owners', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    const warnings: Record<string, unknown>[] = [];
+    const actions: string[] = [];
+    coordinator.on('context-warning', (event) => warnings.push(event));
+    coordinator.configure({
+      getContextCapabilities: () => ({
+        toolResultControl: 'post-retention',
+        toolResultVisibility: 'full',
+        transcriptControl: 'native-compaction',
+        occupancyReporting: 'current',
+        cumulativeReporting: 'available',
+        interruptProof: 'observed',
+        compactionProof: 'observed',
+        sameThreadContinuation: true,
+      }),
+      getContextEvidenceMode: () => 'enforce',
+      getProviderActionExecutor: () => new ProviderContextActionExecutor({
+        'native-compaction': async () => { actions.push('native-compaction'); return { proof: 'observed' }; },
+      }),
+    });
+
+    coordinator.onContextUpdate('inst-policy', { used: 80, total: 100, percentage: 80 });
+    await coordinator.drainPolicyDecisions('inst-policy');
+
+    expect(actions).toEqual(['native-compaction']);
+    expect(warnings).toContainEqual(expect.objectContaining({
+      deprecated: true,
+      legacyThreshold: 80,
+    }));
   });
 });

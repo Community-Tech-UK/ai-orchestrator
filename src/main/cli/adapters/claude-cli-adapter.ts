@@ -67,6 +67,7 @@ import {
   type ClaudeToolUseContext,
 } from './claude-cli-permission-details';
 import { probeVersionStatus } from './cli-status-probe';
+import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -296,6 +297,20 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       residentSession: isResident,
       liveInterrupt: isResident,
       liveSteer: isResident,
+    };
+  }
+
+  override getContextCapabilities(): ProviderContextCapabilities {
+    const resident = this.getAdapterCapabilities().residentSession;
+    return {
+      toolResultControl: 'post-retention',
+      toolResultVisibility: 'full',
+      transcriptControl: 'none',
+      occupancyReporting: resident ? 'current' : 'aggregate-only',
+      cumulativeReporting: 'available',
+      interruptProof: resident ? 'acknowledged-only' : 'none',
+      compactionProof: 'none',
+      sameThreadContinuation: resident,
     };
   }
 

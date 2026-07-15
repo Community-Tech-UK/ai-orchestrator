@@ -44,6 +44,7 @@ import {
   parseGeminiStreamingEvent,
 } from './gemini-json';
 import { probeVersionStatus } from './cli-status-probe';
+import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 const logger = getLogger('GeminiCliAdapter');
 
@@ -151,6 +152,19 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
+    };
+  }
+
+  override getContextCapabilities(): ProviderContextCapabilities {
+    return {
+      toolResultControl: 'post-retention',
+      toolResultVisibility: 'full',
+      transcriptControl: 'none',
+      occupancyReporting: 'aggregate-only',
+      cumulativeReporting: 'available',
+      interruptProof: 'none',
+      compactionProof: 'none',
+      sameThreadContinuation: false,
     };
   }
 

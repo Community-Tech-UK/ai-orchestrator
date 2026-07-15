@@ -41,6 +41,7 @@ import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thi
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import { parseNdjsonLine, parseStreamingJson } from '../json-parse';
 import { probeVersionStatus } from './cli-status-probe';
+import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 // ============ Re-exports from extracted modules (public API preserved) ============
 
@@ -131,6 +132,19 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
+    };
+  }
+
+  override getContextCapabilities(): ProviderContextCapabilities {
+    return {
+      toolResultControl: 'post-retention',
+      toolResultVisibility: 'full',
+      transcriptControl: 'none',
+      occupancyReporting: 'aggregate-only',
+      cumulativeReporting: 'available',
+      interruptProof: 'none',
+      compactionProof: 'none',
+      sameThreadContinuation: false,
     };
   }
 

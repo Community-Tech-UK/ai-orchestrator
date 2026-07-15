@@ -83,10 +83,16 @@ export interface ChatArchiveInput {
   chatId: string;
 }
 
+export interface ChatDeleteInput {
+  chatId: string;
+  confirmation: 'delete';
+}
+
 export type ChatEvent =
   | { type: 'chat-created'; chatId: string; chat: ChatRecord }
   | { type: 'chat-updated'; chatId: string; chat: ChatRecord }
   | { type: 'chat-archived'; chatId: string }
+  | { type: 'chat-deleted'; chatId: string }
   | {
       /**
        * Incremental transcript update. Carries only the message(s) appended by

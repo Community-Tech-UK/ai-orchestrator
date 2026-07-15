@@ -92,6 +92,11 @@ export function isCodexInputTooLargeError(error: unknown): boolean {
  */
 export function isRecoverableThreadResumeError(error: unknown): boolean {
   const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+  // If a Codex process is interrupted after emitting a custom_tool_call but
+  // before its output is persisted, the native rollout cannot be resumed.
+  // Treat that exact integrity diagnostic like a missing thread so exec mode
+  // clears the poisoned resume id and performs its existing one-shot replay.
+  if (/custom tool call output is missing for call id:\s*\S+/.test(msg)) return true;
   if (!/thread|session/.test(msg)) return false;
   return /not found|no rollout found|rollout not found|missing|no such|unknown|expired|invalid|does not exist/.test(msg);
 }

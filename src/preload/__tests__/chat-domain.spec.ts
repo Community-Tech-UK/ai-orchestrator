@@ -17,6 +17,7 @@ describe('chat preload domain', () => {
     await domain.chatCreate({ provider: 'claude', currentCwd: '/work' });
     await domain.chatRename({ chatId: 'chat-1', name: 'Renamed' });
     await domain.chatArchive({ chatId: 'chat-1' });
+    await domain.chatDelete({ chatId: 'chat-1', confirmation: 'delete' });
     await domain.chatSetCwd({ chatId: 'chat-1', cwd: '/next' });
     await domain.chatSetProvider({ chatId: 'chat-1', provider: 'codex' });
     await domain.chatSetModel({ chatId: 'chat-1', model: null });
@@ -32,15 +33,16 @@ describe('chat preload domain', () => {
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.CHAT_CREATE, { provider: 'claude', currentCwd: '/work' });
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(4, IPC_CHANNELS.CHAT_RENAME, { chatId: 'chat-1', name: 'Renamed' });
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(5, IPC_CHANNELS.CHAT_ARCHIVE, { chatId: 'chat-1' });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(6, IPC_CHANNELS.CHAT_SET_CWD, { chatId: 'chat-1', cwd: '/next' });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(7, IPC_CHANNELS.CHAT_SET_PROVIDER, { chatId: 'chat-1', provider: 'codex' });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(8, IPC_CHANNELS.CHAT_SET_MODEL, { chatId: 'chat-1', model: null });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(9, IPC_CHANNELS.CHAT_SET_REASONING, { chatId: 'chat-1', reasoningEffort: 'high' });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.CHAT_SET_YOLO, { chatId: 'chat-1', yolo: true });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.CHAT_LOAD_OLDER_MESSAGES, { chatId: 'chat-1', beforeSequence: 20, limit: 10 });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(12, IPC_CHANNELS.CHAT_SEND_MESSAGE, { chatId: 'chat-1', text: 'Hello' });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(13, IPC_CHANNELS.CHAT_UI_STATE_GET, {});
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(14, IPC_CHANNELS.CHAT_UI_STATE_SET, {
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(6, IPC_CHANNELS.CHAT_DELETE, { chatId: 'chat-1', confirmation: 'delete' });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(7, IPC_CHANNELS.CHAT_SET_CWD, { chatId: 'chat-1', cwd: '/next' });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(8, IPC_CHANNELS.CHAT_SET_PROVIDER, { chatId: 'chat-1', provider: 'codex' });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(9, IPC_CHANNELS.CHAT_SET_MODEL, { chatId: 'chat-1', model: null });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.CHAT_SET_REASONING, { chatId: 'chat-1', reasoningEffort: 'high' });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.CHAT_SET_YOLO, { chatId: 'chat-1', yolo: true });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(12, IPC_CHANNELS.CHAT_LOAD_OLDER_MESSAGES, { chatId: 'chat-1', beforeSequence: 20, limit: 10 });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(13, IPC_CHANNELS.CHAT_SEND_MESSAGE, { chatId: 'chat-1', text: 'Hello' });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(14, IPC_CHANNELS.CHAT_UI_STATE_GET, {});
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(15, IPC_CHANNELS.CHAT_UI_STATE_SET, {
       selectedChatId: 'chat-2',
       openChatIds: ['chat-1', 'chat-2'],
     });

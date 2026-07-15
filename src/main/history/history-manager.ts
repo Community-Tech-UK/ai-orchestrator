@@ -84,6 +84,8 @@ export class HistoryManager {
   // Entries currently having an AI title generated, to dedupe concurrent backfills
   private aiTitleInFlight = new Set<string>();
 
+  private historyThreadIdBackfillPending = false;
+
   /** Resolves once startup recovery + native transcript import have run. */
   readonly startupTasks: Promise<void>;
 
@@ -98,7 +100,8 @@ export class HistoryManager {
     // race with the user's real `~/.claude/projects/` on disk; tests that
     // exercise the importer call it explicitly via `importNativeClaudeTranscripts`.
     const skipAutoImport = process.env['VITEST'] === 'true';
-    this.startupTasks = this.recoverOrphans()
+    this.startupTasks = this.persistBackfilledHistoryThreadIds()
+      .then(() => this.recoverOrphans())
       .then(() => (skipAutoImport ? undefined : this.importNativeClaudeTranscripts()))
       .catch((err) => {
         logger.error('History startup tasks failed', err instanceof Error ? err : undefined);
@@ -347,7 +350,14 @@ export class HistoryManager {
     try {
       const compressed = await fs.promises.readFile(conversationPath);
       const data = await gunzip(compressed);
-      return JSON.parse(data.toString()) as ConversationData;
+      const conversation = JSON.parse(data.toString()) as ConversationData;
+      const canonicalId = this.index.entries
+        .find((entry) => entry.id === entryId)?.historyThreadId?.trim();
+      if (canonicalId && conversation.entry.historyThreadId?.trim() !== canonicalId) {
+        conversation.entry.historyThreadId = canonicalId;
+        await this.saveConversation(entryId, conversation);
+      }
+      return conversation;
     } catch (error) {
       logger.error('Failed to load conversation', error instanceof Error ? error : undefined, { entryId });
       return null;
@@ -598,12 +608,14 @@ export class HistoryManager {
     if (fs.existsSync(this.indexPath)) {
       try {
         const data = fs.readFileSync(this.indexPath, 'utf-8');
-        const index = JSON.parse(data) as HistoryIndex;
+        let index = JSON.parse(data) as HistoryIndex;
 
         // Migrate if needed
         if (index.version !== HISTORY_INDEX_VERSION) {
-          return this.migrateIndex(index);
+          index = this.migrateIndex(index);
         }
+
+        this.backfillIndexHistoryThreadIds(index.entries);
 
         // Deduplicate entries by stable thread identity (clean up legacy duplicates)
         const seen = new Set<string>();
@@ -722,6 +734,10 @@ export class HistoryManager {
         const conversationData = JSON.parse(data.toString()) as ConversationData;
 
         if (conversationData.entry) {
+          if (this.requiresHistoryThreadIdBackfill(conversationData.entry)) {
+            conversationData.entry.historyThreadId = crypto.randomUUID();
+            await this.saveConversation(entryId, conversationData);
+          }
           // Check it's not a duplicate by stable thread identity
           const isDuplicate = this.index.entries.some(
             e => this.getEntryThreadKey(e) === this.getEntryThreadKey(conversationData.entry)
@@ -1037,6 +1053,7 @@ export class HistoryManager {
       displayName: `[${projectName}] ${summary}`,
       createdAt: parsed.createdAt,
       endedAt: parsed.endedAt,
+      historyThreadId: crypto.randomUUID(),
       workingDirectory: parsed.workingDirectory,
       messageCount: parsed.messages.length,
       firstUserMessage: this.truncatePreview(parsed.firstUserMessage),
@@ -1306,35 +1323,64 @@ export class HistoryManager {
   }
 
   private getEntryThreadKey(
-    entry: Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId' | 'originalInstanceId'>
+    entry: Pick<ConversationHistoryEntry, 'id' | 'historyThreadId'>
   ): string {
     const historyThreadId = entry.historyThreadId?.trim();
     if (historyThreadId) {
       return historyThreadId;
     }
-
-    const sessionId = entry.sessionId.trim();
-    if (sessionId) {
-      return sessionId;
-    }
-
-    return entry.originalInstanceId;
+    throw new Error(`History entry ${entry.id} is missing an app-owned historyThreadId`);
   }
 
   private getInstanceThreadKey(
-    instance: Pick<Instance, 'historyThreadId' | 'sessionId' | 'id'>
+    instance: Pick<Instance, 'historyThreadId' | 'id'>
   ): string {
     const historyThreadId = instance.historyThreadId.trim();
     if (historyThreadId) {
       return historyThreadId;
     }
+    throw new Error(`Instance ${instance.id} is missing an app-owned historyThreadId`);
+  }
 
-    const sessionId = instance.sessionId.trim();
-    if (sessionId) {
-      return sessionId;
+  private backfillIndexHistoryThreadIds(entries: ConversationHistoryEntry[]): void {
+    for (const entry of entries) {
+      if (this.requiresHistoryThreadIdBackfill(entry)) {
+        entry.historyThreadId = crypto.randomUUID();
+        this.historyThreadIdBackfillPending = true;
+      }
     }
+  }
 
-    return instance.id;
+  private requiresHistoryThreadIdBackfill(
+    entry: Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId'>,
+  ): boolean {
+    const historyThreadId = entry.historyThreadId?.trim();
+    if (!historyThreadId) return true;
+    const providerSessionId = entry.sessionId?.trim();
+    return Boolean(providerSessionId && historyThreadId === providerSessionId);
+  }
+
+  private async persistBackfilledHistoryThreadIds(): Promise<void> {
+    if (!this.historyThreadIdBackfillPending) return;
+    for (const entry of this.index.entries) {
+      const conversationPath = this.getConversationPath(entry.id);
+      if (!fs.existsSync(conversationPath)) continue;
+      try {
+        const compressed = await fs.promises.readFile(conversationPath);
+        const data = JSON.parse((await gunzip(compressed)).toString()) as ConversationData;
+        if (data.entry.historyThreadId?.trim() !== entry.historyThreadId) {
+          data.entry.historyThreadId = entry.historyThreadId;
+          await this.saveConversation(entry.id, data);
+        }
+      } catch (error) {
+        logger.warn('Could not persist legacy history identity', {
+          entryId: entry.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    await this.saveIndex();
+    this.historyThreadIdBackfillPending = false;
   }
 
   private async createSafetyBackup(reason: 'clearAll'): Promise<string | null> {

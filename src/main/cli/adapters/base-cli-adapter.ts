@@ -16,6 +16,7 @@ import { getClampedLoadWatchdogMultiplier } from '../../runtime/system-load-moni
 import type { FileAttachment } from '../../../shared/types/instance.types';
 import { estimateTokens as sharedEstimateTokens } from '../../../shared/utils/token-estimate';
 import type { DegradedOutputSignals } from './degraded-output-classifier';
+import { CONSERVATIVE_PROVIDER_CONTEXT_CAPABILITIES } from '@contracts/types/context-evidence';
 import type {
   AdapterCapabilities,
   AdapterRuntimeCapabilities,
@@ -51,7 +52,6 @@ import {
 import { PosixSpawnCommandResolver } from './posix-spawn-command-resolver';
 const logger = getLogger('BaseCliAdapter');
 export { CliSpawnCwdError, computeBoundedTrigramSimilarity, directoryExists, enrichSpawnError, ndjsonSafeStringify };
-
 /** Resolved spawn launcher. `detached` defaults to `!shell` when omitted. */
 export interface SpawnTarget {
   command: string;
@@ -59,7 +59,6 @@ export interface SpawnTarget {
   shell: boolean;
   detached?: boolean;
 }
-
 export type {
   AdapterCapabilities,
   AdapterRuntimeCapabilities,
@@ -92,10 +91,8 @@ export type {
  * env var. Inspired by Claude Code 2.1.84 CLAUDE_STREAM_IDLE_TIMEOUT_MS.
  */
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
-
 /** D9: Maximum time to wait for a kernel-buffer drain before treating the write as failed. */
 const DRAIN_TIMEOUT_MS = 5_000;
-
 /** D10: Maximum time after process spawn before the first byte must arrive. */
 const POST_SPAWN_WATCHDOG_MS = 30_000;
 
@@ -450,6 +447,9 @@ export abstract class BaseCliAdapter extends EventEmitter {
     };
   }
 
+  getContextCapabilities(): import('@contracts/types/context-evidence').ProviderContextCapabilities {
+    return { ...CONSERVATIVE_PROVIDER_CONTEXT_CAPABILITIES };
+  }
   /** Atomic provider identity snapshot; provider runtimes override with richer state. */
   getRuntimeSnapshot(): ProviderRuntimeSnapshot {
     return {

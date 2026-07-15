@@ -82,6 +82,10 @@ import {
 import type { CircuitBreakerState } from './instance-communication.constants';
 import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
 import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
+import {
+  buildParsedToolResultEvidenceIngress,
+  buildRawToolResultEvidenceIngress,
+} from './instance-provider-event-ingress';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -1118,6 +1122,15 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
         message = this.withRuntimeMetadata(message, adapterGenerationAtSubscribe, turnId);
+        const parsedEvidenceIngress = buildParsedToolResultEvidenceIngress(instance, message);
+        if (parsedEvidenceIngress) {
+          void this.deps.captureContextEvidenceToolResult?.(parsedEvidenceIngress).catch((error) => {
+            logger.error('Parsed tool-result evidence ingress failed', error instanceof Error ? error : undefined, {
+              instanceId,
+              captureKey: parsedEvidenceIngress.captureKey,
+            });
+          });
+        }
         reconcileClaudeSafetyRouteModel(instanceId, instance, message, this.deps.queueUpdate);
 
         if (message.type === 'error' && isSessionNotFoundText(message.content)) {
@@ -1469,6 +1482,19 @@ export class InstanceCommunicationManager extends EventEmitter {
       adapter,
       isStale: isStaleAdapterEvent,
       emit: emitProviderRuntimeEvent,
+      captureToolResult: (toolCall) => {
+        const instance = this.deps.getInstance(instanceId);
+        if (!instance) return;
+        const rawEvidenceIngress = buildRawToolResultEvidenceIngress(instance, toolCall);
+        if (rawEvidenceIngress) {
+          void this.deps.captureContextEvidenceToolResult?.(rawEvidenceIngress).catch((error) => {
+            logger.error('Raw tool-result evidence ingress failed', error instanceof Error ? error : undefined, {
+              instanceId,
+              captureKey: rawEvidenceIngress.captureKey,
+            });
+          });
+        }
+      },
     });
 
     adapter.on('status', (status: InstanceStatus) => {
@@ -1668,9 +1694,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     });
 
-    adapter.on('complete', (response: CliResponse) => {
+    adapter.on('complete', async (response: CliResponse) => {
       if (isStaleAdapterEvent('complete')) {
         return;
+      }
+      if (this.deps.drainContextEvidence) {
+        await this.deps.drainContextEvidence(instanceId);
       }
       const providerLimitSignal = detectCompletionProviderLimit(
         response,

@@ -198,6 +198,7 @@ describe('Loop Mode invoker plumbing', () => {
         workspaceCwd: '/tmp/loop-workspace',
         stage: 'PLAN',
         seq: 0,
+        idempotencyKey: 'loop-1:0:output',
         prompt: 'do the thing',
         callback: resolve,
         ...extras,
@@ -376,7 +377,14 @@ describe('Loop Mode invoker plumbing', () => {
     expect(hoisted.maybeExternalizeLoopOutput).toHaveBeenCalledWith(
       'big loop output',
       true,
-      { delegateInspectionHint: true },
+      {
+        delegateInspectionHint: true,
+        captureContext: expect.objectContaining({
+          provider: 'claude',
+          turnRef: 'loop:loop-1:iteration:0',
+          logicalCallId: 'loop-1:0:output',
+        }),
+      },
     );
   });
 
@@ -398,7 +406,13 @@ describe('Loop Mode invoker plumbing', () => {
     expect(hoisted.maybeExternalizeLoopOutput).toHaveBeenCalledWith(
       'ordinary loop output',
       true,
-      undefined,
+      {
+        captureContext: expect.objectContaining({
+          provider: 'claude',
+          turnRef: 'loop:loop-1:iteration:0',
+          logicalCallId: 'loop-1:0:output',
+        }),
+      },
     );
   });
 

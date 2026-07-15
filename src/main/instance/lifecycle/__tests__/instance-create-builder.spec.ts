@@ -55,6 +55,39 @@ describe('buildInstanceRecord', () => {
     expect(instance.providerSessionPersisted).toBe(false);
   });
 
+  it('generates app history identity independently from a supplied provider session id', () => {
+    const instance = buildInstanceRecord(
+      buildConfig({ provider: 'claude', sessionId: 'provider-native-session' }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+
+    expect(instance.sessionId).toBe('provider-native-session');
+    expect(instance.providerSessionId).toBe('provider-native-session');
+    expect(instance.historyThreadId).not.toBe('provider-native-session');
+    expect(instance.historyThreadId).toBeTruthy();
+  });
+
+  it('carries an explicit trusted chat conversation owner onto the instance', () => {
+    const config = buildConfig({
+      provider: 'codex',
+      historyThreadId: 'chat-ledger',
+      evidenceConversationOwner: {
+        kind: 'chat',
+        chatId: 'chat-1',
+        conversationId: 'chat-ledger',
+      },
+    });
+
+    const instance = buildInstanceRecord(config, buildAgent(), {
+      defaultYoloMode: false,
+      getParent: () => undefined,
+    });
+
+    expect(instance.evidenceConversationOwner)
+      .toEqual({ kind: 'chat', chatId: 'chat-1', conversationId: 'chat-ledger' });
+  });
+
   it('leaves resumed sessions eligible for native resume (persisted flag undefined)', () => {
     const instance = buildInstanceRecord(
       buildConfig({ provider: 'claude', sessionId: 'session-abc', resume: true }),

@@ -248,6 +248,7 @@ describe('session-handlers', () => {
             originalInstanceId: 'instance-1',
             parentId: null,
             sessionId: 'resume-session-1',
+            historyThreadId: 'thread-resume-1',
           },
           messages: [],
         });
@@ -298,6 +299,7 @@ describe('session-handlers', () => {
           originalInstanceId: 'instance-1',
           parentId: null,
           sessionId: 'legacy-session-1',
+          historyThreadId: 'thread-legacy-1',
         },
         messages: [
           {
@@ -400,6 +402,7 @@ describe('session-handlers', () => {
           originalInstanceId: 'instance-2',
           parentId: null,
           sessionId: 'resume-session-2',
+          historyThreadId: 'thread-resume-2',
           nativeResumeFailedAt: Date.now() - 1_000,
         },
         messages: [
@@ -429,93 +432,76 @@ describe('session-handlers', () => {
       expect(mockInstanceManager.queueContinuityPreamble).toHaveBeenCalledTimes(1);
     });
 
-    it('repairs old failed rows by trying historyThreadId when the archived session id failed', async () => {
-      vi.useFakeTimers();
-      try {
-        const failedSessionId = '66061320-7298-4d9b-9552-25f024f5e90d';
-        const nativeSessionId = 'd813b60a-de12-4f83-9a09-8cc9d0714d12';
-        const resumeInstance = {
-          id: 'resume-repaired',
-          outputBuffer: [{ type: 'assistant', content: 'Restored response' }],
-          readyPromise: Promise.resolve(),
-        };
+    it('does not revive a failed provider session by reusing the app-owned history identity', async () => {
+      const failedSessionId = '66061320-7298-4d9b-9552-25f024f5e90d';
+      const appHistoryThreadId = 'd813b60a-de12-4f83-9a09-8cc9d0714d12';
+      const fallbackInstance: { id: string; outputBuffer: MockOutputMessage[] } = {
+        id: 'fallback-repair',
+        outputBuffer: [],
+      };
 
-        mockLoadConversation.mockResolvedValue({
-          entry: {
-            id: 'entry-repair',
-            displayName: 'Claude thread',
-            createdAt: Date.now() - 10_000,
-            endedAt: Date.now(),
-            workingDirectory: '/tmp/project',
-            messageCount: 4,
-            firstUserMessage: 'Continue fixing restore',
-            lastUserMessage: 'Can you restore this session?',
-            status: 'completed',
-            originalInstanceId: 'instance-repair',
-            parentId: null,
-            sessionId: failedSessionId,
-            historyThreadId: nativeSessionId,
-            provider: 'claude',
-            nativeResumeFailedAt: Date.now() - 1_000,
+      mockLoadConversation.mockResolvedValue({
+        entry: {
+          id: 'entry-repair',
+          displayName: 'Claude thread',
+          createdAt: Date.now() - 10_000,
+          endedAt: Date.now(),
+          workingDirectory: '/tmp/project',
+          messageCount: 4,
+          firstUserMessage: 'Continue fixing restore',
+          lastUserMessage: 'Can you restore this session?',
+          status: 'completed',
+          originalInstanceId: 'instance-repair',
+          parentId: null,
+          sessionId: failedSessionId,
+          historyThreadId: appHistoryThreadId,
+          provider: 'claude',
+          nativeResumeFailedAt: Date.now() - 1_000,
+        },
+        messages: [
+          { id: 'u1', type: 'user', content: 'Continue fixing restore', timestamp: Date.now() - 4_000 },
+          { id: 'a1', type: 'assistant', content: 'I was working on restore.', timestamp: Date.now() - 3_500 },
+          {
+            id: 'e1',
+            type: 'error',
+            content: `No conversation found with session ID: ${failedSessionId}`,
+            timestamp: Date.now() - 3_000,
           },
-          messages: [
-            { id: 'u1', type: 'user', content: 'Continue fixing restore', timestamp: Date.now() - 4_000 },
-            { id: 'a1', type: 'assistant', content: 'I was working on restore.', timestamp: Date.now() - 3_500 },
-            {
-              id: 'e1',
-              type: 'error',
-              content: `No conversation found with session ID: ${failedSessionId}`,
-              timestamp: Date.now() - 3_000,
+          {
+            id: 's1',
+            type: 'system',
+            content: 'Previous Claude CLI session could not be restored natively. Your conversation history is displayed above.',
+            timestamp: Date.now() - 2_500,
+            metadata: {
+              isRestoreNotice: true,
+              systemMessageKind: 'restore-fallback',
+              originalSessionId: failedSessionId,
             },
-            {
-              id: 's1',
-              type: 'system',
-              content: 'Previous Claude CLI session could not be restored natively. Your conversation history is displayed above.',
-              timestamp: Date.now() - 2_500,
-              metadata: {
-                isRestoreNotice: true,
-                systemMessageKind: 'restore-fallback',
-                originalSessionId: failedSessionId,
-              },
-            },
-          ],
-        });
+          },
+        ],
+      });
 
-        vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
-          resumeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
-        );
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fallbackInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
 
-        vi.mocked(mockInstanceManager.getInstance).mockReturnValue({
-          id: 'resume-repaired',
-          status: 'busy',
-          outputBuffer: resumeInstance.outputBuffer,
-          contextUsage: { used: 0, total: 200_000, percentage: 0 },
-        } as unknown as ReturnType<typeof mockInstanceManager.getInstance>);
+      const result = await invoke(IPC_CHANNELS.HISTORY_RESTORE, {
+        entryId: 'entry-repair',
+      });
 
-        const resultPromise = invoke(IPC_CHANNELS.HISTORY_RESTORE, {
-          entryId: 'entry-repair',
-        });
-
-        await vi.advanceTimersByTimeAsync(5_000);
-        const result = await resultPromise;
-
-        expect(result.success).toBe(true);
-        expect(result.data).toMatchObject({
-          instanceId: 'resume-repaired',
-          restoreMode: 'resume-unconfirmed',
-        });
-        expect(mockInstanceManager.createInstance).toHaveBeenCalledTimes(1);
-        expect(vi.mocked(mockInstanceManager.createInstance).mock.calls[0][0]).toMatchObject({
-          resume: true,
-          sessionId: nativeSessionId,
-          initialOutputBuffer: [
-            expect.objectContaining({ id: 'u1' }),
-            expect.objectContaining({ id: 'a1' }),
-          ],
-        });
-      } finally {
-        vi.useRealTimers();
-      }
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        instanceId: 'fallback-repair',
+        restoreMode: 'replay-fallback',
+      });
+      // A row already marked nativeResumeFailedAt must never be handed back to the
+      // provider — the app-owned historyThreadId is an internal identity, not a
+      // provider-native resume handle, so restore falls straight to replay.
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledTimes(1);
+      const createCall = vi.mocked(mockInstanceManager.createInstance).mock.calls[0][0];
+      expect(createCall).not.toMatchObject({ resume: true });
+      expect(createCall.sessionId).not.toBe(appHistoryThreadId);
+      expect(mockMarkNativeResumeFailed).not.toHaveBeenCalled();
     });
 
     it('removes archived restore errors and notices before replay fallback display', async () => {
@@ -538,6 +524,7 @@ describe('session-handlers', () => {
           originalInstanceId: 'instance-clean',
           parentId: null,
           sessionId: 'fresh-unused-session',
+          historyThreadId: 'thread-clean',
           nativeResumeFailedAt: Date.now() - 1_000,
         },
         messages: [
@@ -621,6 +608,7 @@ describe('session-handlers', () => {
             originalInstanceId: 'instance-remote-1',
             parentId: null,
             sessionId: 'remote-session-1',
+            historyThreadId: 'thread-remote-1',
             executionLocation: { type: 'remote', nodeId: 'node-abc' },
           },
           messages: [],
@@ -686,6 +674,7 @@ describe('session-handlers', () => {
           originalInstanceId: 'instance-remote-2',
           parentId: null,
           sessionId: 'remote-session-2',
+          historyThreadId: 'thread-remote-2',
           executionLocation: { type: 'remote', nodeId: 'node-xyz' },
         },
         messages: [

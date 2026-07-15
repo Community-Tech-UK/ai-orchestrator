@@ -155,4 +155,25 @@ describe('ChatStore reasoning_effort column', () => {
     const store = new ChatStore(db);
     expect(store.get('chat-3')?.reasoningEffort).toBeNull();
   });
+
+  it('deletes the operator row and its session binding atomically', () => {
+    const db = freshDb();
+    createOperatorTables(db);
+    const store = new ChatStore(db);
+    store.insert({
+      id: 'chat-delete', name: 'Delete me', provider: 'claude', currentCwd: '/work',
+      ledgerThreadId: 'thread-delete',
+    });
+    db.prepare(`
+      INSERT INTO chat_session_bindings (
+        chat_id, provider, session_id, lineage_epoch, needs_rebuild, updated_at
+      ) VALUES (?, ?, ?, 0, 0, ?)
+    `).run('chat-delete', 'claude', 'session-delete', 1);
+
+    expect(store.delete('chat-delete')).toBe(true);
+    expect(store.get('chat-delete')).toBeNull();
+    expect(db.prepare('SELECT 1 AS present FROM chat_session_bindings WHERE chat_id = ?')
+      .get('chat-delete')).toBeUndefined();
+    expect(store.delete('chat-delete')).toBe(false);
+  });
 });

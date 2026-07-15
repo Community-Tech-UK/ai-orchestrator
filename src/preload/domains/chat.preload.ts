@@ -22,6 +22,9 @@ export function createChatDomain(
     chatArchive: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CHAT_ARCHIVE, payload),
 
+    chatDelete: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CHAT_DELETE, payload),
+
     chatSetCwd: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CHAT_SET_CWD, payload),
 

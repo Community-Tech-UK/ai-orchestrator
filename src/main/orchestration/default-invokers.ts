@@ -1114,6 +1114,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       forceContextReset?: boolean;
       /** D2 (#6): cap wrap-up runs this iteration with tools disabled (optional; default off). */
       disableTools?: boolean;
+      /** Stable key assigned by the loop coordinator for this exact iteration. */
+      idempotencyKey: string;
     }
     const p = payload as Payload;
     if (!p?.callback || typeof p.callback !== 'function') {
@@ -1400,9 +1402,14 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       // (the agent appends <promise>DONE</promise> at the END) survive in the
       // preserved tail. Best-effort; never blocks the loop.
       const ctxCompaction = p.config?.context?.compaction ?? defaultLoopContextConfig().compaction;
-      const externalizeOptions = p.config?.exploration?.enabled === true
-        ? { delegateInspectionHint: true }
-        : undefined;
+      const externalizeOptions = buildLoopOutputEvidenceOptions({
+        provider: p.provider,
+        loopRunId: p.loopRunId,
+        seq: p.seq,
+        idempotencyKey: p.idempotencyKey,
+        delegateInspectionHint: p.config?.exploration?.enabled === true,
+        instance: liveInstance,
+      });
       const retainedOutput = await maybeExternalizeLoopOutput(
         result.response,
         ctxCompaction.clearToolResults,
@@ -1540,4 +1547,42 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       p.callback(failure);
     }
   });
+}
+
+export interface LoopOutputEvidenceOptionsInput {
+  provider: string;
+  loopRunId: string;
+  seq: number;
+  idempotencyKey: string;
+  delegateInspectionHint: boolean;
+  instance?: {
+    contextEvidence?: { conversationId?: string };
+    providerSessionId?: string;
+  };
+}
+
+/**
+ * Builds the evidence identity for an oversized loop result. Only the
+ * app-owned context-evidence conversation ID is accepted as ownership; a
+ * provider thread is retained solely as provenance.
+ */
+export function buildLoopOutputEvidenceOptions(input: LoopOutputEvidenceOptionsInput) {
+  return {
+    ...(input.delegateInspectionHint ? { delegateInspectionHint: true } : {}),
+    captureContext: {
+      provider: input.provider,
+      ...(input.instance?.contextEvidence?.conversationId
+        ? { conversationId: input.instance.contextEvidence.conversationId }
+        : {}),
+      ...(input.instance?.providerSessionId
+        ? { providerThreadRef: input.instance.providerSessionId }
+        : {}),
+      turnRef: `loop:${input.loopRunId}:iteration:${input.seq}`,
+      logicalCallId: input.idempotencyKey,
+      sourceKind: 'other' as const,
+      captureMode: 'post-retention' as const,
+      captureCompleteness: 'complete' as const,
+      observedBoundary: 'after-provider-retention' as const,
+    },
+  };
 }

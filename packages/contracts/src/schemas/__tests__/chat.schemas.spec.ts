@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ChatCreatePayloadSchema,
+  ChatDeletePayloadSchema,
   ChatProviderSchema,
   ChatReasoningEffortSchema,
   ChatRenamePayloadSchema,
@@ -14,6 +15,13 @@ import {
 } from '../chat.schemas';
 
 describe('chat schemas', () => {
+  it('requires explicit destructive confirmation to delete a chat', () => {
+    expect(ChatDeletePayloadSchema.safeParse({ chatId: 'chat-1', confirmation: 'delete' }).success)
+      .toBe(true);
+    expect(ChatDeletePayloadSchema.safeParse({ chatId: 'chat-1' }).success).toBe(false);
+    expect(ChatDeletePayloadSchema.safeParse({ chatId: 'chat-1', confirmation: true }).success)
+      .toBe(false);
+  });
   const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
   const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
 

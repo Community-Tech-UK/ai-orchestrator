@@ -43,7 +43,7 @@ export async function reviveContinuitySession(
     displayName: state.displayName,
     isRenamed: state.isRenamed,
     isRestoredSession: true,
-    historyThreadId: state.historyThreadId?.trim() || state.sessionId || request.sourceInstanceId,
+    historyThreadId: state.historyThreadId?.trim() || request.sourceInstanceId,
     ...(nativeSessionId ? { sessionId: nativeSessionId, resume: true } : {}),
     initialOutputBuffer,
     initialPrompt: request.initialPrompt,

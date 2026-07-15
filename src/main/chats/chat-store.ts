@@ -143,6 +143,13 @@ export class ChatStore {
   clearRuntimeLinks(): void {
     this.db.prepare('UPDATE chats SET current_instance_id = NULL').run();
   }
+
+  delete(id: string): boolean {
+    return this.db.transaction(() => {
+      this.db.prepare('DELETE FROM chat_session_bindings WHERE chat_id = ?').run(id);
+      return this.db.prepare('DELETE FROM chats WHERE id = ?').run(id).changes === 1;
+    })();
+  }
 }
 
 function rowToChatRecord(row: ChatRow): ChatRecord {

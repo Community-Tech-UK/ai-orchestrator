@@ -10,6 +10,7 @@ describe('chat channels', () => {
       CHAT_CREATE: 'chat:create',
       CHAT_RENAME: 'chat:rename',
       CHAT_ARCHIVE: 'chat:archive',
+      CHAT_DELETE: 'chat:delete',
       CHAT_SET_CWD: 'chat:set-cwd',
       CHAT_SET_PROVIDER: 'chat:set-provider',
       CHAT_SET_MODEL: 'chat:set-model',

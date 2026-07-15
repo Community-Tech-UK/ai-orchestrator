@@ -17,6 +17,16 @@ import { DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS } from './desktop-gateway-setting
 import type { RemoteReviewerProvider } from './reviewer-provider.types';
 import { CLAUDE_MODELS, COPILOT_MODELS, GROK_MODELS, OPENAI_MODELS } from './provider.types';
 
+export const DEFAULT_CONTEXT_EVIDENCE_MODE_BY_PROVIDER = Object.freeze({
+  claude: 'off',
+  codex: 'off',
+  gemini: 'off',
+  antigravity: 'off',
+  copilot: 'off',
+  cursor: 'off',
+  grok: 'off',
+} as const);
+
 /**
  * Explicit reviewer model per provider.
  *
@@ -97,6 +107,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultFastModeByProvider: {},
   modelUsageByKey: {},
   residentClaudeSession: true,
+  contextEvidenceModeByProvider: { ...DEFAULT_CONTEXT_EVIDENCE_MODE_BY_PROVIDER },
   theme: 'dark',
 
   // Orchestration

@@ -112,17 +112,19 @@ export class HistoryRestoreCoordinator {
     const workingDir = opts.workingDirectory || data.entry.workingDirectory;
     const restoreTranscriptMessages = getMessagesForRestoreTranscript(data.messages);
     const displayName = getConversationHistoryTitle(data.entry);
-    const historyThreadId =
-      opts.forkAs?.historyThreadId ||
-      data.entry.historyThreadId ||
-      data.entry.sessionId ||
-      data.entry.id;
+    const historyThreadId = opts.forkAs?.historyThreadId || data.entry.historyThreadId?.trim();
+    if (!historyThreadId) {
+      throw new HistoryRestoreError(
+        'HISTORY_IDENTITY_MISSING',
+        `History entry ${entryId} has no app-owned history identity`,
+      );
+    }
     const restoreProvider = inferConversationHistoryProvider(data.entry);
     const restoreModel = data.entry.currentModel?.trim() || undefined;
     const restoreRuntimeSummary = data.entry.runtimeSummary;
     const nativeResumeSessionId = opts.forkAs || opts.forceFallback
       ? undefined
-      : getNativeResumeSessionId(data.entry, data.messages, restoreProvider);
+      : getNativeResumeSessionId(data.entry);
     const restoreNodeId = data.entry.executionLocation?.type === 'remote'
       ? data.entry.executionLocation.nodeId
       : undefined;
