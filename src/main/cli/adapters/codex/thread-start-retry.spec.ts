@@ -18,6 +18,13 @@ function closedError(): Error {
   return err;
 }
 
+function typedRpcTimeoutError(): Error {
+  const err = new Error('RPC timeout: thread/start did not respond within 60000ms') as Error & { kind: string };
+  err.name = 'CodexAppServerRuntimeError';
+  err.kind = 'request-timeout';
+  return err;
+}
+
 const PARAMS = {
   cwd: '/tmp/project',
   model: null,
@@ -25,13 +32,13 @@ const PARAMS = {
   sandbox: 'danger-full-access',
   serviceName: 'harness',
   ephemeral: false,
-  reasoningEffort: null,
   serviceTier: null,
 } as Parameters<ThreadStartClient['request']>[1];
 
 describe('isTransientThreadStartError', () => {
   it('matches ProtocolError RPC timeouts', () => {
     expect(isTransientThreadStartError(rpcTimeoutError())).toBe(true);
+    expect(isTransientThreadStartError(typedRpcTimeoutError())).toBe(true);
   });
 
   it('rejects closed connections (same client cannot recover)', () => {

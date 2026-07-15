@@ -25,6 +25,7 @@ import {
   CliSpawnMode,
   CliStatus,
   CliToolCall,
+  ProviderRuntimeSnapshot,
   ResumeAttemptResult,
   TurnInterruptCompletion,
   type AdapterCapabilities,
@@ -50,8 +51,6 @@ import {
 import type { AppServerClient } from './codex/app-server-client';
 import type {
   AppServerNotification,
-  AppServerRequestParams,
-  AppServerResponseResult,
   CodexReasoningEffort,
   ThreadItem,
   TurnCaptureState,
@@ -83,7 +82,6 @@ import { CodexTimeoutError, type CodexExecPhase, type CodexTimeoutKind } from '.
 import { enrichSpawnError } from './base-cli-adapter-utils';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
-import { isSessionNotFoundText } from './resume-error-classifier';
 import { isProviderNotice } from '../provider-notice';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 import { discoverCodexModels } from './codex/model-list';
@@ -96,9 +94,16 @@ import {
   recordConversationTurn,
   normalizeAttachmentData,
 } from './codex/exec-helpers';
-import { CompactionGate } from './codex/compaction-gate';
 import { recoverFromInputCap } from './codex/input-cap-recovery';
 import { CodexContextPressureCollector, type CodexContextDiagnosticRecord, type CodexContextDiagnosticSink } from './codex/context-pressure-diagnostics';
+import { CodexContextCostController } from './codex/context-cost-controller';
+import { buildObservedCompactionEvents } from './codex/compaction-presentation';
+import {
+  CodexAppServerThreadRuntime,
+  createCodexTurnCaptureState,
+  type CodexAppServerRuntimeClient,
+} from './codex/app-server-thread-runtime';
+import { planCodexAppServerRecovery } from './codex/app-server-recovery-policy';
 
 const logger = getLogger('CodexCliAdapter');
 const contextDiagnosticsLogger = getLogger('CodexContextDiagnostics');
@@ -167,6 +172,8 @@ export interface CodexCliConfig {
   timeout?: number;
   /** Working directory */
   workingDir?: string;
+  /** Enable the experimental app-server turn-cost governor. Defaults to disabled pending live validation. */
+  contextCostGovernorEnabled?: boolean;
   /** When true, prepend the RTK awareness prompt to message content so the
    *  model prefixes shell commands with `rtk`. Codex has no programmatic
    *  PreToolUse hook, so awareness-via-prompt is the integration surface.
@@ -234,8 +241,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private contextDiagnosticsWarningLogged = false;
   /** Whether we've received a thread/tokenUsage/updated notification (accurate source). */
   private hasTokenUsageNotification = false;
-  /** Bounded gate that lets a per-turn-cap retry wait for compaction to land. */
-  private readonly compactionGate = new CompactionGate();
+  private readonly contextCostController: CodexContextCostController;
   /**
    * Context window size reported by Codex via `thread/tokenUsage/updated`.
    * Authoritative when available — takes precedence over the static registry.
@@ -251,18 +257,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private appServerClient: AppServerClient | null = null;
   /** Current thread ID in the app-server (replaces conversation history). */
   private appServerThreadId: string | null = null;
-  /** Current turn ID (for interrupt support). */
-  private currentTurnId: string | null = null;
-  /** Completion proof for the active app-server turn, used by interrupt lifecycle. */
-  private currentTurnCompletion: Promise<TurnInterruptCompletion> | null = null;
-  /** Whether a turn is currently in progress. */
-  private turnInProgress = false;
-  /**
-   * Deferred abort: interrupt() was called while turnInProgress=true but currentTurnId
-   * was not yet known (the turn/start response was in flight). The promise resolves the
-   * moment the turn ID is assigned and the RPC interrupt fires. Closes §6.1.
-   */
-  private pendingAbortResolve: ((result: TurnInterruptCompletion) => void) | null = null;
+  /** Scoped owner for connection, native-thread binding, turn, and interrupt state. */
+  private readonly appServerRuntime = new CodexAppServerThreadRuntime();
   /** Whether the system prompt has been sent (app-server mode, first turn only). */
   private systemPromptSent = false;
   /** Whether the RTK awareness prompt has been sent. Sent once per session,
@@ -313,6 +309,20 @@ export class CodexCliAdapter extends BaseCliAdapter {
       ? { write: (record) => contextDiagnosticsLogger.info('context-pressure-observation', record as Record<string, unknown>) }
       : null;
     this.contextDiagnostics = this.contextDiagnosticsSink ? new CodexContextPressureCollector({ write: (record) => this.writeContextDiagnosticRecord(record) }) : null;
+    this.contextCostController = new CodexContextCostController({
+      enabled: config.contextCostGovernorEnabled === true,
+      compactionTimeoutMs: CODEX_TIMEOUTS.COMPACTION_SETTLE_MS,
+      interrupt: () => this.interrupt(),
+      getCompactionTarget: () => this.getAppServerClient() && this.getAppServerThreadId() && this.useAppServer
+        ? {
+            threadId: this.getAppServerThreadId()!,
+            start: () => this.getAppServerClient()!.request('thread/compact/start', { threadId: this.getAppServerThreadId()! }),
+          } : null,
+      emitSystem: (content, metadata) => this.emit('output', { id: generateId(), timestamp: Date.now(), type: 'system', content, metadata }),
+      recordDecision: (decision) => this.contextDiagnostics?.recordGovernorDecision(decision.action, decision.spendSinceCompaction, decision.contextWindow, decision.multiple),
+      recordRecovery: (stage, reasonCode) => this.contextDiagnostics?.recordCostRecovery(stage, reasonCode),
+      recordCompactionRpc: (stage) => this.contextDiagnostics?.recordCompactionRpc(stage),
+    });
     this.sessionId = config.sessionId || `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.shouldResumeNextTurn = Boolean(this.supportsNativeResume() && config.resume && config.sessionId);
   }
@@ -388,12 +398,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return Math.min(CODEX_TIMEOUTS.EXEC_TURN_MS, this.resolveDeadlineMs());
   }
 
-  /**
-   * App-server analogue: notification-idle budgets come from the built-in
-   * constants, capped by the total deadline — same principle as exec mode.
-   */
-  private resolveNotificationIdleTimeoutMs(activeItems: number): number {
-    const base = activeItems > 0
+  /** Short handshake budget before `turn/started`; long budget thereafter.
+   * Item boundaries are not liveness boundaries because Codex may reason
+   * silently for minutes before emitting its next notification. */
+  private resolveNotificationIdleTimeoutMs(turnEstablished: boolean): number {
+    const base = turnEstablished
       ? CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS
       : CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS;
     return Math.min(base, this.resolveDeadlineMs());
@@ -537,16 +546,30 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     this.isSpawned = true;
-    const fakePid = this.appServerClient
-      ? ((this.appServerClient as { getPid?: () => number | undefined }).getPid?.() || Math.floor(Math.random() * 100000) + 10000)
+    const fakePid = this.getAppServerClient()
+      ? (this.appServerRuntime.getPid() ?? this.appServerClient?.getPid() ?? Math.floor(Math.random() * 100000) + 10000)
       : Math.floor(Math.random() * 100000) + 10000;
     this.emit('spawned', fakePid);
     this.emit('status', 'idle' as InstanceStatus);
     return fakePid;
   }
 
-  override isRunning(): boolean { return this.useAppServer ? this.isSpawned && (this.appServerClient?.isRunning() ?? false) : super.isRunning(); }
-  override getPid(): number | null { return this.useAppServer && this.appServerClient?.isRunning() ? this.appServerClient.getPid() ?? null : super.getPid(); }
+  override isRunning(): boolean {
+    if (!this.useAppServer) return super.isRunning();
+    const runtimeClient = this.appServerRuntime.getClient();
+    return this.isSpawned && (runtimeClient
+      ? this.appServerRuntime.isRunning()
+      : (this.appServerClient?.isRunning() ?? false));
+  }
+
+  override getPid(): number | null {
+    if (!this.useAppServer) return super.getPid();
+    return this.appServerRuntime.getClient()
+      ? this.appServerRuntime.getPid()
+      : this.appServerClient?.isRunning()
+        ? this.appServerClient.getPid() ?? null
+        : null;
+  }
 
   /** Sends input through app-server or exec mode and emits normalized events. */
   protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
@@ -557,7 +580,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     this.emit('status', 'busy' as InstanceStatus);
 
     try {
-      if (this.useAppServer && this.appServerClient) {
+      if (this.useAppServer && this.getAppServerClient()) {
         await this.appServerSendMessage(message, attachments);
       } else {
         await this.execSendMessage(message, attachments);
@@ -589,27 +612,20 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // of app-server vs. exec mode. instance-communication.ts's
       // tryParkOnProviderLimit() parks the session on this same rethrown error.
       const isProviderLimit = isProviderNotice(errText);
-      const isRecoverable = !this.useAppServer || isProviderLimit || this.isRecoverableTurnError(errText);
+      const isRecoverable = !this.useAppServer || isProviderLimit || this.isRecoverableTurnError(error);
       this.emit('status', (isRecoverable ? 'idle' : 'error') as InstanceStatus);
       throw error;
     }
   }
 
-  private isRecoverableTurnError(message: string): boolean {
-    // Treat transient backend and network errors as recoverable; the thread
-    // is almost certainly still alive on the app-server side and a fresh
-    // turn can be sent. Auth/model/session errors stay fatal — the instance
-    // genuinely needs a restart.
-    if (/unauthorized|authentication|forbidden|login required/i.test(message)) return false;
-    if (isSessionNotFoundText(message)) return false;
-    if (/unknown model|model not found|invalid model/i.test(message)) return false;
+  private isRecoverableTurnError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
     // Per-turn input size cap: the thread is still alive on the app-server side.
     // Keep the session usable (idle, queue intact) so the user can trim context
     // (e.g. /compact or a fresh thread) and retry rather than being forced to
     // restart the instance.
     if (isCodexInputTooLargeError(message) || /per-turn size limit/i.test(message)) return true;
-    if (/responseStreamDisconnected|stream disconnected before completion|incomplete response returned|content_filter/i.test(message)) return true;
-    return /http 5\d\d|network error|connection (refused|reset|timed out|closed)|dns|tls|handshake|rate limit|timeout|socket hang up|econnreset/i.test(message);
+    return planCodexAppServerRecovery(error).keepInstanceUsable;
   }
 
   /**
@@ -618,95 +634,72 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * - Exec mode: SIGINT to the process
    */
   override interrupt(): InterruptResult {
-    if (this.useAppServer && this.appServerClient && this.turnInProgress) {
-      // Graceful RPC interrupt — preserves the thread for future turns
-      if (this.appServerThreadId && this.currentTurnId) {
-        const threadId = this.appServerThreadId;
-        const turnId = this.currentTurnId;
-        const turnCompletion = this.currentTurnCompletion;
-        const completion = this.interruptActiveAppServerTurn(threadId, turnId, turnCompletion);
-        this.pendingAbortResolve = null; // clear any stale pending abort
-        return { status: 'accepted', turnId, completion };
-      }
-      // turn/start is still in flight — arm a pending abort that fires the moment
-      // currentTurnId is assigned (closes §6.1 abort-before-turnId race).
-      const completion = new Promise<TurnInterruptCompletion>((resolve) => {
-        this.pendingAbortResolve = resolve;
-      });
-      return { status: 'accepted', completion };
+    if (this.useAppServer && this.appServerRuntime.getClient()) {
+      return this.appServerRuntime.interrupt();
     }
-    // Fall back to base class SIGINT behavior
-    this.pendingAbortResolve = null;
     return super.interrupt();
   }
 
-  private async interruptActiveAppServerTurn(
-    threadId: string,
-    turnId: string,
-    turnCompletion: Promise<TurnInterruptCompletion> | null,
-  ): Promise<TurnInterruptCompletion> {
-    if (!this.appServerClient) {
-      return { status: 'rejected', turnId, reason: 'Codex app-server client is not connected' };
-    }
-    // §3.1/P3.3: only interrupt the turn we recorded. If it already ended (a new
-    // turn started, or it finished), Codex rejects the RPC on a turn-id mismatch
-    // and keeps any newer turn running — treat that as a clean no-op ('unknown'),
-    // not a failure, so the interrupt ladder doesn't escalate a settled turn.
-    const isStaleTurn = (): boolean => !this.turnInProgress || this.currentTurnId !== turnId;
-    if (isStaleTurn()) {
-      return { status: 'unknown', turnId, reason: 'turn already ended before interrupt was sent' };
-    }
-    try {
-      const result = await this.appServerClient.request('turn/interrupt', { threadId, turnId });
-      if (!result.success) {
-        if (isStaleTurn()) return { status: 'unknown', turnId, reason: 'turn ended before interrupt was acknowledged' };
-        return { status: 'rejected', turnId, reason: 'Codex did not accept turn/interrupt' };
-      }
-      return turnCompletion ? await turnCompletion : { status: 'accepted', turnId };
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      if (isStaleTurn()) return { status: 'unknown', turnId, reason: 'turn ended before interrupt resolved' };
-      logger.warn('Failed to interrupt turn via RPC', { error: reason, turnId });
-      return { status: 'rejected', turnId, reason };
-    }
+  private getAppServerClient(): CodexAppServerRuntimeClient | null {
+    return this.appServerRuntime.getClient() ?? this.appServerClient;
+  }
+
+  private getAppServerThreadId(): string | null {
+    return this.appServerRuntime.getThreadId() ?? this.appServerThreadId;
   }
 
   /**
-   * Triggers native context compaction (app-server mode only).
-   * Sends `thread/compact/start` to reduce context window usage.
+   * Existing adapter tests inject a structural client directly. Production
+   * attaches during initialization; this bridge keeps those fixtures useful
+   * without restoring duplicate turn state to the adapter.
    */
-  async compactContext(): Promise<boolean> {
-    if (!this.useAppServer || !this.appServerClient || !this.appServerThreadId) {
-      return false;
+  private ensureAppServerRuntimeAttached(): void {
+    if (this.appServerRuntime.getClient()) return;
+    if (!this.appServerClient || !this.appServerThreadId) {
+      throw new Error('App-server not initialized');
     }
+    this.appServerRuntime.attach(this.appServerClient, {
+      threadId: this.appServerThreadId,
+      resumeCursor: this.resumeCursor,
+      resumeProof: this.lastResumeAttemptResult,
+    });
+  }
 
-    try {
-      this.contextDiagnostics?.recordCompactionRpc('requested');
-      await this.appServerClient.request('thread/compact/start', {
-        threadId: this.appServerThreadId,
-      });
-      this.contextDiagnostics?.recordCompactionRpc('accepted');
-      logger.info('Context compacted via app-server', { threadId: this.appServerThreadId });
-      return true;
-    } catch (err) {
-      this.contextDiagnostics?.recordCompactionRpc('failed');
-      logger.warn('Context compaction failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return false;
-    }
+  /** Triggers native app-server compaction and requires the completion notification. */
+  async compactContext(): Promise<boolean> {
+    return this.contextCostController.compactContext(CODEX_TIMEOUTS.COMPACTION_SETTLE_MS);
+  }
+
+  private handleIdleAppServerNotification(notification: AppServerNotification): void {
+    if (notification.method !== 'thread/compacted') return;
+    const threadId = notification.params['threadId'];
+    if (typeof threadId !== 'string' || threadId !== this.getAppServerThreadId()) return;
+    this.contextDiagnostics?.recordCompactionObserved();
+    this.handleObservedThreadCompaction(threadId);
+  }
+
+  private handleObservedThreadCompaction(threadId: string): void {
+    logger.info('Thread compacted by Codex app-server', { threadId });
+    this.contextCostController.recordCompactionObserved(this.cumulativeTokensUsed);
+    this.lastTurnTokens = 0;
+    const events = buildObservedCompactionEvents({ contextWindow: this.resolveContextWindow(), cumulativeTokens: this.cumulativeTokensUsed, costEstimate: this.cumulativeCostUsd });
+    this.emit('output', events.output);
+    this.emit('context', events.context);
   }
 
   override async terminate(graceful = true): Promise<void> {
     this.isSpawned = false;
 
-    // Close app-server connection
-    if (this.appServerClient) {
+    // Close the scoped app-server runtime (or a pre-attach compatibility client).
+    if (this.appServerRuntime.getClient()) {
       try {
-        await this.appServerClient.close();
+        await this.appServerRuntime.close();
       } catch { /* best effort */ }
-      this.appServerClient = null;
+    } else if (this.appServerClient) {
+      try { await this.appServerClient.close(); } catch { /* best effort */ }
     }
+    this.appServerClient = null;
+    this.appServerThreadId = null;
 
     this.cleanupCodexHome();
     await super.terminate(graceful);
@@ -950,7 +943,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
           sandbox,
           serviceName: SERVICE_NAME,
           ephemeral: this.cliConfig.ephemeral ?? false,
-          reasoningEffort: this.cliConfig.reasoningEffort || null,
           // Fast mode → the "Fast" (priority) service tier (~1.5x speed).
           serviceTier: this.cliConfig.fastMode ? 'priority' : null,
         });
@@ -1010,22 +1002,26 @@ export class CodexCliAdapter extends BaseCliAdapter {
       this.appServerThreadId = threadId;
       if (threadId) {
         this.sessionId = threadId;
+        this.appServerRuntime.attach(
+          client,
+          {
+            threadId,
+            resumeCursor: this.resumeCursor,
+            resumeProof: this.lastResumeAttemptResult,
+          },
+          (notification) => this.handleIdleAppServerNotification(notification),
+          (exitError) => {
+            if (!this.isSpawned) return;
+            const code = exitError ? 1 : 0;
+            logger.warn('App-server process exited, forwarding to adapter exit event', {
+              threadId: this.getAppServerThreadId(),
+              hasError: !!exitError,
+              error: exitError?.message,
+            });
+            this.emit('exit', code, null);
+          },
+        );
       }
-
-      // Forward app-server process exit to adapter 'exit' event so the
-      // instance lifecycle can detect crashes and auto-respawn. Without this,
-      // an app-server crash outside of a turn is silently swallowed.
-      client.exitPromise.then(() => {
-        if (!this.isSpawned) return; // Already terminated gracefully
-        const exitError = client.getExitError();
-        const code = exitError ? 1 : 0;
-        logger.warn('App-server process exited, forwarding to adapter exit event', {
-          threadId: this.appServerThreadId,
-          hasError: !!exitError,
-          error: exitError?.message,
-        });
-        this.emit('exit', code, null);
-      });
     } catch (err) {
       // Preserve attempt visibility for the exec fallback (runtime-readiness,
       // history restore, and lifecycle consult getResumeAttemptResult after a
@@ -1059,14 +1055,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   /**
-   * Starts a fresh Codex thread on the existing app-server client and swaps
-   * it in as the active thread. Used for silent mid-session recovery when the
-   * previous thread becomes unresolvable server-side (e.g. Codex retains
-   * threads for a bounded time and evicts long-idle ones). The user sees no
-   * failure — their retry runs against the new thread.
-   *
-   * The system prompt is re-sent on the first turn against the new thread
-   * because the server no longer has the original thread's context.
+   * Starts a fresh Codex thread after an explicit context-reset decision.
+   * Thread-loss recovery must not call this directly: a fresh app-server
+   * thread has no transcript replay and would silently discard context.
    */
   private async reopenAppServerThread(): Promise<void> {
     if (!this.appServerClient) {
@@ -1083,7 +1074,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
       sandbox,
       serviceName: SERVICE_NAME,
       ephemeral: this.cliConfig.ephemeral ?? false,
-      reasoningEffort: this.cliConfig.reasoningEffort || null,
       // Fast mode → the "Fast" (priority) service tier (~1.5x speed).
       serviceTier: this.cliConfig.fastMode ? 'priority' : null,
     });
@@ -1097,33 +1087,30 @@ export class CodexCliAdapter extends BaseCliAdapter {
       newThreadId,
     });
 
-    this.appServerThreadId = newThreadId;
-    this.sessionId = newThreadId;
-    // The new thread has no prior context — the next turn must re-send the
-    // system prompt so the model behaves consistently.
-    this.systemPromptSent = false;
-    this.rtkAwarenessSent = false;
-
-    // Refresh the persisted cursor so a later app restart resumes against the
-    // live thread instead of the dead one.
-    this.resumeCursor = {
+    const nextResumeCursor: ResumeCursor = {
       provider: 'openai',
       threadId: newThreadId,
       workspacePath: cwd,
       capturedAt: Date.now(),
       scanSource: 'native',
     };
+    if (this.appServerRuntime.getClient()) {
+      this.appServerRuntime.replaceBinding({
+        threadId: newThreadId,
+        resumeCursor: nextResumeCursor,
+        resumeProof: this.lastResumeAttemptResult,
+      });
+    }
+    this.appServerThreadId = newThreadId;
+    this.sessionId = newThreadId;
+    this.resumeCursor = nextResumeCursor;
+    // The new thread has no prior context — the next turn must re-send the
+    // system prompt so the model behaves consistently.
+    this.systemPromptSent = false;
+    this.rtkAwarenessSent = false;
   }
 
-  /**
-   * Sends a message via the app-server with silent recovery from thread loss.
-   *
-   * If Codex reports the thread is gone (it evicts inactive threads after
-   * some interval), we transparently reopen a fresh thread and retry the
-   * same message once. The user sees their message succeed. A second failure
-   * — or any non-thread-loss error — propagates to the caller so the outer
-   * `sendInput` catch can classify and emit the appropriate status.
-   */
+  /** Sends a message without sacrificing conversation integrity for availability. */
   private async appServerSendMessage(message: string, attachments?: FileAttachment[]): Promise<void> {
     try {
       await this.appServerSendMessageInner(message, attachments);
@@ -1140,7 +1127,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
         await recoverFromInputCap({
           send: () => this.appServerSendMessageInner(message, attachments),
           compact: () => this.compactContext(),
-          awaitCompaction: () => this.compactionGate.wait(CODEX_TIMEOUTS.COMPACTION_SETTLE_MS),
           reopenThread: () => this.reopenAppServerThread(),
           onThreadReset: () => this.emit('output', {
             id: generateId(),
@@ -1154,12 +1140,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
         return;
       }
       if (!isRecoverableThreadResumeError(err)) throw err;
-      logger.warn('Codex app-server turn failed recoverably, reopening thread and retrying', {
-        previousThreadId: this.appServerThreadId,
+      logger.warn('Codex app-server thread became unavailable; refusing context-empty retry', {
+        threadId: this.appServerThreadId,
         cause: err instanceof Error ? err.message : String(err),
       });
-      await this.reopenAppServerThread();
-      await this.appServerSendMessageInner(message, attachments);
+      throw err;
+    } finally {
+      this.contextCostController.clearPending();
     }
   }
 
@@ -1168,8 +1155,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * thread. Does not retry on thread loss — that is handled by the outer
    * `appServerSendMessage` wrapper.
    */
-  private async appServerSendMessageInner(message: string, attachments?: FileAttachment[]): Promise<void> {
-    if (!this.appServerClient || !this.appServerThreadId) {
+  private async appServerSendMessageInner(
+    message: string,
+    attachments?: FileAttachment[],
+    costRecoveryCount = 0,
+  ): Promise<void> {
+    if (!this.getAppServerClient() || !this.getAppServerThreadId()) {
       throw new Error('App-server not initialized');
     }
 
@@ -1186,7 +1177,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
     let content = preparedAttachments.text;
 
     // Include system prompt on the very first turn only.
-    // Track via a dedicated flag — currentTurnId is cleared after every turn.
     if (!this.systemPromptSent && this.cliConfig.systemPrompt?.trim()) {
       // Oversized prompts (usually merged project-instruction files Codex
       // already loads natively) are truncated to the cap rather than silently
@@ -1218,6 +1208,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     const turnState = await this.captureTurn(input);
+
+    if (await this.contextCostController.recoverAfterTurn({
+      turnStatus: turnState.finalTurn?.status,
+      recoveryCount: costRecoveryCount,
+      continueTurn: (continuation, nextCount) => this.appServerSendMessageInner(
+        continuation, undefined, nextCount,
+      ),
+    })) {
+      return;
+    }
 
     // Check for failed turns (e.g., context overflow, API errors).
     // Codex reports these as turn/completed with status: "failed".
@@ -1396,212 +1396,25 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * notifications from other turns are forwarded to the previous handler.
    */
   private async captureTurn(input: UserInput[]): Promise<TurnCaptureState> {
-    const client = this.appServerClient!;
-    const threadId = this.appServerThreadId!;
+    this.ensureAppServerRuntimeAttached();
+    const turnParams: Record<string, unknown> = {};
+    if (this.cliConfig.outputSchema) turnParams['outputSchema'] = this.cliConfig.outputSchema;
+    if (this.cliConfig.reasoningEffort) turnParams['effort'] = this.cliConfig.reasoningEffort;
+    if (this.cliConfig.fastMode) turnParams['serviceTier'] = 'priority';
 
-    // Build turn capture state
-    const state = this.createTurnCaptureState(threadId);
-    const turnCompletion = state.completion
-      .then((completedState) => this.toTurnInterruptCompletion(completedState))
-      .catch((err) => ({
-        status: 'rejected' as const,
-        turnId: state.turnId ?? undefined,
-        reason: err instanceof Error ? err.message : String(err),
-      }));
-    this.currentTurnCompletion = turnCompletion;
-
-    // Install notification handler for real-time event routing.
-    // thread/started and thread/name/updated always apply to this turn.
-    // Other notifications are checked against belongsToTurn() — foreign
-    // notifications are forwarded to the previous handler.
-    const previousHandler = client.notificationHandler;
-
-    // Notification idle watchdog. Codex app-server emits at item boundaries,
-    // so active items get a long silence budget while between-item hangs still
-    // surface quickly. Pending Browser Gateway approvals pause this watchdog.
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
-    let activeItems = 0;
-    const armIdleWatchdog = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      const timeoutMs = this.resolveNotificationIdleTimeoutMs(activeItems);
-      idleTimer = setTimeout(() => {
-        if (!state.completed) {
-          if (hasPendingBrowserApproval(this.cliConfig.browserGatewayInstanceId)) {
-            this.emit('heartbeat');
-            armIdleWatchdog();
-            return;
-          }
-          state.rejectCompletion(
-            new Error(`Codex turn stalled: no notifications received for ${timeoutMs}ms`)
-          );
-        }
-      }, timeoutMs);
-      idleTimer.unref();
-    };
-
-    client.setNotificationHandler((notification: AppServerNotification) => {
-      // Track item lifecycle so the watchdog uses the right timeout.
-      // Update the counter BEFORE arming so we pick the correct window.
-      if (notification.method === 'item/started') {
-        activeItems += 1;
-      } else if (notification.method === 'item/completed') {
-        activeItems = Math.max(0, activeItems - 1);
-      }
-      armIdleWatchdog();
-
-      // Signal liveness to StuckProcessDetector on every notification.
-      // Only a subset of notifications (command_execution items) produce
-      // adapter `output` events — non-command tool items (mcp calls,
-      // custom tools, reasoning blocks) would otherwise let the 120s soft
-      // warning fire even though codex is actively streaming work.
-      this.emit('heartbeat');
-
-      // Thread-level notifications always apply
-      if (notification.method === 'thread/started' || notification.method === 'thread/name/updated') {
-        this.handleTurnNotification(state, notification);
-        return;
-      }
-      // Buffer if we don't have a turn ID yet
-      if (!state.turnId) {
-        state.bufferedNotifications.push(notification);
-        return;
-      }
-      // Route foreign notifications to the previous handler
-      if (!this.belongsToTurn(state, notification)) {
-        if (previousHandler) {
-          previousHandler(notification);
-        }
-        return;
-      }
-      this.handleTurnNotification(state, notification);
+    return this.appServerRuntime.captureTurn({
+      input,
+      turnParams,
+      createState: createCodexTurnCaptureState,
+      belongsToTurn: (state, notification) => this.belongsToTurn(state, notification),
+      handleNotification: (state, notification) => this.handleTurnNotification(state, notification),
+      completeTurn: (state, turn) => this.completeTurn(state, turn),
+      toInterruptCompletion: (state) => this.toTurnInterruptCompletion(state),
+      resolveNotificationIdleTimeoutMs: (turnEstablished) => this.resolveNotificationIdleTimeoutMs(turnEstablished),
+      hasPendingApproval: () => hasPendingBrowserApproval(this.cliConfig.browserGatewayInstanceId),
+      onHeartbeat: () => this.emit('heartbeat'),
+      onAbandonedTurn: () => this.contextDiagnostics?.completeTurn('unknown'),
     });
-
-    try {
-      // Start the turn
-      this.turnInProgress = true;
-      const turnParams: Record<string, unknown> = {
-        threadId,
-        input,
-      };
-
-      // Add structured output schema if configured
-      if (this.cliConfig.outputSchema) {
-        turnParams['outputSchema'] = this.cliConfig.outputSchema;
-      }
-
-      // Add reasoning effort if configured
-      if (this.cliConfig.reasoningEffort) {
-        turnParams['reasoningEffort'] = this.cliConfig.reasoningEffort;
-      }
-
-      // Fast mode → request the "Fast" (priority) service tier per turn. Applied
-      // each turn so a live toggle takes effect without restarting the thread.
-      if (this.cliConfig.fastMode) {
-        turnParams['serviceTier'] = 'priority';
-      }
-
-      // Arm the idle watchdog BEFORE sending turn/start.  `turn/start` has
-      // no per-RPC timeout (see app-server-client.ts#resolveDefaultTimeout —
-      // it's intentionally long-running because the server streams work via
-      // notifications).  If the app-server hangs without emitting any
-      // notifications (seen with codex 0.97.0 on cold start, and possible
-      // whenever auth/network/backend is wedged), the watchdog fires after
-      // NOTIFICATION_IDLE_MS and rejects state.completion — otherwise the
-      // caller would block forever and the UI would show "Processing..."
-      // indefinitely.
-      armIdleWatchdog();
-
-      // Race turn/start against the watchdog (via state.completion
-      // rejection) and process exit, so a hung turn/start surfaces as an
-      // error instead of blocking indefinitely.  state.completion.catch is
-      // used (not Promise.race directly on state.completion) so that a
-      // legitimate synchronous turn/completed arriving during turn/start
-      // doesn't short-circuit the race before we've captured the turn id.
-      const turnResult = await Promise.race<AppServerResponseResult<'turn/start'>>([
-        client.request('turn/start', turnParams as unknown as AppServerRequestParams<'turn/start'>),
-        new Promise<never>((_, reject) => {
-          state.completion.catch(reject);
-        }),
-        client.exitPromise.then(() => {
-          throw new Error('codex app-server exited unexpectedly during turn/start');
-        }) as Promise<never>,
-      ]);
-      this.currentTurnId = turnResult.turn?.id || null;
-
-      if (this.currentTurnId) {
-        state.threadTurnIds.set(threadId, this.currentTurnId);
-        state.turnId = this.currentTurnId;
-
-        // Deliver any interrupt that arrived before turn/start returned (§6.1).
-        if (this.pendingAbortResolve) {
-          const resolve = this.pendingAbortResolve;
-          this.pendingAbortResolve = null;
-          void this.interruptActiveAppServerTurn(threadId, this.currentTurnId, this.currentTurnCompletion)
-            .then(resolve);
-        }
-      }
-
-      // Replay buffered notifications — route foreign ones to previousHandler
-      for (const buffered of state.bufferedNotifications) {
-        if (this.belongsToTurn(state, buffered)) {
-          this.handleTurnNotification(state, buffered);
-        } else if (previousHandler) {
-          previousHandler(buffered);
-        }
-      }
-      state.bufferedNotifications.length = 0;
-
-      // If the turn completed synchronously
-      if (turnResult.turn?.status && turnResult.turn.status !== 'inProgress') {
-        this.completeTurn(state, turnResult.turn);
-      }
-
-      // Re-arm the watchdog to absorb any window consumed during turn/start.
-      // In normal flow notifications already reset it; this keeps behavior
-      // correct when turn/start returns before any notification arrives.
-      armIdleWatchdog();
-
-      // Wait for completion. Two termination conditions:
-      //   1. state.completion — turn/completed notification or idle watchdog fires
-      //   2. exitPromise — codex app-server process died mid-turn
-      //
-      // No absolute turn-duration ceiling: a legitimate turn (e.g. many tool
-      // calls) may run for tens of minutes. The idle watchdog
-      // (NOTIFICATION_IDLE_ACTIVE_MS while items are in flight,
-      // NOTIFICATION_IDLE_MS when idle between items) is the single source of
-      // truth for hang detection — it resets on every notification, so active
-      // work keeps the turn alive indefinitely.
-      const completionOrCrash = Promise.race([
-        state.completion,
-        client.exitPromise.then(() => {
-          if (!state.completed) {
-            throw new Error('codex app-server exited unexpectedly during turn');
-          }
-          return state;
-        }),
-      ]);
-
-      return await completionOrCrash;
-    } finally {
-      if (!state.completed) this.contextDiagnostics?.completeTurn('unknown');
-      this.turnInProgress = false;
-      this.currentTurnId = null;
-      if (this.currentTurnCompletion === turnCompletion) {
-        this.currentTurnCompletion = null;
-      }
-      // Resolve any still-pending abort as "unknown" — turn ended before we could interrupt.
-      if (this.pendingAbortResolve) {
-        const resolve = this.pendingAbortResolve;
-        this.pendingAbortResolve = null;
-        resolve({ status: 'unknown', reason: 'turn ended before pending interrupt could fire' });
-      }
-      // Clear all timers to prevent leaks
-      if (idleTimer) clearTimeout(idleTimer);
-      if (state.completionTimer) {
-        clearTimeout(state.completionTimer);
-      }
-      client.setNotificationHandler(previousHandler);
-    }
   }
 
   private toTurnInterruptCompletion(state: TurnCaptureState): TurnInterruptCompletion {
@@ -2014,6 +1827,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
           // If we don't have per-call occupancy AND no prior occupancy, flag it
           ...(!hasAccurateOccupancy && used === 0 ? { isEstimated: true } : {}),
         });
+        if (cumulativeTotal > 0) {
+          this.contextCostController.observe(cumulativeTotal, contextWindow);
+        }
         break;
       }
 
@@ -2042,30 +1858,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
 
       case 'thread/compacted': {
-        // Codex auto-compacted the thread. Clear cached occupancy immediately
-        // so UI pressure indicators do not stay pinned to the pre-compact turn.
-        logger.info('Thread compacted by Codex app-server', { threadId: state.threadId });
-        // Release any per-turn-cap retry waiting for compaction to land. Fires
-        // for both Codex auto-compaction and our explicit thread/compact/start.
-        this.compactionGate.settle();
-        this.emit('output', {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'system',
-          content: 'Codex automatically compacted the conversation to free context space.',
-          metadata: { threadCompacted: true },
-        });
-        this.lastTurnTokens = 0;
-        const contextWindow = this.resolveContextWindow();
-        this.emit('context', {
-          used: 0,
-          total: contextWindow,
-          percentage: 0,
-          cumulativeTokens: this.cumulativeTokensUsed,
-          costEstimate: this.cumulativeCostUsd,
-          source: 'thread-compacted',
-          isEstimated: true,
-        });
+        this.handleObservedThreadCompaction(state.threadId);
         break;
       }
 
@@ -2162,7 +1955,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const key = this.getAgentMessageStreamKey(state, itemId);
     let stream = state.streamingAgentMessages.get(key);
     if (!stream) {
-      const turnId = state.turnId ?? this.currentTurnId ?? 'turn';
+      const turnId = state.turnId ?? this.appServerRuntime.getCurrentTurnId() ?? 'turn';
       stream = {
         outputId: `codex-agent-message:${state.threadId}:${turnId}:${key}`,
         content: '',
@@ -2194,7 +1987,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   private getAgentMessageStreamKey(state: TurnCaptureState, itemId: string | null): string {
-    return itemId || state.turnId || this.currentTurnId || 'root-agent-message';
+    return itemId || state.turnId || this.appServerRuntime.getCurrentTurnId() || 'root-agent-message';
   }
 
   private reconcileCompletedAgentMessage(
@@ -2319,44 +2112,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
     state.resolveCompletion(state);
   }
 
-  /**
-   * Creates a fresh TurnCaptureState for accumulating streaming notifications.
-   */
+  /** Test-facing compatibility wrapper around the runtime-owned state factory. */
   private createTurnCaptureState(threadId: string): TurnCaptureState {
-    let resolveCompletion!: (state: TurnCaptureState) => void;
-    let rejectCompletion!: (error: unknown) => void;
-    const completion = new Promise<TurnCaptureState>((resolve, reject) => {
-      resolveCompletion = resolve;
-      rejectCompletion = reject;
-    });
-
-    return {
-      threadId,
-      threadIds: new Set([threadId]),
-      threadTurnIds: new Map(),
-      threadLabels: new Map(),
-      turnId: null,
-      bufferedNotifications: [],
-      completion,
-      resolveCompletion,
-      rejectCompletion,
-      finalTurn: null,
-      completed: false,
-      finalAnswerSeen: false,
-      pendingCollaborations: new Set(),
-      activeSubagentTurns: new Set(),
-      completionTimer: null,
-      lastAgentMessage: '',
-      reviewText: '',
-      reasoningSummary: [],
-      error: null,
-      messages: [],
-      streamingAgentMessages: new Map(),
-      finalAgentOutputId: null,
-      fileChanges: [],
-      commandExecutions: [],
-      onProgress: null,
-    };
+    return createCodexTurnCaptureState(threadId);
   }
 
   /**
@@ -3381,14 +3139,31 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   getResumeCursor(): ResumeCursor | null {
-    return this.resumeCursor;
+    return this.appServerRuntime.getClient()
+      ? this.appServerRuntime.getSnapshot().resumeCursor
+      : this.resumeCursor;
+  }
+
+  override getRuntimeSnapshot(): ProviderRuntimeSnapshot {
+    if (this.appServerRuntime.getClient()) return this.appServerRuntime.getSnapshot();
+    return {
+      ...super.getRuntimeSnapshot(),
+      nativeThreadId: this.appServerThreadId,
+      activeTurnId: null,
+      connectionPhase: this.useAppServer ? 'detached' : 'exec',
+      turnPhase: 'idle',
+      resumeCursor: this.resumeCursor ? { ...this.resumeCursor } : null,
+      resumeProof: this.lastResumeAttemptResult ? { ...this.lastResumeAttemptResult } : null,
+    };
   }
 
   getResumeAttemptResult(): ResumeAttemptResult | null {
-    return this.lastResumeAttemptResult;
+    return this.appServerRuntime.getClient()
+      ? this.appServerRuntime.getSnapshot().resumeProof
+      : this.lastResumeAttemptResult;
   }
 
   getCurrentTurnId(): string | null {
-    return this.currentTurnId;
+    return this.appServerRuntime.getCurrentTurnId();
   }
 }

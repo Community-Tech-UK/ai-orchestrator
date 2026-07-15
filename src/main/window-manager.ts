@@ -4,7 +4,7 @@
 
 import { execFile } from 'child_process';
 import * as fs from 'fs';
-import { app, BrowserWindow, screen, Menu, Notification, shell, clipboard, nativeImage, session } from 'electron';
+import { app, BrowserWindow, screen, Menu, shell, clipboard, nativeImage, session } from 'electron';
 import type { WebContents } from 'electron';
 import * as path from 'path';
 import { IPC_CHANNELS } from '@contracts/channels';
@@ -12,6 +12,7 @@ import { getLogger } from './logging/logger';
 import { getSettingsManager } from './core/config/settings-manager';
 import { ElectronWindowTransport } from './event-bus/electron-window-transport';
 import { getMainEventBus, type MainEventBus } from './event-bus/main-event-bus';
+import { getNotificationService } from './notifications/notification-service';
 
 const logger = getLogger('WindowManager');
 const SAMPLE_DURATION_SECONDS = 5;
@@ -482,43 +483,31 @@ export class WindowManager {
 
   notifyAgentCompleted(instanceId: string, displayName: string): void {
     if (getSettingsManager().get('notifyOnAgentCompletion') === false) return;
-    if (Notification.isSupported() && !this.mainWindow?.isFocused()) {
-      const notification = new Notification({
-        title: 'Agent finished',
-        body: `${displayName} has completed its task`,
-        silent: false,
-      });
-      notification.on('click', () => {
-        if (this.mainWindow) {
-          this.mainWindow.show();
-          this.mainWindow.focus();
-        }
-      });
-      notification.show();
-    }
-    // instanceId is retained for future use (e.g. INSTANCE_FOCUS_REQUEST channel once added)
-    void instanceId;
+    if (this.mainWindow?.isFocused()) return;
+    getNotificationService().notify({
+      kind: 'agent-finished',
+      instanceId,
+      title: 'Agent finished',
+      body: `${displayName} has completed its task`,
+      onClick: () => {
+        this.mainWindow?.show();
+        this.mainWindow?.focus();
+      },
+    });
   }
 
   notifyUserActionRequest(title: string, body: string): void {
-    if (Notification.isSupported()) {
-      const notification = new Notification({
-        title,
-        body,
-        urgency: 'normal'
-      });
-
-      notification.on('click', () => {
+    getNotificationService().notify({
+      kind: 'user-action-request',
+      title,
+      body,
+      onClick: () => {
         if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
-        if (this.mainWindow.isMinimized()) {
-          this.mainWindow.restore();
-        }
+        if (this.mainWindow.isMinimized()) this.mainWindow.restore();
         this.mainWindow.show();
         this.mainWindow.focus();
-      });
-
-      notification.show();
-    }
+      },
+    });
 
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     if (this.mainWindow.isFocused()) return;

@@ -11,7 +11,7 @@ import type {
   LoopState,
 } from '../../shared/types/loop.types';
 import { excerpt } from './loop-coordinator-utils';
-import type { LoopCompletionDetector } from './loop-completion-detector';
+import type { LoopCompletionDetector, VerifyOutcome } from './loop-completion-detector';
 import { resolveLoopArtifactPaths, type LoopArtifactPaths } from './loop-artifact-paths';
 import {
   evaluateLoopFinalAudit,
@@ -28,6 +28,15 @@ import {
 import type { LoopStageMachine } from './loop-stage-machine';
 
 const logger = getLogger('LoopAuditRuntime');
+
+export interface LoopPreflightVerificationExecution {
+  label: 'quick-verify' | 'verify';
+  command: string;
+  exitCode: number | null;
+  durationMs: number;
+  output: string;
+  startedAt: number;
+}
 
 export function effectiveLoopRepoCwd(config: Pick<LoopConfig, 'workspaceCwd' | 'executionCwd'>): string {
   return config.executionCwd?.trim() || config.workspaceCwd;
@@ -83,6 +92,7 @@ export async function ensureLoopRepoBaselineForRestore(state: LoopState): Promis
 export async function runLoopPreflight(
   state: LoopState,
   completionDetector: Pick<LoopCompletionDetector, 'runQuickVerify' | 'runVerify'>,
+  onVerificationExecution?: (execution: LoopPreflightVerificationExecution) => void,
 ): Promise<LoopPreflightResult> {
   const ranAt = Date.now();
   const commands: LoopPreflightResult['commands'] = [];
@@ -90,7 +100,9 @@ export async function runLoopPreflight(
   const quickCommand = config.completion.quickVerifyCommand?.trim();
   const verifyCommand = config.completion.verifyCommand.trim();
   if (quickCommand) {
+    const startedAt = Date.now();
     const quick = await completionDetector.runQuickVerify(config);
+    reportPreflightVerification(onVerificationExecution, 'quick-verify', quickCommand, quick, startedAt);
     commands.push({
       label: 'quick-verify',
       command: quickCommand,
@@ -101,7 +113,9 @@ export async function runLoopPreflight(
     if (quick.status === 'failed') return { status: 'failed', ranAt, commands };
   }
   if (verifyCommand) {
+    const startedAt = Date.now();
     const verify = await completionDetector.runVerify(config);
+    reportPreflightVerification(onVerificationExecution, 'verify', verifyCommand, verify, startedAt);
     commands.push({
       label: 'verify',
       command: verifyCommand,
@@ -116,6 +130,32 @@ export async function runLoopPreflight(
       ? 'passed'
       : 'skipped';
   return { status, ranAt, commands };
+}
+
+function reportPreflightVerification(
+  callback: ((execution: LoopPreflightVerificationExecution) => void) | undefined,
+  label: LoopPreflightVerificationExecution['label'],
+  command: string,
+  outcome: VerifyOutcome,
+  startedAt: number,
+): void {
+  if (!callback || outcome.status === 'skipped') return;
+  try {
+    callback({
+      label,
+      command,
+      exitCode: outcome.status === 'passed' ? 0 : outcome.exitCode,
+      durationMs: outcome.durationMs,
+      output: outcome.output,
+      startedAt,
+    });
+  } catch (err) {
+    logger.warn('Preflight verification ledger reporting failed (fail-soft)', {
+      label,
+      command,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function writeLoopPreflightArtifact(

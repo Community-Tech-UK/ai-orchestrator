@@ -8,6 +8,26 @@ export type AutomationRunStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 export type AutomationReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow';
 export type AutomationDeliveryMode = 'notify' | 'silent' | 'localOnly';
 
+/** A bounded, JSONPath-lite predicate for webhook payloads. */
+export interface AutomationWebhookFilter {
+  /** Dot-delimited path rooted at the webhook payload, such as `issue.state`. */
+  path: string;
+  operator: 'equals' | 'contains';
+  value: string;
+}
+
+/**
+ * The configured source of an automation, separate from the per-run trigger
+ * provenance above. Existing automations are scheduled by default.
+ */
+export type AutomationConfiguredTrigger =
+  | { kind: 'schedule' }
+  | {
+      kind: 'webhook';
+      routeId: string;
+      filters: AutomationWebhookFilter[];
+    };
+
 export interface AutomationTriggerSource {
   type: AutomationTrigger;
   id?: string;
@@ -75,6 +95,7 @@ export type AutomationDestination =
 export interface AutomationConfigSnapshot {
   name: string;
   schedule: AutomationSchedule;
+  trigger: AutomationConfiguredTrigger;
   missedRunPolicy: AutomationMissedRunPolicy;
   concurrencyPolicy: AutomationConcurrencyPolicy;
   destination: AutomationDestination;
@@ -96,6 +117,7 @@ export interface Automation {
    */
   workspaceId: string;
   schedule: AutomationSchedule;
+  trigger: AutomationConfiguredTrigger;
   missedRunPolicy: AutomationMissedRunPolicy;
   concurrencyPolicy: AutomationConcurrencyPolicy;
   destination: AutomationDestination;
@@ -148,6 +170,7 @@ export interface CreateAutomationInput {
   description?: string;
   enabled?: boolean;
   schedule: AutomationSchedule;
+  trigger?: AutomationConfiguredTrigger;
   missedRunPolicy?: AutomationMissedRunPolicy;
   concurrencyPolicy?: AutomationConcurrencyPolicy;
   destination?: AutomationDestination;
@@ -160,6 +183,7 @@ export interface UpdateAutomationInput {
   enabled?: boolean;
   active?: boolean;
   schedule?: AutomationSchedule;
+  trigger?: AutomationConfiguredTrigger;
   missedRunPolicy?: AutomationMissedRunPolicy;
   concurrencyPolicy?: AutomationConcurrencyPolicy;
   destination?: AutomationDestination;

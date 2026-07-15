@@ -171,7 +171,7 @@ describe('CodebaseIndexingService store reset', () => {
       id: 'sec-context-1',
       type: 'file',
       name: 'bootstrap',
-      content: 'export function bootstrap() { return true; }',
+      content: 'export function bootstrap() { return [REDACTED — potential secret]; }',
       tokens: 8,
       startOffset: 0,
       endOffset: 43,
@@ -190,7 +190,7 @@ describe('CodebaseIndexingService store reset', () => {
       lastModified: 1000,
       imports: [],
       exports: [],
-      symbols: [{ name: 'bootstrap', type: 'function', line: 1, column: 1 }],
+      symbols: [{ name: '-----BEGIN PRIVATE KEY----- EXAMPLE ONLY', type: 'function', line: 1, column: 1 }],
     });
     mocks.chunker.chunk.mockReturnValue([
       {
@@ -216,7 +216,12 @@ describe('CodebaseIndexingService store reset', () => {
       // BM25 indexes the chunk under the persisted context section id. There is
       // no vector store involvement — code chunks are deliberately not embedded.
       expect(mocks.bm25.addDocument).toHaveBeenCalledWith(
-        expect.objectContaining({ storeId: 'store-1', sectionId: 'sec-context-1' }),
+        expect.objectContaining({
+          storeId: 'store-1',
+          sectionId: 'sec-context-1',
+          content: 'export function bootstrap() { return [REDACTED — potential secret]; }',
+          symbols: ['[REDACTED — potential secret] EXAMPLE ONLY'],
+        }),
       );
     } finally {
       rmSync(tmpRoot, { recursive: true, force: true });

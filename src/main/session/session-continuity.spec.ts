@@ -69,6 +69,8 @@ interface TestableSessionContinuityManager {
   markNativeResumeFailed(instanceId: string, errorCode?: number): Promise<void>;
   writeThroughIdentity(instanceId: string, identity: { sessionId?: string; resumeCursor?: unknown; nativeResumeFailedAt?: number | null }): Promise<void>;
   writeThroughIdentityLocked(instanceId: string, identity: { sessionId?: string; resumeCursor?: unknown; nativeResumeFailedAt?: number | null }): Promise<void>;
+  setInstanceManager(instanceManager: { getAdapter(instanceId: string): unknown }): void;
+  captureResumeCursor(instanceId: string, state: SessionState): void;
   exportSession(instanceId: string): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null>;
   shutdown(): void;
 }
@@ -132,6 +134,44 @@ describe('SessionContinuityManager logging', () => {
       path.join(os.tmpdir(), 'session-continuity-')
     );
     tempDirs.push(mockState.userDataDir);
+  });
+
+  it('persists one atomic runtime snapshot without mutating the provider cursor', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    const state = { ...makeState('atomic-runtime'), provider: 'openai' as const };
+    const providerCursor = Object.freeze({
+      provider: 'openai' as const,
+      threadId: 'thread-7',
+      workspacePath: '/workspace',
+      capturedAt: 100,
+      scanSource: 'native' as const,
+    });
+    const getResumeCursor = vi.fn(() => {
+      throw new Error('legacy cursor getter must not be read after the snapshot');
+    });
+    manager.setInstanceManager({
+      getAdapter: () => ({
+        getRuntimeSnapshot: () => ({
+          revision: 7,
+          capturedAt: 101,
+          providerSessionId: 'thread-7',
+          nativeThreadId: 'thread-7',
+          resumeCursor: providerCursor,
+        }),
+        getResumeCursor,
+      }),
+    });
+
+    manager.captureResumeCursor('atomic-runtime', state);
+
+    expect(state.sessionId).toBe('thread-7');
+    expect(state.resumeCursor).toMatchObject({
+      threadId: 'thread-7',
+      configFingerprint: expect.any(String),
+    });
+    expect(providerCursor).not.toHaveProperty('configFingerprint');
+    expect(getResumeCursor).not.toHaveBeenCalled();
   });
 
   afterEach(async () => {

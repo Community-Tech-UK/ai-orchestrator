@@ -32,6 +32,7 @@ import { AppUpdateStore } from './core/state/app-update.store';
 import { AppUpdateBannerComponent } from './shared/components/app-update-banner/app-update-banner.component';
 import { ComputerUsePermissionBannerComponent } from './core/state/computer-use-permission-banner.component';
 import { ComputerUsePermissionChipComponent } from './core/state/computer-use-permission-chip.component';
+import { NotificationCenterComponent } from './features/title-bar/notification-center.component';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -83,6 +84,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     AppUpdateBannerComponent,
     ComputerUsePermissionBannerComponent,
     ComputerUsePermissionChipComponent,
+    NotificationCenterComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',

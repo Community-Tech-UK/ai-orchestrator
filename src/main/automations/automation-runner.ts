@@ -37,10 +37,19 @@ import type {
   RetrySchedulerCallback,
   ThreadWakeupRunnerFactory,
 } from './automation-runner-types';
+import { renderWebhookPromptTemplate } from './webhook-prompt-template';
 
 const logger = getLogger('AutomationRunner');
 
 export type { RetrySchedulerCallback } from './automation-runner-types';
+
+export interface AutomationFireOptions extends FireAutomationOptions {
+  /**
+   * Ephemeral, authenticated webhook data. It is rendered into a redacted
+   * per-run snapshot and is never written to the automation definition.
+   */
+  webhookPayload?: Record<string, unknown>;
+}
 
 export class AutomationRunner {
   private instanceManager: InstanceManager | null = null;
@@ -105,10 +114,13 @@ export class AutomationRunner {
     }
   }
 
-  async fire(automationId: string, options: FireAutomationOptions): Promise<AutomationFireOutcome> {
+  async fire(automationId: string, options: AutomationFireOptions): Promise<AutomationFireOutcome> {
     const manager = this.requireInstanceManager();
     const fireTime = options.scheduledAt ?? this.now();
     const automation = await this.store.get(automationId);
+    const promptOverride = options.trigger === 'webhook' && options.webhookPayload && automation
+      ? renderWebhookPromptTemplate(automation.action.prompt, options.webhookPayload).content
+      : undefined;
     const decision = this.store.decideAndInsertRun(
       automation,
       options.trigger,
@@ -120,6 +132,7 @@ export class AutomationRunner {
         deliveryMode: options.deliveryMode,
         maxAttempts: this.maxRetryAttempts,
         attempt: 1,
+        promptOverride,
       },
     );
 

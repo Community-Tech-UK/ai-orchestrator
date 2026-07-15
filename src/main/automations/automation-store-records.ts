@@ -17,6 +17,7 @@ export interface AutomationRow {
   workspace_id: string;
   schedule_type: 'cron' | 'oneTime';
   schedule_json: string;
+  trigger_json: string;
   missed_run_policy: AutomationMissedRunPolicy;
   concurrency_policy: AutomationConcurrencyPolicy;
   action_json: string;

@@ -26,6 +26,7 @@ import type {
   CliSpawnMode,
   CliStatus,
   InterruptResult,
+  ProviderRuntimeSnapshot,
   SpawnModeChange,
 } from './base-cli-adapter.types';
 import {
@@ -74,6 +75,7 @@ export type {
   CliToolCall,
   CliUsage,
   InterruptResult,
+  ProviderRuntimeSnapshot,
   ResumeAttemptResult,
   SpawnModeChange,
   TurnInterruptCompletion,
@@ -445,6 +447,15 @@ export abstract class BaseCliAdapter extends EventEmitter {
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
       selfManagedAutoCompaction: false,
+    };
+  }
+
+  /** Atomic provider identity snapshot; provider runtimes override with richer state. */
+  getRuntimeSnapshot(): ProviderRuntimeSnapshot {
+    return {
+      revision: 0,
+      capturedAt: Date.now(),
+      providerSessionId: this.sessionId,
     };
   }
 

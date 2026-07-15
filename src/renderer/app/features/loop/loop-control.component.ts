@@ -33,6 +33,7 @@ import { LoopInspectorProgressComponent } from './loop-inspector-progress.compon
 import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import { RlmStorageMaintenanceComponent } from './rlm-storage-maintenance.component';
+import { VerificationRunHistoryComponent } from './verification-run-history.component';
 
 /**
  * Shows the Loop Mode HUD for one chat:
@@ -52,7 +53,7 @@ import { RlmStorageMaintenanceComponent } from './rlm-storage-maintenance.compon
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [SlicePipe, LoopInspectorProgressComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent],
+  imports: [SlicePipe, LoopInspectorProgressComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (banner(); as b) {
@@ -261,6 +262,12 @@ import { RlmStorageMaintenanceComponent } from './rlm-storage-maintenance.compon
           </div>
 
           <app-loop-inspector-progress [view]="inspectorProgress()" />
+
+          <app-verification-run-history
+            [loopRunId]="inspectableLoopId()"
+            [currentWorkHash]="inspectedWorkHash()"
+            [refreshKey]="active()?.totalIterations ?? inspectorIterations().length"
+          />
 
           <div class="li-section-title">Iterations</div>
           @if (currentIterationStats(); as cur) {
@@ -669,6 +676,15 @@ export class LoopControlComponent implements OnDestroy {
   inspectorIterations = computed(() => {
     const loopId = this.inspectableLoopId();
     return loopId ? this.store.iterationsForLoop(loopId)().slice().reverse() : [];
+  });
+  /** Current work-state anchor for the inspector's execution ledger. Active
+   * loops expose it directly; historical runs pick their newest persisted
+   * iteration after the inspector fetch completes. */
+  inspectedWorkHash = computed(() => {
+    const loopId = this.inspectableLoopId();
+    const active = this.active();
+    if (active?.id === loopId) return active.lastIteration?.workHash ?? null;
+    return this.inspectorIterations()[0]?.workHash ?? null;
   });
   latestIterationSeq = computed(() => this.inspectorIterations()[0]?.seq ?? -1);
 

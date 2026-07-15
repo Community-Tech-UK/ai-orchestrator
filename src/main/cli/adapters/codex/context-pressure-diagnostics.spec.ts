@@ -148,6 +148,32 @@ describe('CodexContextPressureCollector', () => {
     expect(records.at(-1)).toMatchObject({ kind: 'turn-complete', compactionsObserved: 1 });
   });
 
+  it('records cost-governor decisions and recovery stages without free-form content', () => {
+    const { collector, records } = createHarness();
+    collector.startTurn(80);
+    collector.recordGovernorDecision('recover', 400_000, 100_000, 4);
+    collector.recordCostRecovery('interrupt-requested');
+    collector.recordCostRecovery('interrupt-observed');
+    collector.recordCostRecovery('compaction-observed');
+    collector.recordCostRecovery('continued');
+    collector.recordCostRecovery('paused', 'compaction-unobserved');
+
+    expect(records.slice(1)).toEqual([
+      expect.objectContaining({
+        kind: 'cost-governor-decision',
+        action: 'recover',
+        spendSinceCompaction: 400_000,
+        contextWindow: 100_000,
+        multiple: 4,
+      }),
+      expect.objectContaining({ kind: 'cost-recovery', stage: 'interrupt-requested' }),
+      expect.objectContaining({ kind: 'cost-recovery', stage: 'interrupt-observed' }),
+      expect.objectContaining({ kind: 'cost-recovery', stage: 'compaction-observed' }),
+      expect.objectContaining({ kind: 'cost-recovery', stage: 'continued' }),
+      expect.objectContaining({ kind: 'cost-recovery', stage: 'paused', reasonCode: 'compaction-unobserved' }),
+    ]);
+  });
+
   it('emits transport usage and compaction before routing and ignores other methods', () => {
     const order: string[] = [];
     const collector = new CodexContextPressureCollector(

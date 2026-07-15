@@ -306,6 +306,18 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(r.pendingInterventions.length).toBe(0);
   }, 20_000);
 
+  it('rejects completion when the available execution ledger has no matching verify run', async () => {
+    coordinator.setVerificationRunReader({ listForLoop: () => [] });
+
+    const r = await runOneIterationAttempt({
+      reviewResult: { findings: [], reviewersUsed: ['gemini'], summary: 'clean' },
+      completedRenameFile: 'plan_completed.md',
+    });
+
+    expect(r.ended).toBe(false);
+    expect(r.pendingInterventions[0]).toContain('no matching recorded verification execution');
+  }, 20_000);
+
   it('records lastVerifiedWorkHash on state when verify passes at the gate (D6 #7)', async () => {
     let lastBroadcastState: { lastVerifiedWorkHash?: string } | null = null;
     coordinator.on('loop:state-changed', (payload: unknown) => {

@@ -25,8 +25,13 @@ import {
 } from './context.utils';
 import { updateSearchIndex, createSearchIndex } from './context-cache';
 import { getLogger } from '../../logging/logger';
+import { redactForEgress } from '../../security/content-egress-gate';
 
 const logger = getLogger('ContextStorage');
+
+function redactMemoryContent(content: string): string {
+  return redactForEgress(content, { kind: 'memory' }).content;
+}
 
 /**
  * Dependencies for storage operations
@@ -111,23 +116,24 @@ export function addSection(
   metadata: Partial<ContextSection> | undefined,
   deps: StorageDependencies
 ): ContextSection {
+  const safeContent = redactMemoryContent(content);
   const tokenEstimator = deps.tokenEstimator || estimateTokens;
-  const tokens = tokenEstimator(content);
+  const tokens = tokenEstimator(safeContent);
 
   // Check if we need to split large sections
   if (tokens > deps.maxSectionTokens) {
-    return addLargeSection(store, type, name, content, metadata, deps);
+    return addLargeSection(store, type, name, safeContent, metadata, deps);
   }
 
   const section: ContextSection = {
     id: generateId('sec'),
     type,
     name,
-    content,
+    content: safeContent,
     tokens,
     startOffset: store.totalSize,
-    endOffset: store.totalSize + content.length,
-    checksum: computeChecksum(content),
+    endOffset: store.totalSize + safeContent.length,
+    checksum: computeChecksum(safeContent),
     depth: 0,
     ...metadata
   };
@@ -290,16 +296,17 @@ export async function addSectionsBatch(
 
   // Process all sections without rebuilding index each time
   for (const input of sections) {
-    const tokens = tokenEstimator(input.content);
+    const content = redactMemoryContent(input.content);
+    const tokens = tokenEstimator(content);
     const section: ContextSection = {
       id: generateId('sec'),
       type: input.type,
       name: input.name,
-      content: input.content,
+      content,
       tokens,
       startOffset: store.totalSize,
-      endOffset: store.totalSize + input.content.length,
-      checksum: computeChecksum(input.content),
+      endOffset: store.totalSize + content.length,
+      checksum: computeChecksum(content),
       depth: 0,
       ...input.metadata
     };
@@ -461,8 +468,9 @@ export function persistSummary(
   deps: StorageDependencies
 ): ContextSection | null {
   try {
+    const safeSummaryContent = redactMemoryContent(summaryContent);
     const tokenEstimator = deps.tokenEstimator || estimateTokens;
-    const summaryTokens = tokenEstimator(summaryContent);
+    const summaryTokens = tokenEstimator(safeSummaryContent);
 
     const summaryDepth = Math.max(
       1,
@@ -472,11 +480,11 @@ export function persistSummary(
       id: generateId('sum'),
       type: 'summary',
       name: `Summary of ${summarizedSections.length} sections`,
-      content: summaryContent,
+      content: safeSummaryContent,
       tokens: summaryTokens,
       startOffset: store.totalSize,
-      endOffset: store.totalSize + summaryContent.length,
-      checksum: computeChecksum(summaryContent),
+      endOffset: store.totalSize + safeSummaryContent.length,
+      checksum: computeChecksum(safeSummaryContent),
       depth: summaryDepth,
       summarizes: summarizedSectionIds
     };

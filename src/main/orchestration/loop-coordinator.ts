@@ -34,6 +34,7 @@ import {
   LoopCompletionDetector,
   CompletedFileWatcher,
   parseAgentMoreWorkRemaining,
+  type VerifyOutcome,
 } from './loop-completion-detector';
 import { maybeQueueAnnounceThenHaltContinuation } from './loop-announce-then-halt';
 import { wireLoopCompletionWatcher } from './loop-completion-watcher-runtime';
@@ -74,7 +75,7 @@ import {
   type VerifyOutcomeLike,
   verifyFailureIntervention,
 } from './loop-coordinator-utils';
-import { resolveCompletion } from './evidence-resolver';
+import { hasMatchingVerificationExecution, resolveCompletion } from './evidence-resolver';
 import {
   captureAndPersistLoopRepoBaseline,
   effectiveLoopRepoCwd,
@@ -84,6 +85,9 @@ import {
   writeLoopPreflightArtifact,
 } from './loop-audit-runtime';
 import { EvidenceStore } from './evidence-store';
+import { VerificationRunRecorder } from './verification-run-recorder';
+import type { VerificationRunStore } from './verification-run-store';
+import { LoopVerificationRunLedger } from './loop-verification-run-ledger';
 import {
   recordCompletionEvidence as recordCompletionEvidenceToStore,
   type CompletionEvidenceInput,
@@ -444,12 +448,20 @@ export class LoopCoordinator extends EventEmitter {
   /** True once we've attempted the lazy production bind (so we only try once). */
   private evidenceStoreResolved = false;
 
+  private verificationRunLedger = new LoopVerificationRunLedger();
   /** Override the evidence store (tests / durable persistence). */
   setEvidenceStore(store: EvidenceStore | null): void {
     this.evidenceStore = store;
     this.evidenceStoreResolved = true;
   }
 
+  setVerificationRunRecorder(recorder: Pick<VerificationRunRecorder, 'record'> | null): void {
+    this.verificationRunLedger.setRecorder(recorder);
+  }
+
+  setVerificationRunReader(reader: Pick<VerificationRunStore, 'listForLoop'> | null): void {
+    this.verificationRunLedger.setRunReader(reader);
+  }
   /**
    * Resolve the evidence store fail-soft. Returns the injected store if set;
    * otherwise lazily binds to the RLM database, but only once it is
@@ -471,6 +483,14 @@ export class LoopCoordinator extends EventEmitter {
       });
       return null;
     }
+  }
+
+  private async runRecordedVerify(
+    state: LoopState,
+    iteration: LoopIteration | undefined,
+    kind: 'verify' | 'quick-verify',
+  ): Promise<VerifyOutcome> {
+    return await this.verificationRunLedger.run(state, iteration, kind, this.completionDetector);
   }
 
   /**
@@ -534,6 +554,7 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.scheduledWakeups.clear();
       this.instance.evidenceStore = null;
       this.instance.evidenceStoreResolved = false;
+      this.instance.verificationRunLedger.resetForTesting();
       this.instance.removeAllListeners();
       this.instance = null;
     }
@@ -1404,7 +1425,7 @@ export class LoopCoordinator extends EventEmitter {
 
     const hasVerifyCommand = !!state.config.completion.verifyCommand.trim();
     if (hasVerifyCommand) {
-      const verify = await this.completionDetector.runVerify(state.config);
+      const verify = await this.runRecordedVerify(state, state.lastIteration, 'verify');
       // A re-entrant terminate (e.g. operator hit Stop while verify ran) means
       // the loop is already gone — bail without overriding its terminal status.
       if (isTerminalLoopRuntimeState(state)) return false;
@@ -1764,7 +1785,9 @@ export class LoopCoordinator extends EventEmitter {
         && state.config.audit.preflightMode !== 'off'
         && state.status === 'running'
       ) {
-        const preflight = await runLoopPreflight(state, this.completionDetector);
+        const preflight = await runLoopPreflight(state, this.completionDetector, (execution) => {
+          this.verificationRunLedger.record(state, undefined, execution);
+        });
         state.preflight = preflight;
         await writeLoopPreflightArtifact(state, preflight);
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
@@ -2225,6 +2248,7 @@ export class LoopCoordinator extends EventEmitter {
         iteration,
         config: state.config,
         state,
+        verificationRuns: this.verificationRunLedger.listForLoop(state.id),
       });
       iteration.completionSignalsFired = completionSignals;
 
@@ -2301,13 +2325,13 @@ export class LoopCoordinator extends EventEmitter {
         // an obviously-broken completion without spending minutes on the
         // full verify. When `quickVerifyCommand` is undefined, the call
         // returns 'skipped' and the full verify runs as before.
-        const quick = await this.completionDetector.runQuickVerify(state.config);
+        const quick = await this.runRecordedVerify(state, iteration, 'quick-verify');
         // If the quick check actively failed, treat it as the verify
         // outcome and skip the full verify — saves time and surfaces a
         // focused error message to the agent.
         const v1 = quick.status === 'failed'
           ? quick
-          : await this.completionDetector.runVerify(state.config);
+          : await this.runRecordedVerify(state, iteration, 'verify');
         const verifyLabel = quick.status === 'failed' ? 'quick verify' : 'verify';
         applyVerifyOutcomeToIteration(iteration, v1);
         verifyOutputForEmit = v1.output;
@@ -2316,7 +2340,7 @@ export class LoopCoordinator extends EventEmitter {
         // transient verifier flake, while pass→fail stays rejected.
         let v2: VerifyOutcomeLike = v1;
         if (quick.status !== 'failed' && v1.status !== 'skipped' && state.config.completion.runVerifyTwice) {
-          v2 = await this.completionDetector.runVerify(state.config);
+          v2 = await this.runRecordedVerify(state, iteration, 'verify');
           applyVerifyOutcomeToIteration(iteration, v2);
           verifyOutputForEmit = v2.output;
         }
@@ -2387,6 +2411,10 @@ export class LoopCoordinator extends EventEmitter {
           antiSelfGrading: state.config.completion.antiSelfGrading === true,
           currentWorkHash: iteration.workHash,
           lastVerifiedWorkHash: state.lastVerifiedWorkHash ?? null,
+          evidenceLedgerEnabled: state.config.completion.evidenceLedger === true,
+          verifyCommand: state.config.completion.verifyCommand,
+          verifyWindowStartedAt: iteration.startedAt,
+          verificationRuns: this.verificationRunLedger.listForLoop(state.id),
         });
 
         // --- map resolution to coordinator actions ---
@@ -2448,44 +2476,50 @@ export class LoopCoordinator extends EventEmitter {
           state.endReason = resolution.reason;
           pauseBecauseCompletionCannotBeVerified = true;
         } else {
-          // decision === 'continue' — map the specific outcome to the right rejection action
           if (resolution.outcome === 'verify-failed') {
-            // Figure out which verify run produced the output for the intervention text
-            const failedVerifyOutput = (v2 !== v1 && v2.status === 'failed') ? v2.output : v1.output;
-            const friendlyLabel = quick.status === 'failed' ? 'quick verify'
-              : (v2 !== v1 && v2.status === 'failed') ? 'anti-flake second verify'
-              : verifyLabel;
-            if (v2 !== v1 && v2.status === 'failed') {
-              // Second verify failed
-              this.rejectCompletionAttempt(
-                state,
-                'second verify failed',
-                verifyFailureIntervention(
-                  'anti-flake second verify',
-                  v2.output,
-                  v2.failureKind,
-                ),
-              );
+            if (v2.status === 'passed') {
+              this.rejectCompletionAttempt(state, resolution.reason, resolution.reason);
               this.emit('loop:claimed-done-but-failed', {
                 loopRunId: state.id,
                 signal: candidate.id,
-                failure: 'verify flake suspected: ' + excerpt(v2.output, 4096),
+                failure: resolution.reason,
               });
             } else {
-              this.rejectCompletionAttempt(
-                state,
-                `${friendlyLabel} failed`,
-                verifyFailureIntervention(
-                  friendlyLabel,
-                  failedVerifyOutput,
-                  selectedVerifyFailureKind(v1, v2),
-                ),
-              );
-              this.emit('loop:claimed-done-but-failed', {
-                loopRunId: state.id,
-                signal: candidate.id,
-                failure: excerpt(failedVerifyOutput, 4096),
-              });
+              const failedVerifyOutput = (v2 !== v1 && v2.status === 'failed') ? v2.output : v1.output;
+              const friendlyLabel = quick.status === 'failed' ? 'quick verify'
+                : (v2 !== v1 && v2.status === 'failed') ? 'anti-flake second verify'
+                : verifyLabel;
+              if (v2 !== v1 && v2.status === 'failed') {
+                this.rejectCompletionAttempt(
+                  state,
+                  'second verify failed',
+                  verifyFailureIntervention(
+                    'anti-flake second verify',
+                    v2.output,
+                    v2.failureKind,
+                  ),
+                );
+                this.emit('loop:claimed-done-but-failed', {
+                  loopRunId: state.id,
+                  signal: candidate.id,
+                  failure: 'verify flake suspected: ' + excerpt(v2.output, 4096),
+                });
+              } else {
+                this.rejectCompletionAttempt(
+                  state,
+                  `${friendlyLabel} failed`,
+                  verifyFailureIntervention(
+                    friendlyLabel,
+                    failedVerifyOutput,
+                    selectedVerifyFailureKind(v1, v2),
+                  ),
+                );
+                this.emit('loop:claimed-done-but-failed', {
+                  loopRunId: state.id,
+                  signal: candidate.id,
+                  failure: excerpt(failedVerifyOutput, 4096),
+                });
+              }
             }
           } else if (resolution.outcome === 'review-blocked') {
             if (state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'failed') {
@@ -3143,7 +3177,6 @@ export class LoopCoordinator extends EventEmitter {
         }
       }
 
-      // -- minimum sleep guard so the fs watcher can settle --
       await sleep(1500);
     }
   }
@@ -3169,6 +3202,7 @@ export class LoopCoordinator extends EventEmitter {
       emit: (eventName, payload) => this.emit(eventName, payload),
     });
   }
+
   private async evaluatePingPongCompletion(
     state: LoopState,
     iteration: LoopIteration,
@@ -3194,9 +3228,12 @@ export class LoopCoordinator extends EventEmitter {
         reviewer: this.pingPongReviewer,
         resolveSubject: this.pingPongSubjectResolver,
         runVerify: async () => {
-          const v = await this.completionDetector.runVerify(state.config);
+          const v = await this.runRecordedVerify(state, iteration, 'verify');
           applyVerifyOutcomeToIteration(iteration, v);
-          return { ok: v.status !== 'failed', output: v.output };
+          const verificationRuns = this.verificationRunLedger.listForLoop(state.id);
+          const ledgerVerified = v.status !== 'passed' || state.config.completion.evidenceLedger !== true
+            || verificationRuns === undefined || hasMatchingVerificationExecution({ verifyCommand: state.config.completion.verifyCommand, currentWorkHash: iteration.workHash, verifyWindowStartedAt: iteration.startedAt, verificationRuns });
+          return { ok: v.status !== 'failed' && ledgerVerified, output: ledgerVerified ? v.output : 'Verification ledger has no matching current full verify execution.' };
         },
       });
     } finally {

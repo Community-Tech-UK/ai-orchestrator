@@ -430,6 +430,14 @@ export interface AppSettings extends DesktopComputerUseSettings {
   // Notifications
   /** Show a desktop notification when an agent transitions from busy to idle. Default: true. */
   notifyOnAgentCompletion: boolean;
+  /** Minimum interval between desktop notifications of the same kind. */
+  notificationCooldownSeconds: number;
+  /** Keep normal-priority desktop notifications in the in-app center overnight. */
+  notificationQuietHoursEnabled: boolean;
+  /** Inclusive local-hour start for quiet hours (0–23). */
+  notificationQuietHoursStartHour: number;
+  /** Exclusive local-hour end for quiet hours (0–23). */
+  notificationQuietHoursEndHour: number;
 
   // CLI Provider Updates
   /**

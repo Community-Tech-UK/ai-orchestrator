@@ -7,6 +7,7 @@ import {
   LoopInterveneePayloadSchema,
   LoopListByChatPayloadSchema,
   LoopGetIterationsPayloadSchema,
+  VerificationRunsListPayloadSchema,
   LoopInferVerifyPayloadSchema,
   LoopListOutstandingPayloadSchema,
   LoopSetOutstandingStatusPayloadSchema,
@@ -35,6 +36,7 @@ import type { InstanceManager } from '../../instance/instance-manager';
 import { getChatService } from '../../chats';
 import { buildExistingSessionContext } from '../../orchestration/loop-existing-session-context';
 import { loopCommitRatchetHook } from '../../orchestration/loop-commit-ratchet';
+import { VerificationRunStore, type VerificationRun } from '../../orchestration/verification-run-store';
 
 const logger = getLogger('LoopHandlers');
 
@@ -44,6 +46,7 @@ export function registerLoopHandlers(deps: {
 }): void {
   const coordinator = getLoopCoordinator();
   const store = getLoopStore();
+  const verificationRunStore = VerificationRunStore.getInstance();
   const chatService = getChatService({ instanceManager: deps.instanceManager });
 
   // ────── one-time wiring: persist + bridge events to renderer ──────
@@ -433,6 +436,18 @@ export function registerLoopHandlers(deps: {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.VERIFICATION_RUNS_LIST, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(VerificationRunsListPayloadSchema, payload, 'VERIFICATION_RUNS_LIST');
+      const runs = validated.loopRunId
+        ? verificationRunStore.listForLoop(validated.loopRunId)
+        : verificationRunStore.listForInstance(validated.instanceId!);
+      return { success: true, data: { runs: runs.map(toVerificationRunPayload) } };
+    } catch (error) {
+      return errorResponse('VERIFICATION_RUNS_LIST_FAILED', error);
+    }
+  });
+
   // LF-3a: preview the auto-inferred verify command so the config panel can
   // show what will gate completion before the loop starts.
   ipcMain.handle(IPC_CHANNELS.LOOP_INFER_VERIFY, async (_event, payload: unknown): Promise<IpcResponse> => {
@@ -590,6 +605,20 @@ function errorResponse(code: string, error: unknown): IpcResponse {
       message: error instanceof Error ? error.message : String(error),
       timestamp: Date.now(),
     },
+  };
+}
+
+function toVerificationRunPayload(run: VerificationRun) {
+  return {
+    id: run.id,
+    scope: run.scope,
+    loopRunId: run.loopRunId,
+    instanceId: run.instanceId,
+    command: run.command,
+    exitCode: run.exitCode,
+    durationMs: run.durationMs,
+    workHash: run.workHash,
+    startedAt: run.startedAt,
   };
 }
 

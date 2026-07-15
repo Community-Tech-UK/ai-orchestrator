@@ -2,10 +2,11 @@ import * as crypto from 'crypto';
 import * as http from 'http';
 import { URL } from 'url';
 import { getLogger } from '../logging/logger';
-import { getAutomationRunner } from '../automations';
+import { getAutomationRunner, getAutomationStore } from '../automations';
 import { getWebhookStore, WebhookStore } from './webhook-store';
 import { RateLimiter } from '../channels/rate-limiter';
 import type { WebhookRuntimeRouteConfig, WebhookServerOptions, WebhookServerStatus } from './webhook-types';
+import { WebhookAutomationMatcher } from './webhook-automation-matcher';
 
 const logger = getLogger('WebhookServer');
 const DEFAULT_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -35,6 +36,7 @@ export class WebhookServer {
   constructor(
     private readonly store: WebhookStore = getWebhookStore(),
     private readonly options: WebhookServerOptions = {},
+    private readonly automationMatcher = new WebhookAutomationMatcher(getAutomationStore()),
   ) {
     this.rateLimiter = new RateLimiter(
       options.maxRequestsPerWindow ?? 60,
@@ -213,18 +215,23 @@ export class WebhookServer {
         payloadHash,
       },
     };
+    // Match before committing delivery acceptance: a transient store failure
+    // must remain retryable by the webhook sender instead of being deduped as
+    // a successfully processed delivery.
+    const matchingAutomations = await this.automationMatcher.match(route, payload);
     this.store.recordDelivery(route.id, deliveryId, eventType, 'accepted', payloadHash, {
       statusCode: 202,
       triggerSource: source,
     });
 
-    for (const automationId of route.allowedAutomationIds) {
-      await getAutomationRunner().fire(automationId, {
+    for (const automation of matchingAutomations) {
+      await getAutomationRunner().fire(automation.id, {
         trigger: 'webhook',
         scheduledAt: Date.now(),
         idempotencyKey: deliveryId,
         triggerSource: source,
         deliveryMode: 'notify',
+        webhookPayload: payload,
       });
     }
 

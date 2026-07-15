@@ -18,7 +18,32 @@ function createClientDispatchHarness() {
     isRunning(): boolean;
     setContextDiagnosticsCollector(collector: CodexContextPressureCollector | null): void;
     setNotificationHandler(handler: ((notification: { method: string; params: Record<string, unknown> }) => void) | null): void;
+    subscribeNotifications(handler: (notification: { method: string; params: Record<string, unknown> }) => void): () => void;
   };
+}
+
+function createWritableClientDispatchHarness() {
+  const Base = (appServerClientModule as unknown as {
+    AppServerClientBase?: new (cwd: string, transport: 'direct' | 'broker') => object;
+  }).AppServerClientBase;
+  expect(Base).toBeTypeOf('function');
+  if (!Base) throw new Error('AppServerClientBase is not exported');
+
+  class WritableHarness extends Base {
+    readonly sent: Record<string, unknown>[] = [];
+
+    async close(): Promise<void> {}
+
+    protected sendMessage(message: Record<string, unknown>): void {
+      this.sent.push(message);
+    }
+
+    dispatch(line: string): void {
+      (this as unknown as { handleLine(value: string): void }).handleLine(line);
+    }
+  }
+
+  return new WritableHarness('/tmp/project', 'direct');
 }
 
 describe('app-server transport liveness', () => {
@@ -30,6 +55,51 @@ describe('app-server transport liveness', () => {
     client.handleExit(new Error('synthetic disconnect'));
 
     expect(client.isRunning()).toBe(false);
+  });
+});
+
+describe('app-server JSON-RPC routing', () => {
+  it('responds to an unsupported server request instead of misclassifying it as a response', () => {
+    const client = createWritableClientDispatchHarness();
+
+    client.dispatch(JSON.stringify({
+      id: 77,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1' },
+    }));
+
+    expect(client.sent).toEqual([{
+      id: 77,
+      error: { code: -32601, message: 'Method not supported by client' },
+    }]);
+  });
+
+  it('rejects a response that violates the generated method contract', async () => {
+    const client = createWritableClientDispatchHarness();
+    const response = client.request('turn/start', {
+      threadId: 'thread-1',
+      input: [{ type: 'text', text: 'hello', text_elements: [] }],
+    });
+    const requestId = client.sent[0]?.['id'];
+
+    client.dispatch(JSON.stringify({ id: requestId, result: {} }));
+
+    await expect(response).rejects.toMatchObject({
+      name: 'CodexAppServerRuntimeError',
+      kind: 'protocol-invalid',
+      method: 'turn/start',
+    });
+  });
+
+  it('rejects stale request fields before writing them to Codex', () => {
+    const client = createWritableClientDispatchHarness();
+
+    expect(() => client.request('turn/start', {
+      threadId: 'thread-1',
+      input: [{ type: 'text', text: 'hello', text_elements: [] }],
+      reasoningEffort: 'high',
+    } as never)).toThrow(/unsupported parameter: reasoningEffort/);
+    expect(client.sent).toEqual([]);
   });
 });
 
@@ -154,6 +224,66 @@ describe('app-server notification diagnostics', () => {
 
     expect(records).toEqual([]);
     expect(handled).toEqual(['thread/compacted', 'thread/tokenUsage/updated']);
+  });
+});
+
+describe('app-server notification subscriptions', () => {
+  it('fans out notifications to the compatibility handler and scoped subscribers in registration order', () => {
+    const client = createClientDispatchHarness();
+    const handled: string[] = [];
+    client.setNotificationHandler(() => handled.push('legacy'));
+    client.subscribeNotifications(() => handled.push('first'));
+    client.subscribeNotifications(() => handled.push('second'));
+
+    client.handleLine(JSON.stringify({ method: 'turn/started', params: {} }));
+
+    expect(handled).toEqual(['legacy', 'first', 'second']);
+  });
+
+  it('unsubscribes one consumer without disturbing the others', () => {
+    const client = createClientDispatchHarness();
+    const handled: string[] = [];
+    const unsubscribeFirst = client.subscribeNotifications(() => handled.push('first'));
+    client.subscribeNotifications(() => handled.push('second'));
+
+    unsubscribeFirst();
+    unsubscribeFirst();
+    client.handleLine(JSON.stringify({ method: 'turn/started', params: {} }));
+
+    expect(handled).toEqual(['second']);
+  });
+
+  it('uses a stable dispatch snapshot when subscriptions change inside a callback', () => {
+    const client = createClientDispatchHarness();
+    const handled: string[] = [];
+    let unsubscribeSecond = () => {};
+    client.subscribeNotifications(() => {
+      handled.push('first');
+      unsubscribeSecond();
+      client.subscribeNotifications(() => handled.push('late'));
+    });
+    unsubscribeSecond = client.subscribeNotifications(() => handled.push('second'));
+
+    client.handleLine(JSON.stringify({ method: 'turn/started', params: {} }));
+    expect(handled).toEqual(['first', 'second']);
+
+    handled.length = 0;
+    client.handleLine(JSON.stringify({ method: 'turn/completed', params: {} }));
+    expect(handled).toEqual(['first', 'late']);
+  });
+
+  it('isolates observer failures so later consumers still receive the notification', () => {
+    const client = createClientDispatchHarness();
+    const handled: string[] = [];
+    client.subscribeNotifications(() => {
+      throw new Error('observer failed');
+    });
+    client.subscribeNotifications((notification) => handled.push(notification.method));
+
+    expect(() => {
+      client.handleLine(JSON.stringify({ method: 'turn/completed', params: {} }));
+    }).not.toThrow();
+    expect(handled).toEqual(['turn/completed']);
   });
 });
 

@@ -3,6 +3,7 @@ import type {
   LoopRunSummaryPayload,
   LoopStatePayload,
   LoopIterationPayload,
+  VerificationRunPayload,
   LoopOutstandingItemPayload,
   LoopTerminalIntentPayload,
 } from '@contracts/schemas/loop';
@@ -252,6 +253,18 @@ export class LoopIpcService {
   async getIterations(loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>> {
     if (!this.api) return notInElectron();
     return this.api.loopGetIterations(loopRunId, fromSeq, toSeq) as Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>>;
+  }
+
+  /** Read only the durable execution fields required by loop history UI. */
+  async listVerificationRuns(params: { loopRunId?: string; instanceId?: string }): Promise<IpcResponse<{ runs: VerificationRunPayload[] }>> {
+    if (!this.api) return notInElectron();
+    const fn = (this.api as unknown as {
+      verificationRunsList?: (query: { loopRunId?: string; instanceId?: string }) => Promise<IpcResponse<{ runs: VerificationRunPayload[] }>>;
+    }).verificationRunsList;
+    if (typeof fn !== 'function') {
+      return { success: false, error: { message: 'verification-run history bridge unavailable. Reload the app.' } };
+    }
+    return fn(params);
   }
 
   /** LF-3a: preview the auto-inferred verify command for a workspace. */

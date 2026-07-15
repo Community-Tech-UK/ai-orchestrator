@@ -6,12 +6,6 @@
  *   1. Direct: spawns `codex app-server` as a child process (stdio pipes)
  *   2. Broker: connects to a shared broker via Unix socket (or Windows named pipe)
  *
- * The client handles the full lifecycle:
- *   - Connection and initialize handshake
- *   - Typed request/response with pending correlation
- *   - Notification routing via swappable handler
- *   - Graceful shutdown with process tree cleanup
- *
  * Derived from the codex-plugin-cc reference implementation (app-server.mjs).
  */
 
@@ -42,7 +36,15 @@ import {
   DEFAULT_OPT_OUT_NOTIFICATIONS,
   SERVICE_NAME,
 } from './app-server-types';
+import { AppServerNotificationHub } from './app-server-notification-hub';
 import type { CodexContextPressureCollector } from './context-pressure-diagnostics';
+import {
+  rpcFailure,
+  timeoutFailure,
+  transportFailure,
+  validateGeneratedRequest,
+  validateGeneratedResponse,
+} from './app-server-client-protocol';
 
 const logger = getLogger('CodexAppServerClient');
 
@@ -88,9 +90,7 @@ const DEFAULT_CAPABILITIES: InitializeCapabilities = {
 const GRACEFUL_SHUTDOWN_MS = CODEX_TIMEOUTS.GRACEFUL_SHUTDOWN_MS;
 
 /** Host-load timeout scale for control RPCs (clamped, throw-safe). */
-function loadScale(): number {
-  return getClampedLoadWatchdogMultiplier();
-}
+function loadScale(): number { return getClampedLoadWatchdogMultiplier(); }
 
 // ─── Abstract Base Client ───────────────────────────────────────────────────
 
@@ -103,8 +103,12 @@ export abstract class AppServerClientBase {
   protected nextId = 1;
   protected closed = false;
   protected lineBuffer = '';
-  /** Current notification handler. Public for save/restore in turn capture. */
-  notificationHandler: AppServerNotificationHandler | null = null;
+  private readonly notificationHub = new AppServerNotificationHub((notification, error) => {
+    logger.warn('App-server notification observer failed', {
+      method: notification.method,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
   private contextDiagnosticsCollector: CodexContextPressureCollector | null = null;
   protected exitError: Error | null = null;
 
@@ -128,31 +132,23 @@ export abstract class AppServerClientBase {
     });
   }
 
-  /**
-   * Sets the handler that receives streaming notifications from the server.
-   * Can be swapped per-turn to route notifications to different consumers.
-   */
-  setNotificationHandler(handler: AppServerNotificationHandler | null): void {
-    this.notificationHandler = handler;
-  }
+  /** Compatibility surface for callers that still own one primary handler. */
+  get notificationHandler(): AppServerNotificationHandler | null { return this.notificationHub.primary; }
+  set notificationHandler(handler: AppServerNotificationHandler | null) { this.notificationHub.primary = handler; }
+  setNotificationHandler(handler: AppServerNotificationHandler | null): void { this.notificationHub.primary = handler; }
+  subscribeNotifications(handler: AppServerNotificationHandler): () => void { return this.notificationHub.subscribe(handler); }
+  setContextDiagnosticsCollector(collector: CodexContextPressureCollector | null): void { this.contextDiagnosticsCollector = collector; }
 
-  setContextDiagnosticsCollector(collector: CodexContextPressureCollector | null): void {
-    this.contextDiagnosticsCollector = collector;
-  }
-
-  /**
-   * Sends a typed JSON-RPC request and returns the result.
-   * Applies a per-RPC timeout based on method type (configurable via timeoutMs override).
-   * `turn/start` gets no per-RPC timeout since it's long-running by design.
-   */
+  /** Sends a typed JSON-RPC request with method-specific timeout handling. */
   request<M extends AppServerMethod>(
     method: M,
     params: AppServerRequestParams<M>,
     timeoutMs?: number,
   ): Promise<AppServerResponseResult<M>> {
     if (this.closed) {
-      throw new ProtocolError('codex app-server client is closed.');
+      throw transportFailure(method, 'codex app-server client is closed.');
     }
+    validateGeneratedRequest(method, params);
 
     const id = this.nextId++;
     const effectiveTimeout = timeoutMs ?? this.resolveDefaultTimeout(method);
@@ -164,9 +160,7 @@ export abstract class AppServerClientBase {
         timer = setTimeout(() => {
           this.pending.delete(id);
           logger.warn('RPC timeout', { method, id, timeoutMs: effectiveTimeout });
-          reject(new ProtocolError(
-            `RPC timeout: ${method} did not respond within ${effectiveTimeout}ms`
-          ));
+          reject(timeoutFailure(method, effectiveTimeout));
         }, effectiveTimeout);
         timer.unref();
       }
@@ -177,19 +171,17 @@ export abstract class AppServerClientBase {
         method,
         timer,
       });
-      this.sendMessage({ id, method, params: params as Record<string, unknown> });
+      try {
+        this.sendMessage({ id, method, params: params as Record<string, unknown> });
+      } catch (error) {
+        if (timer) clearTimeout(timer);
+        this.pending.delete(id);
+        reject(transportFailure(method, `Failed to write Codex app-server request: ${method}`, error));
+      }
     });
   }
 
-  /**
-   * Returns the default per-RPC timeout for a given method.
-   * turn/start has no timeout (0) — it's governed by the turn-level timeout and idle watchdog.
-   *
-   * Control/default timeouts are scaled by the host-load watchdog multiplier:
-   * under heavy load (2026-07-01: loadavg ~290) a healthy app-server can take
-   * far longer than 60s to answer `thread/start`, and failing that RPC is what
-   * turned starvation into terminally dead sessions.
-   */
+  /** Control timeouts scale with host load; turn/start uses the turn watchdog. */
   private resolveDefaultTimeout(method: string): number {
     const controlMethods = ['initialize', 'thread/start', 'thread/resume', 'thread/read', 'thread/list', 'thread/turns/list', 'thread/compact/start'];
     if (controlMethods.includes(method)) {
@@ -243,6 +235,21 @@ export abstract class AppServerClientBase {
     }
     const message = parsedLine.value;
 
+    // Server-initiated request. Route this before responses: both carry an id,
+    // and the previous order silently swallowed approval/user-input requests.
+    if (
+      'id' in message
+      && (typeof message['id'] === 'number' || typeof message['id'] === 'string')
+      && 'method' in message
+      && typeof message['method'] === 'string'
+    ) {
+      this.sendMessage({
+        id: message['id'],
+        error: { code: -32601, message: 'Method not supported by client' },
+      });
+      return;
+    }
+
     // Response to a pending request
     if ('id' in message && typeof message['id'] === 'number') {
       const pending = this.pending.get(message['id']);
@@ -251,14 +258,13 @@ export abstract class AppServerClientBase {
         this.pending.delete(message['id']);
         const response = message as unknown as JsonRpcResponse;
         if (response.error) {
-          const err = new ProtocolError(
-            response.error.message || 'Unknown RPC error',
-            response.error
-          );
-          err.rpcCode = response.error.code;
-          pending.reject(err);
+          pending.reject(rpcFailure(pending.method, response.error));
         } else {
-          pending.resolve(response.result);
+          try {
+            pending.resolve(validateGeneratedResponse(pending.method, response.result));
+          } catch (error) {
+            pending.reject(error instanceof Error ? error : new Error(String(error)));
+          }
         }
       }
       return;
@@ -268,19 +274,10 @@ export abstract class AppServerClientBase {
     if ('method' in message && typeof message['method'] === 'string') {
       const notification = message as unknown as AppServerNotification;
       this.recordTransportContextDiagnostics(notification);
-      if (this.notificationHandler) {
-        this.notificationHandler(notification);
-      }
+      this.notificationHub.dispatch(notification);
       return;
     }
 
-    // Server-initiated request (unsupported — respond with method-not-found)
-    if ('id' in message && 'method' in message) {
-      this.sendMessage({
-        id: message['id'],
-        error: { code: -32601, message: 'Method not supported by client' },
-      });
-    }
   }
 
   private recordTransportContextDiagnostics(notification: AppServerNotification): void {
@@ -323,7 +320,7 @@ export abstract class AppServerClientBase {
 
     for (const [id, pending] of this.pending) {
       if (pending.timer) clearTimeout(pending.timer);
-      pending.reject(error || new ProtocolError('Connection closed'));
+      pending.reject(transportFailure(pending.method, error?.message ?? 'Connection closed', error));
       this.pending.delete(id);
     }
 
@@ -334,6 +331,7 @@ export abstract class AppServerClientBase {
 function isJsonRpcRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
 
 // ─── Direct (Spawned) Client ────────────────────────────────────────────────
 

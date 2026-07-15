@@ -10,6 +10,10 @@ import {
 } from '../rlm-schema';
 
 const dbs: SqliteDriver[] = [];
+const RETIREMENT_MIGRATION_NAMES = new Set<string>([
+  '042_drop_search_index',
+  '043_drop_file_metadata',
+]);
 
 describe('storage retirement migrations', () => {
   afterEach(() => {
@@ -21,7 +25,7 @@ describe('storage retirement migrations', () => {
     dbs.push(db);
     createTables(db);
     createMigrationsTable(db);
-    markMigrationsBeforeRetirementApplied(db);
+    markNonRetirementMigrationsApplied(db);
     db.exec(`
       CREATE TABLE search_index (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,8 +96,8 @@ describe('storage retirement migrations', () => {
   });
 });
 
-function markMigrationsBeforeRetirementApplied(db: SqliteDriver): void {
-  for (const migration of MIGRATIONS.filter(({ name }) => name < '042_drop_search_index')) {
+function markNonRetirementMigrationsApplied(db: SqliteDriver): void {
+  for (const migration of MIGRATIONS.filter(({ name }) => !RETIREMENT_MIGRATION_NAMES.has(name))) {
     db.prepare('INSERT INTO _migrations (name, applied_at, checksum) VALUES (?, ?, ?)').run(
       migration.name,
       1,

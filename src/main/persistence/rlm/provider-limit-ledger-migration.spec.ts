@@ -25,4 +25,20 @@ describe('provider-limit ledger RLM migration', () => {
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'provider_limit_events'").get()).toBeDefined();
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_provider_limit_events_active'").get()).toBeDefined();
   });
+
+  it('creates verification run storage with loop and instance lookup indexes through migration 048', () => {
+    const db = openMigratedDb();
+
+    expect(db.prepare('SELECT name FROM _migrations WHERE name = ?').get<{ name: string }>('048_verification_runs')).toEqual({ name: '048_verification_runs' });
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'verification_runs'").get()).toBeDefined();
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_verification_runs_loop_started'").get()).toBeDefined();
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_verification_runs_instance_started'").get()).toBeDefined();
+  });
+
+  it('adds persisted automation trigger configuration through migration 049', () => {
+    const db = openMigratedDb();
+
+    expect(db.prepare('SELECT name FROM _migrations WHERE name = ?').get<{ name: string }>('049_automation_trigger_configuration')).toEqual({ name: '049_automation_trigger_configuration' });
+    expect(db.prepare('PRAGMA table_info(automations)').all<{ name: string }>().map((column) => column.name)).toContain('trigger_json');
+  });
 });

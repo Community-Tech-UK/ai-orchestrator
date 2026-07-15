@@ -417,6 +417,62 @@ describe('LoopCompletionDetector.observe', () => {
     expect(signal?.detail).toContain('npm run test -- --grep login');
   });
 
+  it('demotes a complete intent when the observed verification run was targeted even if the claim says full', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('All done, full suite passed', true, {
+      verifyCommand: 'npm run test',
+      evidence: [{ kind: 'command', label: 'full suite', value: 'npm run test' }],
+    });
+
+    const sigs = await det.observe({
+      iteration: makeIteration(),
+      config: state.config,
+      state,
+      verificationRuns: [{ command: 'npm run test -- --grep login' }],
+    });
+
+    const signal = sigs.find((s) => s.id === 'declared-complete');
+    expect(signal?.sufficient).toBe(false);
+    expect(signal?.detail).toContain('observed targeted verification run');
+    expect(signal?.detail).toContain('npm run test -- --grep login');
+  });
+
+  it('accepts a targeted claim when the observed verification run was full', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('All done, tests pass', true, {
+      verifyCommand: 'npm run test',
+      evidence: [{ kind: 'command', label: 'targeted', value: 'npm run test -- --grep login' }],
+    });
+
+    const sigs = await det.observe({
+      iteration: makeIteration(),
+      config: state.config,
+      state,
+      verificationRuns: [{ command: 'npm run test' }],
+    });
+
+    expect(sigs.find((s) => s.id === 'declared-complete')?.sufficient).toBe(true);
+  });
+
+  it('labels the fallback as unobserved when no durable execution rows exist', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('All done, tests pass', true, {
+      verifyCommand: 'npm run test',
+      evidence: [{ kind: 'command', label: 'targeted', value: 'npm run test -- --grep login' }],
+    });
+
+    const sigs = await det.observe({
+      iteration: makeIteration(),
+      config: state.config,
+      state,
+      verificationRuns: [],
+    });
+
+    const signal = sigs.find((s) => s.id === 'declared-complete');
+    expect(signal?.sufficient).toBe(false);
+    expect(signal?.detail).toContain('unobserved claimed verification run');
+  });
+
   it('keeps a complete intent sufficient when a claimed command fully matches the verify command', async () => {
     const det = new LoopCompletionDetector();
     const state = makeCompleteIntentState('All done, tests pass', true, {

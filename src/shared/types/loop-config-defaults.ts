@@ -109,6 +109,9 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       maxReviewCycles: 10,
       // D6 (#7): anti-self-grading hardening is opt-in (⚠️HOT completion gating).
       antiSelfGrading: false,
+      // WS4: completion accepts verify authority only when AIO's durable
+      // execution ledger recorded the matching full command for this work hash.
+      evidenceLedger: true,
     },
     allowDestructiveOps: false,
     initialStage: 'IMPLEMENT',

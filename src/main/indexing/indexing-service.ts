@@ -31,6 +31,7 @@ import { BM25Search, getBM25Search } from './bm25-search';
 import { RLMContextManager } from '../rlm/context-manager';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { generateId } from '../rlm/context/context.utils';
+import { redactForEgress } from '../security/content-egress-gate';
 
 // ============================================================================
 // Types
@@ -492,12 +493,16 @@ export class CodebaseIndexingService extends EventEmitter {
       const sectionId = section.id;
 
       // Add to FTS index
-      const symbols = chunk.metadata.symbols.map((s) => s.name);
+      const symbols = chunk.metadata.symbols.map((symbol) =>
+        redactForEgress(symbol.name, { kind: 'memory' }).content);
       this.bm25.addDocument({
         storeId,
         sectionId,
         filePath: chunk.filePath,
-        content: chunk.content,
+        // `addSection` is the durable-memory egress boundary and may redact
+        // detected secrets. Keep the FTS copy identical to that safe section;
+        // indexing the raw chunk here would recreate the secret in SQLite.
+        content: section.content,
         symbols,
       });
 

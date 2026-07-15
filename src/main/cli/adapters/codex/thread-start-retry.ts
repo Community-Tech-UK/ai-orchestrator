@@ -62,7 +62,13 @@ export function isTransientThreadStartError(error: unknown): boolean {
 export function isTransientRpcTimeoutError(error: unknown): boolean {
   return (
     error instanceof Error &&
-    error.name === 'ProtocolError' &&
+    (
+      error.name === 'ProtocolError'
+      || (
+        error.name === 'CodexAppServerRuntimeError'
+        && (error as Error & { kind?: string }).kind === 'request-timeout'
+      )
+    ) &&
     /RPC timeout/i.test(error.message)
   );
 }

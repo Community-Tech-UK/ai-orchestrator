@@ -858,9 +858,10 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   private getAdapterResumeAttemptResult(instanceId: string): ResumeAttemptResult | null {
     const adapter = this.deps.getAdapter(instanceId);
-    if (!adapter || typeof (adapter as { getResumeAttemptResult?: unknown }).getResumeAttemptResult !== 'function') {
-      return null;
-    }
+    if (!adapter) return null;
+    const snapshotProof = getProviderRuntimeService().getRuntimeSnapshot(adapter)?.resumeProof;
+    if (snapshotProof) return snapshotProof;
+    if (typeof (adapter as { getResumeAttemptResult?: unknown }).getResumeAttemptResult !== 'function') return null;
 
     return (adapter as { getResumeAttemptResult: () => ResumeAttemptResult | null }).getResumeAttemptResult();
   }

@@ -10,14 +10,19 @@ import {
 } from '../persistence/rlm/rlm-schema';
 import { WebhookServer } from './webhook-server';
 import { WebhookStore } from './webhook-store';
+import type { Automation } from '../../shared/types/automation.types';
 
 const mocks = vi.hoisted(() => ({
   fire: vi.fn(),
+  automations: [] as Automation[],
 }));
 
 vi.mock('../automations', () => ({
   getAutomationRunner: () => ({
     fire: mocks.fire,
+  }),
+  getAutomationStore: () => ({
+    list: async () => mocks.automations,
   }),
 }));
 
@@ -41,6 +46,27 @@ function createDb(): SqliteDriver {
 
 function sign(secret: string, body: string): string {
   return `sha256=${crypto.createHmac('sha256', secret).update(body).digest('hex')}`;
+}
+
+function automation(id: string, trigger: Automation['trigger']): Automation {
+  return {
+    id,
+    name: id,
+    enabled: true,
+    active: true,
+    workspaceId: 'workspace',
+    schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+    trigger,
+    missedRunPolicy: 'skip',
+    concurrencyPolicy: 'skip',
+    destination: { kind: 'newInstance' },
+    action: { prompt: 'Investigate', workingDirectory: '/tmp/workspace' },
+    nextFireAt: null,
+    lastFiredAt: null,
+    lastRunId: null,
+    createdAt: 0,
+    updatedAt: 0,
+  };
 }
 
 function post(
@@ -85,6 +111,7 @@ describe('WebhookServer', () => {
 
   beforeEach(async () => {
     mocks.fire.mockReset();
+    mocks.automations = [];
     db = createDb();
     store = new WebhookStore(db);
     server = new WebhookServer(store);
@@ -104,6 +131,11 @@ describe('WebhookServer', () => {
       allowedAutomationIds: ['automation-1'],
       allowedEvents: ['build.finished'],
     });
+    mocks.automations = [automation('automation-1', {
+      kind: 'webhook',
+      routeId: route.id,
+      filters: [],
+    })];
     expect(route.secretHash).toBe(crypto.createHash('sha256').update(secret).digest('hex'));
     expect(route.secretHash).not.toBe(secret);
 
@@ -124,7 +156,46 @@ describe('WebhookServer', () => {
       trigger: 'webhook',
       idempotencyKey: 'delivery-1',
       deliveryMode: 'notify',
+      webhookPayload: { id: 'delivery-1', event: 'build.finished' },
     }));
+  });
+
+  it('does not fire a route-allowlisted automation unless its webhook trigger matches the delivery', async () => {
+    const secret = 'test-secret-123456';
+    store.createRoute({
+      path: '/hooks/match',
+      secret,
+      allowedAutomationIds: ['automation-1'],
+    });
+    mocks.automations = [automation('automation-1', { kind: 'schedule' })];
+
+    const body = JSON.stringify({ id: 'delivery-1', event: 'build.finished' });
+    const response = await post(port, '/hooks/match', body, {
+      'x-orchestrator-signature': sign(secret, body),
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(mocks.fire).not.toHaveBeenCalled();
+  });
+
+  it('does not mark a delivery accepted when matching cannot complete', async () => {
+    const secret = 'test-secret-123456';
+    server.stop();
+    server = new WebhookServer(store, {}, {
+      match: async () => {
+        throw new Error('automation store unavailable');
+      },
+    } as never);
+    port = await server.start(0);
+    const route = store.createRoute({ path: '/hooks/failing-match', secret });
+    const body = JSON.stringify({ id: 'delivery-1' });
+
+    const response = await post(port, route.path, body, {
+      'x-orchestrator-signature': sign(secret, body),
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(store.findDelivery(route.id, 'delivery-1')).toBeNull();
   });
 
   it('rejects invalid signatures and invalid JSON without firing automations', async () => {

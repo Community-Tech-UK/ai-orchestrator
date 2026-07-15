@@ -228,6 +228,8 @@ export const LoopCompletionConfigSchema = z.object({
    *  declared-complete demotion + stale-verify gate + prompt discipline).
    *  Mirrors `LoopCompletionConfig.antiSelfGrading`. Default false. */
   antiSelfGrading: z.boolean().optional(),
+  /** WS4 durable verification execution-ledger enforcement. */
+  evidenceLedger: z.boolean().optional(),
   /** Optional. When set, the loop coordinator runs a different CLI provider
    *  as a fresh-eyes reviewer before accepting completion. Blocking findings
    *  re-open the loop with the findings injected as user interventions. */
@@ -643,6 +645,22 @@ export const LoopRunSummarySchema = z.object({
   openOutstandingCount: z.number().int().nonnegative().optional(),
 });
 
+/** Read-only projection of a coordinator-observed verification execution.
+ * Deliberately excludes cwd, canonical command, and output references: the
+ * loop detail panel needs the command, result, timing, and work-state anchor,
+ * not internal filesystem paths or raw verifier output. */
+export const VerificationRunPayloadSchema = z.object({
+  id: z.string(),
+  scope: z.enum(['loop', 'instance']),
+  loopRunId: z.string().nullable(),
+  instanceId: z.string().nullable(),
+  command: z.string(),
+  exitCode: z.number().int().nullable(),
+  durationMs: z.number().int().nonnegative(),
+  workHash: z.string().nullable(),
+  startedAt: z.number().int(),
+});
+
 // ============ Outstanding items ============
 
 export const LoopOutstandingItemKindSchema = z.enum(['needs-human', 'open-question']);
@@ -711,6 +729,20 @@ export const LoopGetIterationsPayloadSchema = z.object({
   toSeq: z.number().int().nonnegative().optional(),
 });
 
+/** Query exactly one verification-run owner. A union would produce less useful
+ * errors for an accidental empty or double-scoped renderer request. */
+export const VerificationRunsListPayloadSchema = z.object({
+  loopRunId: z.string().min(1).optional(),
+  instanceId: z.string().min(1).optional(),
+}).superRefine((payload, ctx) => {
+  if ((payload.loopRunId ? 1 : 0) + (payload.instanceId ? 1 : 0) !== 1) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Exactly one of loopRunId or instanceId is required',
+    });
+  }
+});
+
 /** LF-3a: preview the auto-inferred verify command for a workspace. */
 export const LoopInferVerifyPayloadSchema = z.object({
   workspaceCwd: z.string().min(1),
@@ -759,6 +791,7 @@ export type LoopConfigInput = z.infer<typeof LoopConfigInputSchema>;
 export type LoopStatePayload = z.infer<typeof LoopStateSchema>;
 export type LoopIterationPayload = z.infer<typeof LoopIterationSchema>;
 export type LoopRunSummaryPayload = z.infer<typeof LoopRunSummarySchema>;
+export type VerificationRunPayload = z.infer<typeof VerificationRunPayloadSchema>;
 export type LoopTerminalIntentPayload = z.infer<typeof LoopTerminalIntentSchema>;
 export type LoopStartPayload = z.infer<typeof LoopStartPayloadSchema>;
 export type LoopAttachment = z.infer<typeof LoopAttachmentSchema>;
@@ -766,6 +799,7 @@ export type LoopByIdPayload = z.infer<typeof LoopByIdPayloadSchema>;
 export type LoopInterveneePayload = z.infer<typeof LoopInterveneePayloadSchema>;
 export type LoopListByChatPayload = z.infer<typeof LoopListByChatPayloadSchema>;
 export type LoopGetIterationsPayload = z.infer<typeof LoopGetIterationsPayloadSchema>;
+export type VerificationRunsListPayload = z.infer<typeof VerificationRunsListPayloadSchema>;
 export type LoopInferVerifyPayload = z.infer<typeof LoopInferVerifyPayloadSchema>;
 export type LoopOutstandingItemPayload = z.infer<typeof LoopOutstandingItemSchema>;
 export type LoopListOutstandingPayload = z.infer<typeof LoopListOutstandingPayloadSchema>;
