@@ -14,6 +14,8 @@ import type {
   ReviewDismissPayload,
 } from '../../../../../shared/types/cross-model-review.types';
 
+const MAX_TRACKED_SETTLED_REVIEWS_PER_INSTANCE = 100;
+
 /** A reviewer that dropped out of the pool: not detected, or rate/quota capped. */
 export type ReviewerNoticeKind = 'unavailable' | 'rate-limited';
 
@@ -29,9 +31,16 @@ export interface ReviewerNotice {
 
 /** Typed extension for the cross-model review APIs exposed by the preload */
 interface CrossModelReviewApi {
-  crossModelReviewOnStarted?: (callback: (data: { instanceId: string; reviewId: string }) => void) => void;
+  crossModelReviewOnStarted?: (
+    callback: (data: { instanceId: string; reviewId: string; reviewStartedAt?: number }) => void,
+  ) => void;
   crossModelReviewOnResult?: (callback: (data: AggregatedReview) => void) => void;
-  crossModelReviewOnAllUnavailable?: (callback: (data: { instanceId: string }) => void) => void;
+  crossModelReviewOnDiscarded?: (
+    callback: (data: { instanceId: string; reviewId: string; reviewStartedAt?: number; reason: 'superseded' }) => void,
+  ) => void;
+  crossModelReviewOnAllUnavailable?: (
+    callback: (data: { instanceId: string; reviewId: string; reviewStartedAt?: number }) => void,
+  ) => void;
   crossModelReviewOnReviewerUnavailable?: (
     callback: (data: { dropped: { cli: string; error?: string }[] }) => void,
   ) => void;
@@ -50,6 +59,10 @@ interface CrossModelReviewApi {
 export class CrossModelReviewIpcService {
   private zone = inject(NgZone);
   private ipc = inject(ElectronIpcService);
+  private pendingReviewIds = new Map<string, Set<string>>();
+  private latestStartedReviews = new Map<string, { reviewId: string; startedAt: number }>();
+  private unavailableReviewIds = new Map<string, Set<string>>();
+  private settledReviewIds = new Map<string, Set<string>>();
 
   readonly latestReview = signal(new Map<string, AggregatedReview>());
   readonly status = signal<CrossModelReviewStatus | null>(null);
@@ -73,9 +86,11 @@ export class CrossModelReviewIpcService {
 
     api.crossModelReviewOnStarted?.((data) => {
       this.zone.run(() => {
-        const pending = new Set(this.pendingInstances());
-        pending.add(data.instanceId);
-        this.pendingInstances.set(pending);
+        if (!this.addPendingReview(data.instanceId, data.reviewId, data.reviewStartedAt)) return;
+
+        const reviews = new Map(this.latestReview());
+        reviews.delete(data.instanceId);
+        this.latestReview.set(reviews);
 
         const skipped = new Set(this.skippedInstances());
         skipped.delete(data.instanceId);
@@ -85,29 +100,34 @@ export class CrossModelReviewIpcService {
 
     api.crossModelReviewOnResult?.((data) => {
       this.zone.run(() => {
+        if (!this.settleReview(data.instanceId, data.id, 'result', data.reviewStartedAt)) return;
+        if (this.latestStartedReviews.get(data.instanceId)?.reviewId !== data.id) return;
+
         const map = new Map(this.latestReview());
         map.set(data.instanceId, data);
         this.latestReview.set(map);
+      });
+    });
 
-        const pending = new Set(this.pendingInstances());
-        pending.delete(data.instanceId);
-        this.pendingInstances.set(pending);
-
-        const skipped = new Set(this.skippedInstances());
-        skipped.delete(data.instanceId);
-        this.skippedInstances.set(skipped);
+    api.crossModelReviewOnDiscarded?.((data) => {
+      this.zone.run(() => {
+        this.settleReview(
+          data.instanceId,
+          data.reviewId,
+          'discarded',
+          data.reviewStartedAt,
+        );
       });
     });
 
     api.crossModelReviewOnAllUnavailable?.((data) => {
       this.zone.run(() => {
-        const pending = new Set(this.pendingInstances());
-        pending.delete(data.instanceId);
-        this.pendingInstances.set(pending);
-
-        const skipped = new Set(this.skippedInstances());
-        skipped.add(data.instanceId);
-        this.skippedInstances.set(skipped);
+        this.settleReview(
+          data.instanceId,
+          data.reviewId,
+          'unavailable',
+          data.reviewStartedAt,
+        );
       });
     });
 
@@ -150,6 +170,104 @@ export class CrossModelReviewIpcService {
         }
       });
     });
+  }
+
+  private addPendingReview(
+    instanceId: string,
+    reviewId: string,
+    reviewStartedAt: number | undefined,
+  ): boolean {
+    if (this.settledReviewIds.get(instanceId)?.has(reviewId)) return false;
+
+    const reviewIds = this.pendingReviewIds.get(instanceId) ?? new Set<string>();
+    if (reviewIds.has(reviewId)) return false;
+    if (reviewIds.size === 0) {
+      this.unavailableReviewIds.delete(instanceId);
+    }
+    reviewIds.add(reviewId);
+    this.pendingReviewIds.set(instanceId, reviewIds);
+    this.observeReviewStart(instanceId, reviewId, reviewStartedAt);
+
+    const pending = new Set(this.pendingInstances());
+    pending.add(instanceId);
+    this.pendingInstances.set(pending);
+    return true;
+  }
+
+  private settleReview(
+    instanceId: string,
+    reviewId: string,
+    outcome: 'result' | 'discarded' | 'unavailable',
+    reviewStartedAt: number | undefined,
+  ): boolean {
+    if (this.settledReviewIds.get(instanceId)?.has(reviewId)) return false;
+    this.rememberSettledReview(instanceId, reviewId);
+
+    const reviewIds = this.pendingReviewIds.get(instanceId);
+    const wasPending = reviewIds?.delete(reviewId) ?? false;
+    if (!wasPending && (!reviewIds || reviewIds.size === 0)) {
+      this.observeReviewStart(instanceId, reviewId, reviewStartedAt);
+    }
+
+    const unavailable = this.unavailableReviewIds.get(instanceId) ?? new Set<string>();
+    if (outcome === 'unavailable') {
+      unavailable.add(reviewId);
+      this.unavailableReviewIds.set(instanceId, unavailable);
+    } else {
+      unavailable.delete(reviewId);
+    }
+
+    const pending = new Set(this.pendingInstances());
+    const skipped = new Set(this.skippedInstances());
+    if (reviewIds && reviewIds.size > 0) {
+      pending.add(instanceId);
+      skipped.delete(instanceId);
+      this.pendingInstances.set(pending);
+      this.skippedInstances.set(skipped);
+      return true;
+    }
+
+    this.pendingReviewIds.delete(instanceId);
+    pending.delete(instanceId);
+    this.pendingInstances.set(pending);
+
+    const latestReviewId = this.latestStartedReviews.get(instanceId)?.reviewId;
+    if (latestReviewId && unavailable.has(latestReviewId)) {
+      skipped.add(instanceId);
+    } else {
+      skipped.delete(instanceId);
+    }
+    this.skippedInstances.set(skipped);
+    return true;
+  }
+
+  private observeReviewStart(
+    instanceId: string,
+    reviewId: string,
+    reviewStartedAt: number | undefined,
+  ): void {
+    const startedAt = this.resolveReviewStartedAt(reviewId, reviewStartedAt);
+    const current = this.latestStartedReviews.get(instanceId);
+    if (!current || startedAt >= current.startedAt) {
+      this.latestStartedReviews.set(instanceId, { reviewId, startedAt });
+    }
+  }
+
+  private resolveReviewStartedAt(reviewId: string, reviewStartedAt: number | undefined): number {
+    if (reviewStartedAt !== undefined && Number.isFinite(reviewStartedAt)) return reviewStartedAt;
+    const encodedTimestamp = reviewId.match(/^review-(\d+)-/)?.[1];
+    return encodedTimestamp ? Number(encodedTimestamp) : Date.now();
+  }
+
+  private rememberSettledReview(instanceId: string, reviewId: string): void {
+    const settled = this.settledReviewIds.get(instanceId) ?? new Set<string>();
+    settled.add(reviewId);
+    while (settled.size > MAX_TRACKED_SETTLED_REVIEWS_PER_INSTANCE) {
+      const oldest = settled.values().next().value;
+      if (oldest === undefined) break;
+      settled.delete(oldest);
+    }
+    this.settledReviewIds.set(instanceId, settled);
   }
 
   /** The current health notice for a reviewer CLI, if any. */

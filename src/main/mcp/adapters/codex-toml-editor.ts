@@ -8,6 +8,8 @@ export interface CodexTomlServer {
   env?: Record<string, string>;
   transport?: 'stdio' | 'sse' | 'http';
   description?: string;
+  startupTimeoutSec?: number;
+  toolTimeoutSec?: number;
 }
 
 interface Section {
@@ -152,6 +154,10 @@ export class CodexTomlEditor {
       }
       if (key === 'args') {
         server.args = this.parseArray(value);
+      } else if (key === 'startup_timeout_sec') {
+        server.startupTimeoutSec = this.parseNumber(value);
+      } else if (key === 'tool_timeout_sec') {
+        server.toolTimeoutSec = this.parseNumber(value);
       } else if (key === 'command' || key === 'url' || key === 'transport' || key === 'description') {
         (server as Record<string, unknown>)[key] = this.parseString(value);
       }
@@ -171,6 +177,12 @@ export class CodexTomlEditor {
       lines.push(`transport = ${JSON.stringify(entry.transport)}`);
     }
     if (entry.description) lines.push(`description = ${JSON.stringify(entry.description)}`);
+    if (entry.startupTimeoutSec !== undefined) {
+      lines.push(`startup_timeout_sec = ${entry.startupTimeoutSec}`);
+    }
+    if (entry.toolTimeoutSec !== undefined) {
+      lines.push(`tool_timeout_sec = ${entry.toolTimeoutSec}`);
+    }
     this.appendTable(lines, sectionName, 'headers', entry.headers);
     this.appendTable(lines, sectionName, 'env', entry.env);
     return lines.join('\n');
@@ -220,5 +232,10 @@ export class CodexTomlEditor {
         .map((item) => this.parseString(item.trim()) ?? '')
         .filter(Boolean);
     }
+  }
+
+  private parseNumber(value: string): number | undefined {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 }

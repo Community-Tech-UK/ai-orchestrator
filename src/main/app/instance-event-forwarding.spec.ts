@@ -20,6 +20,7 @@ const {
   mockRecordSpan,
   mockContinuity,
   mockRecordProviderThreadCompactionMarker,
+  mockCrossModelReview,
 } = vi.hoisted(() => ({
   mockTraceSink: { enqueue: vi.fn() },
   mockRecordSpan: vi.fn(),
@@ -30,6 +31,12 @@ const {
     addConversationEntry: vi.fn(),
   },
   mockRecordProviderThreadCompactionMarker: vi.fn(),
+  mockCrossModelReview: {
+    bufferMessage: vi.fn(),
+    onInstanceIdle: vi.fn().mockResolvedValue(undefined),
+    cancelPendingReviews: vi.fn(),
+    on: vi.fn(),
+  },
 }));
 
 vi.mock('../observability/provider-runtime-trace-sink', () => ({
@@ -52,7 +59,9 @@ vi.mock('../observability', () => ({}));
 vi.mock('../observability/otel-setup', () => ({ getOrchestratorTracer: vi.fn(() => ({ startSpan: vi.fn(() => ({ end: vi.fn() })) })) }));
 vi.mock('../context/compaction-coordinator', () => ({ getCompactionCoordinator: vi.fn(() => ({ cleanupInstance: vi.fn(), onContextUpdate: vi.fn() })) }));
 vi.mock('../context/context-window-guard', () => ({ evaluateContextWindowGuard: vi.fn(() => ({ shouldWarn: false, allowed: true })) }));
-vi.mock('../orchestration/cross-model-review-service', () => ({ getCrossModelReviewService: vi.fn(() => ({ bufferMessage: vi.fn(), onInstanceIdle: vi.fn().mockResolvedValue(undefined), cancelPendingReviews: vi.fn(), on: vi.fn() })) }));
+vi.mock('../orchestration/cross-model-review-service', () => ({
+  getCrossModelReviewService: vi.fn(() => mockCrossModelReview),
+}));
 vi.mock('../orchestration/debate-coordinator', () => ({ getDebateCoordinator: vi.fn(() => ({})) }));
 vi.mock('../orchestration/doom-loop-detector', () => ({ getDoomLoopDetector: vi.fn(() => ({ cleanupInstance: vi.fn(), on: vi.fn() })) }));
 vi.mock('../orchestration/orchestration-activity-bridge', () => ({ getOrchestrationActivityBridge: vi.fn(() => ({ initialize: vi.fn() })) }));
@@ -236,6 +245,67 @@ describe('setupInstanceEventForwarding', () => {
           }),
         }),
       }),
+    );
+  });
+
+  it('passes message identity and accumulated streaming content to cross-model review', () => {
+    const mgr = buildManager({ 'inst-1': { id: 'inst-1', provider: 'codex' } });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'),
+      provider: 'codex',
+      event: {
+        kind: 'output',
+        content: ' delta',
+        messageType: 'assistant',
+        messageId: 'assistant-1',
+        metadata: { accumulatedContent: 'Complete streamed answer' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+
+    expect(mockCrossModelReview.bufferMessage).toHaveBeenCalledWith(
+      'inst-1',
+      'assistant',
+      ' delta',
+      'codex',
+      '',
+      'assistant-1',
+      'Complete streamed answer',
+    );
+  });
+
+  it('forwards discarded reviews as a terminal renderer event', () => {
+    const mgr = buildManager();
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+    const discardedHandler = mockCrossModelReview.on.mock.calls
+      .find(([eventName]) => eventName === 'review:discarded')?.[1] as
+        | ((data: Record<string, string>) => void)
+        | undefined;
+
+    discardedHandler?.({
+      instanceId: 'inst-1',
+      reviewId: 'review-1',
+      reason: 'superseded',
+    });
+
+    expect(mockSendToRenderer).toHaveBeenCalledWith(
+      IPC_CHANNELS.CROSS_MODEL_REVIEW_DISCARDED,
+      {
+        instanceId: 'inst-1',
+        reviewId: 'review-1',
+        reason: 'superseded',
+      },
     );
   });
 });

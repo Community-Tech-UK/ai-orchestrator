@@ -7,6 +7,7 @@ import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { OutputMessage } from '../../shared/types/instance.types';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
 import { CliDetectionService } from '../cli/cli-detection';
@@ -82,6 +83,15 @@ function resolveReviewerTimeoutMs(cliType: string, timeoutSeconds: number): numb
   const configuredMs = configuredSeconds * 1000;
   const floorMs = REVIEWER_TIMEOUT_FLOOR_MS[cliType];
   return floorMs ? Math.max(configuredMs, floorMs) : configuredMs;
+}
+
+function findLatestUserMessage(messages: readonly OutputMessage[] | undefined): OutputMessage | undefined {
+  if (!messages) return undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.type === 'user' && message.content.trim().length > 0) return message;
+  }
+  return undefined;
 }
 
 export class CrossModelReviewService extends EventEmitter {
@@ -182,14 +192,29 @@ export class CrossModelReviewService extends EventEmitter {
 
   // === Message Buffering ===
 
-  bufferMessage(instanceId: string, messageType: string, content: string, primaryProvider = 'claude', firstUserPrompt = ''): void {
+  bufferMessage(
+    instanceId: string,
+    messageType: string,
+    content: string,
+    primaryProvider = 'claude',
+    firstUserPrompt = '',
+    messageId?: string,
+    accumulatedContent?: string,
+  ): void {
     if (messageType !== 'assistant') return;
     let buffer = this.buffers.get(instanceId);
     if (!buffer) {
       buffer = { instanceId, messages: [], primaryProvider, firstUserPrompt, lastUpdated: Date.now() };
       this.buffers.set(instanceId, buffer);
     }
-    buffer.messages.push(content);
+    const id = messageId || `anonymous-${buffer.messages.length}`;
+    const canonicalContent = accumulatedContent ?? content;
+    const existing = buffer.messages.find(message => message.id === id);
+    if (existing) {
+      existing.content = canonicalContent;
+    } else {
+      buffer.messages.push({ id, content: canonicalContent });
+    }
     buffer.lastUpdated = Date.now();
   }
 
@@ -212,7 +237,7 @@ export class CrossModelReviewService extends EventEmitter {
     const buffer = this.buffers.get(instanceId);
     if (!buffer || buffer.messages.length === 0) return;
 
-    const aggregatedContent = buffer.messages.join('\n\n');
+    const aggregatedContent = buffer.messages.map(message => message.content).join('\n\n');
     this.buffers.delete(instanceId);
 
     if (aggregatedContent.length < 50) return;
@@ -241,9 +266,7 @@ export class CrossModelReviewService extends EventEmitter {
       return;
     }
 
-    const firstUserPrompt = instance?.outputBuffer
-      .find(message => message.type === 'user' && message.content.trim().length > 0)
-      ?.content.trim();
+    const sourceUserMessage = findLatestUserMessage(instance?.outputBuffer);
 
     const enabledTypes = settings.crossModelReviewTypes as string[];
     if (!enabledTypes.includes(classification.type)) return;
@@ -270,9 +293,10 @@ export class CrossModelReviewService extends EventEmitter {
       configured: preferredReviewers,
     });
 
-    const reviewId = `review-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const reviewStartedAt = Date.now();
+    const reviewId = `review-${reviewStartedAt}-${Math.random().toString(36).slice(2, 8)}`;
     this.lastReviewTime.set(instanceId, Date.now());
-    this.emit('review:started', { instanceId, reviewId });
+    this.emit('review:started', { instanceId, reviewId, reviewStartedAt });
 
     const request: ReviewDispatchRequest = {
       id: reviewId,
@@ -287,12 +311,14 @@ export class CrossModelReviewService extends EventEmitter {
         instanceId,
       }).content,
       taskDescription: redactForEgress(
-        firstUserPrompt || buffer.firstUserPrompt || instance?.displayName || 'No task description available',
+        sourceUserMessage?.content.trim() || buffer.firstUserPrompt || instance?.displayName || 'No task description available',
         { kind: 'prompt', instanceId },
       ).content,
       classification,
       reviewDepth,
-      timestamp: Date.now(),
+      ...(sourceUserMessage?.id ? { sourceUserMessageId: sourceUserMessage.id } : {}),
+      ...(sourceUserMessage?.timestamp ? { sourceUserMessageTimestamp: sourceUserMessage.timestamp } : {}),
+      timestamp: reviewStartedAt,
     };
 
     this.reviewContexts.set(reviewId, request);
@@ -340,6 +366,20 @@ export class CrossModelReviewService extends EventEmitter {
         ),
         runLocalReview: localPlan.run,
       });
+      if (!this.isReviewRequestCurrent(request)) {
+        this.reviewContexts.delete(request.id);
+        logger.info('Discarding stale cross-model review after a newer user turn', {
+          instanceId: request.instanceId,
+          reviewId: request.id,
+        });
+        this.emit('review:discarded', {
+          instanceId: request.instanceId,
+          reviewId: request.id,
+          reviewStartedAt: request.timestamp,
+          reason: 'superseded',
+        });
+        return;
+      }
       if (batch.remoteError) logger.warn('Remote review collection failed', { error: batch.remoteError });
       const localParticipant = localPlan.participant(batch.localOutcome);
       const localReview = batch.localOutcome.status === 'used'
@@ -354,6 +394,7 @@ export class CrossModelReviewService extends EventEmitter {
         reviews: successfulResults,
         localReviewer: localParticipant,
         hasDisagreement: this.detectDisagreement(batch.remoteReviews),
+        reviewStartedAt: request.timestamp,
         timestamp: Date.now(),
       };
 
@@ -368,7 +409,11 @@ export class CrossModelReviewService extends EventEmitter {
           this.emit('review:result', aggregated);
         } else {
           this.reviewContexts.delete(request.id);
-          this.emit('review:all-unavailable', { instanceId: request.instanceId });
+          this.emit('review:all-unavailable', {
+            instanceId: request.instanceId,
+            reviewId: request.id,
+            reviewStartedAt: request.timestamp,
+          });
         }
         return;
       }
@@ -653,6 +698,16 @@ export class CrossModelReviewService extends EventEmitter {
 
   getReviewContext(reviewId: string): ReviewDispatchRequest | null {
     return this.reviewContexts.get(reviewId) ?? null;
+  }
+
+  private isReviewRequestCurrent(request: ReviewDispatchRequest): boolean {
+    if (!request.sourceUserMessageId && !request.sourceUserMessageTimestamp) return true;
+    const latestUserMessage = findLatestUserMessage(
+      this.instanceManager?.getInstance(request.instanceId)?.outputBuffer,
+    );
+    if (!latestUserMessage) return false;
+    if (request.sourceUserMessageId) return latestUserMessage.id === request.sourceUserMessageId;
+    return latestUserMessage.timestamp === request.sourceUserMessageTimestamp;
   }
 
   private addToHistory(instanceId: string, review: AggregatedReview): void {

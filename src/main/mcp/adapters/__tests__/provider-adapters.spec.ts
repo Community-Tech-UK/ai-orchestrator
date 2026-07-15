@@ -70,6 +70,23 @@ describe('provider MCP adapters', () => {
     expect(output).toContain('[mcp_servers.new]');
   });
 
+  it('Codex TOML editor round-trips MCP startup and tool timeouts', () => {
+    const editor = new CodexTomlEditor();
+    const output = editor.upsertMcpServer('', 'lsp', {
+      command: 'node',
+      args: ['server.js'],
+      startupTimeoutSec: 10,
+      toolTimeoutSec: 120,
+    });
+
+    expect(output).toContain('startup_timeout_sec = 10');
+    expect(output).toContain('tool_timeout_sec = 120');
+    expect(editor.parseMcpServers(output).lsp).toMatchObject({
+      startupTimeoutSec: 10,
+      toolTimeoutSec: 120,
+    });
+  });
+
   it('Codex TOML editor removes nested MCP env and header tables', () => {
     const editor = new CodexTomlEditor();
     const input = [

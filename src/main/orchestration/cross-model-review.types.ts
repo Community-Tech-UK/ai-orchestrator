@@ -12,13 +12,20 @@ export interface ReviewDispatchRequest {
   taskDescription: string;
   classification: OutputClassification;
   reviewDepth: 'structured' | 'tiered';
+  sourceUserMessageId?: string;
+  sourceUserMessageTimestamp?: number;
   timestamp: number;
+}
+
+export interface BufferedReviewMessage {
+  id: string;
+  content: string;
 }
 
 /** Buffered output waiting for aggregation */
 export interface OutputBuffer {
   instanceId: string;
-  messages: string[];
+  messages: BufferedReviewMessage[];
   primaryProvider: string;
   firstUserPrompt: string;
   lastUpdated: number;
