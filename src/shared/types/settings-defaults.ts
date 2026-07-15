@@ -91,6 +91,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultCli: 'auto',
   defaultModel: 'opus[1m]',
   defaultModelByProvider: {},
+  automationDefaultCli: 'auto',
+  automationDefaultModel: '',
   defaultFastMode: false,
   defaultFastModeByProvider: {},
   modelUsageByKey: {},
@@ -254,6 +256,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Notifications
   notifyOnAgentCompletion: true,
+  notificationCooldownSeconds: 30,
+  notificationQuietHoursEnabled: false,
+  notificationQuietHoursStartHour: 22,
+  notificationQuietHoursEndHour: 7,
 
   // CLI Provider Updates
   cliUpdatePolicy: 'notify',

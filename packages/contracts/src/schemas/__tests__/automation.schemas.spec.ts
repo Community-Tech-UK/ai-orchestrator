@@ -20,6 +20,33 @@ const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
 const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
 
 describe('AutomationCreatePayloadSchema destination', () => {
+  it('accepts bounded webhook triggers and defaults their filter list', () => {
+    const parsed = AutomationCreatePayloadSchema.parse({
+      ...baseCreatePayload,
+      trigger: {
+        kind: 'webhook',
+        routeId: 'route-issues',
+      },
+    });
+
+    expect(parsed.trigger).toEqual({
+      kind: 'webhook',
+      routeId: 'route-issues',
+      filters: [],
+    });
+  });
+
+  it('rejects webhook filter paths outside the dotted-path subset', () => {
+    expect(AutomationCreatePayloadSchema.safeParse({
+      ...baseCreatePayload,
+      trigger: {
+        kind: 'webhook',
+        routeId: 'route-issues',
+        filters: [{ path: 'issue[0].state', operator: 'equals', value: 'opened' }],
+      },
+    }).success).toBe(false);
+  });
+
   it('defaults missing destinations to a new instance', () => {
     const parsed = AutomationCreatePayloadSchema.parse(baseCreatePayload);
 

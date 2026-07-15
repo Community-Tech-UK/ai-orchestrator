@@ -11,7 +11,7 @@ describe('CompactionGate', () => {
 
     // Resolves via settle(), not the 60s timeout — a hung wait would trip the
     // per-test deadline instead of passing here.
-    await expect(pending).resolves.toBeUndefined();
+    await expect(pending).resolves.toBe('observed');
   });
 
   it('resolves every pending wait from a single settle()', async () => {
@@ -20,7 +20,7 @@ describe('CompactionGate', () => {
 
     gate.settle();
 
-    await expect(Promise.all(waits)).resolves.toEqual([undefined, undefined, undefined]);
+    await expect(Promise.all(waits)).resolves.toEqual(['observed', 'observed', 'observed']);
   });
 
   it('resolves on the timeout when settle() never fires', async () => {
@@ -28,13 +28,14 @@ describe('CompactionGate', () => {
     try {
       const gate = new CompactionGate();
       let resolved = false;
-      const pending = gate.wait(5_000).then(() => { resolved = true; });
+      const pending = gate.wait(5_000);
+      void pending.then(() => { resolved = true; });
 
       await vi.advanceTimersByTimeAsync(4_999);
       expect(resolved).toBe(false);
 
       await vi.advanceTimersByTimeAsync(1);
-      await pending;
+      await expect(pending).resolves.toBe('timed-out');
       expect(resolved).toBe(true);
     } finally {
       vi.useRealTimers();
@@ -58,5 +59,14 @@ describe('CompactionGate', () => {
   it('settle() with no waiters is a no-op', () => {
     const gate = new CompactionGate();
     expect(() => gate.settle()).not.toThrow();
+  });
+
+  it('cancels pending waits as timed-out when compaction could not start', async () => {
+    const gate = new CompactionGate();
+    const pending = gate.wait(60_000);
+
+    gate.cancel();
+
+    await expect(pending).resolves.toBe('timed-out');
   });
 });

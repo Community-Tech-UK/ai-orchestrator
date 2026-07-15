@@ -27,6 +27,8 @@ export type CodexContextDiagnosticRecord =
   | { kind: 'token-usage'; schemaVersion: 1; at: number; turnSequence: number; requestSequence: number; contextWindow: number | null; last: CodexTokenUsageSnapshot; cumulative: CodexTokenUsageSnapshot; previousLastTotalTokens: number | null; lastTotalDelta: number | null; cumulativeTotalDelta: number | null; occupancyPercentage: number | null; rootItemsSincePreviousUsage: number; observedPayloadBytesSincePreviousUsage: number }
   | { kind: 'compaction-rpc'; schemaVersion: 1; at: number; turnSequence: number | null; stage: 'requested' | 'accepted' | 'failed'; lastKnownUsedTokens: number | null }
   | { kind: 'compaction-observed'; schemaVersion: 1; at: number; turnSequence: number | null; requestSequence: number | null; lastKnownUsedTokens: number | null }
+  | { kind: 'cost-governor-decision'; schemaVersion: 1; at: number; turnSequence: number | null; action: 'warn' | 'recover' | 'recover-urgent'; spendSinceCompaction: number; contextWindow: number; multiple: number }
+  | { kind: 'cost-recovery'; schemaVersion: 1; at: number; turnSequence: number | null; stage: 'interrupt-requested' | 'interrupt-observed' | 'compaction-observed' | 'continued' | 'paused'; reasonCode?: 'interrupt-unconfirmed' | 'compaction-unobserved' | 'recovery-limit' }
   | { kind: 'turn-complete'; schemaVersion: 1; at: number; turnSequence: number; requestSequence: number; rootItems: number; subagentItems: number; observedPayloadBytes: number; peakUsedTokens: number | null; peakPercentage: number | null; compactionsObserved: number; completionStatus: 'completed' | 'interrupted' | 'failed' | 'unknown' };
 
 export interface CodexContextDiagnosticSink {
@@ -35,6 +37,8 @@ export interface CodexContextDiagnosticSink {
 
 type CodexCompletionStatus = Extract<CodexContextDiagnosticRecord, { kind: 'turn-complete' }>['completionStatus'];
 type CodexCompactionRpcStage = Extract<CodexContextDiagnosticRecord, { kind: 'compaction-rpc' }>['stage'];
+type CodexGovernorAction = Extract<CodexContextDiagnosticRecord, { kind: 'cost-governor-decision' }>['action'];
+type CodexCostRecoveryRecord = Extract<CodexContextDiagnosticRecord, { kind: 'cost-recovery' }>;
 type Clock = () => number;
 
 const MAX_SERIALIZED_STRING_CHARS = 4 * 1024 * 1024;
@@ -373,6 +377,38 @@ export class CodexContextPressureCollector {
       turnSequence: this.turnActive ? this.turnSequence : null,
       requestSequence: this.turnActive && this.requestSequence > 0 ? this.requestSequence : null,
       lastKnownUsedTokens: this.previousLastTotalTokens,
+    });
+  }
+
+  recordGovernorDecision(
+    action: CodexGovernorAction,
+    spendSinceCompaction: number,
+    contextWindow: number,
+    multiple: number,
+  ): void {
+    this.write({
+      kind: 'cost-governor-decision',
+      schemaVersion: 1,
+      at: this.now(),
+      turnSequence: this.turnActive ? this.turnSequence : null,
+      action,
+      spendSinceCompaction: numericCount(spendSinceCompaction) ?? 0,
+      contextWindow: numericCount(contextWindow) ?? 0,
+      multiple: numericCount(multiple) ?? 0,
+    });
+  }
+
+  recordCostRecovery(
+    stage: CodexCostRecoveryRecord['stage'],
+    reasonCode?: CodexCostRecoveryRecord['reasonCode'],
+  ): void {
+    this.write({
+      kind: 'cost-recovery',
+      schemaVersion: 1,
+      at: this.now(),
+      turnSequence: this.turnActive ? this.turnSequence : null,
+      stage,
+      ...(reasonCode ? { reasonCode } : {}),
     });
   }
 

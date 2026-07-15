@@ -86,13 +86,18 @@ It also passes electron-builder's `forceCodeSigning` option for macOS and
 Windows, so a present-but-invalid certificate cannot silently produce an
 unsigned stable build.
 
-`npm run localbuild` also produces a signed macOS app. The project-wide custom
-signer uses electron-builder's imported Developer ID identity for releases and,
-when no release identity was supplied, selects an installed Developer ID
-Application or Apple Development identity. Packaging fails if no real identity
-is available or if Harness and the bundled desktop helper do not end up with the
-same non-empty Team ID. This is required for macOS to attribute the helper's
-Accessibility calls to Harness consistently.
+`npm run localbuild` intentionally narrows package output on macOS and Windows:
+an arm64 DMG on macOS or an x64 NSIS setup executable on Windows. The macOS
+package is signed. The localbuild-only custom signer uses
+an installed Developer ID Application or Apple Development identity for local
+builds, but does not request a trusted timestamp because local packages are not
+notarized and should not depend on Apple's timestamp service being available.
+Packaging fails if no real identity is available or if Harness and the bundled
+desktop helper do not end up with the same non-empty Team ID. This is required
+for macOS to attribute the helper's Accessibility calls to Harness consistently.
+Stable releases continue to use electron-builder's imported Developer ID
+identity with timestamping and notarization, and verify the helper's Team ID in
+the release workflow.
 
 ### Publishing
 

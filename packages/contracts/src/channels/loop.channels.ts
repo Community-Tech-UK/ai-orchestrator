@@ -12,6 +12,8 @@ export const LOOP_CHANNELS = {
   LOOP_GET_STATE: 'loop:get-state',
   LOOP_LIST_RUNS_FOR_CHAT: 'loop:list-runs-for-chat',
   LOOP_GET_ITERATIONS: 'loop:get-iterations',
+  /** Read the durable verification execution ledger for one loop or instance. */
+  VERIFICATION_RUNS_LIST: 'verification-runs:list',
   /** LF-3a: preview the verify command the loop would auto-infer for a
    *  workspace, so the config panel can show "verify: <inferred>" before start. */
   LOOP_INFER_VERIFY: 'loop:infer-verify',

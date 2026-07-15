@@ -153,4 +153,22 @@ describe('DurableLoopMemoryStore', () => {
     rmSync(dir, { recursive: true, force: true });
     expect(store.surfaceLearnings('/x', 3)).toEqual([]);
   });
+
+  it('redacts secrets before persisting and surfacing a durable learning', () => {
+    const privateKeyHeader = '-----BEGIN PRIVATE KEY----- EXAMPLE ONLY';
+    const store = new DurableLoopMemoryStore(filePath, { mirrorToEpisodic: false });
+
+    store.recordLearning({
+      workspaceCwd: '/proj/app',
+      goal: `Repair webhook delivery using ${privateKeyHeader}`,
+      status: 'failed',
+      reason: `The private-key marker ${privateKeyHeader} was committed by mistake.`,
+      observations: [`Remove ${privateKeyHeader} from the fixture.`],
+    });
+
+    const raw = require('node:fs').readFileSync(filePath, 'utf8');
+    expect(raw).not.toContain(privateKeyHeader);
+    expect(raw).toContain('[REDACTED — potential secret]');
+    expect(store.surfaceLearnings('/proj/app', 1).join('\n')).not.toContain(privateKeyHeader);
+  });
 });

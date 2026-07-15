@@ -256,6 +256,11 @@ export interface LoopCompletionConfig {
    */
   antiSelfGrading?: boolean;
   /**
+   * WS4 durable execution authority. New loops default on; persisted loops
+   * without this field retain their previous completion behavior.
+   */
+  evidenceLedger?: boolean;
+  /**
    * Optional fresh-eyes cross-model review before accepting completion.
    *
    * When this block is explicitly set with `{ enabled: true }` and the agent

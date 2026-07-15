@@ -60,6 +60,10 @@ import { ActivityStateDetector } from '../providers/activity-state-detector';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { createSpawnTransaction, type SpawnTransaction } from './lifecycle/spawn-transaction';
+import {
+  deliverInitialPromptAfterSpawn,
+  type InitialPromptRecoveryDeps,
+} from './lifecycle/initial-prompt-recovery';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import {
   buildInstanceRecord,
@@ -163,6 +167,17 @@ export class InstanceLifecycleManager extends EventEmitter {
    * Accumulated so multiple late enrichers combine into one preamble.
    */
   private readonly lateEnricherPreambles = new Map<string, Map<string, string>>();
+
+  /**
+   * Callbacks used to keep a session alive when its create-time initial prompt
+   * fails after a successful spawn (rather than rolling back and deleting it).
+   */
+  private readonly initialPromptRecoveryDeps: InitialPromptRecoveryDeps = {
+    transitionState: (instance, status) => this.transitionState(instance, status),
+    queueUpdate: (instance) => this.deps.queueUpdate(instance.id, instance.status, instance.contextUsage),
+    addToOutputBuffer: (instance, message) => this.deps.addToOutputBuffer(instance, message),
+    emitOutput: (instanceId, message) => this.emit('output', { instanceId, message }),
+  };
 
   /** Extracted runtime readiness / native-resume health checks. */
   private readonly runtimeReadiness: RuntimeReadinessCoordinator;
@@ -858,9 +873,10 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   private getAdapterResumeAttemptResult(instanceId: string): ResumeAttemptResult | null {
     const adapter = this.deps.getAdapter(instanceId);
-    if (!adapter || typeof (adapter as { getResumeAttemptResult?: unknown }).getResumeAttemptResult !== 'function') {
-      return null;
-    }
+    if (!adapter) return null;
+    const snapshotProof = getProviderRuntimeService().getRuntimeSnapshot(adapter)?.resumeProof;
+    if (snapshotProof) return snapshotProof;
+    if (typeof (adapter as { getResumeAttemptResult?: unknown }).getResumeAttemptResult !== 'function') return null;
 
     return (adapter as { getResumeAttemptResult: () => ResumeAttemptResult | null }).getResumeAttemptResult();
   }
@@ -1581,26 +1597,27 @@ export class InstanceLifecycleManager extends EventEmitter {
           this.deps.startStuckTracking?.(instance.id);
           logger.info('Warm-start instance ready', { instanceId: instance.id });
 
-          // Send initial prompt if provided.
+          // Send initial prompt if provided. Post-spawn this is non-fatal: a
+          // failed first turn must not roll back and delete the (already-live)
+          // session.
           if (initialUserMessage) {
             if (!seededInitialUserMessage) {
               this.deps.addToOutputBuffer(instance, initialUserMessage);
               this.emit('output', { instanceId: instance.id, message: initialUserMessage });
             }
-            try {
-              await this.sendInitialPromptWithAttachmentFallback({
+            await deliverInitialPromptAfterSpawn(
+              instance,
+              signal,
+              () => this.sendInitialPromptWithAttachmentFallback({
                 instance,
                 adapter,
                 resolvedCliType,
                 message: initialUserMessage.content,
                 contextBlock: initialRuntimeContextBlock,
                 attachments: config.attachments,
-              });
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : String(error);
-              logger.error('Failed to send initial prompt via warm adapter', error instanceof Error ? error : undefined, { errorMessage });
-              throw error;
-            }
+              }),
+              this.initialPromptRecoveryDeps,
+            );
           }
         } else {
           const executionLocation = resolveExecutionLocation(config);
@@ -1679,20 +1696,28 @@ export class InstanceLifecycleManager extends EventEmitter {
             this.deps.startStuckTracking?.(instance.id);
             logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
 
-            // Send initial prompt if provided
+            // Send initial prompt if provided. Post-spawn this is non-fatal: a
+            // failed first turn (e.g. Codex context-cost recovery pausing on an
+            // unconfirmed interrupt, or the app-server dropping mid-turn) must
+            // not roll back and delete the session out from under the user.
             if (initialUserMessage) {
               if (!seededInitialUserMessage) {
                 this.deps.addToOutputBuffer(instance, initialUserMessage);
                 this.emit('output', { instanceId: instance.id, message: initialUserMessage });
               }
-              await this.sendInitialPromptWithAttachmentFallback({
+              await deliverInitialPromptAfterSpawn(
                 instance,
-                adapter,
-                resolvedCliType,
-                message: initialUserMessage.content,
-                contextBlock: initialRuntimeContextBlock,
-                attachments: config.attachments,
-              });
+                signal,
+                () => this.sendInitialPromptWithAttachmentFallback({
+                  instance,
+                  adapter,
+                  resolvedCliType,
+                  message: initialUserMessage.content,
+                  contextBlock: initialRuntimeContextBlock,
+                  attachments: config.attachments,
+                }),
+                this.initialPromptRecoveryDeps,
+              );
             }
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);

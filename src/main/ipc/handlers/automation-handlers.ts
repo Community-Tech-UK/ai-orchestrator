@@ -88,11 +88,16 @@ export function registerAutomationHandlers(): void {
         const schedule = validated.updates.schedule ?? existing.schedule;
         const enabled = validated.updates.enabled ?? existing.enabled;
         const active = validated.updates.active ?? existing.active;
-        const nextFireAt = enabled && active ? computeNextFireAt(schedule, Date.now()) : null;
+        const trigger = validated.updates.trigger ?? existing.trigger;
+        const nextFireAt = enabled && active && trigger.kind === 'schedule'
+          ? computeNextFireAt(schedule, Date.now())
+          : null;
         const automation = await store.update(validated.id, validated.updates, nextFireAt);
         scheduler.schedule(automation);
         events.emitChanged({ automation, automationId: automation.id, type: 'updated' });
-        await handlePastOneTimeAutomation(automation);
+        if (automation.trigger.kind === 'schedule') {
+          await handlePastOneTimeAutomation(automation);
+        }
         return { success: true, data: await store.get(automation.id) };
       } catch (error) {
         return responseError('AUTOMATION_UPDATE_FAILED', error);

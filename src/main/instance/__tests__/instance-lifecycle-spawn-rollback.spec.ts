@@ -10,7 +10,9 @@
  *   2. adapter.spawn() failure   → all of the above plus prompt-history,
  *      RLM session, and adapter registration (listeners removed, adapter
  *      deleted, process terminated)
- *   3. initial-prompt send fail  → full rollback after a successful spawn
+ *   3. initial-prompt send fail  → session PRESERVED after a successful spawn
+ *      (the CLI is already live; a failed first turn must not delete the
+ *       session — it settles to idle with a notice so the user can resend)
  *   4. success                   → commit; nothing is torn down
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -479,29 +481,49 @@ describe('createInstance spawn transaction rollback', () => {
     expect(mocks.promptHistoryClear).toHaveBeenCalledWith(instance.id);
   });
 
-  it('rolls back everything when the initial prompt send fails after a successful spawn', async () => {
+  it('preserves the session when the initial prompt send fails after a successful spawn', async () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();
-    adapter.sendInput.mockRejectedValue(new Error('stdin closed'));
+    // Reproduces the real Codex failure that was deleting live sessions: a
+    // context-cost recovery pause thrown from the first turn.
+    adapter.sendInput.mockRejectedValue(
+      new Error(
+        'Codex context-cost recovery paused because the active turn did not confirm interruption. The conversation was preserved; retry when ready.',
+      ),
+    );
     mocks.createAdapter.mockReturnValue(adapter);
 
-    const instance = await createAndAwaitFailure(harness, {
+    const instance = await harness.manager.createInstance({
       workingDirectory: '/tmp/project',
-      provider: 'claude',
+      provider: 'codex',
       initialPrompt: 'hello world',
     });
+    // The spawn succeeded, so background init RESOLVES — a failed first turn
+    // must not reject and trigger the spawn-transaction rollback.
+    await expect(instance.readyPromise).resolves.toBeUndefined();
 
     expect(adapter.spawn).toHaveBeenCalled();
-    expect(harness.instances.has(instance.id)).toBe(false);
-    expect(harness.adapters.has(instance.id)).toBe(false);
-    expect(adapter.removeAllListeners).toHaveBeenCalled();
-    expect(adapter.terminate).toHaveBeenCalledWith(false);
-    expect(mocks.supervisorUnregister).toHaveBeenCalledWith(instance.id);
-    expect(harness.unregisterOrchestration).toHaveBeenCalledWith(instance.id);
-    expect(mocks.outputStorageDelete).toHaveBeenCalledWith(instance.id);
-    expect(harness.endRlmSession).toHaveBeenCalledWith(instance.id);
-    expect(mocks.promptHistoryClear).toHaveBeenCalledWith(instance.id);
-    expect(harness.removedEvents).toContain(instance.id);
+    expect(adapter.sendInput).toHaveBeenCalled();
+
+    // The session is kept, not torn down: still in the store, adapter intact,
+    // never terminated, never emitted as 'removed'.
+    expect(harness.instances.has(instance.id)).toBe(true);
+    expect(harness.adapters.get(instance.id)).toBe(adapter);
+    expect(adapter.terminate).not.toHaveBeenCalled();
+    expect(adapter.removeAllListeners).not.toHaveBeenCalled();
+    expect(mocks.supervisorUnregister).not.toHaveBeenCalledWith(instance.id);
+    expect(harness.unregisterOrchestration).not.toHaveBeenCalledWith(instance.id);
+    expect(mocks.outputStorageDelete).not.toHaveBeenCalledWith(instance.id);
+    expect(harness.endRlmSession).not.toHaveBeenCalledWith(instance.id);
+    expect(harness.removedEvents).not.toContain(instance.id);
+
+    // It settles to idle so the user can simply resend...
+    expect(instance.status).toBe('idle');
+    // ...and a system notice explains that the first message didn't send.
+    const notice = instance.outputBuffer.find(
+      (m) => (m as { metadata?: { initialPromptFailed?: boolean } }).metadata?.initialPromptFailed,
+    );
+    expect(notice).toBeDefined();
   });
 
   it('commits on success and leaves every resource registered', async () => {

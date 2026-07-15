@@ -38,6 +38,7 @@ describe('CodexNativeConversationAdapter', () => {
       method: 'thread/start',
       params: { cwd: '/tmp/project', ephemeral: false, serviceName: 'ai-orchestrator' },
     });
+    expect(client.requests[0]?.params).not.toHaveProperty('reasoningEffort');
   });
 
   it('discovers from app-server data and maps source kinds from data, not threads', async () => {
@@ -116,6 +117,7 @@ describe('CodexNativeConversationAdapter', () => {
 
     expect(result.messages).toMatchObject([{ role: 'assistant', content: 'answer' }]);
     expect(client.requests.map(request => request.method)).toEqual(['thread/resume', 'turn/start']);
+    expect(client.requests[1]?.params).not.toHaveProperty('reasoningEffort');
   });
 
   it('discovers fixture-backed filesystem sessions', async () => {
@@ -139,6 +141,7 @@ describe('CodexNativeConversationAdapter', () => {
 
 class FakeClient {
   readonly requests: { method: AppServerMethod; params: unknown }[] = [];
+  readonly subscribers = new Set<(notification: never) => void>();
   closed = false;
 
   constructor(
@@ -163,9 +166,13 @@ class FakeClient {
   }
 
   setNotificationHandler = vi.fn();
+  subscribeNotifications(handler: (notification: never) => void): () => void {
+    this.subscribers.add(handler);
+    return () => this.subscribers.delete(handler);
+  }
   notify = vi.fn();
   getExitError = vi.fn(() => null);
   readonly cwd = '/tmp/project';
   readonly transport = 'direct' as const;
-  readonly exitPromise = Promise.resolve();
+  readonly exitPromise = new Promise<void>(() => {});
 }

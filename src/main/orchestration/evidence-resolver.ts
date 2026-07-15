@@ -31,6 +31,7 @@ import type {
   LoopCompletionOutcome,
   LoopFinalAuditMode,
 } from '../../shared/types/loop.types';
+import { canonicalizeCommandSegment, splitCommandSegments } from './loop-canonical-command';
 
 // ============ Input / Output types ============
 
@@ -43,6 +44,14 @@ export type VerifyStatus = 'passed' | 'failed' | 'skipped';
 
 /** The result of the quick-verify pre-flight (FU-6). */
 export type QuickVerifyStatus = 'passed' | 'failed' | 'skipped';
+
+/** The resolver's pure view of a durable verification execution. */
+export interface VerificationRunEvidence {
+  canonicalCommand: string;
+  exitCode: number | null;
+  workHash: string | null;
+  startedAt: number;
+}
 
 /**
  * All evidence the coordinator has gathered by the time it reaches
@@ -135,6 +144,21 @@ export interface EvidenceInput {
    * Optional; the rung fails open when absent (never recorded / not wired).
    */
   lastVerifiedWorkHash?: string | null;
+  /**
+   * WS4: enables durable execution-ledger enforcement. An absent value keeps
+   * existing persisted loops on their previous completion semantics.
+   */
+  evidenceLedgerEnabled?: boolean;
+  /** The configured full verification command, compared in canonical form. */
+  verifyCommand?: string;
+  /** Start of the iteration whose completion is being resolved. */
+  verifyWindowStartedAt?: number;
+  /**
+   * Executions read from the ledger. `undefined` means the ledger could not
+   * be read, so the resolver fails open instead of treating a storage outage
+   * as a failed verify. An empty array is an available ledger with no proof.
+   */
+  verificationRuns?: readonly VerificationRunEvidence[];
 }
 
 /** Possible decisions the resolver can return. */
@@ -221,6 +245,39 @@ export function isVerifyEvidenceStale(args: {
 }
 
 /**
+ * Returns true only for an observed, successful full verify that ran during
+ * the current iteration and against its current work state.
+ */
+export function hasMatchingVerificationExecution(input: Pick<
+  EvidenceInput,
+  'verifyCommand' | 'currentWorkHash' | 'verifyWindowStartedAt' | 'verificationRuns'
+>): boolean {
+  if (
+    input.verificationRuns === undefined
+    || !input.verifyCommand?.trim()
+    || !input.currentWorkHash
+    || !Number.isFinite(input.verifyWindowStartedAt)
+  ) {
+    return false;
+  }
+  const expectedCommand = canonicalizeCommand(input.verifyCommand);
+  return input.verificationRuns.some((run) =>
+    run.exitCode === 0
+    && run.canonicalCommand === expectedCommand
+    && run.workHash === input.currentWorkHash
+    && run.startedAt >= input.verifyWindowStartedAt!,
+  );
+}
+
+function canonicalizeCommand(command: string): string {
+  const segments = splitCommandSegments(command)
+    .map(canonicalizeCommandSegment)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.join(' '));
+  return segments.join(' && ') || command.trim();
+}
+
+/**
  * Resolve the completion decision from fully-gathered evidence.
  *
  * This is a pure function — call it with all evidence already in hand and
@@ -285,6 +342,28 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
       reason: `${label} failed`,
       needsReviewReason: null,
       convergenceNote: `${label} failed`,
+    };
+  }
+
+  // --- WS4: a verify claim is authoritative only when AIO recorded it ---
+  // Deliberately distinguish an unavailable ledger (`undefined`, fail open)
+  // from an available but empty/non-matching one (fail closed). This keeps
+  // legacy or storage-unavailable paths working while preventing fabricated,
+  // narrowed, stale, or pre-iteration executions from satisfying completion.
+  if (
+    input.evidenceLedgerEnabled === true
+    && input.verifyStatus === 'passed'
+    && input.verificationRuns !== undefined
+    && !hasMatchingVerificationExecution(input)
+  ) {
+    return {
+      decision: 'continue',
+      authorityTier: tier,
+      outcome: 'verify-failed',
+      signalId: candidate.id,
+      reason: 'no matching recorded verification execution for the current work state; verify must be re-run',
+      needsReviewReason: null,
+      convergenceNote: 'verification ledger has no matching current full verify execution',
     };
   }
 

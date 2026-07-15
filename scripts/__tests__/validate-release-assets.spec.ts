@@ -260,7 +260,7 @@ describe("electron-builder update configuration", () => {
     mac: {
       target: Array<{ target: string; arch: string[] }>;
       notarize: boolean;
-      sign: string;
+      sign?: string;
     };
     win: { target: Array<{ target: string; arch: string[] }> };
     linux: { target: Array<{ target: string; arch: string[] }> };
@@ -285,7 +285,7 @@ describe("electron-builder update configuration", () => {
       ]),
     );
     expect(config.mac.notarize).toBe(true);
-    expect(config.mac.sign).toBe('scripts/sign-local-macos.js');
+    expect(config.mac.sign).toBeUndefined();
     expect(config.win.target).toContainEqual({ target: "nsis", arch: ["x64"] });
     expect(config.linux.target).toContainEqual({
       target: "AppImage",

@@ -643,3 +643,95 @@ describe('isVerifyEvidenceStale', () => {
     expect(isVerifyEvidenceStale({ currentWorkHash, lastVerifiedWorkHash })).toBe(expected);
   });
 });
+
+// ============ WS4: durable verification execution ledger ============
+
+describe('resolveCompletion — verification execution ledger', () => {
+  function ledgerInput(over: Record<string, unknown> = {}): EvidenceInput {
+    return {
+      ...base({ candidate: declaredSig, currentWorkHash: 'work-hash' }),
+      evidenceLedgerEnabled: true,
+      verifyCommand: 'npm run test:quiet',
+      verifyWindowStartedAt: 1_000,
+      verificationRuns: [],
+      ...over,
+    } as EvidenceInput;
+  }
+
+  it('demotes a passing claim when an available ledger has no execution row', () => {
+    const r = resolveCompletion(ledgerInput());
+
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('verify-failed');
+    expect(r.reason).toContain('no matching recorded verification execution');
+  });
+
+  it('rejects a narrowed recorded run as completion authority', () => {
+    const r = resolveCompletion(ledgerInput({
+      verificationRuns: [{
+        canonicalCommand: 'npm run test:quiet -- src/auth.spec.ts',
+        exitCode: 0,
+        workHash: 'work-hash',
+        startedAt: 1_100,
+      }],
+    }));
+
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('verify-failed');
+    expect(r.reason).toContain('no matching recorded verification execution');
+  });
+
+  it('accepts a full, current-hash execution recorded in this iteration window', () => {
+    const r = resolveCompletion(ledgerInput({
+      verificationRuns: [{
+        canonicalCommand: 'npm run test:quiet',
+        exitCode: 0,
+        workHash: 'work-hash',
+        startedAt: 1_100,
+      }],
+    }));
+
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
+  });
+
+  it('rejects an otherwise passing execution against a drifted work hash', () => {
+    const r = resolveCompletion(ledgerInput({
+      verificationRuns: [{
+        canonicalCommand: 'npm run test:quiet',
+        exitCode: 0,
+        workHash: 'previous-work-hash',
+        startedAt: 1_100,
+      }],
+    }));
+
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('verify-failed');
+    expect(r.reason).toContain('no matching recorded verification execution');
+  });
+
+  it('rejects a matching run recorded before the current iteration window', () => {
+    const r = resolveCompletion(ledgerInput({
+      verificationRuns: [{
+        canonicalCommand: 'npm run test:quiet',
+        exitCode: 0,
+        workHash: 'work-hash',
+        startedAt: 999,
+      }],
+    }));
+
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('verify-failed');
+  });
+
+  it('preserves existing behavior when the ledger is unavailable', () => {
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      evidenceLedgerEnabled: true,
+      verifyCommand: 'npm run test:quiet',
+    } as EvidenceInput));
+
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
+  });
+});

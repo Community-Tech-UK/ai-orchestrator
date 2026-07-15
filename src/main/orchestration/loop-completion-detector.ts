@@ -27,7 +27,11 @@ import { setTimeout as rawSetTimeout } from 'node:timers';
 import { watch, type FSWatcher } from 'chokidar';
 import { getLogger } from '../logging/logger';
 import { parsePlanChecklist, LOOP_TASKS_FILE, INVESTIGATION_REPORT_FILE } from './loop-stage-machine';
-import { findSelfAssignedCaveat, findTargetedVerifyMasquerade } from './loop-anti-self-grading';
+import {
+  findSelfAssignedCaveat,
+  findTargetedVerifyMasqueradeWithExecution,
+  type ObservedVerificationCommand,
+} from './loop-anti-self-grading';
 import { parseTaskLedger } from './loop-task-ledger';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { readUtf8FileHead } from './bounded-file-read';
@@ -328,6 +332,10 @@ export interface CompletionObservationInput {
   iteration: LoopIteration;
   config: LoopConfig;
   state: LoopState;
+  /** Durable commands AIO observed before this completion claim. Undefined
+   * means ledger storage was unavailable; an empty array means no command was
+   * observed, so anti-self-grading falls back to claimed evidence. */
+  verificationRuns?: readonly ObservedVerificationCommand[];
 }
 
 export type VerifyFailureKind = 'command' | 'timeout' | 'infra';
@@ -407,14 +415,17 @@ export class LoopCompletionDetector {
         if (caveat !== null) {
           demotionReason = `self-assigns a partial/caveated verdict ("${caveat}")`;
         } else {
-          const masquerade = findTargetedVerifyMasquerade(
+          const masquerade = findTargetedVerifyMasqueradeWithExecution(
             intent.evidence,
             config.completion.verifyCommand,
+            input.verificationRuns,
           );
           if (masquerade !== null) {
-            demotionReason =
-              `cites only a targeted verification run ("${masquerade}") — a narrowed subset of the ` +
-              `configured verify command (\`${config.completion.verifyCommand}\`) cannot stand in for the full suite`;
+            demotionReason = masquerade.source === 'observed'
+              ? `has an observed targeted verification run ("${masquerade.command}") — a narrowed subset of the ` +
+                `configured verify command (\`${config.completion.verifyCommand}\`) cannot stand in for the full suite`
+              : `cites only a targeted verification run ("${masquerade.command}") — an unobserved claimed verification run ` +
+                `cannot stand in for the full configured verify command (\`${config.completion.verifyCommand}\`)`;
           }
         }
       }

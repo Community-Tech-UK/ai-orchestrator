@@ -216,6 +216,36 @@ describe('CrossModelReviewService headless review', () => {
     expect(dispatchedPrompt).toContain('truncated');
   });
 
+  it('redacts a secret-bearing diff before dispatch and surfaces it as a blocking finding', async () => {
+    let dispatchedPrompt = '';
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => REPO_CWD,
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt: vi.fn(async (_provider: string, prompt: string) => {
+        dispatchedPrompt = prompt;
+        return reviewerJson('The implementation looks sound.');
+      }),
+    });
+    const token = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD';
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD',
+      cwd: REPO_CWD,
+      content: `diff --git a/.env b/.env\n@@ -1 +1 @@\n+GITHUB_TOKEN=${token}`,
+      taskDescription: 'Review',
+      reviewers: ['gemini'],
+    });
+
+    expect(dispatchedPrompt).toContain('+[REDACTED — potential secret]');
+    expect(dispatchedPrompt).not.toContain(token);
+    expect(result.findings).toContainEqual(expect.objectContaining({
+      title: 'Potential secret redacted before external review',
+      severity: 'critical',
+      confidence: 1,
+    }));
+  });
+
   it('reports the response length when a reviewer returns unparseable output', async () => {
     const service = CrossModelReviewService.getInstance();
     service.setReviewExecutionHost({

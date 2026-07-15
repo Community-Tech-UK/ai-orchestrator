@@ -39,7 +39,9 @@ export async function createAutomationWithScheduling(input: CreateAutomationInpu
   const events = getAutomationEvents();
   const now = Date.now();
   const missedRunPolicy = input.missedRunPolicy ?? getSettingsManager().get('defaultMissedRunPolicy');
-  const nextFireAt = input.enabled === false ? null : computeNextFireAt(input.schedule, now);
+  const nextFireAt = input.enabled === false || input.trigger?.kind === 'webhook'
+    ? null
+    : computeNextFireAt(input.schedule, now);
   const automation = await store.create({
     ...input,
     missedRunPolicy,
@@ -47,6 +49,8 @@ export async function createAutomationWithScheduling(input: CreateAutomationInpu
   }, nextFireAt, now);
 
   events.emitChanged({ automation, automationId: automation.id, type: 'created' });
-  await handlePastOneTimeAutomation(automation);
+  if (automation?.trigger.kind === 'schedule') {
+    await handlePastOneTimeAutomation(automation);
+  }
   return store.get(automation.id);
 }

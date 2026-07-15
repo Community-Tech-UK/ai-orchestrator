@@ -68,6 +68,21 @@ export interface AppSettings extends DesktopComputerUseSettings {
    */
   defaultModelByProvider: Record<string, string>;
   /**
+   * Dedicated provider for automation runs whose Model is left on **Auto**.
+   * Unlike `defaultCli`/`defaultModelByProvider`, this is NEVER rewritten by
+   * interactive picker usage, so Auto automations stay on a stable model
+   * instead of inheriting whatever the last chat happened to select.
+   * `'auto'` means "no automation-specific override — fall through to the
+   * normal provider resolution".
+   */
+  automationDefaultCli: CliType;
+  /**
+   * Dedicated model id for automation runs whose Model is left on **Auto**.
+   * Empty string means "no override — fall through to the provider default".
+   * Paired with `automationDefaultCli`.
+   */
+  automationDefaultModel: string;
+  /**
    * Global fast-mode default when no per-provider entry exists. Claude uses
    * CLI `fastMode`; Codex uses priority tier; others ignore.
    */
@@ -430,6 +445,14 @@ export interface AppSettings extends DesktopComputerUseSettings {
   // Notifications
   /** Show a desktop notification when an agent transitions from busy to idle. Default: true. */
   notifyOnAgentCompletion: boolean;
+  /** Minimum interval between desktop notifications of the same kind. */
+  notificationCooldownSeconds: number;
+  /** Keep normal-priority desktop notifications in the in-app center overnight. */
+  notificationQuietHoursEnabled: boolean;
+  /** Inclusive local-hour start for quiet hours (0–23). */
+  notificationQuietHoursStartHour: number;
+  /** Exclusive local-hour end for quiet hours (0–23). */
+  notificationQuietHoursEndHour: number;
 
   // CLI Provider Updates
   /**

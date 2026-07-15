@@ -10,6 +10,8 @@ function getElectronBuilderArgs(platform = process.platform) {
         'dmg',
         '--arm64',
         '--config.mac.notarize=false',
+        '--config.mac.timestamp=none',
+        '--config.mac.sign=scripts/sign-local-macos.js',
       ];
     case 'win32':
       return [

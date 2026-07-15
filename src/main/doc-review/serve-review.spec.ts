@@ -52,6 +52,16 @@ function startServer(artifactPath: string, args: string[] = []): Promise<Started
   });
 }
 
+async function waitForFiles(paths: string[], timeoutMs = 8_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (paths.every((path) => existsSync(path))) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const missing = paths.filter((path) => !existsSync(path));
+  throw new Error(`Timed out waiting for files: ${missing.join(', ')}`);
+}
+
 describe('serve-review.mjs capture server', () => {
   let tempRoot = '';
   let running: ChildProcessWithoutNullStreams | null = null;
@@ -151,11 +161,17 @@ describe('serve-review.mjs capture server', () => {
     tempRoot = mkdtempSync(join(tmpdir(), 'serve-review-'));
     const artifactPath = join(tempRoot, 'plan.html');
     const capturedPath = join(tempRoot, 'hook-path.txt');
+    const capturedEnvironmentPath = join(tempRoot, 'hook-environment.txt');
     const hookPath = join(tempRoot, 'capture-hook');
     writeFileSync(artifactPath, ARTIFACT_HTML);
     writeFileSync(
       hookPath,
-      `#!/bin/sh\nprintf '%s' "$1" > ${JSON.stringify(capturedPath)}\n`,
+      `#!${process.execPath}\n` +
+        `const { writeFileSync } = require('node:fs');\n` +
+        `setTimeout(() => {\n` +
+        `  writeFileSync(${JSON.stringify(capturedPath)}, process.argv[2]);\n` +
+        `  writeFileSync(${JSON.stringify(capturedEnvironmentPath)}, process.env.PATH ?? 'unset');\n` +
+        `}, 650);\n`,
       { mode: 0o755 },
     );
     const started = await startServer(artifactPath, ['--on-capture', hookPath]);
@@ -170,10 +186,55 @@ describe('serve-review.mjs capture server', () => {
     });
 
     expect(response.status).toBe(200);
-    for (let attempt = 0; attempt < 20 && !existsSync(capturedPath); attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    await waitForFiles([capturedPath, capturedEnvironmentPath]);
     expect(readFileSync(capturedPath, 'utf8')).toBe(join(tempRoot, 'plan.decisions.json'));
+    expect(readFileSync(capturedEnvironmentPath, 'utf8')).toBe('unset');
+  });
+
+  it('rejects a non-absolute on-capture executable before serving', async () => {
+    tempRoot = mkdtempSync(join(tmpdir(), 'serve-review-'));
+    const artifactPath = join(tempRoot, 'plan.html');
+    writeFileSync(artifactPath, ARTIFACT_HTML);
+    const child = spawn('node', [SERVER, artifactPath, '--on-capture', 'relative-hook'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    running = child;
+    let stderr = '';
+    child.stderr.on('data', (chunk) => (stderr += chunk.toString()));
+
+    const exitCode = await Promise.race([
+      new Promise<number | null>((resolve) => child.once('exit', resolve)),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+    ]);
+
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain('--on-capture requires an absolute executable path');
+    running = null;
+  });
+
+  it('does not let a long-running capture hook delay the response or wake exit', async () => {
+    tempRoot = mkdtempSync(join(tmpdir(), 'serve-review-'));
+    const artifactPath = join(tempRoot, 'plan.html');
+    const hookPath = join(tempRoot, 'slow-capture-hook');
+    writeFileSync(artifactPath, ARTIFACT_HTML);
+    writeFileSync(hookPath, '#!/bin/sh\n/bin/sleep 2\n', { mode: 0o755 });
+    const started = await startServer(artifactPath, ['--on-capture', hookPath]);
+    running = started.child;
+    const pageHtml = await (await fetch(started.url)).text();
+    const token = /name="aio-doc-review-capture" content="([^"]+)"/.exec(pageHtml)?.[1];
+    const exited = new Promise<number | null>((resolve) => started.child.once('exit', resolve));
+    const captureStartedAt = Date.now();
+
+    const response = await fetch(new URL('/decisions', started.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-aio-review-token': token! },
+      body: JSON.stringify({ items: [] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await exited).toBe(0);
+    expect(Date.now() - captureStartedAt).toBeLessThan(1_500);
+    running = null;
   });
 
   it('rejects a non-JSON body', async () => {

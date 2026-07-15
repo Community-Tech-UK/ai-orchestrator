@@ -8,7 +8,6 @@ function makeOps(overrides: Partial<InputCapRecoveryOps> = {}): InputCapRecovery
   return {
     send: vi.fn().mockResolvedValue(undefined),
     compact: vi.fn().mockResolvedValue(true),
-    awaitCompaction: vi.fn().mockResolvedValue(undefined),
     reopenThread: vi.fn().mockResolvedValue(undefined),
     onThreadReset: vi.fn(),
     ...overrides,
@@ -25,7 +24,6 @@ describe('recoverFromInputCap', () => {
     await recoverFromInputCap(ops);
 
     expect(ops.compact).toHaveBeenCalledTimes(1);
-    expect(ops.awaitCompaction).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledTimes(1); // post-compaction retry only
     expect(ops.reopenThread).not.toHaveBeenCalled();
     expect(ops.onThreadReset).not.toHaveBeenCalled();
@@ -37,19 +35,16 @@ describe('recoverFromInputCap', () => {
 
     await recoverFromInputCap(ops);
 
-    expect(ops.awaitCompaction).toHaveBeenCalledTimes(1);
     expect(ops.reopenThread).toHaveBeenCalledTimes(1);
     expect(ops.onThreadReset).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledTimes(2); // post-compaction (fails) + post-reopen (ok)
   });
 
-  it('rung 2: skips compaction wait entirely when compaction is unavailable', async () => {
-    const send = vi.fn().mockRejectedValueOnce(CAP_ERROR).mockResolvedValueOnce(undefined);
+  it('rung 2: reopens without retrying the old thread when compaction is unavailable or unobserved', async () => {
     const ops = makeOps({ compact: vi.fn().mockResolvedValue(false), send: vi.fn().mockResolvedValue(undefined) });
 
     await recoverFromInputCap(ops);
 
-    expect(ops.awaitCompaction).not.toHaveBeenCalled();
     expect(ops.reopenThread).toHaveBeenCalledTimes(1);
     expect(ops.send).toHaveBeenCalledTimes(1); // only the post-reopen send
   });

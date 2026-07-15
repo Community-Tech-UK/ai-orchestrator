@@ -14,6 +14,8 @@ describe('getElectronBuilderArgs', () => {
       'dmg',
       '--arm64',
       '--config.mac.notarize=false',
+      '--config.mac.timestamp=none',
+      '--config.mac.sign=scripts/sign-local-macos.js',
     ]);
   });
 

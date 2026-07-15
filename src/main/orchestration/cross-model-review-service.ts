@@ -20,7 +20,6 @@ import {
   truncateForReview,
 } from './review-prompts';
 import { combineAbortSignals } from '../util/abort-signals';
-import { aggregateReviewFindings, type AggregatableFinding } from './review-finding-aggregation';
 import type {
   AggregatedReview,
   ReviewOutputType,
@@ -29,7 +28,6 @@ import type {
 } from '../../shared/types/cross-model-review.types';
 import { reviewResultHasConcerns } from '../../shared/utils/cross-model-review-concerns';
 import type { OutputBuffer, ReviewDispatchRequest } from './cross-model-review.types';
-import type { HeadlessReviewFinding, HeadlessReviewResult, HeadlessReviewReviewer } from '../cli-entrypoints/review-command-output';
 import {
   resolveReviewerModelOverride,
   sendAbortableReviewerMessage,
@@ -54,9 +52,10 @@ import {
   runReviewExecutionBatch,
 } from './review-execution-batch';
 import { isLikelyReviewRefusal, parseCrossModelReviewResponse } from './review-response-parser';
-import { summarizeHeadlessReview, toHeadlessFindings } from './headless-review-findings';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { resolveAntigravityReviewModelPlan } from './antigravity-review-model-routing';
+import { redactForEgress } from '../security/content-egress-gate';
+import { runHeadlessReviewCommand } from './headless-review-runner';
 const logger = getLogger('CrossModelReviewService');
 
 // Codex and Antigravity both run noticeably slower than other reviewer CLIs
@@ -283,8 +282,14 @@ export class CrossModelReviewService extends EventEmitter {
         ? { builderModelRuntimeTarget: instance.modelRuntimeTarget }
         : {}),
       workingDirectory: resolveReviewWorkingDirectory(instance?.workingDirectory),
-      content: truncateForReview(aggregatedContent),
-      taskDescription: firstUserPrompt || buffer.firstUserPrompt || instance?.displayName || 'No task description available',
+      content: redactForEgress(truncateForReview(aggregatedContent), {
+        kind: 'prompt',
+        instanceId,
+      }).content,
+      taskDescription: redactForEgress(
+        firstUserPrompt || buffer.firstUserPrompt || instance?.displayName || 'No task description available',
+        { kind: 'prompt', instanceId },
+      ).content,
       classification,
       reviewDepth,
       timestamp: Date.now(),
@@ -585,189 +590,28 @@ export class CrossModelReviewService extends EventEmitter {
     }
   }
 
-  async runHeadlessReview(request: HeadlessReviewRequest): Promise<HeadlessReviewResult> {
-    const startedAt = new Date();
-    // The cwd comes from the caller (CLI entrypoint / loop gate) — validate it
-    // like the in-session path does so a stale/foreign path degrades to a
-    // bounded review instead of a `spawn <cli> ENOENT` crash. No remote check
-    // here: headless reviews have no instance concept.
-    const cwd = resolveReviewWorkingDirectory(request.cwd);
-    const host = this.reviewExecutionHost;
-    const reviewers = await this.resolveHeadlessReviewers(request);
-
-    const abort = new AbortController();
-    const externalSignal = request.signal;
-    const abortFromExternal = (): void => abort.abort(externalSignal?.reason);
-    const timeoutMs = Math.max(1, request.timeoutSeconds ?? 60) * 1000;
-    const reviewerStatuses: HeadlessReviewReviewer[] = [];
-
-    // Bound the review payload. The fresh-eyes loop gate feeds the full
-    // cumulative git diff here; on a long run that diff can be hundreds of KB,
-    // which overflows the reviewer CLI's context window and makes it emit
-    // truncated / non-JSON output ("Reviewer returned unparseable output").
-    // The in-session review path already truncates (see executeReview); the
-    // headless path must do the same so large diffs degrade to a bounded
-    // review rather than a hard failure.
-    const reviewContent = truncateForReview(request.content);
-    const reviewDepth = request.reviewDepth ?? 'structured';
+  async runHeadlessReview(request: HeadlessReviewRequest) {
     const settings = getSettingsManager().getAll();
-    const localPlan = createLocalReviewExecutionPlan({
-      enabled: settings.crossModelReviewLocalEnabled,
-      selectorId: settings.crossModelReviewLocalSelectorId ?? '',
-      auxiliaryQualityModel: settings.auxiliaryLlmQualityModel ?? '',
-      timeoutSeconds: settings.crossModelReviewLocalTimeout ?? 120,
-      maxToolRounds: settings.crossModelReviewLocalMaxToolRounds ?? 12,
-      inventory: settings.crossModelReviewLocalEnabled ? this.localModelInventory.list() : [],
-      ...(this.localModelInventory.resolveTarget
-        ? { resolveTarget: (selectorId: string) => this.localModelInventory.resolveTarget!(selectorId) }
-        : {}),
-      reviewer: this.localReviewer,
-      request: {
-        workspaceRoot: cwd,
-        taskDescription: request.taskDescription,
-        content: reviewContent,
-        reviewDepth,
-      },
-      signal: abort.signal,
+    return runHeadlessReviewCommand(request, {
+      host: this.reviewExecutionHost,
+      resolveReviewers: (headlessRequest) => this.resolveHeadlessReviewers(headlessRequest),
+      localEnabled: settings.crossModelReviewLocalEnabled === true,
+      createLocalPlan: ({ workspaceRoot, taskDescription, content, reviewDepth, signal }) =>
+        createLocalReviewExecutionPlan({
+          enabled: settings.crossModelReviewLocalEnabled,
+          selectorId: settings.crossModelReviewLocalSelectorId ?? '',
+          auxiliaryQualityModel: settings.auxiliaryLlmQualityModel ?? '',
+          timeoutSeconds: settings.crossModelReviewLocalTimeout ?? 120,
+          maxToolRounds: settings.crossModelReviewLocalMaxToolRounds ?? 12,
+          inventory: settings.crossModelReviewLocalEnabled ? this.localModelInventory.list() : [],
+          ...(this.localModelInventory.resolveTarget
+            ? { resolveTarget: (selectorId: string) => this.localModelInventory.resolveTarget!(selectorId) }
+            : {}),
+          reviewer: this.localReviewer,
+          request: { workspaceRoot, taskDescription, content, reviewDepth },
+          signal,
+        }),
     });
-    if (externalSignal?.aborted) {
-      abortFromExternal();
-    } else {
-      externalSignal?.addEventListener('abort', abortFromExternal, { once: true });
-    }
-    const timeout = setTimeout(() => abort.abort(), timeoutMs);
-    let batch: Awaited<ReturnType<typeof runReviewExecutionBatch>>;
-    try {
-      batch = await runReviewExecutionBatch({
-        collectRemoteReviews: async () => {
-          if (reviewers.length === 0) return [];
-          if (!host) throw new Error('Headless review host is not configured.');
-          const successful: ReviewResult[] = [];
-          let reviewerIndex = 0;
-          for (const reviewer of reviewers) {
-            const angle = angleForReviewer(reviewerIndex++);
-            const prompt = reviewDepth === 'tiered'
-              ? buildTieredReviewPrompt(request.taskDescription, reviewContent, angle)
-              : buildStructuredReviewPrompt(request.taskDescription, reviewContent, angle);
-            try {
-              const configuredModel = resolveReviewerModelOverride(reviewer);
-              const reviewerModels = reviewer === 'antigravity'
-                ? resolveAntigravityReviewModelPlan(
-                    configuredModel,
-                    getProviderQuotaService().getSnapshot('antigravity'),
-                  )
-                : [configuredModel];
-              let lastResponseLength = 0;
-              let parsed: ReviewResult | null = null;
-              for (const reviewerModel of reviewerModels) {
-                const needsModelOverride = reviewer === 'antigravity' && reviewerModel !== configuredModel;
-                const rawResponse = needsModelOverride
-                  ? await host.dispatchReviewerPrompt(
-                      reviewer,
-                      prompt,
-                      cwd,
-                      abort.signal,
-                      { modelOverride: reviewerModel },
-                    )
-                  : await host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal);
-                lastResponseLength = rawResponse?.length ?? 0;
-                parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
-                if (parsed) break;
-              }
-              if (!parsed) {
-                reviewerStatuses.push({
-                  provider: reviewer,
-                  status: 'failed',
-                  reason: `Reviewer returned unparseable output (${lastResponseLength} chars; expected strict JSON)`,
-                });
-                continue;
-              }
-              successful.push(parsed);
-              reviewerStatuses.push({ provider: reviewer, status: 'used' });
-            } catch (error) {
-              reviewerStatuses.push({
-                provider: reviewer,
-                status: 'failed',
-                reason: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
-          return successful;
-        },
-        runLocalReview: localPlan.run,
-      });
-    } finally {
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener('abort', abortFromExternal);
-    }
-
-    const localParticipant = localPlan.participant(batch.localOutcome);
-    if (settings.crossModelReviewLocalEnabled === true) {
-      reviewerStatuses.push({
-        provider: 'local-model',
-        source: 'local',
-        status: localParticipant.status,
-        ...(localParticipant.model ? { model: localParticipant.model } : {}),
-        ...(localParticipant.selectorId ? { selectorId: localParticipant.selectorId } : {}),
-        ...(localParticipant.reason ? { reason: localParticipant.reason } : {}),
-      });
-    }
-    const localReviews = batch.localOutcome.status === 'used'
-      ? [{ ...batch.localOutcome.review, source: 'local' as const }]
-      : [];
-    const successfulReviews = [...batch.remoteReviews, ...localReviews];
-
-    // Dedup + aggregate findings across reviewers ("N/M reviewers flagged X").
-    const taggedFindings: AggregatableFinding[] = successfulReviews.flatMap((review) =>
-      toHeadlessFindings(review).map((finding) => ({
-        ...finding,
-        reviewer: review.reviewerId,
-        source: review.source === 'local' ? 'local' : 'remote',
-      })),
-    );
-    const findings: HeadlessReviewFinding[] = aggregateReviewFindings(taggedFindings, {
-      totalReviewers: successfulReviews.length,
-    }).map((finding) => ({
-      title: finding.title,
-      body: finding.body,
-      ...(finding.file ? { file: finding.file } : {}),
-      ...(typeof finding.line === 'number' ? { line: finding.line } : {}),
-      severity: finding.severity,
-      confidence: finding.confidence,
-      reviewers: finding.reviewers,
-      agreementCount: finding.agreementCount,
-      advisory: finding.advisory,
-    }));
-    const failedReasons = reviewerStatuses
-      .filter((reviewer) => reviewer.source !== 'local' && reviewer.status === 'failed' && reviewer.reason)
-      .map((reviewer) => `${reviewer.provider}: ${reviewer.reason}`);
-    const localFailureReasons = reviewerStatuses
-      .filter((reviewer) => reviewer.source === 'local' && reviewer.status === 'failed' && reviewer.reason)
-      .map((reviewer) => `${reviewer.provider}: ${reviewer.reason}`);
-    if (batch.remoteError) failedReasons.push(`remote: ${batch.remoteError}`);
-    const infrastructureErrors = batch.remoteReviews.length === 0 &&
-      (reviewers.length > 0 || batch.localOutcome.status === 'used' || batch.localOutcome.status === 'failed')
-      ? [
-        ...failedReasons,
-        ...localFailureReasons,
-        ...(failedReasons.length === 0 ? ['No remote reviewers completed.'] : []),
-      ]
-      : [];
-    const completedAt = new Date();
-    const noReviewers = reviewers.length === 0 && batch.localOutcome.status === 'skipped';
-
-    return {
-      target: request.target,
-      cwd,
-      startedAt: startedAt.toISOString(),
-      completedAt: completedAt.toISOString(),
-      reviewers: reviewerStatuses,
-      findings,
-      summary: noReviewers
-        ? 'No reviewers available for headless review.'
-        : summarizeHeadlessReview(successfulReviews.length, findings.length, infrastructureErrors.length),
-      infrastructureErrors,
-    };
   }
 
   private async resolveHeadlessReviewers(request: HeadlessReviewRequest): Promise<string[]> {

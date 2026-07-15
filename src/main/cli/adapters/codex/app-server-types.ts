@@ -101,10 +101,6 @@ export interface ThreadStartParams {
   personality?: string | null;
   ephemeral?: boolean;
   experimentalRawEvents?: boolean;
-  /** Legacy name accepted by older Codex app-server builds. */
-  reasoningEffort?: CodexReasoningEffort | null;
-  /** Generated 0.128.x name for turn-level reasoning. */
-  effort?: CodexReasoningEffort | null;
   sessionStartSource?: string | null;
   config?: Record<string, unknown> | null;
 }
@@ -133,7 +129,8 @@ export interface ThreadSetNameParams {
 }
 
 export interface ThreadSetNameResponse {
-  success: boolean;
+  /** Older app-server builds returned this compatibility flag. */
+  success?: boolean;
 }
 
 export interface ThreadListParams {
@@ -205,7 +202,8 @@ export interface ThreadCompactStartParams {
 }
 
 export interface ThreadCompactStartResponse {
-  success: boolean;
+  /** Older app-server builds returned this compatibility flag. */
+  success?: boolean;
 }
 
 // ─── Turn Management ────────────────────────────────────────────────────────
@@ -256,9 +254,7 @@ export interface TurnStartParams {
   serviceTier?: string | null;
   /** JSON Schema for structured output. */
   outputSchema?: Record<string, unknown>;
-  /** Legacy name accepted by older Codex app-server builds. */
-  reasoningEffort?: CodexReasoningEffort | null;
-  /** Generated 0.128.x reasoning field names. */
+  /** Generated turn-level reasoning field. */
   effort?: CodexReasoningEffort | null;
   summary?: unknown;
   personality?: string | null;
@@ -275,7 +271,8 @@ export interface TurnInterruptParams {
 }
 
 export interface TurnInterruptResponse {
-  success: boolean;
+  /** Older app-server builds returned this compatibility flag. */
+  success?: boolean;
 }
 
 export interface Turn {

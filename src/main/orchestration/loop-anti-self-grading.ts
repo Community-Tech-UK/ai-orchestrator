@@ -97,3 +97,47 @@ export function findTargetedVerifyMasquerade(
   }
   return targetedClaim;
 }
+
+/** Minimal durable-execution shape used by the detector. The ledger is the
+ * authority for scope whenever it has rows; terminal-intent text is only a
+ * compatibility fallback for commands AIO did not observe. */
+export interface ObservedVerificationCommand {
+  command: string;
+}
+
+export interface TargetedVerifyMasquerade {
+  command: string;
+  source: 'observed' | 'unobserved-claim';
+}
+
+/**
+ * Prefer coordinator-observed commands over an agent's self-reported command.
+ * A full observed execution clears earlier targeted executions because the
+ * scope concern has been answered by a real full run. If no durable rows are
+ * available, retain the pre-ledger claim check and label that weaker evidence
+ * honestly for the next iteration/operator.
+ */
+export function findTargetedVerifyMasqueradeWithExecution(
+  evidence: readonly LoopTerminalIntentEvidence[],
+  configuredVerifyCommand: string,
+  verificationRuns: readonly ObservedVerificationCommand[] | undefined,
+): TargetedVerifyMasquerade | null {
+  if (verificationRuns && verificationRuns.length > 0) {
+    let targetedCommand: string | null = null;
+    for (const run of verificationRuns) {
+      const command = typeof run.command === 'string' ? run.command.trim() : '';
+      if (!command) continue;
+      const match = matchClaimedVerifyCommand(command, configuredVerifyCommand);
+      if (match === 'full') return null;
+      if (match === 'targeted' && targetedCommand === null) targetedCommand = command;
+    }
+    return targetedCommand === null
+      ? null
+      : { command: targetedCommand, source: 'observed' };
+  }
+
+  const claimedCommand = findTargetedVerifyMasquerade(evidence, configuredVerifyCommand);
+  return claimedCommand === null
+    ? null
+    : { command: claimedCommand, source: 'unobserved-claim' };
+}

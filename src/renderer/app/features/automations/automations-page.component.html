@@ -319,7 +319,7 @@
                       </button>
                     </div>
                     @if (form().provider === 'auto') {
-                      <span class="hint">The orchestrator picks the provider and model for each run.</span>
+                      <span class="hint">Uses the default automation model from Settings. If that is unset, it inherits your last-used model for the chosen provider.</span>
                     } @else {
                       <app-compact-model-picker
                         mode="pending-create"

@@ -57,6 +57,21 @@ export const AutomationScheduleSchema = z.discriminatedUnion('type', [
   }),
 ]);
 
+export const AutomationWebhookFilterSchema = z.object({
+  path: z.string().min(1).max(120).regex(/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/),
+  operator: z.enum(['equals', 'contains']),
+  value: z.string().min(1).max(1_000),
+});
+
+export const AutomationConfiguredTriggerSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('schedule') }),
+  z.object({
+    kind: z.literal('webhook'),
+    routeId: z.string().min(1).max(100),
+    filters: z.array(AutomationWebhookFilterSchema).max(10).default([]),
+  }),
+]);
+
 export const AutomationActionSchema = z.object({
   prompt: z.string().min(1).max(500000),
   workingDirectory: WorkingDirectorySchema,
@@ -98,6 +113,7 @@ export const AutomationCreatePayloadSchema = z.object({
   description: z.string().max(1000).optional(),
   enabled: z.boolean().optional(),
   schedule: AutomationScheduleSchema,
+  trigger: AutomationConfiguredTriggerSchema.optional(),
   missedRunPolicy: AutomationMissedRunPolicySchema.optional(),
   concurrencyPolicy: z.enum(['skip', 'queue']).optional(),
   destination: AutomationDestinationSchema.default({ kind: 'newInstance' }),
@@ -111,6 +127,7 @@ export const AutomationUpdatePayloadSchema = z.object({
     description: z.string().max(1000).optional(),
     enabled: z.boolean().optional(),
     schedule: AutomationScheduleSchema.optional(),
+    trigger: AutomationConfiguredTriggerSchema.optional(),
     missedRunPolicy: AutomationMissedRunPolicySchema.optional(),
     concurrencyPolicy: z.enum(['skip', 'queue']).optional(),
     destination: AutomationDestinationSchema.optional(),

@@ -88,18 +88,18 @@ export const CODEX_TIMEOUTS = {
   RPC_CONTROL_MS: 60_000,
 
   /**
-   * Notification idle watchdog — used when no item is in progress
-   * (startup phase and between items). Short because Codex should
-   * announce the next item quickly once the previous one finishes.
+   * Notification idle watchdog for the `turn/start` handshake only. Keep this
+   * short so a cold app-server/auth/backend hang surfaces promptly before a
+   * native turn has been established.
    */
   NOTIFICATION_IDLE_MS: 90_000,
 
   /**
-   * Notification idle watchdog — used when an item is in progress
-   * (reasoning block, shell command, mcp tool call, etc.).
-   * Codex's JSON-RPC transport emits no sub-item progress, so long
-   * silent stretches within a single item are normal. Long investigations
-   * can legitimately stay inside a single item for well beyond 5 minutes.
+   * Notification idle watchdog after a native turn has been established.
+   * Codex's JSON-RPC transport can stay silent both inside an item and between
+   * items while the model reasons, so the entire active turn needs the longer
+   * budget. Treating a between-item gap as thread loss can duplicate the turn
+   * on a fresh, context-empty thread while the original keeps running.
    */
   NOTIFICATION_IDLE_ACTIVE_MS: 900_000,
 
@@ -147,9 +147,8 @@ export const CODEX_TIMEOUTS = {
    * `thread/compact/start`. Compaction runs asynchronously server-side — the
    * RPC ack only means it *started* — so a per-turn-cap retry must wait for the
    * shrunken thread to land before re-sending, or it races the pre-compact
-   * thread and overflows again. If the notification never arrives (e.g. a Codex
-   * build that does not emit it for explicit compaction) the wait elapses and
-   * the caller retries anyway — bounded, never a hang.
+   * thread and overflows again. If the notification never arrives, the wait
+   * elapses and recovery fails closed without retrying the unchanged thread.
    */
   COMPACTION_SETTLE_MS: 30_000,
 } as const;

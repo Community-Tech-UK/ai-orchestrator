@@ -12,6 +12,7 @@ import type {
   ThreadItem,
   ThreadSourceKind,
   Turn,
+  TurnCaptureState,
   UserInput,
 } from '../../cli/adapters/codex/app-server-types';
 import type {
@@ -31,6 +32,10 @@ import type { NativeConversationAdapter } from '../native-conversation-adapter';
 import { NativeConversationError } from '../native-conversation-adapter';
 import { parseCodexRolloutFile } from './codex-rollout-parser';
 import { getAioCodexSessionsDir } from '../../cli/adapters/codex/codex-home-manager';
+import {
+  CodexAppServerThreadRuntime,
+  createCodexTurnCaptureState,
+} from '../../cli/adapters/codex/app-server-thread-runtime';
 
 const logger = getLogger('CodexNativeConversationAdapter');
 
@@ -162,8 +167,6 @@ export class CodexNativeConversationAdapter implements NativeConversationAdapter
         sandbox: request.sandbox === 'danger-full-access' ? 'danger-full-access' : 'workspace-write',
         serviceName: SERVICE_NAME,
         ephemeral: request.ephemeral ?? false,
-        reasoningEffort: normalizeReasoningEffort(request.reasoningEffort),
-        effort: normalizeReasoningEffort(request.reasoningEffort),
         personality: request.personality ?? null,
       });
       const thread = response.thread;
@@ -200,20 +203,43 @@ export class CodexNativeConversationAdapter implements NativeConversationAdapter
 
   async sendTurn(ref: NativeConversationRef, request: NativeTurnRequest): Promise<NativeTurnResult> {
     return this.withClient(ref.workspacePath ?? process.cwd(), async (client) => {
-      const response = await client.request('turn/start', {
-        threadId: ref.nativeThreadId,
-        input: request.inputItems?.length ? request.inputItems.map(inputItemToCodex) : [{
+      const input = request.inputItems?.length ? request.inputItems.map(inputItemToCodex) : [{
           type: 'text',
           text: request.text,
           text_elements: [],
-        }],
+        } satisfies UserInput];
+      const runtime = new CodexAppServerThreadRuntime();
+      runtime.attach(client, {
+        threadId: ref.nativeThreadId,
+        resumeCursor: null,
+        resumeProof: null,
+      });
+      const state = await runtime.captureTurn({
+        input,
+        turnParams: {
         cwd: ref.workspacePath ?? null,
         model: request.model ?? null,
         approvalPolicy: normalizeApprovalPolicy(request.approvalPolicy),
         effort: normalizeReasoningEffort(request.reasoningEffort),
-        reasoningEffort: normalizeReasoningEffort(request.reasoningEffort),
+        },
+        createState: createCodexTurnCaptureState,
+        belongsToTurn: () => true,
+        handleNotification: (turnState, notification) => {
+          if (notification.method !== 'turn/completed') return;
+          const turn = notification.params['turn'] as Turn | undefined;
+          if (turn) completeNativeTurn(turnState, turn);
+        },
+        completeTurn: (turnState, turn) => completeNativeTurn(turnState, turn),
+        toInterruptCompletion: (turnState) => ({
+          status: turnState.finalTurn?.status === 'interrupted' ? 'interrupted' : 'completed',
+          turnId: turnState.turnId ?? undefined,
+        }),
+        resolveNotificationIdleTimeoutMs: () => 90_000,
+        hasPendingApproval: () => false,
+        onHeartbeat: () => {},
+        onAbandonedTurn: () => {},
       });
-      const turn = response.turn;
+      const turn = state.finalTurn;
       const messages = turn?.items?.flatMap((item, index) =>
         this.threadItemToMessages(item, turn.id, this.clock(), index + 1)
       ) ?? [{
@@ -412,6 +438,13 @@ function inputItemToCodex(item: NonNullable<NativeTurnRequest['inputItems']>[num
   if (item.type === 'localImage') return { type: 'localImage', path: item.path ?? '' };
   if (item.type === 'skill') return { type: 'skill', name: item.name ?? '', path: item.path ?? '' };
   return { type: 'mention', name: item.name ?? '', path: item.path ?? '' };
+}
+
+function completeNativeTurn(state: TurnCaptureState, turn: Turn | null): void {
+  if (!turn || state.completed) return;
+  state.completed = true;
+  state.finalTurn = turn;
+  state.resolveCompletion(state);
 }
 
 function userInputToText(input: UserInput[]): string {

@@ -46,6 +46,10 @@ const hoisted = vi.hoisted(() => ({
     bumpLineageEpoch: vi.fn(),
   },
   loopCommitRatchetHook: vi.fn(),
+  verificationRunStore: {
+    listForLoop: vi.fn(),
+    listForInstance: vi.fn(),
+  },
 }));
 
 let tempWorkspace: string | null = null;
@@ -79,6 +83,12 @@ vi.mock('../../../chats', () => ({
 
 vi.mock('../../../orchestration/loop-commit-ratchet', () => ({
   loopCommitRatchetHook: hoisted.loopCommitRatchetHook,
+}));
+
+vi.mock('../../../orchestration/verification-run-store', () => ({
+  VerificationRunStore: {
+    getInstance: () => hoisted.verificationRunStore,
+  },
 }));
 
 function makeConfig(initialPrompt = 'Please continue the current implementation.'): LoopConfigInput {
@@ -116,6 +126,8 @@ beforeEach(() => {
   hoisted.store.getRunConfig.mockReturnValue(null);
   hoisted.store.listOutstandingItems.mockReturnValue([]);
   hoisted.store.setOutstandingItemStatus.mockReturnValue(true);
+  hoisted.verificationRunStore.listForLoop.mockReturnValue([]);
+  hoisted.verificationRunStore.listForInstance.mockReturnValue([]);
   // Default: behave as if state.chatId is a real chat. Individual tests can
   // override this to exercise the instance-id fallback path.
   hoisted.chatService.tryGetChat.mockReturnValue({ id: 'chat-1' });
@@ -1051,6 +1063,69 @@ describe('LOOP_RESUME_WITH_ANSWERS handler', () => {
       undefined,
       expect.any(Object),
     );
+  });
+});
+
+describe('VERIFICATION_RUNS_LIST handler', () => {
+  it('returns a least-privilege loop-scoped view of recorded verification executions', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    hoisted.verificationRunStore.listForLoop.mockReturnValue([{
+      id: 'run-1',
+      scope: 'loop',
+      loopRunId: 'loop-1',
+      instanceId: null,
+      command: 'npm run test',
+      canonicalCommand: 'npm run test',
+      cwd: '/work/project',
+      exitCode: 0,
+      durationMs: 1_250,
+      workHash: 'work-hash',
+      outputRef: '/private/output.txt',
+      startedAt: 123,
+    }]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+
+    const response = await findIpcHandler('verification-runs:list')({}, { loopRunId: 'loop-1' });
+
+    expect(hoisted.verificationRunStore.listForLoop).toHaveBeenCalledWith('loop-1');
+    expect(response).toEqual({
+      success: true,
+      data: {
+        runs: [{
+          id: 'run-1',
+          scope: 'loop',
+          loopRunId: 'loop-1',
+          instanceId: null,
+          command: 'npm run test',
+          exitCode: 0,
+          durationMs: 1_250,
+          workHash: 'work-hash',
+          startedAt: 123,
+        }],
+      },
+    });
+  });
+
+  it('supports instance scope and rejects an ambiguous owner query', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    hoisted.verificationRunStore.listForInstance.mockReturnValue([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler('verification-runs:list');
+
+    await expect(handler({}, { instanceId: 'instance-1' })).resolves.toEqual({ success: true, data: { runs: [] } });
+    await expect(handler({}, { loopRunId: 'loop-1', instanceId: 'instance-1' })).resolves.toEqual(expect.objectContaining({
+      success: false,
+      error: expect.objectContaining({ code: 'VERIFICATION_RUNS_LIST_FAILED' }),
+    }));
+    expect(hoisted.verificationRunStore.listForInstance).toHaveBeenCalledWith('instance-1');
   });
 });
 

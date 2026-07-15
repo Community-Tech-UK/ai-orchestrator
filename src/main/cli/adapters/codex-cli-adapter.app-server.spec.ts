@@ -43,6 +43,26 @@ function restoreContextDiagnosticsFlag(): void {
   }
 }
 
+type SyntheticNotification = { method: string; params: Record<string, unknown> };
+type SyntheticNotificationHost = {
+  notificationHandler: ((notification: SyntheticNotification) => void) | null;
+};
+
+function subscribeSyntheticNotification(
+  this: SyntheticNotificationHost,
+  handler: (notification: SyntheticNotification) => void,
+): () => void {
+  const previous = this.notificationHandler;
+  const combined = (notification: SyntheticNotification): void => {
+    previous?.(notification);
+    handler(notification);
+  };
+  this.notificationHandler = combined;
+  return () => {
+    if (this.notificationHandler === combined) this.notificationHandler = previous;
+  };
+}
+
 function createSyntheticTurnClient(notifications: Array<{ method: string; params: Record<string, unknown> }>) {
   const client = {
     notificationHandler: null as ((notification: { method: string; params: Record<string, unknown> }) => void) | null,
@@ -59,6 +79,7 @@ function createSyntheticTurnClient(notifications: Array<{ method: string; params
     setNotificationHandler(handler: typeof client.notificationHandler): void {
       this.notificationHandler = handler;
     },
+    subscribeNotifications: subscribeSyntheticNotification,
   };
   return client;
 }
@@ -134,6 +155,50 @@ describe('CodexCliAdapter', () => {
   });
 
   // ─── New tests for app-server hardening (Phase 2/3) ────────────────
+
+  describe('scoped app-server notification routing', () => {
+    it('keeps the permanent compaction observer active during and after a turn subscription', async () => {
+      const client = createSyntheticTurnClient([
+        {
+          method: 'turn/started',
+          params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+        },
+        {
+          method: 'thread/compacted',
+          params: { threadId: 'thread-1' },
+        },
+        {
+          method: 'turn/completed',
+          params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+        },
+      ]);
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerClient: typeof client;
+        appServerThreadId: string;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+        captureTurn(input: unknown[]): Promise<unknown>;
+      };
+      internals.appServerClient = client;
+      internals.appServerThreadId = 'thread-1';
+      const compactedOutputs: unknown[] = [];
+      adapter.on('output', (output: { metadata?: Record<string, unknown> }) => {
+        if (output.metadata?.['threadCompacted']) compactedOutputs.push(output);
+      });
+      client.subscribeNotifications((notification) => {
+        internals.handleIdleAppServerNotification(notification);
+      });
+
+      await internals.captureTurn([{ type: 'text', text: 'test', text_elements: [] }]);
+      expect(compactedOutputs).toHaveLength(1);
+
+      client.notificationHandler?.({
+        method: 'thread/compacted',
+        params: { threadId: 'thread-1' },
+      });
+      expect(compactedOutputs).toHaveLength(2);
+    });
+  });
 
   describe('context-pressure diagnostics', () => {
     it('enables diagnostics only for the exact flag value 1', () => {
@@ -313,7 +378,7 @@ describe('CodexCliAdapter', () => {
       });
     });
 
-    it('records manual compaction RPC stages without changing the existing return values', async () => {
+    it('records manual compaction RPC stages while requiring observed completion', async () => {
       process.env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] = '1';
       const records: CodexContextDiagnosticRecord[] = [];
       vi.spyOn(getLogger('CodexContextDiagnostics'), 'info').mockImplementation((message, data) => {
@@ -323,7 +388,12 @@ describe('CodexCliAdapter', () => {
       });
       const adapter = new CodexCliAdapter();
       const request = vi.fn()
-        .mockResolvedValueOnce({ success: true })
+        .mockImplementationOnce(async () => {
+          (adapter as unknown as {
+            contextCostController: { recordCompactionObserved(tokens: number): void };
+          }).contextCostController.recordCompactionObserved(0);
+          return { success: true };
+        })
         .mockRejectedValueOnce(new Error('synthetic compaction failure'));
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
       (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
@@ -367,6 +437,228 @@ describe('CodexCliAdapter', () => {
       expect(warning).toHaveBeenCalledWith('Context-pressure diagnostic write failed');
       expect(JSON.stringify(warning.mock.calls)).not.toContain('synthetic sink failure');
       expect(JSON.stringify(warning.mock.calls)).not.toContain('thread/tokenUsage/updated');
+    });
+  });
+
+  describe('turn cost governor', () => {
+    function installSyntheticCostClient(
+      adapter: CodexCliAdapter,
+      options: { completeInsteadOfInterrupt?: boolean } = {},
+    ) {
+      const order: string[] = [];
+      const turnInputs: string[] = [];
+      let turnSequence = 0;
+      const client = {
+        notificationHandler: null as ((notification: { method: string; params: Record<string, unknown> }) => void) | null,
+        exitPromise: new Promise<void>(() => { /* intentionally pending */ }),
+        request: vi.fn(async (method: string, params: Record<string, unknown>) => {
+          order.push(method);
+          if (method === 'turn/start') {
+            turnSequence += 1;
+            const input = params['input'] as Array<{ type: string; text?: string }>;
+            turnInputs.push(input.find((item) => item.type === 'text')?.text ?? '');
+            const turnId = `turn-${turnSequence}`;
+            client.notificationHandler?.({
+              method: 'turn/started',
+              params: { threadId: 'thread-1', turn: { id: turnId } },
+            });
+            if (turnSequence === 1) {
+              client.notificationHandler?.({
+                method: 'thread/tokenUsage/updated',
+                params: {
+                  threadId: 'thread-1',
+                  turnId,
+                  tokenUsage: {
+                    last: { totalTokens: 90 },
+                    total: { totalTokens: 400 },
+                    modelContextWindow: 100,
+                  },
+                },
+              });
+              if (options.completeInsteadOfInterrupt) {
+                client.notificationHandler?.({
+                  method: 'turn/completed',
+                  params: {
+                    threadId: 'thread-1',
+                    turn: { id: turnId, status: 'completed', usage: { input_tokens: 90, output_tokens: 10 } },
+                  },
+                });
+              }
+            } else {
+              client.notificationHandler?.({
+                method: 'item/completed',
+                params: {
+                  threadId: 'thread-1',
+                  turnId,
+                  item: { id: 'continued-answer', type: 'agentMessage', phase: 'final_answer', text: 'Continued safely' },
+                },
+              });
+              client.notificationHandler?.({
+                method: 'turn/completed',
+                params: {
+                  threadId: 'thread-1',
+                  turn: { id: turnId, status: 'completed', usage: { input_tokens: 20, output_tokens: 5 } },
+                },
+              });
+            }
+            return { turn: { id: turnId, status: 'inProgress' } };
+          }
+          if (method === 'turn/interrupt') {
+            if (!options.completeInsteadOfInterrupt) {
+              client.notificationHandler?.({
+                method: 'turn/completed',
+                params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'interrupted' } },
+              });
+            }
+            return { success: true };
+          }
+          if (method === 'thread/compact/start') {
+            client.notificationHandler?.({
+              method: 'thread/compacted',
+              params: { threadId: 'thread-1' },
+            });
+            return {};
+          }
+          throw new Error(`Unexpected synthetic RPC: ${method}`);
+        }),
+        setNotificationHandler(handler: typeof client.notificationHandler): void {
+          this.notificationHandler = handler;
+        },
+        subscribeNotifications: subscribeSyntheticNotification,
+      };
+      const internals = adapter as unknown as {
+        appServerClient: typeof client;
+        appServerThreadId: string;
+        handleIdleAppServerNotification(notification: { method: string; params: Record<string, unknown> }): void;
+        useAppServer: boolean;
+      };
+      internals.appServerClient = client;
+      internals.appServerThreadId = 'thread-1';
+      internals.useAppServer = true;
+      client.setNotificationHandler((notification) => internals.handleIdleAppServerNotification(notification));
+      return { client, order, turnInputs };
+    }
+
+    it('interrupts, observes compaction, and continues once without replaying the original message', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { order, turnInputs } = installSyntheticCostClient(adapter);
+      const completions: string[] = [];
+      adapter.on('complete', (response: { content: string }) => completions.push(response.content));
+
+      await (adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner('Original expensive task');
+
+      expect(order).toEqual([
+        'turn/start',
+        'turn/interrupt',
+        'thread/compact/start',
+        'turn/start',
+      ]);
+      expect(turnInputs).toHaveLength(2);
+      expect(turnInputs[0]).toBe('Original expensive task');
+      expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
+      expect(turnInputs[1]).not.toContain('Original expensive task');
+      expect(completions).toEqual(['Continued safely']);
+    });
+
+    it('emits one warning at the soft 2x ceiling without interrupting', () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const interrupt = vi.spyOn(adapter, 'interrupt');
+      const outputs: Array<{ metadata?: Record<string, unknown> }> = [];
+      adapter.on('output', (output: { metadata?: Record<string, unknown> }) => outputs.push(output));
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(state: unknown, notification: { method: string; params: Record<string, unknown> }): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      const usageNotification = (cumulativeTokens: number) => ({
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          tokenUsage: {
+            last: { totalTokens: 50 },
+            total: { totalTokens: cumulativeTokens },
+            modelContextWindow: 100,
+          },
+        },
+      });
+
+      internals.handleTurnNotification(state, usageNotification(200));
+      internals.handleTurnNotification(state, usageNotification(300));
+
+      expect(outputs.filter((output) => output.metadata?.['contextCostWarning'])).toHaveLength(1);
+      expect(interrupt).not.toHaveBeenCalled();
+    });
+
+    it('keeps a normal completion when it wins the interrupt race', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { order, turnInputs } = installSyntheticCostClient(adapter, { completeInsteadOfInterrupt: true });
+
+      await (adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner('Task that finishes at the threshold');
+
+      expect(order).not.toContain('thread/compact/start');
+      expect(turnInputs).toEqual(['Task that finishes at the threshold']);
+    });
+
+    it('pauses without continuation when compaction cannot be proved', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { turnInputs } = installSyntheticCostClient(adapter);
+      vi.spyOn(
+        (adapter as unknown as { contextCostController: { compactContext(timeoutMs: number): Promise<boolean> } }).contextCostController,
+        'compactContext',
+      ).mockResolvedValue(false);
+
+      await expect((adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner('Task that must pause')).rejects.toThrow(/recovery paused/i);
+
+      expect(turnInputs).toEqual(['Task that must pause']);
+    });
+
+    it('keeps the experimental governor disabled unless explicitly enabled', () => {
+      const adapter = new CodexCliAdapter();
+      const interrupt = vi.spyOn(adapter, 'interrupt');
+      const outputs: Array<{ metadata?: Record<string, unknown> }> = [];
+      adapter.on('output', (output: { metadata?: Record<string, unknown> }) => outputs.push(output));
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(state: unknown, notification: { method: string; params: Record<string, unknown> }): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+
+      internals.handleTurnNotification(state, {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          tokenUsage: {
+            last: { totalTokens: 90 },
+            total: { totalTokens: 800 },
+            modelContextWindow: 100,
+          },
+        },
+      });
+
+      expect(interrupt).not.toHaveBeenCalled();
+      expect(outputs.filter((output) => output.metadata?.['contextCostWarning'])).toEqual([]);
+    });
+
+    it('pauses after three automatic recoveries in one outer send', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { turnInputs } = installSyntheticCostClient(adapter);
+      const compact = vi.spyOn(
+        (adapter as unknown as { contextCostController: { compactContext(timeoutMs: number): Promise<boolean> } }).contextCostController,
+        'compactContext',
+      );
+
+      await expect((adapter as unknown as {
+        appServerSendMessageInner(message: string, attachments?: unknown, recoveryCount?: number): Promise<void>;
+      }).appServerSendMessageInner('Task at recovery ceiling', undefined, 3)).rejects.toThrow(/recovery limit/i);
+
+      expect(compact).not.toHaveBeenCalled();
+      expect(turnInputs).toEqual(['Task at recovery ceiling']);
     });
   });
 
@@ -546,7 +838,7 @@ describe('CodexCliAdapter', () => {
       const internals = (a: CodexCliAdapter) => a as unknown as {
         resolveDeadlineMs(): number;
         resolveTurnIdleTimeoutMs(): number;
-        resolveNotificationIdleTimeoutMs(activeItems: number): number;
+        resolveNotificationIdleTimeoutMs(turnEstablished: boolean): number;
       };
 
       // Review-style config (120s): the deadline is the configured total; the
@@ -556,23 +848,23 @@ describe('CodexCliAdapter', () => {
       const review = internals(new CodexCliAdapter({ timeout: 120_000 }));
       expect(review.resolveDeadlineMs()).toBe(120_000);
       expect(review.resolveTurnIdleTimeoutMs()).toBe(120_000);
-      expect(review.resolveNotificationIdleTimeoutMs(0)).toBe(90_000);
-      expect(review.resolveNotificationIdleTimeoutMs(1)).toBe(120_000);
+      expect(review.resolveNotificationIdleTimeoutMs(false)).toBe(90_000);
+      expect(review.resolveNotificationIdleTimeoutMs(true)).toBe(120_000);
 
       // Loop-style config (30 min): idle budgets stay at the built-in
       // constants — the configured timeout no longer inflates them.
       const loop = internals(new CodexCliAdapter({ timeout: 1_800_000 }));
       expect(loop.resolveDeadlineMs()).toBe(1_800_000);
       expect(loop.resolveTurnIdleTimeoutMs()).toBe(900_000);
-      expect(loop.resolveNotificationIdleTimeoutMs(0)).toBe(90_000);
-      expect(loop.resolveNotificationIdleTimeoutMs(1)).toBe(900_000);
+      expect(loop.resolveNotificationIdleTimeoutMs(false)).toBe(90_000);
+      expect(loop.resolveNotificationIdleTimeoutMs(true)).toBe(900_000);
 
       // Tiny deadline: no idle budget may exceed the total deadline — a 30s
       // budget must not wait 60s/90s of silence to report.
       const tiny = internals(new CodexCliAdapter({ timeout: 30_000 }));
       expect(tiny.resolveTurnIdleTimeoutMs()).toBe(30_000);
-      expect(tiny.resolveNotificationIdleTimeoutMs(0)).toBe(30_000);
-      expect(tiny.resolveNotificationIdleTimeoutMs(1)).toBe(30_000);
+      expect(tiny.resolveNotificationIdleTimeoutMs(false)).toBe(30_000);
+      expect(tiny.resolveNotificationIdleTimeoutMs(true)).toBe(30_000);
 
       // Unset / invalid configs fall back to the built-in turn budget.
       const unset = internals(new CodexCliAdapter());
@@ -913,137 +1205,79 @@ describe('CodexCliAdapter', () => {
       expect(result.status).toBe('already-idle');
     });
 
-    it('arms a pending abort when interrupt fires before turn/start returns (§6.1)', async () => {
+    it('routes an interrupt armed before turn/start through the scoped runtime', async () => {
       const adapter = new CodexCliAdapter();
-      const request = vi.fn().mockResolvedValue({ success: true });
+      let releaseTurnStart!: () => void;
+      const turnStartGate = new Promise<void>((resolve) => { releaseTurnStart = resolve; });
+      const client = {
+        notificationHandler: null as ((notification: SyntheticNotification) => void) | null,
+        exitPromise: new Promise<void>(() => {}),
+        request: vi.fn(async (method: string) => {
+          if (method === 'turn/start') {
+            await turnStartGate;
+            return { turn: { id: 'turn-1', status: 'inProgress' } };
+          }
+          if (method === 'turn/interrupt') {
+            client.notificationHandler?.({
+              method: 'turn/completed',
+              params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'interrupted' } },
+            });
+            return {};
+          }
+          throw new Error(`Unexpected RPC: ${method}`);
+        }),
+        subscribeNotifications: subscribeSyntheticNotification,
+      };
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
-      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
       (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
-      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
-      // currentTurnId is null — turn/start hasn't returned yet
-      (adapter as unknown as { currentTurnId: null }).currentTurnId = null;
-      (adapter as unknown as { currentTurnCompletion: Promise<unknown> }).currentTurnCompletion =
-        Promise.resolve({ status: 'interrupted', turnId: 'turn-1' });
 
-      // Interrupt fires BEFORE turnId is known
+      const capture = (adapter as unknown as { captureTurn(input: unknown[]): Promise<unknown> })
+        .captureTurn([{ type: 'text', text: 'test', text_elements: [] }]);
       const result = adapter.interrupt();
       expect(result.status).toBe('accepted');
       expect(result.turnId).toBeUndefined();
+      client.notificationHandler?.({
+        method: 'turn/started',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+      });
+      releaseTurnStart();
 
-      // No RPC yet — turnId not known
-      expect(request).not.toHaveBeenCalled();
-
-      // Now turn/start resolves: assign currentTurnId
-      (adapter as unknown as { currentTurnId: string }).currentTurnId = 'turn-1';
-      const interruptFn = (adapter as unknown as {
-        interruptActiveAppServerTurn(
-          threadId: string,
-          turnId: string,
-          completion: Promise<unknown> | null,
-        ): Promise<unknown>;
-      }).interruptActiveAppServerTurn.bind(adapter);
-      // Simulate the pending-abort delivery that fires in the code
-      const pendingResolve = (adapter as unknown as { pendingAbortResolve: ((r: unknown) => void) | null }).pendingAbortResolve;
-      if (pendingResolve) {
-        await interruptFn('thread-1', 'turn-1', Promise.resolve({ status: 'interrupted', turnId: 'turn-1' }))
-          .then(pendingResolve);
-      }
-
-      await expect(result.completion).resolves.toMatchObject({ status: 'interrupted' });
-      expect(request).toHaveBeenCalledWith('turn/interrupt', { threadId: 'thread-1', turnId: 'turn-1' });
-    });
-
-    it('resolves pending abort as unknown when turn ends before turnId is assigned', async () => {
-      const adapter = new CodexCliAdapter();
-      const request = vi.fn().mockResolvedValue({ success: true });
-      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
-      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
-      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
-      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
-      (adapter as unknown as { currentTurnId: null }).currentTurnId = null;
-
-      const result = adapter.interrupt();
-      expect(result.status).toBe('accepted');
-
-      // Simulate the finally block: turn ended without a turnId ever being set
-      const resolve = (adapter as unknown as { pendingAbortResolve: ((r: unknown) => void) | null }).pendingAbortResolve;
-      expect(resolve).not.toBeNull();
-      resolve?.({ status: 'unknown', reason: 'turn ended before pending interrupt could fire' });
-      (adapter as unknown as { pendingAbortResolve: null }).pendingAbortResolve = null;
-
-      await expect(result.completion).resolves.toMatchObject({ status: 'unknown' });
-      expect(request).not.toHaveBeenCalled();
-    });
-
-    it('waits for app-server interrupt acceptance and turn completion proof', async () => {
-      const adapter = new CodexCliAdapter();
-      const request = vi.fn().mockResolvedValue({ success: true });
-      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
-      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
-      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
-      (adapter as unknown as { currentTurnId: string }).currentTurnId = 'turn-1';
-      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
-      (adapter as unknown as { currentTurnCompletion: Promise<unknown> }).currentTurnCompletion =
-        Promise.resolve({ status: 'interrupted', turnId: 'turn-1' });
-
-      const result = adapter.interrupt();
-
-      expect(result.status).toBe('accepted');
-      expect(result.turnId).toBe('turn-1');
       await expect(result.completion).resolves.toEqual({
         status: 'interrupted',
         turnId: 'turn-1',
       });
-      expect(request).toHaveBeenCalledWith('turn/interrupt', {
+      await expect(capture).resolves.toMatchObject({ completed: true, turnId: 'turn-1' });
+      expect(client.request).toHaveBeenCalledWith('turn/interrupt', {
         threadId: 'thread-1',
         turnId: 'turn-1',
       });
     });
+  });
 
-    it('treats interrupting an already-ended turn as a no-op without sending the RPC (P3.3)', async () => {
-      const adapter = new CodexCliAdapter();
-      const request = vi.fn().mockResolvedValue({ success: true });
-      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
-      // The turn we want to interrupt is no longer current: it ended and a new
-      // turn started.
-      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
-      (adapter as unknown as { currentTurnId: string }).currentTurnId = 'turn-2';
+  describe('generated turn parameter contract', () => {
+    it('sends reasoning effort through the generated effort field only', async () => {
+      const adapter = new CodexCliAdapter({ reasoningEffort: 'high' });
+      const client = createSyntheticTurnClient([
+        {
+          method: 'turn/started',
+          params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+        },
+        {
+          method: 'turn/completed',
+          params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+        },
+      ]);
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
 
-      const interruptFn = (adapter as unknown as {
-        interruptActiveAppServerTurn(
-          threadId: string,
-          turnId: string,
-          completion: Promise<unknown> | null,
-        ): Promise<{ status: string }>;
-      }).interruptActiveAppServerTurn.bind(adapter);
+      await (adapter as unknown as { captureTurn(input: unknown[]): Promise<unknown> })
+        .captureTurn([{ type: 'text', text: 'test', text_elements: [] }]);
 
-      const result = await interruptFn('thread-1', 'turn-1', null);
-      expect(result.status).toBe('unknown');
-      expect(request).not.toHaveBeenCalled();
-    });
-
-    it('classifies a turn/interrupt rejection as no-op when the turn moved on (P3.3)', async () => {
-      const adapter = new CodexCliAdapter();
-      // RPC rejects (turn-id mismatch) and by the time it resolves the turn has ended.
-      const request = vi.fn().mockImplementation(async () => {
-        (adapter as unknown as { turnInProgress: boolean }).turnInProgress = false;
-        return { success: false };
-      });
-      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
-      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
-      (adapter as unknown as { currentTurnId: string }).currentTurnId = 'turn-1';
-
-      const interruptFn = (adapter as unknown as {
-        interruptActiveAppServerTurn(
-          threadId: string,
-          turnId: string,
-          completion: Promise<unknown> | null,
-        ): Promise<{ status: string }>;
-      }).interruptActiveAppServerTurn.bind(adapter);
-
-      const result = await interruptFn('thread-1', 'turn-1', null);
-      expect(request).toHaveBeenCalled();
-      expect(result.status).toBe('unknown');
+      expect(client.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({
+        effort: 'high',
+      }));
+      expect(client.request.mock.calls[0]?.[1]).not.toHaveProperty('reasoningEffort');
     });
   });
 

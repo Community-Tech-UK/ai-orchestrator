@@ -412,17 +412,14 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
 
   private summaryWindow(snapshot: ProviderQuotaSnapshot): ProviderQuotaWindow | null {
     const preferredIds = PREFERRED_SUMMARY_WINDOW_IDS[snapshot.provider] ?? [];
-    for (const preferredId of preferredIds) {
-      const preferred = snapshot.windows.find((window) => window.limit > 0 && window.id === preferredId);
-      if (preferred) return preferred;
-    }
-    return this.mostUsedWindow(snapshot);
+    const preferredWindows = snapshot.windows.filter((window) => preferredIds.includes(window.id));
+    return this.mostUsedWindow(preferredWindows) ?? this.mostUsedWindow(snapshot.windows);
   }
 
-  private mostUsedWindow(snapshot: ProviderQuotaSnapshot): ProviderQuotaWindow | null {
+  private mostUsedWindow(windows: ProviderQuotaWindow[]): ProviderQuotaWindow | null {
     let best: ProviderQuotaWindow | null = null;
     let bestPercent = -1;
-    for (const window of snapshot.windows) {
+    for (const window of windows) {
       if (window.limit <= 0) continue;
       const percent = this.windowPercent(window);
       if (percent > bestPercent) {
@@ -474,7 +471,7 @@ const PROVIDER_CODES: Record<ProviderId, string> = {
 const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, string[]>> = {
   claude: ['claude.weekly'],
   codex: ['codex.weekly'],
-  antigravity: ['antigravity.gemini-5h'],
+  antigravity: ['antigravity.gemini-5h', 'antigravity.gemini-weekly'],
 };
 /** Fallback reauth instruction when a probe didn't supply its own. */
 const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {

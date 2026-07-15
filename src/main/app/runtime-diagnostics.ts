@@ -59,7 +59,14 @@ export function installRuntimeDiagnostics(): void {
   });
 
   let lastTick = Date.now();
+  // True between a suspend/lock-screen and the matching resume/unlock. While the
+  // host is suspended the event loop is frozen, so the next (dark-)wake tick sees
+  // the whole sleep as an apparent "stall" — that is elapsed wall-clock, not host
+  // CPU starvation, and must not be warned on or fed into the watchdog load
+  // monitor (which would scale process timeouts on phantom load).
+  let systemSuspended = false;
   const noteSystemSuspend = (source: 'suspend' | 'lock-screen'): void => {
+    systemSuspended = true;
     logger.info('System power event observed', { source });
     getObservationIngestor().handleSystemSuspend();
     getSessionContinuityManagerIfInitialized()?.handleSystemSuspend();
@@ -67,6 +74,7 @@ export function installRuntimeDiagnostics(): void {
     getPoolManager().handleSystemSuspend();
   };
   const noteSystemResume = (source: 'resume' | 'unlock-screen'): void => {
+    systemSuspended = false;
     lastTick = Date.now();
     logger.info('System resumed; deferring background timers', {
       source,
@@ -95,6 +103,14 @@ export function installRuntimeDiagnostics(): void {
     const now = Date.now();
     const stallMs = now - lastTick - MAIN_PROCESS_MONITOR_INTERVAL_MS;
     lastTick = now;
+
+    // A suspend (sleep/lock) explains the gap as elapsed wall-clock, not a stall.
+    // StuckProcessDetector resets its own timers on the same signal; do the same
+    // here rather than logging phantom multi-minute "stalls" and inflating the
+    // watchdog load multiplier.
+    if (systemSuspended) {
+      return;
+    }
 
     if (stallMs < MAIN_PROCESS_STALL_THRESHOLD_MS) {
       return;

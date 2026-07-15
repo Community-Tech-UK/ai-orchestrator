@@ -5,12 +5,67 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
-import { runLoopFinalAudit } from './loop-audit-runtime';
+import { runLoopFinalAudit, runLoopPreflight } from './loop-audit-runtime';
 import { captureLoopRepoBaseline } from './loop-repo-state';
 import { LoopStageMachine } from './loop-stage-machine';
 
 const gitOk = spawnSync('git', ['--version'], { encoding: 'utf8' }).status === 0;
 const maybe = gitOk ? it : it.skip;
+
+describe('runLoopPreflight', () => {
+  it('reports the actual full verify execution to the supplied ledger callback before returning', async () => {
+    const state = makeLoopState({
+      id: 'loop-preflight-ledger',
+      config: {
+        ...defaultLoopConfig('/workspace', 'verify before work'),
+        completion: {
+          ...defaultLoopConfig('/workspace', 'verify before work').completion,
+          verifyCommand: 'npm test',
+        },
+      },
+    });
+    const executions: unknown[] = [];
+
+    const result = await runLoopPreflight(
+      state,
+      {
+        runQuickVerify: async () => ({ status: 'skipped', output: '', durationMs: 0 }),
+        runVerify: async () => ({ status: 'passed', output: 'all green', durationMs: 12 }),
+      },
+      (execution) => executions.push(execution),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(executions).toEqual([expect.objectContaining({
+      label: 'verify',
+      command: 'npm test',
+      output: 'all green',
+      exitCode: 0,
+      durationMs: 12,
+    })]);
+  });
+
+  it('does not turn a passing preflight red when ledger reporting fails', async () => {
+    const state = makeLoopState({
+      config: {
+        ...defaultLoopConfig('/workspace', 'verify before work'),
+        completion: {
+          ...defaultLoopConfig('/workspace', 'verify before work').completion,
+          verifyCommand: 'npm test',
+        },
+      },
+    });
+
+    await expect(runLoopPreflight(
+      state,
+      {
+        runQuickVerify: async () => ({ status: 'skipped', output: '', durationMs: 0 }),
+        runVerify: async () => ({ status: 'passed', output: 'all green', durationMs: 12 }),
+      },
+      () => { throw new Error('ledger unavailable'); },
+    )).resolves.toMatchObject({ status: 'passed' });
+  });
+});
 
 describe('runLoopFinalAudit', () => {
   it('short-circuits as skipped when final audit mode is off', async () => {

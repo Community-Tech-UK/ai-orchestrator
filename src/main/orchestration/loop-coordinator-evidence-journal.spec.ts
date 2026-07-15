@@ -21,7 +21,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { EvidenceStore } from './evidence-store';
 import { LoopCoordinator } from './loop-coordinator';
 import type { EvidenceResolution } from './evidence-resolver';
-import type { CompletionSignalEvidence, LoopState } from '../../shared/types/loop.types';
+import { defaultLoopConfig, type CompletionSignalEvidence, type LoopState } from '../../shared/types/loop.types';
 
 // ---- Helpers ---------------------------------------------------------------
 
@@ -83,6 +83,11 @@ interface CoordinatorInternals {
     },
   ): void;
   convergenceNotes: Map<string, string>;
+  runRecordedVerify(
+    state: LoopState,
+    iteration: undefined,
+    kind: 'verify' | 'quick-verify',
+  ): Promise<unknown>;
 }
 
 function internals(c: LoopCoordinator): CoordinatorInternals {
@@ -214,5 +219,40 @@ describe('LoopCoordinator evidence journal (A4)', () => {
     ).not.toThrow();
     // Nothing persisted because the store was never consulted.
     expect(store.listForLoop('loop-evidence-1')).toHaveLength(0);
+  });
+
+  it('records the coordinator-owned verify execution with the loop id and a successful exit code', async () => {
+    const recorded: Array<Record<string, unknown>> = [];
+    const state = {
+      id: 'loop-verify-run',
+      config: {
+        ...defaultLoopConfig('/workspace', 'verify the work'),
+        completion: {
+          ...defaultLoopConfig('/workspace', 'verify the work').completion,
+          verifyCommand: 'npm test',
+        },
+      },
+    } as unknown as LoopState;
+    coordinator.setVerificationRunRecorder({
+      record: (input) => {
+        recorded.push(input as unknown as Record<string, unknown>);
+        return null;
+      },
+    });
+    (coordinator as unknown as {
+      completionDetector: { runVerify: () => Promise<unknown> };
+    }).completionDetector = {
+      runVerify: async () => ({ status: 'passed', output: 'all green', durationMs: 7 }),
+    };
+
+    await internals(coordinator).runRecordedVerify(state, undefined, 'verify');
+
+    expect(recorded).toEqual([expect.objectContaining({
+      scope: 'loop',
+      loopRunId: 'loop-verify-run',
+      command: state.config.completion.verifyCommand,
+      exitCode: 0,
+      output: 'all green',
+    })]);
   });
 });

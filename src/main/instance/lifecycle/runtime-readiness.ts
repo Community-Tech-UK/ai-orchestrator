@@ -244,10 +244,10 @@ export class RuntimeReadinessCoordinator {
    */
   private getResumeProof(adapter: CliAdapter): boolean | null {
     const a = adapter as unknown as {
+      getRuntimeSnapshot?: () => { resumeProof?: ResumeAttemptResult | null };
       getResumeAttemptResult?: () => ResumeAttemptResult | null | undefined;
     };
-    if (typeof a.getResumeAttemptResult !== 'function') return null;
-    const result = a.getResumeAttemptResult();
+    const result = a.getRuntimeSnapshot?.().resumeProof ?? a.getResumeAttemptResult?.();
     if (!result || result.source === 'none') return null;
     if (result.source === 'fresh-fallback') return false;
     if (result.actualSessionId && result.requestedSessionId

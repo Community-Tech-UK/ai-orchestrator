@@ -1,4 +1,5 @@
 import type { Migration } from './rlm-types';
+import { VERIFICATION_RUNS_UP_SQL } from './verification-run-schema';
 
 /** Add durable human-review workflow state to the main-process SQLite database. */
 export const RLM_MIGRATIONS_046_050: Migration[] = [
@@ -43,6 +44,24 @@ export const RLM_MIGRATIONS_046_050: Migration[] = [
     down: `
       DROP INDEX IF EXISTS idx_provider_limit_events_active;
       DROP TABLE IF EXISTS provider_limit_events;
+    `,
+  },
+  {
+    name: '048_verification_runs',
+    up: VERIFICATION_RUNS_UP_SQL,
+    down: `
+      DROP INDEX IF EXISTS idx_verification_runs_instance_started;
+      DROP INDEX IF EXISTS idx_verification_runs_loop_started;
+      DROP TABLE IF EXISTS verification_runs;
+    `,
+  },
+  {
+    name: '049_automation_trigger_configuration',
+    up: `
+      ALTER TABLE automations ADD COLUMN trigger_json TEXT NOT NULL DEFAULT '{"kind":"schedule"}';
+    `,
+    down: `
+      ALTER TABLE automations DROP COLUMN trigger_json;
     `,
   },
 ];

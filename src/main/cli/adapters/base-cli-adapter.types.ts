@@ -270,6 +270,23 @@ export interface ResumeAttemptResult {
 }
 
 /**
+ * One serializable read of provider-owned runtime identity and lifecycle state.
+ * Consumers must prefer this over calling independent adapter getters, which
+ * can otherwise observe different native threads during recovery or compaction.
+ */
+export interface ProviderRuntimeSnapshot {
+  revision: number;
+  capturedAt: number;
+  providerSessionId: string | null;
+  nativeThreadId?: string | null;
+  activeTurnId?: string | null;
+  connectionPhase?: string;
+  turnPhase?: string;
+  resumeCursor?: unknown | null;
+  resumeProof?: ResumeAttemptResult | null;
+}
+
+/**
  * Events emitted by CLI adapters
  */
 export type CliEvent =

@@ -9,6 +9,7 @@ import type { AppSettings } from '../../shared/types/settings.types';
 import type {
   AdapterRuntimeCapabilities,
   InterruptResult,
+  ProviderRuntimeSnapshot,
   ResumeAttemptResult,
 } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -33,6 +34,7 @@ export interface ProviderRuntimeContract {
   createAdapter(input: ProviderRuntimeStartInput): CliAdapter;
   getCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities;
   interruptTurn(adapter: CliAdapter): InterruptResult;
+  getRuntimeSnapshot(adapter?: CliAdapter): ProviderRuntimeSnapshot | undefined;
   getResumeProof(adapter?: CliAdapter): ResumeAttemptResult | undefined;
 }
 
@@ -145,6 +147,13 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
 
   interruptTurn(adapter: CliAdapter): InterruptResult {
     return adapter.interrupt();
+  }
+
+  getRuntimeSnapshot(adapter?: CliAdapter): ProviderRuntimeSnapshot | undefined {
+    const candidate = adapter as
+      | { getRuntimeSnapshot?: () => ProviderRuntimeSnapshot }
+      | undefined;
+    return candidate?.getRuntimeSnapshot?.();
   }
 
   getResumeProof(adapter?: CliAdapter): ResumeAttemptResult | undefined {

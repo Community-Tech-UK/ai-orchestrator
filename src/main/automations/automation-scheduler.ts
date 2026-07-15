@@ -91,7 +91,10 @@ export class AutomationScheduler {
     }
 
     this.events.on('automation:changed', (event: { automation: Automation | null; automationId: string }) => {
-      if (event.automation?.active && event.automation.enabled && event.automation.nextFireAt !== null) {
+      if (event.automation?.trigger.kind === 'schedule'
+        && event.automation.active
+        && event.automation.enabled
+        && event.automation.nextFireAt !== null) {
         this.schedule(event.automation);
       } else {
         this.deactivate(event.automationId);
@@ -132,7 +135,10 @@ export class AutomationScheduler {
     // Only clear the fire handle, not retry timers — scheduling a new fire
     // time does not cancel retries for a failed previous run.
     this.deactivateSchedule(automation.id);
-    if (!automation.active || !automation.enabled || automation.nextFireAt === null) {
+    if (automation.trigger.kind !== 'schedule'
+      || !automation.active
+      || !automation.enabled
+      || automation.nextFireAt === null) {
       return;
     }
 
@@ -357,7 +363,11 @@ export class AutomationScheduler {
 
   private async onTimer(automationId: string): Promise<void> {
     const automation = await this.store.get(automationId);
-    if (!automation || !automation.active || !automation.enabled || automation.nextFireAt === null) {
+    if (!automation
+      || automation.trigger.kind !== 'schedule'
+      || !automation.active
+      || !automation.enabled
+      || automation.nextFireAt === null) {
       this.deactivate(automationId);
       return;
     }

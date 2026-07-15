@@ -2,6 +2,7 @@ import type {
   Automation,
   AutomationAction,
   AutomationConfigSnapshot,
+  AutomationConfiguredTrigger,
   AutomationDestination,
   AutomationRun,
   AutomationSchedule,
@@ -24,6 +25,7 @@ export function toSnapshot(automation: Automation): AutomationConfigSnapshot {
   return {
     name: automation.name,
     schedule: automation.schedule,
+    trigger: automation.trigger,
     missedRunPolicy: automation.missedRunPolicy,
     concurrencyPolicy: automation.concurrencyPolicy,
     destination: automation.destination,
@@ -53,7 +55,21 @@ export function normalizeDestination(destination?: AutomationDestination | null)
 export function normalizeSnapshot(snapshot: PersistedAutomationConfigSnapshot): AutomationConfigSnapshot {
   return {
     ...snapshot,
+    trigger: normalizeConfiguredTrigger(snapshot.trigger),
     destination: normalizeDestination(snapshot.destination),
+  };
+}
+
+export function normalizeConfiguredTrigger(
+  trigger: AutomationConfiguredTrigger | undefined,
+): AutomationConfiguredTrigger {
+  if (!trigger || trigger.kind === 'schedule') {
+    return { kind: 'schedule' };
+  }
+  return {
+    kind: 'webhook',
+    routeId: trigger.routeId,
+    filters: trigger.filters ?? [],
   };
 }
 
@@ -69,6 +85,7 @@ export function mapAutomationRow(row: AutomationRow, destination: AutomationDest
     // backfilled the column (defensive — backfill makes this rare).
     workspaceId: row.workspace_id ?? toWorkspaceId(action.workingDirectory),
     schedule: JSON.parse(row.schedule_json) as AutomationSchedule,
+    trigger: normalizeConfiguredTrigger(JSON.parse(row.trigger_json) as AutomationConfiguredTrigger),
     missedRunPolicy: row.missed_run_policy,
     concurrencyPolicy: row.concurrency_policy,
     destination,

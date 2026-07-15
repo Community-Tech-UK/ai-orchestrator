@@ -73,6 +73,50 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
       </div>
     </section>
 
+    <section class="settings-list-card default-model" aria-label="Default automation model">
+      <div class="default-model__info">
+        <span class="default-model__label">Default automation model</span>
+        <p class="default-model__description">
+          Automations whose Model is set to Auto use this. It is kept separate from the
+          session default above, so it never changes when you switch models in a chat.
+        </p>
+      </div>
+      <div class="default-model__control">
+        <div class="default-model__modes" role="group" aria-label="Default automation model routing">
+          <button
+            type="button"
+            class="default-model__mode"
+            [class.is-active]="automationProvider() === 'auto'"
+            [attr.aria-pressed]="automationProvider() === 'auto'"
+            aria-label="Let each automation fall back to the provider default"
+            (click)="useAutomaticAutomationProvider()"
+          >
+            Auto
+          </button>
+          <button
+            type="button"
+            class="default-model__mode"
+            [class.is-active]="automationProvider() !== 'auto'"
+            [attr.aria-pressed]="automationProvider() !== 'auto'"
+            aria-label="Pin the default automation provider and model"
+            (click)="pinAutomationProvider()"
+          >
+            Pinned
+          </button>
+        </div>
+        @if (automationProvider() === 'auto') {
+          <span class="default-model__hint">Leave unset and Auto automations inherit your last-used model per provider — the same value that leaks between chats. Pin one to keep them stable.</span>
+        } @else {
+          <app-compact-model-picker
+            mode="pending-create"
+            [providers]="defaultModelProviders"
+            [selection]="automationModelSelection()"
+            (selectionChange)="onAutomationModelPicked($event)"
+          />
+        }
+      </div>
+    </section>
+
     <section class="settings-list-card" aria-label="General settings">
       @for (setting of genericGeneralSettings(); track setting.key) {
         <app-setting-row
@@ -134,6 +178,41 @@ export class GeneralSettingsTabComponent {
     this.persistDefaultSelection(selection.provider, selection.model);
   }
 
+  readonly automationProvider = computed<DefaultModelProvider | 'auto'>(() => {
+    const provider = this.store.settings().automationDefaultCli;
+    if (provider === 'openai') return 'codex';
+    return DEFAULT_MODEL_PROVIDERS.includes(provider as DefaultModelProvider)
+      ? provider as DefaultModelProvider
+      : 'auto';
+  });
+
+  readonly automationModelSelection = computed<PendingSelection>(() => {
+    const provider = this.automationProvider();
+    const concreteProvider: DefaultModelProvider = provider === 'auto' ? 'claude' : provider;
+    const model = this.store.settings().automationDefaultModel;
+    return {
+      provider: concreteProvider,
+      model: model || getPrimaryModelForProvider(concreteProvider) || null,
+      reasoning: null,
+    };
+  });
+
+  useAutomaticAutomationProvider(): void {
+    void this.store.update({ automationDefaultCli: 'auto', automationDefaultModel: '' });
+  }
+
+  pinAutomationProvider(): void {
+    if (this.automationProvider() !== 'auto') return;
+    const selection = this.automationModelSelection();
+    if (selection.provider === 'local-model' || !selection.model) return;
+    this.persistAutomationSelection(selection.provider, selection.model);
+  }
+
+  onAutomationModelPicked(selection: PendingSelection): void {
+    if (selection.provider === 'local-model' || !selection.model) return;
+    this.persistAutomationSelection(selection.provider, selection.model);
+  }
+
   onSettingChange(event: { key: string; value: unknown }): void {
     this.store.set(event.key as keyof AppSettings, event.value as AppSettings[keyof AppSettings]);
   }
@@ -146,6 +225,13 @@ export class GeneralSettingsTabComponent {
         ...(this.store.settings().defaultModelByProvider ?? {}),
         [provider]: model,
       },
+    });
+  }
+
+  private persistAutomationSelection(provider: DefaultModelProvider, model: string): void {
+    void this.store.update({
+      automationDefaultCli: provider,
+      automationDefaultModel: model,
     });
   }
 }

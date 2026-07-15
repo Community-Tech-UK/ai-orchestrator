@@ -115,6 +115,8 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_LIST_RUNS_FOR_CHAT, { chatId, limit }),
     loopGetIterations: (loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_ITERATIONS, { loopRunId, fromSeq, toSeq }),
+    verificationRunsList: (params: { loopRunId?: string; instanceId?: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.VERIFICATION_RUNS_LIST, params),
     loopInferVerify: (workspaceCwd: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_INFER_VERIFY, { workspaceCwd }),
     loopListOutstanding: (

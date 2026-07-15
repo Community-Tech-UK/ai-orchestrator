@@ -24,6 +24,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import { normalizeProjectMemoryKey } from '../memory/project-memory-key';
+import { redactForEgress } from '../security/content-egress-gate';
 
 const logger = getLogger('LoopMemory');
 
@@ -48,6 +49,21 @@ export interface LoopMemoryStore {
   recordLearning(record: LoopLearningRecord): void | Promise<void>;
   /** Return up to `limit` rendered prior-observation lines for the workspace, newest first. */
   surfaceLearnings(workspaceCwd: string, limit: number): string[] | Promise<string[]>;
+}
+
+/**
+ * Loop learnings are durable memory and may later be surfaced to a model. Keep
+ * the stored record safe at the write boundary rather than trusting every
+ * caller to pre-sanitize goals, reasons, and observations.
+ */
+function redactLearningForStorage(record: LoopLearningRecord): LoopLearningRecord {
+  return {
+    ...record,
+    goal: redactForEgress(record.goal, { kind: 'memory' }).content,
+    reason: redactForEgress(record.reason, { kind: 'memory' }).content,
+    observations: record.observations.map((observation) =>
+      redactForEgress(observation, { kind: 'memory' }).content),
+  };
 }
 
 /** Max characters for a single rendered observation line (bounds prompt cost). */
@@ -107,10 +123,11 @@ export class InMemoryLoopMemoryStore implements LoopMemoryStore {
   private readonly maxPerKey = 20;
 
   recordLearning(record: LoopLearningRecord): void {
-    const key = normalizeProjectMemoryKey(record.workspaceCwd);
+    const safeRecord = redactLearningForStorage(record);
+    const key = normalizeProjectMemoryKey(safeRecord.workspaceCwd);
     if (!key) return;
     const list = this.byKey.get(key) ?? [];
-    list.push({ ...record, createdAt: record.createdAt ?? Date.now() });
+    list.push({ ...safeRecord, createdAt: safeRecord.createdAt ?? Date.now() });
     if (list.length > this.maxPerKey) list.splice(0, list.length - this.maxPerKey);
     this.byKey.set(key, list);
   }
@@ -177,9 +194,10 @@ export class DurableLoopMemoryStore implements LoopMemoryStore {
   }
 
   recordLearning(record: LoopLearningRecord): void {
-    const key = normalizeProjectMemoryKey(record.workspaceCwd);
+    const safeRecord = redactLearningForStorage(record);
+    const key = normalizeProjectMemoryKey(safeRecord.workspaceCwd);
     if (!key) return;
-    const stamped: LoopLearningRecord = { ...record, createdAt: record.createdAt ?? Date.now() };
+    const stamped: LoopLearningRecord = { ...safeRecord, createdAt: safeRecord.createdAt ?? Date.now() };
     // Synchronous read-modify-write: there is no `await` between `read()` and
     // `write()`, so the whole sequence runs to completion within one tick of
     // Node's single-threaded event loop — two `recordLearning` calls can't

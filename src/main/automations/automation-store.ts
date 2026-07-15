@@ -15,6 +15,7 @@ import { AutomationAttachmentService } from './automation-attachment-service';
 import {
   mapAutomationRow,
   mapRunRow,
+  normalizeConfiguredTrigger,
   normalizeDestination,
   stripAttachmentData,
   toSnapshot,
@@ -63,6 +64,7 @@ export class AutomationStore {
     const id = generateId();
     const prepared = await this.attachmentService.prepare(id, input.action.attachments, now);
     const schedule = input.schedule;
+    const trigger = normalizeConfiguredTrigger(input.trigger);
     const missedRunPolicy = input.missedRunPolicy ?? 'notify';
     const concurrencyPolicy = input.concurrencyPolicy ?? 'skip';
     const destination = normalizeDestination(input.destination);
@@ -70,10 +72,10 @@ export class AutomationStore {
     const insert = this.db.transaction(() => {
       this.db.prepare(`
         INSERT INTO automations
-          (id, name, description, enabled, active, workspace_id, schedule_type, schedule_json,
+           (id, name, description, enabled, active, workspace_id, schedule_type, schedule_json, trigger_json,
            missed_run_policy, concurrency_policy, action_json, next_fire_at,
            last_fired_at, last_run_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(
         id,
         input.name,
@@ -83,6 +85,7 @@ export class AutomationStore {
         toWorkspaceId(input.action.workingDirectory),
         schedule.type,
         JSON.stringify(schedule),
+        JSON.stringify(trigger),
         missedRunPolicy,
         concurrencyPolicy,
         JSON.stringify(stripAttachmentData(input.action)),
@@ -120,6 +123,7 @@ export class AutomationStore {
       : undefined;
 
     const schedule = updates.schedule ?? existing.schedule;
+    const trigger = normalizeConfiguredTrigger(updates.trigger ?? existing.trigger);
     const setNextFireAt = nextFireAt !== undefined ? nextFireAt : existing.nextFireAt;
     const destination = updates.destination ? normalizeDestination(updates.destination) : existing.destination;
 
@@ -133,6 +137,7 @@ export class AutomationStore {
             workspace_id = ?,
             schedule_type = ?,
             schedule_json = ?,
+            trigger_json = ?,
             missed_run_policy = ?,
             concurrency_policy = ?,
             action_json = ?,
@@ -147,6 +152,7 @@ export class AutomationStore {
         toWorkspaceId(mergedAction.workingDirectory),
         schedule.type,
         JSON.stringify(schedule),
+        JSON.stringify(trigger),
         updates.missedRunPolicy ?? existing.missedRunPolicy,
         updates.concurrencyPolicy ?? existing.concurrencyPolicy,
         JSON.stringify(stripAttachmentData(mergedAction)),
@@ -217,7 +223,10 @@ export class AutomationStore {
     const rows = this.db.prepare(`
       SELECT *
       FROM automations
-      WHERE active = 1 AND enabled = 1 AND next_fire_at IS NOT NULL
+      WHERE active = 1
+        AND enabled = 1
+        AND next_fire_at IS NOT NULL
+        AND json_extract(trigger_json, '$.kind') = 'schedule'
     `).all<AutomationRow>();
 
     return rows.map((row) => this.mapAutomationSync(row));
@@ -255,6 +264,7 @@ export class AutomationStore {
       current.action = {
         ...current.action,
         attachments: automation.action.attachments,
+        ...(options.promptOverride === undefined ? {} : { prompt: options.promptOverride }),
       };
 
       if (!current.enabled || !current.active) {

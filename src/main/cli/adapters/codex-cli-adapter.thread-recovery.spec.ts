@@ -23,6 +23,26 @@ import {
   queueCodexRun,
 } from './codex-cli-adapter.test-helpers';
 
+type SyntheticNotification = { method: string; params: Record<string, unknown> };
+type SyntheticNotificationHost = {
+  notificationHandler: ((notification: SyntheticNotification) => void) | null;
+};
+
+function subscribeSyntheticNotification(
+  this: SyntheticNotificationHost,
+  handler: (notification: SyntheticNotification) => void,
+): () => void {
+  const previous = this.notificationHandler;
+  const combined = (notification: SyntheticNotification): void => {
+    previous?.(notification);
+    handler(notification);
+  };
+  this.notificationHandler = combined;
+  return () => {
+    if (this.notificationHandler === combined) this.notificationHandler = previous;
+  };
+}
+
 // These tests drive the adapter through real PassThrough streams and real
 // `setTimeout`-scheduled process output rather than fake timers, so the default
 // 5s per-test timeout is borderline on slower/loaded hosts (notably Windows).
@@ -38,11 +58,10 @@ describe('CodexCliAdapter', () => {
     vi.restoreAllMocks();
   });
 
-  describe('silent thread-loss recovery', () => {
-    // Codex evicts inactive threads server-side. When the user's next turn
-    // fails because the thread is gone, the adapter should transparently
-    // reopen a fresh thread and retry once — the user should see their
-    // message succeed, not "restart the instance."
+  describe('thread-loss continuity', () => {
+    // A successful retry must not hide context loss. Exec mode can replay its
+    // local transcript; app-server mode must fail closed so lifecycle recovery
+    // can use the orchestrator's persisted history.
 
     async function spawnExecAdapter(): Promise<CodexCliAdapter> {
       const adapter = new CodexCliAdapter();
@@ -83,6 +102,7 @@ describe('CodexCliAdapter', () => {
         expect(classify('model does not exist')).toBe(false);
         expect(classify('http 500 internal server error')).toBe(false);
         expect(classify('unauthorized')).toBe(false);
+        expect(classify('Codex turn stalled: no notifications received for 90000ms')).toBe(false);
       });
     });
 
@@ -104,6 +124,7 @@ describe('CodexCliAdapter', () => {
           request,
           exitPromise: neverExits,
           getExitError: () => null,
+          subscribeNotifications: vi.fn(() => () => {}),
         });
 
         await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
@@ -122,37 +143,31 @@ describe('CodexCliAdapter', () => {
         return adapter;
       }
 
-      it('silently reopens the thread and retries when mid-turn fails with thread-not-found', async () => {
+      it('preserves the existing thread identity when mid-turn reports thread-not-found', async () => {
         const adapter = await prepareAppServerAdapter();
 
         const innerSpy = vi.spyOn(
           adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
           'appServerSendMessageInner'
         );
-        innerSpy.mockRejectedValueOnce(new Error('Thread does not exist: thread-old'));
-        innerSpy.mockResolvedValueOnce(undefined);
+        innerSpy.mockRejectedValue(new Error('Thread does not exist: thread-old'));
 
         const reopenSpy = vi.spyOn(
           adapter as unknown as { reopenAppServerThread(): Promise<void> },
           'reopenAppServerThread'
         );
-        reopenSpy.mockImplementation(async () => {
-          (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-new';
-        });
-
         const statuses: string[] = [];
         adapter.on('status', (s: string) => statuses.push(s));
 
-        // Should NOT throw — silent recovery succeeds
-        await adapter.sendInput('retry me');
+        await expect(adapter.sendInput('retry me')).rejects.toThrow(/thread does not exist/i);
 
-        expect(innerSpy).toHaveBeenCalledTimes(2);
-        expect(reopenSpy).toHaveBeenCalledTimes(1);
-        expect(statuses).toEqual(['busy', 'idle']);
-        expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-new');
+        expect(innerSpy).toHaveBeenCalledTimes(1);
+        expect(reopenSpy).not.toHaveBeenCalled();
+        expect(statuses).toEqual(['busy', 'error']);
+        expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-old');
       });
 
-      it('silently reopens the thread and retries when app-server turn notifications stall', async () => {
+      it('keeps the existing thread when app-server turn notifications stall', async () => {
         const adapter = await prepareAppServerAdapter();
 
         const innerSpy = vi.spyOn(
@@ -173,17 +188,79 @@ describe('CodexCliAdapter', () => {
         const statuses: string[] = [];
         adapter.on('status', (s: string) => statuses.push(s));
 
-        await adapter.sendInput('retry me');
+        await expect(adapter.sendInput('retry me')).rejects.toThrow(/no notifications received/i);
 
-        expect(innerSpy).toHaveBeenCalledTimes(2);
-        expect(reopenSpy).toHaveBeenCalledTimes(1);
+        expect(innerSpy).toHaveBeenCalledTimes(1);
+        expect(reopenSpy).not.toHaveBeenCalled();
         expect(statuses).toEqual(['busy', 'idle']);
-        expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-new-after-stall');
+        expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-old');
+      });
+
+      it('uses the active-turn silence budget after an item completes', async () => {
+        const adapter = new CodexCliAdapter();
+        const neverExits = new Promise<void>(() => {
+          // Intentionally pending.
+        });
+        const client = {
+          notificationHandler: null as ((notification: {
+            method: string;
+            params: Record<string, unknown>;
+          }) => void) | null,
+          exitPromise: neverExits,
+          request: vi.fn(async () => {
+            client.notificationHandler?.({
+              method: 'turn/started',
+              params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+            });
+            client.notificationHandler?.({
+              method: 'item/completed',
+              params: {
+                threadId: 'thread-1',
+                turnId: 'turn-1',
+                item: { id: 'item-1', type: 'reasoning' },
+              },
+            });
+            return { turn: { id: 'turn-1', status: 'inProgress' } };
+          }),
+          setNotificationHandler(handler: typeof client.notificationHandler): void {
+            this.notificationHandler = handler;
+          },
+          subscribeNotifications: subscribeSyntheticNotification,
+        };
+        (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+        (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+        vi.useFakeTimers();
+        try {
+          const capturePromise = (adapter as unknown as {
+            captureTurn(input: unknown[]): Promise<unknown>;
+          }).captureTurn([{ type: 'text', text: 'continue working', text_elements: [] }]);
+          let settled = false;
+          capturePromise.then(
+            () => { settled = true; },
+            () => { settled = true; },
+          );
+
+          await vi.advanceTimersByTimeAsync(90_001);
+          expect(settled).toBe(false);
+
+          client.notificationHandler?.({
+            method: 'turn/completed',
+            params: {
+              threadId: 'thread-1',
+              turn: { id: 'turn-1', status: 'completed' },
+            },
+          });
+          await expect(capturePromise).resolves.toMatchObject({ completed: true });
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('keeps the app-server notification watchdog alive while browser approval is pending', async () => {
         const adapter = new CodexCliAdapter({
           browserGatewayInstanceId: 'instance-1',
+          timeout: 90_000,
         });
         const neverExits = new Promise<void>(() => {
           // Intentionally pending.
@@ -200,6 +277,7 @@ describe('CodexCliAdapter', () => {
           setNotificationHandler(handler: typeof client.notificationHandler): void {
             this.notificationHandler = handler;
           },
+          subscribeNotifications: subscribeSyntheticNotification,
         };
         (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
         (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
@@ -266,7 +344,7 @@ describe('CodexCliAdapter', () => {
         expect(reopenSpy).not.toHaveBeenCalled();
       });
 
-      it('propagates the error if reopen itself fails', async () => {
+      it('does not let fresh-thread creation mask the native thread error', async () => {
         const adapter = await prepareAppServerAdapter();
 
         const innerSpy = vi.spyOn(
@@ -281,14 +359,13 @@ describe('CodexCliAdapter', () => {
         );
         reopenSpy.mockRejectedValue(new Error('app-server crashed during reopen'));
 
-        await expect(adapter.sendInput('retry me')).rejects.toThrow(/app-server crashed/i);
+        await expect(adapter.sendInput('retry me')).rejects.toThrow(/thread does not exist/i);
 
-        // We attempted exactly one turn before reopen failure aborted the retry.
         expect(innerSpy).toHaveBeenCalledTimes(1);
-        expect(reopenSpy).toHaveBeenCalledTimes(1);
+        expect(reopenSpy).not.toHaveBeenCalled();
       });
 
-      it('does not infinite-loop if the second turn also fails with thread-not-found', async () => {
+      it('does not retry a missing app-server thread', async () => {
         const adapter = await prepareAppServerAdapter();
 
         const innerSpy = vi.spyOn(
@@ -305,10 +382,8 @@ describe('CodexCliAdapter', () => {
 
         await expect(adapter.sendInput('retry me')).rejects.toThrow(/thread does not exist/i);
 
-        // Exactly 2 inner attempts — no third attempt even though the second
-        // also looks like a thread-loss.
-        expect(innerSpy).toHaveBeenCalledTimes(2);
-        expect(reopenSpy).toHaveBeenCalledTimes(1);
+        expect(innerSpy).toHaveBeenCalledTimes(1);
+        expect(reopenSpy).not.toHaveBeenCalled();
       });
 
       // ── Per-turn input-cap recovery ladder ──────────────────────────────
@@ -330,10 +405,6 @@ describe('CodexCliAdapter', () => {
         innerSpy.mockResolvedValueOnce(undefined);
 
         const compactSpy = vi.spyOn(adapter, 'compactContext').mockResolvedValue(true);
-        const waitSpy = vi.spyOn(
-          (adapter as unknown as { compactionGate: { wait(ms: number): Promise<void> } }).compactionGate,
-          'wait'
-        ).mockResolvedValue(undefined);
         const reopenSpy = vi.spyOn(
           adapter as unknown as { reopenAppServerThread(): Promise<void> },
           'reopenAppServerThread'
@@ -342,7 +413,6 @@ describe('CodexCliAdapter', () => {
         await adapter.sendInput('big context turn');
 
         expect(compactSpy).toHaveBeenCalledTimes(1);
-        expect(waitSpy).toHaveBeenCalledTimes(1);
         expect(innerSpy).toHaveBeenCalledTimes(2);
         // Compaction fit the turn — the thread must NOT be reset.
         expect(reopenSpy).not.toHaveBeenCalled();
@@ -360,10 +430,6 @@ describe('CodexCliAdapter', () => {
         innerSpy.mockResolvedValueOnce(undefined); // post-reopen
 
         vi.spyOn(adapter, 'compactContext').mockResolvedValue(true);
-        vi.spyOn(
-          (adapter as unknown as { compactionGate: { wait(ms: number): Promise<void> } }).compactionGate,
-          'wait'
-        ).mockResolvedValue(undefined);
         const reopenSpy = vi.spyOn(
           adapter as unknown as { reopenAppServerThread(): Promise<void> },
           'reopenAppServerThread'
@@ -393,10 +459,6 @@ describe('CodexCliAdapter', () => {
         innerSpy.mockResolvedValueOnce(undefined); // post-reopen
 
         vi.spyOn(adapter, 'compactContext').mockResolvedValue(false);
-        const waitSpy = vi.spyOn(
-          (adapter as unknown as { compactionGate: { wait(ms: number): Promise<void> } }).compactionGate,
-          'wait'
-        ).mockResolvedValue(undefined);
         const reopenSpy = vi.spyOn(
           adapter as unknown as { reopenAppServerThread(): Promise<void> },
           'reopenAppServerThread'
@@ -406,8 +468,6 @@ describe('CodexCliAdapter', () => {
 
         expect(innerSpy).toHaveBeenCalledTimes(2);
         expect(reopenSpy).toHaveBeenCalledTimes(1);
-        // Never wait on a compaction that did not start.
-        expect(waitSpy).not.toHaveBeenCalled();
       });
 
       it('rung 3: surfaces a clear error when even a fresh thread overflows', async () => {
@@ -420,10 +480,6 @@ describe('CodexCliAdapter', () => {
         innerSpy.mockRejectedValue(new Error(CAP_ERROR)); // every attempt overflows
 
         vi.spyOn(adapter, 'compactContext').mockResolvedValue(true);
-        vi.spyOn(
-          (adapter as unknown as { compactionGate: { wait(ms: number): Promise<void> } }).compactionGate,
-          'wait'
-        ).mockResolvedValue(undefined);
         vi.spyOn(
           adapter as unknown as { reopenAppServerThread(): Promise<void> },
           'reopenAppServerThread'
@@ -439,8 +495,8 @@ describe('CodexCliAdapter', () => {
       it('a thread/compacted notification settles the compaction gate', async () => {
         const adapter = await prepareAppServerAdapter();
         const settleSpy = vi.spyOn(
-          (adapter as unknown as { compactionGate: { settle(): void } }).compactionGate,
-          'settle'
+          (adapter as unknown as { contextCostController: { recordCompactionObserved(tokens: number): void } }).contextCostController,
+          'recordCompactionObserved'
         );
 
         (adapter as unknown as {
@@ -454,6 +510,36 @@ describe('CodexCliAdapter', () => {
         );
 
         expect(settleSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('returns compaction success only after thread/compacted is observed', async () => {
+        const adapter = await prepareAppServerAdapter();
+        const request = vi.fn().mockImplementation(async () => {
+          (adapter as unknown as {
+            contextCostController: { recordCompactionObserved(tokens: number): void };
+          }).contextCostController.recordCompactionObserved(0);
+          return {};
+        });
+        (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+
+        await expect(adapter.compactContext()).resolves.toBe(true);
+        expect(request).toHaveBeenCalledWith('thread/compact/start', { threadId: 'thread-old' });
+      });
+
+      it('returns compaction failure when acknowledgement is not followed by observation', async () => {
+        vi.useFakeTimers();
+        try {
+          const adapter = await prepareAppServerAdapter();
+          const request = vi.fn().mockResolvedValue({});
+          (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+
+          const compact = adapter.compactContext();
+          await vi.advanceTimersByTimeAsync(30_000);
+
+          await expect(compact).resolves.toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('reopenAppServerThread issues thread/start and updates thread state', async () => {
@@ -504,6 +590,7 @@ describe('CodexCliAdapter', () => {
           request,
           exitPromise: neverExits,
           getExitError: () => null,
+          subscribeNotifications: vi.fn(() => () => {}),
         });
 
         await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
@@ -555,6 +642,7 @@ describe('CodexCliAdapter', () => {
           request,
           exitPromise: neverExits,
           getExitError: () => null,
+          subscribeNotifications: vi.fn(() => () => {}),
         });
 
         await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
@@ -602,6 +690,7 @@ describe('CodexCliAdapter', () => {
           request,
           exitPromise: neverExits,
           getExitError: () => null,
+          subscribeNotifications: vi.fn(() => () => {}),
         });
 
         await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();

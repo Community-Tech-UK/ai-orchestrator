@@ -113,6 +113,29 @@ describe('AutomationStore', () => {
     expect(claimed?.snapshot.action.attachments?.[0]?.data).toBe(attachment.data);
   });
 
+  it('persists a webhook-rendered prompt only on that delivery snapshot', async () => {
+    const automation = await store.create({
+      name: 'Webhook issue triage',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      trigger: { kind: 'webhook', routeId: 'route-1', filters: [] },
+      missedRunPolicy: 'skip',
+      concurrencyPolicy: 'skip',
+      action: {
+        prompt: 'Investigate {{payload.issue.title}}',
+        workingDirectory: '/tmp',
+      },
+    }, null, 100);
+
+    const renderedPrompt = 'Investigate <untrusted-webhook-payload path="issue.title">\nBug\n</untrusted-webhook-payload>';
+    const decision = store.decideAndInsertRun(automation, 'webhook', 1_000, 1_000, {
+      promptOverride: renderedPrompt,
+    });
+
+    expect(decision.kind).toBe('started');
+    expect(decision.run.configSnapshot?.action.prompt).toBe(renderedPrompt);
+    expect((await store.get(automation.id))?.action.prompt).toBe('Investigate {{payload.issue.title}}');
+  });
+
   it('defaults automations to new-instance delivery when no destination is supplied', async () => {
     const automation = await store.create({
       name: 'Default destination check',
@@ -320,6 +343,38 @@ describe('AutomationStore', () => {
     expect(duplicate.run?.id).toBe(first.run.id);
     expect(duplicate.run?.triggerSource?.deliveryId).toBe('delivery-1');
     expect(duplicate.run?.deliveryMode).toBe('localOnly');
+  });
+
+  it('persists a webhook trigger configuration with its route and declarative filters', async () => {
+    const automation = await store.create({
+      name: 'Handle opened issue',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      trigger: {
+        kind: 'webhook',
+        routeId: 'route-issues',
+        filters: [
+          { path: 'issue.state', operator: 'equals', value: 'opened' },
+          { path: 'repository.name', operator: 'contains', value: 'orchestrator' },
+        ],
+      },
+      action: {
+        prompt: 'Handle the issue',
+        workingDirectory: '/tmp',
+      },
+    }, null, 100);
+
+    expect(automation.trigger).toEqual({
+      kind: 'webhook',
+      routeId: 'route-issues',
+      filters: [
+        { path: 'issue.state', operator: 'equals', value: 'opened' },
+        { path: 'repository.name', operator: 'contains', value: 'orchestrator' },
+      ],
+    });
+
+    expect(await store.get(automation.id)).toMatchObject({
+      trigger: automation.trigger,
+    });
   });
 
   it('persists full output references when terminalizing runs', async () => {
