@@ -91,6 +91,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultCli: 'auto',
   defaultModel: 'opus[1m]',
   defaultModelByProvider: {},
+  automationDefaultCli: 'auto',
+  automationDefaultModel: '',
   defaultFastMode: false,
   defaultFastModeByProvider: {},
   modelUsageByKey: {},

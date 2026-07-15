@@ -188,6 +188,8 @@ export const SETTINGS_TOOL_POLICY = {
   defaultCli: open(cliSchema),
   defaultModel: open(modelIdSchema),
   defaultModelByProvider: open(modelByProviderSchema),
+  automationDefaultCli: open(cliSchema),
+  automationDefaultModel: open(modelIdSchema),
   defaultFastMode: open(z.boolean()),
   defaultFastModeByProvider: open(fastModeByProviderSchema),
   modelUsageByKey: open(modelUsageByKeySchema),

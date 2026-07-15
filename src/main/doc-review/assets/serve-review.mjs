@@ -24,7 +24,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
 const artifactArg = args.find((a) => !a.startsWith('--'));
@@ -37,6 +37,10 @@ const timeoutMin = timeoutMinIdx >= 0 ? Number(args[timeoutMinIdx + 1]) : 30;
 const stayAlive = args.includes('--stay-alive');
 const onCaptureIdx = args.indexOf('--on-capture');
 const onCapture = onCaptureIdx >= 0 ? args[onCaptureIdx + 1] : null;
+if (onCaptureIdx >= 0 && (typeof onCapture !== 'string' || !isAbsolute(onCapture))) {
+  process.stderr.write('--on-capture requires an absolute executable path\n');
+  process.exit(2);
+}
 const TIMEOUT_MS = Number.isFinite(timeoutMin) && timeoutMin > 0 ? timeoutMin * 60_000 : 30 * 60_000;
 const MAX_BODY = 1024 * 1024; // 1 MB
 
@@ -57,7 +61,7 @@ function closeAfterCapture() {
 function runCaptureHook() {
   if (!onCapture) return;
   execFile(onCapture, [decisionsPath], {
-    env: { PATH: process.env.PATH || '' },
+    env: {},
     timeout: 60_000,
   }, (error) => {
     if (error) process.stderr.write(`Doc-review capture hook failed: ${String(error)}\n`);

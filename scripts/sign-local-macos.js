@@ -43,7 +43,7 @@ async function signWithLocalIdentity(options, deps = {}) {
   const signApp = deps.signApp ?? signAsync;
   const verifyIdentity = deps.verifyIdentity ?? verifyMacHelperIdentity;
   const identity = options.identity ?? selectCodeSigningIdentity(readIdentities()).hash;
-  await signApp({ ...options, identity });
+  await signApp({ ...options, identity, timestamp: 'none' });
   verifyIdentity(options.app);
 }
 

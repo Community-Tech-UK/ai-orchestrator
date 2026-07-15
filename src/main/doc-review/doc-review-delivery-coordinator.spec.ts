@@ -146,6 +146,18 @@ describe('DocReviewDeliveryCoordinator', () => {
     await expect(coordinator.deliver(review(), 'feedback')).resolves.toMatchObject({ state: 'failed', error: expect.stringMatching(/disabled/) });
   });
 
+  it('returns a retryable failed attempt when continuity revival fails', async () => {
+    instances.set('instance-1', { id: 'instance-1', status: 'terminated' });
+    manager.reviveFromContinuity.mockRejectedValueOnce(new Error('continuity archive unavailable'));
+
+    await expect(coordinator.deliver(review(), 'feedback')).resolves.toMatchObject({
+      state: 'failed',
+      mechanism: 'continuity-revive',
+      error: 'continuity archive unavailable',
+    });
+    expect(manager.sendInput).not.toHaveBeenCalled();
+  });
+
   it('delivers to a live successor with the same durable history thread instead of reviving the old id', async () => {
     instances.set('instance-1', { id: 'instance-1', status: 'terminated' });
     instances.set('instance-2', {

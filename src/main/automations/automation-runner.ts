@@ -38,6 +38,7 @@ import type {
   ThreadWakeupRunnerFactory,
 } from './automation-runner-types';
 import { renderWebhookPromptTemplate } from './webhook-prompt-template';
+import { readAutomationModelDefaults, resolveAutomationSpawnTarget, type AutomationModelDefaults } from './automation-model-defaults';
 
 const logger = getLogger('AutomationRunner');
 
@@ -75,6 +76,7 @@ export class AutomationRunner {
     ),
     private readonly maxRetryAttempts = DEFAULT_MAX_RETRY_ATTEMPTS,
     private readonly baseRetryDelayMs = DEFAULT_RETRY_BASE_DELAY_MS,
+    private readonly automationModelDefaults: () => AutomationModelDefaults = readAutomationModelDefaults,
   ) {}
 
   /**
@@ -216,8 +218,7 @@ export class AutomationRunner {
         attachments: claimed.snapshot.action.attachments,
         yoloMode: claimed.snapshot.action.yoloMode,
         agentId: claimed.snapshot.action.agentId,
-        provider: claimed.snapshot.action.provider,
-        modelOverride: claimed.snapshot.action.model,
+        ...resolveAutomationSpawnTarget(claimed.snapshot.action, this.automationModelDefaults()),
         forceNodeId: claimed.snapshot.action.forceNodeId,
         reasoningEffort: claimed.snapshot.action.reasoningEffort,
         // Durable provenance so the rail can mark this session as automation-born
@@ -659,8 +660,7 @@ export class AutomationRunner {
         attachments: snapshot.action.attachments,
         yoloMode: snapshot.action.yoloMode,
         agentId: snapshot.action.agentId,
-        provider: snapshot.action.provider,
-        modelOverride: snapshot.action.model,
+        ...resolveAutomationSpawnTarget(snapshot.action, this.automationModelDefaults()),
         forceNodeId: snapshot.action.forceNodeId,
         reasoningEffort: snapshot.action.reasoningEffort,
         // Same durable provenance as the first attempt so the rail marks the

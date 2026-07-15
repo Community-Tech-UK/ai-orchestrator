@@ -286,4 +286,67 @@ describe('AutomationRunner thread wakeups', () => {
       }),
     );
   });
+
+  it('applies the dedicated automation-default model when the automation is Auto', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Do the thing', workingDirectory: '/repo/current' },
+    });
+    const run = makeRun();
+    run.configSnapshot = {
+      ...run.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Do the thing', workingDirectory: '/repo/current' },
+    };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    manager.createInstance.mockResolvedValue({ id: 'instance-auto', outputBuffer: [], status: 'working' });
+
+    const runner = new AutomationRunner(
+      store,
+      undefined,
+      () => 2_000,
+      threadWakeupFactory,
+      undefined,
+      undefined,
+      () => ({ automationDefaultCli: 'claude', automationDefaultModel: 'opus[1m]' }),
+    );
+    runner.initialize(manager);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude',
+      modelOverride: 'opus[1m]',
+    }));
+  });
+
+  it('applies the automation-default model on the retry spawn path', async () => {
+    const retryRun = makeRun();
+    retryRun.attempt = 2;
+    retryRun.configSnapshot = {
+      ...retryRun.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Retry me', workingDirectory: '/repo/current' },
+    };
+    manager.createInstance.mockResolvedValue({ id: 'instance-retry', outputBuffer: [], status: 'working' });
+
+    const runner = new AutomationRunner(
+      store,
+      undefined,
+      () => 2_000,
+      threadWakeupFactory,
+      undefined,
+      undefined,
+      () => ({ automationDefaultCli: 'claude', automationDefaultModel: 'opus[1m]' }),
+    );
+    runner.initialize(manager);
+
+    await runner.dispatchRetryRun(retryRun);
+
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude',
+      modelOverride: 'opus[1m]',
+    }));
+  });
 });

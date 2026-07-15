@@ -11,6 +11,7 @@ import { By } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, SETTINGS_METADATA } from '../../../../shared/types/settings.types';
 import type { SettingMetadata } from '../../../../shared/types/settings.types';
+import { getPrimaryModelForProvider } from '../../../../shared/types/provider.types';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { SettingsStore } from '../../core/state/settings.store';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
@@ -141,5 +142,97 @@ describe('GeneralSettingsTabComponent model defaults', () => {
     const debugElement = fixture.debugElement.query(By.directive(CompactModelPickerStubComponent));
     if (!debugElement) throw new Error('No default model picker');
     return debugElement.componentInstance as CompactModelPickerStubComponent;
+  }
+});
+
+describe('GeneralSettingsTabComponent automation model default', () => {
+  let fixture: ComponentFixture<GeneralSettingsTabComponent>;
+  let store: FakeSettingsStore;
+
+  beforeEach(async () => {
+    store = new FakeSettingsStore();
+    TestBed.configureTestingModule({
+      imports: [GeneralSettingsTabComponent],
+      providers: [{ provide: SettingsStore, useValue: store }],
+    });
+    TestBed.overrideComponent(GeneralSettingsTabComponent, {
+      set: {
+        imports: [
+          SettingRowStubComponent,
+          CompactModelPickerStubComponent,
+          AppUpdateSettingsStubComponent,
+        ],
+        styles: [''],
+        styleUrl: undefined,
+        styleUrls: [],
+      },
+    });
+    await TestBed.compileComponents();
+    fixture = TestBed.createComponent(GeneralSettingsTabComponent);
+  });
+
+  it('pins the dedicated automation keys without touching defaultModelByProvider', () => {
+    fixture.detectChanges();
+
+    const pinButton = fixture.nativeElement.querySelector(
+      'button[aria-label="Pin the default automation provider and model"]',
+    ) as HTMLButtonElement;
+    pinButton.click();
+
+    expect(store.update).toHaveBeenCalledWith({
+      automationDefaultCli: 'claude',
+      automationDefaultModel: getPrimaryModelForProvider('claude'),
+    });
+    // The interactive per-provider memory must be left untouched.
+    expect(store.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ defaultModelByProvider: expect.anything() }),
+    );
+  });
+
+  it('persists picker changes only to the dedicated automation keys', () => {
+    store.settings.update((current) => ({
+      ...current,
+      automationDefaultCli: 'claude',
+      automationDefaultModel: 'opus[1m]',
+    }));
+    fixture.detectChanges();
+
+    automationPicker().selectionChange.emit({
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+      reasoning: 'high',
+    });
+
+    expect(store.update).toHaveBeenCalledWith({
+      automationDefaultCli: 'codex',
+      automationDefaultModel: 'gpt-5.6-sol',
+    });
+  });
+
+  it('clears both dedicated keys when set back to Auto', () => {
+    store.settings.update((current) => ({
+      ...current,
+      automationDefaultCli: 'claude',
+      automationDefaultModel: 'opus[1m]',
+    }));
+    fixture.detectChanges();
+
+    const autoButton = fixture.nativeElement.querySelector(
+      'button[aria-label="Let each automation fall back to the provider default"]',
+    ) as HTMLButtonElement;
+    autoButton.click();
+
+    expect(store.update).toHaveBeenCalledWith({
+      automationDefaultCli: 'auto',
+      automationDefaultModel: '',
+    });
+  });
+
+  /** The automation picker is the second one in the template (after the session default). */
+  function automationPicker(): CompactModelPickerStubComponent {
+    const pickers = fixture.debugElement.queryAll(By.directive(CompactModelPickerStubComponent));
+    const picker = pickers[pickers.length - 1];
+    if (!picker) throw new Error('No automation model picker');
+    return picker.componentInstance as CompactModelPickerStubComponent;
   }
 });
