@@ -193,3 +193,70 @@ describe('FailoverManager', () => {
     expect(onFailover).toHaveBeenCalledWith('claude-cli', 'google');
   });
 });
+
+describe('FailoverManager.selectLoopFailoverTarget (WS7 Phase A)', () => {
+  beforeEach(() => {
+    FailoverManager._resetForTesting();
+  });
+
+  it('picks the first non-vetoed candidate in configured order and records telemetry', () => {
+    const manager = FailoverManager.getInstance();
+    const result = manager.selectLoopFailoverTarget({
+      from: 'claude',
+      candidates: ['codex', 'gemini'],
+      reason: 'auth',
+      correlationId: 'loop-1',
+    });
+    expect(result.to).toBe('codex');
+    expect(manager.getState().failoverCount).toBe(1);
+    expect(manager.getState().lastFailover).toBeInstanceOf(Date);
+  });
+
+  it('applies caller vetoes and skips the current provider', () => {
+    const manager = FailoverManager.getInstance();
+    const result = manager.selectLoopFailoverTarget({
+      from: 'claude',
+      candidates: ['claude', 'codex', 'gemini'],
+      reason: 'billing',
+      veto: (provider) => (provider === 'codex' ? 'provider_limit_parked' : null),
+    });
+    expect(result.to).toBe('gemini');
+    expect(result.considered).toEqual([
+      { provider: 'claude', vetoReason: 'is_current_provider' },
+      { provider: 'codex', vetoReason: 'provider_limit_parked' },
+      { provider: 'gemini', vetoReason: null },
+    ]);
+  });
+
+  it('cooldown from a prior loop failover blocks reselecting the mapped failed provider', () => {
+    const manager = FailoverManager.getInstance();
+    // First switch marks 'claude' (→ claude-cli) failed.
+    manager.selectLoopFailoverTarget({ from: 'claude', candidates: ['codex'], reason: 'auth' });
+    // A later switch from codex must not bounce straight back to claude.
+    const result = manager.selectLoopFailoverTarget({ from: 'codex', candidates: ['claude', 'gemini'], reason: 'auth' });
+    expect(result.to).toBe('gemini');
+    expect(result.considered[0]).toEqual({ provider: 'claude', vetoReason: 'cooldown_active' });
+  });
+
+  it('unmapped providers (codex/antigravity) skip circuit bookkeeping but stay selectable', () => {
+    const manager = FailoverManager.getInstance();
+    const result = manager.selectLoopFailoverTarget({
+      from: 'antigravity',
+      candidates: ['codex'],
+      reason: 'provider_runtime',
+    });
+    expect(result.to).toBe('codex');
+  });
+
+  it('returns null with the full considered trail when nothing survives', () => {
+    const manager = FailoverManager.getInstance();
+    const result = manager.selectLoopFailoverTarget({
+      from: 'claude',
+      candidates: ['codex'],
+      reason: 'auth',
+      veto: () => 'cli_not_installed',
+    });
+    expect(result.to).toBeNull();
+    expect(manager.getState().failoverCount).toBe(0);
+  });
+});

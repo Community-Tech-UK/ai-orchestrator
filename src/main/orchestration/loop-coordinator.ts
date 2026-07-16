@@ -225,6 +225,12 @@ import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-plann
 import { LoopPingPongReviewAbortRegistry } from './loop-pingpong-review-abort';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { routeClassifiedLoopInvocationFailure } from './loop-invocation-error-routing';
+import { attemptLoopFailover } from './loop-failover';
+import { classifyLoopError } from '../core/loop-error-classification';
+import { getFailoverManager } from '../providers/failover-manager';
+import { detectAvailableClis } from '../cli/cli-detection';
+import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
+import { getNotificationService } from '../notifications/notification-service';
 import { cleanupLoopWorktreeAfterTerminate } from './loop-worktree-termination-cleanup';
 export { computeWorkHash } from './loop-work-hash';
 export type {
@@ -279,6 +285,8 @@ export class LoopCoordinator extends EventEmitter {
    * because the stage just transitioned PLAN→IMPLEMENT (RPI context reset).
    */
   private pendingContextReset = new Set<string>();
+  /** WS7: loop runs whose NEXT iteration should record `failedOverFrom`. */
+  private pendingFailoverTag = new Map<string, string>();
   private watchers = new Map<string, CompletedFileWatcher>();
   private restoredLoops = new Set<string>();
   private runtimeContexts = new Map<string, LoopRuntimeContext>();
@@ -549,6 +557,7 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.convergenceNotes.clear();
       this.instance.planRegenerations.clear();
       this.instance.pendingContextReset.clear();
+      this.instance.pendingFailoverTag.clear();
       this.instance.watchers.clear();
       this.instance.restoredLoops.clear();
       this.instance.runtimeContexts.clear();
@@ -2144,6 +2153,14 @@ export class LoopCoordinator extends EventEmitter {
           this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
           continue;
         } else {
+          // WS7 Phase A: an opt-in failover run whose recovery exhausted on a
+          // provider-fault category retries the iteration on a fallback
+          // provider (iteration boundary; fresh session) instead of dying.
+          if (invocationFailure && await this.tryLoopFailover(state, invocationFailure, seq, stage)) {
+            this.clearInFlightIteration(state, seq);
+            this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+            continue;
+          }
           this.terminate(state, 'error', invocationError ?? 'iteration invocation failed');
           return;
         }
@@ -2274,6 +2291,10 @@ export class LoopCoordinator extends EventEmitter {
         testPassCount: childResult.testPassCount,
         testFailCount: childResult.testFailCount,
         ...(childResult.finishReason ? { finishReason: childResult.finishReason } : {}),
+        // WS7: first iteration after a provider switch records where it came from.
+        ...(this.pendingFailoverTag.has(state.id)
+          ? { failedOverFrom: this.pendingFailoverTag.get(state.id)! }
+          : {}),
         unresolvedToolCalls: childResult.unresolvedToolCalls ?? false,
         workHash,
         outputSimilarityToPrev: outputSimToPrev,
@@ -2286,6 +2307,7 @@ export class LoopCoordinator extends EventEmitter {
         verifyOutputExcerpt: '',
         transcriptBound: childResult.transcriptBound ?? false,
       };
+      this.pendingFailoverTag.delete(state.id);
 
       // D6 (#7) part 3: any production-file change invalidates the cached
       // clean fresh-eyes verdict (edit-invalidates-proof for reviews).
@@ -3437,6 +3459,65 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   // ============ Internal — helpers ============
+
+  /**
+   * WS7 Phase A: attempt an opt-in provider switch after terminal invocation
+   * failure. Selection routes through the FailoverManager (cooldown/circuit
+   * telemetry) with loop-scope vetoes: WS2 provider-limit ledger park and CLI
+   * availability. On success the run's provider is switched, the switch budget
+   * is consumed, the next iteration is tagged `failedOverFrom` and forced onto
+   * a fresh session. Never throws; false = proceed to terminal handling.
+   */
+  private async tryLoopFailover(state: LoopState, error: unknown, seq: number, stage: LoopStage): Promise<boolean> {
+    if (!state.config.failover?.enabled) return false;
+    let installed: ReadonlySet<string>;
+    try {
+      const clis = await detectAvailableClis();
+      installed = new Set(clis.filter((cli) => cli.installed).map((cli) => cli.name));
+    } catch {
+      installed = new Set();
+    }
+    const outcome = attemptLoopFailover(state, error, seq, stage, {
+      classify: (err) => classifyLoopError(err, {
+        provider: state.config.provider,
+        model: this.downshiftModelByLoop.get(state.id),
+      }),
+      selectTarget: (request) => getFailoverManager().selectLoopFailoverTarget(request),
+      isProviderParked: (provider) => Boolean(getProviderLimitLedgerPort().getActive({
+        provider: provider as ProviderId,
+        model: null,
+        now: Date.now(),
+      })),
+      installedProviders: installed,
+      notify: (input) => {
+        try {
+          getNotificationService().notify({
+            kind: 'loop-failover',
+            title: input.title,
+            body: input.body,
+            urgency: 'normal',
+            fingerprintFields: { loopRunId: state.id, seq },
+          });
+        } catch { /* notification is best-effort */ }
+      },
+      emitActivity: (payload) => this.emit('loop:activity', {
+        loopRunId: state.id,
+        seq,
+        stage,
+        timestamp: Date.now(),
+        kind: 'status',
+        message: payload.message,
+        detail: payload.detail,
+      }),
+    });
+    if (outcome.switched && outcome.from) {
+      this.pendingFailoverTag.set(state.id, outcome.from);
+      this.pendingContextReset.add(state.id);
+      // Durable persistence rides the caller's `loop:state-changed` emit
+      // (loop-handlers upserts the run on that event).
+    }
+    return outcome.switched;
+  }
 
   /**
    * WS5: park the loop as a SUCCESSFUL completed-needs-review because a

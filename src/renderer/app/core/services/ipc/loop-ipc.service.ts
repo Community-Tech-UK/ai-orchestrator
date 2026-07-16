@@ -63,6 +63,12 @@ export interface LoopStartConfigInput {
   maxTurnsPerIteration?: number | null;
   /** Fable WS6: named loop recipe pack for the per-stage work prompts. */
   loopRecipe?: string;
+  /** WS7 Phase A: opt-in provider failover for this run. */
+  failover?: {
+    enabled: boolean;
+    providers: ('claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok')[];
+    maxSwitches: number;
+  };
   caps?: Partial<{
     maxIterations: number | null;
     maxWallTimeMs: number;

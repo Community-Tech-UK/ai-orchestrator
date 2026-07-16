@@ -663,6 +663,79 @@ export class FailoverManager extends EventEmitter {
   }
 
   /**
+   * Fable WS7 Phase A — loop-scoped failover target selection.
+   *
+   * Loops are keyed by `LoopProvider` CLI names ('claude', 'codex', …), not
+   * this manager's API-centric {@link ProviderType}s, and a loop switch must
+   * NOT clobber the manager's global `currentProvider` (that models the app's
+   * primary provider, not one run's). This method keeps the manager the single
+   * source of failover truth — cooldown bookkeeping, failover counters, and
+   * events — while selection order comes from the loop's configured fallback
+   * list and loop-scope vetoes (WS2 limit-ledger park, CLI not installed) are
+   * applied by the caller through `veto`.
+   *
+   * Returns the first non-vetoed candidate (the configured order IS the
+   * operator's preference), or null when none survive.
+   */
+  selectLoopFailoverTarget(request: {
+    from: string;
+    candidates: readonly string[];
+    reason: string;
+    correlationId?: string;
+    /** Returns a human-readable veto reason, or null when the provider is usable. */
+    veto?: (provider: string) => string | null;
+  }): { to: string | null; considered: Array<{ provider: string; vetoReason: string | null }> } {
+    const fromType = mapLoopProviderToProviderType(request.from);
+    if (fromType) {
+      this.state.failedProviders.set(fromType, new Date());
+    }
+
+    const considered: Array<{ provider: string; vetoReason: string | null }> = [];
+    let to: string | null = null;
+    for (const candidate of request.candidates) {
+      if (candidate === request.from) {
+        considered.push({ provider: candidate, vetoReason: 'is_current_provider' });
+        continue;
+      }
+      const candidateType = mapLoopProviderToProviderType(candidate);
+      const failedAt = candidateType ? this.state.failedProviders.get(candidateType) : undefined;
+      if (failedAt && Date.now() - failedAt.getTime() < this.config.providerCooldownMs) {
+        considered.push({ provider: candidate, vetoReason: 'cooldown_active' });
+        continue;
+      }
+      if (candidateType && this.getProviderCircuit(candidateType).getStats().state === CircuitState.OPEN) {
+        considered.push({ provider: candidate, vetoReason: 'circuit_open' });
+        continue;
+      }
+      const vetoReason = request.veto?.(candidate) ?? null;
+      considered.push({ provider: candidate, vetoReason });
+      if (vetoReason === null) {
+        to = candidate;
+        break;
+      }
+    }
+
+    logger.info('Loop failover target selection', {
+      correlationId: request.correlationId,
+      from: request.from,
+      to,
+      reason: request.reason,
+      considered,
+    });
+
+    if (to) {
+      this.state.failoverCount++;
+      this.state.lastFailover = new Date();
+      const toType = mapLoopProviderToProviderType(to);
+      if (fromType && toType) {
+        this.emitEvent({ type: 'failover_started', from: fromType, to: toType, reason: request.reason });
+        this.emitEvent({ type: 'failover_completed', from: fromType, to: toType, success: true });
+      }
+    }
+    return { to, considered };
+  }
+
+  /**
    * Reset state (for testing)
    */
   reset(): void {
@@ -685,6 +758,23 @@ export class FailoverManager extends EventEmitter {
     this.reset();
     this.removeAllListeners();
     FailoverManager.instance = null;
+  }
+}
+
+/**
+ * WS7: best-effort mapping from loop/CLI provider ids to this manager's
+ * {@link ProviderType} vocabulary. Providers without an equivalent (codex,
+ * antigravity) return null — they skip circuit/cooldown bookkeeping but remain
+ * selectable through the caller's veto checks.
+ */
+export function mapLoopProviderToProviderType(loopProvider: string): ProviderType | null {
+  switch (loopProvider) {
+    case 'claude': return 'claude-cli';
+    case 'gemini': return 'google';
+    case 'copilot': return 'copilot';
+    case 'cursor': return 'cursor';
+    case 'grok': return 'grok';
+    default: return null;
   }
 }
 

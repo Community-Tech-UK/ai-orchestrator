@@ -337,6 +337,12 @@ export const LoopConfigSchema = z.object({
    *  harvests any uncommitted agent work to that branch on termination.
    *  Default: false (backward-compatible). */
   isolateLoopWorkspaces: z.boolean().optional(),
+  /** WS7 Phase A: opt-in per-loop provider failover (default disabled). */
+  failover: z.object({
+    enabled: z.boolean(),
+    providers: z.array(z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'])).max(7),
+    maxSwitches: z.number().int().min(1).max(5),
+  }).optional(),
   /** Absolute path to the per-session worktree. Set automatically by the
    *  coordinator when isolateLoopWorkspaces is true; may also be set by
    *  callers directly. Omit to default to workspaceCwd. */
@@ -549,6 +555,8 @@ export const LoopIterationSchema = z.object({
   testPassCount: z.number().int().nullable(),
   testFailCount: z.number().int().nullable(),
   finishReason: z.string().optional(),
+  /** WS7: provider this iteration failed over FROM. */
+  failedOverFrom: z.string().optional(),
   unresolvedToolCalls: z.boolean().default(false),
   workHash: z.string(),
   outputSimilarityToPrev: z.number().min(0).max(1).nullable(),
@@ -622,6 +630,8 @@ export const LoopStateSchema = z.object({
   /** D6 (#7): work-hash recorded at the last PASSING verify (edit-invalidates-
    *  proof staleness anchor). Mirrors `LoopState.lastVerifiedWorkHash`. */
   lastVerifiedWorkHash: z.string().optional(),
+  /** WS7 Phase A: provider switches performed this run. */
+  failoverSwitches: z.number().int().min(0).optional(),
   /** D6 (#7): cached clean fresh-eyes verdict, valid while no production file
    *  changed since. Mirrors `LoopState.freshEyesCleanForWorkState`. */
   freshEyesCleanForWorkState: z.boolean().optional(),

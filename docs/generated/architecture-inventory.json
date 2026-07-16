@@ -5512,12 +5512,12 @@
       "lines": 4321
     },
     {
-      "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
-      "lines": 3817
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 3856
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3775
+      "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
+      "lines": 3817
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -6288,16 +6288,16 @@
       "lines": 876
     },
     {
+      "path": "packages/contracts/src/schemas/loop.schemas.ts",
+      "lines": 875
+    },
+    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 870
     },
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
       "lines": 867
-    },
-    {
-      "path": "packages/contracts/src/schemas/loop.schemas.ts",
-      "lines": 865
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f4-f5-transcript-performance.md",

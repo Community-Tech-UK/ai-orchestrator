@@ -78,6 +78,26 @@ export type LoopContextStrategy = 'fresh-child' | 'hybrid' | 'same-session';
 /** Concrete provider for child iterations. `auto` is resolved before persistence. */
 export type LoopProvider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
 
+/**
+ * Fable WS7 Phase A — per-loop provider failover. Default DISABLED: switching
+ * providers mid-goal sends the conversation to a different vendor, so it is
+ * explicit opt-in per loop. When a loop iteration exhausts its recovery
+ * recipes on a provider-fault category (`shouldFailover` classification), the
+ * coordinator retries the iteration once per switch on the next configured
+ * fallback provider (fresh session; the loop state files re-anchor the goal).
+ */
+export interface LoopFailoverConfig {
+  enabled: boolean;
+  /** Ordered fallback providers to try (the current provider is skipped). */
+  providers: LoopProvider[];
+  /** Maximum provider switches per run (default 1). */
+  maxSwitches: number;
+}
+
+export function defaultLoopFailoverConfig(): LoopFailoverConfig {
+  return { enabled: false, providers: [], maxSwitches: 1 };
+}
+
 export interface LoopProgressThresholds {
   /** Identical-work-hash WARN threshold. */
   identicalHashWarnConsecutive: number;     // default 2
@@ -603,6 +623,8 @@ export interface LoopConfig {
    * Default: false (backward-compatible).
    */
   isolateLoopWorkspaces?: boolean;
+  /** WS7 Phase A: opt-in provider failover for this run (default disabled). */
+  failover?: LoopFailoverConfig;
   /**
    * The directory the CLI child is spawned in. When `isolateLoopWorkspaces` is
    * true this is set to the per-session worktree path by the coordinator;

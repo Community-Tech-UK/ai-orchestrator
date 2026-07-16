@@ -214,7 +214,9 @@ const ALLOWLIST: Record<string, number> = {
   // review-lesson gate wiring). Capture wiring itself lives in
   // loop-review-lesson-capture-wiring.ts / loop-prior-context.ts — re-tighten
   // after the next coordinator extraction.
-  'src/main/orchestration/loop-coordinator.ts': 3780,
+  // Raised 3780 -> 3856 (Fable WS7 Phase A: tryLoopFailover seam + failedOverFrom
+  // tagging; decision/orchestration logic lives in loop-failover.ts).
+  'src/main/orchestration/loop-coordinator.ts': 3856,
   // Re-tightened after extracting loop-completed-plan-helpers.ts.
   'src/main/orchestration/loop-completion-detector.ts': 794,
   'src/main/orchestration/loop-store.ts': 767,
@@ -229,6 +231,9 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — plugins
   'src/main/plugins/plugin-manager.ts': 1303,
   // Main process — providers
+  // Added 2026-07-16 at 785 (Fable WS7 Phase A: selectLoopFailoverTarget —
+  // loop-scoped selection keeping cooldown/telemetry in the one manager).
+  'src/main/providers/failover-manager.ts': 785,
   'src/main/providers/model-discovery.ts': 552,
   // Main process — remote
   'src/main/remote/observer-server.ts': 864,

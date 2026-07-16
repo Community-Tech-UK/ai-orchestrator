@@ -78,6 +78,25 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(2);
   });
 
+  it('WS7: provider failover is OFF by default and emits only when enabled with providers', () => {
+    expect(component.buildConfig()?.failover).toBeUndefined();
+
+    component.failoverEnabled.set(true);
+    // Enabled but no providers picked → still not emitted.
+    expect(component.buildConfig()?.failover).toBeUndefined();
+
+    component.toggleFailoverProvider('codex', true);
+    component.toggleFailoverProvider('gemini', true);
+    expect(component.buildConfig()?.failover).toEqual({
+      enabled: true,
+      providers: ['codex', 'gemini'],
+      maxSwitches: 1,
+    });
+
+    component.toggleFailoverProvider('codex', false);
+    expect(component.buildConfig()?.failover?.providers).toEqual(['gemini']);
+  });
+
   it('defaults ping-pong review to checked and emits ping-pong completion config', () => {
     const checkbox = fixture.nativeElement.querySelector('.pingpong-toggle input') as HTMLInputElement | null;
     const config = component.buildConfig();

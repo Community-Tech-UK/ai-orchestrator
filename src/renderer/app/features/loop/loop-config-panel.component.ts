@@ -164,6 +164,9 @@ export class LoopConfigPanelComponent {
   maxTurns = signal<number | null>(DEFAULT_MAX_TURNS_PER_ITERATION);
   /** Fable WS6: selected recipe pack for the per-stage work prompts. */
   loopRecipe = signal('coding');
+  /** WS7 Phase A: opt-in provider failover for this run. */
+  failoverEnabled = signal(false);
+  failoverProviders = signal<string[]>([]);
   recipeOptions = signal<{ name: string; description: string; source: 'built-in' | 'user' }[]>([
     { name: 'coding', description: 'Default software-implementation stages.', source: 'built-in' },
   ]);
@@ -495,6 +498,12 @@ export class LoopConfigPanelComponent {
     }
   }
 
+  toggleFailoverProvider(provider: string, checked: boolean): void {
+    const current = new Set(this.failoverProviders());
+    if (checked) current.add(provider); else current.delete(provider);
+    this.failoverProviders.set([...current]);
+  }
+
   buildConfig(): LoopStartConfigInput | null {
     if (!this.canSubmit()) return null;
     const provider = this.provider();
@@ -512,6 +521,15 @@ export class LoopConfigPanelComponent {
       initialStage: this.initialStage(),
       maxTurnsPerIteration: this.maxTurns(),
       loopRecipe: this.loopRecipe(),
+      ...(this.failoverEnabled() && this.failoverProviders().length > 0
+        ? {
+            failover: {
+              enabled: true,
+              providers: this.failoverProviders() as ('claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok')[],
+              maxSwitches: 1,
+            },
+          }
+        : {}),
       caps: {
         maxIterations: this.maxIterations(),
         maxWallTimeMs: this.maxHours() * 60 * 60 * 1000,

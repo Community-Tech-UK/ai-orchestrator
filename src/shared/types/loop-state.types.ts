@@ -172,6 +172,8 @@ export interface LoopIteration {
   testFailCount: number | null;
   /** Adapter/provider stop reason, e.g. `end_turn`, `tool_use`, or `max_tokens`. */
   finishReason?: string;
+  /** WS7: provider this iteration failed over FROM (set on the first iteration after a switch). */
+  failedOverFrom?: string;
   /** True when a tool_use was observed without a matching tool_result before the turn sealed. */
   unresolvedToolCalls?: boolean;
   /** Hash of (sortedFileDiffPaths ‖ stage ‖ toolCallSignature). */
@@ -408,6 +410,12 @@ export interface LoopState {
    * off / the recording seam is not wired).
    */
   lastVerifiedWorkHash?: string;
+  /**
+   * WS7 Phase A: provider switches performed this run (bounded by
+   * `config.failover.maxSwitches`). Persisted so a restored run cannot reset
+   * its switch budget.
+   */
+  failoverSwitches?: number;
   /**
    * B6: provider/model context window learned from a context-overflow response.
    * Runtime state, not immutable config; reused by LF-1 context discipline so

@@ -10,6 +10,7 @@
 
 import type { LoopConfig } from './loop.types';
 import {
+  defaultLoopFailoverConfig,
   DEFAULT_LOOP_MAX_COST_CENTS,
   DEFAULT_LOOP_MAX_ITERATIONS,
   DEFAULT_LOOP_MAX_TOKENS,
@@ -37,6 +38,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     reviewStyle: 'debate',
     contextStrategy: 'same-session',
     maxTurnsPerIteration: LOOP_DEFAULT_MAX_TURNS_PER_ITERATION,
+    failover: defaultLoopFailoverConfig(),
     caps: {
       maxIterations: DEFAULT_LOOP_MAX_ITERATIONS,
       maxWallTimeMs: DEFAULT_LOOP_MAX_WALL_TIME_MS,

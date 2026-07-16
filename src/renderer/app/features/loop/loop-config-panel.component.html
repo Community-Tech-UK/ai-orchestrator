@@ -77,6 +77,28 @@
     </select>
   </section>
 
+  <section class="row failover-row">
+    <label class="failover-toggle">
+      <input type="checkbox" [checked]="failoverEnabled()" (change)="failoverEnabled.set(toggleEvent($event))" />
+      Provider failover
+      <span class="hint">(on a provider outage/limit, retry the iteration on a fallback provider)</span>
+    </label>
+    @if (failoverEnabled()) {
+      <div class="failover-providers">
+        @for (option of ['claude', 'codex', 'gemini', 'copilot']; track option) {
+          <label class="failover-provider-option">
+            <input
+              type="checkbox"
+              [checked]="failoverProviders().includes(option)"
+              (change)="toggleFailoverProvider(option, toggleEvent($event))"
+            />
+            {{ option }}
+          </label>
+        }
+      </div>
+    }
+  </section>
+
   @if (completionMode() === 'review-driven') {
     <section class="row">
       <label for="loop-cfg-clean-passes">
