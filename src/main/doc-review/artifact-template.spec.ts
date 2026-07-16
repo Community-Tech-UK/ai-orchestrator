@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -42,17 +42,19 @@ describe('doc-review artifact template', () => {
   });
 
   it('supports authored choice lists and keeps the portable template runtime synchronized', () => {
-    const portableTemplate = readFileSync(
-      join(process.cwd(), '.claude', 'skills', 'doc-review-artifact', 'references', 'artifact-template.html'),
-      'utf8',
-    );
-
     expect(html).toContain('data-review-options');
     expect(html).toContain('data-multi');
     expect(html).toContain('post("choice"');
     expect(html).toContain('choice: it.multi ? null : it.choice');
     expect(html).toContain('choices: it.multi ? it.choices : []');
-    expect(portableTemplate).toBe(html);
+
+    // The portable copy lives under the gitignored .claude/skills/ dir and is
+    // absent on fresh clones / machines without the skill installed. Only assert
+    // parity when it is actually present.
+    const portablePath = join(process.cwd(), '.claude', 'skills', 'doc-review-artifact', 'references', 'artifact-template.html');
+    if (existsSync(portablePath)) {
+      expect(readFileSync(portablePath, 'utf8')).toBe(html);
+    }
   });
 
   it('makes no external requests (self-contained; only a same-origin loopback capture)', () => {

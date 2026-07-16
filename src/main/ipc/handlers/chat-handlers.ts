@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '@contracts/channels';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   ChatCreatePayloadSchema,
+  ChatDeletePayloadSchema,
   ChatIdPayloadSchema,
   ChatLoadOlderMessagesPayloadSchema,
   ChatListPayloadSchema,
@@ -70,6 +71,16 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
       return { success: true, data: await service.archiveChat(validated.chatId) };
     } catch (error) {
       return chatError(error, 'CHAT_ARCHIVE_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CHAT_DELETE, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(ChatDeletePayloadSchema, payload, 'CHAT_DELETE');
+      await service.deleteChat(validated.chatId);
+      return { success: true };
+    } catch (error) {
+      return chatError(error, 'CHAT_DELETE_FAILED');
     }
   });
 

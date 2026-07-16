@@ -1,3 +1,4 @@
+import { delimiter } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Phase 5+ wiring: SpawnConfigBuilder (extracted from instance-lifecycle)
@@ -328,7 +329,7 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
       AI_ORCHESTRATOR_INSTANCE_ID: 'instance-tools',
     });
-    expect(env?.['PATH']?.split(':')[0]).toBe(
+    expect(env?.['PATH']?.split(delimiter)[0]).toBe(
       '/Applications/Harness.app/Contents/Resources/aio-mcp-cli',
     );
   });

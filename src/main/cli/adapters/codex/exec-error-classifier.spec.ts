@@ -103,6 +103,20 @@ describe('isCodexInputTooLargeError', () => {
   });
 });
 
+describe('isRecoverableThreadResumeError', () => {
+  it('matches Codex interrupted-rollout diagnostics for a missing custom tool output', () => {
+    expect(isRecoverableThreadResumeError(
+      new Error('Custom tool call output is missing for call id: call_GrCZFAKplJVcTMQRC9S6s0iE'),
+    )).toBe(true);
+  });
+
+  it('does not broaden recovery to unrelated missing tool output errors', () => {
+    expect(isRecoverableThreadResumeError(new Error('Tool output is missing'))).toBe(false);
+    expect(isRecoverableThreadResumeError(new Error('Custom tool call failed for call id: call_123'))).toBe(false);
+    expect(isRecoverableThreadResumeError(new Error('Custom tool call output is missing'))).toBe(false);
+  });
+});
+
 describe('enrichSpawnError', () => {
   const original = errnoError('spawn codex ENOENT', 'ENOENT', 'spawn codex');
 

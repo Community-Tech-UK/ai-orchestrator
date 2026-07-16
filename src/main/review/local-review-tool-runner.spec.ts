@@ -1,4 +1,4 @@
-import { execFile, spawn, type SpawnOptions } from 'node:child_process';
+import { execFile, spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import {
@@ -28,6 +28,18 @@ import {
 import { LocalReviewToolRunner } from './local-review-tool-runner';
 
 const execFileAsync = promisify(execFile);
+
+// The runner shells out to ripgrep for workspace_search. CI (macOS/Linux) has
+// `rg` on PATH; some dev machines (e.g. stock Windows) do not. Skip the search
+// tests when it is genuinely unavailable rather than failing on the environment.
+const RIPGREP_AVAILABLE = (() => {
+  try {
+    return spawnSync('rg', ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' }).status === 0;
+  } catch {
+    return false;
+  }
+})();
+const itNeedsRipgrep = RIPGREP_AVAILABLE ? it : it.skip;
 
 describe('LocalReviewToolRunner', () => {
   let sandboxPath: string;
@@ -271,7 +283,7 @@ describe('LocalReviewToolRunner', () => {
     })).resolves.toMatchObject({ ok: false, code: 'sensitive-path' });
   });
 
-  it('withholds loop-private directories from every repository tool', async () => {
+  itNeedsRipgrep('withholds loop-private directories from every repository tool', async () => {
     const privatePaths = [
       '.aio-loop-control/run/control.json',
       '.aio-loop-state/run/AUDIT.md',
@@ -338,7 +350,7 @@ describe('LocalReviewToolRunner', () => {
     if (result.ok) expect(result.content).not.toContain('zz-visible.txt');
   });
 
-  it('caps repository search at 100 matches', async () => {
+  itNeedsRipgrep('caps repository search at 100 matches', async () => {
     const matches = Array.from({ length: 120 }, (_, index) => `needle ${index}`).join('\n');
     await writeFile(path.join(workspacePath, 'src', 'matches.txt'), `${matches}\n`);
 
@@ -353,7 +365,7 @@ describe('LocalReviewToolRunner', () => {
     }
   });
 
-  it('uses one rg process for a bounded multi-file search snapshot', async () => {
+  itNeedsRipgrep('uses one rg process for a bounded multi-file search snapshot', async () => {
     await writeFile(path.join(workspacePath, 'src', 'one.txt'), 'single-rg-marker\n');
     await writeFile(path.join(workspacePath, 'src', 'two.txt'), 'single-rg-marker\n');
     const calls: string[] = [];
@@ -419,7 +431,7 @@ describe('LocalReviewToolRunner', () => {
     },
   );
 
-  it('caps aggregate search snapshot input bytes', async () => {
+  itNeedsRipgrep('caps aggregate search snapshot input bytes', async () => {
     await writeFile(path.join(workspacePath, 'src', 'a-input.txt'), 'first-input-marker\n');
     await writeFile(path.join(workspacePath, 'src', 'b-input.txt'), 'second-input-marker\n');
     const boundedSearchRunner = new LocalReviewToolRunner(workspacePath, { maxSearchInputBytes: 24 });
@@ -458,7 +470,7 @@ describe('LocalReviewToolRunner', () => {
     expect(result).toMatchObject({ ok: false, code: 'process-error' });
   });
 
-  it('passes adversarial wildcard globs to rg instead of compiling a JavaScript regex', async () => {
+  itNeedsRipgrep('passes adversarial wildcard globs to rg instead of compiling a JavaScript regex', async () => {
     const glob = `${'*a'.repeat(400)}*.ts`;
     const rgArgs: string[][] = [];
     const globRunner = new LocalReviewToolRunner(workspacePath, {
@@ -474,7 +486,7 @@ describe('LocalReviewToolRunner', () => {
     expect(rgArgs[0]).toEqual(expect.arrayContaining(['--glob', glob]));
   });
 
-  it('ignores inherited ripgrep configuration that would follow escaping symlinks', async () => {
+  itNeedsRipgrep('ignores inherited ripgrep configuration that would follow escaping symlinks', async () => {
     const ripgrepConfigPath = path.join(sandboxPath, 'ripgrep.conf');
     await writeFile(ripgrepConfigPath, '--follow\n');
     const previousConfig = process.env['RIPGREP_CONFIG_PATH'];
@@ -606,7 +618,7 @@ describe('LocalReviewToolRunner', () => {
     });
   });
 
-  it('supports status, diff, list, and search in a canonical linked worktree', async () => {
+  itNeedsRipgrep('supports status, diff, list, and search in a canonical linked worktree', async () => {
     const linkedPath = path.join(sandboxPath, 'linked-worktree');
     await git(['worktree', 'add', '-b', 'linked-review-test', linkedPath]);
     await writeFile(path.join(linkedPath, 'src', 'a.ts'), 'export const linkedMarker = 2;\n');
@@ -781,7 +793,7 @@ describe('LocalReviewToolRunner', () => {
     await expect(lstat(sentinelPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('passes exact no-lock Git hardening and structured stdin-only rg arguments', async () => {
+  itNeedsRipgrep('passes exact no-lock Git hardening and structured stdin-only rg arguments', async () => {
     const calls: { executable: string; args: string[]; options: SpawnOptions }[] = [];
     const recordingRunner = new LocalReviewToolRunner(workspacePath, {
       spawnProcess: (executable, args, options) => {
@@ -924,7 +936,7 @@ describe('LocalReviewToolRunner', () => {
     expect(spawnProcess).not.toHaveBeenCalled();
   });
 
-  it('supports status, diff, list, and search in a fresh Git repo with no index', async () => {
+  itNeedsRipgrep('supports status, diff, list, and search in a fresh Git repo with no index', async () => {
     const freshPath = path.join(sandboxPath, 'fresh-repo');
     await mkdir(freshPath);
     await execFileAsync('git', ['init'], { cwd: freshPath, env: hermeticGitEnv(), encoding: 'utf8' });

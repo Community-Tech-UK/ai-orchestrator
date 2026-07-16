@@ -57,6 +57,9 @@ mise.local.toml
 # AI Orchestrator project memory skeletons
 .aio/
 
+# AI Orchestrator local runtime activity
+.ao/
+
 # Loop Mode runtime state (the loop coordinator writes these into the
 # workspace where it runs; they are per-iteration memory, not source).
 # Current loops scope all state under .aio-loop-state/<runId>/; the bare

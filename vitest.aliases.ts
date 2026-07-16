@@ -40,6 +40,7 @@ export const aliases = {
   '@contracts/schemas/campaign': resolve(configDir, './packages/contracts/src/schemas/campaign.schemas'),
   '@contracts/schemas/doc-review': resolve(configDir, './packages/contracts/src/schemas/doc-review.schemas'),
   '@contracts/schemas/rlm-maintenance': resolve(configDir, './packages/contracts/src/schemas/rlm-maintenance.schemas'),
+  '@contracts/schemas/context-evidence': resolve(configDir, './packages/contracts/src/schemas/context-evidence.schemas'),
   '@contracts/channels/automation': resolve(configDir, './packages/contracts/src/channels/automation.channels'),
   '@contracts/channels/campaign': resolve(configDir, './packages/contracts/src/channels/campaign.channels'),
   '@contracts/channels/pause': resolve(configDir, './packages/contracts/src/channels/pause.channels'),
@@ -53,6 +54,7 @@ export const aliases = {
   '@contracts/types/provider-runtime-events': resolve(configDir, './packages/contracts/src/types/provider-runtime-events'),
   '@contracts/types/transport': resolve(configDir, './packages/contracts/src/types/transport.types'),
   '@contracts/types/browser': resolve(configDir, './packages/contracts/src/types/browser.types'),
+  '@contracts/types/context-evidence': resolve(configDir, './packages/contracts/src/types/context-evidence.types'),
   '@contracts': resolve(configDir, './packages/contracts/src'),
   '@sdk': resolve(configDir, './packages/sdk/src'),
 };

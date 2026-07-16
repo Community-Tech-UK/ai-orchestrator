@@ -53,6 +53,72 @@ describe('ChatService', () => {
     });
   });
 
+  it('drains and terminates the active runtime, revokes canonical evidence, then deletes the chat row', async () => {
+    const { service, ledger, instanceManager, deletionCalls, drainCalls } = createHarness();
+    const created = await service.createChat({
+      provider: 'claude', currentCwd: '/work/delete', name: 'Delete me',
+    });
+    const active = await service.sendMessage({ chatId: created.chat.id, text: 'Remember this' });
+    const instanceId = active.chat.currentInstanceId!;
+
+    await service.deleteChat(created.chat.id);
+
+    expect(drainCalls).toEqual([instanceId, instanceId]);
+    expect(instanceManager.terminations).toEqual([instanceId]);
+    expect(deletionCalls).toEqual([created.chat.ledgerThreadId]);
+    expect(service.listChats({ includeArchived: true })).toEqual([]);
+    expect(await ledger.getThread(created.chat.ledgerThreadId)).toBeNull();
+  });
+
+  it('keeps the operator chat row when canonical ledger deletion fails', async () => {
+    const { service } = createHarness({
+      revokeConversation: async () => { throw new Error('ledger unavailable'); },
+    });
+    const created = await service.createChat({
+      provider: 'claude', currentCwd: '/work/delete', name: 'Keep me',
+    });
+
+    await expect(service.deleteChat(created.chat.id)).rejects.toThrow('ledger unavailable');
+    expect(service.listChats({ includeArchived: true })).toEqual([
+      expect.objectContaining({ id: created.chat.id }),
+    ]);
+  });
+
+  it('does not revoke or delete while the active runtime cannot be terminated', async () => {
+    const { service, ledger, instanceManager, deletionCalls } = createHarness();
+    const created = await service.createChat({
+      provider: 'claude', currentCwd: '/work/delete', name: 'Still running',
+    });
+    await service.sendMessage({ chatId: created.chat.id, text: 'Keep this live' });
+    instanceManager.terminateInstance = async () => { throw new Error('runtime still alive'); };
+
+    await expect(service.deleteChat(created.chat.id)).rejects.toThrow('runtime still alive');
+    expect(deletionCalls).toEqual([]);
+    expect(service.listChats({ includeArchived: true })).toEqual([
+      expect.objectContaining({ id: created.chat.id }),
+    ]);
+    expect(await ledger.getThread(created.chat.ledgerThreadId)).not.toBeNull();
+  });
+
+  it('retries idempotently when canonical deletion commits before the operator row delete', async () => {
+    const { service, db } = createHarness();
+    const created = await service.createChat({
+      provider: 'claude', currentCwd: '/work/delete', name: 'Retry delete',
+    });
+    db.exec(`
+      CREATE TRIGGER reject_chat_delete
+      BEFORE DELETE ON chats
+      BEGIN SELECT RAISE(ABORT, 'fixture operator delete failure'); END
+    `);
+
+    await expect(service.deleteChat(created.chat.id)).rejects.toThrow('fixture operator delete failure');
+    expect(service.listChats({ includeArchived: true })).toHaveLength(1);
+    db.exec('DROP TRIGGER reject_chat_delete');
+
+    await expect(service.deleteChat(created.chat.id)).resolves.toBeUndefined();
+    expect(service.listChats({ includeArchived: true })).toEqual([]);
+  });
+
   it('spawns the selected provider runtime lazily and persists the visible user turn', async () => {
     const { service, instanceManager } = createHarness();
     const attachment: FileAttachment = {
@@ -82,6 +148,12 @@ describe('ChatService', () => {
         workingDirectory: '/work/project',
         yoloMode: true,
         agentId: 'build',
+        historyThreadId: chat.chat.ledgerThreadId,
+        evidenceConversationOwner: {
+          kind: 'chat',
+          chatId: chat.chat.id,
+          conversationId: chat.chat.ledgerThreadId,
+        },
       }),
     ]);
     expect(instanceManager.inputs).toEqual([
@@ -1161,11 +1233,15 @@ describe('ChatService', () => {
     });
   });
 
-  function createHarness(): {
+  function createHarness(options: {
+    revokeConversation?: (conversationId: string) => Promise<unknown>;
+  } = {}): {
     db: SqliteDriver;
     ledger: ConversationLedgerService;
     instanceManager: FakeInstanceManager;
     service: ChatService;
+    deletionCalls: string[];
+    drainCalls: string[];
   } {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);
@@ -1177,15 +1253,29 @@ describe('ChatService', () => {
     });
     ledgers.push(ledger);
     const instanceManager = new FakeInstanceManager();
+    const deletionCalls: string[] = [];
+    const drainCalls: string[] = [];
     const service = new ChatService({
       db,
       ledger,
       instanceManager: instanceManager as never,
       eventBus: new EventEmitter(),
       branchSummarizer: new BranchSummarizer(),
+      evidenceDeletion: {
+        revokeConversation: async (conversationId) => {
+          deletionCalls.push(conversationId);
+          if (options.revokeConversation) return options.revokeConversation(conversationId);
+          return ledger.softDeleteConversationWithEvidence({
+            conversationId,
+            deletedAt: new Date(100).toISOString(),
+            graceDeadline: 100 + 10 * 60 * 1000,
+          });
+        },
+      },
+      drainEvidenceCapture: async (queueId) => { drainCalls.push(queueId); },
     });
     services.push(service);
-    return { db, ledger, instanceManager, service };
+    return { db, ledger, instanceManager, service, deletionCalls, drainCalls };
   }
 });
 

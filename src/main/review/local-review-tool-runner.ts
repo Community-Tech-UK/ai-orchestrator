@@ -439,8 +439,8 @@ export class LocalReviewToolRunner {
     let first: ValidatedPath;
     let second: ValidatedPath;
     try {
-      first = await this.pathSnapshot(root, candidate);
-      second = await this.pathSnapshot(root, candidate);
+      first = await this.pathSnapshot(root, candidate, requestedPath);
+      second = await this.pathSnapshot(root, candidate, requestedPath);
     } catch (error) {
       if (!isMissingPathError(error)) throw error;
       const missingPath = await this.resolveMissingPath(candidate);
@@ -454,14 +454,18 @@ export class LocalReviewToolRunner {
     }
     return second;
   }
-  private async pathSnapshot(root: string, candidate: string): Promise<ValidatedPath> {
+  private async pathSnapshot(root: string, candidate: string, requestedPath: string): Promise<ValidatedPath> {
+    // Report the caller's raw requested path (POSIX-style, as received) to the
+    // hook — matching pathOperationHook's contract. `path.relative` would emit
+    // native separators and break the seam on Windows.
+    const hookPath = requestedPath || '.';
     const absolutePath = await realpath(candidate);
-    await this.pathPrimitiveHook?.({ path: path.relative(root, candidate) || '.', phase: 'after-realpath' });
+    await this.pathPrimitiveHook?.({ path: hookPath, phase: 'after-realpath' });
     if (!this.isContained(root, absolutePath)) throw new ToolResultError('path-denied', 'Requested path escapes the workspace.');
     const relativePath = path.relative(root, absolutePath) || '.';
     if (this.isSensitivePath(relativePath, absolutePath)) throw new ToolResultError('sensitive-path', 'Sensitive repository path denied.');
     const stats = await lstat(absolutePath);
-    await this.pathPrimitiveHook?.({ path: path.relative(root, candidate) || '.', phase: 'after-lstat' });
+    await this.pathPrimitiveHook?.({ path: hookPath, phase: 'after-lstat' });
     if (await realpath(candidate) !== absolutePath) throw new ToolResultError('path-denied', 'Workspace path changed during validation.');
     return { absolutePath, relativePath, identity: { dev: stats.dev, ino: stats.ino } };
   }
@@ -507,9 +511,16 @@ export class LocalReviewToolRunner {
   private async resolveExecutable(configured: string): Promise<ExecutableState> {
     const root = await this.rootRealPath();
     const lexicalRoot = path.resolve(this.workspaceRoot);
+    // On Windows a bare `git`/`rg` never resolves on disk — the real binary is
+    // `git.exe`. Expand each trusted PATH entry across the platform's executable
+    // extensions so the identity-pinned lookup finds the actual file.
+    const names = path.isAbsolute(configured) || path.extname(configured)
+      ? [configured]
+      : [configured, ...executableExtensions().map((ext) => `${configured}${ext}`)];
     const candidates = path.isAbsolute(configured)
       ? [configured]
-      : this.initialPath.split(path.delimiter).filter(path.isAbsolute).map((entry) => path.join(entry, configured));
+      : this.initialPath.split(path.delimiter).filter(path.isAbsolute)
+          .flatMap((entry) => names.map((name) => path.join(entry, name)));
     for (const candidate of candidates) {
       const lexical = path.resolve(candidate);
       if (this.isContained(root, lexical) || this.isContained(lexicalRoot, lexical)) continue;
@@ -667,6 +678,10 @@ function isSafeRepositoryRelativePath(candidate: string): boolean {
   return normalized !== '..' && !normalized.startsWith(`..${path.sep}`);
 }
 function sameIdentity(expected: FileIdentity, actual: FileIdentity): boolean { return expected.dev === actual.dev && expected.ino === actual.ino; }
+function executableExtensions(): string[] {
+  if (process.platform !== 'win32') return [];
+  return (process.env['PATHEXT'] ?? '.EXE;.COM;.BAT;.CMD').split(';').map((ext) => ext.trim()).filter(Boolean);
+}
 function capText(value: string, maxBytes: number): { text: string; truncated: boolean } {
   const data = Buffer.from(value, 'utf8');
   if (data.length <= maxBytes) return { text: value, truncated: false };

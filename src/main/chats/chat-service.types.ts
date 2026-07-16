@@ -3,6 +3,11 @@ import type { ConversationLedgerService } from '../conversation-ledger';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { BranchSummarizerLike } from '../context/branch-summarizer';
+import type { ConversationEvidenceDeletionResult } from '../conversation-ledger/context-evidence-ledger.types';
+
+export interface ChatEvidenceDeletion {
+  revokeConversation(conversationId: string): Promise<ConversationEvidenceDeletionResult>;
+}
 
 export interface ChatServiceConfig {
   db?: SqliteDriver;
@@ -10,6 +15,8 @@ export interface ChatServiceConfig {
   instanceManager: InstanceManager;
   eventBus?: EventEmitter;
   branchSummarizer?: BranchSummarizerLike;
+  evidenceDeletion?: ChatEvidenceDeletion;
+  drainEvidenceCapture?: (queueId: string) => Promise<void>;
 }
 
 export interface ChatSystemEventInput {

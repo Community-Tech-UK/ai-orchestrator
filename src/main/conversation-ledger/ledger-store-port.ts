@@ -35,6 +35,30 @@ import type {
   ProviderEventCaptureQuery,
   ProviderEventCaptureRecord,
 } from './provider-event-capture.types';
+import type {
+  ContextEvidenceEventInput,
+  ContextEvidenceConversationMetrics,
+  ConversationEvidenceDeletionInput,
+  ConversationEvidenceDeletionResult,
+  EvidenceAccessLogInput,
+  EvidenceCardMetadataInput,
+  EvidenceCardMetadataRecord,
+  EvidenceCardListQuery,
+  EvidenceDeletionQueueRecord,
+  EvidenceFailureInput,
+  EvidenceFinalizeInput,
+  EvidenceLedgerRecord,
+  EvidenceListQuery,
+  EvidenceBlobReferenceQuery,
+  EvidenceMaintenanceQuery,
+  EvidenceMetadataSearchQuery,
+  EvidenceBlobReplacementInput,
+  EvidenceRangeAuthorization,
+  EvidenceRangeAuthorizationInput,
+  EvidenceStageInput,
+  LegacyMarkerCompareAndSwapInput,
+  LegacyOutputCacheMarkerRecord,
+} from './context-evidence-ledger.types';
 
 /** A message to append with its sequence assigned by the store, not the caller. */
 export type AppendMessageInput =
@@ -77,6 +101,50 @@ export interface LedgerStorePort {
   appendProviderEventCaptures(captures: ProviderEventCaptureInput[]): Promise<void>;
   listProviderEventCaptures(query: ProviderEventCaptureQuery): Promise<ProviderEventCaptureRecord[]>;
   pruneProviderEventCapturesBefore(before: number): Promise<number>;
+  stageEvidence(input: EvidenceStageInput): Promise<EvidenceLedgerRecord>;
+  prepareEvidenceBlob(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord>;
+  finalizeEvidence(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord>;
+  failEvidence(input: EvidenceFailureInput): Promise<EvidenceLedgerRecord>;
+  getEvidence(conversationId: string, evidenceId: string): Promise<EvidenceLedgerRecord | null>;
+  listEvidence(conversationId: string, query?: EvidenceListQuery): Promise<EvidenceLedgerRecord[]>;
+  listEvidenceForMaintenance(query: EvidenceMaintenanceQuery): Promise<EvidenceLedgerRecord[]>;
+  listReferencedEvidenceBlobRefs(query: EvidenceBlobReferenceQuery): Promise<string[]>;
+  replaceEvidenceBlob(input: EvidenceBlobReplacementInput): Promise<boolean>;
+  searchEvidenceMetadata(
+    conversationId: string,
+    query: EvidenceMetadataSearchQuery,
+  ): Promise<EvidenceLedgerRecord[]>;
+  authorizeEvidenceRange(
+    input: EvidenceRangeAuthorizationInput,
+  ): Promise<EvidenceRangeAuthorization>;
+  storeEvidenceCard(input: EvidenceCardMetadataInput): Promise<EvidenceCardMetadataRecord>;
+  getEvidenceCard(conversationId: string, cardId: string): Promise<EvidenceCardMetadataRecord | null>;
+  listEvidenceCards(
+    conversationId: string,
+    query?: EvidenceCardListQuery,
+  ): Promise<EvidenceCardMetadataRecord[]>;
+  getContextEvidenceConversationMetrics(
+    conversationId: string,
+  ): Promise<ContextEvidenceConversationMetrics>;
+  logEvidenceAccess(input: EvidenceAccessLogInput): Promise<void>;
+  recordContextEvidenceEvent(input: ContextEvidenceEventInput): Promise<void>;
+  softDeleteConversationWithEvidence(
+    input: ConversationEvidenceDeletionInput,
+  ): Promise<ConversationEvidenceDeletionResult>;
+  claimEvidenceDeletions(
+    now: number,
+    limit: number,
+    leaseMs?: number,
+  ): Promise<EvidenceDeletionQueueRecord[]>;
+  completeEvidenceDeletion(id: string, claimToken: string, completedAt: number): Promise<boolean>;
+  failEvidenceDeletion(
+    id: string,
+    claimToken: string,
+    errorCode: string,
+    retryAt: number,
+  ): Promise<boolean>;
+  compareAndSwapLegacyOutputMarker(input: LegacyMarkerCompareAndSwapInput): Promise<boolean>;
+  listLegacyOutputCacheMarkers(): Promise<LegacyOutputCacheMarkerRecord[]>;
   /** Release resources (close the DB / terminate the worker). */
   close(): Promise<void>;
 }
@@ -177,6 +245,126 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
     return this.store.pruneProviderEventCapturesBefore(before);
   }
 
+  async stageEvidence(input: EvidenceStageInput): Promise<EvidenceLedgerRecord> {
+    return this.store.contextEvidence.stageEvidence(input);
+  }
+
+  async prepareEvidenceBlob(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord> {
+    return this.store.contextEvidence.prepareEvidenceBlob(input);
+  }
+
+  async finalizeEvidence(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord> {
+    return this.store.contextEvidence.finalizeEvidence(input);
+  }
+
+  async failEvidence(input: EvidenceFailureInput): Promise<EvidenceLedgerRecord> {
+    return this.store.contextEvidence.failEvidence(input);
+  }
+
+  async getEvidence(conversationId: string, evidenceId: string): Promise<EvidenceLedgerRecord | null> {
+    return this.store.contextEvidence.getEvidence(conversationId, evidenceId);
+  }
+
+  async listEvidence(conversationId: string, query?: EvidenceListQuery): Promise<EvidenceLedgerRecord[]> {
+    return this.store.contextEvidence.listEvidence(conversationId, query);
+  }
+
+  async listEvidenceForMaintenance(query: EvidenceMaintenanceQuery): Promise<EvidenceLedgerRecord[]> {
+    return this.store.contextEvidence.listEvidenceForMaintenance(query);
+  }
+
+  async listReferencedEvidenceBlobRefs(query: EvidenceBlobReferenceQuery): Promise<string[]> {
+    return this.store.contextEvidence.listReferencedEvidenceBlobRefs(query);
+  }
+
+  async replaceEvidenceBlob(input: EvidenceBlobReplacementInput): Promise<boolean> {
+    return this.store.contextEvidence.replaceEvidenceBlob(input);
+  }
+
+  async searchEvidenceMetadata(
+    conversationId: string,
+    query: EvidenceMetadataSearchQuery,
+  ): Promise<EvidenceLedgerRecord[]> {
+    return this.store.contextEvidence.searchEvidenceMetadata(conversationId, query);
+  }
+
+  async authorizeEvidenceRange(
+    input: EvidenceRangeAuthorizationInput,
+  ): Promise<EvidenceRangeAuthorization> {
+    return this.store.contextEvidence.authorizeEvidenceRange(input);
+  }
+
+  async storeEvidenceCard(input: EvidenceCardMetadataInput): Promise<EvidenceCardMetadataRecord> {
+    return this.store.contextEvidence.storeEvidenceCard(input);
+  }
+
+  async getEvidenceCard(
+    conversationId: string,
+    cardId: string,
+  ): Promise<EvidenceCardMetadataRecord | null> {
+    return this.store.contextEvidence.getEvidenceCard(conversationId, cardId);
+  }
+
+  async listEvidenceCards(
+    conversationId: string,
+    query?: EvidenceCardListQuery,
+  ): Promise<EvidenceCardMetadataRecord[]> {
+    return this.store.contextEvidence.listEvidenceCards(conversationId, query);
+  }
+
+  async getContextEvidenceConversationMetrics(
+    conversationId: string,
+  ): Promise<ContextEvidenceConversationMetrics> {
+    return this.store.contextEvidence.getConversationMetrics(conversationId);
+  }
+
+  async logEvidenceAccess(input: EvidenceAccessLogInput): Promise<void> {
+    this.store.contextEvidence.logEvidenceAccess(input);
+  }
+
+  async recordContextEvidenceEvent(input: ContextEvidenceEventInput): Promise<void> {
+    this.store.contextEvidence.recordContextEvidenceEvent(input);
+  }
+
+  async softDeleteConversationWithEvidence(
+    input: ConversationEvidenceDeletionInput,
+  ): Promise<ConversationEvidenceDeletionResult> {
+    return this.store.contextEvidence.softDeleteConversationWithEvidence(input);
+  }
+
+  async claimEvidenceDeletions(
+    now: number,
+    limit: number,
+    leaseMs?: number,
+  ): Promise<EvidenceDeletionQueueRecord[]> {
+    return this.store.contextEvidence.claimEvidenceDeletions(now, limit, leaseMs);
+  }
+
+  async completeEvidenceDeletion(
+    id: string,
+    claimToken: string,
+    completedAt: number,
+  ): Promise<boolean> {
+    return this.store.contextEvidence.completeEvidenceDeletion(id, claimToken, completedAt);
+  }
+
+  async failEvidenceDeletion(
+    id: string,
+    claimToken: string,
+    errorCode: string,
+    retryAt: number,
+  ): Promise<boolean> {
+    return this.store.contextEvidence.failEvidenceDeletion(id, claimToken, errorCode, retryAt);
+  }
+
+  async compareAndSwapLegacyOutputMarker(input: LegacyMarkerCompareAndSwapInput): Promise<boolean> {
+    return this.store.contextEvidence.compareAndSwapLegacyOutputMarker(input);
+  }
+
+  async listLegacyOutputCacheMarkers(): Promise<LegacyOutputCacheMarkerRecord[]> {
+    return this.store.contextEvidence.listLegacyOutputCacheMarkers();
+  }
+
   async close(): Promise<void> {
     this.db?.close();
   }
@@ -199,4 +387,27 @@ export type LedgerStoreMethod =
   | 'getLatestCheckpoint'
   | 'appendProviderEventCaptures'
   | 'listProviderEventCaptures'
-  | 'pruneProviderEventCapturesBefore';
+  | 'pruneProviderEventCapturesBefore'
+  | 'stageEvidence'
+  | 'prepareEvidenceBlob'
+  | 'finalizeEvidence'
+  | 'failEvidence'
+  | 'getEvidence'
+  | 'listEvidence'
+  | 'listEvidenceForMaintenance'
+  | 'listReferencedEvidenceBlobRefs'
+  | 'replaceEvidenceBlob'
+  | 'searchEvidenceMetadata'
+  | 'authorizeEvidenceRange'
+  | 'storeEvidenceCard'
+  | 'getEvidenceCard'
+  | 'listEvidenceCards'
+  | 'getContextEvidenceConversationMetrics'
+  | 'logEvidenceAccess'
+  | 'recordContextEvidenceEvent'
+  | 'softDeleteConversationWithEvidence'
+  | 'claimEvidenceDeletions'
+  | 'completeEvidenceDeletion'
+  | 'failEvidenceDeletion'
+  | 'compareAndSwapLegacyOutputMarker'
+  | 'listLegacyOutputCacheMarkers';

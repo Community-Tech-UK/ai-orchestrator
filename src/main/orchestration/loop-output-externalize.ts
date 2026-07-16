@@ -15,6 +15,7 @@
  */
 
 import { getLogger } from '../logging/logger';
+import type { OutputPersistenceCaptureContext } from '../context/output-persistence';
 
 const logger = getLogger('LoopOutputExternalize');
 
@@ -27,6 +28,7 @@ export const LOOP_OUTPUT_EXTERNALIZE_THRESHOLD = 50_000;
 
 export interface LoopOutputExternalizeOptions {
   delegateInspectionHint?: boolean;
+  captureContext?: OutputPersistenceCaptureContext;
 }
 
 /** Offloads `(toolName, output)` to a cache and returns a compact preview. */

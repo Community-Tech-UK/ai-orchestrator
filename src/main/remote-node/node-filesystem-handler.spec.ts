@@ -1,3 +1,4 @@
+import nodePath from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock logger to avoid Electron / filesystem side effects
@@ -231,7 +232,7 @@ describe('NodeFilesystemHandler', () => {
 
       expect(result).toEqual({ ok: true, size: 7 });
       expect(mockWriteFile).toHaveBeenCalledWith(
-        '/home/user/.orchestrator/_scratch/aio-transfers/file.txt',
+        nodePath.resolve('/home/user/.orchestrator/_scratch/aio-transfers/file.txt'),
         Buffer.from('content'),
       );
     });
@@ -267,7 +268,7 @@ describe('NodeFilesystemHandler', () => {
       });
 
       expect(result).toEqual({ ok: true, size: 7 });
-      expect(mockWriteFile).toHaveBeenCalledWith(target, Buffer.from('content'));
+      expect(mockWriteFile).toHaveBeenCalledWith(nodePath.resolve(target), Buffer.from('content'));
     });
 
     it('still refuses writeFile to a read-only transfer root nested inside a working directory', async () => {
@@ -341,8 +342,10 @@ describe('NodeFilesystemHandler', () => {
         ],
       );
       mockRealpath.mockImplementation(async (filePath: unknown) => {
+        // Normalize separators so the escape fixture matches on Windows too,
+        // where the resolved parent path uses backslashes.
         const value = String(filePath);
-        if (value.endsWith('/escape')) {
+        if (value.replace(/\\/gu, '/').endsWith('/escape')) {
           return '/tmp/outside' as never;
         }
         return value as never;

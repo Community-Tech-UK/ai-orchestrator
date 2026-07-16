@@ -38,6 +38,7 @@ import type { WindowManager } from '../window-manager';
 import { getLogger } from '../logging/logger';
 import { broadcastSettingsChanged } from '../ipc/handlers/settings-broadcast';
 import type { AppInitializationStep } from './initialization-steps';
+import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
 
 const logger = getLogger('AppInitialization');
 
@@ -182,6 +183,20 @@ export function createOrchestratorToolsStep(
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+        resolveContextEvidence: (instanceId) => {
+          const instance = instanceManager.getInstance(instanceId);
+          const state = instance?.contextEvidence;
+          if (!instance || !state?.conversationId || state.mode === 'off') return null;
+          const providerWindowTokens = instance.contextUsage.total;
+          return {
+            coordinator: getContextEvidenceCoordinator(),
+            conversationId: state.conversationId,
+            mode: state.mode,
+            ...(Number.isSafeInteger(providerWindowTokens) && providerWindowTokens > 0
+              ? { providerWindowTokens }
+              : {}),
+          };
+        },
         authorizeReleaseMutation: async ({ instanceId, method, payload }) => {
           const isAndroid = method === 'orchestrator_tools.execute_android_play_release';
           const appIdentity = isAndroid ? payload['packageName'] : payload['bundleId'];

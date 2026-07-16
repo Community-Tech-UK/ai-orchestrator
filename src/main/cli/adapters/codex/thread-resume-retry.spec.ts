@@ -41,6 +41,17 @@ describe('resumeThreadWithRetry', () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  it('requests metadata-only resume so large or interrupted turn history is not rehydrated', async () => {
+    const request = vi.fn().mockResolvedValue({ threadId: 'thread-abc' });
+
+    await resumeThreadWithRetry({ request }, PARAMS, { sleep: noSleep });
+
+    expect(request).toHaveBeenCalledWith('thread/resume', {
+      ...PARAMS,
+      excludeTurns: true,
+    });
+  });
+
   it('retries an RPC timeout and succeeds on a later attempt', async () => {
     const request = vi.fn()
       .mockRejectedValueOnce(rpcTimeoutError())
@@ -88,7 +99,7 @@ describe('resumeThreadWithRetry', () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
-  it('passes the same method and params on every attempt', async () => {
+  it('passes the same metadata-only method and params on every attempt', async () => {
     const request = vi.fn()
       .mockRejectedValueOnce(rpcTimeoutError())
       .mockResolvedValueOnce({ threadId: 'thread-abc' });
@@ -96,7 +107,7 @@ describe('resumeThreadWithRetry', () => {
     await resumeThreadWithRetry({ request }, PARAMS, { sleep: noSleep });
     for (const call of request.mock.calls) {
       expect(call[0]).toBe('thread/resume');
-      expect(call[1]).toBe(PARAMS);
+      expect(call[1]).toEqual({ ...PARAMS, excludeTurns: true });
     }
   });
 

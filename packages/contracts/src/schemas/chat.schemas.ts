@@ -20,6 +20,10 @@ export const ChatIdPayloadSchema = z.object({
   chatId: ChatIdStringSchema,
 });
 
+export const ChatDeletePayloadSchema = ChatIdPayloadSchema.extend({
+  confirmation: z.literal('delete'),
+});
+
 export const ChatCreatePayloadSchema = z.object({
   name: z.string().max(160).optional(),
   provider: ChatProviderSchema,
@@ -79,6 +83,7 @@ export const ChatUiStatePayloadSchema = z.object({
 
 export type ChatListPayload = z.infer<typeof ChatListPayloadSchema>;
 export type ChatIdPayload = z.infer<typeof ChatIdPayloadSchema>;
+export type ChatDeletePayload = z.infer<typeof ChatDeletePayloadSchema>;
 export type ChatCreatePayload = z.infer<typeof ChatCreatePayloadSchema>;
 export type ChatRenamePayload = z.infer<typeof ChatRenamePayloadSchema>;
 export type ChatSetCwdPayload = z.infer<typeof ChatSetCwdPayloadSchema>;

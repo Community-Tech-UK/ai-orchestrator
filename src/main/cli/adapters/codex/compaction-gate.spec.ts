@@ -61,12 +61,12 @@ describe('CompactionGate', () => {
     expect(() => gate.settle()).not.toThrow();
   });
 
-  it('cancels pending waits as timed-out when compaction could not start', async () => {
+  it('distinguishes cancellation from an unobserved timeout when compaction could not start', async () => {
     const gate = new CompactionGate();
     const pending = gate.wait(60_000);
 
     gate.cancel();
 
-    await expect(pending).resolves.toBe('timed-out');
+    await expect(pending).resolves.toBe('cancelled');
   });
 });

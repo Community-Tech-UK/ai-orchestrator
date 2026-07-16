@@ -16,6 +16,7 @@ import type { TokenBudgetTracker } from '../context/token-budget-tracker.js';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { SessionDiffTracker } from './session-diff-tracker';
 import type { ProviderId } from '../../shared/types/provider-quota.types';
+import type { RuntimeToolResultEvidenceCaptureInput } from '../context-evidence/context-evidence-coordinator';
 
 /**
  * Dependencies required by the communication manager.
@@ -128,4 +129,8 @@ export interface CommunicationDependencies {
       raw: ProviderRuntimeEventRaw;
     },
   ) => void;
+  captureContextEvidenceToolResult?: (
+    input: RuntimeToolResultEvidenceCaptureInput,
+  ) => Promise<unknown>;
+  drainContextEvidence?: (instanceId: string) => Promise<void>;
 }

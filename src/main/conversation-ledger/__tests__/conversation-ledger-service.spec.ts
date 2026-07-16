@@ -126,6 +126,78 @@ describe('ConversationLedgerService', () => {
     expect(older.nextBeforeSequence).toBe(2);
   });
 
+  it('exposes scoped evidence operations through the async ledger port', async () => {
+    const service = new ConversationLedgerService({
+      dbPath: ':memory:',
+      enableWAL: false,
+      registry: new NativeConversationRegistry(),
+    });
+    services.push(service);
+    const thread = await service.startConversation({
+      provider: 'orchestrator',
+      workspacePath: null,
+      title: 'Evidence owner',
+    });
+
+    const staged = await service.stageEvidence({
+      id: 'service-evidence', conversationId: thread.id, provider: 'codex',
+      toolName: 'placeholder-tool', sourceKind: 'other', mimeType: 'text/plain',
+      sensitivity: 'normal', provenanceTrust: 'runtime-authenticated',
+      captureMode: 'post-retention', captureCompleteness: 'complete',
+      captureKey: 'service-capture', createdAt: 1,
+    });
+    await service.finalizeEvidence({
+      evidenceId: staged.id, conversationId: thread.id, blobRef: 'opaque/service.aioev',
+      keyedContentId: 'a'.repeat(64), byteCount: 7, keyVersion: 1, completedAt: 2,
+    });
+
+    expect(await service.listEvidence(thread.id)).toEqual([
+      expect.objectContaining({ id: staged.id, status: 'complete' }),
+    ]);
+    expect(await service.getEvidence(thread.id, staged.id)).toEqual(
+      expect.objectContaining({ conversationId: thread.id }),
+    );
+    expect(await service.searchEvidenceMetadata(thread.id, { text: 'placeholder' })).toEqual([
+      expect.objectContaining({ id: staged.id }),
+    ]);
+    expect(await service.authorizeEvidenceRange({
+      conversationId: thread.id,
+      evidenceId: staged.id,
+      startByte: 0,
+      endByte: 7,
+    })).toEqual(expect.objectContaining({ authorized: true, evidenceId: staged.id }));
+
+    await service.softDeleteConversationWithEvidence({
+      conversationId: thread.id,
+      deletedAt: '2026-07-15T12:00:00.000Z',
+      graceDeadline: 600_000,
+    });
+    expect(await service.getThread(thread.id)).toBeNull();
+    expect(await service.listEvidence(thread.id)).toEqual([]);
+  });
+
+  it('does not restore transcript messages when deletion wins an in-flight provider turn race', async () => {
+    const adapter = new FakeAdapter();
+    const service = createService(adapter);
+    const thread = await service.startConversation({
+      provider: 'codex',
+      workspacePath: '/tmp/project',
+    });
+    const turnGate = adapter.blockNextTurn();
+
+    const pendingTurn = service.sendTurn(thread.id, { text: 'hello' });
+    await turnGate.started;
+    await service.softDeleteConversationWithEvidence({
+      conversationId: thread.id,
+      deletedAt: '2026-07-15T12:00:00.000Z',
+      graceDeadline: 600_000,
+    });
+    turnGate.release();
+
+    await expect(pendingTurn).rejects.toThrow('CONVERSATION_NOT_FOUND');
+    expect(await service.getThread(thread.id)).toBeNull();
+  });
+
   function createService(adapter: FakeAdapter): ConversationLedgerService {
     const service = new ConversationLedgerService({
       dbPath: ':memory:',
@@ -142,6 +214,19 @@ class FakeAdapter implements NativeConversationAdapter {
   readonly provider = 'codex' as const;
   readFails = false;
   startedEphemeral: boolean | null = null;
+  private turnGate: Promise<void> | null = null;
+  private markTurnStarted: (() => void) | null = null;
+
+  blockNextTurn(): { started: Promise<void>; release: () => void } {
+    let release = (): void => undefined;
+    this.turnGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      this.markTurnStarted = resolve;
+    });
+    return { started, release };
+  }
 
   getCapabilities() {
     return {
@@ -211,6 +296,10 @@ class FakeAdapter implements NativeConversationAdapter {
   }
 
   async sendTurn() {
+    this.markTurnStarted?.();
+    this.markTurnStarted = null;
+    await this.turnGate;
+    this.turnGate = null;
     return {
       provider: 'codex' as const,
       nativeThreadId: 'native-1',

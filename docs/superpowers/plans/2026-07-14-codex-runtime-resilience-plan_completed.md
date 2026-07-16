@@ -1,7 +1,7 @@
 # Codex Runtime Resilience Implementation Plan
 
 **Status:** Completed 2026-07-15 (agent-runnable gates green; rebuilt-app live checks deferred to `_livetest.md`)  
-**Design:** `docs/superpowers/specs/2026-07-14-codex-runtime-resilience-design.md`
+**Spec:** `docs/superpowers/specs/2026-07-14-codex-runtime-resilience-spec_completed.md`
 
 ## Goal
 

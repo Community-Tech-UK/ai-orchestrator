@@ -30,13 +30,15 @@ export interface BwRunnerOptions {
   execFileFn?: ExecFileFn;
   /** Base environment to inherit (default process.env). */
   baseEnv?: NodeJS.ProcessEnv;
+  /** Injected for tests; defaults to the host platform. Controls PATH semantics. */
+  platform?: NodeJS.Platform;
 }
 
 export function createBwRunner(options: BwRunnerOptions = {}): BwRunner {
   const binary = options.binary ?? 'bw';
   const timeoutMs = options.timeoutMs ?? 30_000;
   const execFileFn = options.execFileFn ?? (execFile as unknown as ExecFileFn);
-  const baseEnv = buildCliEnv(options.baseEnv ?? process.env);
+  const baseEnv = buildCliEnv(options.baseEnv ?? process.env, options.platform);
 
   return {
     run(

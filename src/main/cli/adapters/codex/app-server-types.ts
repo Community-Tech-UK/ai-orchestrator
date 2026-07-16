@@ -116,6 +116,8 @@ export interface ThreadResumeParams {
   model?: string | null;
   approvalPolicy?: CodexApprovalPolicy | CodexAskForApproval | null;
   sandbox?: CodexSandboxMode;
+  /** Resume thread identity without hydrating historical turns into the response. */
+  excludeTurns?: boolean;
 }
 
 export interface ThreadResumeResponse {

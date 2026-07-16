@@ -9,8 +9,16 @@ AI Orchestrator is an Electron 40 + Angular 21 desktop app that coordinates Clau
 - Never commit or push unless the user explicitly asks.
 - Never modify code on a server. Make changes locally and use the normal deployment pipeline.
 - Never put secrets, credentials, tokens, OAuth values, private keys, passwords, or realistic secret-like values in repo files, tests, fixtures, screenshots, logs, or examples. Use environment variables, ignored local files, OS keychain storage, runtime discovery, or obvious placeholders.
-- Do not commit unfinished plans or specs. After full implementation and verification, rename them with `_completed` before committing. Checks that genuinely need a rebuilt or restarted app, a human, or an external service may be deferred into a `_livetest.md` doc first — see Live-Test Deferral below.
+- Do not commit unfinished plans or specs, including specs marked `_planned`. After full implementation and verification, rename them with `_completed` before committing. Checks that genuinely need a rebuilt or restarted app, a human, or an external service may be deferred into a `_livetest.md` doc first — see Live-Test Deferral below.
 - Preserve unrelated work in a dirty tree. Do not discard, reset, or overwrite user changes.
+
+## Plan and Spec Filename States
+
+- `*_spec.md` means the spec does not yet have an implementation plan.
+- When a plan is created from a spec, link the spec to the plan, rename the spec to `*_spec_planned.md`, and verify that both files remain untracked. `_planned` records only that the plan exists; it is not a completion or commit-ready state.
+- `*_plan.md` means implementation work is active. Keep it and its linked `*_spec_planned.md` file uncommitted while work continues.
+- After every required item is implemented and verified, update both documents' status/as-built notes, update the spec's link to the plan's completed filename, rename the plan to `*_plan_completed.md`, and rename the spec from `*_spec_planned.md` to `*_spec_completed.md`.
+- Only `_completed` documents may be staged and committed with the completed work, subject to the Live-Test Deferral rules below.
 
 ## Before Writing Code
 

@@ -27,13 +27,15 @@ function createSwiftBuildPlan({
   if (arch !== 'arm64' && arch !== 'x64') {
     throw new Error(`Unsupported macOS desktop helper architecture: ${arch}`);
   }
-  const sourcePath = path.join(
+  // These paths are consumed by the macOS Swift toolchain (xcrun swiftc), so
+  // build them with POSIX separators regardless of the host OS running the build.
+  const sourcePath = path.posix.join(
     projectRoot,
     'resources',
     'desktop-helper',
     'DesktopHelper.swift',
   );
-  const outputPath = path.join(
+  const outputPath = path.posix.join(
     projectRoot,
     'dist',
     'desktop-helper',

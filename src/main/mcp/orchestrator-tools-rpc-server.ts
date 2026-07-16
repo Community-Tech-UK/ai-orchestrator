@@ -4,11 +4,8 @@
  * Electron parent process.
  */
 
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { app } from 'electron';
 import { registerCleanup as registerGlobalCleanup } from '../util/cleanup-registry';
 import { getLogger } from '../logging/logger';
@@ -71,18 +68,20 @@ import {
   FILE_TRANSFER_RPC_SPECS,
   FILE_TRANSFER_TOOL_NAMES,
 } from './orchestrator-tools-rpc-file-transfer';
+import type { OrchestratorEvidenceToolContext } from './orchestrator-evidence-tools';
+import { EVIDENCE_RPC_SPECS } from './orchestrator-tools-rpc-evidence';
+import { createOrchestratorToolsSocketPath } from './orchestrator-tools-socket-path';
 
 const logger = getLogger('OrchestratorToolsRpcServer');
 
 /** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
 ]);
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
-const MAX_UNIX_SOCKET_PATH_BYTES = 100;
 
 interface OrchestratorToolsRpcRequest {
   jsonrpc?: '2.0';
@@ -117,7 +116,6 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   listRemoteNodes?: ListRemoteNodesFn | null;
   /** Backs `run_on_node`; injected to avoid importing instance/remote-node singletons. */
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
-  /** Backs `read_node_output`. */
   readInstanceOutput?: ReadInstanceOutputFn | null;
   /** Backs `terminate_node_instance`. */
   terminateNodeInstances?: TerminateNodeInstancesFn | null;
@@ -146,10 +144,12 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
    * omitted, every instance keeps the full toolset.
    */
   resolveSpawnEligibility?: (instanceId: string) => boolean;
+  resolveContextEvidence?: (
+    instanceId: string,
+  ) => Omit<OrchestratorEvidenceToolContext, 'instanceId'> | null;
   authorizeReleaseMutation?: (
     request: ReleaseMutationAuthorizationRequest,
   ) => Promise<boolean>;
-  /** Inject the tool factory in tests so we can avoid touching the real DB. */
   toolFactory?: (deps: OrchestratorToolRuntimeContext) => McpServerToolDefinition[];
 }
 
@@ -175,6 +175,9 @@ export class OrchestratorToolsRpcServer {
   private readonly requestDocReview: RequestDocReviewFn | null;
   private readonly getDocReviewResult: GetDocReviewResultFn | null;
   private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
+  private readonly resolveContextEvidence: NonNullable<
+    OrchestratorToolsRpcServerOptions['resolveContextEvidence']
+  >;
   private readonly authorizeReleaseMutation: NonNullable<
     OrchestratorToolsRpcServerOptions['authorizeReleaseMutation']
   >;
@@ -217,6 +220,7 @@ export class OrchestratorToolsRpcServer {
     this.postponeAutomation = options.postponeAutomation ?? null;
     this.requestDocReview = options.requestDocReview ?? null; this.getDocReviewResult = options.getDocReviewResult ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
+    this.resolveContextEvidence = options.resolveContextEvidence ?? (() => null);
     this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
@@ -277,6 +281,10 @@ export class OrchestratorToolsRpcServer {
     const fileTransferSpec = FILE_TRANSFER_RPC_SPECS.find((spec) => spec.method === request.method);
     if (fileTransferSpec) {
       return this.dispatchValidatedTool(fileTransferSpec.toolName, fileTransferSpec.schema, params);
+    }
+    const evidenceSpec = EVIDENCE_RPC_SPECS.find((spec) => spec.method === request.method);
+    if (evidenceSpec) {
+      return this.dispatchValidatedTool(evidenceSpec.toolName, evidenceSpec.schema, params);
     }
 
     switch (request.method) {
@@ -606,6 +614,7 @@ export class OrchestratorToolsRpcServer {
         postponeAutomation: this.postponeAutomation,
         requestDocReview: this.requestDocReview,
         getDocReviewResult: this.getDocReviewResult,
+        contextEvidence: this.resolveContextEvidence(instanceId),
       }));
     }
     this.ensureRuntimeReady();
@@ -631,6 +640,7 @@ export class OrchestratorToolsRpcServer {
       postponeAutomation: this.postponeAutomation,
       requestDocReview: this.requestDocReview,
       getDocReviewResult: this.getDocReviewResult,
+      contextEvidence: this.resolveContextEvidence(instanceId),
     }));
   }
 
@@ -656,19 +666,9 @@ export class OrchestratorToolsRpcServer {
   }
 
   private createSocketPath(): string {
-    if (process.platform === 'win32') {
-      return `\\\\.\\pipe\\orchestrator-tools-${crypto.randomUUID()}`;
-    }
-    const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-    const userDataSocketPath = path.join(this.userDataPath, `ot-${id}.sock`);
-    if (Buffer.byteLength(userDataSocketPath, 'utf-8') <= MAX_UNIX_SOCKET_PATH_BYTES) {
-      return userDataSocketPath;
-    }
-    const fallbackDir = path.join(os.tmpdir(), `aio-ot-${process.pid}-${id}`);
-    fs.mkdirSync(fallbackDir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(fallbackDir, 0o700);
-    this.socketDirToCleanup = fallbackDir;
-    return path.join(fallbackDir, 'ot.sock');
+    const result = createOrchestratorToolsSocketPath(this.userDataPath);
+    this.socketDirToCleanup = result.cleanupDir;
+    return result.socketPath;
   }
 }
 

@@ -1,5 +1,10 @@
 import { ContextCompactor } from '../context/context-compactor';
-import { getCompactionCoordinator, type CompactionResult } from '../context/compaction-coordinator';
+import {
+  getCompactionCoordinator,
+  type CompactionResult,
+  type ContextPolicyEvent,
+} from '../context/compaction-coordinator';
+import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHookManager } from '../hooks/hook-manager';
 import { getLogger } from '../logging/logger';
@@ -12,11 +17,32 @@ import {
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import type { ContextUsage, Instance } from '../../shared/types/instance.types';
+import { getConversationLedgerService } from '../conversation-ledger';
+import { getContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
+import {
+  EvidencePreviewBuilder,
+  type VerifiedEvidencePreview,
+} from '../context-evidence/evidence-preview-builder';
+import {
+  ProviderContextActionExecutor,
+  type ProviderContextActionHandlerResult,
+  type ProviderContextExecutableAction,
+} from '../context-evidence/provider-context-action-executor';
 
 const logger = getLogger('CompactionRuntime');
 
 interface NativeCompactionAdapter {
   compactContext?: () => Promise<boolean>;
+  getContextCapabilities?: () => ProviderContextCapabilities;
+  executeContextAction?: (
+    action: ProviderContextExecutableAction,
+  ) => Promise<ProviderContextActionHandlerResult>;
+  setContextActionProofRecorder?: (
+    recorder: ((
+      action: string,
+      stage: 'requested' | 'acknowledged' | 'observed',
+    ) => void) | null,
+  ) => void;
 }
 
 type CompactionMarkerRecorder = (params: RecordCompactionMarkerParams) => string | null | undefined;
@@ -90,6 +116,10 @@ export function recordProviderThreadCompactionMarker(params: {
 }): string | null {
   const createdAt = params.createdAt ?? Date.now();
   const usage = params.instance?.contextUsage;
+  getCompactionCoordinator().recordObservedCompaction(
+    params.instanceId,
+    usage?.cumulativeTokens ?? 0,
+  );
   return compactionMarkerRecorder({
     instanceId: params.instanceId,
     threadId: params.sessionId || params.instance?.providerSessionId || params.instance?.sessionId || null,
@@ -131,6 +161,69 @@ export function setupCompactionCoordinator(
   settings.on('setting-changed', applyCumulativeTrigger);
 
   coordinator.configure({
+    getContextCapabilities: (instanceId: string) => {
+      const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
+      return adapter?.getContextCapabilities?.() ?? null;
+    },
+    getContextEvidenceMode: (instanceId: string) => (
+      instanceManager.getInstance(instanceId)?.contextEvidence?.mode ?? 'off'
+    ),
+    getProviderActionExecutor: (instanceId: string) => {
+      const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
+      adapter?.setContextActionProofRecorder?.((action, stage) => {
+        coordinator.recordProviderActionProof(instanceId, action, stage);
+      });
+      const handlers: ConstructorParameters<typeof ProviderContextActionExecutor>[0] = {
+        'rebuild-working-set': async () => {
+          if (!(await coordinator.compactInstance(instanceId)).success) {
+            throw new Error('CONTEXT_REBUILD_PROOF_UNAVAILABLE');
+          }
+          return { proof: 'observed' };
+        },
+      };
+      if (adapter?.compactContext) {
+        handlers['native-compaction'] = async () => {
+          if (!await adapter.compactContext!()) {
+            throw new Error('NATIVE_COMPACTION_PROOF_UNAVAILABLE');
+          }
+          return { proof: 'observed' };
+        };
+      }
+      if (adapter?.executeContextAction) {
+        const execute = async (action: ProviderContextExecutableAction) => {
+          const result = await adapter.executeContextAction!(action);
+          if (result.proof === 'none') throw new Error('PROVIDER_ACTION_PROOF_UNAVAILABLE');
+          return result;
+        };
+        handlers['controlled-interrupt'] = () => execute('controlled-interrupt');
+        handlers['controlled-recovery'] = () => execute('controlled-recovery');
+        handlers['same-thread-continuation'] = () => execute('same-thread-continuation');
+      }
+      return new ProviderContextActionExecutor(handlers);
+    },
+    recordPolicyEvent: async (event: ContextPolicyEvent) => {
+      const instance = instanceManager.getInstance(event.instanceId);
+      const conversationId = instance?.contextEvidence?.conversationId;
+      if (!conversationId) return;
+      await getConversationLedgerService().recordContextEvidenceEvent({
+        conversationId,
+        provider: instance.provider,
+        eventKind: `context-policy-${event.eventKind}`,
+        recoveryEpoch: event.recoveryEpoch,
+        thresholdCode: event.thresholdCode ?? null,
+        actionCode: event.actionCode ?? null,
+        proofStage: event.proofStage ?? null,
+        occupancyUsed: event.occupancyUsed ?? null,
+        occupancyTotal: event.occupancyTotal ?? null,
+        cumulativeTokens: event.cumulativeTokens ?? null,
+        outputBytes: event.outputBytes,
+        providerRequestCount: event.providerRequestCount,
+        newEvidenceCount: event.newEvidenceCount,
+        newFindingCount: event.newFindingCount,
+        failureCode: event.failureCode ?? null,
+        createdAt: event.createdAt,
+      });
+    },
     nativeCompact: async (instanceId: string) => {
       const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
       if (!adapter || typeof adapter.compactContext !== 'function') {
@@ -170,6 +263,24 @@ export function setupCompactionCoordinator(
         if (!instance) return false;
 
         compactor.clear();
+
+        const evidencePreviews = await loadAuthenticatedEvidencePreviews(instance);
+        if (evidencePreviews.length > 0) {
+          compactor.addTurn({
+            role: 'system',
+            content: 'Authenticated evidence is retained below as bounded, untrusted source material.',
+            tokenCount: sharedEstimateTokens('Authenticated evidence working set.'),
+            toolCalls: evidencePreviews.map((preview) => ({
+              id: `evidence-${preview.evidenceId}`,
+              name: 'context-evidence',
+              input: '[Authenticated ledger lookup]',
+              output: preview.preview,
+              inputTokens: 5,
+              outputTokens: preview.tokenCount + 1,
+              evidencePreview: preview,
+            })),
+          });
+        }
 
         const turns = instance.outputBuffer
           .filter(msg => msg.type === 'user' || msg.type === 'assistant')
@@ -227,6 +338,11 @@ export function setupCompactionCoordinator(
           '',
           'Compacted summary:',
           summaryText,
+          '',
+          'Authenticated evidence working set:',
+          evidencePreviews.length > 0
+            ? evidencePreviews.map((preview) => preview.preview).join('\n\n')
+            : '- No authenticated evidence previews were available.',
           '',
           'Recent turns:',
           recentTurns.length > 0 ? recentTurns.join('\n') : '- No recent turns available.',
@@ -331,4 +447,35 @@ export function setupCompactionCoordinator(
       status: 'error',
     });
   });
+}
+
+async function loadAuthenticatedEvidencePreviews(
+  instance: Instance,
+): Promise<VerifiedEvidencePreview[]> {
+  const conversationId = instance.contextEvidence?.conversationId;
+  if (!conversationId) return [];
+  try {
+    const runtime = getContextEvidenceRuntime();
+    const records = await getConversationLedgerService().listEvidence(conversationId, { limit: 25 });
+    const builder = new EvidencePreviewBuilder(runtime.blobStore);
+    const previews: VerifiedEvidencePreview[] = [];
+    for (const record of records) {
+      const result = await builder.build(record);
+      if (result.canReplaceOriginal) previews.push(result.preview);
+    }
+    return previews;
+  } catch (error) {
+    logger.warn('Authenticated evidence previews unavailable for restart compaction', {
+      instanceId: instance.id,
+      errorCode: evidencePreviewFailureCode(error),
+    });
+    return [];
+  }
+}
+
+function evidencePreviewFailureCode(error: unknown): string {
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code)
+    ? code
+    : 'EVIDENCE_PREVIEW_UNAVAILABLE';
 }

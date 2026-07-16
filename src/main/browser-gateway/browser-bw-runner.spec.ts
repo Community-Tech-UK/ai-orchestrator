@@ -61,6 +61,7 @@ describe('createBwRunner', () => {
     let captured: Captured | undefined;
     const runner = createBwRunner({
       baseEnv: { PATH: '/usr/bin:/bin' },
+      platform: 'darwin',
       execFileFn: fakeExecFile((c) => (captured = c), { stdout: 'ok' }),
     });
 

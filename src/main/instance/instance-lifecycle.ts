@@ -21,6 +21,10 @@ import {
   resolveModelForTier
 } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
+import {
+  initializeInstanceEvidenceOwnership,
+} from '../context-evidence/evidence-conversation-resolver';
+import { drainContextEvidenceQueue } from '../context-evidence/context-evidence-coordinator';
 import { getHistoryManager } from '../history';
 import { getOutputStorageManager } from '../memory';
 import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
@@ -301,6 +305,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       clearFirstMessageTracking: (id) => deps.clearFirstMessageTracking(id),
       endRlmSession: (id) => deps.endRlmSession(id),
       deleteOutputStorage: (id) => this.outputStorage.deleteInstance(id),
+      drainContextEvidence: drainContextEvidenceQueue,
       archiveInstance: (instance, status) => getHistoryManager().archiveInstance(instance, status),
       importTranscript: (transcript, options) => {
         getConversationMiner().importFromString(transcript, options);
@@ -1428,6 +1433,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CliType (cli-detection) vs CliType (settings) mismatch
         instance.provider = resolvedCliType as any;
+        await initializeInstanceEvidenceOwnership(instance, settingsAll);
         logger.info('Resolved CLI provider', {
           cliType: resolvedCliType,
           displayName: getCliDisplayName(resolvedCliType)
@@ -1925,6 +1931,8 @@ export class InstanceLifecycleManager extends EventEmitter {
             costEstimate: sessionState.contextUsage.costEstimate,
           };
         }
+
+        await initializeInstanceEvidenceOwnership(instance, this.settings.getAll());
 
         if (sessionState && sessionState.conversationHistory.length > 0) {
           // Restore recent messages into the output buffer so the UI can show them.
@@ -2495,6 +2503,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       instance.historyThreadId = generateId();
+      await initializeInstanceEvidenceOwnership(instance, this.settings.getAll());
       const newProviderSessionId = generateId();
       instance.providerSessionId = newProviderSessionId;
       instance.sessionId = newProviderSessionId;

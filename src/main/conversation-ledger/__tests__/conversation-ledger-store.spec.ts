@@ -280,4 +280,602 @@ describe('ConversationLedgerStore', () => {
         .toEqual(['fresh']);
     });
   });
+
+  describe('context evidence metadata', () => {
+    it('stages and finalizes evidence idempotently while rejecting divergent content', () => {
+      const thread = store.upsertThread({
+        provider: 'orchestrator',
+        nativeThreadId: 'evidence-thread',
+        sourceKind: 'orchestrator',
+      });
+      const staged = store.contextEvidence.stageEvidence({
+        id: 'evidence-1',
+        conversationId: thread.id,
+        provider: 'codex',
+        providerThreadRef: 'native-provenance-only',
+        toolName: 'placeholder-tool',
+        sourceKind: 'other',
+        mimeType: 'text/plain',
+        sensitivity: 'normal',
+        provenanceTrust: 'runtime-authenticated',
+        captureMode: 'post-retention',
+        captureCompleteness: 'complete',
+        captureKey: 'turn-1:tool-1',
+        createdAt: 10,
+      });
+
+      expect(staged.status).toBe('staging');
+      expect(store.contextEvidence.listEvidence(thread.id)).toEqual([]);
+
+      const complete = store.contextEvidence.finalizeEvidence({
+        evidenceId: staged.id,
+        conversationId: thread.id,
+        blobRef: 'opaque/ref-1.aioev',
+        keyedContentId: 'a'.repeat(64),
+        byteCount: 42,
+        tokenEstimate: 11,
+        keyVersion: 1,
+        completedAt: 20,
+      });
+      expect(complete).toMatchObject({ status: 'complete', byteCount: 42 });
+      expect(store.contextEvidence.listEvidence(thread.id)).toHaveLength(1);
+
+      const duplicateStage = store.contextEvidence.stageEvidence({
+        id: 'evidence-duplicate',
+        conversationId: thread.id,
+        provider: 'codex',
+        toolName: 'placeholder-tool',
+        sourceKind: 'other',
+        mimeType: 'text/plain',
+        sensitivity: 'normal',
+        provenanceTrust: 'runtime-authenticated',
+        captureMode: 'post-retention',
+        captureCompleteness: 'complete',
+        captureKey: 'turn-1:tool-1',
+        createdAt: 30,
+      });
+      expect(duplicateStage.id).toBe(staged.id);
+      expect(store.contextEvidence.finalizeEvidence({
+        evidenceId: duplicateStage.id,
+        conversationId: thread.id,
+        blobRef: 'opaque/ref-1.aioev',
+        keyedContentId: 'a'.repeat(64),
+        byteCount: 42,
+        tokenEstimate: 11,
+        keyVersion: 1,
+        completedAt: 30,
+      }).id).toBe(staged.id);
+      expect(() => store.contextEvidence.finalizeEvidence({
+        evidenceId: duplicateStage.id,
+        conversationId: thread.id,
+        blobRef: 'opaque/ref-conflict.aioev',
+        keyedContentId: 'b'.repeat(64),
+        byteCount: 42,
+        tokenEstimate: 11,
+        keyVersion: 1,
+        completedAt: 31,
+      })).toThrow('EVIDENCE_CAPTURE_KEY_CONTENT_CONFLICT');
+    });
+
+    it('scopes reads to the canonical conversation and excludes non-readable states', () => {
+      const left = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'left', sourceKind: 'orchestrator' });
+      const right = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'right', sourceKind: 'orchestrator' });
+      const staged = store.contextEvidence.stageEvidence({
+        id: 'left-complete', conversationId: left.id, provider: 'codex', toolName: 'placeholder-tool',
+        sourceKind: 'other', mimeType: 'text/plain', sensitivity: 'normal',
+        provenanceTrust: 'runtime-authenticated', captureMode: 'post-retention',
+        captureCompleteness: 'complete', captureKey: 'left-complete', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: staged.id, conversationId: left.id, blobRef: 'opaque/left.aioev',
+        keyedContentId: 'c'.repeat(64), byteCount: 1, keyVersion: 1, completedAt: 2,
+      });
+      store.contextEvidence.stageEvidence({
+        id: 'left-staging', conversationId: left.id, provider: 'codex', toolName: 'placeholder-tool',
+        sourceKind: 'other', mimeType: 'text/plain', sensitivity: 'normal',
+        provenanceTrust: 'runtime-authenticated', captureMode: 'post-retention',
+        captureCompleteness: 'complete', captureKey: 'left-staging', createdAt: 3,
+      });
+
+      expect(store.contextEvidence.getEvidence(left.id, staged.id)?.id).toBe(staged.id);
+      expect(store.contextEvidence.getEvidence(right.id, staged.id)).toBeNull();
+      expect(store.contextEvidence.listEvidence(left.id).map(record => record.id)).toEqual([staged.id]);
+      expect(store.contextEvidence.listEvidence(left.id, { includeMaintenanceStates: true }).map(record => record.id))
+        .toEqual([staged.id, 'left-staging']);
+      expect(store.contextEvidence.searchEvidenceMetadata(left.id, { text: 'placeholder' }))
+        .toEqual([expect.objectContaining({ id: staged.id })]);
+      expect(store.contextEvidence.searchEvidenceMetadata(right.id, { text: 'placeholder' }))
+        .toEqual([]);
+      expect(store.contextEvidence.authorizeEvidenceRange({
+        conversationId: left.id, evidenceId: staged.id, startByte: 0, endByte: 1,
+      })).toMatchObject({
+        authorized: true,
+        blobRef: 'opaque/left.aioev',
+        keyedContentId: 'c'.repeat(64),
+        keyVersion: 1,
+      });
+      expect(store.contextEvidence.authorizeEvidenceRange({
+        conversationId: right.id, evidenceId: staged.id, startByte: 0, endByte: 1,
+      })).toEqual({ authorized: false, reason: 'not-found' });
+      expect(store.contextEvidence.authorizeEvidenceRange({
+        conversationId: left.id, evidenceId: staged.id, startByte: 0, endByte: 2,
+      })).toEqual({ authorized: false, reason: 'range-out-of-bounds' });
+    });
+
+    it('prepares authenticated blob metadata while retaining staging state for crash recovery', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'prepared', sourceKind: 'orchestrator' });
+      const staged = store.contextEvidence.stageEvidence({
+        id: 'prepared-evidence', conversationId: thread.id, provider: 'codex',
+        toolName: 'tool', sourceKind: 'other', mimeType: 'text/plain',
+        sensitivity: 'normal', provenanceTrust: 'runtime-authenticated',
+        captureMode: 'pre-retention', captureCompleteness: 'complete',
+        captureKey: 'prepared-key', createdAt: 1,
+      });
+
+      const prepared = store.contextEvidence.prepareEvidenceBlob({
+        evidenceId: staged.id, conversationId: thread.id, blobRef: 'opaque/prepared.aioev',
+        keyedContentId: 'a'.repeat(64), byteCount: 4, keyVersion: 1, completedAt: 2,
+      });
+
+      expect(prepared).toMatchObject({
+        status: 'staging', blobRef: 'opaque/prepared.aioev', keyedContentId: 'a'.repeat(64),
+      });
+      expect(store.contextEvidence.listEvidence(thread.id)).toEqual([]);
+    });
+
+    it('lists maintenance rows globally and atomically replaces one authenticated blob version', () => {
+      const thread = store.upsertThread({
+        provider: 'orchestrator', nativeThreadId: 'maintenance', sourceKind: 'orchestrator',
+      });
+      const staged = store.contextEvidence.stageEvidence({
+        id: 'maintenance-evidence', conversationId: thread.id, provider: 'codex',
+        toolName: 'tool', sourceKind: 'other', mimeType: 'text/plain',
+        sensitivity: 'normal', provenanceTrust: 'runtime-authenticated',
+        captureMode: 'pre-retention', captureCompleteness: 'complete',
+        captureKey: 'maintenance-key', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: staged.id, conversationId: thread.id, blobRef: 'opaque/old.aioev',
+        keyedContentId: 'a'.repeat(64), byteCount: 4, keyVersion: 1, completedAt: 2,
+      });
+
+      expect(store.contextEvidence.listEvidenceForMaintenance({
+        statuses: ['complete'], keyVersionNot: 2, limit: 1,
+      })).toEqual([expect.objectContaining({ id: staged.id, keyVersion: 1 })]);
+      expect(store.contextEvidence.replaceEvidenceBlob({
+        evidenceId: staged.id, conversationId: thread.id,
+        expectedBlobRef: 'opaque/wrong.aioev', expectedKeyVersion: 1,
+        blobRef: 'opaque/new.aioev', keyedContentId: 'b'.repeat(64),
+        byteCount: 4, keyVersion: 2, completedAt: 2, updatedAt: 3,
+        cleanupGraceDeadline: 100,
+      })).toBe(false);
+      db.exec(`
+        CREATE TRIGGER reject_rotation_cleanup
+        BEFORE INSERT ON evidence_deletion_queue
+        WHEN NEW.blob_ref = 'opaque/old.aioev'
+        BEGIN SELECT RAISE(ABORT, 'fixture queue failure'); END
+      `);
+      expect(() => store.contextEvidence.replaceEvidenceBlob({
+        evidenceId: staged.id, conversationId: thread.id,
+        expectedBlobRef: 'opaque/old.aioev', expectedKeyVersion: 1,
+        blobRef: 'opaque/new.aioev', keyedContentId: 'b'.repeat(64),
+        byteCount: 4, keyVersion: 2, completedAt: 2, updatedAt: 3,
+        cleanupGraceDeadline: 100,
+      })).toThrow('fixture queue failure');
+      expect(store.contextEvidence.getEvidence(thread.id, staged.id)).toMatchObject({
+        blobRef: 'opaque/old.aioev', keyVersion: 1,
+      });
+      db.exec('DROP TRIGGER reject_rotation_cleanup');
+      expect(store.contextEvidence.replaceEvidenceBlob({
+        evidenceId: staged.id, conversationId: thread.id,
+        expectedBlobRef: 'opaque/old.aioev', expectedKeyVersion: 1,
+        blobRef: 'opaque/new.aioev', keyedContentId: 'b'.repeat(64),
+        byteCount: 4, keyVersion: 2, completedAt: 2, updatedAt: 3,
+        cleanupGraceDeadline: 100,
+      })).toBe(true);
+      expect(store.contextEvidence.getEvidence(thread.id, staged.id)).toMatchObject({
+        blobRef: 'opaque/new.aioev', keyedContentId: 'b'.repeat(64), keyVersion: 2,
+      });
+      expect(store.contextEvidence.claimEvidenceDeletions(99, 10)).toEqual([]);
+      expect(store.contextEvidence.claimEvidenceDeletions(100, 10)).toEqual([
+        expect.objectContaining({
+          conversationId: thread.id,
+          evidenceId: staged.id,
+          blobRef: 'opaque/old.aioev',
+        }),
+      ]);
+      expect(store.contextEvidence.listReferencedEvidenceBlobRefs({ limit: 10 }))
+        .toEqual(['opaque/new.aioev', 'opaque/old.aioev']);
+      expect(store.contextEvidence.listReferencedEvidenceBlobRefs({
+        afterBlobRef: 'opaque/new.aioev',
+        limit: 10,
+      })).toEqual(['opaque/old.aioev']);
+    });
+
+    it('keyset-paginates maintenance rows beyond the one-thousand-row page cap', () => {
+      const thread = store.upsertThread({
+        provider: 'orchestrator', nativeThreadId: 'maintenance-pages', sourceKind: 'orchestrator',
+      });
+      db.transaction(() => {
+        for (let index = 0; index < 1_001; index += 1) {
+          store.contextEvidence.stageEvidence({
+            id: `evidence-${String(index).padStart(4, '0')}`,
+            conversationId: thread.id,
+            provider: 'codex',
+            toolName: 'tool',
+            sourceKind: 'other',
+            mimeType: 'text/plain',
+            sensitivity: 'normal',
+            provenanceTrust: 'runtime-authenticated',
+            captureMode: 'pre-retention',
+            captureCompleteness: 'complete',
+            captureKey: `maintenance-page-${index}`,
+            createdAt: 10,
+          });
+        }
+      })();
+
+      const firstPage = store.contextEvidence.listEvidenceForMaintenance({
+        statuses: ['staging'],
+        limit: 1_000,
+      });
+      const secondPage = store.contextEvidence.listEvidenceForMaintenance({
+        statuses: ['staging'],
+        afterUpdatedAt: firstPage.at(-1)!.updatedAt,
+        afterId: firstPage.at(-1)!.id,
+        limit: 1_000,
+      });
+
+      expect(firstPage).toHaveLength(1_000);
+      expect(firstPage.at(-1)?.id).toBe('evidence-0999');
+      expect(secondPage.map((row) => row.id)).toEqual(['evidence-1000']);
+    });
+
+    it('stores card metadata and content-free audit/context events without raw evidence text', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'audit', sourceKind: 'orchestrator' });
+      const staged = store.contextEvidence.stageEvidence({
+        id: 'evidence-card-source', conversationId: thread.id, provider: 'codex', toolName: 'placeholder-tool',
+        sourceKind: 'other', mimeType: 'text/plain', sensitivity: 'normal',
+        provenanceTrust: 'runtime-authenticated', captureMode: 'post-retention',
+        captureCompleteness: 'complete', captureKey: 'card-source', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: staged.id, conversationId: thread.id, blobRef: 'opaque/raw.aioev',
+        keyedContentId: 'd'.repeat(64), byteCount: 10, keyVersion: 1, completedAt: 2,
+      });
+
+      const card = store.contextEvidence.storeEvidenceCard({
+        id: 'card-1', conversationId: thread.id, evidenceId: staged.id,
+        blobRef: 'opaque/card.aioev', extractorKind: 'generic', extractorVersion: '1',
+        status: 'validated', sensitivity: 'normal', byteCount: 8, tokenEstimate: 2,
+        createdAt: 3, cleanupGraceDeadline: 100,
+      });
+      expect(card).toMatchObject({ id: 'card-1', evidenceId: staged.id });
+      expect(store.contextEvidence.getEvidenceCard(thread.id, card.id)).toEqual(card);
+      expect(store.contextEvidence.getEvidenceCard('wrong-conversation', card.id)).toBeNull();
+      expect(store.contextEvidence.listEvidenceCards(thread.id)).toEqual([card]);
+      expect(store.contextEvidence.listEvidenceCards(thread.id, {
+        evidenceId: staged.id,
+      })).toEqual([card]);
+
+      db.exec(`
+        CREATE TRIGGER reject_displaced_card_cleanup
+        BEFORE INSERT ON evidence_deletion_queue
+        WHEN NEW.blob_ref = 'opaque/card.aioev'
+        BEGIN SELECT RAISE(ABORT, 'fixture card cleanup failure'); END
+      `);
+      expect(() => store.contextEvidence.storeEvidenceCard({
+        id: 'card-rejected', conversationId: thread.id, evidenceId: staged.id,
+        blobRef: 'opaque/card-rejected.aioev', extractorKind: 'generic', extractorVersion: '1',
+        status: 'validated', sensitivity: 'normal', byteCount: 9, tokenEstimate: 3,
+        createdAt: 4, cleanupGraceDeadline: 100,
+      })).toThrow('fixture card cleanup failure');
+      expect(store.contextEvidence.getEvidenceCard(thread.id, card.id)).toEqual(card);
+      db.exec('DROP TRIGGER reject_displaced_card_cleanup');
+
+      const replacedCard = store.contextEvidence.storeEvidenceCard({
+        id: 'card-2', conversationId: thread.id, evidenceId: staged.id,
+        blobRef: 'opaque/card-v2.aioev', extractorKind: 'generic', extractorVersion: '1',
+        status: 'validated', sensitivity: 'normal', byteCount: 9, tokenEstimate: 3,
+        createdAt: 4, cleanupGraceDeadline: 100,
+      });
+      expect(replacedCard).toMatchObject({
+        id: 'card-2', blobRef: 'opaque/card-v2.aioev', byteCount: 9, tokenEstimate: 3,
+      });
+      expect(store.contextEvidence.getEvidenceCard(thread.id, 'card-1')).toBeNull();
+      expect(store.contextEvidence.claimEvidenceDeletions(99, 10)).toEqual([]);
+      expect(store.contextEvidence.claimEvidenceDeletions(100, 10)).toEqual([
+        expect.objectContaining({
+          conversationId: thread.id,
+          evidenceId: staged.id,
+          blobRef: 'opaque/card.aioev',
+        }),
+      ]);
+
+      store.contextEvidence.logEvidenceAccess({
+        id: 'access-1', requester: 'mcp:evidence_read', conversationId: thread.id,
+        operation: 'read', evidenceIds: [staged.id], requestedRanges: [{ startByte: 0, endByte: 4 }],
+        outcomeCode: 'allowed', createdAt: 4,
+      });
+      store.contextEvidence.recordContextEvidenceEvent({
+        id: 'event-1', conversationId: thread.id, provider: 'codex', eventKind: 'pressure-sample',
+        recoveryEpoch: 0, outputBytes: 10, providerRequestCount: 1,
+        newEvidenceCount: 1, newFindingCount: 0, createdAt: 5,
+      });
+
+      expect(db.prepare('SELECT evidence_ids_json, requested_ranges_json FROM evidence_access_log')
+        .get<{ evidence_ids_json: string; requested_ranges_json: string }>()).toEqual({
+        evidence_ids_json: JSON.stringify([staged.id]),
+        requested_ranges_json: JSON.stringify([{ startByte: 0, endByte: 4 }]),
+      });
+      expect(db.prepare('SELECT event_kind, output_bytes FROM context_evidence_events')
+        .get<{ event_kind: string; output_bytes: number }>()).toEqual({
+        event_kind: 'pressure-sample', output_bytes: 10,
+      });
+    });
+
+    it('atomically soft-deletes a conversation, transcript children, and queues opaque blobs', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'delete-me', sourceKind: 'orchestrator' });
+      store.upsertMessages(thread.id, [{ id: 'delete-message', role: 'tool', content: 'placeholder', sequence: 1 }]);
+      store.writeCheckpoint(thread.id, {
+        id: 'delete-checkpoint', upToSequence: 1, summary: 'placeholder-summary',
+        summarizedMessageCount: 1, summaryTokens: 1, createdAt: 1,
+      });
+      const staged = store.contextEvidence.stageEvidence({
+        id: 'delete-evidence', conversationId: thread.id, provider: 'codex', toolName: 'placeholder-tool',
+        sourceKind: 'other', mimeType: 'text/plain', sensitivity: 'normal',
+        provenanceTrust: 'runtime-authenticated', captureMode: 'post-retention',
+        captureCompleteness: 'complete', captureKey: 'delete-evidence', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: staged.id, conversationId: thread.id, blobRef: 'opaque/delete.aioev',
+        keyedContentId: 'e'.repeat(64), byteCount: 10, keyVersion: 1, completedAt: 2,
+      });
+      store.contextEvidence.storeEvidenceCard({
+        id: 'delete-card', conversationId: thread.id, evidenceId: staged.id,
+        blobRef: 'opaque/delete.aioev', extractorKind: 'generic', extractorVersion: '1',
+        status: 'validated', sensitivity: 'normal', byteCount: 10, createdAt: 3,
+        cleanupGraceDeadline: 100,
+      });
+      const survivor = store.upsertThread({
+        provider: 'orchestrator', nativeThreadId: 'keep-me', sourceKind: 'orchestrator',
+      });
+      store.upsertMessages(survivor.id, [{
+        id: 'survivor-message', role: 'tool', content: 'surviving transcript', sequence: 1,
+      }]);
+      const survivorEvidence = store.contextEvidence.stageEvidence({
+        id: 'survivor-evidence', conversationId: survivor.id, provider: 'codex',
+        toolName: 'survivor-tool', sourceKind: 'other', mimeType: 'text/plain',
+        sensitivity: 'normal', provenanceTrust: 'runtime-authenticated',
+        captureMode: 'post-retention', captureCompleteness: 'complete',
+        captureKey: 'survivor-evidence', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: survivorEvidence.id, conversationId: survivor.id,
+        blobRef: 'opaque/survivor.aioev', keyedContentId: 'f'.repeat(64),
+        byteCount: 10, keyVersion: 1, completedAt: 2,
+      });
+
+      const result = store.contextEvidence.softDeleteConversationWithEvidence({
+        conversationId: thread.id,
+        deletedAt: '2026-07-15T12:00:00.000Z',
+        graceDeadline: 600_000,
+      });
+
+      expect(result.queuedBlobCount).toBe(1);
+      expect(store.findThreadById(thread.id)).toBeNull();
+      expect(store.listThreads({}).map((row) => row.id)).toEqual([survivor.id]);
+      expect(store.contextEvidence.getEvidence(thread.id, staged.id)).toBeNull();
+      expect(store.contextEvidence.getEvidenceCard(thread.id, 'delete-card')).toBeNull();
+      expect(store.contextEvidence.listEvidenceCards(thread.id)).toEqual([]);
+      expect(store.getMessages(thread.id)).toEqual([]);
+      expect(store.getLatestCheckpoint(thread.id)).toBeNull();
+      expect(store.getMessages(survivor.id).map((message) => message.content))
+        .toEqual(['surviving transcript']);
+      expect(store.contextEvidence.getEvidence(survivor.id, survivorEvidence.id))
+        .toMatchObject({ id: survivorEvidence.id, status: 'complete' });
+      const [firstClaim] = store.contextEvidence.claimEvidenceDeletions(600_000, 10);
+      expect(firstClaim).toEqual(
+        expect.objectContaining({
+          conversationId: thread.id, blobRef: 'opaque/delete.aioev', attempts: 1,
+          claimToken: expect.any(String), claimedUntil: 660_000,
+        }),
+      );
+      expect(firstClaim?.claimToken).not.toBeNull();
+      expect(store.contextEvidence.completeEvidenceDeletion(
+        firstClaim!.id, 'wrong-token', 610_000,
+      )).toBe(false);
+      expect(store.contextEvidence.failEvidenceDeletion(
+        firstClaim!.id, 'wrong-token', 'DELETE_IO_FAILED', 700_000,
+      )).toBe(false);
+      expect(store.contextEvidence.claimEvidenceDeletions(600_000, 10)).toEqual([]);
+      expect(store.contextEvidence.failEvidenceDeletion(
+        firstClaim!.id, firstClaim!.claimToken!, 'DELETE_IO_FAILED', 700_000,
+      )).toBe(true);
+      expect(store.contextEvidence.claimEvidenceDeletions(699_999, 10)).toEqual([]);
+      const reclaimed = store.contextEvidence.claimEvidenceDeletions(700_000, 10);
+      expect(reclaimed).toEqual([
+        expect.objectContaining({ attempts: 2, claimToken: expect.any(String) }),
+      ]);
+      expect(reclaimed[0]?.claimToken).not.toBeNull();
+      expect(store.contextEvidence.completeEvidenceDeletion(
+        firstClaim!.id, firstClaim!.claimToken!, 700_001,
+      )).toBe(false);
+      expect(store.contextEvidence.completeEvidenceDeletion(
+        reclaimed[0]!.id, reclaimed[0]!.claimToken!, 700_001,
+      )).toBe(true);
+      expect(store.contextEvidence.claimEvidenceDeletions(800_000, 10)).toEqual([]);
+    });
+
+    it('reports conversation-scoped renderer aggregates without combining card and result bytes', () => {
+      const thread = store.upsertThread({
+        provider: 'orchestrator', nativeThreadId: 'metrics-thread', sourceKind: 'orchestrator',
+      });
+      const evidence = store.contextEvidence.stageEvidence({
+        id: 'metrics-evidence', conversationId: thread.id, provider: 'codex',
+        toolCallRef: 'tool-call-1', toolName: 'exec_command', sourceKind: 'command',
+        mimeType: 'text/plain', sensitivity: 'normal',
+        provenanceTrust: 'runtime-authenticated', captureMode: 'post-retention',
+        captureCompleteness: 'complete', captureKey: 'metrics-evidence', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: evidence.id, conversationId: thread.id,
+        blobRef: 'opaque/metrics.aioev', keyedContentId: 'a'.repeat(64),
+        byteCount: 10, keyVersion: 1, completedAt: 2,
+      });
+      const nonToolEvidence = store.contextEvidence.stageEvidence({
+        id: 'metrics-file-evidence', conversationId: thread.id, provider: 'codex',
+        toolName: 'file-observation', sourceKind: 'file', mimeType: 'text/plain',
+        sensitivity: 'normal', provenanceTrust: 'runtime-authenticated',
+        captureMode: 'observed-only', captureCompleteness: 'complete',
+        captureKey: 'metrics-file-evidence', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: nonToolEvidence.id, conversationId: thread.id,
+        blobRef: 'opaque/metrics-file.aioev', keyedContentId: 'b'.repeat(64),
+        byteCount: 7, keyVersion: 1, completedAt: 2,
+      });
+      store.contextEvidence.storeEvidenceCard({
+        id: 'metrics-card', conversationId: thread.id, evidenceId: evidence.id,
+        blobRef: 'opaque/metrics-card.aioev', extractorKind: 'generic', extractorVersion: '1',
+        status: 'validated', sensitivity: 'normal', byteCount: 5, createdAt: 3,
+        cleanupGraceDeadline: 100,
+      });
+      store.contextEvidence.recordContextEvidenceEvent({
+        id: 'metrics-event', conversationId: thread.id, provider: 'codex',
+        eventKind: 'recovery', recoveryEpoch: 2, actionCode: 'native-compaction',
+        outputBytes: 10, providerRequestCount: 3, newEvidenceCount: 1,
+        newFindingCount: 1, createdAt: 4,
+      });
+
+      expect(store.contextEvidence.getConversationMetrics(thread.id)).toEqual({
+        evidenceRecordCount: 2,
+        evidenceCardCount: 1,
+        externallyStoredBytes: 22,
+        toolCallCount: 1,
+        toolResultBytes: 10,
+        lastActionCode: 'native-compaction',
+        recoveryCount: 2,
+      });
+    });
+
+    it('replaces one exact legacy marker with an evidence citation using compare-and-swap', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'legacy', sourceKind: 'orchestrator' });
+      store.upsertMessages(thread.id, [{
+        id: 'legacy-message', role: 'tool', content: '[Output cached at: legacy-placeholder]', sequence: 1,
+      }]);
+
+      expect(store.contextEvidence.compareAndSwapLegacyOutputMarker({
+        conversationId: thread.id,
+        messageId: 'legacy-message',
+        evidenceId: 'evidence-legacy',
+        expectedMarker: '[Output cached at: legacy-placeholder]',
+        evidenceCitation: '[evidence:evidence-legacy@0-4#' + 'f'.repeat(64) + ']',
+      })).toBe(false);
+
+      const staged = store.contextEvidence.stageEvidence({
+        id: 'evidence-legacy', conversationId: thread.id, provider: 'codex',
+        toolName: 'legacy-output-cache', sourceKind: 'file', mimeType: 'text/plain',
+        sensitivity: 'normal', provenanceTrust: 'legacy-unverified',
+        captureMode: 'observed-only', captureCompleteness: 'complete',
+        captureKey: 'legacy-marker', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: staged.id, conversationId: thread.id, blobRef: 'opaque/legacy.aioev',
+        keyedContentId: 'f'.repeat(64), byteCount: 4, keyVersion: 1, completedAt: 2,
+      });
+
+      expect(store.contextEvidence.compareAndSwapLegacyOutputMarker({
+        conversationId: thread.id,
+        messageId: 'legacy-message',
+        evidenceId: staged.id,
+        expectedMarker: '[Output cached at: legacy-placeholder]',
+        evidenceCitation: '[evidence:evidence-legacy@0-4#' + 'f'.repeat(64) + ']',
+      })).toBe(true);
+      expect(store.getMessageById('legacy-message')?.content).toContain('[evidence:evidence-legacy@0-4#');
+      expect(store.contextEvidence.compareAndSwapLegacyOutputMarker({
+        conversationId: thread.id,
+        messageId: 'legacy-message',
+        evidenceId: staged.id,
+        expectedMarker: '[Output cached at: legacy-placeholder]',
+        evidenceCitation: '[evidence:other@0-4#' + 'a'.repeat(64) + ']',
+      })).toBe(false);
+    });
+
+    it('enumerates exact historical cache-marker candidates with canonical owner metadata', () => {
+      const owned = store.upsertThread({
+        provider: 'orchestrator', nativeThreadId: 'owned-legacy', sourceKind: 'orchestrator',
+      });
+      const imported = store.upsertThread({
+        provider: 'codex', nativeThreadId: 'imported-legacy', sourceKind: 'provider-native',
+      });
+      const marker = '[Full output saved: /tmp/output-cache/a.txt] (10 chars)';
+      store.upsertMessages(owned.id, [
+        { id: 'owned-marker', role: 'tool', content: marker, sequence: 1 },
+        { id: 'not-marker', role: 'assistant', content: 'ordinary output', sequence: 2 },
+      ]);
+      store.upsertMessages(imported.id, [
+        { id: 'imported-marker', role: 'tool', content: marker, sequence: 1 },
+      ]);
+
+      expect(store.contextEvidence.listLegacyOutputCacheMarkers()
+        .sort((left, right) => left.messageId.localeCompare(right.messageId))).toEqual([
+        expect.objectContaining({
+          conversationId: imported.id, messageId: 'imported-marker', content: marker,
+          provider: 'codex', sourceKind: 'provider-native',
+        }),
+        expect.objectContaining({
+          conversationId: owned.id, messageId: 'owned-marker', content: marker,
+          provider: 'orchestrator', sourceKind: 'orchestrator',
+        }),
+      ]);
+    });
+
+    it('atomically replaces a legacy marker with the validated citation and disclosure', () => {
+      const thread = store.upsertThread({
+        provider: 'orchestrator', nativeThreadId: 'legacy-disclosure', sourceKind: 'orchestrator',
+      });
+      const marker = '[Full output saved: /tmp/output-cache/a.txt] (4 chars)';
+      store.upsertMessages(thread.id, [
+        { id: 'legacy-disclosure-message', role: 'tool', content: marker, sequence: 1 },
+      ]);
+      const staged = store.contextEvidence.stageEvidence({
+        id: 'legacy-disclosure-evidence', conversationId: thread.id, provider: 'orchestrator',
+        toolName: 'legacy-output-cache', sourceKind: 'file', mimeType: 'text/plain',
+        sensitivity: 'normal', provenanceTrust: 'legacy-unverified',
+        captureMode: 'observed-only', captureCompleteness: 'complete',
+        captureKey: 'legacy-disclosure-marker', createdAt: 1,
+      });
+      store.contextEvidence.finalizeEvidence({
+        evidenceId: staged.id, conversationId: thread.id, blobRef: 'opaque/disclosure.aioev',
+        keyedContentId: 'e'.repeat(64), byteCount: 4, keyVersion: 1, completedAt: 2,
+      });
+      const citation = `[evidence:${staged.id}@0-4#${'e'.repeat(64)}]`;
+      const replacementText = `${citation}\n[Legacy cache import: legacy-unverified]`;
+
+      expect(store.contextEvidence.compareAndSwapLegacyOutputMarker({
+        conversationId: thread.id,
+        messageId: 'legacy-disclosure-message',
+        evidenceId: staged.id,
+        expectedMarker: marker,
+        evidenceCitation: citation,
+        replacementText,
+      })).toBe(true);
+      expect(store.getMessageById('legacy-disclosure-message')?.content).toBe(replacementText);
+    });
+
+    it('never repopulates transcript rows after soft deletion', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'deleted-write', sourceKind: 'orchestrator' });
+      store.contextEvidence.softDeleteConversationWithEvidence({
+        conversationId: thread.id,
+        deletedAt: '2026-07-15T12:00:00.000Z',
+        graceDeadline: 1,
+      });
+
+      expect(() => store.upsertMessages(thread.id, [
+        { role: 'assistant', content: 'late provider result', sequence: 1 },
+      ])).toThrow('CONVERSATION_NOT_FOUND');
+      expect(store.getMessages(thread.id)).toEqual([]);
+    });
+  });
 });

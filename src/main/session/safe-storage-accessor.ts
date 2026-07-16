@@ -25,12 +25,23 @@
  */
 
 /**
+ * Injectable subset of Electron's safeStorage API used by durable encrypted
+ * stores. Keeping this contract here preserves the lazy production seam while
+ * allowing callers to fail closed under deterministic tests.
+ */
+export interface SafeStorageAccessor {
+  isEncryptionAvailable(): boolean;
+  encryptString(plaintext: string): Buffer;
+  decryptString(ciphertext: Buffer): string;
+}
+
+/**
  * Returns Electron's `safeStorage` API, resolved lazily on first call.
  *
  * Only call this from code paths that exist to encrypt or decrypt
  * on-disk session payloads — never at module-init time.
  */
-export function getSafeStorage(): typeof import('electron').safeStorage {
+export function getSafeStorage(): SafeStorageAccessor {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const electron = require('electron') as typeof import('electron');
   return electron.safeStorage;

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IndexingStats } from '../../shared/types/codebase.types';
 
@@ -204,7 +205,8 @@ describe('codebase indexing lane main entrypoint', () => {
     await flushMicrotasks();
 
     expect(events).toEqual([
-      'database:/user-data/rlm/rlm.db:/user-data/rlm/content',
+      // Production joins these with path.join, so match the host separator.
+      `database:${join('/user-data', 'rlm', 'rlm.db')}:${join('/user-data', 'rlm', 'content')}`,
       'reload',
       'index',
     ]);

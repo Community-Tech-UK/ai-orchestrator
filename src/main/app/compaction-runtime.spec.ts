@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CompactionCoordinator } from '../context/compaction-coordinator';
+import type { EvidenceLedgerRecord } from '../conversation-ledger/context-evidence-ledger.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
@@ -17,6 +18,25 @@ vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => settingsManagerMock,
 }));
 
+const evidenceMocks = vi.hoisted(() => ({
+  listEvidence: vi.fn(),
+  read: vi.fn(),
+  deriveCitationDigest: vi.fn(),
+}));
+
+vi.mock('../conversation-ledger', () => ({
+  getConversationLedgerService: () => ({ listEvidence: evidenceMocks.listEvidence }),
+}));
+
+vi.mock('../context-evidence/evidence-maintenance-service', () => ({
+  getContextEvidenceRuntime: () => ({
+    blobStore: {
+      read: evidenceMocks.read,
+      deriveCitationDigest: evidenceMocks.deriveCitationDigest,
+    },
+  }),
+}));
+
 function makeWindowManager(): WindowManager {
   return {
     sendToRenderer: vi.fn(),
@@ -30,6 +50,11 @@ describe('setupCompactionCoordinator', () => {
     settingsManagerMock.get.mockReset();
     settingsManagerMock.get.mockReturnValue(0);
     settingsManagerMock.on.mockReset();
+    evidenceMocks.listEvidence.mockReset();
+    evidenceMocks.listEvidence.mockResolvedValue([]);
+    evidenceMocks.read.mockReset();
+    evidenceMocks.deriveCitationDigest.mockReset();
+    evidenceMocks.deriveCitationDigest.mockResolvedValue('d'.repeat(64));
   });
 
   afterEach(() => {
@@ -194,6 +219,53 @@ describe('setupCompactionCoordinator', () => {
     );
   });
 
+  it('includes only blob-authenticated evidence in restart continuity packages', async () => {
+    const content = new TextEncoder().encode('authenticated evidence body');
+    evidenceMocks.listEvidence.mockResolvedValue([makeEvidenceRecord(content.byteLength)]);
+    evidenceMocks.read.mockResolvedValue(Uint8Array.from(content));
+    const sendInput = vi.fn(async () => undefined);
+    const instance = {
+      id: 'inst-evidence',
+      contextEvidence: {
+        mode: 'enforce',
+        conversationId: 'conversation-evidence',
+        captureFailureCount: 0,
+      },
+      outputBuffer: [
+        { id: 'm1', type: 'user' as const, content: 'Continue the evidence task.', timestamp: 1 },
+        { id: 'm2', type: 'assistant' as const, content: 'Working on it.', timestamp: 2 },
+      ],
+    };
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: false })),
+      getAdapter: vi.fn(() => ({})),
+      getInstance: vi.fn(() => instance),
+      restartFreshInstance: vi.fn(async () => undefined),
+      sendInput,
+      emitOutputMessage: vi.fn(),
+    } as unknown as InstanceManager;
+
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+    const authenticated = await CompactionCoordinator.getInstance().compactInstance('inst-evidence');
+
+    expect(authenticated.success).toBe(true);
+    const authenticatedPrompt = sendInput.mock.calls[0]![1];
+    expect(authenticatedPrompt).toContain('[evidence:evidence-runtime@0-27#');
+    expect(authenticatedPrompt).toContain('authenticated evidence body');
+
+    CompactionCoordinator._resetForTesting();
+    sendInput.mockClear();
+    evidenceMocks.read.mockRejectedValueOnce(new Error('authentication failed'));
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+    const rejected = await CompactionCoordinator.getInstance().compactInstance('inst-evidence');
+
+    expect(rejected.success).toBe(true);
+    const rejectedPrompt = sendInput.mock.calls[0]![1];
+    expect(rejectedPrompt).not.toContain('[evidence:evidence-runtime@');
+    expect(rejectedPrompt).not.toContain('authenticated evidence body');
+    expect(rejectedPrompt).toContain('No authenticated evidence previews were available');
+  });
+
   it('wires selfManagesAutoCompaction so the coordinator skips background auto-trigger for Claude-style adapters', () => {
     // Build a fake instanceManager that mirrors the Claude-style capability
     // surface: no callable native hook, but `selfManagedAutoCompaction: true`.
@@ -258,3 +330,34 @@ describe('setupCompactionCoordinator', () => {
     }));
   });
 });
+
+function makeEvidenceRecord(byteCount: number): EvidenceLedgerRecord {
+  return {
+    id: 'evidence-runtime',
+    conversationId: 'conversation-evidence',
+    provider: 'codex',
+    providerThreadRef: null,
+    providerSessionRef: null,
+    turnRef: null,
+    toolCallRef: null,
+    toolName: 'read_file',
+    sourceKind: 'file',
+    sourceLocatorRedacted: null,
+    status: 'complete',
+    blobRef: 'opaque/runtime.aioev1',
+    keyedContentId: 'c'.repeat(64),
+    byteCount,
+    tokenEstimate: null,
+    mimeType: 'text/plain',
+    sensitivity: 'normal',
+    provenanceTrust: 'runtime-authenticated',
+    captureMode: 'post-retention',
+    captureCompleteness: 'complete',
+    truncationReason: null,
+    keyVersion: 1,
+    captureKey: 'capture-runtime',
+    createdAt: 1,
+    completedAt: 2,
+    updatedAt: 2,
+  };
+}

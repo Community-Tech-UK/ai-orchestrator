@@ -20,6 +20,7 @@ import {
 } from './orchestrator-tools-rpc-client';
 import { RELEASE_TOOL_SPECS, type ReleaseToolName } from './orchestrator-release-tools';
 import { createFileTransferForwarderTools } from './orchestrator-file-transfer-forwarder-tools';
+import { createOrchestratorEvidenceToolDefinitions } from './orchestrator-evidence-tools';
 
 const REMOTE_NODE_DISCOVERY_HINT =
   'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
@@ -584,6 +585,17 @@ export function createOrchestratorToolsForwarderTools(
         return client.call(`orchestrator_tools.${name}`, args as Record<string, unknown>);
       },
     })),
+    ...createOrchestratorEvidenceToolDefinitions({
+      instanceId: 'rpc-injected',
+      conversationId: 'rpc-injected',
+      coordinator: {
+        list: (payload) => client.call('orchestrator_tools.evidence_list', stripInjected(payload)),
+        search: (payload) => client.call('orchestrator_tools.evidence_search', stripInjected(payload)),
+        read: (payload) => client.call('orchestrator_tools.evidence_read', stripInjected(payload)),
+        compare: (payload) => client.call('orchestrator_tools.evidence_compare', stripInjected(payload)),
+        verify: (payload) => client.call('orchestrator_tools.evidence_verify', stripInjected(payload)),
+      },
+    }),
   ];
 }
 
@@ -594,4 +606,11 @@ export async function runOrchestratorToolsForwarder(
     loggerName: 'OrchestratorToolsMcpForwarder',
     tools: createOrchestratorToolsForwarderTools(client),
   });
+}
+
+function stripInjected(input: object): Record<string, unknown> {
+  const payload = { ...input } as Record<string, unknown>;
+  delete payload['requester'];
+  delete payload['conversationId'];
+  return payload;
 }

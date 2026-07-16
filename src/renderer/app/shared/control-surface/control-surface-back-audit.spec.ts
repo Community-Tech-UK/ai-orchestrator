@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -31,7 +31,9 @@ function listSourceFiles(directory: string): string[] {
 }
 
 function isExcluded(path: string): boolean {
-  const rel = relative(featuresDirectory, path);
+  // Normalize to forward slashes so the exclusion list matches on Windows,
+  // where relative() emits backslash separators.
+  const rel = relative(featuresDirectory, path).split(sep).join('/');
   return rel.startsWith('setup/')
     || rel.startsWith('coming-soon/')
     || rel === 'settings/settings.component.ts';

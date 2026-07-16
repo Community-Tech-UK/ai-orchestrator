@@ -443,7 +443,7 @@ describe('CodexCliAdapter', () => {
   describe('turn cost governor', () => {
     function installSyntheticCostClient(
       adapter: CodexCliAdapter,
-      options: { completeInsteadOfInterrupt?: boolean } = {},
+      options: { completeInsteadOfInterrupt?: boolean; requestSharedRecovery?: boolean } = {},
     ) {
       const order: string[] = [];
       const turnInputs: string[] = [];
@@ -475,6 +475,11 @@ describe('CodexCliAdapter', () => {
                   },
                 },
               });
+              if (options.requestSharedRecovery) {
+                queueMicrotask(() => {
+                  void adapter.executeContextAction('controlled-recovery');
+                });
+              }
               if (options.completeInsteadOfInterrupt) {
                 client.notificationHandler?.({
                   method: 'turn/completed',
@@ -541,7 +546,9 @@ describe('CodexCliAdapter', () => {
 
     it('interrupts, observes compaction, and continues once without replaying the original message', async () => {
       const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
-      const { order, turnInputs } = installSyntheticCostClient(adapter);
+      const { order, turnInputs } = installSyntheticCostClient(adapter, {
+        requestSharedRecovery: true,
+      });
       const completions: string[] = [];
       adapter.on('complete', (response: { content: string }) => completions.push(response.content));
 
@@ -562,7 +569,7 @@ describe('CodexCliAdapter', () => {
       expect(completions).toEqual(['Continued safely']);
     });
 
-    it('emits one warning at the soft 2x ceiling without interrupting', () => {
+    it('reports cost telemetry without independently warning or interrupting at 2x', () => {
       const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
       const interrupt = vi.spyOn(adapter, 'interrupt');
       const outputs: Array<{ metadata?: Record<string, unknown> }> = [];
@@ -587,7 +594,7 @@ describe('CodexCliAdapter', () => {
       internals.handleTurnNotification(state, usageNotification(200));
       internals.handleTurnNotification(state, usageNotification(300));
 
-      expect(outputs.filter((output) => output.metadata?.['contextCostWarning'])).toHaveLength(1);
+      expect(outputs.filter((output) => output.metadata?.['contextCostWarning'])).toHaveLength(0);
       expect(interrupt).not.toHaveBeenCalled();
     });
 
@@ -605,7 +612,9 @@ describe('CodexCliAdapter', () => {
 
     it('pauses without continuation when compaction cannot be proved', async () => {
       const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
-      const { turnInputs } = installSyntheticCostClient(adapter);
+      const { turnInputs } = installSyntheticCostClient(adapter, {
+        requestSharedRecovery: true,
+      });
       vi.spyOn(
         (adapter as unknown as { contextCostController: { compactContext(timeoutMs: number): Promise<boolean> } }).contextCostController,
         'compactContext',
@@ -618,7 +627,7 @@ describe('CodexCliAdapter', () => {
       expect(turnInputs).toEqual(['Task that must pause']);
     });
 
-    it('keeps the experimental governor disabled unless explicitly enabled', () => {
+    it('never restores adapter-owned thresholds when the legacy flag is disabled', () => {
       const adapter = new CodexCliAdapter();
       const interrupt = vi.spyOn(adapter, 'interrupt');
       const outputs: Array<{ metadata?: Record<string, unknown> }> = [];
@@ -645,9 +654,11 @@ describe('CodexCliAdapter', () => {
       expect(outputs.filter((output) => output.metadata?.['contextCostWarning'])).toEqual([]);
     });
 
-    it('pauses after three automatic recoveries in one outer send', async () => {
+    it('leaves the recovery ceiling to the shared policy instead of rejecting locally', async () => {
       const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
-      const { turnInputs } = installSyntheticCostClient(adapter);
+      const { turnInputs } = installSyntheticCostClient(adapter, {
+        requestSharedRecovery: true,
+      });
       const compact = vi.spyOn(
         (adapter as unknown as { contextCostController: { compactContext(timeoutMs: number): Promise<boolean> } }).contextCostController,
         'compactContext',
@@ -655,10 +666,12 @@ describe('CodexCliAdapter', () => {
 
       await expect((adapter as unknown as {
         appServerSendMessageInner(message: string, attachments?: unknown, recoveryCount?: number): Promise<void>;
-      }).appServerSendMessageInner('Task at recovery ceiling', undefined, 3)).rejects.toThrow(/recovery limit/i);
+      }).appServerSendMessageInner('Task at recovery ceiling', undefined, 3)).resolves.toBeUndefined();
 
-      expect(compact).not.toHaveBeenCalled();
-      expect(turnInputs).toEqual(['Task at recovery ceiling']);
+      expect(compact).toHaveBeenCalledOnce();
+      expect(turnInputs).toHaveLength(2);
+      expect(turnInputs[0]).toBe('Task at recovery ceiling');
+      expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
     });
   });
 

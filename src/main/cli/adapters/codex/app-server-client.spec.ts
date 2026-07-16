@@ -59,6 +59,25 @@ describe('app-server transport liveness', () => {
 });
 
 describe('app-server JSON-RPC routing', () => {
+  it('enables the experimental API required by metadata-only thread resume', async () => {
+    const client = createWritableClientDispatchHarness();
+
+    const initialize = client.initialize();
+    const requestId = client.sent[0]?.['id'];
+
+    expect(client.sent[0]).toMatchObject({
+      method: 'initialize',
+      params: {
+        capabilities: {
+          experimentalApi: true,
+        },
+      },
+    });
+
+    client.dispatch(JSON.stringify({ id: requestId, result: {} }));
+    await initialize;
+  });
+
   it('responds to an unsupported server request instead of misclassifying it as a response', () => {
     const client = createWritableClientDispatchHarness();
 

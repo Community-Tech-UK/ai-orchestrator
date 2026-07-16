@@ -29,7 +29,7 @@ export function buildInstanceRecord(
   options: BuildInstanceRecordOptions,
 ): Instance {
   const sessionId = config.sessionId || generateId();
-  const historyThreadId = config.historyThreadId || sessionId;
+  const historyThreadId = config.historyThreadId || generateId();
   // A genuinely fresh session (not a resume, no restored transcript) has not
   // been persisted to disk by the provider CLI yet. Mark it so an interrupt /
   // steer during the first turn replays into a fresh session instead of
@@ -57,6 +57,7 @@ export function buildInstanceRecord(
     isRenamed: config.isRenamed,
     createdAt: now,
     historyThreadId,
+    evidenceConversationOwner: config.evidenceConversationOwner,
 
     parentId: config.parentId || null,
     childrenIds: [],

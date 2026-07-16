@@ -1,6 +1,6 @@
 import { constants as fsConstants } from 'node:fs';
 import { access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, posix as pathPosix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { app } from 'electron';
@@ -71,9 +71,12 @@ interface RawListAppsResult {
 }
 
 export function resolveDesktopHelperPath(context: DesktopHelperPathContext): string {
+  // This helper only runs on macOS; its resourcesPath/appPath are POSIX. Build
+  // with posix.join so the path is separator-stable regardless of host OS (keeps
+  // the unit test deterministic when run on Windows).
   return context.isPackaged
-    ? join(context.resourcesPath, 'desktop-helper', 'desktop-helper')
-    : join(context.appPath, 'dist', 'desktop-helper', 'desktop-helper');
+    ? pathPosix.join(context.resourcesPath, 'desktop-helper', 'desktop-helper')
+    : pathPosix.join(context.appPath, 'dist', 'desktop-helper', 'desktop-helper');
 }
 
 export class BundledDarwinHelperClient implements DesktopHelperClient {

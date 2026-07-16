@@ -14,6 +14,7 @@ interface BindRawAdapterProviderEventsInput {
     event: ProviderRuntimeEvent,
     options: { raw: ProviderRuntimeEventRaw; provider?: ProviderName },
   ) => void;
+  captureToolResult?: (toolCall: CliToolCall) => void;
 }
 
 /** Bind canonical capture for adapter events not otherwise handled by the UI. */
@@ -41,6 +42,7 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
 
   input.adapter.on('tool_result', (toolCall: CliToolCall) => {
     if (input.isStale('tool_result')) return;
+    input.captureToolResult?.(toolCall);
     input.emit(
       {
         kind: 'tool_result',

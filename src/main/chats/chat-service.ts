@@ -40,6 +40,9 @@ import { ChatUiStateStore } from './chat-ui-state-store';
 import { ChatSessionBindingStore, evaluateLineage } from './chat-session-binding-store';
 import { buildLedgerRebuildPreamble, isRebuildContextTurn, maybeProduceCheckpoint } from './chat-continuity';
 import { ChatBranchSummaryScheduler } from './chat-branch-summary';
+import { getContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
+import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
+import type { ChatEvidenceDeletion } from './chat-service.types';
 
 const logger = getLogger('ChatService');
 const CHAT_DETAIL_MESSAGE_LIMIT = 200;
@@ -55,6 +58,8 @@ export class ChatService {
   private readonly bridge: ChatTranscriptBridge;
   private readonly sessionBindingStore: ChatSessionBindingStore;
   private readonly branchSummaryScheduler: ChatBranchSummaryScheduler;
+  private readonly evidenceDeletion: ChatEvidenceDeletion;
+  private readonly drainEvidenceCapture: (queueId: string) => Promise<void>;
   private initialized = false;
   private migrationDone: Promise<void> = Promise.resolve();
 
@@ -99,6 +104,12 @@ export class ChatService {
     this.store = new ChatStore(db);
     this.uiStateStore = new ChatUiStateStore(db);
     this.sessionBindingStore = new ChatSessionBindingStore(db);
+    this.evidenceDeletion = config.evidenceDeletion ?? {
+      revokeConversation: (conversationId) =>
+        getContextEvidenceRuntime().deletionService.revokeConversation(conversationId),
+    };
+    this.drainEvidenceCapture = config.drainEvidenceCapture
+      ?? ((queueId) => getContextEvidenceCoordinator().drain(queueId));
     this.branchSummaryScheduler = new ChatBranchSummaryScheduler({
       ledger: this.ledger,
       getChat: (chatId) => this.store.get(chatId),
@@ -255,6 +266,21 @@ export class ChatService {
     }
     this.emit({ type: 'chat-archived', chatId: chat.id });
     return chat;
+  }
+
+  async deleteChat(chatId: string): Promise<void> {
+    this.initialize();
+    const chat = this.requireChat(chatId);
+    if (chat.currentInstanceId) {
+      await this.flushTranscript();
+      await this.drainEvidenceCapture(chat.currentInstanceId);
+      await this.terminateRuntime(chat, chat.currentInstanceId, 'delete');
+      await this.drainEvidenceCapture(chat.currentInstanceId);
+    }
+    await this.evidenceDeletion.revokeConversation(chat.ledgerThreadId);
+    if (!this.store.delete(chat.id)) throw new Error(`Chat ${chat.id} not found`);
+    this.filterUiState(this.uiStateStore.get());
+    this.emit({ type: 'chat-deleted', chatId: chat.id });
   }
 
   async setProvider(chatId: string, provider: ChatProvider): Promise<ChatDetail> {
@@ -495,13 +521,14 @@ export class ChatService {
   private async terminateRuntime(
     chat: ChatRecord,
     instanceId: string,
-    reason: 'provider' | 'model' | 'reasoning' | 'archive' | 'cwd',
+    reason: 'provider' | 'model' | 'reasoning' | 'archive' | 'cwd' | 'delete',
   ): Promise<void> {
     const inst = this.instanceManager.getInstance(instanceId);
     if (inst && inst.status !== 'terminated') {
       try {
         await this.instanceManager.terminateInstance(instanceId, true);
       } catch (error) {
+        if (reason === 'delete') throw error;
         logger.warn('Failed to terminate chat runtime during transition', {
           chatId: chat.id,
           instanceId,
@@ -531,6 +558,12 @@ export class ChatService {
       modelOverride: chat.model ?? undefined,
       reasoningEffort: chat.reasoningEffort ?? undefined,
       agentId: 'build',
+      historyThreadId: chat.ledgerThreadId,
+      evidenceConversationOwner: {
+        kind: 'chat',
+        chatId: chat.id,
+        conversationId: chat.ledgerThreadId,
+      },
     });
     this.bridge.link(chat.id, instance.id);
     const updated = this.store.update(chat.id, {

@@ -11,6 +11,7 @@ import type { OutputMessage } from '../../shared/types/instance.types';
 import { getConversationLedgerService, type ConversationLedgerService } from '../conversation-ledger';
 import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 import { getLogger } from '../logging/logger';
+import { EvidenceConversationResolver } from '../context-evidence/evidence-conversation-resolver';
 import { ChatStore } from './chat-store';
 
 const logger = getLogger('ChatTranscriptBridge');
@@ -59,6 +60,7 @@ export class ChatTranscriptBridge {
   private readonly chatStore: ChatStore;
   private readonly instanceManager: InstanceManager;
   private readonly eventBus: EventEmitter;
+  private readonly conversationResolver: EvidenceConversationResolver;
   private readonly flushIntervalMs: number;
   private started = false;
   private readonly instanceToChat = new Map<string, string>();
@@ -77,6 +79,10 @@ export class ChatTranscriptBridge {
     this.chatStore = config.chatStore;
     this.instanceManager = config.instanceManager;
     this.eventBus = config.eventBus;
+    this.conversationResolver = new EvidenceConversationResolver({
+      ledger: this.ledger,
+      chatStore: this.chatStore,
+    });
     this.flushIntervalMs = config.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
   }
 
@@ -276,7 +282,44 @@ export class ChatTranscriptBridge {
     }
 
     try {
-      const records = await this.ledger.appendMessagesReturningRecords(chat.ledgerThreadId, messages);
+      const instance = this.instanceManager.getInstance(instanceId);
+      const mode = instance?.contextEvidence?.mode ?? 'off';
+      let conversationId = chat.ledgerThreadId;
+      if (mode !== 'off') {
+        const ownership = await this.conversationResolver.resolve(
+          instance ?? {
+            id: instanceId,
+            historyThreadId: '',
+            provider: chat.provider ?? 'unknown',
+            workingDirectory: chat.currentCwd ?? undefined,
+          },
+          { mode },
+        );
+        if (ownership.status === 'unresolved') {
+          if (instance) {
+            const previousFailures = instance.contextEvidence?.captureFailureCount ?? 0;
+            instance.contextEvidence = {
+              mode,
+              captureFailureCount: previousFailures + ownership.metric.increment,
+              lastCaptureFailure: {
+                code: ownership.metric.reason,
+                reason: ownership.reason,
+                disposition: ownership.disposition,
+                occurredAt: Date.now(),
+              },
+            };
+          }
+          logger.warn('Chat transcript ownership could not be resolved; dropping batch', {
+            chatId: chat.id,
+            instanceId,
+            reason: ownership.reason,
+            disposition: ownership.disposition,
+          });
+          return;
+        }
+        conversationId = ownership.conversationId;
+      }
+      const records = await this.ledger.appendMessagesReturningRecords(conversationId, messages);
       let updated = chat;
       try {
         updated = this.chatStore.update(chat.id, { lastActiveAt });

@@ -1,3 +1,4 @@
+import nodePath from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import type { WorkerConfig } from '../worker-config';
@@ -405,7 +406,7 @@ describe('WorkerAgent', () => {
           expect.objectContaining({
             id: 'browserDownloads',
             label: 'Browser Downloads',
-            path: '/tmp/aio-auto-profile/Downloads',
+            path: nodePath.join('/tmp/aio-auto-profile', 'Downloads'),
             read: true,
             write: false,
           }),
@@ -455,7 +456,7 @@ describe('WorkerAgent', () => {
       {
         id: 'browserDownloads',
         label: 'Browser Downloads',
-        path: '/tmp/aio-auto-profile/Downloads',
+        path: nodePath.join('/tmp/aio-auto-profile', 'Downloads'),
         read: true,
         write: false,
       },
@@ -820,7 +821,7 @@ describe('WorkerAgent', () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: 'browserDownloads',
-          path: '/tmp/aio-auto-profile/Downloads',
+          path: nodePath.join('/tmp/aio-auto-profile', 'Downloads'),
         }),
       ]),
     );

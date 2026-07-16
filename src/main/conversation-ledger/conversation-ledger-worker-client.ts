@@ -41,6 +41,30 @@ import type {
   ProviderEventCaptureRecord,
 } from './provider-event-capture.types';
 import type {
+  ContextEvidenceEventInput,
+  ContextEvidenceConversationMetrics,
+  ConversationEvidenceDeletionInput,
+  ConversationEvidenceDeletionResult,
+  EvidenceAccessLogInput,
+  EvidenceCardMetadataInput,
+  EvidenceCardMetadataRecord,
+  EvidenceCardListQuery,
+  EvidenceDeletionQueueRecord,
+  EvidenceFailureInput,
+  EvidenceFinalizeInput,
+  EvidenceLedgerRecord,
+  EvidenceListQuery,
+  EvidenceBlobReferenceQuery,
+  EvidenceMaintenanceQuery,
+  EvidenceMetadataSearchQuery,
+  EvidenceBlobReplacementInput,
+  EvidenceRangeAuthorization,
+  EvidenceRangeAuthorizationInput,
+  EvidenceStageInput,
+  LegacyMarkerCompareAndSwapInput,
+  LegacyOutputCacheMarkerRecord,
+} from './context-evidence-ledger.types';
+import type {
   LedgerWorkerInboundMsg,
   LedgerWorkerOutboundMsg,
 } from './conversation-ledger-worker-protocol';
@@ -221,6 +245,140 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
 
   async pruneProviderEventCapturesBefore(before: number): Promise<number> {
     return (await this.call('pruneProviderEventCapturesBefore', [before])) as number;
+  }
+
+  async stageEvidence(input: EvidenceStageInput): Promise<EvidenceLedgerRecord> {
+    return (await this.call('stageEvidence', [input])) as EvidenceLedgerRecord;
+  }
+
+  async prepareEvidenceBlob(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord> {
+    return (await this.call('prepareEvidenceBlob', [input])) as EvidenceLedgerRecord;
+  }
+
+  async finalizeEvidence(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord> {
+    return (await this.call('finalizeEvidence', [input])) as EvidenceLedgerRecord;
+  }
+
+  async failEvidence(input: EvidenceFailureInput): Promise<EvidenceLedgerRecord> {
+    return (await this.call('failEvidence', [input])) as EvidenceLedgerRecord;
+  }
+
+  async getEvidence(
+    conversationId: string,
+    evidenceId: string,
+  ): Promise<EvidenceLedgerRecord | null> {
+    return (await this.call('getEvidence', [conversationId, evidenceId])) as
+      | EvidenceLedgerRecord
+      | null;
+  }
+
+  async listEvidence(
+    conversationId: string,
+    query?: EvidenceListQuery,
+  ): Promise<EvidenceLedgerRecord[]> {
+    return (await this.call('listEvidence', [conversationId, query])) as EvidenceLedgerRecord[];
+  }
+
+  async listEvidenceForMaintenance(query: EvidenceMaintenanceQuery): Promise<EvidenceLedgerRecord[]> {
+    return (await this.call('listEvidenceForMaintenance', [query])) as EvidenceLedgerRecord[];
+  }
+
+  async listReferencedEvidenceBlobRefs(query: EvidenceBlobReferenceQuery): Promise<string[]> {
+    return (await this.call('listReferencedEvidenceBlobRefs', [query])) as string[];
+  }
+
+  async replaceEvidenceBlob(input: EvidenceBlobReplacementInput): Promise<boolean> {
+    return (await this.call('replaceEvidenceBlob', [input])) as boolean;
+  }
+
+  async searchEvidenceMetadata(
+    conversationId: string,
+    query: EvidenceMetadataSearchQuery,
+  ): Promise<EvidenceLedgerRecord[]> {
+    return (await this.call('searchEvidenceMetadata', [conversationId, query])) as
+      EvidenceLedgerRecord[];
+  }
+
+  async authorizeEvidenceRange(
+    input: EvidenceRangeAuthorizationInput,
+  ): Promise<EvidenceRangeAuthorization> {
+    return (await this.call('authorizeEvidenceRange', [input])) as EvidenceRangeAuthorization;
+  }
+
+  async storeEvidenceCard(input: EvidenceCardMetadataInput): Promise<EvidenceCardMetadataRecord> {
+    return (await this.call('storeEvidenceCard', [input])) as EvidenceCardMetadataRecord;
+  }
+
+  async getEvidenceCard(
+    conversationId: string,
+    cardId: string,
+  ): Promise<EvidenceCardMetadataRecord | null> {
+    return (await this.call('getEvidenceCard', [conversationId, cardId])) as
+      EvidenceCardMetadataRecord | null;
+  }
+
+  async listEvidenceCards(
+    conversationId: string,
+    query?: EvidenceCardListQuery,
+  ): Promise<EvidenceCardMetadataRecord[]> {
+    return (await this.call('listEvidenceCards', [conversationId, query])) as
+      EvidenceCardMetadataRecord[];
+  }
+
+  async getContextEvidenceConversationMetrics(
+    conversationId: string,
+  ): Promise<ContextEvidenceConversationMetrics> {
+    return (await this.call('getContextEvidenceConversationMetrics', [conversationId])) as
+      ContextEvidenceConversationMetrics;
+  }
+
+  async logEvidenceAccess(input: EvidenceAccessLogInput): Promise<void> {
+    await this.call('logEvidenceAccess', [input]);
+  }
+
+  async recordContextEvidenceEvent(input: ContextEvidenceEventInput): Promise<void> {
+    await this.call('recordContextEvidenceEvent', [input]);
+  }
+
+  async softDeleteConversationWithEvidence(
+    input: ConversationEvidenceDeletionInput,
+  ): Promise<ConversationEvidenceDeletionResult> {
+    return (await this.call('softDeleteConversationWithEvidence', [input])) as
+      ConversationEvidenceDeletionResult;
+  }
+
+  async claimEvidenceDeletions(
+    now: number,
+    limit: number,
+    leaseMs?: number,
+  ): Promise<EvidenceDeletionQueueRecord[]> {
+    return (await this.call('claimEvidenceDeletions', [now, limit, leaseMs])) as
+      EvidenceDeletionQueueRecord[];
+  }
+
+  async completeEvidenceDeletion(
+    id: string,
+    claimToken: string,
+    completedAt: number,
+  ): Promise<boolean> {
+    return (await this.call('completeEvidenceDeletion', [id, claimToken, completedAt])) as boolean;
+  }
+
+  async failEvidenceDeletion(
+    id: string,
+    claimToken: string,
+    errorCode: string,
+    retryAt: number,
+  ): Promise<boolean> {
+    return (await this.call('failEvidenceDeletion', [id, claimToken, errorCode, retryAt])) as boolean;
+  }
+
+  async compareAndSwapLegacyOutputMarker(input: LegacyMarkerCompareAndSwapInput): Promise<boolean> {
+    return (await this.call('compareAndSwapLegacyOutputMarker', [input])) as boolean;
+  }
+
+  async listLegacyOutputCacheMarkers(): Promise<LegacyOutputCacheMarkerRecord[]> {
+    return (await this.call('listLegacyOutputCacheMarkers', [])) as LegacyOutputCacheMarkerRecord[];
   }
 
   async close(): Promise<void> {

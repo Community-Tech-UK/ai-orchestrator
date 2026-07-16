@@ -12,6 +12,7 @@ export type { ModelUsageEntry } from './model-usage.types';
 // keep a single module for both the shape and the shipped defaults.
 export {
   DEFAULT_LOOP_MODEL_BY_PROVIDER,
+  DEFAULT_CONTEXT_EVIDENCE_MODE_BY_PROVIDER,
   DEFAULT_ORCHESTRATION_ROUTING_POLICY,
   DEFAULT_ORCHESTRATION_ROUTING_POLICY_JSON,
   DEFAULT_REVIEWER_MODEL_BY_PROVIDER,
@@ -50,6 +51,7 @@ export type VoiceSttRoutingMode = 'auto' | 'this-device' | 'worker-node' | 'clou
 export type ProjectPluginTrust = 'trusted' | 'untrusted' | 'ask';
 /** CLI update policy: off | notify (default) | auto (safe updates only). */
 export type CliUpdatePolicy = 'off' | 'notify' | 'auto';
+export type ContextEvidenceMode = 'off' | 'shadow' | 'enforce';
 
 /** Application settings that are persisted to disk. */
 export interface AppSettings extends DesktopComputerUseSettings {
@@ -96,6 +98,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * Default true so steering aborts the turn without respawning.
    */
   residentClaudeSession: boolean;
+  /** Per-concrete-provider rollout mode for durable context evidence. */
+  contextEvidenceModeByProvider: Record<string, ContextEvidenceMode>;
   theme: ThemeMode;
 
   // Orchestration

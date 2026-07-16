@@ -1,8 +1,6 @@
 import type { ConversationHistoryEntry } from '../../shared/types/history.types';
 import type { InstanceProvider, OutputMessage } from '../../shared/types/instance.types';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
-const SESSION_NOT_FOUND_ID_MESSAGE = /session\s+id:\s*([^\s]+)/i;
-const UUID_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
 
 /**
@@ -52,50 +50,11 @@ function normalizeSessionId(value: string | null | undefined): string | undefine
   return trimmed || undefined;
 }
 
-function getFailedResumeSessionIds(messages: OutputMessage[]): Set<string> {
-  const failedSessionIds = new Set<string>();
-  for (const message of messages || []) {
-    if (message.type === 'error' && isSessionNotFoundText(message.content)) {
-      const failedId = message.content.match(SESSION_NOT_FOUND_ID_MESSAGE)?.[1];
-      if (failedId?.trim()) {
-        failedSessionIds.add(failedId.trim());
-      }
-    }
-
-    const originalSessionId = message.metadata?.['originalSessionId'];
-    if (isRestoreInfrastructureMessage(message) && typeof originalSessionId === 'string') {
-      const normalized = normalizeSessionId(originalSessionId);
-      if (normalized) {
-        failedSessionIds.add(normalized);
-      }
-    }
-  }
-
-  return failedSessionIds;
-}
-
 export function getNativeResumeSessionId(
-  entry: Pick<ConversationHistoryEntry, 'sessionId' | 'historyThreadId' | 'nativeResumeFailedAt'>,
-  messages: OutputMessage[],
-  provider: InstanceProvider,
+  entry: Pick<ConversationHistoryEntry, 'sessionId' | 'nativeResumeFailedAt'>,
 ): string | undefined {
   const sessionId = normalizeSessionId(entry.sessionId);
-  const historyThreadId = normalizeSessionId(entry.historyThreadId);
-
-  if (entry.nativeResumeFailedAt == null) {
-    return sessionId || historyThreadId;
-  }
-
-  if (!historyThreadId || historyThreadId === sessionId) {
-    return undefined;
-  }
-
-  if (provider !== 'claude' || !UUID_SESSION_ID.test(historyThreadId)) {
-    return undefined;
-  }
-
-  const failedSessionIds = getFailedResumeSessionIds(messages);
-  return failedSessionIds.has(historyThreadId) ? undefined : historyThreadId;
+  return entry.nativeResumeFailedAt == null ? sessionId : undefined;
 }
 
 export function getOriginalSessionIdFromRestoreNotices(messages: OutputMessage[]): string | undefined {

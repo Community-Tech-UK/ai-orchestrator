@@ -1139,6 +1139,39 @@ describe('CodexCliAdapter', () => {
         expect((adapter as unknown as { resumeCursor: unknown }).resumeCursor).toBeNull();
       });
 
+      it('retries once on a fresh exec when resume finds a dangling custom tool call', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { sessionId: string }).sessionId = 'thread-interrupted';
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+
+        const executeSpy = vi.spyOn(
+          adapter as unknown as { executePreparedMessage(): Promise<unknown> },
+          'executePreparedMessage'
+        );
+        executeSpy
+          .mockRejectedValueOnce(new Error(
+            'Custom tool call output is missing for call id: call_GrCZFAKplJVcTMQRC9S6s0iE',
+          ))
+          .mockResolvedValueOnce({
+            code: 0,
+            diagnostics: [],
+            raw: '',
+            response: {
+              id: 'resp-fresh-after-interruption',
+              role: 'assistant',
+              content: 'continued safely',
+              metadata: {},
+            },
+          });
+
+        const response = await adapter.sendMessage({ role: 'user', content: 'resume' });
+
+        expect(response.content).toBe('continued safely');
+        expect(executeSpy).toHaveBeenCalledTimes(2);
+        expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(false);
+        expect(adapter.getSessionId()).not.toBe('thread-interrupted');
+      });
+
       it('does not retry fatal spawn errors and surfaces an enriched message', async () => {
         const adapter = await spawnExecAdapter();
         const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');

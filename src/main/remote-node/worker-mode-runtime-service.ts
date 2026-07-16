@@ -199,15 +199,19 @@ export function resolveWorkerModeRuntimeCommand(
   const existsSync = options.existsSync ?? defaultExistsSync;
   const suffix = platform === 'win32' ? '.exe' : '';
   const binaryName = `aio-worker${suffix}`;
+  // Build candidate paths for the *target* platform, not the host. The function
+  // is platform-injectable (used both at runtime and in cross-platform tests),
+  // so path flavor must follow `platform` rather than the host separator.
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
   const resourcesPath = options.resourcesPath
     ?? (typeof process.resourcesPath === 'string' ? process.resourcesPath : undefined);
   const cwd = options.cwd ?? process.cwd();
 
   const candidates = [
     env['AIO_WORKER_CLI_PATH'],
-    resourcesPath ? path.join(resourcesPath, 'worker-agent-cli', binaryName) : undefined,
-    path.resolve(cwd, 'dist', 'worker-agent-sea', binaryName),
-    path.resolve(cwd, 'dist', 'worker-agent-sea', `worker-agent${suffix}`),
+    resourcesPath ? pathApi.join(resourcesPath, 'worker-agent-cli', binaryName) : undefined,
+    pathApi.resolve(cwd, 'dist', 'worker-agent-sea', binaryName),
+    pathApi.resolve(cwd, 'dist', 'worker-agent-sea', `worker-agent${suffix}`),
   ].filter((candidate): candidate is string => Boolean(candidate));
 
   const command = candidates.find((candidate) => existsSync(candidate));

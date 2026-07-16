@@ -1,5 +1,6 @@
 import type { DegradedReason } from './degraded-output-classifier';
 import type { ContextUsage } from '../../../shared/types/instance.types';
+export type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 /**
  * Configuration for CLI adapters
@@ -99,10 +100,9 @@ export interface AdapterRuntimeCapabilities {
    * compact at the model/CLI's own threshold and surface that on the output
    * stream (e.g. Claude CLI's headless `--input-format stream-json` mode
    * auto-compacts at the model's internal threshold; Codex app-server emits
-   * `thread/compacted`). When true, the orchestrator's auto-trigger
-   * (background/blocking thresholds in CompactionCoordinator) is suppressed
-   * for this adapter — only manual user-driven compaction (Compact button,
-   * IPC `instance:compact`) runs the strategy chain.
+   * `thread/compacted`). The shared safety policy still owns cumulative and
+   * occupancy decisions; this flag changes available execution paths, not
+   * policy scope.
    *
    * Default: false (orchestrator drives compaction).
    */

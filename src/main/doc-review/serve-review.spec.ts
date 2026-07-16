@@ -72,7 +72,10 @@ describe('serve-review.mjs capture server', () => {
     if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('keeps the portable capture server synchronized with the in-app asset', () => {
+  // The portable copy lives under the gitignored, externally-authored
+  // .claude/skills/ dir and is absent on fresh clones / machines without the
+  // skill installed. Only assert parity when that copy is actually present.
+  it.skipIf(!existsSync(PORTABLE_SERVER))('keeps the portable capture server synchronized with the in-app asset', () => {
     expect(readFileSync(PORTABLE_SERVER, 'utf8')).toBe(readFileSync(SERVER, 'utf8'));
   });
 
@@ -157,7 +160,9 @@ describe('serve-review.mjs capture server', () => {
     expect(started.child.exitCode).toBeNull();
   });
 
-  it('runs an on-capture executable with the durable decisions path', async () => {
+  // The hook is an extension-less shebang script chmod'd 0o755 — a POSIX
+  // executable mechanism Windows CreateProcess cannot run (and chmod is a no-op).
+  it.skipIf(process.platform === 'win32')('runs an on-capture executable with the durable decisions path', async () => {
     tempRoot = mkdtempSync(join(tmpdir(), 'serve-review-'));
     const artifactPath = join(tempRoot, 'plan.html');
     const capturedPath = join(tempRoot, 'hook-path.txt');

@@ -19,6 +19,7 @@ import type {
   ReconciliationResult,
 } from '../../shared/types/conversation-ledger.types';
 import { ProviderEventCaptureStore } from './provider-event-capture-store';
+import { ContextEvidenceLedgerStore } from './context-evidence-ledger-store';
 import type {
   ProviderEventCaptureInput,
   ProviderEventCaptureQuery,
@@ -28,12 +29,9 @@ import type {
 const logger = getLogger('ConversationLedgerStore');
 
 /**
- * Absolute backstop on how many message rows a single `getMessages` call may
- * materialize. A worker thread's V8 heap (a few GB) can be exhausted by one
- * `.all()` over a very long transcript — which aborts the whole process with an
- * OOM. No production read path should ever request an unbounded transcript, but
- * this cap guarantees a stray caller degrades to "most recent N" instead of
- * crashing the app. Tail-preserving (keeps the newest rows).
+ * Absolute backstop for rows materialized by one `getMessages` call. A stray
+ * unbounded caller degrades to a tail-preserving "most recent N" result instead
+ * of exhausting the conversation worker heap.
  */
 const ABSOLUTE_MAX_MESSAGE_ROWS = 5000;
 
@@ -56,6 +54,7 @@ interface ThreadRow {
   conflict_status: ConversationConflictStatus;
   parent_conversation_id: string | null;
   metadata_json: string;
+  deleted_at: string | null;
 }
 
 interface MessageRow {
@@ -100,9 +99,11 @@ interface CheckpointRow {
 
 export class ConversationLedgerStore {
   private readonly providerEventCaptures: ProviderEventCaptureStore;
+  readonly contextEvidence: ContextEvidenceLedgerStore;
 
   constructor(private readonly db: SqliteDriver) {
     this.providerEventCaptures = new ProviderEventCaptureStore(db);
+    this.contextEvidence = new ContextEvidenceLedgerStore(db);
   }
 
   upsertThread(input: ConversationThreadUpsertInput): ConversationThreadRecord {
@@ -164,7 +165,7 @@ export class ConversationLedgerStore {
   }
 
   findThreadById(id: string): ConversationThreadRecord | null {
-    const row = this.db.prepare('SELECT * FROM conversation_threads WHERE id = ?')
+    const row = this.db.prepare('SELECT * FROM conversation_threads WHERE id = ? AND deleted_at IS NULL')
       .get<ThreadRow>(id);
     return row ? threadRowToRecord(row) : null;
   }
@@ -175,13 +176,13 @@ export class ConversationLedgerStore {
   ): ConversationThreadRecord | null {
     const row = this.db.prepare(`
       SELECT * FROM conversation_threads
-      WHERE provider = ? AND native_thread_id = ?
+      WHERE provider = ? AND native_thread_id = ? AND deleted_at IS NULL
     `).get<ThreadRow>(provider, nativeThreadId);
     return row ? threadRowToRecord(row) : null;
   }
 
   listThreads(query: ConversationListQuery = {}): ConversationThreadRecord[] {
-    const where: string[] = [];
+    const where: string[] = ['deleted_at IS NULL'];
     const params: unknown[] = [];
     if (query.provider) {
       where.push('provider = ?');
@@ -202,13 +203,12 @@ export class ConversationLedgerStore {
     const limit = Math.max(1, Math.min(query.limit ?? 100, 500));
     const sql = `
       SELECT * FROM conversation_threads
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      WHERE ${where.join(' AND ')}
       ORDER BY updated_at DESC
       LIMIT ?
     `;
     return this.db.prepare(sql).all<ThreadRow>(...params, limit).map(threadRowToRecord);
   }
-
   upsertMessages(
     threadId: string,
     messages: ConversationMessageUpsertInput[]
@@ -219,6 +219,7 @@ export class ConversationLedgerStore {
     // that the sole caller discarded, and a latent OOM. Callers that need the
     // freshly-appended records use `appendMessagesWithThreadTouch` instead.
     const write = this.db.transaction(() => {
+      if (!this.findThreadById(threadId)) throw new Error('CONVERSATION_NOT_FOUND');
       for (const message of messages) {
         this.upsertMessage(threadId, message);
       }
@@ -227,7 +228,6 @@ export class ConversationLedgerStore {
     });
     write();
   }
-
   replaceThreadMessagesFromImport(
     threadId: string,
     messages: ConversationMessageUpsertInput[],
@@ -235,6 +235,7 @@ export class ConversationLedgerStore {
   ): ReconciliationResult {
     const before = this.countMessages(threadId);
     const write = this.db.transaction(() => {
+      if (!this.findThreadById(threadId)) throw new Error('CONVERSATION_NOT_FOUND');
       this.db.prepare('DELETE FROM conversation_messages WHERE thread_id = ?').run(threadId);
       for (const message of messages) {
         this.upsertMessage(threadId, message);

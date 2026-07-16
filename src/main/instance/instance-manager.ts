@@ -65,7 +65,7 @@ import type {
 } from './instance-types';
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
-import { StaleRuntimeReconciler } from './stale-runtime-reconciler';
+import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runtime-reconciler';
 import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
 import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
 import { getAutoTitleService } from './auto-title-service';
@@ -122,6 +122,10 @@ import {
   summarizeInputRequiredPayload,
   summarizeLogText,
 } from './instance-manager-logging';
+import {
+  drainContextEvidenceQueue,
+  getContextEvidenceCoordinator,
+} from '../context-evidence/context-evidence-coordinator';
 
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
@@ -258,6 +262,7 @@ export class InstanceManager extends EventEmitter {
     });
     this.staleReconciler = StaleRuntimeReconciler.getInstance({
       getInstances: () => this.state.getAllInstances(),
+      shouldProbeProcess: (id) => shouldProbeAdapterProcess(this.state.getAdapter(id), this.state.getInstance(id)?.processId),
       markRuntimeLost: (id) => {
         const inst = this.state.getInstance(id);
         if (!inst) return;
@@ -283,7 +288,6 @@ export class InstanceManager extends EventEmitter {
         this.updateInstanceStatus(id, 'error', { reason: 'runtime_lost' });
       },
     });
-
     // Communication manager needs dependencies
     this.communication = new InstanceCommunicationManager({
       getInstance: (id) => this.state.getInstance(id),
@@ -385,6 +389,9 @@ export class InstanceManager extends EventEmitter {
         this.emitProviderRuntimeEvent(instanceId, event, options),
       captureProviderRuntimeEvent: (instanceId, event, options) =>
         this.captureProviderRuntimeEvent(instanceId, event, options),
+      captureContextEvidenceToolResult: (input) =>
+        getContextEvidenceCoordinator().captureRuntimeToolResult(input),
+      drainContextEvidence: drainContextEvidenceQueue,
     });
 
     // Wire the opt-in regular-session provider-limit handler to park an instance,

@@ -21,6 +21,7 @@ import { CodexTomlEditor, type CodexTomlServer } from '../../mcp/adapters/codex-
  * spawn-config-builder (which pulls in electron `app`).
  */
 const STATIC_MCP_CONFIG_BASENAME = 'mcp-servers.json';
+const DEFAULT_STDIO_STARTUP_TIMEOUT_SEC = 10;
 const DEDICATED_CODEX_BRIDGE_SERVERS = new Set([
   'browser-gateway',
   'chrome-devtools',
@@ -37,10 +38,26 @@ interface JsonMcpServer {
   /** Some configs use `type`, others `transport`; both are accepted. */
   type?: string;
   transport?: string;
+  startupTimeoutSec?: number;
+  startup_timeout_sec?: number;
+  toolTimeoutSec?: number;
+  tool_timeout_sec?: number;
+}
+
+function positiveTimeout(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value > 0
+    ? value
+    : undefined;
 }
 
 function toCodexServer(server: JsonMcpServer): CodexTomlServer {
   const transport = server.transport ?? server.type;
+  const startupTimeoutSec = positiveTimeout(
+    server.startupTimeoutSec ?? server.startup_timeout_sec,
+  );
+  const toolTimeoutSec = positiveTimeout(
+    server.toolTimeoutSec ?? server.tool_timeout_sec,
+  );
   return {
     command: server.command,
     args: server.args,
@@ -50,6 +67,12 @@ function toCodexServer(server: JsonMcpServer): CodexTomlServer {
     // stdio is Codex's default and is omitted; only sse/http are written out.
     transport:
       transport === 'sse' || transport === 'http' ? transport : undefined,
+    ...(startupTimeoutSec !== undefined
+      ? { startupTimeoutSec }
+      : server.command
+        ? { startupTimeoutSec: DEFAULT_STDIO_STARTUP_TIMEOUT_SEC }
+        : {}),
+    ...(toolTimeoutSec !== undefined ? { toolTimeoutSec } : {}),
   };
 }
 

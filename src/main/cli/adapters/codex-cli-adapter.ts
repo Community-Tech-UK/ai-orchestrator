@@ -73,6 +73,11 @@ import { CodexSessionScanner } from './codex/session-scanner';
 import type { ResumeCursor } from '../../session/session-continuity';
 import { supportsCodexInlineImage } from './codex/attachments';
 import { extractCodexAppServerError, formatCodexAppServerError } from './codex/app-server-errors';
+import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
+import type {
+  ProviderContextActionHandlerResult,
+  ProviderContextExecutableAction,
+} from '../../context-evidence/provider-context-action-executor';
 import { CodexHomeManager } from './codex/codex-home-manager';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './codex/exec-diagnostics';
 import { parseCodexExecTranscript } from './codex/exec-transcript-parser';
@@ -242,6 +247,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
   /** Whether we've received a thread/tokenUsage/updated notification (accurate source). */
   private hasTokenUsageNotification = false;
   private readonly contextCostController: CodexContextCostController;
+  private contextActionProofRecorder: ((
+    action: string,
+    stage: 'requested' | 'acknowledged' | 'observed',
+  ) => void) | null = null;
   /**
    * Context window size reported by Codex via `thread/tokenUsage/updated`.
    * Authoritative when available — takes precedence over the static registry.
@@ -310,7 +319,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
       : null;
     this.contextDiagnostics = this.contextDiagnosticsSink ? new CodexContextPressureCollector({ write: (record) => this.writeContextDiagnosticRecord(record) }) : null;
     this.contextCostController = new CodexContextCostController({
-      enabled: config.contextCostGovernorEnabled === true,
       compactionTimeoutMs: CODEX_TIMEOUTS.COMPACTION_SETTLE_MS,
       interrupt: () => this.interrupt(),
       getCompactionTarget: () => this.getAppServerClient() && this.getAppServerThreadId() && this.useAppServer
@@ -319,9 +327,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
             start: () => this.getAppServerClient()!.request('thread/compact/start', { threadId: this.getAppServerThreadId()! }),
           } : null,
       emitSystem: (content, metadata) => this.emit('output', { id: generateId(), timestamp: Date.now(), type: 'system', content, metadata }),
-      recordDecision: (decision) => this.contextDiagnostics?.recordGovernorDecision(decision.action, decision.spendSinceCompaction, decision.contextWindow, decision.multiple),
       recordRecovery: (stage, reasonCode) => this.contextDiagnostics?.recordCostRecovery(stage, reasonCode),
       recordCompactionRpc: (stage) => this.contextDiagnostics?.recordCompactionRpc(stage),
+      recordActionProof: (action, stage) => {
+        this.emit('context_action_proof', { action, stage, at: Date.now() });
+        this.contextActionProofRecorder?.(action, stage);
+      },
     });
     this.sessionId = config.sessionId || `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.shouldResumeNextTurn = Boolean(this.supportsNativeResume() && config.resume && config.sessionId);
@@ -421,11 +432,36 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // This is dynamic — only true after spawn() detects app-server support.
       supportsNativeCompaction: this.useAppServer,
       // App-server also emits its own thread/compacted events and honors
-      // Codex's native auto-compact threshold, so the orchestrator should not
-      // proactively call thread/compact/start at its generic 80% threshold.
+      // Codex's native auto-compact threshold. This affects execution
+      // capability reporting only; shared pressure policy still applies.
       selfManagedAutoCompaction: this.useAppServer,
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
+    };
+  }
+
+  override getContextCapabilities(): ProviderContextCapabilities {
+    if (this.useAppServer) {
+      return {
+        toolResultControl: 'post-retention',
+        toolResultVisibility: 'full',
+        transcriptControl: 'native-compaction',
+        occupancyReporting: 'current',
+        cumulativeReporting: 'available',
+        interruptProof: 'observed',
+        compactionProof: 'observed',
+        sameThreadContinuation: true,
+      };
+    }
+    return {
+      toolResultControl: 'post-retention',
+      toolResultVisibility: 'full',
+      transcriptControl: 'none',
+      occupancyReporting: 'aggregate-only',
+      cumulativeReporting: 'available',
+      interruptProof: 'none',
+      compactionProof: 'none',
+      sameThreadContinuation: false,
     };
   }
 
@@ -536,6 +572,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
     } else {
       // Exec mode: spawn per message.
+      this.useAppServer = false;
       // The WHY is already logged by checkAppServerAvailability() at warn level.
       if (this.preparedHomeKind === 'app-server' || !this.config.env?.['CODEX_HOME']) {
         this.prepareCodexHome('exec');
@@ -670,6 +707,31 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return this.contextCostController.compactContext(CODEX_TIMEOUTS.COMPACTION_SETTLE_MS);
   }
 
+  /** Executes only the provider-specific command selected by the shared policy. */
+  async executeContextAction(
+    action: ProviderContextExecutableAction,
+  ): Promise<ProviderContextActionHandlerResult> {
+    switch (action) {
+      case 'native-compaction':
+        return { proof: await this.compactContext() ? 'observed' : 'none' };
+      case 'controlled-interrupt':
+      case 'controlled-recovery':
+        return this.contextCostController.requestRecovery(action);
+      case 'rebuild-working-set':
+      case 'same-thread-continuation':
+        return { proof: 'none' };
+    }
+  }
+
+  setContextActionProofRecorder(
+    recorder: ((
+      action: string,
+      stage: 'requested' | 'acknowledged' | 'observed',
+    ) => void) | null,
+  ): void {
+    this.contextActionProofRecorder = recorder;
+  }
+
   private handleIdleAppServerNotification(notification: AppServerNotification): void {
     if (notification.method !== 'thread/compacted') return;
     const threadId = notification.params['threadId'];
@@ -689,6 +751,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   override async terminate(graceful = true): Promise<void> {
     this.isSpawned = false;
+    this.useAppServer = false;
 
     // Close the scoped app-server runtime (or a pre-attach compatibility client).
     if (this.appServerRuntime.getClient()) {
@@ -708,6 +771,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
   /** Whether app-server mode is currently active. */
   isAppServerMode(): boolean {
     return this.useAppServer;
+  }
+
+  private handleAppServerRuntimeExit(error: Error | null): void {
+    this.useAppServer = false;
+    if (error) {
+      this.setSpawnMode('unknown', { reason: error.message, degraded: true });
+    } else {
+      this.setSpawnMode('unknown');
+    }
   }
 
   override getAdapterCapabilities(): AdapterCapabilities {
@@ -1012,6 +1084,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           (notification) => this.handleIdleAppServerNotification(notification),
           (exitError) => {
             if (!this.isSpawned) return;
+            this.handleAppServerRuntimeExit(exitError);
             const code = exitError ? 1 : 0;
             logger.warn('App-server process exited, forwarding to adapter exit event', {
               threadId: this.getAppServerThreadId(),

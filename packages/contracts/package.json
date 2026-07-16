@@ -37,6 +37,7 @@
     "./schemas/campaign":        { "types": "./src/schemas/campaign.schemas.ts",            "default": "./src/schemas/campaign.schemas.ts" },
     "./schemas/doc-review":      { "types": "./src/schemas/doc-review.schemas.ts",         "default": "./src/schemas/doc-review.schemas.ts" },
     "./schemas/rlm-maintenance": { "types": "./src/schemas/rlm-maintenance.schemas.ts",     "default": "./src/schemas/rlm-maintenance.schemas.ts" },
+    "./schemas/context-evidence": { "types": "./src/schemas/context-evidence.schemas.ts",   "default": "./src/schemas/context-evidence.schemas.ts" },
     "./channels/instance":        { "types": "./src/channels/instance.channels.ts",        "default": "./src/channels/instance.channels.ts" },
     "./channels/file":            { "types": "./src/channels/file.channels.ts",            "default": "./src/channels/file.channels.ts" },
     "./channels/session":         { "types": "./src/channels/session.channels.ts",         "default": "./src/channels/session.channels.ts" },
@@ -57,12 +58,14 @@
     "./channels/conversation-ledger": { "types": "./src/channels/conversation-ledger.channels.ts", "default": "./src/channels/conversation-ledger.channels.ts" },
     "./channels/operator":        { "types": "./src/channels/operator.channels.ts",        "default": "./src/channels/operator.channels.ts" },
     "./channels/chat":            { "types": "./src/channels/chat.channels.ts",            "default": "./src/channels/chat.channels.ts" },
+    "./channels/context-evidence": { "types": "./src/channels/context-evidence.channels.ts", "default": "./src/channels/context-evidence.channels.ts" },
     "./channels/loop":            { "types": "./src/channels/loop.channels.ts",            "default": "./src/channels/loop.channels.ts" },
     "./channels/campaign":        { "types": "./src/channels/campaign.channels.ts",        "default": "./src/channels/campaign.channels.ts" },
     "./types/instance-events":    { "types": "./src/types/instance-events.ts",             "default": "./src/types/instance-events.ts" },
     "./types/provider-runtime-events": { "types": "./src/types/provider-runtime-events.ts", "default": "./src/types/provider-runtime-events.ts" },
     "./types/transport":          { "types": "./src/types/transport.types.ts",             "default": "./src/types/transport.types.ts" },
-    "./types/browser":            { "types": "./src/types/browser.types.ts",               "default": "./src/types/browser.types.ts" }
+    "./types/browser":            { "types": "./src/types/browser.types.ts",               "default": "./src/types/browser.types.ts" },
+    "./types/context-evidence":   { "types": "./src/types/context-evidence.types.ts",       "default": "./src/types/context-evidence.types.ts" }
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

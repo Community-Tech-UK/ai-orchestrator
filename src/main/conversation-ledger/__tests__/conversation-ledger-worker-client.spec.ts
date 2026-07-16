@@ -107,4 +107,23 @@ describe('ConversationLedgerWorkerClient', () => {
     respond(worker, (msg as { id: number }).id);
     await expect(promise).resolves.toBeUndefined();
   });
+
+  it('round-trips context-evidence operations through the closed worker protocol', async () => {
+    const input = {
+      id: 'evidence-1', conversationId: 'thread-1', provider: 'codex',
+      toolName: 'placeholder-tool', sourceKind: 'other' as const, mimeType: 'text/plain',
+      sensitivity: 'normal' as const, provenanceTrust: 'runtime-authenticated' as const,
+      captureMode: 'post-retention' as const, captureCompleteness: 'complete' as const,
+      captureKey: 'turn-1:tool-1', createdAt: 1,
+    };
+    const promise = client.stageEvidence(input);
+    const msg = lastPosted(worker);
+    expect(msg).toMatchObject({
+      type: 'store-call',
+      method: 'stageEvidence',
+      args: [expect.objectContaining({ conversationId: 'thread-1', captureKey: 'turn-1:tool-1' })],
+    });
+    respond(worker, (msg as { id: number }).id, { ...input, status: 'staging' });
+    await expect(promise).resolves.toMatchObject({ id: 'evidence-1', status: 'staging' });
+  });
 });

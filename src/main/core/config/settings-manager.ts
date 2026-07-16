@@ -18,6 +18,11 @@ import {
   type SettingsWriteContext,
 } from './settings-dirty-merge';
 import { migrateFromLegacyApp, runSettingsMigrations } from './settings-migrations';
+import {
+  normalizeContextEvidenceModeByProvider,
+  type ContextEvidenceProviderRegistry,
+} from '../../context-evidence/context-evidence-settings';
+import { providerAdapterRegistry } from '../../providers/provider-adapter-registry';
 
 export type { SettingsConflict, SettingsWriteContext } from './settings-dirty-merge';
 const logger = getLogger('SettingsManager');
@@ -63,6 +68,7 @@ interface SettingsCache {
 
 export class SettingsManager extends EventEmitter {
   private store: Store<AppSettings>;
+  private readonly contextEvidenceProviderRegistry: ContextEvidenceProviderRegistry;
   private settingsCache: SettingsCache = { merged: null, mergedAt: 0 };
 
   /**
@@ -95,6 +101,12 @@ export class SettingsManager extends EventEmitter {
   private normalizeSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): AppSettings[K] {
     if (key === 'defaultCli' && value === 'openai') {
       return 'codex' as AppSettings[K];
+    }
+    if (key === 'contextEvidenceModeByProvider') {
+      return normalizeContextEvidenceModeByProvider(
+        value,
+        this.contextEvidenceProviderRegistry,
+      ) as AppSettings[K];
     }
     return value;
   }
@@ -169,8 +181,11 @@ export class SettingsManager extends EventEmitter {
     });
   }
 
-  constructor() {
+  constructor(
+    contextEvidenceProviderRegistry: ContextEvidenceProviderRegistry = providerAdapterRegistry,
+  ) {
     super();
+    this.contextEvidenceProviderRegistry = contextEvidenceProviderRegistry;
 
     // Attempt migration from legacy app data before initializing store
     migrateFromLegacyApp();
@@ -191,6 +206,17 @@ export class SettingsManager extends EventEmitter {
       persistRawSetting: (key, value) => this.persistRawSetting(key, value),
     });
 
+    const persistedEvidenceModes = this.store.get('contextEvidenceModeByProvider');
+    if (persistedEvidenceModes !== undefined) {
+      const normalizedEvidenceModes = normalizeContextEvidenceModeByProvider(
+        persistedEvidenceModes,
+        this.contextEvidenceProviderRegistry,
+      );
+      if (!sameRecord(persistedEvidenceModes, normalizedEvidenceModes)) {
+        this.persistSetting('contextEvidenceModeByProvider', normalizedEvidenceModes);
+      }
+    }
+
     // Baseline snapshot for field-level dirty diffing and conflict detection.
     // Captured after migrations so migration writes stay wholesale.
     this.lastKnown = this.store.store;
@@ -200,14 +226,23 @@ export class SettingsManager extends EventEmitter {
    * Get all settings
    */
   getAll(): AppSettings {
-    return this.store.store;
+    const settings = this.store.store;
+    const contextEvidenceModeByProvider = normalizeContextEvidenceModeByProvider(
+      settings.contextEvidenceModeByProvider,
+      this.contextEvidenceProviderRegistry,
+    );
+    if (sameRecord(settings.contextEvidenceModeByProvider, contextEvidenceModeByProvider)) {
+      return settings;
+    }
+    return { ...settings, contextEvidenceModeByProvider };
   }
 
   /**
    * Get a single setting value
    */
   get<K extends keyof AppSettings>(key: K): AppSettings[K] {
-    return this.store.get(key);
+    const value = this.store.get(key);
+    return this.normalizeSetting(key, value);
   }
 
   /**
@@ -259,7 +294,7 @@ export class SettingsManager extends EventEmitter {
     if (this.settingsCache.merged !== null) {
       return this.settingsCache.merged;
     }
-    const merged = this.store.store;
+    const merged = this.getAll();
     this.settingsCache.merged = merged;
     this.settingsCache.mergedAt = Date.now();
     return merged;
@@ -337,4 +372,16 @@ export function getSettingsManager(): SettingsManager {
     settingsManager = new SettingsManager();
   }
   return settingsManager;
+}
+
+function sameRecord(left: unknown, right: Record<string, unknown>): boolean {
+  if (!left || typeof left !== 'object' || Array.isArray(left)) {
+    return false;
+  }
+  const leftEntries = Object.entries(left as Record<string, unknown>);
+  const rightEntries = Object.entries(right);
+  return leftEntries.length === rightEntries.length
+    && rightEntries.every(([key, value]) =>
+      Object.prototype.hasOwnProperty.call(left, key)
+      && (left as Record<string, unknown>)[key] === value);
 }

@@ -83,7 +83,9 @@ const DEFAULT_CLIENT_INFO: ClientInfo = {
 };
 
 const DEFAULT_CAPABILITIES: InitializeCapabilities = {
-  experimentalApi: false,
+  // Required by thread/resume.excludeTurns, which keeps resume responses
+  // metadata-only instead of rehydrating large or interrupted turn history.
+  experimentalApi: true,
   optOutNotificationMethods: DEFAULT_OPT_OUT_NOTIFICATIONS,
 };
 

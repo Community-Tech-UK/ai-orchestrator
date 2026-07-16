@@ -58,6 +58,90 @@ import { SettingsManager, type SettingsConflict, type SettingsWriteContext } fro
 import { DEFAULT_REVIEWER_MODEL_BY_PROVIDER } from '../../../shared/types/settings.types';
 import { OPENAI_MODELS } from '../../../shared/types/provider.types';
 
+function evidenceRegistry(providers: string[], pluginProviders: string[] = []) {
+  return {
+    list: () => providers.map((provider) => ({ provider })),
+    listPluginProviderAdapters: () => pluginProviders.map((provider) => ({
+      descriptor: { provider },
+    })),
+  };
+}
+
+describe('context evidence provider mode production normalization', () => {
+  beforeEach(() => {
+    for (const key of Object.keys(mocks.store)) delete mocks.store[key];
+    mocks.setCalls.length = 0;
+    mocks.storeSet.mockClear();
+    mocks.withLockSync.mockClear();
+    mocks.withLockSync.mockImplementation(<T>(_lockPath: string, fn: () => T) => fn());
+  });
+
+  it('normalizes persisted modes during settings initialization', () => {
+    mocks.store['contextEvidenceModeByProvider'] = {
+      auto: 'enforce',
+      unknown: 'enforce',
+      openai: 'shadow',
+      claude: 'enforce',
+    };
+
+    const manager = new SettingsManager(evidenceRegistry(
+      ['claude', 'codex', 'cursor'],
+      ['plugin:local-test'],
+    ));
+
+    expect(manager.get('contextEvidenceModeByProvider')).toEqual({
+      claude: 'enforce',
+      codex: 'shadow',
+      cursor: 'off',
+      'plugin:local-test': 'off',
+    });
+    expect(mocks.store['contextEvidenceModeByProvider']).toEqual({
+      claude: 'enforce',
+      codex: 'shadow',
+      cursor: 'off',
+      'plugin:local-test': 'off',
+    });
+  });
+
+  it('normalizes single and bulk settings updates before persistence', () => {
+    const manager = new SettingsManager(evidenceRegistry(['claude', 'codex', 'cursor']));
+
+    manager.set('contextEvidenceModeByProvider', {
+      auto: 'enforce',
+      openai: 'shadow',
+      unknown: 'enforce',
+    });
+    expect(manager.get('contextEvidenceModeByProvider')).toEqual({
+      claude: 'off',
+      codex: 'shadow',
+      cursor: 'off',
+    });
+
+    manager.update({
+      contextEvidenceModeByProvider: { codex: 'enforce', openai: 'shadow' },
+    });
+    expect(manager.get('contextEvidenceModeByProvider')).toEqual({
+      claude: 'off',
+      codex: 'enforce',
+      cursor: 'off',
+    });
+  });
+
+  it('projects providers registered after initialization as default-off at runtime', () => {
+    const providers = ['claude', 'codex'];
+    const plugins: string[] = [];
+    const manager = new SettingsManager(evidenceRegistry(providers, plugins));
+
+    plugins.push('plugin:late-provider');
+
+    expect(manager.getAll().contextEvidenceModeByProvider).toEqual({
+      claude: 'off',
+      codex: 'off',
+      'plugin:late-provider': 'off',
+    });
+  });
+});
+
 describe('reviewer model defaults backfill', () => {
   beforeEach(() => {
     for (const key of Object.keys(mocks.store)) delete mocks.store[key];

@@ -60,6 +60,21 @@ describe('AcpCliAdapter', () => {
     expect(adapter.getRuntimeCapabilities().supportsResume).toBe(false);
   });
 
+  it('advertises a resident process without enabling live steer semantics', () => {
+    const proc = new FakeAcpProcess();
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      args: [],
+      requestTimeoutMs: 100,
+    });
+
+    expect(adapter.getAdapterCapabilities()).toEqual({
+      residentSession: true,
+      liveInterrupt: false,
+      liveSteer: false,
+    });
+  });
+
   it('initializes the ACP transport and opens a new session', async () => {
     const proc = createInitializedAgentHarness();
 

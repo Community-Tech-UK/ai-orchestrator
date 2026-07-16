@@ -63,6 +63,8 @@ export interface AggregatedReview {
   /** Status of the additional local pass, including skips and failures. */
   localReviewer?: ReviewParticipantStatus;
   hasDisagreement: boolean;
+  /** Dispatch time used to order overlapping reviews across renderer reloads. */
+  reviewStartedAt?: number;
   timestamp: number;
 }
 

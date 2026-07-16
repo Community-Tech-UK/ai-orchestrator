@@ -247,6 +247,52 @@ describe('CrossModelReviewService', () => {
     expect(service.getBufferSize('inst-2')).toBe(1);
   });
 
+  it('replaces streaming snapshots for the same message instead of token-echoing prefixes', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const instance = {
+      displayName: 'Review streaming output',
+      workingDirectory: process.cwd(),
+      outputBuffer: [
+        { id: 'user-old', timestamp: 1, type: 'user', content: 'Old unrelated task' },
+        { id: 'user-current', timestamp: 2, type: 'user', content: 'Review the current implementation' },
+      ],
+      executionLocation: { type: 'local' },
+    };
+    service.setInstanceManager(makeInstanceManager(instance) as never);
+
+    let reviewerPrompt = '';
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+      sendMessage: async ({ content }: { content: string }) => {
+        reviewerPrompt = content;
+        return {
+          content: JSON.stringify({
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+            overall_verdict: 'APPROVE',
+            summary: 'approved',
+          }),
+        };
+      },
+      terminate: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    const firstSnapshot = REVIEWABLE_CONTENT.slice(0, 52);
+    service.bufferMessage('inst-stream', 'assistant', firstSnapshot, 'codex', '', 'assistant-1', firstSnapshot);
+    service.bufferMessage('inst-stream', 'assistant', REVIEWABLE_CONTENT.slice(52), 'codex', '', 'assistant-1', REVIEWABLE_CONTENT);
+    expect(service.getBufferSize('inst-stream')).toBe(1);
+
+    const result = new Promise((resolve) => service.once('review:result', resolve));
+    await service.onInstanceIdle('inst-stream');
+    await result;
+
+    expect(reviewerPrompt).toContain(REVIEWABLE_CONTENT);
+    expect(reviewerPrompt).toContain('Review the current implementation');
+    expect(reviewerPrompt).not.toContain('Old unrelated task');
+    expect(reviewerPrompt.indexOf(firstSnapshot)).toBe(reviewerPrompt.lastIndexOf(firstSnapshot));
+  });
+
   it('ignores non-assistant messages', () => {
     const service = CrossModelReviewService.getInstance();
     service.bufferMessage('inst-1', 'user', 'Hello');
@@ -1002,10 +1048,56 @@ describe('CrossModelReviewService', () => {
     await service.executeReviews(makeRequest({
       id: 'review-2',
       instanceId: 'inst-2',
+      timestamp: 123,
     }), ['gemini'], 30);
 
-    expect(allUnavailable).toHaveBeenCalledWith({ instanceId: 'inst-2' });
+    expect(allUnavailable).toHaveBeenCalledWith({
+      instanceId: 'inst-2',
+      reviewId: 'review-2',
+      reviewStartedAt: 123,
+    });
     expect(result).not.toHaveBeenCalled();
+  });
+
+  it('discards a completed review when a newer user turn supersedes its source turn', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const instance = {
+      outputBuffer: [
+        { id: 'user-1', timestamp: 1, type: 'user', content: 'Original task' },
+      ],
+    };
+    service.setInstanceManager(makeInstanceManager(instance) as never);
+    vi.spyOn(service, 'collectSuccessfulReviews').mockImplementation(async () => {
+      instance.outputBuffer.push({
+        id: 'user-2',
+        timestamp: 2,
+        type: 'user',
+        content: 'Newer task',
+      });
+      return [makeReview()];
+    });
+    const result = vi.fn();
+    const allUnavailable = vi.fn();
+    const discarded = vi.fn();
+    service.on('review:result', result);
+    service.on('review:all-unavailable', allUnavailable);
+    service.on('review:discarded', discarded);
+
+    await service.executeReviews(makeRequest({
+      sourceUserMessageId: 'user-1',
+      sourceUserMessageTimestamp: 1,
+      timestamp: 123,
+    }), ['gemini'], 30);
+
+    expect(result).not.toHaveBeenCalled();
+    expect(allUnavailable).not.toHaveBeenCalled();
+    expect(discarded).toHaveBeenCalledWith({
+      instanceId: 'inst-1',
+      reviewId: 'review-1',
+      reviewStartedAt: 123,
+      reason: 'superseded',
+    });
+    expect(service.getReviewHistory('inst-1')).toEqual([]);
   });
 
   it('runs a local concern when zero remote reviewers are available without giving it blocking authority', async () => {
@@ -1039,7 +1131,7 @@ describe('CrossModelReviewService', () => {
       service.once('review:result', resolve as never);
     });
 
-    await service.executeReviews(makeRequest(), [], 30);
+    await service.executeReviews(makeRequest({ timestamp: 123 }), [], 30);
 
     await expect(result).resolves.toMatchObject({
       reviews: [{ reviewerId: 'local:qwen', source: 'local' }],
@@ -1088,9 +1180,13 @@ describe('CrossModelReviewService', () => {
     const result = vi.fn();
     service.on('review:result', result);
 
-    await service.executeReviews(makeRequest(), [], 30);
+    await service.executeReviews(makeRequest({ timestamp: 123 }), [], 30);
 
-    expect(allUnavailable).toHaveBeenCalledWith({ instanceId: 'inst-1' });
+    expect(allUnavailable).toHaveBeenCalledWith({
+      instanceId: 'inst-1',
+      reviewId: 'review-1',
+      reviewStartedAt: 123,
+    });
     expect(result).not.toHaveBeenCalled();
   });
 
