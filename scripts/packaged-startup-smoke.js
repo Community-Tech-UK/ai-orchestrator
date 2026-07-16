@@ -59,6 +59,20 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function removeTempDirectory(directoryPath, rmSync = fs.rmSync) {
+  try {
+    rmSync(directoryPath, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 200,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function runPackagedStartupSmoke(options = {}) {
   const platform = options.platform ?? process.platform;
   const root = options.root ?? ROOT;
@@ -145,7 +159,9 @@ async function runPackagedStartupSmoke(options = {}) {
     console.log(`Packaged startup smoke passed (${platform})`);
   } finally {
     if (!exitResult) child.kill();
-    fs.rmSync(userDataPath, { recursive: true, force: true });
+    if (!removeTempDirectory(userDataPath)) {
+      console.warn('Packaged startup smoke could not remove its temporary profile');
+    }
   }
 }
 
@@ -165,5 +181,6 @@ module.exports = {
   classifyStartupLog,
   getLaunchCommand,
   getPackagedExecutableCandidates,
+  removeTempDirectory,
   runPackagedStartupSmoke,
 };
