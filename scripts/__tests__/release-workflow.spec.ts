@@ -71,9 +71,15 @@ describe("Harness release workflow", () => {
 
   it("launches the unpacked macOS package in CI", () => {
     const steps = ciWorkflow.jobs["macos-smoke"]?.steps ?? [];
-    const packageIndex = steps.findIndex((step) => step.name === "Package unsigned macOS app");
+    const buildIndex = steps.findIndex((step) => step.name === "Build application");
+    const packageIndex = steps.findIndex(
+      (step) => step.name === "Electron packaging smoke (--dir, no signing)",
+    );
     const smokeIndex = steps.findIndex((step) => step.name === "Launch packaged app smoke");
 
+    expect(buildIndex).toBeGreaterThanOrEqual(0);
+    expect(steps[buildIndex]?.run).toBe("npm run build");
+    expect(packageIndex).toBeGreaterThan(buildIndex);
     expect(smokeIndex).toBeGreaterThan(packageIndex);
     expect(steps[smokeIndex]?.run).toBe("node scripts/packaged-startup-smoke.js");
   });

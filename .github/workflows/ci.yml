@@ -162,8 +162,8 @@ jobs:
       - name: Rebuild native modules
         run: npm run rebuild:native
 
-      - name: Build main process
-        run: npm run build:main
+      - name: Build application
+        run: npm run build
 
       - name: Verify native ABI
         run: node scripts/verify-native-abi.js
