@@ -58,6 +58,7 @@
     "verify:boundaries": "node scripts/check-import-boundaries.js",
     "generate:architecture": "node scripts/generate-architecture-inventory.js --write",
     "smoke:electron": "node scripts/electron-smoke-check.js",
+    "smoke:packaged": "node scripts/packaged-startup-smoke.js",
     "smoke:provider-events": "tsx scripts/provider-event-stress-smoke.ts",
     "soak:long-loop": "tsx scripts/soak-long-loop.ts",
     "generate:aliases": "node scripts/generate-register-aliases.js",

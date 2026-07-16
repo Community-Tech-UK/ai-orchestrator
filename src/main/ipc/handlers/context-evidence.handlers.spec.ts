@@ -33,6 +33,26 @@ describe('registerContextEvidenceHandlers', () => {
     h.cleanup();
   });
 
+  it('keeps validated unavailable handlers registered when the runtime cannot start', async () => {
+    const { registerContextEvidenceHandlers } = await import('./context-evidence.handlers');
+    const cleanup = registerContextEvidenceHandlers({
+      instanceManager: Object.assign(new EventEmitter(), {
+        getInstance: vi.fn(),
+        getAllInstances: vi.fn(() => []),
+      }) as never,
+      windowManager: { sendToRenderer: vi.fn() } as never,
+    });
+
+    expect((await invoke(IPC_CHANNELS.CONTEXT_EVIDENCE_LIST, {})).error?.code)
+      .toBe('VALIDATION_FAILED');
+    expect((await invoke(IPC_CHANNELS.CONTEXT_EVIDENCE_LIST, chatScope())).error)
+      .toMatchObject({
+        code: 'CONTEXT_EVIDENCE_RUNTIME_UNAVAILABLE',
+        message: 'Context evidence is unavailable for this session.',
+      });
+    cleanup();
+  });
+
   it('rejects missing ownership, renderer provider IDs, and cross-conversation claims', async () => {
     const h = await harness();
 

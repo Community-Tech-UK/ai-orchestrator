@@ -14,6 +14,9 @@ const workflow = load(
   permissions: Record<string, string>;
   jobs: Record<string, WorkflowJob>;
 };
+const ciWorkflow = load(
+  readFileSync(".github/workflows/ci.yml", "utf8"),
+) as { jobs: Record<string, WorkflowJob> };
 
 describe("Harness release workflow", () => {
   it("grants write permission only to the final publish job", () => {
@@ -53,5 +56,25 @@ describe("Harness release workflow", () => {
       "already exists; published releases are immutable",
     );
     expect(workflowText).not.toContain("ELECTRON_MIRROR");
+  });
+
+  it("launches every unpacked package before collecting publishable assets", () => {
+    const steps = workflow.jobs["build"]?.steps ?? [];
+    const packageIndex = steps.findIndex((step) => step.name === "Package signed update artifacts");
+    const smokeIndex = steps.findIndex((step) => step.name === "Launch packaged app smoke");
+    const collectIndex = steps.findIndex((step) => step.name === "Collect release assets");
+
+    expect(smokeIndex).toBeGreaterThan(packageIndex);
+    expect(smokeIndex).toBeLessThan(collectIndex);
+    expect(steps[smokeIndex]?.run).toBe("node scripts/packaged-startup-smoke.js");
+  });
+
+  it("launches the unpacked macOS package in CI", () => {
+    const steps = ciWorkflow.jobs["macos-smoke"]?.steps ?? [];
+    const packageIndex = steps.findIndex((step) => step.name === "Package unsigned macOS app");
+    const smokeIndex = steps.findIndex((step) => step.name === "Launch packaged app smoke");
+
+    expect(smokeIndex).toBeGreaterThan(packageIndex);
+    expect(steps[smokeIndex]?.run).toBe("node scripts/packaged-startup-smoke.js");
   });
 });

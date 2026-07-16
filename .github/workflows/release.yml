@@ -135,6 +135,13 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: npm run electron:build -- ${{ matrix.builder_args }} ${{ matrix.signing_args }} --publish never
 
+      - name: Install Linux smoke display
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install --yes xvfb
+
+      - name: Launch packaged app smoke
+        run: node scripts/packaged-startup-smoke.js
+
       - name: Verify macOS signatures and notarization
         if: matrix.platform == 'mac'
         shell: bash

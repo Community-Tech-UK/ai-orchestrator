@@ -74,8 +74,17 @@ export function registerContextEvidenceHandlers(
   dependencies: ContextEvidenceHandlerDependencies,
 ): () => void {
   activeCleanup?.();
-  const coordinator = dependencies.coordinator ?? getContextEvidenceCoordinator();
-  const ledger = dependencies.ledger ?? getConversationLedgerService();
+  let coordinator: ContextEvidenceCoordinator;
+  let ledger: Pick<ConversationLedgerService, 'getContextEvidenceConversationMetrics'>;
+  try {
+    coordinator = dependencies.coordinator ?? getContextEvidenceCoordinator();
+    ledger = dependencies.ledger ?? getConversationLedgerService();
+  } catch {
+    logger.warn('Context-evidence IPC registered in unavailable mode', {
+      failureCode: 'runtime-unavailable',
+    });
+    return registerUnavailableHandlers();
+  }
   const getChats = dependencies.getChats
     ?? (() => getChatService({ instanceManager: dependencies.instanceManager as InstanceManager })
       .listChats({ includeArchived: true }));
@@ -269,6 +278,44 @@ export function registerContextEvidenceHandlers(
     if (activeCleanup === cleanup) activeCleanup = null;
     unsubscribeCoordinator();
     dependencies.instanceManager.off('instance:state-changed', onInstanceStateChanged);
+    for (const channel of requestChannels()) {
+      if ('removeHandler' in ipcMain && typeof ipcMain.removeHandler === 'function') {
+        ipcMain.removeHandler(channel);
+      }
+    }
+  };
+  activeCleanup = cleanup;
+  registerCleanup(cleanup);
+  return cleanup;
+}
+
+function registerUnavailableHandlers(): () => void {
+  const unavailable = async (): Promise<IpcResponse<never>> => ({
+    success: false,
+    error: {
+      code: 'CONTEXT_EVIDENCE_RUNTIME_UNAVAILABLE',
+      message: 'Context evidence is unavailable for this session.',
+      timestamp: Date.now(),
+    },
+  });
+  const registrations = [
+    [IPC_CHANNELS.CONTEXT_EVIDENCE_LIST, ContextEvidenceListRequestSchema],
+    [IPC_CHANNELS.CONTEXT_EVIDENCE_GET_CARD, ContextEvidenceGetCardRequestSchema],
+    [IPC_CHANNELS.CONTEXT_EVIDENCE_SEARCH, ContextEvidenceSearchRequestSchema],
+    [IPC_CHANNELS.CONTEXT_EVIDENCE_READ, ContextEvidenceReadRequestSchema],
+    [IPC_CHANNELS.CONTEXT_EVIDENCE_COMPARE, ContextEvidenceCompareRequestSchema],
+    [IPC_CHANNELS.CONTEXT_EVIDENCE_VERIFY, ContextEvidenceVerifyRequestSchema],
+    [IPC_CHANNELS.CONTEXT_EVIDENCE_GET_METRICS, ContextEvidenceGetMetricsRequestSchema],
+  ] as const;
+  for (const [channel, schema] of registrations) {
+    ipcMain.handle(channel, validatedHandler(channel, schema, unavailable));
+  }
+
+  let cleanedUp = false;
+  const cleanup = (): void => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (activeCleanup === cleanup) activeCleanup = null;
     for (const channel of requestChannels()) {
       if ('removeHandler' in ipcMain && typeof ipcMain.removeHandler === 'function') {
         ipcMain.removeHandler(channel);

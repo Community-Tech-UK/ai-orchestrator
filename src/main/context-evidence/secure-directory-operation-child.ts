@@ -1,4 +1,5 @@
 import { lstatSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import { exitOneShotProcess } from './one-shot-process-exit';
 
 const EXIT_INVALID_REQUEST = 70;
 const EXIT_IDENTITY_MISMATCH = 71;
@@ -47,4 +48,4 @@ function run(): number {
   }
 }
 
-process.exitCode = run();
+exitOneShotProcess(run);

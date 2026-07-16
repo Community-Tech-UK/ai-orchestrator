@@ -30,6 +30,7 @@ import { runCleanupFunctions } from './util/cleanup-registry';
 import { providerAdapterRegistry } from './providers/provider-adapter-registry';
 import { registerBuiltInProviders } from './providers/register-built-in-providers';
 import { createInitializationSteps } from './app/initialization-steps';
+import { resolveHarnessUserDataPath } from './app/user-data-path';
 import { shutdownTracer } from './observability/otel-setup';
 import { shutdownMetrics } from './observability/otel-metrics';
 import { flushLifecycleTraces } from './observability/lifecycle-trace';
@@ -53,11 +54,13 @@ registerBuiltInProviders(providerAdapterRegistry);
 // The rebranded product's durable on-disk identity is lowercase "harness".
 // Existing AI Orchestrator data is migrated into that directory out-of-band;
 // startup should then read the new canonical location directly.
+app.setPath('userData', resolveHarnessUserDataPath({
+  appDataPath: app.getPath('appData'),
+  isPackaged: app.isPackaged,
+  env: process.env,
+}));
 if (!app.isPackaged) {
   app.setName('Harness (Dev)');
-  app.setPath('userData', path.join(app.getPath('appData'), 'harness-dev'));
-} else {
-  app.setPath('userData', path.join(app.getPath('appData'), 'harness'));
 }
 
 const logger = getLogger('App');
@@ -154,6 +157,19 @@ class HarnessApp {
     await this.windowManager.createMainWindow();
 
     logger.info('Harness initialized');
+    if (
+      app.isPackaged
+      && process.env['AIO_STARTUP_SMOKE'] === '1'
+      && process.env['AIO_STARTUP_SMOKE_USER_DATA_PATH']
+    ) {
+      fs.writeFileSync(
+        path.join(process.env['AIO_STARTUP_SMOKE_USER_DATA_PATH'], 'startup-smoke-ready'),
+        'Harness initialized\n',
+        'utf8',
+      );
+      logger.info('Packaged startup smoke completed');
+      setImmediate(() => app.quit());
+    }
   }
 
   /**

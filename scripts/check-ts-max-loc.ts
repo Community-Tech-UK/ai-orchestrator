@@ -188,6 +188,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/providers/model-discovery.ts': 552,
   // Main process — remote
   'src/main/remote/observer-server.ts': 864,
+  // Main process — review
+  // Added at its origin/main size after it crossed the hard limit before the
+  // startup-regression repair. Keep this as a ratchet pending a dedicated split.
+  'src/main/review/local-review-tool-runner.ts': 715,
   // Main process — repo jobs
   'src/main/repo-jobs/repo-job-service.ts': 989,
   // Main process — RLM

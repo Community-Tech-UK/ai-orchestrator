@@ -172,3 +172,6 @@ jobs:
         run: npx electron-builder --mac --dir --config electron-builder.json
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Launch packaged app smoke
+        run: node scripts/packaged-startup-smoke.js
