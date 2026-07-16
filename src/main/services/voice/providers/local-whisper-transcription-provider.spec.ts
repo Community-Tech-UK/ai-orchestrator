@@ -184,7 +184,9 @@ describe('LocalWhisperTranscriptionProvider', () => {
 
     provider.configure(settings({ voiceThisDeviceSttEndpointUrl: 'http://127.0.0.1:9002' }));
     await provider.refreshHealth();
-    releaseOldModels?.(jsonResponse({ data: [{ id: 'stale-whisper' }] }));
+    (releaseOldModels as ((response: Response) => void) | null)?.(
+      jsonResponse({ data: [{ id: 'stale-whisper' }] }),
+    );
     await staleRefresh;
 
     await expect(provider.createSession({ model: 'gpt-4o-transcribe' }))
@@ -225,7 +227,12 @@ describe('LocalWhisperTranscriptionProvider', () => {
     const sendServiceRpc = vi.fn(async () => ({ text: 'hello from the worker gpu' }));
     __setLocalWhisperRemoteHooksForTesting({
       connectedWorkerNodes: () => [sttWorkerNode()],
-      sendServiceRpc,
+      sendServiceRpc: sendServiceRpc as unknown as <T>(
+        nodeId: string,
+        method: string,
+        params: unknown,
+        timeoutMs: number,
+      ) => Promise<T>,
     });
     const provider = new LocalWhisperTranscriptionProvider();
     provider.configure(settings({
@@ -325,11 +332,11 @@ describe('LocalWhisperTranscriptionProvider', () => {
     const execFile = vi.fn(async (
       file: string,
       args: string[],
-      opts: { timeoutMs?: number; shell?: boolean }
+      opts?: { timeoutMs?: number; shell?: boolean }
     ) => {
       expect(file).toBe('whisper-cli');
-      expect(opts.timeoutMs).toBe(30_000);
-      expect(opts.shell).toBeUndefined();
+      expect(opts?.timeoutMs).toBe(30_000);
+      expect(opts?.shell).toBeUndefined();
       const fileArgIndex = args.indexOf('-f');
       expect(fileArgIndex).toBeGreaterThanOrEqual(0);
       observedWavPath = args[fileArgIndex + 1] ?? '';

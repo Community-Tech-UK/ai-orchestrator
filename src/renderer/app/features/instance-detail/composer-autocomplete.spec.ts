@@ -121,7 +121,7 @@ describe('ComposerAutocompleteComponent', () => {
     }));
 
     const items = Array.from(
-      fixture.nativeElement.querySelectorAll<HTMLButtonElement>('.composer-completion-item'),
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.composer-completion-item'),
     );
     expect(items.map(item => item.textContent)).toEqual([
       expect.stringContaining('src/main/input-panel.component.ts'),

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { buildCompactionSummaryMessage, registerCompactionSummaryRenderer } from '../compaction-summary-renderer';
 import { buildInterruptBoundaryMessage } from '../interrupt-boundary-renderer';
+import type { SessionContinuityManager } from '../../session/session-continuity';
 
 describe('display marker renderers', () => {
   it('builds structured interrupt boundary messages', () => {
@@ -25,7 +26,10 @@ describe('display marker renderers', () => {
   it('builds and forwards compaction summary messages', () => {
     const continuity = new EventEmitter();
     const emitOutputMessage = vi.fn();
-    registerCompactionSummaryRenderer(continuity, { emitOutputMessage });
+    registerCompactionSummaryRenderer(
+      continuity as unknown as Pick<SessionContinuityManager, 'on' | 'off'>,
+      { emitOutputMessage },
+    );
 
     continuity.emit('session:compaction-display', {
       instanceId: 'inst-1',

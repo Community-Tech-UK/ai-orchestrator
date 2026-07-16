@@ -4,6 +4,7 @@ import {
   createReleaseToolDefinitions,
   STORE_ASSETS_INPUT_SCHEMA,
 } from './orchestrator-release-tools';
+import type { AscReleaseApiClient } from '../release/mobile-release-api-executor';
 
 describe('orchestrator release MCP tools', () => {
   it('accepts ASC localization and screenshot display mappings in release tool schemas', () => {
@@ -205,14 +206,14 @@ describe('orchestrator release MCP tools', () => {
 
   it('executes ASC finalization from an iOS release plan without returning the private key', async () => {
     const requests: string[] = [];
-    const createAscClient = vi.fn(() => ({
-      request: vi.fn(async (path: string, options?: { method?: string }) => {
+    const createAscClient = vi.fn((): AscReleaseApiClient => ({
+      request: (async (path: string, options?: { method?: string }) => {
         requests.push(`${options?.method ?? 'GET'} ${path}`);
         if (path === '/v1/builds/build-1') {
           return { data: { attributes: { processingState: 'VALID' } } };
         }
         return {};
-      }),
+      }) as AscReleaseApiClient['request'],
     }));
     const tools = createReleaseToolDefinitions({
       readTextFile: async () => 'ASC_PRIVATE_KEY_SHOULD_NOT_BE_RETURNED',

@@ -17,8 +17,8 @@ describe('Cursor model tables', () => {
     expect(DEFAULT_MODELS.cursor).toBe(CURSOR_MODELS.AUTO);
   });
   it('PROVIDER_MODEL_LIST.cursor contains the Auto fallback entry', () => {
-    expect(Array.isArray(PROVIDER_MODEL_LIST.cursor)).toBe(true);
-    expect(PROVIDER_MODEL_LIST.cursor).toEqual(expect.arrayContaining([
+    expect(Array.isArray(PROVIDER_MODEL_LIST['cursor'])).toBe(true);
+    expect(PROVIDER_MODEL_LIST['cursor']).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: CURSOR_MODELS.AUTO }),
     ]));
   });

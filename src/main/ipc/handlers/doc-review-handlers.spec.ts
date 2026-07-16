@@ -7,7 +7,7 @@ import type { DocReviewSession } from '@contracts/schemas/doc-review';
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
 const handlers = new Map<string, IpcHandler>();
 
-const openPath = vi.fn(async () => '');
+const openPath = vi.fn(async (_path: string) => '');
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -45,6 +45,7 @@ const session: DocReviewSession = {
   status: 'pending',
   decisions: [],
   createdAt: 1,
+  deliveryAttempts: [],
 };
 
 async function invoke(channel: string, payload?: unknown): Promise<IpcResponse> {

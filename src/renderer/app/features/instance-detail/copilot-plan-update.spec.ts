@@ -24,8 +24,8 @@ function makePlanMessage(
 describe('copilot plan updates', () => {
   it('detects ACP plan messages from system metadata', () => {
     expect(isCopilotPlanUpdateMessage(makePlanMessage([]))).toBe(true);
-    expect(isCopilotPlanUpdateMessage({ type: 'assistant', metadata: { sessionUpdate: 'plan' } })).toBe(false);
-    expect(isCopilotPlanUpdateMessage({ type: 'system', metadata: { sessionUpdate: 'tool_call' } })).toBe(false);
+    expect(isCopilotPlanUpdateMessage({ type: 'assistant', content: '', metadata: { sessionUpdate: 'plan' } })).toBe(false);
+    expect(isCopilotPlanUpdateMessage({ type: 'system', content: '', metadata: { sessionUpdate: 'tool_call' } })).toBe(false);
   });
 
   it('detects flattened plan blocks from raw system content', () => {

@@ -185,6 +185,7 @@ const mockSettingsData = {
   maxRecentDirectories: 20,
   customModelOverride: '',
   parserBufferMaxKB: 512,
+  defaultModelByProvider: {} as Record<string, string>,
 };
 
 const mockSettingsGetAll = vi.fn(() => ({ ...mockSettingsData }));

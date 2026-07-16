@@ -411,10 +411,13 @@ function makeState(overrides: Partial<LoopState> = {}): LoopState {
     doneSentinelPresentAtStart: false,
     planChecklistFullyCheckedAtStart: false,
     uncompletedPlanFilesAtStart: [],
+    manualReviewOnly: false,
     tokensSinceLastTestImprovement: 0,
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,
     recentWarnIterationSeqs: [],
+    completionAttempts: 0,
+    loopTasksLedgerResolvedAtStart: false,
     ...overrides,
   };
 }

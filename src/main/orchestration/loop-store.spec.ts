@@ -19,6 +19,7 @@ import type {
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { runLoopMigrations } from './loop-schema';
 import { LoopStore } from './loop-store';
+import type { LoopCheckpoint } from './loop-checkpoint';
 
 let driver: SqliteDriver;
 let store: LoopStore;
@@ -40,12 +41,18 @@ function makeState(overrides: Partial<LoopState> = {}): LoopState {
     totalCostCents: 42,
     currentStage: 'IMPLEMENT',
     completedFileRenameObserved: false,
+    doneSentinelPresentAtStart: false,
+    planChecklistFullyCheckedAtStart: false,
+    uncompletedPlanFilesAtStart: [],
+    manualReviewOnly: false,
     highestTestPassCount: 0,
     endReason: 'all done',
     pendingInterventions: [],
     tokensSinceLastTestImprovement: 0,
     iterationsOnCurrentStage: 0,
     recentWarnIterationSeqs: [],
+    completionAttempts: 0,
+    loopTasksLedgerResolvedAtStart: false,
     ...overrides,
   };
 }
@@ -304,7 +311,7 @@ describe('LoopStore checkpoints', () => {
       loopRunId: state.id,
       seq: 0,
     });
-    const checkpoint = {
+    const checkpoint: LoopCheckpoint = {
       version: 1,
       loopRunId: state.id,
       chatId: state.chatId,
@@ -357,7 +364,7 @@ describe('LoopStore checkpoints', () => {
 
   it('rolls back state-only snapshots when checkpoint serialization fails', () => {
     const state = makeState({ id: 'loop-state-checkpoint-fail', status: 'paused', endedAt: null });
-    const checkpoint = {
+    const checkpoint: LoopCheckpoint = {
       version: 1,
       loopRunId: state.id,
       chatId: state.chatId,

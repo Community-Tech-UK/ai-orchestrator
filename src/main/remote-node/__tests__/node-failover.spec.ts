@@ -55,9 +55,12 @@ function makeCapabilities(overrides: Partial<WorkerNodeCapabilities> = {}): Work
     supportedClis: ['claude'],
     hasBrowserRuntime: false,
     hasBrowserMcp: false,
+    hasAndroidMcp: false,
     hasDocker: false,
     maxConcurrentInstances: 4,
     workingDirectories: ['/workspace'],
+    browsableRoots: [],
+    discoveredProjects: [],
     ...overrides,
   };
 }

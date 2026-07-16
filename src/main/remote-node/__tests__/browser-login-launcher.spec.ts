@@ -37,6 +37,7 @@ function node(overrides: Partial<WorkerNodeInfo['capabilities']> = {}): WorkerNo
       supportedClis: ['claude'],
       hasBrowserRuntime: true,
       hasBrowserMcp: true,
+      hasAndroidMcp: false,
       hasDocker: false,
       maxConcurrentInstances: 10,
       workingDirectories: ['C:\\Work'],

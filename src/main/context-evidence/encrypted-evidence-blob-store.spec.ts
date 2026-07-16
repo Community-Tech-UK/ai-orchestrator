@@ -1,4 +1,5 @@
 import { constants } from 'node:fs';
+import type { PathLike, StatOptions } from 'node:fs';
 import {
   lstat,
   mkdir,
@@ -884,14 +885,14 @@ describe('EncryptedEvidenceBlobStore', () => {
     await writeFile(join(outsidePath, stageName), 'outside fixture must remain', 'utf8');
     let swapped = false;
     const swappingStore = withFileSystem({
-      lstat: async (target, options) => {
+      lstat: (async (target: PathLike, options?: StatOptions) => {
         if (!swapped && target.toString() === stagePath) {
           swapped = true;
           await rename(directoryPath, backupPath);
           await symlink(outsidePath, directoryPath, 'dir');
         }
-        return lstat(target, options);
-      },
+        return lstat(target, options as Parameters<typeof lstat>[1]);
+      }) as EvidenceStorageFileSystem['lstat'],
     });
 
     await expect(

@@ -473,6 +473,9 @@ describe('CursorCliAdapter — tool_call event', () => {
     type: string;
     content: string;
     metadata?: {
+      name?: string;
+      tool_use_id?: string;
+      is_error?: boolean;
       toolName?: string;
       callId?: string;
       input?: unknown;
@@ -763,7 +766,7 @@ describe('CursorCliAdapter — resume-failure fallback', () => {
     );
     expect(recoverables).toHaveLength(1);
     expect(recoverables[0].content).toBe('Previous Cursor session expired; starting fresh.');
-    expect(recoverables[0].metadata?.recoverable).toBe(true);
+    expect(recoverables[0].metadata?.['recoverable']).toBe(true);
   });
 
   it('does NOT retry on non-resume errors; cursorSessionId preserved', async () => {

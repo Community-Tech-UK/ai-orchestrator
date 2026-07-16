@@ -424,7 +424,7 @@ function configureWorkerMessageFixture(service: PairBothRendezvousService): {
   let closeHandler: (() => void) | undefined;
   const socket = {
     send: vi.fn(),
-    readyState: WebSocket.OPEN,
+    readyState: WebSocket.OPEN as number,
     once: vi.fn((event: string, handler: () => void) => {
       if (event === 'close') closeHandler = handler;
     }),

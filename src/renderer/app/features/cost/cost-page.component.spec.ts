@@ -36,6 +36,7 @@ const MOCK_SUMMARY: CostSummaryData = {
   totalOutputTokens: 2_500,
   totalCacheReadTokens: 500,
   totalCacheWriteTokens: 200,
+  totalReasoningTokens: 0,
   byModel: {
     'claude-3-5-sonnet-20241022': {
       cost: 0.009000,

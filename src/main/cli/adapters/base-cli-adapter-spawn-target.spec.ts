@@ -18,9 +18,12 @@ let launcher: WindowsCliLauncher | null = {
   command: 'C:\\nvm4w\\nodejs\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe',
   prefixArgs: [],
 };
-const resolveMock = vi.fn(() => launcher);
+const resolveMock = vi.fn<(command: string, env?: NodeJS.ProcessEnv) => WindowsCliLauncher | null>(
+  () => launcher,
+);
 vi.mock('./windows-cli-spawn', () => ({
-  resolveWindowsCliLauncher: (...args: unknown[]) => resolveMock(...args),
+  resolveWindowsCliLauncher: (...args: unknown[]) =>
+    resolveMock(...(args as [string, NodeJS.ProcessEnv?])),
   // Real behavior so target-shape assertions remain meaningful.
   buildWindowsShellFreeTarget: (l: WindowsCliLauncher, args: string[]) => ({
     command: l.command,

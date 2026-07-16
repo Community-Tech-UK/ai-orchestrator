@@ -17,6 +17,7 @@ function makeAutomation(destination: AutomationDestination): Automation {
     active: true,
     workspaceId: '/repo',
     schedule: { type: 'oneTime', runAt: 2_000, timezone: 'UTC' },
+    trigger: { kind: 'schedule' },
     missedRunPolicy: 'notify',
     concurrencyPolicy: 'skip',
     destination,
@@ -53,6 +54,8 @@ function makeRun(overrides: Partial<AutomationRun> = {}): AutomationRun {
     createdAt: 2_000,
     updatedAt: 2_000,
     configSnapshot: null,
+    attempt: 1,
+    maxAttempts: 1,
     ...overrides,
   };
 }

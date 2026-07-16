@@ -1,14 +1,15 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi } from 'vitest';
-import { CodebaseIndexingLaneGateway } from './codebase-indexing-lane-gateway';
+import { CodebaseIndexingLaneGateway, type CodebaseIndexingLaneGatewayOptions } from './codebase-indexing-lane-gateway';
 import type {
   BackgroundJobProgress,
   BackgroundJobRecord,
   BackgroundJobSnapshot,
+  BackgroundJobSubmission,
 } from '../background-jobs';
 
 class FakeRuntime extends EventEmitter {
-  enqueueAndWait = vi.fn(async () => ({
+  enqueueAndWait = vi.fn<(submission: BackgroundJobSubmission) => Promise<unknown>>(async () => ({
     rootPath: '/repo',
     filesIndexed: 7,
     chunksCreated: 21,
@@ -21,11 +22,13 @@ class FakeRuntime extends EventEmitter {
   cancel = vi.fn(async () => true);
 }
 
+type FakeRuntimeOption = CodebaseIndexingLaneGatewayOptions['runtime'];
+
 describe('CodebaseIndexingLaneGateway', () => {
   it('enqueues legacy index-codebase work on the indexing lane', async () => {
     const runtime = new FakeRuntime();
     const gateway = new CodebaseIndexingLaneGateway({
-      runtime: runtime as unknown as ConstructorParameters<typeof CodebaseIndexingLaneGateway>[0]['runtime'],
+      runtime: runtime as unknown as FakeRuntimeOption,
     });
 
     const result = await gateway.runIndexCodebase({
@@ -62,7 +65,7 @@ describe('CodebaseIndexingLaneGateway', () => {
   it('passes the Harness user-data path to the indexing lane', async () => {
     const runtime = new FakeRuntime();
     const gateway = new CodebaseIndexingLaneGateway({
-      runtime: runtime as unknown as ConstructorParameters<typeof CodebaseIndexingLaneGateway>[0]['runtime'],
+      runtime: runtime as unknown as FakeRuntimeOption,
       userDataPath: '/user-data',
     });
 
@@ -86,7 +89,7 @@ describe('CodebaseIndexingLaneGateway', () => {
       completedAt: 1_000,
     });
     const gateway = new CodebaseIndexingLaneGateway({
-      runtime: runtime as unknown as ConstructorParameters<typeof CodebaseIndexingLaneGateway>[0]['runtime'],
+      runtime: runtime as unknown as FakeRuntimeOption,
     });
 
     await expect(gateway.runIndexCodebase({
@@ -100,7 +103,7 @@ describe('CodebaseIndexingLaneGateway', () => {
   it('maps runtime progress to legacy indexing progress events', () => {
     const runtime = new FakeRuntime();
     const gateway = new CodebaseIndexingLaneGateway({
-      runtime: runtime as unknown as ConstructorParameters<typeof CodebaseIndexingLaneGateway>[0]['runtime'],
+      runtime: runtime as unknown as FakeRuntimeOption,
     });
     const listener = vi.fn();
     gateway.on('progress', listener);
@@ -135,7 +138,7 @@ describe('CodebaseIndexingLaneGateway', () => {
   it('implements AutoIndexingTarget.indexCodebase for the auto coordinator', async () => {
     const runtime = new FakeRuntime();
     const gateway = new CodebaseIndexingLaneGateway({
-      runtime: runtime as unknown as ConstructorParameters<typeof CodebaseIndexingLaneGateway>[0]['runtime'],
+      runtime: runtime as unknown as FakeRuntimeOption,
     });
 
     await expect(gateway.indexCodebase('codebase:test', '/repo', { force: false }))
@@ -159,7 +162,7 @@ describe('CodebaseIndexingLaneGateway', () => {
       terminal: [],
     });
     const gateway = new CodebaseIndexingLaneGateway({
-      runtime: runtime as unknown as ConstructorParameters<typeof CodebaseIndexingLaneGateway>[0]['runtime'],
+      runtime: runtime as unknown as FakeRuntimeOption,
     });
 
     await expect(gateway.cancelIndexCodebase('/repo')).resolves.toBe(2);
@@ -186,7 +189,7 @@ describe('CodebaseIndexingLaneGateway', () => {
       terminal: [],
     });
     const gateway = new CodebaseIndexingLaneGateway({
-      runtime: runtime as unknown as ConstructorParameters<typeof CodebaseIndexingLaneGateway>[0]['runtime'],
+      runtime: runtime as unknown as FakeRuntimeOption,
     });
 
     expect(gateway.getIndexCodebaseProgress('/repo')).toEqual(expect.objectContaining({

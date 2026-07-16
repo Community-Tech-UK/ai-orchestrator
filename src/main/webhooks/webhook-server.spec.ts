@@ -226,7 +226,7 @@ describe('WebhookServer', () => {
     const response = await post(port, '/hooks/large', JSON.stringify({ large: true }));
 
     expect(response.statusCode).toBe(413);
-    expect(response.json.error).toContain('exceeds');
+    expect(response.json['error']).toContain('exceeds');
   });
 
   it('rate-limits by route and remote address', async () => {

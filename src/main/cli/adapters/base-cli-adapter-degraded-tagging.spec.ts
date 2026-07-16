@@ -33,7 +33,7 @@ class TestAdapter extends BaseCliAdapter {
     super({ command: 'test-cli' });
   }
 
-  protected isDegradedDetectionEnabled(): boolean {
+  protected override isDegradedDetectionEnabled(): boolean {
     return this.flagOn;
   }
 

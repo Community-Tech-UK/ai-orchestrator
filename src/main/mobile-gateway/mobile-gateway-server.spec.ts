@@ -194,7 +194,7 @@ async function nextOfType(
   for (;;) {
     const remaining = Math.max(50, deadline - Date.now());
     const msg = await messages.next(remaining);
-    if (msg.type === type) return msg;
+    if (msg['type'] === type) return msg;
   }
 }
 
@@ -428,14 +428,14 @@ describe('MobileGatewayServer', () => {
 
     try {
       const initial = await nextOfType(messages, 'snapshot');
-      expect(((initial.data as { instances: { id: string; isLooping?: boolean }[] })
+      expect(((initial['data'] as { instances: { id: string; isLooping?: boolean }[] })
         .instances.find((i) => i.id === 'a')?.isLooping)).toBe(false);
 
       loopSource.loops = [{ chatId: 'a', status: 'paused', endedAt: null }];
       loopSource.emit('loop:state-changed', { loopRunId: 'loop-a' });
 
       const refreshed = await nextOfType(messages, 'snapshot');
-      expect(((refreshed.data as { instances: { id: string; isLooping?: boolean }[] })
+      expect(((refreshed['data'] as { instances: { id: string; isLooping?: boolean }[] })
         .instances.find((i) => i.id === 'a')?.isLooping)).toBe(true);
     } finally {
       ws.close();
@@ -685,7 +685,7 @@ describe('MobileGatewayServer', () => {
         event: { kind: 'output', content: 'streamed', messageType: 'assistant', messageId: 'mm1' },
       });
       const frame = await nextOfType(messages, 'instance-output');
-      const data = frame.data as { instanceId: string; seq: number; message: { content: string } };
+      const data = frame['data'] as { instanceId: string; seq: number; message: { content: string } };
       expect(data.instanceId).toBe('a');
       expect(data.seq).toBe(7);
       expect(data.message.content).toBe('streamed');
@@ -729,7 +729,7 @@ describe('MobileGatewayServer', () => {
         metadata: { type: 'deferred_permission', tool_name: 'Bash', tool_input: { command: 'rm' } },
       });
       const promptFrame = await nextOfType(messages, 'permission-prompt');
-      expect((promptFrame.data as { requestId: string }).requestId).toBe('req-2');
+      expect((promptFrame['data'] as { requestId: string }).requestId).toBe('req-2');
 
       const res = await authed(token, '/api/instances/a/respond', {
         method: 'POST',
@@ -744,7 +744,7 @@ describe('MobileGatewayServer', () => {
         scope: 'once',
       });
       const cleared = await nextOfType(messages, 'permission-cleared');
-      expect((cleared.data as { requestId: string }).requestId).toBe('req-2');
+      expect((cleared['data'] as { requestId: string }).requestId).toBe('req-2');
     } finally {
       ws.close();
     }
@@ -773,7 +773,7 @@ describe('MobileGatewayServer', () => {
       });
 
       const promptFrame = await nextOfType(messages, 'permission-prompt');
-      const prompt = promptFrame.data as {
+      const prompt = promptFrame['data'] as {
         requestId: string;
         requestType: string;
         options: { id: string; label: string; description?: string }[];
@@ -809,7 +809,7 @@ describe('MobileGatewayServer', () => {
       );
       expect(source.resumeAfterDeferredPermission).not.toHaveBeenCalledWith('a', true);
       const cleared = await nextOfType(messages, 'permission-cleared');
-      expect((cleared.data as { requestId: string }).requestId).toBe('uar-1');
+      expect((cleared['data'] as { requestId: string }).requestId).toBe('uar-1');
     } finally {
       ws.close();
     }
@@ -1351,13 +1351,13 @@ describe('MobileGatewayServer', () => {
     });
     try {
       const first = await nextOfType(messages, 'snapshot');
-      expect((first.data as { instances: unknown[] }).instances).toHaveLength(1);
-      expect((first.data as { pause: MobilePauseDto }).pause.isPaused).toBe(false);
+      expect((first['data'] as { instances: unknown[] }).instances).toHaveLength(1);
+      expect((first['data'] as { pause: MobilePauseDto }).pause.isPaused).toBe(false);
 
       source.instances = [...source.instances, inst({ id: 'b', status: 'idle' })];
       source.emit('instance:created');
       const second = await nextOfType(messages, 'snapshot');
-      expect((second.data as { instances: unknown[] }).instances).toHaveLength(2);
+      expect((second['data'] as { instances: unknown[] }).instances).toHaveLength(2);
     } finally {
       ws.close();
     }

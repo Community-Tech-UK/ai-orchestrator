@@ -80,6 +80,8 @@ function makeRun(): AutomationRun {
     seenAt: null,
     createdAt: 2_000,
     updatedAt: 2_000,
+    attempt: 1,
+    maxAttempts: 1,
     configSnapshot: {
       name: 'Snapshot wake thread',
       schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },

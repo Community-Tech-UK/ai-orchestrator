@@ -133,7 +133,7 @@ describe('PlayDeveloperClient', () => {
       ['POST', 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.example.app/edits/edit-1:commit?changesInReviewBehavior=ERROR_IF_IN_REVIEW'],
     ]);
     expect(requests.every((request) =>
-      (request.init.headers as Record<string, string>).authorization === 'Bearer ya29.token',
+      (request.init.headers as Record<string, string>)['authorization'] === 'Bearer ya29.token',
     )).toBe(true);
     expect(requests[2].init.body).toBe(JSON.stringify({
       track: 'internal',

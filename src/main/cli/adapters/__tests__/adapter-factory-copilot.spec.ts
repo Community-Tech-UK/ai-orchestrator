@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
 import { PermissionRegistry } from '../../../orchestration/permission-registry';
 import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
+import type { CliAdapterConfig } from '../base-cli-adapter.types';
 
 const CHROME_DEVTOOLS_MCP_PACKAGE = `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`;
 
@@ -24,8 +25,14 @@ describe('adapter factory — copilot', () => {
     };
   }
 
+  // Not every `CliAdapter` union member exposes `getConfig()` (e.g. RemoteCliAdapter),
+  // but every adapter constructed in this file (copilot/gemini/cursor) does.
+  function configOf(adapter: ReturnType<typeof createCliAdapter>): CliAdapterConfig {
+    return (adapter as unknown as { getConfig(): CliAdapterConfig }).getConfig();
+  }
+
   function readAdditionalMcpConfig(adapter: ReturnType<typeof createCliAdapter>) {
-    const args = adapter.getConfig().args ?? [];
+    const args = configOf(adapter).args ?? [];
     const configIdx = args.indexOf('--additional-mcp-config');
     expect(configIdx).toBeGreaterThanOrEqual(0);
     return JSON.parse(args[configIdx + 1]);
@@ -87,7 +94,7 @@ describe('adapter factory — copilot', () => {
       workingDirectory: '/tmp',
       model: 'claude-opus-4.7',
     });
-    const args = adapter.getConfig().args ?? [];
+    const args = configOf(adapter).args ?? [];
     const modelIdx = args.indexOf('--model');
     expect(modelIdx).toBeGreaterThanOrEqual(0);
     expect(args[modelIdx + 1]).toBe('claude-opus-4.7');
@@ -98,19 +105,19 @@ describe('adapter factory — copilot', () => {
 
   it('disables Copilot ask_user in ACP mode so prompt turns stay autonomous', () => {
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
-    const args = adapter.getConfig().args ?? [];
+    const args = configOf(adapter).args ?? [];
     expect(args).toContain('--no-ask-user');
   });
 
   it('isolates Copilot CLI state from the default VS Code-visible Copilot home', () => {
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
-    const args = adapter.getConfig().args ?? [];
+    const args = configOf(adapter).args ?? [];
     const configDirIdx = args.indexOf('--config-dir');
     expect(configDirIdx).toBeGreaterThanOrEqual(0);
     expect(args[configDirIdx + 1]).toBe(testCopilotHome);
     expect(args).toContain('--no-remote');
 
-    const env = adapter.getConfig().env ?? {};
+    const env = configOf(adapter).env ?? {};
     expect(env['COPILOT_HOME']).toBe(testCopilotHome);
   });
 
@@ -119,8 +126,8 @@ describe('adapter factory — copilot', () => {
       workingDirectory: '/tmp',
       ephemeral: false,
     });
-    const args = adapter.getConfig().args ?? [];
-    const env = adapter.getConfig().env ?? {};
+    const args = configOf(adapter).args ?? [];
+    const env = configOf(adapter).env ?? {};
     expect(args).not.toContain('--config-dir');
     expect(args).not.toContain('--no-remote');
     expect(env['COPILOT_HOME']).toBeUndefined();
@@ -128,7 +135,7 @@ describe('adapter factory — copilot', () => {
 
   it('omits --model when no model is specified so copilot uses its configured default', () => {
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
-    const args = adapter.getConfig().args ?? [];
+    const args = configOf(adapter).args ?? [];
     expect(args).not.toContain('--model');
   });
 
@@ -137,7 +144,7 @@ describe('adapter factory — copilot', () => {
       workingDirectory: '/tmp',
       model: 'auto',
     });
-    const args = adapter.getConfig().args ?? [];
+    const args = configOf(adapter).args ?? [];
     const modelIdx = args.indexOf('--model');
     expect(modelIdx).toBeGreaterThanOrEqual(0);
     expect(args[modelIdx + 1]).toBe('auto');
@@ -188,7 +195,7 @@ describe('adapter factory — copilot', () => {
     // node::crypto::ReadMacOSKeychainCertificates on macOS 26.
     // The factory now always prepends the --use-openssl-ca flag.
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
-    const env = adapter.getConfig().env ?? {};
+    const env = configOf(adapter).env ?? {};
     expect(env['NODE_OPTIONS']).toMatch(/--use-openssl-ca/);
   });
 
@@ -355,7 +362,7 @@ describe('adapter factory — copilot', () => {
       browserGatewayMcp: browserGatewayMcp('gemini'),
     });
 
-    const settingsPath = adapter.getConfig().env?.['GEMINI_CLI_SYSTEM_SETTINGS_PATH'];
+    const settingsPath = configOf(adapter).env?.['GEMINI_CLI_SYSTEM_SETTINGS_PATH'];
     expect(settingsPath).toBeTruthy();
     const settings = JSON.parse(readFileSync(settingsPath!, 'utf-8'));
     expect(settings.mcpServers['browser-gateway'].env).toMatchObject({
@@ -389,13 +396,13 @@ describe('adapter factory — copilot', () => {
     process.env['NODE_OPTIONS'] = '--max-old-space-size=4096';
     try {
       const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
-      const nodeOptions = adapter.getConfig().env?.['NODE_OPTIONS'] ?? '';
+      const nodeOptions = configOf(adapter).env?.['NODE_OPTIONS'] ?? '';
       expect(nodeOptions).toContain('--max-old-space-size=4096');
       expect(nodeOptions).toContain('--use-openssl-ca');
       // No duplicate when re-spawned with the flag already present.
       process.env['NODE_OPTIONS'] = nodeOptions;
       const again = createCliAdapter('copilot', { workingDirectory: '/tmp' });
-      const againOptions = again.getConfig().env?.['NODE_OPTIONS'] ?? '';
+      const againOptions = configOf(again).env?.['NODE_OPTIONS'] ?? '';
       expect(againOptions.match(/--use-openssl-ca/g)?.length ?? 0).toBe(1);
     } finally {
       if (originalNodeOptions === undefined) {

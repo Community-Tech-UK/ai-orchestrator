@@ -33,6 +33,7 @@ describe('PluginValidator', () => {
     const result = await validator.validate(dir);
 
     expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.errors.join('\n')).toContain('.codex-plugin/plugin.json');
   });
 
@@ -47,6 +48,7 @@ describe('PluginValidator', () => {
     const result = await validator.validate(dir);
 
     expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.errors.join('\n')).toContain('helper-plugin');
   });
 
@@ -76,6 +78,7 @@ describe('PluginValidator', () => {
 
     expect(ok.ok).toBe(true);
     expect(bad.ok).toBe(false);
+    if (bad.ok) throw new Error('expected validation failure');
     expect(bad.errors.join('\n')).toContain('checksum');
   });
 });

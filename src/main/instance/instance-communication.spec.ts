@@ -75,7 +75,7 @@ class FakeAdapter extends EventEmitter {
     return this.currentTurnId;
   }
 
-  removeAllListeners(): this {
+  override removeAllListeners(): this {
     return super.removeAllListeners();
   }
 }
@@ -92,6 +92,8 @@ function createInstance(status: Instance['status'] = 'idle'): Instance {
     workerNodeId: undefined,
     depth: 0,
     terminationPolicy: 'terminate-children',
+    launchMode: 'orchestrated',
+    executionLocation: { type: 'local' },
     contextInheritance: {} as Instance['contextInheritance'],
     agentId: 'build',
     agentMode: 'build',
@@ -108,6 +110,7 @@ function createInstance(status: Instance['status'] = 'idle'): Instance {
     lastActivity: Date.now(),
     processId: 12345,
     sessionId: 'session-1',
+    providerSessionId: 'session-1',
     workingDirectory: '/tmp/project',
     yoloMode: false,
     provider: 'claude',
@@ -1308,7 +1311,7 @@ describe('InstanceCommunicationManager', () => {
       const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
       (adapter as unknown as FakeAdapter & { getSessionId(): string }).getSessionId = () => 'provider-assigned-id';
       adapters.set(instance.id, adapter);
-      instance.providerSessionId = undefined;
+      (instance as unknown as { providerSessionId: string | undefined }).providerSessionId = undefined;
 
       manager.setupAdapterEvents(instance.id, adapter);
       // Emit any output — the session ID sync runs on every output message.

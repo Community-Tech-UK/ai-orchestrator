@@ -1,8 +1,13 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
+
+// All spawn() calls in this file use stdio: ['ignore', 'pipe', 'pipe'], so
+// the process has no stdin stream (null) and piped stdout/stderr.
+type ServerChild = ChildProcessByStdio<null, Readable, Readable>;
 
 /**
  * Integration test for the portable capture server (serve-review.mjs): it serves the
@@ -29,7 +34,7 @@ const ARTIFACT_HTML =
   '<meta name="aio-doc-review-title" content="Test Plan"></head><body>x</body></html>';
 
 interface Started {
-  child: ChildProcessWithoutNullStreams;
+  child: ServerChild;
   url: string;
   stdout: () => string;
 }
@@ -64,7 +69,7 @@ async function waitForFiles(paths: string[], timeoutMs = 8_000): Promise<void> {
 
 describe('serve-review.mjs capture server', () => {
   let tempRoot = '';
-  let running: ChildProcessWithoutNullStreams | null = null;
+  let running: ServerChild | null = null;
 
   afterEach(() => {
     running?.kill('SIGTERM');

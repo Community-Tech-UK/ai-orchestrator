@@ -255,7 +255,7 @@ describe('codebase auto-index handlers', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.data?.[0]).toEqual(expect.objectContaining({
+    expect((result.data as Record<string, unknown>[] | undefined)?.[0]).toEqual(expect.objectContaining({
       filePath: '/repo/src/auth.ts',
       content: expect.stringContaining('issueSessionToken'),
       matchType: 'bm25',

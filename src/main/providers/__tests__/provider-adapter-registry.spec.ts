@@ -69,7 +69,7 @@ describe('ProviderAdapterRegistryImpl', () => {
 
   it('creates plugin provider adapters through the registered host bridge', () => {
     const config = { type: 'openai-compatible', name: 'Acme Runtime', enabled: true } as const;
-    const bridgedAdapter = { provider: 'plugin:acme-cli' } as ProviderAdapter;
+    const bridgedAdapter = { provider: 'plugin:acme-cli' } as unknown as ProviderAdapter;
     const bridge = {
       createProviderAdapter: vi.fn(() => bridgedAdapter),
     };

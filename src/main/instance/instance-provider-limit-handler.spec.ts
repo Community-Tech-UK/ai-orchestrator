@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   InstanceProviderLimitHandler,
+  EARLY_RESUME_PROBE_MS,
   type InstanceProviderLimitHandlerDeps,
 } from './instance-provider-limit-handler';
 import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/instance.types';
@@ -148,8 +149,9 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
     const ledger = {
       record: vi.fn((event) => events.push(event)),
       getActive: vi.fn(() => events.length > 0 ? events[0] : null),
+      clearActive: vi.fn(() => 0),
     };
-    h = makeHarness({ providerLimitLedger: ledger } as Partial<InstanceProviderLimitHandlerDeps>);
+    h = makeHarness({ providerLimitLedger: ledger } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
 
     expect(h.handler.maybePark({
       instanceId: 'first',
@@ -191,8 +193,9 @@ describe('InstanceProviderLimitHandler.maybeParkKnown', () => {
     const ledger = {
       record: vi.fn(),
       getActive: vi.fn(() => ({ resumeAt })),
+      clearActive: vi.fn(() => 0),
     };
-    const h = makeHarness({ providerLimitLedger: ledger } as Partial<InstanceProviderLimitHandlerDeps>);
+    const h = makeHarness({ providerLimitLedger: ledger } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
 
     expect(h.handler.maybeParkKnown({
       instanceId: 'second',
@@ -289,5 +292,160 @@ describe('InstanceProviderLimitHandler.cancel', () => {
     // A racing timer/automation must not re-send after an explicit cancel.
     expect(h.handler.resumeNow('i1', { resumePromptFallback: 'nope' })).toBe(false);
     expect(h.resends).toHaveLength(0);
+  });
+});
+
+describe('InstanceProviderLimitHandler known-limit gate override', () => {
+  function makeOverrideHarness() {
+    const calls: string[] = [];
+    const resends: Array<{ instanceId: string; prompt: string }> = [];
+    const ledger = {
+      record: vi.fn(() => { calls.push('record'); }),
+      getActive: vi.fn(() => null),
+      clearActive: vi.fn(() => { calls.push('clearActive'); return 1; }),
+    };
+    const h = makeHarness({
+      providerLimitLedger: ledger,
+      getProviderModel: (id: string) => id === 'i-gone'
+        ? null
+        : { provider: CLAUDE, model: 'claude-sonnet-4-5' },
+      resendInput: (id: string, prompt: string) => { calls.push('resend'); resends.push({ instanceId: id, prompt }); },
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+    return { h, ledger, calls, resends };
+  }
+
+  it('resumeNow drops the durable gate before re-sending, so the preflight cannot re-park the turn', () => {
+    const { h, ledger, calls, resends } = makeOverrideHarness();
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, model: 'claude-sonnet-4-5', resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'resend me' });
+
+    expect(h.handler.resumeNow('i1')).toBe(true);
+    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5' });
+    // The gate must be gone before the turn is re-dispatched.
+    expect(calls).toEqual(['record', 'clearActive', 'resend']);
+    expect(resends).toEqual([{ instanceId: 'i1', prompt: 'resend me' }]);
+  });
+
+  it('cancel drops the durable gate so the next typed message is not instantly re-held', () => {
+    const { h, ledger, resends } = makeOverrideHarness();
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, model: 'claude-sonnet-4-5', resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'nope' });
+
+    expect(h.handler.cancel('i1')).toBe(true);
+    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5' });
+    expect(resends).toHaveLength(0);
+  });
+
+  it('resumeFromAutomation live-instance branch drops the durable gate before re-sending', () => {
+    const { h, ledger, resends } = makeOverrideHarness();
+    h.resumableIds.add('i-live');
+
+    expect(h.handler.resumeFromAutomation('i-live', 'original turn')).toBe('resent');
+    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5' });
+    expect(resends).toEqual([{ instanceId: 'i-live', prompt: 'original turn' }]);
+  });
+
+  it('tolerates a vanished instance (no provider/model) without touching the ledger', () => {
+    const { h, ledger, resends } = makeOverrideHarness();
+    expect(h.handler.resumeNow('i-gone', { resumePromptFallback: 'turn' })).toBe(true);
+    expect(ledger.clearActive).not.toHaveBeenCalled();
+    expect(resends).toEqual([{ instanceId: 'i-gone', prompt: 'turn' }]);
+  });
+
+  it('tolerates a missing getProviderModel dep (legacy wiring) without throwing', () => {
+    const ledger = { record: vi.fn(), getActive: vi.fn(() => null), clearActive: vi.fn(() => 0) };
+    const h = makeHarness({ providerLimitLedger: ledger } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'resend me' });
+    expect(h.handler.resumeNow('i1')).toBe(true);
+    expect(ledger.clearActive).not.toHaveBeenCalled();
+  });
+});
+
+describe('InstanceProviderLimitHandler early-resume quota probe', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const FAR_FUTURE = 24 * 60 * 60 * 1000; // recorded reset a day away (stale-limit scenario)
+
+  function parkWithProbe(probe: (provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) {
+    const h = makeHarness({ probeQuotaSnapshot: probe });
+    h.handler.maybePark({
+      instanceId: 'i1',
+      provider: CLAUDE,
+      resetAtHint: Date.now() + FAR_FUTURE,
+      reason: 'limit',
+      resumePrompt: 'resend me',
+    });
+    return h;
+  }
+
+  it('resumes early when a fresh probe shows every window has headroom', async () => {
+    const probe = vi.fn(async () => makeSnapshot('claude', [
+      { used: 10, limit: 100, resetsAt: Date.now() + FAR_FUTURE },
+    ]));
+    const h = parkWithProbe(probe);
+
+    await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+    expect(probe).toHaveBeenCalledWith('claude');
+    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'resend me' }]);
+    expect(h.handler.isParked('i1')).toBe(false);
+    expect(h.waitReasons.get('i1')).toBeNull();
+  });
+
+  it('stays parked while any window is still exhausted, then resumes once it clears', async () => {
+    let exhausted = true;
+    const probe = vi.fn(async () => makeSnapshot('claude', [
+      { used: exhausted ? 100 : 0, limit: 100, resetsAt: Date.now() + FAR_FUTURE },
+      { used: 20, limit: 100, resetsAt: Date.now() + FAR_FUTURE },
+    ]));
+    const h = parkWithProbe(probe);
+
+    await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+    expect(h.resends).toHaveLength(0);
+    expect(h.handler.isParked('i1')).toBe(true);
+
+    exhausted = false; // reset credit applied
+    await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'resend me' }]);
+  });
+
+  it('treats a failed or error probe as still limited', async () => {
+    const probe = vi.fn(async () => null);
+    const h = parkWithProbe(probe);
+
+    await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS * 2 + 5);
+    expect(probe).toHaveBeenCalled();
+    expect(h.resends).toHaveLength(0);
+    expect(h.handler.isParked('i1')).toBe(true);
+  });
+
+  it('stops probing after resumeNow and cancel', async () => {
+    const probe = vi.fn(async () => null);
+    const h = parkWithProbe(probe);
+
+    h.handler.resumeNow('i1');
+    probe.mockClear();
+    await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS * 2 + 5);
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('skips probing when the scheduled resume is imminent', async () => {
+    const probe = vi.fn(async () => makeSnapshot('claude', [
+      { used: 0, limit: 100, resetsAt: Date.now() + 60_000 },
+    ]));
+    const h = makeHarness({ probeQuotaSnapshot: probe });
+    // Recorded reset lands before the first probe tick would fire meaningfully.
+    h.handler.maybePark({
+      instanceId: 'i1',
+      provider: CLAUDE,
+      resetAtHint: Date.now() + EARLY_RESUME_PROBE_MS + 30_000,
+      reason: 'limit',
+      resumePrompt: 'resend me',
+    });
+
+    await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+    expect(probe).not.toHaveBeenCalled(); // within 60s of resumeAt — the timer path owns it
   });
 });

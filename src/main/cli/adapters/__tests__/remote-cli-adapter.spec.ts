@@ -20,7 +20,7 @@ vi.mock('../../../remote-node/worker-node-registry', () => ({
 import { RemoteCliAdapter } from '../remote-cli-adapter';
 import type { WorkerNodeConnectionServer } from '../../../remote-node/worker-node-connection';
 import type { UnifiedSpawnOptions } from '../adapter-factory';
-import type { FileAttachment } from '../../../../shared/types/instance.types';
+import type { FileAttachment, OutputMessage } from '../../../../shared/types/instance.types';
 
 function createMockConnection() {
   return {
@@ -211,7 +211,7 @@ describe('RemoteCliAdapter', () => {
       adapter.on('output', outputHandler);
 
       const message = { type: 'text', content: 'Hello from remote', timestamp: 1000 };
-      adapter.handleRemoteOutput(message);
+      adapter.handleRemoteOutput(message as unknown as OutputMessage);
 
       expect(outputHandler).toHaveBeenCalledWith(message);
     });

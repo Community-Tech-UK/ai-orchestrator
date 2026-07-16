@@ -36,11 +36,12 @@ describe('LoopCoordinator resource governor', () => {
         childInstanceId: `child-${invocations}`,
         output: 'still working',
         tokens: 1,
-        costCents: 0,
         filesChanged: [],
         toolCalls: [],
         errors: [],
-        verify: { status: 'passed', output: 'ok' },
+        testPassCount: null,
+        testFailCount: null,
+        exitedCleanly: true,
       });
     });
     coordinator.setResourceGovernor((state) => state.totalIterations > 0
@@ -50,7 +51,7 @@ describe('LoopCoordinator resource governor', () => {
     const state = await coordinator.startLoop('chat-resource', {
       ...defaultLoopConfig(workspace, 'finish the work'),
       caps: { ...defaultLoopConfig(workspace, 'finish the work').caps, maxIterations: 4 },
-      completion: { ...defaultLoopConfig(workspace, 'finish the work').completion, requireFreshEyesReview: false },
+      completion: { ...defaultLoopConfig(workspace, 'finish the work').completion },
     });
 
     const pausedPayload = await paused;

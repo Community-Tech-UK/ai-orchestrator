@@ -20,6 +20,12 @@ function registerTemplate(manager: WorkflowManager): void {
     id: TEMPLATE_ID,
     name: 'Restore Template',
     description: 'Template used for restoration tests',
+    icon: 'test',
+    category: 'custom',
+    triggerPatterns: [],
+    autoTrigger: false,
+    estimatedDuration: '5m',
+    requiredAgents: [],
     phases: [
       {
         id: 'phase-1',

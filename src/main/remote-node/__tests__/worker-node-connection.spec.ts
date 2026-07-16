@@ -141,7 +141,7 @@ describe('WorkerNodeConnectionServer — socket replacement race', () => {
     mockRemoteAuth.authenticateRegistration.mockReturnValueOnce({
       status: 'rejected',
       reason: 'Invalid or expired pairing token',
-    });
+    } as unknown as ReturnType<typeof mockRemoteAuth.authenticateRegistration>);
     const server = WorkerNodeConnectionServer.getInstance();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const internals = server as any;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import http = require('node:http');
-import https = require('node:https');
+import http from 'node:http';
+import https from 'node:https';
 import { AllowedHostMatcher } from './allowed-hosts';
 import { installNetworkPauseGate } from './install-network-pause-gate';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';

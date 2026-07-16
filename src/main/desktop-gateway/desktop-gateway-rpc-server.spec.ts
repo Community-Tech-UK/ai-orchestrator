@@ -23,7 +23,7 @@ describe('DesktopGatewayRpcServer', () => {
 
   it('validates payloads and dispatches known computer methods', async () => {
     const service = {
-      health: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
+      health: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' }) as const),
       listApps: vi.fn(),
     };
     const server = new DesktopGatewayRpcServer({
@@ -74,7 +74,7 @@ describe('DesktopGatewayRpcServer', () => {
 
   it('validates and dispatches input actions through the service', async () => {
     const service = {
-      click: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
+      click: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' }) as const),
     };
     const server = new DesktopGatewayRpcServer({
       service,
@@ -126,7 +126,7 @@ describe('DesktopGatewayRpcServer', () => {
 
   it('preserves exact type_text payload content during RPC validation', async () => {
     const service = {
-      typeText: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
+      typeText: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' }) as const),
     };
     const server = new DesktopGatewayRpcServer({
       service,
@@ -161,7 +161,7 @@ describe('DesktopGatewayRpcServer', () => {
 
   it('limits cumulative payload bytes per instance within the rate window', async () => {
     const service = {
-      typeText: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })),
+      typeText: vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' }) as const),
     };
     const server = new DesktopGatewayRpcServer({
       service,

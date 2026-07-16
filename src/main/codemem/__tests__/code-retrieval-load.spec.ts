@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +7,8 @@ import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { CodeIndexManager } from '../code-index-manager';
 import { CodeRetrievalService } from '../code-retrieval-service';
+import type { SqliteDriver } from '../../db/sqlite-driver';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 
 async function writeFixtureBatch(
   files: { path: string; content: string }[],
@@ -24,7 +25,7 @@ async function writeFixtureBatch(
 
 describe('CodeRetrievalService load behavior', () => {
   let workDir: string;
-  let db: Database.Database;
+  let db: SqliteDriver;
   let store: CasStore;
   let manager: CodeIndexManager;
 
@@ -35,7 +36,7 @@ describe('CodeRetrievalService load behavior', () => {
     await mkdir(join(workDir, 'dist'), { recursive: true });
     await mkdir(join(workDir, 'build'), { recursive: true });
 
-    db = new Database(':memory:');
+    db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
     manager = new CodeIndexManager({ store });

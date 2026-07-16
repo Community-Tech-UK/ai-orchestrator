@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { sendBrowserEscalationPush } from './mobile-gateway-push';
 
 function makeDeps(overrides: { configured?: boolean; tokens?: string[] } = {}) {
-  const send = vi.fn(async () => undefined);
+  const send = vi.fn(async (_deviceTokens: string[], _alert: Record<string, unknown>) => undefined);
   const deps = {
     apnsSender: {
       isConfigured: () => overrides.configured ?? true,

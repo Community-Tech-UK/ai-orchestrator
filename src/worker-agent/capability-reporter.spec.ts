@@ -67,12 +67,12 @@ describe('capability-reporter', () => {
     process.env['HOME'] = '/var/empty/aio-capability-reporter-test';
     process.env['PATH'] = '/usr/bin:/bin:/usr/sbin:/sbin';
     vi.mocked(fs.existsSync).mockReturnValue(false);
-    vi.mocked(execFileSync).mockImplementation((cmd: string, args: string[]) => {
+    vi.mocked(execFileSync).mockImplementation(((cmd: string, args: string[]) => {
       if (Array.isArray(args) && args[0] === 'claude') {
         return Buffer.from('/usr/local/bin/claude');
       }
       throw new Error('not found');
-    });
+    }) as unknown as typeof execFileSync);
   });
 
   afterEach(() => {
@@ -592,7 +592,7 @@ describe('capability-reporter', () => {
       const { execFileSync } = await import('child_process');
       const mockedExec = vi.mocked(execFileSync);
 
-      mockedExec.mockImplementation((cmd: string, args: string[]) => {
+      mockedExec.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'nvidia-smi') {
           return Buffer.from('NVIDIA GeForce RTX 3090, 24576');
         }
@@ -600,7 +600,7 @@ describe('capability-reporter', () => {
           return Buffer.from('/usr/local/bin/claude');
         }
         throw new Error('not found');
-      });
+      }) as unknown as typeof execFileSync);
 
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
 

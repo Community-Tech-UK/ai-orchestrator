@@ -123,7 +123,9 @@ interface ParityFixture {
   setup: () => Promise<{ provider: BaseProvider; adapter: EventEmitter; envelopes: ProviderRuntimeEventEnvelope[] }>;
 }
 
-const PROVIDERS: Record<ProviderName, ParityFixture> = {
+// Deliberately covers 6 of the built-in providers (see matrix comment above);
+// Partial avoids requiring fixtures for every ProviderName variant.
+const PROVIDERS: Partial<Record<ProviderName, ParityFixture>> = {
   claude: {
     setup: async () => {
       const provider = new ClaudeCliProvider({ type: 'claude-cli', name: 'test', enabled: true });
@@ -302,9 +304,9 @@ describe('cross-provider parity', () => {
           // Completion is followed by the provider's normal idle transition
           // for Codex and Gemini, so locate the envelope for this scenario
           // instead of assuming it is the final emitted event.
-          const matched = envelopes.findLast(
-            (envelope) => envelope.event.kind === scenario.expectedEvent['kind'],
-          );
+          const matched = envelopes
+            .filter((envelope) => envelope.event.kind === scenario.expectedEvent['kind'])
+            .pop();
           expect(matched).toBeDefined();
           expect(matched!.provider).toBe(providerName);
           expect(matched!.instanceId).toBe('i-parity');

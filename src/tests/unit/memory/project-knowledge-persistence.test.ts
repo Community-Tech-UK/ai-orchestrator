@@ -23,7 +23,7 @@ describe('project knowledge persistence', () => {
   beforeEach(() => {
     rawDb = new Database(':memory:');
     rawDb.pragma('foreign_keys = ON');
-    db = rawDb;
+    db = rawDb as unknown as SqliteDriver;
     schema.createTables(db);
     schema.createMigrationsTable(db);
     schema.runMigrations(db);

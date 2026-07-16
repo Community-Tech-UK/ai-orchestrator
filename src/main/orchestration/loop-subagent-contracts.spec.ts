@@ -26,6 +26,7 @@ describe('loop subagent contracts', () => {
     ]);
 
     expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.errors.join('\n')).toContain('objective');
     expect(result.errors.join('\n')).toContain('acceptanceCriteria');
     expect(result.errors.join('\n')).toContain('verificationPlan');
@@ -38,6 +39,7 @@ describe('loop subagent contracts', () => {
     ]);
 
     expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.errors.join('\n')).toContain('overlap');
   });
 
@@ -50,6 +52,7 @@ describe('loop subagent contracts', () => {
     expect(() => validateLoopTaskPackets([malformed, packet({ id: 'task-ok' })])).not.toThrow();
     const result = validateLoopTaskPackets([malformed, packet({ id: 'task-ok' })]);
     expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.errors.join('\n')).toContain('scope.write');
   });
 
@@ -57,6 +60,7 @@ describe('loop subagent contracts', () => {
     expect(() => validateLoopTaskPackets([null])).not.toThrow();
     const result = validateLoopTaskPackets([null]);
     expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.errors.join('\n')).toContain('packet must be an object');
   });
 
@@ -83,6 +87,7 @@ describe('loop subagent contracts', () => {
     expect(() => validateLoopTaskPackets([malformed])).not.toThrow();
     const result = validateLoopTaskPackets([malformed]);
     expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.errors.join('\n')).toContain('acceptanceCriteria');
     expect(result.errors.join('\n')).toContain('verificationPlan');
     expect(result.errors.join('\n')).toContain('scope.write');
@@ -92,6 +97,7 @@ describe('loop subagent contracts', () => {
     const result = validateLoopTaskPackets([packet({ depth: 2 })], { maxDepth: 1 });
 
     expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.errors.join('\n')).toContain('depth');
   });
 

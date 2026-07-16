@@ -23,8 +23,13 @@ describe('RemoteNodeRepairPanelComponent', () => {
     platform: 'win32',
     supportsBrowser: false,
     browserAutomationReady: false,
+    extensionRelayReady: false,
     androidAutomationReady: false,
     supportsGpu: false,
+    hasDocker: false,
+    activeInstances: 0,
+    maxConcurrentInstances: 0,
+    workingDirectories: [],
     supportedClis: [],
   };
 

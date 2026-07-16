@@ -55,7 +55,7 @@ describe('WorkerPluginProviderAdapterRuntime', () => {
     const runtime = new WorkerPluginProviderAdapterRuntime(vi.fn());
     const { adapter } = makeFakeAdapter({ getSessionId: undefined });
     const factory = vi.fn(async () => adapter);
-    runtime.api.registerProviderAdapterFactory('ref', factory as never);
+    runtime.api.registerProviderAdapterFactory!('ref', factory as never);
 
     await expect(runtime.invoke(operation())).rejects.toThrow('missing getSessionId()');
     expect(factory).toHaveBeenCalledTimes(1);
@@ -69,7 +69,7 @@ describe('WorkerPluginProviderAdapterRuntime', () => {
   it('does not throw when a validation-failed adapter has no callable terminate', async () => {
     const runtime = new WorkerPluginProviderAdapterRuntime(vi.fn());
     const { adapter } = makeFakeAdapter({ getSessionId: undefined, terminate: undefined });
-    runtime.api.registerProviderAdapterFactory('ref', (async () => adapter) as never);
+    runtime.api.registerProviderAdapterFactory!('ref', (async () => adapter) as never);
 
     await expect(runtime.invoke(operation())).rejects.toThrow('missing terminate()');
   });
@@ -82,7 +82,7 @@ describe('WorkerPluginProviderAdapterRuntime', () => {
         throw new Error('terminate exploded');
       }),
     });
-    runtime.api.registerProviderAdapterFactory('ref', (async () => adapter) as never);
+    runtime.api.registerProviderAdapterFactory!('ref', (async () => adapter) as never);
 
     await expect(runtime.invoke(operation())).rejects.toThrow('missing getSessionId()');
   });
@@ -93,7 +93,7 @@ describe('WorkerPluginProviderAdapterRuntime', () => {
     const second = makeFakeAdapter();
     const adapters = [first.adapter, second.adapter];
     const factory = vi.fn(async () => adapters[factory.mock.calls.length - 1]);
-    runtime.api.registerProviderAdapterFactory('ref', factory as never);
+    runtime.api.registerProviderAdapterFactory!('ref', factory as never);
 
     await runtime.invoke(operation({ adapterId: 'adapter-1' }));
     await runtime.invoke(operation({ adapterId: 'adapter-2' }));
@@ -115,7 +115,7 @@ describe('WorkerPluginProviderAdapterRuntime', () => {
   it('disposeAll is idempotent with per-adapter terminate', async () => {
     const runtime = new WorkerPluginProviderAdapterRuntime(vi.fn());
     const { adapter, unsubscribe } = makeFakeAdapter();
-    runtime.api.registerProviderAdapterFactory('ref', (async () => adapter) as never);
+    runtime.api.registerProviderAdapterFactory!('ref', (async () => adapter) as never);
 
     await runtime.invoke(operation());
     await runtime.invoke(operation({ method: 'terminate', args: [true] }));
@@ -139,7 +139,7 @@ describe('WorkerPluginProviderAdapterRuntime', () => {
     const healthy = makeFakeAdapter();
     const adapters = [failing.adapter, healthy.adapter];
     const factory = vi.fn(async () => adapters[factory.mock.calls.length - 1]);
-    runtime.api.registerProviderAdapterFactory('ref', factory as never);
+    runtime.api.registerProviderAdapterFactory!('ref', factory as never);
 
     await runtime.invoke(operation({ adapterId: 'adapter-1' }));
     await runtime.invoke(operation({ adapterId: 'adapter-2' }));

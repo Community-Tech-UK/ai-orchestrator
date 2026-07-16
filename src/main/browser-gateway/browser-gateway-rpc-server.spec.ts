@@ -4,6 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { BrowserGatewayRpcServer } from './browser-gateway-rpc-server';
+import type { BrowserGatewayNavigateRequest } from './browser-gateway-service-types';
+import type { BrowserGatewayResult } from '@contracts/types/browser';
 
 describe('BrowserGatewayRpcServer', () => {
   it('rejects unknown instance ids before reaching the gateway', async () => {
@@ -88,7 +90,9 @@ describe('BrowserGatewayRpcServer', () => {
   });
 
   it('limits cumulative payload bytes per instance within the rate window', async () => {
-    const navigate = vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' }));
+    const navigate = vi.fn(async () => ({ decision: 'allowed', outcome: 'ok' })) as unknown as (
+      request: BrowserGatewayNavigateRequest,
+    ) => Promise<BrowserGatewayResult<null>>;
     const server = new BrowserGatewayRpcServer({
       service: { navigate },
       userDataPath: '/tmp',
@@ -168,7 +172,15 @@ describe('BrowserGatewayRpcServer', () => {
 
   it('handles durable browser workflow checkpoint save and resume RPC calls', async () => {
     const checkpointStore = {
-      saveStep: vi.fn(async (input) => ({
+      saveStep: vi.fn(async (input: {
+        ownerId: string;
+        workflowId: string;
+        stepId: string;
+        pageFingerprint: string;
+        resultSummary?: string;
+        completedAt?: number;
+      }) => ({
+        ownerId: input.ownerId,
         workflowId: input.workflowId,
         updatedAt: input.completedAt ?? 123,
         steps: [{
@@ -178,7 +190,7 @@ describe('BrowserGatewayRpcServer', () => {
           resultSummary: input.resultSummary,
         }],
       })),
-      get: vi.fn(async (ownerId, workflowId) => ({
+      get: vi.fn(async (ownerId: string, workflowId: string) => ({
         ownerId,
         workflowId,
         updatedAt: 123,
@@ -433,7 +445,7 @@ describe('BrowserGatewayRpcServer', () => {
       extensionToken: 'native-token',
       extensionCommandStore,
       registerCleanup: vi.fn(),
-    } as ConstructorParameters<typeof BrowserGatewayRpcServer>[0] & {
+    } as unknown as ConstructorParameters<typeof BrowserGatewayRpcServer>[0] & {
       extensionCommandStore: typeof extensionCommandStore;
     });
 

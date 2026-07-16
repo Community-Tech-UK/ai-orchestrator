@@ -199,6 +199,7 @@ function makeInstance(overrides: Partial<Instance>): Instance {
     restartEpoch: 0,
     workingDirectory: '/tmp',
     yoloMode: false,
+    launchMode: 'interactive',
     outputBuffer: [],
     ...overrides,
   };

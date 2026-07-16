@@ -1,6 +1,7 @@
 // src/tests/unit/memory/codebase-miner.test.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../../main/db/sqlite-driver';
 import * as fs from 'fs/promises';
 import * as path from 'node:path';
 
@@ -15,9 +16,9 @@ vi.mock('../../../main/persistence/rlm-database', async () => {
         if (!_testDb || !_testDb.open) {
           _testDb = new BetterSQLite3(':memory:');
           _testDb.pragma('foreign_keys = ON');
-          schema.createTables(_testDb);
-          schema.createMigrationsTable(_testDb);
-          schema.runMigrations(_testDb);
+          schema.createTables(_testDb as unknown as SqliteDriver);
+          schema.createMigrationsTable(_testDb as unknown as SqliteDriver);
+          schema.runMigrations(_testDb as unknown as SqliteDriver);
         }
         return _testDb;
       },
@@ -67,7 +68,7 @@ describe('CodebaseMiner', () => {
       const miner = CodebaseMiner.getInstance();
       const kg = KnowledgeGraphService.getInstance();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const path = String(filePath);
         if (path.endsWith('package.json')) {
           return JSON.stringify({
@@ -95,7 +96,7 @@ describe('CodebaseMiner', () => {
       const miner = CodebaseMiner.getInstance();
       const wake = WakeContextBuilder.getInstance();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const path = String(filePath);
         if (path.endsWith('README.md')) {
           return '# My App\n\nA web application for managing tasks. Built with React and Node.js.\n\n## Getting Started\n\nnpm install && npm run dev';
@@ -115,7 +116,7 @@ describe('CodebaseMiner', () => {
       // Ensure WakeContextBuilder is initialized for hint storage
       WakeContextBuilder.getInstance();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const path = String(filePath);
         if (path.endsWith('CLAUDE.md')) {
           return '# Instructions\n\nAlways use TypeScript. Never use var. Prefer const over let.';
@@ -141,7 +142,7 @@ describe('CodebaseMiner', () => {
     it('should not re-mine a directory that was already mined', async () => {
       const miner = CodebaseMiner.getInstance();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const path = String(filePath);
         if (path.endsWith('package.json')) {
           return JSON.stringify({ name: 'test', dependencies: { express: '1.0' } });
@@ -159,7 +160,7 @@ describe('CodebaseMiner', () => {
     it('should report mining status for a directory', async () => {
       const miner = CodebaseMiner.getInstance();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const path = String(filePath);
         if (path.endsWith('README.md')) {
           return '# Test Project\n\nMining status smoke test.';
@@ -201,7 +202,7 @@ describe('CodebaseMiner', () => {
     it('should persist mining status across miner singleton resets', async () => {
       const miner = CodebaseMiner.getInstance();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const path = String(filePath);
         if (path.endsWith('package.json')) {
           return JSON.stringify({ name: 'persistent-project', dependencies: { express: '1.0.0' } });
@@ -228,7 +229,7 @@ describe('CodebaseMiner', () => {
         dependencies: { express: '1.0.0' },
       });
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const path = String(filePath);
         if (path.endsWith('package.json')) {
           return packageJson;
@@ -260,7 +261,7 @@ describe('CodebaseMiner', () => {
       const miner = CodebaseMiner.getInstance();
       const db = getRLMDatabase().getRawDb();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const file = String(filePath);
         if (file.endsWith('package.json')) {
           return JSON.stringify({ name: 'provenance-project', dependencies: { express: '1.0.0' } });
@@ -286,7 +287,7 @@ describe('CodebaseMiner', () => {
       const miner = CodebaseMiner.getInstance();
       const db = getRLMDatabase().getRawDb();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const file = String(filePath);
         if (file.endsWith('README.md')) {
           return '# Provenance App\n\nLocal source evidence should point at this README.';
@@ -309,7 +310,7 @@ describe('CodebaseMiner', () => {
       const miner = CodebaseMiner.getInstance();
       const db = getRLMDatabase().getRawDb();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const file = String(filePath);
         if (file.endsWith('package.json')) {
           return JSON.stringify({ name: 'legacy-project', dependencies: { express: '1.0.0' } });
@@ -333,7 +334,7 @@ describe('CodebaseMiner', () => {
       const miner = CodebaseMiner.getInstance();
       const db = getRLMDatabase().getRawDb();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const file = String(filePath);
         if (file.endsWith('package.json')) {
           return JSON.stringify({ name: 'skip-project', dependencies: { express: '1.0.0' } });
@@ -358,7 +359,7 @@ describe('CodebaseMiner', () => {
       const kg = KnowledgeGraphService.getInstance();
       let packageJson = JSON.stringify({ name: 'stale-project', dependencies: { express: '1.0.0' } });
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const file = String(filePath);
         if (file.endsWith('package.json')) {
           return packageJson;
@@ -384,7 +385,7 @@ describe('CodebaseMiner', () => {
       const db = getRLMDatabase().getRawDb();
       let hasReadme = true;
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const file = String(filePath);
         if (hasReadme && file.endsWith('README.md')) {
           return '# Deleted Source\n\nThis file will be removed.';
@@ -415,7 +416,7 @@ describe('CodebaseMiner', () => {
       }).source;
       let hasReadme = true;
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const file = String(filePath);
         if (hasReadme && file.endsWith('README.md')) {
           return '# Preserve Code\n\nThis source should be pruned when removed.';
@@ -441,7 +442,7 @@ describe('CodebaseMiner', () => {
       wake.addHint('Tech stack: express', { importance: 7, room: 'general' });
       const existingProjectHintId = wake.addHint('Tech stack: express', { importance: 3, room: '/fake/room' });
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const file = String(filePath);
         if (file.endsWith('package.json')) {
           return JSON.stringify({ name: 'room-project', dependencies: { express: '1.0.0' } });
@@ -482,7 +483,7 @@ describe('CodebaseMiner', () => {
       const miner = CodebaseMiner.getInstance();
       const kg = KnowledgeGraphService.getInstance();
 
-      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
         const path = String(filePath);
         if (path.endsWith('package.json')) {
           return JSON.stringify({

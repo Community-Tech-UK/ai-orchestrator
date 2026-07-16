@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events';
+import type { spawn } from 'node:child_process';
+import type { mkdtemp, readFile as readFileFn } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MacosSayTtsProvider } from './macos-say-tts-provider';
 
@@ -40,9 +42,9 @@ describe('MacosSayTtsProvider', () => {
     const provider = new MacosSayTtsProvider({
       platform: 'darwin',
       exists: () => true,
-      spawnProcess,
-      makeTempDir: vi.fn(async () => '/tmp/ai-orchestrator-voice-test'),
-      readFile: vi.fn(async () => Buffer.from('RIFF')),
+      spawnProcess: spawnProcess as unknown as typeof spawn,
+      makeTempDir: vi.fn(async () => '/tmp/ai-orchestrator-voice-test') as unknown as typeof mkdtemp,
+      readFile: vi.fn(async () => Buffer.from('RIFF')) as unknown as typeof readFileFn,
       removePath,
       tempRoot: () => '/tmp',
     });
@@ -90,9 +92,9 @@ describe('MacosSayTtsProvider', () => {
     const provider = new MacosSayTtsProvider({
       platform: 'darwin',
       exists: () => true,
-      spawnProcess: vi.fn(() => child as never),
-      makeTempDir: vi.fn(async () => '/tmp/ai-orchestrator-voice-test'),
-      readFile: vi.fn(async () => Buffer.from('RIFF')),
+      spawnProcess: vi.fn(() => child as never) as unknown as typeof spawn,
+      makeTempDir: vi.fn(async () => '/tmp/ai-orchestrator-voice-test') as unknown as typeof mkdtemp,
+      readFile: vi.fn(async () => Buffer.from('RIFF')) as unknown as typeof readFileFn,
       removePath: vi.fn(async () => undefined),
       tempRoot: () => '/tmp',
     });

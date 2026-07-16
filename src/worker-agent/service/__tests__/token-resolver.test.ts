@@ -28,7 +28,7 @@ describe('resolveToken', () => {
   });
 
   it('reads from env when tokenEnv set', async () => {
-    process.env.TESTING_TOKEN = 'envvalue';
+    process.env['TESTING_TOKEN'] = 'envvalue';
     const { token, source } = await resolveToken({ tokenEnv: 'TESTING_TOKEN' });
     expect(token).toBe('envvalue');
     expect(source).toBe(TokenSource.Env);

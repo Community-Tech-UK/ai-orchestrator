@@ -53,6 +53,7 @@ describe('wave 3 IPC handlers', () => {
       }),
     };
     const snippets = {
+      extractAtArchiveTime: vi.fn().mockReturnValue([]),
       expandSnippetsOnDemand: vi.fn().mockResolvedValue([{ position: 2, excerpt: 'auth bug', score: 1 }]),
     };
 

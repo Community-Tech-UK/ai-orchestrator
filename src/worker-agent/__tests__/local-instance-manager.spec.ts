@@ -29,7 +29,7 @@ class ControlledWorkerAdapter extends EventEmitter {
 }
 
 let mockAdapter: MockWorkerAdapter;
-const mockCreateCliAdapter = vi.fn(() => mockAdapter);
+const mockCreateCliAdapter = vi.fn<(...args: unknown[]) => MockWorkerAdapter>(() => mockAdapter);
 
 vi.mock('../../main/cli/adapters/adapter-factory', () => ({
   createCliAdapter: (...args: unknown[]) => mockCreateCliAdapter(...args),

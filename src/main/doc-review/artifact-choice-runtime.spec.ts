@@ -1,7 +1,28 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { JSDOM } from 'jsdom';
+// jsdom ships no type declarations and @types/jsdom is not installed in this
+// repo; shim a minimal local type below instead of adding a project-wide
+// ambient declaration file.
+// @ts-expect-error -- 'jsdom' has no bundled or installed type declarations
+import { JSDOM as UntypedJSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
+
+interface DOMWindow extends Window {
+  readonly MessageEvent: typeof MessageEvent;
+}
+
+interface JSDOMOptions {
+  runScripts?: 'dangerously' | 'outside-only';
+  url?: string;
+  beforeParse?: (window: DOMWindow) => void;
+}
+
+interface JSDOMConstructor {
+  new (html?: string, options?: JSDOMOptions): { window: DOMWindow };
+}
+
+const JSDOM = UntypedJSDOM as unknown as JSDOMConstructor;
+type JSDOM = InstanceType<JSDOMConstructor>;
 
 const TEMPLATE_PATH = join(__dirname, 'assets', 'artifact-template.html');
 const template = readFileSync(TEMPLATE_PATH, 'utf8');

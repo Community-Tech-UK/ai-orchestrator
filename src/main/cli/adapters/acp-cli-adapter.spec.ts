@@ -55,6 +55,7 @@ describe('AcpCliAdapter', () => {
       command: process.execPath,
       args: [],
       requestTimeoutMs: 100,
+      workingDirectory: '/tmp',
     });
 
     expect(adapter.getRuntimeCapabilities().supportsResume).toBe(false);
@@ -66,6 +67,7 @@ describe('AcpCliAdapter', () => {
       command: process.execPath,
       args: [],
       requestTimeoutMs: 100,
+      workingDirectory: '/tmp',
     });
 
     expect(adapter.getAdapterCapabilities()).toEqual({

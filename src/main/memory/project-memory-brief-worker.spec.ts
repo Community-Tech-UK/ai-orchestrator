@@ -19,6 +19,9 @@ const readModel: ProjectKnowledgeReadModel = {
     inventory: {
       totalSources: 1,
       totalLinks: 2,
+      totalKgLinks: 0,
+      totalWakeLinks: 0,
+      totalCodeSymbols: 0,
       byKind: {},
     },
   },

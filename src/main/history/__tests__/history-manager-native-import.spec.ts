@@ -201,7 +201,7 @@ describe('HistoryManager — native Claude transcript import', () => {
       provider: 'orchestrator',
       sourceKind: 'orchestrator',
       metadata: { scope: 'instance', historyThreadId: providerSessionId },
-    } as ConversationThreadRecord;
+    } as unknown as ConversationThreadRecord;
     const startConversation = vi.fn(async (input: { metadata: Record<string, unknown> }) => ({
       ...collision,
       id: 'created-canonical',

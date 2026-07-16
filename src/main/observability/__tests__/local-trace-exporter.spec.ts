@@ -4,6 +4,7 @@ import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import type { InstrumentationScope } from '@opentelemetry/core';
+import type { Resource } from '@opentelemetry/resources';
 import { LocalTraceFileExporter } from '../local-trace-exporter';
 
 const tempDirs: string[] = [];
@@ -24,7 +25,10 @@ function createSpan(name: string): ReadableSpan {
     events: [],
     duration: [0, 150_000_000],
     ended: true,
-    resource: { attributes: { 'service.name': 'test-service' }, async waitForAsyncAttributes() {} },
+    resource: {
+      attributes: { 'service.name': 'test-service' },
+      async waitForAsyncAttributes() {},
+    } as unknown as Resource,
     instrumentationScope: { name: 'test-scope' } as InstrumentationScope,
     droppedAttributesCount: 0,
     droppedEventsCount: 0,

@@ -109,7 +109,7 @@ describe('AnthropicApiProvider', () => {
     anthropicSdkMocks.countTokens.mockResolvedValue({ input_tokens: 123 });
 
     // Set up test environment
-    process.env.ANTHROPIC_API_KEY = 'test-api-key';
+    process.env['ANTHROPIC_API_KEY'] = 'test-api-key';
 
     config = {
       type: 'anthropic-api',
@@ -126,7 +126,7 @@ describe('AnthropicApiProvider', () => {
   });
 
   afterEach(() => {
-    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env['ANTHROPIC_API_KEY'];
   });
 
   function captureEvents(target: AnthropicApiProvider): ProviderRuntimeEventEnvelope[] {
@@ -157,7 +157,7 @@ describe('AnthropicApiProvider', () => {
 
   describe('checkStatus', () => {
     it('returns unavailable when API key is not set', async () => {
-      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env['ANTHROPIC_API_KEY'];
 
       const status = await provider.checkStatus();
 
@@ -192,7 +192,7 @@ describe('AnthropicApiProvider', () => {
     });
 
     it('throws error if API key is not set', async () => {
-      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env['ANTHROPIC_API_KEY'];
 
       await expect(
         provider.initialize({
@@ -405,7 +405,7 @@ describe('AnthropicApiProvider', () => {
       const directProvider = new AnthropicApiProvider({
         ...config,
         enablePromptCaching: false,
-      });
+      } as AnthropicApiProviderConfig);
       await directProvider.initialize({
         sessionId: 'direct-session',
         workingDirectory: '/test',

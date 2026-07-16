@@ -175,7 +175,7 @@ describe('Auto-expand Tasks', () => {
     const todoSessionId = 'session-1'; // Stale: still pointing at previous instance's session
 
     // Simulate the effect logic — stale data guard should prevent auto-expand
-    if (todoSessionId === sessionId && hasTodos && todoAutoExpandedForInstance() !== instanceId) {
+    if ((todoSessionId as string) === sessionId && hasTodos && todoAutoExpandedForInstance() !== instanceId) {
       todoAutoExpandedForInstance.set(instanceId);
       showTodoInspector.set(true);
     }

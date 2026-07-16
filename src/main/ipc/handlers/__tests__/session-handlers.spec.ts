@@ -14,6 +14,7 @@ type IpcHandler = (event: unknown, payload?: unknown) => Promise<unknown>;
 const handlers = new Map<string, IpcHandler>();
 
 interface MockOutputMessage {
+  id?: string;
   type?: string;
   content?: string;
   metadata?: Record<string, unknown>;

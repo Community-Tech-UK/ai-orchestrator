@@ -11,7 +11,7 @@ const ctx: ValidationContext = {
 };
 
 function check(cmd: string) {
-  return detector.validate(cmd, parser.parse(cmd), ctx);
+  return detector.validate(cmd);
 }
 
 function flags(cmd: string) {

@@ -42,6 +42,8 @@ function createInstance(overrides: Partial<Instance> = {}): Instance {
     workerNodeId: undefined,
     depth: 0,
     terminationPolicy: 'terminate-children',
+    launchMode: 'orchestrated',
+    executionLocation: { type: 'local' },
     contextInheritance: createDefaultContextInheritance(),
     agentId: 'build',
     agentMode: 'build',
@@ -53,6 +55,7 @@ function createInstance(overrides: Partial<Instance> = {}): Instance {
     currentTool: undefined,
     processId: null,
     sessionId: 'session-1',
+    providerSessionId: 'session-1',
     workingDirectory: '/tmp/project',
     yoloMode: false,
     provider: 'claude',
@@ -68,6 +71,7 @@ function createInstance(overrides: Partial<Instance> = {}): Instance {
     requestCount: 0,
     errorCount: 0,
     restartCount: 0,
+    restartEpoch: 0,
     ...overrides,
   };
 }

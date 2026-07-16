@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   DesktopGatewayResult,
+  DesktopPermissionRepairResult,
   DesktopPermissionRequestResult,
 } from '../../../shared/types/desktop-gateway.types';
 
@@ -9,9 +10,9 @@ type Handler = (event: unknown, payload: unknown) => Promise<unknown>;
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, Handler>(),
   openExternal: vi.fn(async (_url: string) => undefined),
-  repairSystemPermissions: vi.fn(async () => ({
-    resetPermissions: ['screen-recording', 'accessibility'] as const,
-    relaunchRequired: true as const,
+  repairSystemPermissions: vi.fn(async (): Promise<DesktopPermissionRepairResult> => ({
+    resetPermissions: ['screen-recording', 'accessibility'],
+    relaunchRequired: true,
   })),
   scheduleRelaunch: vi.fn(),
   health: vi.fn(async () => ({

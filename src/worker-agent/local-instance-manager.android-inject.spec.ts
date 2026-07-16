@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalInstanceManager, type SpawnParams } from './local-instance-manager';
 import type { WorkerBrowserManager } from './worker-browser-manager';
-import type { WorkerAndroidManager } from './android/worker-android-manager';
+import type { WorkerAndroidAttach, WorkerAndroidManager } from './android/worker-android-manager';
+import type { AndroidLeasePrefs } from './android/device-lease-registry';
 
 class FakeAdapter extends EventEmitter {
   spawn = vi.fn(async () => 0);
@@ -87,19 +88,19 @@ describe('LocalInstanceManager Android injection', () => {
     expect(manager.resolveAttachForInstance).toHaveBeenCalledWith('inst-1', {
       kind: 'any',
     });
-    expect(lastSpawnOptions().mobileMcp).toEqual({
+    expect(lastSpawnOptions()['mobileMcp']).toEqual({
       serial: 'emulator-5554',
       kind: 'emulator',
       sdkPath: '/android/sdk',
       maestro: false,
     });
-    expect((lastSpawnOptions().env as Record<string, string>)['ANDROID_SERIAL']).toBe('emulator-5554');
-    expect(lastSpawnOptions().systemPrompt).toContain('leased Android device `emulator-5554`');
+    expect((lastSpawnOptions()['env'] as Record<string, string>)['ANDROID_SERIAL']).toBe('emulator-5554');
+    expect(lastSpawnOptions()['systemPrompt']).toContain('leased Android device `emulator-5554`');
   });
 
   it('propagates resolved Android attach version into mobile-mcp builder options', async () => {
     const manager = androidManager({
-      resolveAttachForInstance: vi.fn(async () => ({
+      resolveAttachForInstance: vi.fn<(instanceId: string, prefs?: AndroidLeasePrefs) => Promise<WorkerAndroidAttach>>(async () => ({
         serial: 'emulator-5556',
         kind: 'emulator',
         sdkPath: '/detected/sdk',
@@ -111,7 +112,7 @@ describe('LocalInstanceManager Android injection', () => {
 
     await mgr.spawn(baseParams());
 
-    expect(lastSpawnOptions().mobileMcp).toEqual({
+    expect(lastSpawnOptions()['mobileMcp']).toEqual({
       serial: 'emulator-5556',
       kind: 'emulator',
       sdkPath: '/detected/sdk',
@@ -125,11 +126,11 @@ describe('LocalInstanceManager Android injection', () => {
 
     await mgr.spawn(baseParams());
 
-    const env = lastSpawnOptions().env as Record<string, string>;
+    const env = lastSpawnOptions()['env'] as Record<string, string>;
     expect(env['ANDROID_SERIAL']).toBe('emulator-5554');
     expect(env['AIO_BROWSER_URL']).toBe('http://127.0.0.1:9222');
     expect(env['AIO_AXE_RUNNER']).toContain('axe-audit.mjs');
-    expect(lastSpawnOptions().chromeDevtoolsMcp).toEqual({
+    expect(lastSpawnOptions()['chromeDevtoolsMcp']).toEqual({
       browserUrl: 'http://127.0.0.1:9222',
     });
   });
@@ -141,7 +142,7 @@ describe('LocalInstanceManager Android injection', () => {
     await mgr.spawn(baseParams({ nodePlacement: undefined }));
 
     expect(manager.resolveAttachForInstance).not.toHaveBeenCalled();
-    expect(lastSpawnOptions().mobileMcp).toBeUndefined();
+    expect(lastSpawnOptions()['mobileMcp']).toBeUndefined();
   });
 
   it('releases the lease when an adapter exits or spawn fails', async () => {

@@ -30,6 +30,7 @@ function makeAutomation(): Automation {
     active: true,
     workspaceId: '/repo',
     schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+    trigger: { kind: 'schedule' },
     missedRunPolicy: 'notify',
     concurrencyPolicy: 'skip',
     destination: { kind: 'newInstance' },

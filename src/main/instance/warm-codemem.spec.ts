@@ -95,7 +95,7 @@ describe('warmCodememWithTimeout', () => {
     const target: WarmCodememTarget = {
       isEnabled: () => true,
       // Never-resolving promise simulates a hung warm-up.
-      warmWorkspace: vi.fn(() => new Promise(() => undefined)),
+      warmWorkspace: vi.fn(() => new Promise<{ ready: boolean; filePath: string | null }>(() => undefined)),
     };
     const logger = makeLogger();
 

@@ -266,6 +266,7 @@ describe('InstanceContextPort', () => {
       }),
       buildRlmContext: vi.fn().mockResolvedValue(null),
       buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+      buildObservationContext: vi.fn().mockResolvedValue(null),
       buildWakeContextText: vi.fn().mockResolvedValue(null),
       buildMcpRuntimeToolContextSelection: vi.fn().mockResolvedValue(null),
       formatRlmContextBlock: vi.fn().mockReturnValue(null),

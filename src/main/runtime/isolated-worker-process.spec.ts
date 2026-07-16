@@ -67,7 +67,18 @@ describe('createIsolatedWorkerProcess', () => {
       kill: vi.fn(() => true),
     });
     const childProcessFork = vi.fn();
-    const utilityProcessFork = vi.fn(() => child);
+    const utilityProcessFork = vi.fn(
+      (
+        _modulePath: string,
+        _args?: string[],
+        _options?: {
+          serviceName?: string;
+          env?: Record<string, string | undefined>;
+          execArgv?: string[];
+          stdio?: string;
+        },
+      ) => child,
+    );
     vi.doMock('node:child_process', () => ({
       default: { fork: childProcessFork },
       fork: childProcessFork,

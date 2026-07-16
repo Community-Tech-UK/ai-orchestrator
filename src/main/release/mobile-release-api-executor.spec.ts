@@ -303,7 +303,7 @@ describe('mobile release API executors', () => {
           return { data: { id: 'build-1', attributes: { processingState: 'VALID' } } };
         }
         return {};
-      }),
+      }) as unknown as AscReleaseApiClient['request'],
     };
 
     const result = await executeIosAscApiRelease({
@@ -498,7 +498,7 @@ describe('mobile release API executors', () => {
 
     const result = await executeIosAscApiRelease({
       plan,
-      client: { request, uploadAssetPart },
+      client: { request, uploadAssetPart } as unknown as AscReleaseApiClient,
       buildId: 'build-1',
       appStoreVersionId: 'version-1',
       usesNonExemptEncryption: false,

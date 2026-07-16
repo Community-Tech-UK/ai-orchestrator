@@ -40,13 +40,14 @@ describe('watch-ignore', () => {
     await mkdir(path.join(tempRoot, 'src'), { recursive: true });
     await writeFile(path.join(tempRoot, '.gitignore'), '/cache/\n');
 
-    const ignored = buildWatchIgnoredMatchers(tempRoot);
+    const root = tempRoot;
+    const ignored = buildWatchIgnoredMatchers(root);
     const predicates = ignored.filter(
       (matcher): matcher is (candidatePath: string) => boolean => typeof matcher === 'function',
     );
 
-    expect(predicates.some((predicate) => predicate(path.join(tempRoot, 'cache', 'generated.ts')))).toBe(true);
-    expect(predicates.some((predicate) => predicate(path.join(tempRoot, 'src', 'app.ts')))).toBe(false);
+    expect(predicates.some((predicate) => predicate(path.join(root, 'cache', 'generated.ts')))).toBe(true);
+    expect(predicates.some((predicate) => predicate(path.join(root, 'src', 'app.ts')))).toBe(false);
   });
 
   it('does not pass absolute out-of-root paths to the gitignore matcher', async () => {

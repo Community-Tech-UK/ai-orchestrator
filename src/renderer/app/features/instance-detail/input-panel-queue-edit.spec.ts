@@ -538,7 +538,7 @@ function createDraftServiceMock(): Partial<DraftService> {
 function createProviderStateMock(): Partial<ProviderStateService> {
   return {
     selectedProvider: signal<ProviderType>('claude'),
-    selectedModel: signal<string | undefined>(undefined),
+    selectedModel: signal<string>(''),
     setProvider: vi.fn(),
     setModel: vi.fn(),
   };

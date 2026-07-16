@@ -50,7 +50,7 @@ import { ConsensusCoordinator } from '../consensus-coordinator';
 class MockConsensusAdapter extends EventEmitter {
   spawn = vi.fn().mockResolvedValue(1234);
   terminate = vi.fn().mockResolvedValue(undefined);
-  sendInput = vi.fn(async () => {
+  sendInput = vi.fn(async (_message: string) => {
     this.emit('output', {
       id: 'response-1',
       timestamp: Date.now(),

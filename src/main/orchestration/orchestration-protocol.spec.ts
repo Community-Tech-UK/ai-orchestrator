@@ -471,7 +471,7 @@ describe('parseOrchestratorCommands', () => {
     for (const sample of samples) {
       expect(
         parseFirst(commandBlock(sample)),
-        `expected to round-trip action "${sample.action}"`,
+        `expected to round-trip action "${sample['action']}"`,
       ).toEqual(sample);
     }
   });

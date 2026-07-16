@@ -3,6 +3,7 @@ import type { DiagnosisResult, ProbeResult } from './provider-doctor';
 import { ProviderRuntimeRegistry, normalizeDiagnosisProvider } from './provider-runtime-registry';
 import { ProviderRuntimeService } from './provider-runtime-service';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import type { CliAdapter } from '../cli/adapters/adapter-factory';
 
 const capabilities: AdapterRuntimeCapabilities = {
   supportsResume: true,
@@ -175,7 +176,7 @@ describe('ProviderRuntimeService registry integration', () => {
     const adapter = {
       interrupt: vi.fn(),
       getRuntimeCapabilities: vi.fn(() => capabilities),
-    };
+    } as unknown as CliAdapter;
     const createAdapter = vi.fn(() => adapter);
     const service = new ProviderRuntimeService({
       registry,

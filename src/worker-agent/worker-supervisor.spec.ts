@@ -127,12 +127,12 @@ describe('runWorkerSupervisor', () => {
   });
 
   it('forwards a termination signal to the running child and stops', async () => {
-    let capturedExit: ((r: { code: number | null; signal: NodeJS.Signals | null }) => void) | null = null;
+    const captured: { exit: ((r: { code: number | null; signal: NodeJS.Signals | null }) => void) | null } = { exit: null };
     const kill = vi.fn();
     const spawnChild = (): SupervisedChildHandle => ({
       pid: 4242,
       onExit: (cb) => {
-        capturedExit = cb; // do NOT auto-resolve; the test drives the exit
+        captured.exit = cb; // do NOT auto-resolve; the test drives the exit
       },
       kill,
     });
@@ -152,7 +152,7 @@ describe('runWorkerSupervisor', () => {
     expect(kill).toHaveBeenCalledWith('SIGINT');
 
     // Child exits in response; supervisor should stop cleanly, not restart.
-    capturedExit?.({ code: 0, signal: 'SIGINT' });
+    captured.exit?.({ code: 0, signal: 'SIGINT' });
     const result = await promise;
     expect(result).toBe(0);
 

@@ -64,12 +64,17 @@ function makeContextPort(overrides: Partial<InstanceContextPort> = {}): Instance
       unifiedMaxTokens: 100,
       rlmTopK: 3,
     })),
-    buildRlmContext: vi.fn(async () => ({
+    buildRlmContext: vi.fn(async (
+      _instanceId: string,
+      _message: string,
+      _maxTokens?: number,
+      _topK?: number,
+    ) => ({
       context: 'rlm',
       tokens: 10,
       sectionsAccessed: ['sec-1'],
       durationMs: 5,
-      source: 'semantic',
+      source: 'semantic' as const,
     })),
     buildUnifiedMemoryContext: vi.fn(async () => ({
       context: 'memory',
@@ -147,6 +152,7 @@ describe('LegacyContextEngine', () => {
       tokens: 12,
       results: [],
       storeId: 'store-1',
+      workspacePath: '/repo',
       durationMs: 6,
     };
 
@@ -155,7 +161,7 @@ describe('LegacyContextEngine', () => {
       message: 'what changed?',
       taskId: 'task-1',
       contextPort: port,
-      buildIndexedCodebaseContext: vi.fn(async () => indexedCodebaseContext),
+      buildIndexedCodebaseContext: vi.fn(async (_instance: Instance, _message: string) => indexedCodebaseContext),
     });
 
     expect(port.calculateContextBudget).toHaveBeenCalledWith(inst, 'what changed?');
@@ -186,8 +192,16 @@ describe('SafeContextEngine (quarantine/fallback)', () => {
         indexedCodebaseContext: null,
       })),
       afterTurn: vi.fn(),
-      compactInstance: vi.fn(async () => ({ success: true })),
-      getStatus: vi.fn(() => ({ latestUsage: null, isCompacting: false })),
+      compactInstance: vi.fn(async (_instanceId: string) => ({
+        success: true,
+        method: 'native' as const,
+        blocking: false,
+      })),
+      getStatus: vi.fn((_instanceId: string) => ({
+        latestUsage: null,
+        isCompacting: false,
+        lastTurnStatus: null,
+      })),
       cleanupInstance: vi.fn(),
       ...overrides,
     };
@@ -324,8 +338,16 @@ describe('getContextEngine singleton', () => {
         indexedCodebaseContext: null,
       })),
       afterTurn: vi.fn(),
-      compactInstance: vi.fn(async () => ({ success: true })),
-      getStatus: vi.fn(() => ({ latestUsage: null, isCompacting: false })),
+      compactInstance: vi.fn(async (_instanceId: string) => ({
+        success: true,
+        method: 'native' as const,
+        blocking: false,
+      })),
+      getStatus: vi.fn((_instanceId: string) => ({
+        latestUsage: null,
+        isCompacting: false,
+        lastTurnStatus: null,
+      })),
       cleanupInstance: vi.fn(),
     };
     setContextEngine(inner);
@@ -348,8 +370,16 @@ describe('getContextEngine singleton', () => {
         indexedCodebaseContext: null,
       })),
       afterTurn: vi.fn(),
-      compactInstance: vi.fn(async () => ({ success: true })),
-      getStatus: vi.fn(() => ({ latestUsage: null, isCompacting: false })),
+      compactInstance: vi.fn(async (_instanceId: string) => ({
+        success: true,
+        method: 'native' as const,
+        blocking: false,
+      })),
+      getStatus: vi.fn((_instanceId: string) => ({
+        latestUsage: null,
+        isCompacting: false,
+        lastTurnStatus: null,
+      })),
       cleanupInstance: vi.fn(),
     };
     setContextEngine(inner);

@@ -1,7 +1,11 @@
 import { computed, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { RLM_STORAGE_HARD_LIMIT_BYTES } from '../../../../shared/types/rlm-maintenance.types';
+import {
+  RLM_STORAGE_HARD_LIMIT_BYTES,
+  type RlmMaintenanceProgress,
+  type RlmMaintenanceResult,
+} from '../../../../shared/types/rlm-maintenance.types';
 import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-maintenance.store';
 import { RlmStorageMaintenanceComponent } from './rlm-storage-maintenance.component';
 
@@ -233,8 +237,8 @@ function fakeStore() {
       canRun: true,
       generatedAt: 1,
     }),
-    progress: signal(null as never),
-    result: signal(null as never),
+    progress: signal<RlmMaintenanceProgress | null>(null),
+    result: signal<RlmMaintenanceResult | null>(null),
     busy: signal(false),
     modalOpen: signal(false),
     dismissed,

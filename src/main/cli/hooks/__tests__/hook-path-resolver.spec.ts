@@ -45,7 +45,7 @@ describe('hook-path-resolver', () => {
 
   afterEach(() => {
     rmSync(tempRoot, { recursive: true, force: true });
-    delete (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    delete (process as unknown as { resourcesPath?: string }).resourcesPath;
   });
 
   it('resolves the packaged hook path from process resources', () => {

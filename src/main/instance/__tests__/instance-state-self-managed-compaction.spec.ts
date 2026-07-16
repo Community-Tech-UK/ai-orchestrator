@@ -18,6 +18,7 @@ import {
   type CliStatus,
 } from '../../cli/adapters/base-cli-adapter';
 import type { Instance } from '../../../shared/types/instance.types';
+import type { CliAdapter } from '../../cli/adapters/adapter-factory.types';
 
 class CapabilityAdapter extends BaseCliAdapter {
   constructor(private readonly selfManaged: boolean) {
@@ -85,11 +86,11 @@ describe('InstanceStateManager — selfManagesAutoCompaction enrichment', () => 
     try {
       mgr.setInstance(makeInstance('self'));
       mgr.setInstance(makeInstance('orch'));
-      mgr.setAdapter('self', new CapabilityAdapter(true));
-      mgr.setAdapter('orch', new CapabilityAdapter(false));
+      mgr.setAdapter('self', new CapabilityAdapter(true) as unknown as CliAdapter);
+      mgr.setAdapter('orch', new CapabilityAdapter(false) as unknown as CliAdapter);
 
-      expect(mgr.serializeForIpc(mgr.getInstance('self')!).selfManagesAutoCompaction).toBe(true);
-      expect(mgr.serializeForIpc(mgr.getInstance('orch')!).selfManagesAutoCompaction).toBe(false);
+      expect(mgr.serializeForIpc(mgr.getInstance('self')!)['selfManagesAutoCompaction']).toBe(true);
+      expect(mgr.serializeForIpc(mgr.getInstance('orch')!)['selfManagesAutoCompaction']).toBe(false);
     } finally {
       mgr.destroy();
     }
@@ -111,7 +112,7 @@ describe('InstanceStateManager — selfManagesAutoCompaction enrichment', () => 
     const mgr = new InstanceStateManager();
     try {
       mgr.setInstance(makeInstance('self'));
-      mgr.setAdapter('self', new CapabilityAdapter(true));
+      mgr.setAdapter('self', new CapabilityAdapter(true) as unknown as CliAdapter);
 
       const batches: Array<{ updates: Array<Record<string, unknown>> }> = [];
       mgr.on('batch-update', (b) => batches.push(b));

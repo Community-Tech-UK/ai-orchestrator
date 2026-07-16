@@ -12,7 +12,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     childrenIds: [],
     supervisorNodeId: 'supervisor-1',
     depth: 0,
-    terminationPolicy: { type: 'manual' } as Instance['terminationPolicy'],
+    terminationPolicy: 'terminate-children',
     contextInheritance: {} as Instance['contextInheritance'],
     agentId: 'build',
     agentMode: 'build',
@@ -85,7 +85,7 @@ describe('RestartPolicyHelpers', () => {
       },
     });
 
-    helpers.resetBackendSessionState(instance, 'claude-cli', {
+    helpers.resetBackendSessionState(instance, 'claude', {
       resetTotalTokensUsed: true,
       resetFirstMessageTracking: true,
     });

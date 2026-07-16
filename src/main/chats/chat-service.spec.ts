@@ -9,6 +9,7 @@ import { createInstance, type FileAttachment, type Instance, type InstanceCreate
 import type { ChatEvent } from '../../shared/types/chat.types';
 import { BranchSummarizer } from '../context/branch-summarizer';
 import { ChatService } from './chat-service';
+import type { ConversationEvidenceDeletionResult } from '../conversation-ledger/context-evidence-ledger.types';
 
 const CHAT_PAGINATION_TEST_TIMEOUT_MS = 15_000;
 
@@ -871,7 +872,9 @@ describe('ChatService', () => {
     await service.drainBranchSummariesForTesting();
 
     const summaries = (await service.getChat(child.chat.id)).conversation.messages.filter(
-      (message) => message.rawJson?.['metadata']?.['kind'] === 'branch-summary',
+      (message) =>
+        (message.rawJson?.['metadata'] as Record<string, unknown> | undefined)?.['kind'] ===
+        'branch-summary',
     );
     expect(summaries).toHaveLength(1);
   });
@@ -1234,7 +1237,7 @@ describe('ChatService', () => {
   });
 
   function createHarness(options: {
-    revokeConversation?: (conversationId: string) => Promise<unknown>;
+    revokeConversation?: (conversationId: string) => Promise<ConversationEvidenceDeletionResult>;
   } = {}): {
     db: SqliteDriver;
     ledger: ConversationLedgerService;

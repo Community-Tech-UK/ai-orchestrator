@@ -55,7 +55,7 @@ describe('interpolateConfigString', () => {
   });
 
   it('resolves {file:path} via the injected reader', async () => {
-    const read = vi.fn(async () => 'FILE CONTENTS');
+    const read = vi.fn(async (_absPath: string, _maxBytes: number) => 'FILE CONTENTS');
     const r = await interpolateConfigString('doc:\n{file:notes.md}', { cwd: '/proj', readFile: read });
     expect(r.content).toBe('doc:\nFILE CONTENTS');
     // path is resolved against cwd

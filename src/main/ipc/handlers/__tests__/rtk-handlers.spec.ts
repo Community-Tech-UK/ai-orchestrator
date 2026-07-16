@@ -26,7 +26,7 @@ vi.mock('electron', () => ({
 
 const runtimeMocks = vi.hoisted(() => ({
   isAvailable: vi.fn(() => true),
-  binarySource: vi.fn(() => 'bundled' as const),
+  binarySource: vi.fn((): 'bundled' | 'system' | 'override' | 'none' => 'bundled'),
   version: vi.fn(() => '0.39.0' as string | null),
   // The runtime factory itself; we capture the args for the version assertion
   // below so we can confirm `bundledOnly` is honoured.

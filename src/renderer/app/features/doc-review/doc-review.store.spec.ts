@@ -14,6 +14,7 @@ function makeSession(overrides: Partial<DocReviewSession> = {}): DocReviewSessio
     status: 'pending',
     decisions: [],
     createdAt: 1,
+    deliveryAttempts: [],
     ...overrides,
   };
 }

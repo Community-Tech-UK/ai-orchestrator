@@ -11,6 +11,7 @@ import { CliAutoUpdateService, type CliAutoUpdateServiceDeps } from '../cli-auto
 import type { CliUpdatePillEntry, CliUpdatePillState } from '../../../shared/types/diagnostics.types';
 import type { CliUpdateStrategy } from '../../../shared/types/diagnostics.types';
 import type { CliUpdatePolicy } from '../../../shared/types/settings.types';
+import type { CliType } from '../cli-detection';
 
 function entry(
   cli: string,
@@ -59,7 +60,7 @@ function makeHarness(opts: {
   let policyCb: (() => void) | null = null;
   let current: CliUpdatePillState = state([]);
 
-  const updateOne = vi.fn(async (cli: string) => ({
+  const updateOne = vi.fn(async (cli: CliType) => ({
     cli,
     displayName: cli,
     status: opts.updateResult ?? 'updated',

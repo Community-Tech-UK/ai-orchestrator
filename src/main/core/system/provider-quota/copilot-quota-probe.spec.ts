@@ -29,7 +29,7 @@ describe('CopilotQuotaProbe', () => {
   describe('happy path — logged in', () => {
     it('returns ok=true with plan=unknown when loggedInUsers has entries', async () => {
       const probe = new CopilotQuotaProbe({ readFile: fakeReader({ content: LOGGED_IN_CONFIG }) });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap).not.toBeNull();
       expect(snap!.provider).toBe('copilot');
       expect(snap!.ok).toBe(true);
@@ -44,7 +44,7 @@ describe('CopilotQuotaProbe', () => {
 // This file is managed automatically.
 ${LOGGED_IN_CONFIG}`;
       const probe = new CopilotQuotaProbe({ readFile: fakeReader({ content: realCopilotConfig }) });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap!.ok).toBe(true);
     });
 
@@ -58,7 +58,7 @@ ${LOGGED_IN_CONFIG}`;
           }),
         }),
       });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap!.ok).toBe(true);
     });
   });
@@ -68,7 +68,7 @@ ${LOGGED_IN_CONFIG}`;
       const probe = new CopilotQuotaProbe({
         readFile: fakeReader({ content: LOGGED_OUT_CONFIG_EMPTY_USERS }),
       });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap!.ok).toBe(false);
       expect(snap!.error).toMatch(/not signed in|logged out/i);
     });
@@ -77,14 +77,14 @@ ${LOGGED_IN_CONFIG}`;
       const probe = new CopilotQuotaProbe({
         readFile: fakeReader({ content: LOGGED_OUT_CONFIG_NO_FIELD }),
       });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap!.ok).toBe(false);
     });
 
     it('returns ok=false when config file does not exist (ENOENT)', async () => {
       const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) as NodeJS.ErrnoException;
       const probe = new CopilotQuotaProbe({ readFile: fakeReader({ throws: enoent }) });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap!.ok).toBe(false);
       expect(snap!.error).toMatch(/not signed in|not installed/i);
     });
@@ -94,7 +94,7 @@ ${LOGGED_IN_CONFIG}`;
     it('returns ok=false on permission error', async () => {
       const eacces = Object.assign(new Error('EACCES'), { code: 'EACCES' }) as NodeJS.ErrnoException;
       const probe = new CopilotQuotaProbe({ readFile: fakeReader({ throws: eacces }) });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap!.ok).toBe(false);
       expect(snap!.error).toMatch(/permission|EACCES/i);
     });
@@ -103,7 +103,7 @@ ${LOGGED_IN_CONFIG}`;
       const probe = new CopilotQuotaProbe({
         readFile: fakeReader({ content: 'not json{{{' }),
       });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap!.ok).toBe(false);
       expect(snap!.error).toMatch(/parse|json/i);
     });
@@ -112,7 +112,7 @@ ${LOGGED_IN_CONFIG}`;
       const probe = new CopilotQuotaProbe({
         readFile: fakeReader({ content: JSON.stringify({ loggedInUsers: 'oops' }) }),
       });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       expect(snap!.ok).toBe(false);
     });
   });
@@ -126,7 +126,7 @@ ${LOGGED_IN_CONFIG}`;
           return LOGGED_IN_CONFIG;
         },
       });
-      await probe.probe({ signal: new AbortController().signal });
+      await probe.probe();
       expect(calls).toHaveLength(1);
       expect(calls[0]).toContain(path.join('.copilot', 'config.json'));
     });
@@ -140,7 +140,7 @@ ${LOGGED_IN_CONFIG}`;
           return LOGGED_IN_CONFIG;
         },
       });
-      await probe.probe({ signal: new AbortController().signal });
+      await probe.probe();
       expect(calls[0]).toBe(path.join('/tmp/custom-copilot', 'config.json'));
     });
 
@@ -154,7 +154,7 @@ ${LOGGED_IN_CONFIG}`;
     it('sets takenAt to a recent timestamp', async () => {
       const before = Date.now();
       const probe = new CopilotQuotaProbe({ readFile: fakeReader({ content: LOGGED_IN_CONFIG }) });
-      const snap = await probe.probe({ signal: new AbortController().signal });
+      const snap = await probe.probe();
       const after = Date.now();
       expect(snap!.takenAt).toBeGreaterThanOrEqual(before);
       expect(snap!.takenAt).toBeLessThanOrEqual(after);

@@ -43,7 +43,7 @@ describe('productionCoreDeps', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    requireSpy = vi.spyOn(Module.prototype, 'require').mockImplementation(function mockRequire(id: string) {
+    requireSpy = vi.spyOn(Module.prototype, 'require').mockImplementation(function mockRequire(this: NodeJS.Module, id: string) {
       switch (id) {
         case '../agents/agent-registry':
           return { getAgentRegistry: () => agentRegistry };

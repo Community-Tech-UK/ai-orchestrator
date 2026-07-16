@@ -63,7 +63,7 @@ describe('shared context policy integration', () => {
       getProviderActionExecutor: () => new ProviderContextActionExecutor({
         'native-compaction': nativeCompaction,
       }),
-      recordPolicyEvent: (event) => events.push(event),
+      recordPolicyEvent: (event) => { events.push(event); },
     });
 
     const pressure = { used: 75, total: 100, percentage: 75, cumulativeTokens: 75 };

@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BrowserGatewayResult } from '@contracts/types/browser';
+
+/**
+ * The test harness's `deps.result` echoes its full input straight through
+ * (see `makeHarness` below), so at runtime the resolved value also carries
+ * the `actionClass`/`summary` fields passed to `deps.result(...)` inside
+ * `fillSecretOperation`, even though `BrowserGatewayResult` (the function's
+ * declared return type) does not expose them. This is a type-only view onto
+ * that runtime shape.
+ */
+function withEcho(result: BrowserGatewayResult<unknown>): BrowserGatewayResult<unknown> & {
+  actionClass?: string;
+  summary?: string;
+} {
+  return result as BrowserGatewayResult<unknown> & { actionClass?: string; summary?: string };
+}
 import { fillSecretOperation } from './browser-secret-fill-operation';
 import type { FillOperationDeps } from './browser-form-fill-operations';
 import type { BrowserGatewayFillSecretRequest } from './browser-gateway-service-types';
@@ -96,14 +111,14 @@ describe('fillSecretOperation', () => {
 
     expect(result.decision).toBe('allowed');
     expect(result.outcome).toBe('succeeded');
-    expect(result.actionClass).toBe('financial_identity');
+    expect(withEcho(result).actionClass).toBe('financial_identity');
     expect(result.data).toEqual({ filled: 1, verified: 1 });
 
     // The secret WAS typed into the page...
     expect(driverType).toHaveBeenCalledWith('p1', 't1', '#iban', SECRET);
     // ...but appears NOWHERE in the model-visible result (data, summary, reason).
     expect(JSON.stringify(result)).not.toContain(SECRET);
-    expect(result.summary).not.toContain(SECRET);
+    expect(withEcho(result).summary).not.toContain(SECRET);
   });
 
   it('denies when there is no secret_fill authorization', async () => {

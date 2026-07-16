@@ -101,6 +101,8 @@ function createBridge(statusByKey: Map<string, ProjectCodeIndexStatus>): AutoMir
       statusByKey.get(projectKey) ?? ({
         projectKey,
         status: 'never',
+        fileCount: 0,
+        symbolCount: 0,
         updatedAt: 0,
         metadata: {},
       } satisfies ProjectCodeIndexStatus),
@@ -406,6 +408,8 @@ describe('ProjectKnowledgeAutoMirrorCoordinator', () => {
     statusByKey.set(workspaceA, {
       projectKey: workspaceA,
       status: 'ready',
+      fileCount: 0,
+      symbolCount: 0,
       lastSyncedAt: 99_500, // 500ms ago vs `now: 100_000`
       updatedAt: 99_500,
       metadata: {},
@@ -442,6 +446,8 @@ describe('ProjectKnowledgeAutoMirrorCoordinator', () => {
     statusByKey.set(workspaceA, {
       projectKey: workspaceA,
       status: 'ready',
+      fileCount: 0,
+      symbolCount: 0,
       lastSyncedAt: 99_500,
       updatedAt: 99_500,
       metadata: {},
@@ -459,7 +465,7 @@ describe('ProjectKnowledgeAutoMirrorCoordinator', () => {
     });
     coordinator.start();
 
-    (codemem as EventEmitter).emit('code-index:changed', {
+    (codemem as unknown as EventEmitter).emit('code-index:changed', {
       workspacePath: workspaceA,
       workspaceHash: 'hash-a',
       paths: ['src/auth/middleware.ts'],
@@ -480,6 +486,8 @@ describe('ProjectKnowledgeAutoMirrorCoordinator', () => {
     statusByKey.set(workspaceA, {
       projectKey: workspaceA,
       status: 'ready',
+      fileCount: 0,
+      symbolCount: 0,
       lastSyncedAt: 60_000, // 40s ago at now=100_000 — stale
       updatedAt: 60_000,
       metadata: {},
@@ -518,6 +526,8 @@ describe('ProjectKnowledgeAutoMirrorCoordinator', () => {
     statusByKey.set(workspaceA, {
       projectKey: workspaceA,
       status: 'failed',
+      fileCount: 0,
+      symbolCount: 0,
       error: 'Code index file count limit exceeded.',
       updatedAt: 99_500,
       metadata: { reason: 'limit_exceeded', limit: 'files' },
@@ -637,6 +647,8 @@ describe('ProjectKnowledgeAutoMirrorCoordinator', () => {
     statusByKey.set(workspaceA, {
       projectKey: workspaceA,
       status: 'ready',
+      fileCount: 0,
+      symbolCount: 0,
       lastSyncedAt: 99_500,
       updatedAt: 99_500,
       metadata: {},

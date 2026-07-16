@@ -1,5 +1,4 @@
-import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +6,8 @@ import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { CodeRetrievalService } from '../code-retrieval-service';
 import type { Chunk } from '../types';
+import type { SqliteDriver } from '../../db/sqlite-driver';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 
 const sampleChunk = (overrides: Partial<Chunk> = {}): Chunk => ({
   contentHash: 'a'.repeat(64),
@@ -24,12 +25,12 @@ const sampleChunk = (overrides: Partial<Chunk> = {}): Chunk => ({
 });
 
 describe('CodeRetrievalService', () => {
-  let db: Database.Database;
+  let db: SqliteDriver;
   let store: CasStore;
   let workspacePath: string;
 
   beforeEach(async () => {
-    db = new Database(':memory:');
+    db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
     workspacePath = join(tmpdir(), `retrieval-${Date.now()}-${Math.random()}`);
@@ -106,7 +107,7 @@ describe('CodeRetrievalService', () => {
     }));
     const service = new CodeRetrievalService({
       store,
-      indexWorkerGateway: { warmWorkspace },
+      indexWorkerGateway: { warmWorkspace } as never,
       runFallbackSearch: fallback,
     });
 

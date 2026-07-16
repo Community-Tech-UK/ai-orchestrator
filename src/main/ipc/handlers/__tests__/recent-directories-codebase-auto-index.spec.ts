@@ -137,9 +137,9 @@ describe('recent directories IPC codebase auto-index integration', () => {
 
     const progress = new EventEmitter();
     const indexing: AutoIndexingTarget & {
-      indexCodebase: ReturnType<typeof vi.fn<[string, string, { force?: boolean }?], Promise<IndexingStats>>>;
+      indexCodebase: ReturnType<typeof vi.fn<(storeId: string, rootPath: string, options?: { force?: boolean }) => Promise<IndexingStats>>>;
     } = {
-      indexCodebase: vi.fn(async () => ({
+      indexCodebase: vi.fn(async (_storeId: string, _rootPath: string, _options?: { force?: boolean }) => ({
         filesIndexed: 1,
         chunksCreated: 2,
         tokensProcessed: 12,
@@ -172,8 +172,7 @@ describe('recent directories IPC codebase auto-index integration', () => {
       canAutoMine: () => true,
     };
     const preflight = vi.fn<
-      [string, { maxFiles: number; maxBytes: number }],
-      Promise<PreflightResult>
+      (rootPath: string, limits: { maxFiles: number; maxBytes: number }) => Promise<PreflightResult>
     >().mockResolvedValue({ fileCount: 1, totalBytes: 26 });
 
     const { getRecentDirectoriesManager } = await import(

@@ -31,8 +31,8 @@ describe('CleanupRegistry', () => {
   });
 
   it('runs cleanups concurrently with timeout', async () => {
-    const slow = vi.fn(async () => new Promise(resolve => setTimeout(resolve, 50)));
-    const fast = vi.fn(async () => 'done');
+    const slow = vi.fn(async () => new Promise<void>(resolve => setTimeout(resolve, 50)));
+    const fast = vi.fn(async () => 'done' as unknown as void);
     registerCleanup(slow);
     registerCleanup(fast);
 

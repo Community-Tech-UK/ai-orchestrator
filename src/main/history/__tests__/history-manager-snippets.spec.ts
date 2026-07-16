@@ -17,6 +17,8 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     workerNodeId: undefined,
     depth: 0,
     terminationPolicy: 'terminate-children',
+    launchMode: 'orchestrated',
+    executionLocation: { type: 'local' },
     contextInheritance: {} as Instance['contextInheritance'],
     agentId: 'build',
     agentMode: 'build',

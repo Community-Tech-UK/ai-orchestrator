@@ -47,9 +47,9 @@ describe('createCodememForwarderTools', () => {
   it('rejects non-object args before contacting the parent', async () => {
     const call = vi.fn();
     const [findSymbol] = createCodememForwarderTools(stubClient(call));
-    await expect(findSymbol!.handler(null)).rejects.toThrow(/must be an object/);
-    await expect(findSymbol!.handler('str')).rejects.toThrow(/must be an object/);
-    await expect(findSymbol!.handler([])).rejects.toThrow(/must be an object/);
+    await expect(findSymbol!.handler(null as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
+    await expect(findSymbol!.handler('str' as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
+    await expect(findSymbol!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
     expect(call).not.toHaveBeenCalled();
   });
 

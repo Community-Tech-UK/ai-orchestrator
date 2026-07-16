@@ -39,11 +39,13 @@ describe('long-loop resilience', () => {
           childInstanceId: `child-${invocations}`,
           output: invocations < 3 ? 'still working' : '<promise>DONE</promise>\nTASK COMPLETE',
           tokens: 1,
-          costCents: 0,
-          filesChanged: [{ path: 'src/progress.ts', contentHash: `hash-${invocations}` }],
+          costUsd: 0,
+          filesChanged: [{ path: 'src/progress.ts', additions: 1, deletions: 0, contentHash: `hash-${invocations}` }],
           toolCalls: [],
           errors: [],
-          verify: { status: 'passed', output: 'ok' },
+          testPassCount: null,
+          testFailCount: null,
+          exitedCleanly: true,
         });
       });
     });

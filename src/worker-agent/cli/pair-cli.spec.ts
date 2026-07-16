@@ -124,7 +124,7 @@ describe('pair-cli', () => {
     ], { stdout: vi.fn(), stderr: vi.fn() });
 
     const persisted = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
-    expect(persisted.authToken).toBe('new-pair-token');
+    expect(persisted['authToken']).toBe('new-pair-token');
     expect(persisted).not.toHaveProperty('nodeToken');
     expect(persisted).not.toHaveProperty('recoveryToken');
   });

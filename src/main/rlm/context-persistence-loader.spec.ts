@@ -40,9 +40,6 @@ function sectionRow(overrides: Partial<ContextSectionRow> = {}): ContextSectionR
     created_at: 1,
     content_file: null,
     content_inline: 'export {};',
-    pending_summary: 0,
-    summary_priority: 0,
-    last_summary_attempt: null,
     ...overrides,
   };
 }

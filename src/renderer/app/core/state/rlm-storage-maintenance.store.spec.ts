@@ -2,9 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   RLM_STORAGE_HARD_LIMIT_BYTES,
   RLM_STORAGE_WARNING_BYTES,
+  type RlmMaintenancePreview,
   type RlmMaintenanceProgress,
+  type RlmMaintenanceResult,
+  type RlmStorageHealth,
 } from '../../../../shared/types/rlm-maintenance.types';
 import { RlmStorageMaintenanceStore } from './rlm-storage-maintenance.store';
+
+interface IpcResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: { code: string; message: string; timestamp: number };
+}
 
 describe('RlmStorageMaintenanceStore', () => {
   let api: ReturnType<typeof makeApi>;
@@ -124,10 +133,22 @@ describe('RlmStorageMaintenanceStore', () => {
 function makeApi() {
   let progress: ((value: RlmMaintenanceProgress) => void) | null = null;
   return {
-    rlmStorageGetHealth: vi.fn(async () => ({ success: true, data: health() })),
-    rlmStoragePreviewMaintenance: vi.fn(async () => ({ success: true, data: preview() })),
-    rlmStorageRunMaintenance: vi.fn(async () => ({ success: true, data: successResult() })),
-    rlmStorageGetMaintenanceStatus: vi.fn(async () => ({ success: true, data: null })),
+    rlmStorageGetHealth: vi.fn(async (): Promise<IpcResponse<RlmStorageHealth>> => ({
+      success: true,
+      data: health(),
+    })),
+    rlmStoragePreviewMaintenance: vi.fn(async (): Promise<IpcResponse<RlmMaintenancePreview>> => ({
+      success: true,
+      data: preview(),
+    })),
+    rlmStorageRunMaintenance: vi.fn(async (): Promise<IpcResponse<RlmMaintenanceResult>> => ({
+      success: true,
+      data: successResult(),
+    })),
+    rlmStorageGetMaintenanceStatus: vi.fn(async (): Promise<IpcResponse<RlmMaintenanceResult | null>> => ({
+      success: true,
+      data: null,
+    })),
     onRlmStorageMaintenanceProgress: vi.fn((callback: (value: RlmMaintenanceProgress) => void) => {
       progress = callback;
       return () => { progress = null; };

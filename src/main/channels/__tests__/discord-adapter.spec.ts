@@ -11,7 +11,7 @@ class MockClient extends EventEmitter {
   user: { id: string; tag: string } | null = null;
   application = {
     commands: {
-      set: vi.fn(async () => undefined),
+      set: vi.fn(async (_commands: unknown) => undefined),
     },
   };
   channels = {
@@ -293,7 +293,7 @@ describe('DiscordAdapter', () => {
     failAdapter.on('error', (e: { error: string }) => errors.push(e.error));
     failAdapter.on('status', (e: ChannelStatusEvent) => statuses.push(e.status));
 
-    const ClientMock = (await import('discord.js')).Client as MockInstance;
+    const ClientMock = (await import('discord.js')).Client as unknown as MockInstance;
     ClientMock.mockImplementationOnce(() => {
       const c = new MockClient();
       c.login = vi.fn().mockRejectedValue(new Error('Invalid token'));

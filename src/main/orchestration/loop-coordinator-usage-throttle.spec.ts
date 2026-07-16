@@ -174,6 +174,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
         instanceId: 'interactive-instance',
       })),
       record: vi.fn(),
+      clearActive: vi.fn(() => 0),
     };
     let invokeCount = 0;
     coordinator.setProviderLimitResumeScheduler(scheduler);
@@ -211,6 +212,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
     const ledger = {
       getActive: vi.fn(() => null),
       record: vi.fn(),
+      clearActive: vi.fn(() => 0),
     };
     coordinator.setProviderLimitResumeScheduler(scheduler);
     coordinator.setProviderLimitLedger(ledger);
@@ -354,7 +356,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
   it('records provider-reported iteration cost instead of a flat token estimate', async () => {
     coordinator.setQuotaSnapshotProvider(() => snapshot([win({ used: 20 })]));
     coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
-      const p = payload as { callback: (r: LoopChildResult) => void };
+      const p = payload as { callback: (r: LoopChildResult) => void; prompt?: string };
       const scripted = new ScriptedCliAdapter();
       scripted.enqueueTurn(tokenPacedTurn('billable work happened', {
         inputTokens: 800_000,

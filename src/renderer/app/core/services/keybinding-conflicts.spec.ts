@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { KeyBinding } from '../../../../shared/types/keybinding.types';
+import type { KeyBinding, KeyModifier } from '../../../../shared/types/keybinding.types';
 import {
   normalizeCombo,
   normalizeSequence,
@@ -67,7 +67,7 @@ describe('detectKeybindingConflicts', () => {
 
 describe('parse / serialize keybinding customizations', () => {
   it('round-trips customizations', () => {
-    const customs = [{ id: 'a', keys: { key: 'x', modifiers: ['meta'] as const } }];
+    const customs = [{ id: 'a', keys: { key: 'x', modifiers: ['meta'] as KeyModifier[] } }];
     const json = serializeKeybindingCustomizations(customs);
     expect(parseKeybindingCustomizations(json)).toEqual(customs);
   });

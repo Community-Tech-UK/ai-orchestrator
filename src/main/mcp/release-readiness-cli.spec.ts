@@ -137,7 +137,7 @@ describe('release-readiness-cli', () => {
 
   it('writes merged captured evidence for later release-readiness runs', async () => {
     const stdout = vi.fn();
-    const writeTextFile = vi.fn(async () => undefined);
+    const writeTextFile = vi.fn(async (_path: string, _text: string) => undefined);
     const client = {
       call: vi.fn(async () => ({
         connectedCount: 1,
@@ -194,7 +194,7 @@ describe('release-readiness-cli', () => {
 
   it('writes manually recorded release gate evidence for later readiness runs', async () => {
     const stdout = vi.fn();
-    const writeTextFile = vi.fn(async () => undefined);
+    const writeTextFile = vi.fn(async (_path: string, _text: string) => undefined);
     const {
       harnessRestartedAt: _harnessRestartedAt,
       nativeHostRecoveryDrill: _nativeHostRecoveryDrill,

@@ -8,6 +8,7 @@ import type {
   ChannelStatusEvent,
   ChannelErrorEvent,
   ChannelResponse,
+  ChannelConnectionStatus,
 } from '../../../shared/types/channels';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,11 @@ class MockAdapter extends BaseChannelAdapter {
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   addReaction = vi.fn(async (): Promise<void> => {});
+
+  /** Widen `BaseChannelAdapter#setStatus` to public so tests can drive status directly. */
+  override setStatus(status: ChannelConnectionStatus, extra?: Partial<ChannelStatusEvent>): void {
+    super.setStatus(status, extra);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +195,7 @@ describe('ChannelManager', () => {
     it('returns the adapter status for registered platforms', () => {
       const manager = ChannelManager.getInstance();
       const adapter = new MockAdapter('discord');
-      adapter._status = 'connected';
+      adapter.setStatus('connected');
       manager.registerAdapter(adapter);
 
       const statuses = manager.getStatuses();
@@ -202,7 +208,7 @@ describe('ChannelManager', () => {
     it('calls disconnect on connected adapters', async () => {
       const manager = ChannelManager.getInstance();
       const adapter = new MockAdapter('discord');
-      adapter._status = 'connected';
+      adapter.setStatus('connected');
       manager.registerAdapter(adapter);
 
       await manager.shutdown();
@@ -213,7 +219,7 @@ describe('ChannelManager', () => {
     it('calls disconnect on connecting adapters', async () => {
       const manager = ChannelManager.getInstance();
       const adapter = new MockAdapter('whatsapp');
-      adapter._status = 'connecting';
+      adapter.setStatus('connecting');
       manager.registerAdapter(adapter);
 
       await manager.shutdown();
@@ -224,7 +230,7 @@ describe('ChannelManager', () => {
     it('does not call disconnect on disconnected adapters', async () => {
       const manager = ChannelManager.getInstance();
       const adapter = new MockAdapter('discord');
-      adapter._status = 'disconnected';
+      adapter.setStatus('disconnected');
       manager.registerAdapter(adapter);
 
       await manager.shutdown();
@@ -235,7 +241,7 @@ describe('ChannelManager', () => {
     it('handles disconnect errors without throwing', async () => {
       const manager = ChannelManager.getInstance();
       const adapter = new MockAdapter('discord');
-      adapter._status = 'connected';
+      adapter.setStatus('connected');
       adapter.disconnect.mockRejectedValueOnce(new Error('network gone'));
       manager.registerAdapter(adapter);
 

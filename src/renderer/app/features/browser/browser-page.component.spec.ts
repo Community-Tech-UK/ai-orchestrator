@@ -584,6 +584,7 @@ function makeCapabilities(
     supportedClis: ['claude'],
     hasBrowserRuntime: false,
     hasBrowserMcp: false,
+    hasAndroidMcp: false,
     hasDocker: false,
     maxConcurrentInstances: 4,
     workingDirectories: ['/workspace'],

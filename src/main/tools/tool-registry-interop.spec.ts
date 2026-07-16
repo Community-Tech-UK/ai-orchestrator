@@ -34,7 +34,7 @@ describe('ToolRegistry dual-path loading', () => {
     const legacyTool: ToolModule = {
       description: 'A legacy tool',
       args: { value: z.string() },
-      execute: ({ value }: { value: string }) => value.toUpperCase(),
+      execute: (args: unknown) => (args as { value: string }).value.toUpperCase(),
     };
 
     const loaded = callToLoadedTool(

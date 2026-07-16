@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RemoteBrowserExtensionBridge } from './remote-extension-bridge';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 
 function makeBridge() {
   let now = 1_000;
@@ -19,12 +20,13 @@ function makeBridge() {
     pollCommand: vi.fn(async () => null),
     resolveCommand: vi.fn(),
     rejectQueue: vi.fn(),
+    markReceived: vi.fn(),
   };
   const tabStore = {
     expireNode: vi.fn(),
   };
   const registry = {
-    getNode: vi.fn(() => ({ id: 'node-1', name: 'Windows PC' })),
+    getNode: vi.fn(() => ({ id: 'node-1', name: 'Windows PC' }) as unknown as WorkerNodeInfo),
   };
   const bridge = new RemoteBrowserExtensionBridge({
     service,

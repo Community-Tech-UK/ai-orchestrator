@@ -127,8 +127,9 @@ describe('cleanupLeakedAioCodexThreads', () => {
       removedDynamicTools: 1,
       clearedJobAssignments: 1,
     });
+    if (result.status !== 'cleaned') throw new Error(`expected a cleaned result, got ${result.status}`);
     expect(result.backupPath).toBe(join(backupDir, 'state_5-before-aio-cleanup-20250711T000000000Z.sqlite'));
-    expect(existsSync(result.backupPath!)).toBe(true);
+    expect(existsSync(result.backupPath)).toBe(true);
 
     expect(db.prepare('SELECT id FROM threads ORDER BY id').all()).toEqual([
       { id: 'legitimate' },
@@ -144,7 +145,7 @@ describe('cleanupLeakedAioCodexThreads', () => {
       { item_id: 'leaked-assignment', assigned_thread_id: null },
       { item_id: 'legitimate-assignment', assigned_thread_id: 'legitimate' },
     ]);
-    expect(readFileSync(result.backupPath!, 'utf-8')).toBe('{"count":5}');
+    expect(readFileSync(result.backupPath, 'utf-8')).toBe('{"count":5}');
     expect(lifecycle).toEqual(['backup', 'migrate']);
   });
 

@@ -77,7 +77,7 @@ describe('Microcompact', () => {
   it('rejects incomplete or unauthenticated previews', () => {
     const mc = new Microcompact({ recentTurnsToProtect: 0, minSavingsTokens: 0 });
     const turn = makeTurn('bounded', 100, 1_000);
-    turn.toolCalls![0].evidencePreview!.authenticatedComplete = false;
+    (turn.toolCalls![0].evidencePreview as unknown as { authenticatedComplete: boolean }).authenticatedComplete = false;
 
     expect(mc.compact([turn]).turns[0].toolCalls![0].output).toBe('file1\nfile2');
   });

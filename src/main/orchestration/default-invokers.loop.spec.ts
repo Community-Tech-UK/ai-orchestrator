@@ -356,7 +356,7 @@ describe('Loop Mode invoker plumbing', () => {
       headers: { 'retry-after': '120' },
       body: { error: { message: 'quota exhausted; retry later', access_token: '[REDACTED]' } },
     });
-    expect((callbackResult as { headers?: Record<string, string> }).headers?.authorization).toBeUndefined();
+    expect((callbackResult as { headers?: Record<string, string> }).headers?.['authorization']).toBeUndefined();
   });
 
   it('enables delegated large-output retrieval hints when branch exploration is enabled', async () => {

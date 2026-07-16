@@ -122,7 +122,7 @@ describe('executeFillPlan', () => {
 
     const result = await executeFillPlan(plan, {
       ops,
-      onCheckpoint: (index) => checkpoints.push(index),
+      onCheckpoint: (index) => { checkpoints.push(index); },
       maxAttempts: 2,
     });
 

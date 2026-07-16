@@ -24,7 +24,10 @@ function createClientDispatchHarness() {
 
 function createWritableClientDispatchHarness() {
   const Base = (appServerClientModule as unknown as {
-    AppServerClientBase?: new (cwd: string, transport: 'direct' | 'broker') => object;
+    AppServerClientBase?: new (cwd: string, transport: 'direct' | 'broker') => {
+      initialize(clientInfo?: unknown, capabilities?: unknown): Promise<void>;
+      request(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
+    };
   }).AppServerClientBase;
   expect(Base).toBeTypeOf('function');
   if (!Base) throw new Error('AppServerClientBase is not exported');

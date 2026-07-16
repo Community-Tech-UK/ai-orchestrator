@@ -5,7 +5,7 @@ import { WorkerCdpTunnel } from './worker-cdp-tunnel';
 
 /** Fake Chrome CDP WebSocket. */
 class FakeWs extends EventEmitter {
-  readyState = WebSocket.CONNECTING;
+  readyState: typeof WebSocket.CONNECTING | typeof WebSocket.OPEN | typeof WebSocket.CLOSING | typeof WebSocket.CLOSED = WebSocket.CONNECTING;
   send = vi.fn();
   close = vi.fn(() => {
     this.readyState = WebSocket.CLOSED;

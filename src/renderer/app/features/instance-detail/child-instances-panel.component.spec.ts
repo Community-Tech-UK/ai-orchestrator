@@ -120,6 +120,7 @@ function makeInstance(
     restartEpoch: 0,
     workingDirectory: '/repo',
     yoloMode: false,
+    launchMode: 'orchestrated',
     outputBuffer: [],
     pendingApprovalCount: 0,
     metadata: {

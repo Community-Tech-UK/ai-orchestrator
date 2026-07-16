@@ -3,6 +3,7 @@ import { CrossModelReviewService } from './cross-model-review-service';
 import type { ReviewExecutionHost } from '../review/review-execution-host';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
+import type { LocalReviewerLimits } from '../review/local-reviewer';
 
 const localReviewState = vi.hoisted(() => ({
   enabled: false,
@@ -547,9 +548,9 @@ describe('CrossModelReviewService headless review', () => {
     localReviewState.selectorId = selectorId;
     const external = new AbortController();
     const removeListener = vi.spyOn(external.signal, 'removeEventListener');
-    const review = vi.fn((_request, _target, limits: { signal: AbortSignal }) =>
+    const review = vi.fn((_request, _target, limits: LocalReviewerLimits) =>
       new Promise<{ status: 'failed'; reason: string }>((resolve) => {
-        limits.signal.addEventListener('abort', () => {
+        limits.signal!.addEventListener('abort', () => {
           resolve({ status: 'failed', reason: 'Local review cancelled.' });
         }, { once: true });
       }),
@@ -590,9 +591,9 @@ describe('CrossModelReviewService headless review', () => {
     localReviewState.selectorId = selectorId;
     const external = new AbortController();
     external.abort('paused');
-    const review = vi.fn((_request, _target, limits: { signal: AbortSignal }) => {
-      expect(limits.signal.aborted).toBe(true);
-      expect(limits.signal.reason).toBe('paused');
+    const review = vi.fn((_request, _target, limits: LocalReviewerLimits) => {
+      expect(limits.signal!.aborted).toBe(true);
+      expect(limits.signal!.reason).toBe('paused');
       return Promise.resolve({ status: 'failed' as const, reason: 'Local review cancelled.' });
     });
     const service = CrossModelReviewService.getInstance();

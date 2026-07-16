@@ -36,11 +36,12 @@ describe('LoopCoordinator maintenance gate', () => {
         childInstanceId: 'child-1',
         output: 'work complete',
         tokens: 1,
-        costCents: 0,
         filesChanged: [],
         toolCalls: [],
         errors: [],
-        verify: { status: 'passed', output: 'ok' },
+        testPassCount: null,
+        testFailCount: null,
+        exitedCleanly: true,
       });
     });
 
@@ -49,7 +50,6 @@ describe('LoopCoordinator maintenance gate', () => {
       caps: { ...defaultLoopConfig(workspace, 'finish work').caps, maxIterations: 1 },
       completion: {
         ...defaultLoopConfig(workspace, 'finish work').completion,
-        requireFreshEyesReview: false,
       },
     });
     await new Promise((resolve) => setTimeout(resolve, 150));

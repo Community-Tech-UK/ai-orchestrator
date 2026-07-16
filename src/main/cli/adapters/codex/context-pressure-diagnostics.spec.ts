@@ -10,6 +10,17 @@ import {
 
 const SAFE_CORRELATION = 'a1b2c3d4e5f6';
 
+// `Array.prototype.findLast` needs the es2023 lib, which this project's
+// tsconfig deliberately doesn't enable; Node itself supports it at runtime,
+// but we avoid the type-level dependency with a local reverse-scan helper.
+function findLastRecord<T>(items: T[], predicate: (item: T) => boolean): T | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item !== undefined && predicate(item)) return item;
+  }
+  return undefined;
+}
+
 function createHarness(sink?: CodexContextDiagnosticSink) {
   const records: CodexContextDiagnosticRecord[] = [];
   let now = 1_000;
@@ -217,10 +228,10 @@ describe('CodexContextPressureCollector', () => {
     collector.recordTokenUsage({ last: { totalTokens: 8 }, total: { totalTokens: 20 }, modelContextWindow: 40 });
     collector.completeTurn('failed');
 
-    const secondStart = records.findLast((record) => record.kind === 'turn-start');
-    const secondItem = records.findLast((record) => record.kind === 'item-completed');
-    const secondUsage = records.findLast((record) => record.kind === 'token-usage');
-    const secondComplete = records.findLast((record) => record.kind === 'turn-complete');
+    const secondStart = findLastRecord(records, (record) => record.kind === 'turn-start');
+    const secondItem = findLastRecord(records, (record) => record.kind === 'item-completed');
+    const secondUsage = findLastRecord(records, (record) => record.kind === 'token-usage');
+    const secondComplete = findLastRecord(records, (record) => record.kind === 'turn-complete');
     expect(secondStart).toMatchObject({ turnSequence: 2, baselineUsedTokens: 5 });
     expect(secondItem).toMatchObject({ turnSequence: 2, itemSequence: 1 });
     expect(secondUsage).toMatchObject({

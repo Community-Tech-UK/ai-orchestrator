@@ -46,7 +46,7 @@ describe('provider MCP adapters', () => {
       mcpServers: Record<string, { command: string }>;
     };
     expect(parsed.theme).toBe('dark');
-    expect(parsed.mcpServers.fs.command).toBe('npx');
+    expect(parsed.mcpServers['fs'].command).toBe('npx');
     const snapshot = await adapter.readScope('user', configPath);
     expect(snapshot.servers[0]?.name).toBe('fs');
   });
@@ -81,7 +81,7 @@ describe('provider MCP adapters', () => {
 
     expect(output).toContain('startup_timeout_sec = 10');
     expect(output).toContain('tool_timeout_sec = 120');
-    expect(editor.parseMcpServers(output).lsp).toMatchObject({
+    expect(editor.parseMcpServers(output)['lsp']).toMatchObject({
       startupTimeoutSec: 10,
       toolTimeoutSec: 120,
     });

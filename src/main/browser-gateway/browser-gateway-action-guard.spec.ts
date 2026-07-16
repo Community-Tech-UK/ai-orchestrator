@@ -68,7 +68,7 @@ function makeGuard(opts: { withEscalations?: boolean; grants?: BrowserPermission
     grantStore: { listGrants: vi.fn(() => grants), createGrant: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['grantStore'],
     approvalStore: { createRequest, resolveRequest: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['approvalStore'],
     autoApproveRequests: () => false,
-    result,
+    result: result as unknown as BrowserGatewayActionGuardOptions['result'],
     ...(withEscalations ? { escalations: { raise } } : {}),
   };
 

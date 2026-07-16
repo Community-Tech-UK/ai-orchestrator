@@ -5,7 +5,7 @@ import { CORE_SETTINGS_METADATA } from './settings-metadata-core';
 
 const DEFAULT_MODEL_SETTING_PROVIDERS = ['claude', 'codex', 'gemini'] as const;
 
-function defaultModelOptions(): { value: string; label: string }[] {
+function defaultModelOptions(): { value: string | number; label: string }[] {
   const entry = CORE_SETTINGS_METADATA.find((setting) => setting.key === 'defaultModel');
   if (!entry?.options) {
     throw new Error('defaultModel metadata must expose select options');
@@ -34,7 +34,7 @@ describe('CORE_SETTINGS_METADATA defaultModel options', () => {
     );
 
     expect(values).not.toContain('o3');
-    expect(values.every((value) => knownValues.has(value))).toBe(true);
+    expect(values.every((value) => typeof value === 'string' && knownValues.has(value))).toBe(true);
   });
 });
 

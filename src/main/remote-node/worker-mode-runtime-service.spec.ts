@@ -85,7 +85,7 @@ describe('WorkerModeRuntimeService', () => {
     child.pid = 2468;
     child.kill = vi.fn();
     child.killed = false;
-    const spawn = vi.fn(() => child);
+    const spawn = vi.fn((_command: string, _args: string[], _options: unknown) => child);
     const service = new WorkerModeRuntimeService({
       spawn,
       resolveCommand: () => ({ command: '/bin/aio-worker', args: [] }),

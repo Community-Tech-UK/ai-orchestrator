@@ -65,7 +65,7 @@ describe('ComputerUsePermissionBannerComponent', () => {
 
   it('requests only the permission James clicked', () => {
     const fixture = render();
-    const actions = fixture.nativeElement
+    const actions = (fixture.nativeElement as HTMLElement)
       .querySelectorAll<HTMLButtonElement>('.banner-btn.primary');
 
     actions[1].click();
@@ -76,7 +76,7 @@ describe('ComputerUsePermissionBannerComponent', () => {
   it('disables actions and shows progress while a request is in flight', () => {
     store.requesting.set('screen-recording');
     const fixture = render();
-    const actions = fixture.nativeElement
+    const actions = (fixture.nativeElement as HTMLElement)
       .querySelectorAll<HTMLButtonElement>('.banner-btn.primary');
 
     expect(actions[0].disabled).toBe(true);
@@ -94,7 +94,7 @@ describe('ComputerUsePermissionBannerComponent', () => {
 
   it('offers an in-app repair action for stale macOS registrations', () => {
     const fixture = render();
-    const repair = fixture.nativeElement
+    const repair = (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Repair macOS permissions"]');
 
     repair?.click();
@@ -105,7 +105,7 @@ describe('ComputerUsePermissionBannerComponent', () => {
   it('offers an in-app relaunch after permission registrations were repaired', () => {
     store.repairReady.set(true);
     const fixture = render();
-    const restart = fixture.nativeElement
+    const restart = (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Restart AIO"]');
 
     expect(fixture.nativeElement.textContent).toContain(
@@ -129,7 +129,7 @@ describe('ComputerUsePermissionBannerComponent', () => {
 
   it('dismisses through the store and renders nothing once hidden', () => {
     const fixture = render();
-    const dismiss = fixture.nativeElement
+    const dismiss = (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Dismiss Computer Use permission banner"]');
 
     dismiss?.click();

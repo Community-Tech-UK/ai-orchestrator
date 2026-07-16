@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../../main/db/sqlite-driver';
 import * as kgPersistence from '../../../main/persistence/rlm/rlm-knowledge-graph';
 import { createTables, createMigrationsTable, runMigrations } from '../../../main/persistence/rlm/rlm-schema';
 
 describe('rlm-knowledge-graph persistence', () => {
-  let db: Database.Database;
+  let db: SqliteDriver;
 
   beforeEach(() => {
-    db = new Database(':memory:');
+    db = new Database(':memory:') as unknown as SqliteDriver;
     db.pragma('foreign_keys = ON');
     createTables(db);
     createMigrationsTable(db);

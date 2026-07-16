@@ -11,14 +11,14 @@ describe('RendererErrorHandler', () => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     logMessageMock = vi.fn().mockResolvedValue(undefined);
 
-    (window as unknown as Record<string, unknown>).electronAPI = {
+    (window as unknown as Record<string, unknown>)['electronAPI'] = {
       infrastructure: { logMessage: logMessageMock },
     };
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete (window as unknown as Record<string, unknown>).electronAPI;
+    delete (window as unknown as Record<string, unknown>)['electronAPI'];
     sessionStorage.clear();
   });
 
@@ -65,7 +65,7 @@ describe('RendererErrorHandler', () => {
   });
 
   it('does not throw when electronAPI is absent', () => {
-    delete (window as unknown as Record<string, unknown>).electronAPI;
+    delete (window as unknown as Record<string, unknown>)['electronAPI'];
     expect(() => handler.handleError(new Error('no api'))).not.toThrow();
   });
 

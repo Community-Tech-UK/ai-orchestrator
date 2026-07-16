@@ -28,7 +28,7 @@ class FakeProviderQuotaStore {
   readonly refresh = vi.fn(async () => { /* noop */ });
   private worst = signal<{ provider: ProviderId; window: ProviderQuotaWindow } | null>(null);
   private snaps = signal<Record<ProviderId, ProviderQuotaSnapshot | null>>({
-    claude: null, codex: null, gemini: null, copilot: null, cursor: null,
+    claude: null, codex: null, gemini: null, antigravity: null, copilot: null, cursor: null, grok: null,
   });
   private pacing = signal<ProviderQuotaPacingAlert | null>(null);
 

@@ -1092,7 +1092,7 @@ describe('InstanceManager', () => {
           instanceId: string,
           newModel: string,
           reasoningEffort: undefined,
-          modelRuntimeTarget: typeof modelRuntimeTarget,
+          modelRuntimeTargetArg: typeof modelRuntimeTarget,
         ) => Promise<typeof instance>;
       }).changeModel(instance.id, modelRuntimeTarget.modelId, undefined, modelRuntimeTarget);
 

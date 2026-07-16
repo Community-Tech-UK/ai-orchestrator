@@ -149,7 +149,7 @@ describe('HistoryRestoreCoordinator', () => {
 
   it('fails closed when a history source has not backfilled an app-owned identity', async () => {
     loadConversation.mockResolvedValue(conversation({
-      historyThreadId: null,
+      historyThreadId: null as unknown as string | undefined,
       sessionId: 'provider-native-collision',
     }));
 
@@ -183,7 +183,7 @@ describe('HistoryRestoreCoordinator', () => {
           actualSessionId: 'native-session',
         }),
       };
-      (manager as unknown as Record<string, unknown>).getAdapter = (id: string) =>
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = (id: string) =>
         id === 'native-instance' ? confirmedAdapter : undefined;
 
       createInstance.mockImplementation(
@@ -213,7 +213,7 @@ describe('HistoryRestoreCoordinator', () => {
           actualSessionId: 'wrong-native-session',
         }),
       };
-      (manager as unknown as Record<string, unknown>).getAdapter = (id: string) =>
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = (id: string) =>
         id === 'native-instance' ? mismatchedAdapter : undefined;
 
       createInstance.mockImplementation(
@@ -246,7 +246,7 @@ describe('HistoryRestoreCoordinator', () => {
           confirmed: false,
         }),
       };
-      (manager as unknown as Record<string, unknown>).getAdapter = (id: string) =>
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = (id: string) =>
         id === 'fallback-proof-instance' ? fallbackAdapter : undefined;
 
       createInstance.mockImplementation(

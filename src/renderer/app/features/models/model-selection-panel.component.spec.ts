@@ -225,8 +225,8 @@ describe('ModelSelectionPanelComponent', () => {
     (fixture.nativeElement.querySelector('[data-provider="codex"]') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    const miniFavorite = Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row'))
-      .find((el) => (el as HTMLElement).textContent?.includes('GPT-5.5 Mini'))!
+    const miniFavorite = (Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row'))
+      .find((el) => (el as HTMLElement).textContent?.includes('GPT-5.5 Mini')) as HTMLElement)
       .querySelector('.model-picker-row__favorite') as HTMLButtonElement;
     miniFavorite.click();
     fixture.detectChanges();
@@ -247,8 +247,8 @@ describe('ModelSelectionPanelComponent', () => {
     (fixture.nativeElement.querySelector('[data-provider="codex"]') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    const miniFavorite = Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row'))
-      .find((el) => (el as HTMLElement).textContent?.includes('GPT-5.5 Mini'))!
+    const miniFavorite = (Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row'))
+      .find((el) => (el as HTMLElement).textContent?.includes('GPT-5.5 Mini')) as HTMLElement)
       .querySelector('.model-picker-row__favorite') as HTMLButtonElement;
     miniFavorite.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
     fixture.detectChanges();

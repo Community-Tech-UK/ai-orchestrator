@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import Database from 'better-sqlite3';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { CodeIndexManager } from '../code-index-manager';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -14,7 +15,7 @@ function sha256(value: string): string {
 
 describe('codemem soak', () => {
   let workDir: string;
-  let db: Database.Database;
+  let db: SqliteDriver;
   let store: CasStore;
   let mgr: CodeIndexManager;
 
@@ -22,7 +23,7 @@ describe('codemem soak', () => {
     workDir = join(tmpdir(), `codemem-soak-${Date.now()}-${Math.random()}`);
     await mkdir(join(workDir, 'src'), { recursive: true });
 
-    db = new Database(':memory:');
+    db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
     mgr = new CodeIndexManager({ store, debounceMs: 10 });

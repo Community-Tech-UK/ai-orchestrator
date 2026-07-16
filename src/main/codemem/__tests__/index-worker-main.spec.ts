@@ -318,7 +318,7 @@ describe('codemem index worker main', () => {
       }
       return originalOn(eventName, listener);
     });
-    process.env.AIO_USER_DATA_PATH = '/tmp/aio-index-child-test';
+    process.env['AIO_USER_DATA_PATH'] = '/tmp/aio-index-child-test';
     const repo = path.resolve('/repo');
     store.getIndexStatus.mockReturnValue({
       workspaceHash: `hash:${repo}`,
@@ -358,7 +358,7 @@ describe('codemem index worker main', () => {
         }),
       }));
     } finally {
-      delete process.env.AIO_USER_DATA_PATH;
+      delete process.env['AIO_USER_DATA_PATH'];
       if (originalSendDescriptor) {
         Object.defineProperty(process, 'send', originalSendDescriptor);
       } else {

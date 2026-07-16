@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../../main/db/sqlite-driver';
 import * as fs from 'fs/promises';
 
 let _testDb: InstanceType<typeof Database> | undefined;
@@ -13,9 +14,9 @@ vi.mock('../../../main/persistence/rlm-database', async () => {
         if (!_testDb || !_testDb.open) {
           _testDb = new BetterSQLite3(':memory:');
           _testDb.pragma('foreign_keys = ON');
-          schema.createTables(_testDb);
-          schema.createMigrationsTable(_testDb);
-          schema.runMigrations(_testDb);
+          schema.createTables(_testDb as unknown as SqliteDriver);
+          schema.createMigrationsTable(_testDb as unknown as SqliteDriver);
+          schema.runMigrations(_testDb as unknown as SqliteDriver);
         }
         return _testDb;
       },
@@ -110,7 +111,7 @@ describe('ProjectRootRegistry', () => {
     const miner = CodebaseMiner.getInstance();
     const registry = ProjectRootRegistry.getInstance();
 
-    mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+    mockedFs.readFile.mockImplementation(async (filePath) => {
       const file = String(filePath);
       if (file.endsWith('package.json')) {
         return JSON.stringify({

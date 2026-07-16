@@ -61,10 +61,10 @@ describe('DrainableQueue', () => {
   describe('concurrency control', () => {
     it('concurrency=1 processes items sequentially', async () => {
       const order: string[] = [];
-      const gates: Record<string, ReturnType<typeof deferred>> = {};
+      const gates: Record<string, ReturnType<typeof deferred<void>>> = {};
 
       const queue = new DrainableQueue<string>(async (item) => {
-        const gate = deferred();
+        const gate = deferred<void>();
         gates[item] = gate;
         order.push(`start:${item}`);
         await gate.promise;

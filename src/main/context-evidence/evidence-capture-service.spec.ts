@@ -126,7 +126,6 @@ function createHarness(options: {
         id: staged.id,
         sensitivity: staged.sensitivity,
         captureMode: staged.captureMode,
-        content: undefined as never,
       });
     }),
     failEvidence: vi.fn(async (input) => {
@@ -309,7 +308,7 @@ describe('EvidenceCaptureService', () => {
     const harness = createHarness({
       stage: async (input) => stored ?? stagingRecord(input),
       finalize: async (input) => {
-        stored = completeRecord({ ...request(), id: input.evidenceId, content: undefined as never });
+        stored = completeRecord({ ...request(), id: input.evidenceId });
         return stored;
       },
       deriveContentId: vi.fn(async (bytes) =>

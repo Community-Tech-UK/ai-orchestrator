@@ -35,12 +35,10 @@ function vscdbFactory(value: string | null): SqliteDriverFactory {
       all: () => [],
       run: () => ({ changes: 0, lastInsertRowid: 0 }),
     }),
-    prepareCached() {
-      return this.prepare('');
-    },
+    prepareCached: () => driver.prepare(''),
     exec() {},
     pragma: () => undefined,
-    transaction: (fn) => fn,
+    transaction: (fn: (...args: unknown[]) => unknown) => fn,
     backup() {},
     close() {},
   } as unknown as SqliteDriver;

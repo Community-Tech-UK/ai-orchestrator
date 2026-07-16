@@ -122,7 +122,11 @@ function makeApi() {
   let listener: ((update: ContextEvidenceStateChanged) => void) | null = null;
   const unsubscribe = vi.fn(() => { listener = null; });
   return {
-    contextEvidenceList: vi.fn(async () => ({ success: true, data: [{ id: 'evidence-1' }] })),
+    contextEvidenceList: vi.fn(async (): Promise<{
+      success: boolean;
+      data?: { id: string }[];
+      error?: { code: string; message: string; timestamp: number };
+    }> => ({ success: true, data: [{ id: 'evidence-1' }] })),
     contextEvidenceGetCard: vi.fn(async () => ({
       success: true,
       data: { card: { id: 'card-1' }, tokenCount: 10, tokenLimit: 512, truncated: false },

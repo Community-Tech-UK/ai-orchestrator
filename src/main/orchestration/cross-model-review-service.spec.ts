@@ -1,15 +1,53 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CrossModelReviewService } from './cross-model-review-service';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
-import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import {
+  getProviderRuntimeService,
+  type ProviderRuntimeService,
+  type ProviderRuntimeStartInput,
+} from '../providers/provider-runtime-service';
 import type { ReviewDispatchRequest } from './cross-model-review.types';
 import type { AggregatedReview, ReviewResult } from '../../shared/types/cross-model-review.types';
 import type { ReviewerPool } from './reviewer-pool';
 import type { CliType } from '../cli/cli-detection';
 import { normalizeReviewerCliList } from './cross-model-review-service.constants';
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
+import type { CliAdapter } from '../cli/adapters/adapter-factory';
 
-type TestReviewService = CrossModelReviewService & {
+/**
+ * `CliAdapter` is a large union of concrete adapter classes, and
+ * `ProviderRuntimeService.createAdapter` is typed to return it. These tests
+ * only stub the handful of members (`sendMessage`, `terminate`, `interrupt`)
+ * that `executeOneReview` actually calls, so the fakes are intentionally
+ * partial test doubles — route every `createAdapter` mock through these two
+ * helpers instead of casting at each call site.
+ */
+function mockCreateAdapter(impl: (input: ProviderRuntimeStartInput) => object): void {
+  vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(
+    impl as unknown as (input: ProviderRuntimeStartInput) => CliAdapter,
+  );
+}
+
+function mockCreateAdapterReturnValue(value: object): void {
+  vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue(value as unknown as CliAdapter);
+}
+
+// `CrossModelReviewService` declares these members `private`; intersecting the
+// class type directly with an object type re-declaring the same names as
+// public collapses the whole intersection to `never` (private members are
+// nominally branded, so TS can't reconcile them with a public re-declaration
+// even when the value types match). `Omit` first to drop the private
+// declarations, then add the public test-only view of them.
+type PrivateReviewMembers =
+  | 'reviewerPool'
+  | 'refreshAvailability'
+  | 'parseReviewResponse'
+  | 'collectSuccessfulReviews'
+  | 'executeOneReview'
+  | 'executeReviews'
+  | 'detectDisagreement';
+
+type TestReviewService = Omit<CrossModelReviewService, PrivateReviewMembers> & {
   reviewerPool: ReviewerPool;
   refreshAvailability: () => Promise<void>;
   parseReviewResponse: (reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number) => ReviewResult | null;
@@ -222,7 +260,7 @@ describe('CrossModelReviewService', () => {
       getCapabilities: vi.fn(),
       interruptTurn: vi.fn(),
       getResumeProof: vi.fn(),
-    });
+    } as unknown as ProviderRuntimeService);
   });
 
   it('creates singleton instance', () => {
@@ -261,7 +299,7 @@ describe('CrossModelReviewService', () => {
     service.setInstanceManager(makeInstanceManager(instance) as never);
 
     let reviewerPrompt = '';
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+    mockCreateAdapter(() => ({
       sendMessage: async ({ content }: { content: string }) => {
         reviewerPrompt = content;
         return {
@@ -353,7 +391,7 @@ describe('CrossModelReviewService', () => {
 
   it('emits review:reviewer-rate-limited when a reviewer hits a usage cap', async () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+    mockCreateAdapter(() => ({
       sendMessage: async () => {
         throw new Error('Grok Build: usage limit reached for your subscription');
       },
@@ -383,7 +421,7 @@ describe('CrossModelReviewService', () => {
     }) as never);
 
     const adapterCliTypes: string[] = [];
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ cliType }) => {
+    mockCreateAdapter(({ cliType }) => {
       adapterCliTypes.push(cliType);
       return {
         sendMessage: async () => ({
@@ -438,7 +476,7 @@ describe('CrossModelReviewService', () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
     service.reviewerPool.setAvailable(['antigravity', 'codex', 'copilot']);
 
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ cliType, options }) => ({
+    mockCreateAdapter(({ cliType, options }) => ({
       sendMessage: async ({ content }: { content: string }) => {
         expect(options.workingDirectory).toBe('/tmp/review-context');
         expect(content).toContain('Implement the review service carefully.');
@@ -468,7 +506,7 @@ describe('CrossModelReviewService', () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
     const terminate = vi.fn().mockResolvedValue(undefined);
 
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+    mockCreateAdapter(() => ({
       sendMessage: async () => ({
         content: JSON.stringify({
           correctness: { reasoning: 'ok', score: 4, issues: [] },
@@ -493,7 +531,7 @@ describe('CrossModelReviewService', () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
     const terminate = vi.fn().mockResolvedValue(undefined);
 
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+    mockCreateAdapter(() => ({
       sendMessage: async () => {
         throw new Error('review failed');
       },
@@ -516,7 +554,7 @@ describe('CrossModelReviewService', () => {
     }));
     const interrupt = vi.fn(() => ({ status: 'accepted' as const }));
     const terminate = vi.fn(async () => undefined);
-    vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue({
+    mockCreateAdapterReturnValue({
       sendMessage, interrupt, terminate,
     });
 
@@ -540,7 +578,7 @@ describe('CrossModelReviewService', () => {
     reviewTestState.modelByProvider = { copilot: 'claude-sonnet-46' };
 
     let capturedModel: unknown = 'unset';
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+    mockCreateAdapter(({ options }) => {
       capturedModel = options.model;
       return {
         sendMessage: async () => ({
@@ -567,7 +605,7 @@ describe('CrossModelReviewService', () => {
     // reviewTestState.modelByProvider stays {} (reset in beforeEach)
 
     let modelKeyPresent = true;
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+    mockCreateAdapter(({ options }) => {
       modelKeyPresent = 'model' in options;
       return {
         sendMessage: async () => ({
@@ -607,7 +645,7 @@ describe('CrossModelReviewService', () => {
       reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
       reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(99);
       const models: unknown[] = [];
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      mockCreateAdapter(({ options }) => {
         models.push(options.model);
         return {
           sendMessage: async () => ({ content: validReview }),
@@ -625,7 +663,7 @@ describe('CrossModelReviewService', () => {
       reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
       reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(100);
       const models: unknown[] = [];
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      mockCreateAdapter(({ options }) => {
         models.push(options.model);
         return {
           sendMessage: async () => ({ content: validReview }),
@@ -643,7 +681,7 @@ describe('CrossModelReviewService', () => {
       reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
       reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(100, 0, Date.now() - 20 * 60_000);
       const models: unknown[] = [];
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      mockCreateAdapter(({ options }) => {
         models.push(options.model);
         return {
           sendMessage: async () => ({ content: validReview }),
@@ -661,7 +699,7 @@ describe('CrossModelReviewService', () => {
       reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
       reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(100);
       const models: unknown[] = [];
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      mockCreateAdapter(({ options }) => {
         models.push(options.model);
         return {
           sendMessage: options.model === SONNET_MODEL
@@ -687,7 +725,7 @@ describe('CrossModelReviewService', () => {
       reviewTestState.modelByProvider = { antigravity: GEMINI_MODEL };
       reviewTestState.quotaSnapshot = makeAntigravityQuotaSnapshot(100);
       const models: unknown[] = [];
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      mockCreateAdapter(({ options }) => {
         models.push(options.model);
         return {
           sendMessage: async () => { throw new Error('Claude/GPT quota exceeded'); },
@@ -711,7 +749,7 @@ describe('CrossModelReviewService', () => {
 
     let capturedEffort: unknown = 'unset';
     let capturedPrompt = '';
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+    mockCreateAdapter(({ options }) => {
       capturedEffort = (options as { reasoningEffort?: unknown }).reasoningEffort;
       return {
         sendMessage: async ({ content }: { content: string }) => {
@@ -748,7 +786,7 @@ describe('CrossModelReviewService', () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
 
     let capturedTimeout: unknown = 0;
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+    mockCreateAdapter(({ options }) => {
       capturedTimeout = options.timeout;
       return {
         sendMessage: async () => ({
@@ -774,8 +812,8 @@ describe('CrossModelReviewService', () => {
     async function timeoutFor(cliType: string, timeoutSeconds: number): Promise<number> {
       const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
       let capturedTimeout = 0;
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
-        capturedTimeout = options.timeout;
+      mockCreateAdapter(({ options }) => {
+        capturedTimeout = options.timeout ?? 0;
         return {
           sendMessage: async () => ({
             content: JSON.stringify({
@@ -808,7 +846,7 @@ describe('CrossModelReviewService', () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
 
     let effortKeyPresent = true;
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+    mockCreateAdapter(({ options }) => {
       effortKeyPresent = 'reasoningEffort' in options;
       return {
         sendMessage: async () => ({
@@ -853,7 +891,7 @@ describe('CrossModelReviewService', () => {
             summary: 'approved after reformat',
           }),
         });
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+      mockCreateAdapter(() => ({
         sendMessage,
         terminate: vi.fn().mockResolvedValue(undefined),
       }));
@@ -868,7 +906,7 @@ describe('CrossModelReviewService', () => {
     it('returns null when both the initial and the repaired responses fail validation', async () => {
       const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
       const sendMessage = vi.fn().mockResolvedValue({ content: 'still not valid json' });
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+      mockCreateAdapter(() => ({
         sendMessage,
         terminate: vi.fn().mockResolvedValue(undefined),
       }));
@@ -882,7 +920,7 @@ describe('CrossModelReviewService', () => {
     it('does not attempt a repair when the reviewer plainly refuses', async () => {
       const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
       const sendMessage = vi.fn().mockResolvedValue({ content: 'I cannot fulfill this request.' });
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+      mockCreateAdapter(() => ({
         sendMessage,
         terminate: vi.fn().mockResolvedValue(undefined),
       }));
@@ -900,7 +938,7 @@ describe('CrossModelReviewService', () => {
         const interrupt = vi.fn(() => ({ status: 'accepted' as const }));
         const terminate = vi.fn(async () => undefined);
         const sendMessage = vi.fn(() => new Promise<never>(() => {}));
-        vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue({ sendMessage, interrupt, terminate });
+        mockCreateAdapterReturnValue({ sendMessage, interrupt, terminate });
 
         const pending = service.executeOneReview(makeRequest(), 'copilot', 5, new AbortController().signal);
         const assertion = expect(pending).rejects.toThrow();
@@ -923,7 +961,7 @@ describe('CrossModelReviewService', () => {
         const sendMessage = vi.fn()
           .mockResolvedValueOnce({ content: 'not valid json' })
           .mockImplementationOnce(() => new Promise<never>(() => {}));
-        vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue({ sendMessage, interrupt, terminate });
+        mockCreateAdapterReturnValue({ sendMessage, interrupt, terminate });
 
         const pending = service.executeOneReview(makeRequest(), 'copilot', 5, new AbortController().signal);
         const assertion = expect(pending).rejects.toThrow();
@@ -943,7 +981,7 @@ describe('CrossModelReviewService', () => {
       const sendMessage = vi.fn(() => new Promise<never>(() => {}));
       const interrupt = vi.fn(() => ({ status: 'accepted' as const }));
       const terminate = vi.fn(async () => undefined);
-      vi.mocked(getProviderRuntimeService().createAdapter).mockReturnValue({ sendMessage, interrupt, terminate });
+      mockCreateAdapterReturnValue({ sendMessage, interrupt, terminate });
 
       const pending = service.executeOneReview(makeRequest(), 'copilot', 300, abort.signal);
       await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
@@ -994,7 +1032,7 @@ describe('CrossModelReviewService', () => {
 
     it('falls back to process.cwd() when the working directory does not exist locally', async () => {
       const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => makeWorkingAdapter());
+      mockCreateAdapter(() => makeWorkingAdapter());
       service.setInstanceManager(makeInstanceManager({
         displayName: 'Local instance',
         workingDirectory: '/definitely/not/a/real/dir',
@@ -1015,7 +1053,7 @@ describe('CrossModelReviewService', () => {
 
     it('treats a legacy instance without executionLocation as local and proceeds', async () => {
       const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
-      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => makeWorkingAdapter());
+      mockCreateAdapter(() => makeWorkingAdapter());
       service.setInstanceManager(makeInstanceManager({
         displayName: 'Legacy instance',
         workingDirectory: process.cwd(),
@@ -1041,7 +1079,7 @@ describe('CrossModelReviewService', () => {
     service.on('review:all-unavailable', allUnavailable);
     service.on('review:result', result);
 
-    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+    mockCreateAdapter(() => ({
       sendMessage: async () => ({ content: 'not valid json' }),
     }));
 

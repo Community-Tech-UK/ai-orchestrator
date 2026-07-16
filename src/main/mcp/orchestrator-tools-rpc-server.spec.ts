@@ -143,7 +143,8 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
         jsonrpc: '2.0',
         id: 5,
         method: 'orchestrator_tools.git_batch_pull',
-        // @ts-expect-error intentionally malformed
+        // `params` is typed `unknown`, so `null` is a legitimate value here —
+        // this exercises the handler's own runtime validation, not a type error.
         params: null,
       }),
     ).rejects.toThrow(/params are required/);

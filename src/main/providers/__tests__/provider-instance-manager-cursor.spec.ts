@@ -12,6 +12,6 @@ describe('ProviderInstanceManager — cursor', () => {
   it('mapCliToProviderType maps cursor → cursor', () => {
     const m = new ProviderInstanceManager();
     expect((m as unknown as { cliToProviderType: Record<string, string> })
-      .cliToProviderType.cursor).toBe('cursor');
+      .cliToProviderType['cursor']).toBe('cursor');
   });
 });

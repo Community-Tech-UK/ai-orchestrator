@@ -1,21 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  AppServerRequestParams,
-  AppServerResponseResult,
-} from './app-server-types';
+import type { AppServerResponseResult } from './app-server-types';
 import {
   CODEX_MODEL_DISCOVERY_CACHE_TTL_MS,
   _resetCodexModelCacheForTesting,
   discoverCodexModels,
   listCodexModelsFromAppServer,
+  type CodexModelListClient,
 } from './model-list';
+import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 
-interface ModelListClient {
-  request: (
-    method: 'model/list',
-    params: AppServerRequestParams<'model/list'>,
-  ) => Promise<AppServerResponseResult<'model/list'>>;
-}
+type ModelListClient = CodexModelListClient;
 
 function codexModel(overrides: Partial<AppServerResponseResult<'model/list'>['data'][number]> = {}): AppServerResponseResult<'model/list'>['data'][number] {
   return {
@@ -143,7 +137,7 @@ describe('Codex app-server model/list discovery', () => {
   it('caches successful discovery results for five minutes and refreshes after expiry', async () => {
     let now = 10_000;
     let discoveryCount = 0;
-    const connect = vi.fn(async (run: (client: ModelListClient) => Promise<unknown>) => run(makeClient([
+    const connect = vi.fn(async (run: (client: ModelListClient) => Promise<ModelDisplayInfo[]>) => run(makeClient([
       {
         data: [
           codexModel({
@@ -172,7 +166,7 @@ describe('Codex app-server model/list discovery', () => {
 
   it('keys cached discovery results by effective model/list options', async () => {
     let now = 20_000;
-    const connect = vi.fn(async (run: (client: ModelListClient) => Promise<unknown>) => run(makeClient([
+    const connect = vi.fn(async (run: (client: ModelListClient) => Promise<ModelDisplayInfo[]>) => run(makeClient([
       {
         data: [
           codexModel({
@@ -209,7 +203,7 @@ describe('Codex app-server model/list discovery', () => {
   });
 
   it('rejects empty discovery results so callers can choose their own fallback', async () => {
-    const connect = vi.fn(async (run: (client: ModelListClient) => Promise<unknown>) => run(makeClient([
+    const connect = vi.fn(async (run: (client: ModelListClient) => Promise<ModelDisplayInfo[]>) => run(makeClient([
       { data: [], nextCursor: null },
     ])));
 

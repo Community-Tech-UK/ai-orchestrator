@@ -36,7 +36,7 @@ describe('loop-control CLI contract', () => {
 
     const code = await runLoopControlCli(
       ['node', 'aio-loop-control', 'complete', '--summary', 'implementation complete', '--evidence', 'test:npm test=passed'],
-      buildLoopControlEnv(runtime),
+      buildLoopControlEnv(runtime) as unknown as NodeJS.ProcessEnv,
       {
         stdout: { write: (chunk: string) => { stdout.push(chunk); return true; } },
         stderr: { write: (chunk: string) => { stderr.push(chunk); return true; } },
@@ -72,7 +72,7 @@ describe('loop-control CLI contract', () => {
 
     const code = await runLoopControlCli(
       ['node', 'aio-loop-control', 'wakeup', '--summary', 'wait for the nightly build', '--resume-in', '5'],
-      buildLoopControlEnv(runtime),
+      buildLoopControlEnv(runtime) as unknown as NodeJS.ProcessEnv,
       silentIo(),
     );
     const after = Date.now();
@@ -152,7 +152,7 @@ describe('loop-control CLI contract', () => {
     await writeLoopControlFile(runtime, 1);
     const code = await runLoopControlCli(
       ['node', 'aio-loop-control', 'complete', '--summary', 'done'],
-      buildLoopControlEnv(runtime),
+      buildLoopControlEnv(runtime) as unknown as NodeJS.ProcessEnv,
       silentIo(),
     );
     expect(code).toBe(0);
@@ -188,7 +188,7 @@ describe('loop-control CLI contract', () => {
     await writeLoopControlFile(runtime, 2);
     await runLoopControlCli(
       ['node', 'aio-loop-control', 'complete', '--summary', 'archived intent'],
-      buildLoopControlEnv(runtime),
+      buildLoopControlEnv(runtime) as unknown as NodeJS.ProcessEnv,
       silentIo(),
     );
 

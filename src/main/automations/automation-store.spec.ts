@@ -9,6 +9,19 @@ import {
 import { AutomationStore, DEFAULT_MAX_CONSECUTIVE_FAILURES } from './automation-store';
 import type { AutomationAttachmentService } from './automation-attachment-service';
 import type { FileAttachment } from '../../shared/types/instance.types';
+import type { AutomationRun } from '../../shared/types/automation.types';
+
+/**
+ * `AutomationStore.decideAndInsertRun` returns an internal (unexported)
+ * discriminated union. These tests already assert the runtime `kind` before
+ * reading `run`/`reason`, so this is a type-only shape used to access those
+ * fields without re-exporting the private union type from the source module.
+ */
+type FireDecisionLike = { kind: string; reason?: string; run?: AutomationRun };
+
+function asDecision(decision: { kind: string }): FireDecisionLike {
+  return decision as FireDecisionLike;
+}
 
 function createDb(): SqliteDriver {
   const db = defaultDriverFactory(':memory:');
@@ -64,15 +77,15 @@ describe('AutomationStore', () => {
 
     const afterManual = await store.get(automation.id);
     expect(afterManual?.lastFiredAt).toBeNull();
-    expect(afterManual?.lastRunId).toBe(manual.run.id);
+    expect(afterManual?.lastRunId).toBe(asDecision(manual).run!.id);
 
     const scheduled = store.decideAndInsertRun(afterManual, 'scheduled', 3_000, 3_000);
     expect(scheduled.kind).toBe('skipped');
-    expect(scheduled.reason).toBe('Previous automation run is still active');
+    expect(asDecision(scheduled).reason).toBe('Previous automation run is still active');
 
     const afterScheduled = await store.get(automation.id);
     expect(afterScheduled?.lastFiredAt).toBe(3_000);
-    expect(afterScheduled?.lastRunId).toBe(scheduled.run?.id);
+    expect(afterScheduled?.lastRunId).toBe(asDecision(scheduled).run?.id);
   });
 
   it('stores queued run snapshots and dispatches the claimed pending run', async () => {
@@ -93,8 +106,8 @@ describe('AutomationStore', () => {
 
     const queued = store.decideAndInsertRun(automation, 'scheduled', 2_000, 2_000);
     expect(queued.kind).toBe('queued');
-    expect(queued.run.configSnapshot?.action.prompt).toBe('Original prompt');
-    expect(queued.run.configSnapshot?.action.attachments?.[0]?.name).toBe('brief.txt');
+    expect(asDecision(queued).run!.configSnapshot?.action.prompt).toBe('Original prompt');
+    expect(asDecision(queued).run!.configSnapshot?.action.attachments?.[0]?.name).toBe('brief.txt');
 
     await store.update(automation.id, {
       action: {
@@ -104,7 +117,7 @@ describe('AutomationStore', () => {
       },
     }, 5_000, 2_500);
 
-    store.terminalizeRun(first.run.id, 'succeeded', undefined, 'done', 3_000);
+    store.terminalizeRun(asDecision(first).run!.id, 'succeeded', undefined, 'done', 3_000);
     const claimed = store.claimNextPending(automation.id, 3_100);
 
     expect(claimed?.run.status).toBe('running');
@@ -132,7 +145,7 @@ describe('AutomationStore', () => {
     });
 
     expect(decision.kind).toBe('started');
-    expect(decision.run.configSnapshot?.action.prompt).toBe(renderedPrompt);
+    expect(asDecision(decision).run!.configSnapshot?.action.prompt).toBe(renderedPrompt);
     expect((await store.get(automation.id))?.action.prompt).toBe('Investigate {{payload.issue.title}}');
   });
 
@@ -186,7 +199,7 @@ describe('AutomationStore', () => {
     });
     expect(first.kind).toBe('started');
     expect(queued.kind).toBe('queued');
-    expect(queued.run.configSnapshot?.destination).toEqual(hydrated?.destination);
+    expect(asDecision(queued).run!.configSnapshot?.destination).toEqual(hydrated?.destination);
   });
 
   it('removes companion thread destination rows when updated back to a new instance', async () => {
@@ -245,8 +258,8 @@ describe('AutomationStore', () => {
       expect(skipped.status).toBe('skipped');
     }
 
-    expect(store.listRuns({ limit: 200 }).some((run) => run.id === active.run.id)).toBe(false);
-    expect(store.listActiveRuns()).toEqual([active.run]);
+    expect(store.listRuns({ limit: 200 }).some((run) => run.id === asDecision(active).run!.id)).toBe(false);
+    expect(store.listActiveRuns()).toEqual([asDecision(active).run]);
   });
 
   it('clears one-time schedule state on failure without deactivating the automation', async () => {
@@ -264,7 +277,7 @@ describe('AutomationStore', () => {
     const decision = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000);
     expect(decision.kind).toBe('started');
 
-    store.terminalizeRun(decision.run.id, 'failed', 'adapter failed', undefined, 2_000);
+    store.terminalizeRun(asDecision(decision).run!.id, 'failed', 'adapter failed', undefined, 2_000);
 
     const afterFailure = await store.get(automation.id);
     expect(afterFailure?.active).toBe(true);
@@ -340,9 +353,9 @@ describe('AutomationStore', () => {
       triggerSource: { type: 'webhook', id: 'route-1', deliveryId: 'delivery-1' },
     });
     expect(duplicate.kind).toBe('skipped');
-    expect(duplicate.run?.id).toBe(first.run.id);
-    expect(duplicate.run?.triggerSource?.deliveryId).toBe('delivery-1');
-    expect(duplicate.run?.deliveryMode).toBe('localOnly');
+    expect(asDecision(duplicate).run?.id).toBe(asDecision(first).run!.id);
+    expect(asDecision(duplicate).run?.triggerSource?.deliveryId).toBe('delivery-1');
+    expect(asDecision(duplicate).run?.deliveryMode).toBe('localOnly');
   });
 
   it('persists a webhook trigger configuration with its route and declarative filters', async () => {
@@ -392,7 +405,7 @@ describe('AutomationStore', () => {
     const decision = store.decideAndInsertRun(automation, 'manual', 2_000, 2_000);
     expect(decision.kind).toBe('started');
 
-    const completed = store.terminalizeRun(decision.run.id, 'succeeded', undefined, 'summary', {
+    const completed = store.terminalizeRun(asDecision(decision).run!.id, 'succeeded', undefined, 'summary', {
       now: 3_000,
       outputFullRef: '/tmp/automation-output.json',
     });

@@ -81,7 +81,7 @@ describe('QueuePersistenceService', () => {
   });
 
   it('does not subscribe to initial prompt broadcasts when the pause feature is disabled', () => {
-    settingsValues.pauseFeatureEnabled = false;
+    settingsValues['pauseFeatureEnabled'] = false;
     const service = TestBed.inject(QueuePersistenceService);
 
     service.subscribeToInitialPrompts();

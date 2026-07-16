@@ -256,8 +256,8 @@ describe('vcs-handlers — stage / unstage (Phase 2d)', () => {
 
       expect(res.success).toBe(true);
       expect(fakeManager.stageFiles).toHaveBeenCalledWith(['a.txt', 'b.txt']);
-      expect(res.data?.stagedCount).toBe(2);
-      expect(res.data?.exitCode).toBe(0);
+      expect(res.data?.['stagedCount']).toBe(2);
+      expect(res.data?.['exitCode']).toBe(0);
     });
 
     it('returns a structured error when git is not available', async () => {
@@ -314,8 +314,8 @@ describe('vcs-handlers — stage / unstage (Phase 2d)', () => {
 
       expect(res.success).toBe(true);
       expect(fakeManager.unstageFiles).toHaveBeenCalledWith(['a.txt']);
-      expect(res.data?.unstagedCount).toBe(1);
-      expect(res.data?.exitCode).toBe(0);
+      expect(res.data?.['unstagedCount']).toBe(1);
+      expect(res.data?.['exitCode']).toBe(0);
     });
 
     it('returns a structured error when git is not available', async () => {
@@ -358,8 +358,8 @@ describe('vcs-handlers — stage / unstage (Phase 2d)', () => {
       expect(trashItemMock).toHaveBeenCalledTimes(1);
       // shell.trashItem receives an absolute path resolved against cwd.
       expect(trashItemMock.mock.calls[0][0]).toMatch(/[\\/]work[\\/]new\.txt$/);
-      expect(res.data?.discardedTracked).toBe(1);
-      expect(res.data?.discardedUntracked).toBe(1);
+      expect(res.data?.['discardedTracked']).toBe(1);
+      expect(res.data?.['discardedUntracked']).toBe(1);
     });
 
     it('does not call git when only untracked paths are passed', async () => {
@@ -458,7 +458,7 @@ describe('vcs-handlers — stage / unstage (Phase 2d)', () => {
     it('VCS_OPERATION_CANCEL reports unknown opId gracefully', async () => {
       const res = await invoke(IPC_CHANNELS.VCS_OPERATION_CANCEL, { opId: 'no-such' });
       expect(res.success).toBe(true);
-      expect(res.data?.cancelled).toBe(false);
+      expect(res.data?.['cancelled']).toBe(false);
     });
   });
 

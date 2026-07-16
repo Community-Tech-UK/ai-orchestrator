@@ -59,14 +59,17 @@ class FakeSocket extends EventEmitter {
   }
 }
 
+// `handleConnection` is intentionally omitted from this interface: it is
+// `private` on `WorkerNodeConnectionServer`, and intersecting a type with a
+// public re-declaration of a same-named private class member collapses the
+// whole intersection to `never`. It is invoked below via a standalone cast.
 interface TestServer {
-  handleConnection(ws: FakeSocket): void;
   isNodeConnected(nodeId: string): boolean;
   sendRpc<T>(nodeId: string, method: string, params?: unknown, timeoutMs?: number): Promise<T>;
 }
 
 function registerNode(server: TestServer, ws: FakeSocket, nodeId = 'node-1'): void {
-  server.handleConnection(ws);
+  (server as unknown as { handleConnection(ws: FakeSocket): void }).handleConnection(ws);
   ws.emit(
     'message',
     Buffer.from(

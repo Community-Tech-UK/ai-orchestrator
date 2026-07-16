@@ -227,7 +227,7 @@ describe('VerificationResultsComponent', () => {
               {
                 targetAgentId: 'agent-2',
                 issue: 'JavaScript setup is complex',
-                severity: 'minor'
+                severity: 'low'
               }
             ]
           },
@@ -360,6 +360,7 @@ describe('VerificationResultsComponent', () => {
       copyText: vi.fn().mockResolvedValue({ ok: true }),
       copyJSON: vi.fn().mockResolvedValue({ ok: true }),
       copyImage: vi.fn().mockResolvedValue({ ok: true }),
+      copyMessage: vi.fn().mockResolvedValue({ ok: true }),
     };
 
     // Mock URL API for export functionality

@@ -73,7 +73,7 @@ describe('deliverInitialPromptAfterSpawn', () => {
     expect(deps.buffered).toHaveLength(1);
     const notice = deps.buffered[0];
     expect(notice.type).toBe('system');
-    expect(notice.metadata?.initialPromptFailed).toBe(true);
+    expect(notice.metadata?.['initialPromptFailed']).toBe(true);
     expect(notice.content).toContain('context-cost recovery paused');
     expect(deps.emitted[0]).toBe(notice);
   });

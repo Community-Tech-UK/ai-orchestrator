@@ -49,11 +49,15 @@ function makeAutomationRun(overrides: Partial<AutomationRun> = {}): AutomationRu
     seenAt: null,
     createdAt: 100,
     updatedAt: 120,
+    attempt: 1,
+    maxAttempts: 1,
     configSnapshot: {
       name: 'Webhook check',
       schedule: { type: 'cron', expression: '* * * * *', timezone: 'UTC' },
+      trigger: { kind: 'schedule' },
       missedRunPolicy: 'notify',
       concurrencyPolicy: 'skip',
+      destination: { kind: 'newInstance' },
       action: {
         prompt: 'Check webhook',
         workingDirectory: '/repo',

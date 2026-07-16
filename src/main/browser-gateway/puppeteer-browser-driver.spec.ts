@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as path from 'node:path';
+import type { Browser } from 'puppeteer-core';
 import type { BrowserProfile } from '@contracts/types/browser';
 import { BrowserTargetRegistry } from './browser-target-registry';
 import { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
@@ -43,7 +44,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry,
@@ -75,7 +76,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -103,7 +104,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry,
@@ -138,7 +139,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -171,7 +172,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -203,7 +204,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -271,7 +272,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile,
       },
       targetRegistry,
@@ -319,7 +320,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -390,7 +391,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry,
@@ -437,7 +438,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => ({ pages: async () => [page] }),
+        getBrowser: () => ({ pages: async () => [page] }) as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -473,7 +474,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => ({ pages: async () => [page] }),
+        getBrowser: () => ({ pages: async () => [page] }) as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -507,7 +508,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => ({ pages: async () => [page] }),
+        getBrowser: () => ({ pages: async () => [page] }) as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -531,7 +532,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => ({ pages: async () => [page] }),
+        getBrowser: () => ({ pages: async () => [page] }) as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -552,7 +553,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => ({ pages: async () => [page] }),
+        getBrowser: () => ({ pages: async () => [page] }) as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -586,7 +587,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile,
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -645,7 +646,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -694,7 +695,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -727,7 +728,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry,
@@ -757,7 +758,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),
@@ -807,7 +808,7 @@ describe('PuppeteerBrowserDriver', () => {
     const driver = new PuppeteerBrowserDriver({
       launcher: {
         launchProfile: vi.fn().mockResolvedValue({}),
-        getBrowser: () => browser,
+        getBrowser: () => browser as unknown as Browser,
         closeProfile: vi.fn(),
       },
       targetRegistry: new BrowserTargetRegistry(),

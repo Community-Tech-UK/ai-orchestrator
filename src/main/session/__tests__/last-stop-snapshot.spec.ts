@@ -72,7 +72,13 @@ describe('LastStopSnapshotManager — round-trip', () => {
     const mgr = new LastStopSnapshotManager(TEST_DIR);
     const session = makeSession({
       sessionId: undefined,
-      resumeCursor: { threadId: 'thread-xyz', capturedAt: Date.now(), scanSource: 'appserver' },
+      resumeCursor: {
+        provider: 'claude',
+        threadId: 'thread-xyz',
+        workspacePath: '/home/user/project',
+        capturedAt: Date.now(),
+        scanSource: 'native',
+      },
     });
     mgr.saveSnapshot([session]);
 

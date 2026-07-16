@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -9,9 +8,11 @@ import { AgentLspFacade } from '../agent-lsp-facade';
 import { workspaceHashForPath } from '../symbol-id';
 import type { LspWorkerGateway } from '../../lsp-worker/gateway-rpc';
 import type { Diagnostic, HoverInfo, Location } from '../../workspace/lsp-manager';
+import type { SqliteDriver } from '../../db/sqlite-driver';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 
 describe('AgentLspFacade', () => {
-  let db: Database.Database;
+  let db: SqliteDriver;
   let store: CasStore;
   let workspacePath: string;
   let workspaceHash: string;
@@ -24,7 +25,7 @@ describe('AgentLspFacade', () => {
       path.join(workspacePath, 'src/math.ts'),
       ['export function add(a, b) {', '  return a + b;', '}', ''].join('\n'),
     );
-    db = new Database(':memory:');
+    db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
     store.upsertWorkspaceRoot({

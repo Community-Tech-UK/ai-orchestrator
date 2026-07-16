@@ -28,6 +28,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     restartEpoch: 0,
     workingDirectory: '/Users/me/work/ai-orchestrator',
     yoloMode: false,
+    launchMode: 'interactive',
     currentModel: 'gpt-5.2-codex',
     outputBuffer: [],
     ...overrides,

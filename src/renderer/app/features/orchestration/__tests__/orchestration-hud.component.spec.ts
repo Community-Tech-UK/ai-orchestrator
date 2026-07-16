@@ -111,6 +111,7 @@ function makeInstance(
     childrenIds,
     agentId: parentId ? 'worker' : 'build',
     agentMode: 'build',
+    launchMode: 'orchestrated',
     provider: 'codex',
     status,
     contextUsage: { used: 0, total: 200_000, percentage: 0 },

@@ -59,9 +59,9 @@ describe('SnapshotManager', () => {
         writePayload: async (filePath, data) => {
           await fs.promises.writeFile(filePath, JSON.stringify(data), 'utf-8');
         },
-        readPayload: async (filePath) => {
+        readPayload: async <T,>(filePath: string): Promise<T | null> => {
           const raw = await fs.promises.readFile(filePath, 'utf-8');
-          return JSON.parse(raw) as unknown;
+          return JSON.parse(raw) as T;
         },
         migrateSessionState: (raw) => ({ ...raw, migrated: true }),
       },

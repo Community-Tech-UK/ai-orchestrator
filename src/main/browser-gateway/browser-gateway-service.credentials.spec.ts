@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { BrowserGatewayService } from './browser-gateway-service';
 import { BrowserCampaignService } from './browser-campaign-store';
 import {
@@ -10,6 +10,31 @@ import {
 } from './browser-campaign-runtime';
 import { makeGrant, makeProfile, makeService, makeTarget } from './browser-gateway-service.test-helpers';
 import { WorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import type { FillControlReadback } from './browser-fill-plan-executor';
+import type { BrowserNetworkRequestEntry } from './puppeteer-browser-driver';
+
+/**
+ * `makeService()`'s default driver mocks (browser-gateway-service.test-helpers.ts)
+ * infer narrow literal return types for `readControl`/`networkRequests` from
+ * their default implementations. These helpers re-type those mocks to the
+ * real driver contracts so per-test overrides can use the full shape without
+ * touching the shared test-helpers file.
+ */
+function readControlMock(driver: { readControl: unknown }): Mock<
+  (profileId: string, targetId: string, selector: string) => Promise<FillControlReadback>
+> {
+  return driver.readControl as Mock<
+    (profileId: string, targetId: string, selector: string) => Promise<FillControlReadback>
+  >;
+}
+
+function networkRequestsMock(driver: { networkRequests: unknown }): Mock<
+  (profileId: string, targetId: string) => Promise<BrowserNetworkRequestEntry[]>
+> {
+  return driver.networkRequests as Mock<
+    (profileId: string, targetId: string) => Promise<BrowserNetworkRequestEntry[]>
+  >;
+}
 
 /** A shared (non-managed) existing Chrome tab on a procurement portal. Its
  * profileId is the ephemeral `existing-tab:<window>:<tab>` form (no nodeId =
@@ -92,7 +117,7 @@ describe('BrowserGatewayService credentials', () => {
 
   it('redacts raw network details returned by alternate drivers before exposing them', async () => {
     const { service, driver } = makeService();
-    driver.networkRequests.mockResolvedValueOnce([
+    networkRequestsMock(driver).mockResolvedValueOnce([
       {
         url: 'http://localhost:4567/api?token=abc123&safe=value',
         method: 'GET',
@@ -261,7 +286,7 @@ describe('BrowserGatewayService credentials', () => {
       grants: [makeGrant({ allowedActionClasses: ['input'] })],
     });
     // Read-back echoes the intended value so verification passes.
-    driver.readControl.mockImplementation(async (_p: string, _t: string, target: string) =>
+    readControlMock(driver).mockImplementation(async (_p: string, _t: string, target: string) =>
       target === '#company' ? { value: '16760348' } : { value: 'Newbury' },
     );
 
@@ -286,7 +311,7 @@ describe('BrowserGatewayService credentials', () => {
       grants: [makeGrant({ allowedActionClasses: ['input'] })],
     });
     // The control keeps showing an empty value — the silent no-op case.
-    driver.readControl.mockResolvedValue({ value: '' });
+    readControlMock(driver).mockResolvedValue({ value: '' });
 
     const result = await service.executeFillPlan({
       profileId: 'profile-1',
@@ -336,7 +361,11 @@ describe('BrowserGatewayService credentials', () => {
   });
 
   it('fillCredential types a vault secret without it ever appearing in the result', async () => {
-    const vault = { getSecretForFill: vi.fn(async () => 'S3cr3t-From-Vault!') };
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'S3cr3t-From-Vault!'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const { service, driver } = makeService({
       credentialVault: vault,
@@ -367,7 +396,11 @@ describe('BrowserGatewayService credentials', () => {
   });
 
   it('fillCredential denies when there is no standing authorization', async () => {
-    const vault = { getSecretForFill: vi.fn(async () => 'secret') };
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'secret'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = {
       check: vi.fn(() => ({ authorized: false as const, reason: 'origin_not_authorized' as const })),
     };
@@ -393,7 +426,11 @@ describe('BrowserGatewayService credentials', () => {
   });
 
   it('fillCredential resolves an email_code from the mailbox and types it without leakage', async () => {
-    const vault = { getSecretForFill: vi.fn(async () => 'vault-secret') };
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'vault-secret'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const emailCodeReader = {
       fetchCode: vi.fn(async () => ({ code: '482913', messageId: 'm-1', matchedSender: 'noreply@localhost' })),
@@ -429,7 +466,11 @@ describe('BrowserGatewayService credentials', () => {
   });
 
   it('fillCredential rejects email_code sender domains unrelated to the live origin', async () => {
-    const vault = { getSecretForFill: vi.fn() };
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const emailCodeReader = { fetchCode: vi.fn() };
     const { service, driver } = makeService({
@@ -458,7 +499,11 @@ describe('BrowserGatewayService credentials', () => {
   });
 
   it('fillCredential denies email_code fields when no mailbox reader is configured', async () => {
-    const vault = { getSecretForFill: vi.fn() };
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const { service } = makeService({
       credentialVault: vault,
@@ -478,7 +523,11 @@ describe('BrowserGatewayService credentials', () => {
   });
 
   it('fillCredential reports a failed outcome when no matching code mail arrives', async () => {
-    const vault = { getSecretForFill: vi.fn() };
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const emailCodeReader = {
       fetchCode: vi.fn(async () => {
@@ -521,6 +570,7 @@ describe('BrowserGatewayService credentials', () => {
     const vault = {
       getSecretForFill: vi.fn(),
       createAgentCredential: vi.fn(async () => ({ vaultItemRef: 'item-9', username: 'james@communitytech.co.uk' })),
+      getGenericSecretForFill: vi.fn(),
     };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const { service } = makeService({ credentialVault: vault, credentialAuthorizations: authorizations });
@@ -552,6 +602,7 @@ describe('BrowserGatewayService credentials', () => {
     const vault = {
       getSecretForFill: vi.fn(),
       createAgentCredential: vi.fn(async () => ({ vaultItemRef: 'item-9', username: 'james@communitytech.co.uk' })),
+      getGenericSecretForFill: vi.fn(),
     };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const campaigns = new BrowserCampaignService();
@@ -601,6 +652,7 @@ describe('BrowserGatewayService credentials', () => {
     const vault = {
       getSecretForFill: vi.fn(),
       createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
     };
     const authorizations = {
       check: vi.fn(() => ({ authorized: false as const, reason: 'purpose_not_authorized' as const })),
@@ -620,7 +672,11 @@ describe('BrowserGatewayService credentials', () => {
   });
 
   it('fillCredential denies a shared existing tab when the opt-in flag is off (managed profiles only)', async () => {
-    const vault = { getSecretForFill: vi.fn(async () => 'secret') };
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'secret'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const extensionCommandStore = portalExtensionCommandStore();
     const { service, driver } = makeService({
@@ -654,7 +710,11 @@ describe('BrowserGatewayService credentials', () => {
 
   it('fillCredential fills a shared existing tab under the opt-in flag + a node-scoped authorization, without leaking the secret', async () => {
     const SECRET = 'Sh4red-Tab-S3cret!';
-    const vault = { getSecretForFill: vi.fn(async () => SECRET) };
+    const vault = {
+      getSecretForFill: vi.fn(async () => SECRET),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const extensionCommandStore = portalExtensionCommandStore();
     const { service, driver, audits } = makeService({
@@ -699,7 +759,11 @@ describe('BrowserGatewayService credentials', () => {
 
   it('fillCredential aborts without typing when the shared tab navigates to a different origin between authorization and fill', async () => {
     const SECRET = 'Should-Never-Be-Typed!';
-    const vault = { getSecretForFill: vi.fn(async () => SECRET) };
+    const vault = {
+      getSecretForFill: vi.fn(async () => SECRET),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     // Snapshot returns the authorized portal origin for the initial resolution, then a
     // DIFFERENT origin on the pre-type re-check — i.e. the human navigated their real tab.
@@ -749,7 +813,11 @@ describe('BrowserGatewayService credentials', () => {
 
   it('fillCredential keys the opt-in by the shared tab node scope, not the ephemeral tab profileId', async () => {
     const SECRET = 'Node-Scoped-S3cret!';
-    const vault = { getSecretForFill: vi.fn(async () => SECRET) };
+    const vault = {
+      getSecretForFill: vi.fn(async () => SECRET),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
     const extensionCommandStore = portalExtensionCommandStore();
     // A per-node opt-in reader: only unlocks the 'local' scope. It must receive
@@ -778,7 +846,11 @@ describe('BrowserGatewayService credentials', () => {
   });
 
   it('fillCredential denies a shared existing tab when the flag is on but no standing authorization covers it', async () => {
-    const vault = { getSecretForFill: vi.fn(async () => 'secret') };
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'secret'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
     const authorizations = {
       check: vi.fn(() => ({ authorized: false as const, reason: 'origin_not_authorized' as const })),
     };

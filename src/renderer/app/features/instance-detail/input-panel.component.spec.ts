@@ -270,7 +270,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
 
   function overlayItems(): HTMLButtonElement[] {
     return Array.from(
-      fixture.nativeElement.querySelectorAll<HTMLButtonElement>('.composer-completion-item'),
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.composer-completion-item'),
     );
   }
 
@@ -339,7 +339,7 @@ function createDraftServiceMock(): Partial<DraftService> {
 function createProviderStateMock(): Partial<ProviderStateService> {
   return {
     selectedProvider: signal<ProviderType>('claude'),
-    selectedModel: signal<string | undefined>(undefined),
+    selectedModel: signal<string>(''),
     setProvider: vi.fn(),
     setModel: vi.fn(),
   };

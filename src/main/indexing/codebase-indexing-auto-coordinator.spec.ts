@@ -24,7 +24,7 @@ import {
 import type { AppSettings } from '../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 import type { RecentDirectoryEntry } from '../../shared/types/recent-directories.types';
-import type { CodebaseAutoIndexStatus, IndexingStats } from '../../shared/types/codebase.types';
+import type { CodebaseAutoIndexStatus, IndexingProgress, IndexingStats } from '../../shared/types/codebase.types';
 
 interface Fakes {
   emitter: EventEmitter;
@@ -45,8 +45,7 @@ interface Fakes {
   settings: AutoIndexSettingsTarget & { values: Partial<AppSettings> };
   preflight: ReturnType<
     typeof vi.fn<
-      [string, { maxFiles: number; maxBytes: number }],
-      Promise<PreflightResult>
+      (storeId: string, options: { maxFiles: number; maxBytes: number }) => Promise<PreflightResult>
     >
   >;
   tempDirs: string[];
@@ -75,11 +74,11 @@ function makeFakes(): Fakes {
         });
       });
     },
-    on(event: 'progress', listener: (...args: unknown[]) => void) {
+    on(event: 'progress', listener: (progress: IndexingProgress) => void) {
       progress.on(event, listener);
       return this;
     },
-    off(event: 'progress', listener: (...args: unknown[]) => void) {
+    off(event: 'progress', listener: (progress: IndexingProgress) => void) {
       progress.off(event, listener);
       return this;
     },
@@ -141,8 +140,7 @@ function makeFakes(): Fakes {
   // The default preflight implementation ignores its arguments — the tests
   // that need a different result use `.mockResolvedValueOnce(...)`.
   const preflight = vi.fn<
-    [string, { maxFiles: number; maxBytes: number }],
-    Promise<PreflightResult>
+    (storeId: string, options: { maxFiles: number; maxBytes: number }) => Promise<PreflightResult>
   >();
   preflight.mockResolvedValue({ fileCount: 10, totalBytes: 1024 });
 

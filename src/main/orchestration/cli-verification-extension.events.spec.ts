@@ -159,7 +159,16 @@ interface VerificationSession {
   cancelled: boolean;
 }
 
-type CliVerificationCoordinatorTestSeam = CliVerificationCoordinator & {
+// `CliVerificationCoordinator` declares these members `private`; intersecting
+// the class type directly with an object type re-declaring the same names as
+// public collapses the whole intersection to `never` (private members are
+// nominally branded, so TS can't reconcile them with a public re-declaration
+// even when the value types match). `Omit` first to drop the private
+// declarations, then add the public test-only view of them.
+type CliVerificationCoordinatorTestSeam = Omit<
+  CliVerificationCoordinator,
+  'runCliVerification' | 'runAgent' | 'synthesize'
+> & {
   runCliVerification(
     request: VerificationRequest,
     agents: AgentConfig[],
@@ -202,7 +211,7 @@ function makeSession(request: VerificationRequest): {
 } {
   return {
     request,
-    providers: new Map<string, unknown>(),
+    providers: new Map<string, ProviderAdapter>(),
     cancelled: false,
   };
 }

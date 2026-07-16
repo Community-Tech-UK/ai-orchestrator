@@ -139,9 +139,9 @@ describe('SessionContinuityManager logging', () => {
   it('persists one atomic runtime snapshot without mutating the provider cursor', async () => {
     const manager = createManager();
     await manager.readyPromise;
-    const state = { ...makeState('atomic-runtime'), provider: 'openai' as const };
+    const state = { ...makeState('atomic-runtime'), provider: 'codex' as const };
     const providerCursor = Object.freeze({
-      provider: 'openai' as const,
+      provider: 'codex' as const,
       threadId: 'thread-7',
       workspacePath: '/workspace',
       capturedAt: 100,

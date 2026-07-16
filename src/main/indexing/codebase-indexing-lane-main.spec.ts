@@ -73,10 +73,7 @@ describe('codebase indexing lane main entrypoint', () => {
 
   it('runs index-codebase jobs and returns only summary results', async () => {
     const parentPort = installParentPort();
-    const instances: Array<EventEmitter & {
-      indexCodebase: ReturnType<typeof vi.fn>;
-      cancel: ReturnType<typeof vi.fn>;
-    }> = [];
+    const instances: EventEmitter[] = [];
 
     vi.doMock('./indexing-service', () => ({
       CodebaseIndexingService: class FakeCodebaseIndexingService extends EventEmitter {
@@ -214,7 +211,7 @@ describe('codebase indexing lane main entrypoint', () => {
 
   it('cancels an active index-codebase job cooperatively', async () => {
     const parentPort = installParentPort();
-    let resolveStats: ((stats: IndexingStats) => void) | null = null;
+    let resolveStats!: (stats: IndexingStats) => void;
     const cancelCalls: string[] = [];
 
     vi.doMock('./indexing-service', () => ({
@@ -262,7 +259,7 @@ describe('codebase indexing lane main entrypoint', () => {
     });
     expect(cancelCalls).toEqual(['cancelled']);
 
-    resolveStats?.({
+    resolveStats({
       filesIndexed: 2,
       chunksCreated: 4,
       tokensProcessed: 0,
@@ -280,7 +277,7 @@ describe('codebase indexing lane main entrypoint', () => {
   it('waits for active index-codebase jobs to acknowledge cancellation before shutdown exit', async () => {
     const parentPort = installParentPort();
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
-    let resolveStats: ((stats: IndexingStats) => void) | null = null;
+    let resolveStats!: (stats: IndexingStats) => void;
     const cancelCalls: string[] = [];
 
     vi.doMock('./indexing-service', () => ({
@@ -327,7 +324,7 @@ describe('codebase indexing lane main entrypoint', () => {
     expect(cancelCalls).toEqual(['cancelled']);
     expect(exitSpy).not.toHaveBeenCalled();
 
-    resolveStats?.({
+    resolveStats({
       filesIndexed: 2,
       chunksCreated: 4,
       tokensProcessed: 0,

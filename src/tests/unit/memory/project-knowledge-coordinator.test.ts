@@ -46,7 +46,7 @@ function result(overrides: Partial<CodebaseMiningResult> = {}): CodebaseMiningRe
 function createDeps(root: CodebaseMiningStatus = status()) {
   const registry = {
     ensureRoot: vi.fn((_rootPath: string, _source: ProjectDiscoverySource) => root),
-    getRoot: vi.fn(() => root),
+    getRoot: vi.fn<(rootPath: string) => CodebaseMiningStatus | undefined>(() => root),
     pauseRoot: vi.fn(() => ({ ...root, isPaused: true })),
     resumeRoot: vi.fn(() => ({ ...root, isPaused: false })),
     excludeRoot: vi.fn(() => ({ ...root, isExcluded: true })),

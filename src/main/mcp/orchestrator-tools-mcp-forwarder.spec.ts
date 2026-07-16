@@ -173,7 +173,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       required: ['node'],
       additionalProperties: false,
     });
-    expect((tool?.inputSchema.properties as Record<string, unknown>)['targetId']).toBeUndefined();
+    expect((tool?.inputSchema['properties'] as Record<string, unknown>)['targetId']).toBeUndefined();
   });
 
   it('advertises localPath as optional for download_from_node', () => {
@@ -190,7 +190,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       },
       additionalProperties: false,
     });
-    expect(tool?.inputSchema.required).toEqual(['node', 'remotePath']);
+    expect(tool?.inputSchema['required']).toEqual(['node', 'remotePath']);
   });
 
   it('advertises fileTransfer updates for update_node_config', () => {
@@ -382,9 +382,9 @@ describe('createOrchestratorToolsForwarderTools', () => {
       (t) => t.name === 'read_node_output',
     );
 
-    await expect(readTool!.handler(null)).rejects.toThrow(/must be an object/);
-    await expect(readTool!.handler('string')).rejects.toThrow(/must be an object/);
-    await expect(readTool!.handler([])).rejects.toThrow(/must be an object/);
+    await expect(readTool!.handler(null as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
+    await expect(readTool!.handler('string' as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
+    await expect(readTool!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
     expect(call).not.toHaveBeenCalled();
   });
 
@@ -514,9 +514,9 @@ describe('createOrchestratorToolsForwarderTools', () => {
       (t) => t.name === 'run_on_node',
     );
 
-    await expect(runTool!.handler(null)).rejects.toThrow(/must be an object/);
-    await expect(runTool!.handler('string')).rejects.toThrow(/must be an object/);
-    await expect(runTool!.handler([])).rejects.toThrow(/must be an object/);
+    await expect(runTool!.handler(null as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
+    await expect(runTool!.handler('string' as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
+    await expect(runTool!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
     expect(call).not.toHaveBeenCalled();
   });
 
@@ -540,9 +540,9 @@ describe('createOrchestratorToolsForwarderTools', () => {
 
     // null / undefined / primitive args should be rejected client-side rather
     // than crossing the wire and consuming a parent rate-limit slot.
-    await expect(pullTool!.handler(null)).rejects.toThrow(/must be an object/);
-    await expect(pullTool!.handler('string')).rejects.toThrow(/must be an object/);
-    await expect(pullTool!.handler([])).rejects.toThrow(/must be an object/);
+    await expect(pullTool!.handler(null as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
+    await expect(pullTool!.handler('string' as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
+    await expect(pullTool!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow(/must be an object/);
     expect(call).not.toHaveBeenCalled();
   });
 

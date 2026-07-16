@@ -14,7 +14,7 @@ describe('ContinuationInjector', () => {
     expect(continuation.content).toContain('Resume');
     expect(continuation.content).toContain('no apology');
     expect(continuation.content).toContain('no recap');
-    expect(continuation.metadata?.isContinuation).toBe(true);
+    expect(continuation.metadata?.['isContinuation']).toBe(true);
   });
 
   it('adds attempt number for multi-turn recovery', () => {
@@ -25,7 +25,7 @@ describe('ContinuationInjector', () => {
     ];
 
     const continuation = injector.createContinuation(messages, { attemptNumber: 2 });
-    expect(continuation.metadata?.attemptNumber).toBe(2);
+    expect(continuation.metadata?.['attemptNumber']).toBe(2);
   });
 
   it('includes context hint from truncated output', () => {

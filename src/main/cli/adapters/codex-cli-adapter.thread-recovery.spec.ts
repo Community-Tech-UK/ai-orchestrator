@@ -1,7 +1,9 @@
 import type { ChildProcess } from 'child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const listBrowserApprovalRequestsMock = vi.hoisted(() => vi.fn(() => []));
+const listBrowserApprovalRequestsMock = vi.hoisted(() =>
+  vi.fn<() => Array<{ requestId: string; status: string; expiresAt: number }>>(() => []),
+);
 
 // Keep all real exports; only stub the process-tree killer so idle-timeout
 // tests don't signal real PIDs.
@@ -201,11 +203,13 @@ describe('CodexCliAdapter', () => {
         const neverExits = new Promise<void>(() => {
           // Intentionally pending.
         });
-        const client = {
-          notificationHandler: null as ((notification: {
-            method: string;
-            params: Record<string, unknown>;
-          }) => void) | null,
+        const client: SyntheticNotificationHost & {
+          exitPromise: Promise<void>;
+          request: ReturnType<typeof vi.fn<() => Promise<{ turn: { id: string; status: string } }>>>;
+          setNotificationHandler(handler: SyntheticNotificationHost['notificationHandler']): void;
+          subscribeNotifications: typeof subscribeSyntheticNotification;
+        } = {
+          notificationHandler: null,
           exitPromise: neverExits,
           request: vi.fn(async () => {
             client.notificationHandler?.({
@@ -265,11 +269,13 @@ describe('CodexCliAdapter', () => {
         const neverExits = new Promise<void>(() => {
           // Intentionally pending.
         });
-        const client = {
-          notificationHandler: null as ((notification: {
-            method: string;
-            params: Record<string, unknown>;
-          }) => void) | null,
+        const client: SyntheticNotificationHost & {
+          exitPromise: Promise<void>;
+          request: ReturnType<typeof vi.fn<() => Promise<{ turn: { id: string; status: string } }>>>;
+          setNotificationHandler(handler: SyntheticNotificationHost['notificationHandler']): void;
+          subscribeNotifications: typeof subscribeSyntheticNotification;
+        } = {
+          notificationHandler: null,
           exitPromise: neverExits,
           request: vi.fn().mockResolvedValue({
             turn: { id: 'turn-1', status: 'inProgress' },

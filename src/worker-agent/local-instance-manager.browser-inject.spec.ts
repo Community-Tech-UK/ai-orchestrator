@@ -67,7 +67,7 @@ describe('LocalInstanceManager browser injection', () => {
   it('injects chromeDevtoolsMcp when the browser manager is enabled', async () => {
     const mgr = new LocalInstanceManager(['/work'], 10, fakeBrowserManager({ enabled: true }));
     await mgr.spawn(baseParams());
-    expect(lastSpawnOptions().chromeDevtoolsMcp).toEqual({ browserUrl: 'http://127.0.0.1:9333' });
+    expect(lastSpawnOptions()['chromeDevtoolsMcp']).toEqual({ browserUrl: 'http://127.0.0.1:9333' });
   });
 
   it('does not advertise an axe runner path when no runner artifact exists', async () => {
@@ -83,7 +83,7 @@ describe('LocalInstanceManager browser injection', () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
 
-    const env = lastSpawnOptions().env as Record<string, string>;
+    const env = lastSpawnOptions()['env'] as Record<string, string>;
     expect(env['AIO_BROWSER_URL']).toBe('http://127.0.0.1:9333');
     expect(env['AIO_AXE_RUNNER']).toBeUndefined();
   });
@@ -91,13 +91,13 @@ describe('LocalInstanceManager browser injection', () => {
   it('does not inject when the browser manager is disabled', async () => {
     const mgr = new LocalInstanceManager(['/work'], 10, fakeBrowserManager({ enabled: false }));
     await mgr.spawn(baseParams());
-    expect(lastSpawnOptions().chromeDevtoolsMcp).toBeUndefined();
+    expect(lastSpawnOptions()['chromeDevtoolsMcp']).toBeUndefined();
   });
 
   it('does not inject when there is no browser manager', async () => {
     const mgr = new LocalInstanceManager(['/work'], 10, null);
     await mgr.spawn(baseParams());
-    expect(lastSpawnOptions().chromeDevtoolsMcp).toBeUndefined();
+    expect(lastSpawnOptions()['chromeDevtoolsMcp']).toBeUndefined();
   });
 
   it('degrades gracefully: spawn still succeeds without browser tools when Chrome fails to start', async () => {
@@ -113,6 +113,6 @@ describe('LocalInstanceManager browser injection', () => {
     );
     await expect(mgr.spawn(baseParams())).resolves.toBeUndefined();
     expect(createCliAdapter).toHaveBeenCalledTimes(1);
-    expect(lastSpawnOptions().chromeDevtoolsMcp).toBeUndefined();
+    expect(lastSpawnOptions()['chromeDevtoolsMcp']).toBeUndefined();
   });
 });

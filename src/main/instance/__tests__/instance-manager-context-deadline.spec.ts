@@ -407,6 +407,9 @@ function createContextPort(overrides: Partial<InstanceContextPort> = {}): Instan
     })),
     buildRlmContext: vi.fn().mockResolvedValue(null),
     buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+    buildObservationContext: vi.fn().mockResolvedValue(null),
+    buildWakeContextText: vi.fn().mockResolvedValue(null),
+    buildMcpRuntimeToolContextSelection: vi.fn().mockResolvedValue(null),
     formatRlmContextBlock: vi.fn((context: RlmContextInfo | null) =>
       context ? `[RLM]\n${context.context}` : null
     ),
@@ -462,8 +465,8 @@ describe('InstanceManager context deadline', () => {
 
   it('sendInput completes within the context deadline when context builders hang', async () => {
     const contextPort = createContextPort({
-      buildRlmContext: vi.fn(() => new Promise(() => undefined)),
-      buildUnifiedMemoryContext: vi.fn(() => new Promise(() => undefined)),
+      buildRlmContext: vi.fn(() => new Promise<RlmContextInfo | null>(() => undefined)),
+      buildUnifiedMemoryContext: vi.fn(() => new Promise<UnifiedMemoryContextInfo | null>(() => undefined)),
     });
     mockIndexedBuildContext.mockImplementation(() => new Promise(() => undefined));
     const instance = makeInstance();
@@ -519,8 +522,8 @@ describe('InstanceManager context deadline', () => {
 
   it('passes null as contextBlock when context exceeds the deadline', async () => {
     const contextPort = createContextPort({
-      buildRlmContext: vi.fn(() => new Promise(() => undefined)),
-      buildUnifiedMemoryContext: vi.fn(() => new Promise(() => undefined)),
+      buildRlmContext: vi.fn(() => new Promise<RlmContextInfo | null>(() => undefined)),
+      buildUnifiedMemoryContext: vi.fn(() => new Promise<UnifiedMemoryContextInfo | null>(() => undefined)),
     });
     mockIndexedBuildContext.mockImplementation(() => new Promise(() => undefined));
     const instance = makeInstance();

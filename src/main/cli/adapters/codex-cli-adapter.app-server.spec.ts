@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 const listBrowserApprovalRequestsMock = vi.hoisted(() => vi.fn(() => []));
 
@@ -63,9 +63,18 @@ function subscribeSyntheticNotification(
   };
 }
 
-function createSyntheticTurnClient(notifications: Array<{ method: string; params: Record<string, unknown> }>) {
-  const client = {
-    notificationHandler: null as ((notification: { method: string; params: Record<string, unknown> }) => void) | null,
+interface SyntheticTurnClient extends SyntheticNotificationHost {
+  exitPromise: Promise<void>;
+  request: Mock<
+    (method: string, params?: Record<string, unknown>) => Promise<{ turn: { id: string; status: string } }>
+  >;
+  setNotificationHandler(handler: SyntheticTurnClient['notificationHandler']): void;
+  subscribeNotifications: typeof subscribeSyntheticNotification;
+}
+
+function createSyntheticTurnClient(notifications: SyntheticNotification[]): SyntheticTurnClient {
+  const client: SyntheticTurnClient = {
+    notificationHandler: null,
     exitPromise: new Promise<void>(() => {
       // Intentionally pending for the lifetime of the synthetic turn.
     }),
@@ -448,8 +457,13 @@ describe('CodexCliAdapter', () => {
       const order: string[] = [];
       const turnInputs: string[] = [];
       let turnSequence = 0;
-      const client = {
-        notificationHandler: null as ((notification: { method: string; params: Record<string, unknown> }) => void) | null,
+      const client: SyntheticNotificationHost & {
+        exitPromise: Promise<void>;
+        request(method: string, params?: Record<string, unknown>): Promise<unknown>;
+        setNotificationHandler(handler: SyntheticNotificationHost['notificationHandler']): void;
+        subscribeNotifications: typeof subscribeSyntheticNotification;
+      } = {
+        notificationHandler: null,
         exitPromise: new Promise<void>(() => { /* intentionally pending */ }),
         request: vi.fn(async (method: string, params: Record<string, unknown>) => {
           order.push(method);

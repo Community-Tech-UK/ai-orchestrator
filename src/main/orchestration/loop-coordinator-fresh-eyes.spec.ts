@@ -319,7 +319,8 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
   }, 20_000);
 
   it('records lastVerifiedWorkHash on state when verify passes at the gate (D6 #7)', async () => {
-    let lastBroadcastState: { lastVerifiedWorkHash?: string } | null = null;
+    type BroadcastState = { lastVerifiedWorkHash?: string } | null;
+    let lastBroadcastState: BroadcastState = null;
     coordinator.on('loop:state-changed', (payload: unknown) => {
       lastBroadcastState = (payload as { state: { lastVerifiedWorkHash?: string } }).state;
     });
@@ -332,7 +333,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(r.ended).toBe(true);
     // computeWorkHash produces a sha256 hex digest; the passing verify at the
     // completion gate must have anchored it on state (edit-invalidates-proof).
-    expect(lastBroadcastState?.lastVerifiedWorkHash).toMatch(/^[0-9a-f]{64}$/);
+    expect((lastBroadcastState as BroadcastState)?.lastVerifiedWorkHash).toMatch(/^[0-9a-f]{64}$/);
   }, 20_000);
 
   it('PAUSES when the reviewer is unavailable even if a verify command passed', async () => {

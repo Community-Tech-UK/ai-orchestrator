@@ -145,7 +145,7 @@ describe('redactSpanAttributes (Task 14)', () => {
     expect(typeof attrs['verification.query']).toBe('string');
     expect(attrs['verification.query']).not.toContain('sk-1234567890');
     // Secret-keyed string collapses to a primitive placeholder (never an object).
-    expect(attrs.authorization).toBe('<redacted-secret>');
+    expect(attrs['authorization']).toBe('<redacted-secret>');
     // Numeric count under a secret-shaped key passes through unchanged.
     expect(attrs['ai.provider.token_count']).toBe(4096);
   });

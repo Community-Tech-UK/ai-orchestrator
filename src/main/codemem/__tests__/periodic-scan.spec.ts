@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,15 +6,17 @@ import { CasStore } from '../cas-store';
 import { migrate } from '../cas-schema';
 import { CodeIndexManager } from '../code-index-manager';
 import { PeriodicScan } from '../periodic-scan';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 
 describe('PeriodicScan', () => {
-  let db: Database.Database;
+  let db: SqliteDriver;
   let store: CasStore;
   let mgr: CodeIndexManager;
   let workDir: string;
 
   beforeEach(async () => {
-    db = new Database(':memory:');
+    db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
     mgr = new CodeIndexManager({ store });

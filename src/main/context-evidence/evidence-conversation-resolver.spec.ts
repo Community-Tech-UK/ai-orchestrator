@@ -322,7 +322,7 @@ describe('context evidence provider modes', () => {
       openai: 'shadow',
     }, registry);
 
-    expect(normalized.codex).toBe('enforce');
+    expect(normalized['codex']).toBe('enforce');
     expect(getContextEvidenceMode(normalized, 'openai')).toBe('enforce');
     expect(getContextEvidenceMode(normalized, 'auto')).toBe('off');
   });

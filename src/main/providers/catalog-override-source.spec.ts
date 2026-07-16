@@ -87,7 +87,7 @@ describe('CatalogOverrideSource', () => {
     const source = new CatalogOverrideSource({
       readFile: vi.fn(async () => raw),
       mkdir: vi.fn(async () => undefined),
-      watchDirectory: vi.fn((path, listener) => {
+      watchDirectory: vi.fn((path: string, listener: () => void) => {
         watchedPath = path;
         watchListener = listener;
         return { close: vi.fn() };
@@ -103,7 +103,7 @@ describe('CatalogOverrideSource', () => {
     raw = JSON.stringify({
       gemini: [{ id: 'gemini-local-pro', tier: 'powerful' }],
     });
-    watchListener?.();
+    (watchListener as (() => void) | null)?.();
     await vi.advanceTimersByTimeAsync(200);
 
     expect(source.getEntries().map((entry) => `${entry.provider}:${entry.id}`)).toEqual([
@@ -558,7 +558,7 @@ describe('CatalogOverrideSource', () => {
     source.on('updated', listener);
 
     source.stop();
-    resolveFetch?.(JSON.stringify({
+    (resolveFetch as ((value: string) => void) | null)?.(JSON.stringify({
       codex: [{ id: 'gpt-stale-after-stop' }],
     }));
     await pending;
@@ -596,7 +596,7 @@ describe('CatalogOverrideSource', () => {
     await Promise.resolve();
     const second = source.setRemoteOverrideUrl('https://second.example/models.json');
     await second;
-    resolveFirst?.(JSON.stringify({
+    (resolveFirst as ((value: string) => void) | null)?.(JSON.stringify({
       claude: [{ id: 'first-url-model' }],
     }));
     await first;

@@ -41,6 +41,12 @@ function makeManager(): WorkflowManager {
     id: TEMPLATE_ID,
     name: 'Test Template',
     description: 'Minimal template for tests',
+    icon: 'test',
+    category: 'custom',
+    triggerPatterns: [],
+    autoTrigger: false,
+    estimatedDuration: '5m',
+    requiredAgents: [],
     phases: [
       {
         id: 'phase-1',

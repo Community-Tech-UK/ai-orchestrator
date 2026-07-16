@@ -26,7 +26,7 @@ vi.mock('../../rlm/llm-service', () => ({
 }));
 
 const auxMocks = vi.hoisted(() => ({
-  generate: vi.fn(async () => ({
+  generate: vi.fn(async (_slot: string, _systemPrompt: string, _userPrompt: string) => ({
     text: '',
     decision: { source: 'fallback' as const, allowFrontierFallback: true },
   })),

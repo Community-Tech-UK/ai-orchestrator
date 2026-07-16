@@ -94,7 +94,7 @@ describe('ProjectRegistry', () => {
         getDirectories: async () => options.recentDirectories ?? [],
       },
       conversationLedger: {
-        listConversations: () => [],
+        listConversations: async () => [],
       },
       instanceManager: {
         getAllInstances: () => [],

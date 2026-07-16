@@ -204,7 +204,7 @@ describe('procurement portal — secure bank fill via the broker (real DOM)', ()
 
     // The values actually landed in the page (test reads the DOM directly)...
     expect((el('#account-number') as HTMLInputElement).value).toBe(BANK_SECRETS['Account Number']);
-    expect((el('#iban') as HTMLInputElement).value).toBe(BANK_SECRETS.IBAN);
+    expect((el('#iban') as HTMLInputElement).value).toBe(BANK_SECRETS['IBAN']);
 
     // ...but NO secret value appears anywhere in the model-visible result / audit
     // fields (data, summary, reason).

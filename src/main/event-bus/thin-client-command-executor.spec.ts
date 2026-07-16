@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createThinClientCommandExecutor } from './thin-client-command-executor';
+import type { Instance } from '../../shared/types/instance.types';
+import type { OrchestrationHandler } from '../orchestration/orchestration-handler';
 
 describe('createThinClientCommandExecutor', () => {
   it('implements the instance remote-control command subset', async () => {
@@ -9,12 +11,19 @@ describe('createThinClientCommandExecutor', () => {
         id: 'inst-2',
         displayName: 'Created',
         communicationTokens: new Map([['provider', 1]]),
-      })),
+      }) as unknown as Instance),
       sendInput: vi.fn(async () => undefined),
       terminateInstance: vi.fn(async () => undefined),
       interruptInstance: vi.fn(() => true),
       hibernateInstance: vi.fn(async () => undefined),
       wakeInstance: vi.fn(async () => undefined),
+      getInstance: vi.fn(() => undefined),
+      getOrchestrationHandler: vi.fn(() => ({ respondToUserAction: vi.fn() }) as unknown as OrchestrationHandler),
+      recordInputRequiredPermissionDecision: vi.fn(),
+      clearPendingInputRequiredPermission: vi.fn(),
+      resumeAfterDeferredPermission: vi.fn(async () => undefined),
+      sendInputResponse: vi.fn(async () => undefined),
+      appendSyntheticUserMessage: vi.fn(),
     };
     const execute = createThinClientCommandExecutor({
       instanceManager,
@@ -72,7 +81,7 @@ describe('createThinClientCommandExecutor', () => {
     const respondToUserAction = vi.fn();
     const instanceManager = {
       getAllInstancesForIpc: vi.fn(() => []),
-      createInstance: vi.fn(async () => ({})),
+      createInstance: vi.fn(async () => ({} as unknown as Instance)),
       sendInput: vi.fn(async () => undefined),
       terminateInstance: vi.fn(async () => undefined),
       interruptInstance: vi.fn(() => false),
@@ -81,7 +90,10 @@ describe('createThinClientCommandExecutor', () => {
       sendInputResponse: vi.fn(async () => undefined),
       clearPendingInputRequiredPermission: vi.fn(),
       recordInputRequiredPermissionDecision: vi.fn(),
-      getOrchestrationHandler: vi.fn(() => ({ respondToUserAction })),
+      getOrchestrationHandler: vi.fn(() => ({ respondToUserAction }) as unknown as OrchestrationHandler),
+      getInstance: vi.fn(() => undefined),
+      resumeAfterDeferredPermission: vi.fn(async () => undefined),
+      appendSyntheticUserMessage: vi.fn(),
     };
     const execute = createThinClientCommandExecutor({
       instanceManager,
@@ -256,13 +268,18 @@ describe('createThinClientCommandExecutor', () => {
 function makeBaseInstanceManager() {
   return {
     getAllInstancesForIpc: vi.fn(() => []),
-    createInstance: vi.fn(async () => ({})),
+    createInstance: vi.fn(async () => ({} as unknown as Instance)),
     sendInput: vi.fn(async () => undefined),
     terminateInstance: vi.fn(async () => undefined),
     interruptInstance: vi.fn(() => false),
     hibernateInstance: vi.fn(async () => undefined),
     wakeInstance: vi.fn(async () => undefined),
-    getInstance: vi.fn(() => null),
+    getInstance: vi.fn(() => undefined),
     appendSyntheticUserMessage: vi.fn(),
+    recordInputRequiredPermissionDecision: vi.fn(),
+    clearPendingInputRequiredPermission: vi.fn(),
+    resumeAfterDeferredPermission: vi.fn(async () => undefined),
+    sendInputResponse: vi.fn(async () => undefined),
+    getOrchestrationHandler: vi.fn(() => ({ respondToUserAction: vi.fn() }) as unknown as OrchestrationHandler),
   };
 }

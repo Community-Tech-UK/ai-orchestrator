@@ -80,7 +80,7 @@ function claimsDone(): LoopChildResult {
     childInstanceId: null,
     output: '<promise>DONE</promise>\nTASK COMPLETE',
     tokens: 1,
-    filesChanged: ['agent-output.txt'],
+    filesChanged: [{ path: 'agent-output.txt', additions: 1, deletions: 0, contentHash: 'agent-output-hash' }],
     toolCalls: [],
     errors: [],
     testPassCount: null,

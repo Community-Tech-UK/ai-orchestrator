@@ -93,7 +93,8 @@ function evidenceInstance(): Instance {
   return {
     id: 'instance-1', displayName: 'Evidence', createdAt: 1, historyThreadId: 'history-1',
     parentId: null, childrenIds: [], supervisorNodeId: '', depth: 0,
-    terminationPolicy: 'terminate-children', contextInheritance: {} as Instance['contextInheritance'],
+    terminationPolicy: 'terminate-children', launchMode: 'orchestrated', executionLocation: { type: 'local' },
+    contextInheritance: {} as Instance['contextInheritance'],
     agentId: 'build', agentMode: 'build', planMode: { enabled: false, state: 'off' },
     status: 'processing', contextUsage: { used: 0, total: 1_000, percentage: 0 },
     lastActivity: 1, processId: 1, sessionId: 'session-1', providerSessionId: 'provider-session-1',

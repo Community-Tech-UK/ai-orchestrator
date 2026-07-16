@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import type { LoopBranchSelector } from './loop-branch-select';
 import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
@@ -63,7 +64,7 @@ function startConfig(enabled: boolean) {
 
 describe('LoopCoordinator branch-select wiring (LF-5)', () => {
   it('invokes the branch selector on CRITICAL when exploration is enabled', async () => {
-    const selector = vi.fn(async () => ({ adopted: false, reason: 'stub: no winner', candidateCount: 3 }));
+    const selector = vi.fn<LoopBranchSelector>(async () => ({ adopted: false, reason: 'stub: no winner', candidateCount: 3 }));
     coordinator.setBranchSelector(selector);
 
     let branchEvent: { adopted: boolean; reason: string } | null = null;

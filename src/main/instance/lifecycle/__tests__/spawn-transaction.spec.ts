@@ -6,9 +6,9 @@ describe('SpawnTransaction', () => {
     const calls: string[] = [];
     const transaction = createSpawnTransaction('spawn-test');
 
-    transaction.addRollback('first', () => calls.push('first'));
-    transaction.addRollback('second', async () => calls.push('second'));
-    transaction.addRollback('third', () => calls.push('third'));
+    transaction.addRollback('first', () => { calls.push('first'); });
+    transaction.addRollback('second', async () => { calls.push('second'); });
+    transaction.addRollback('third', () => { calls.push('third'); });
 
     await transaction.rollback(new Error('spawn failed'));
 
@@ -19,12 +19,12 @@ describe('SpawnTransaction', () => {
     const calls: string[] = [];
     const transaction = createSpawnTransaction('spawn-test');
 
-    transaction.addRollback('first', () => calls.push('first'));
+    transaction.addRollback('first', () => { calls.push('first'); });
     transaction.addRollback('broken', () => {
       calls.push('broken');
       throw new Error('cleanup failed');
     });
-    transaction.addRollback('third', () => calls.push('third'));
+    transaction.addRollback('third', () => { calls.push('third'); });
 
     await transaction.rollback(new Error('spawn failed'));
 

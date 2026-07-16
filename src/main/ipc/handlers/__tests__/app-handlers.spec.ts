@@ -420,7 +420,7 @@ describe('app-handlers (file IO security surface)', () => {
       });
 
       expect(res.success).toBe(true);
-      const entries = res.data as { name: string; isDirectory: boolean }[];
+      const entries = res.data as unknown as { name: string; isDirectory: boolean }[];
       expect(entries[0]!.name).toBe('alpha-dir');
       expect(entries[0]!.isDirectory).toBe(true);
       expect(entries[1]!.name).toBe('readme.md');
@@ -442,7 +442,7 @@ describe('app-handlers (file IO security surface)', () => {
         includeHidden: false,
       });
 
-      const entries = res.data as { name: string }[];
+      const entries = res.data as unknown as { name: string }[];
       expect(entries.map((e) => e.name)).toEqual(['visible.txt']);
     });
 
@@ -461,7 +461,7 @@ describe('app-handlers (file IO security surface)', () => {
         includeHidden: true,
       });
 
-      const entries = res.data as { name: string }[];
+      const entries = res.data as unknown as { name: string }[];
       expect(entries.map((e) => e.name).sort()).toEqual([
         '.hidden',
         'visible.txt',

@@ -65,7 +65,7 @@ describe('RemoteNodesStore', () => {
     const store = TestBed.inject(RemoteNodesStore);
     store.nodes.set([makeNode('node-1', 'connected', true)]);
 
-    nodeEventCallback?.({ type: 'disconnected', nodeId: 'node-1' });
+    (nodeEventCallback as ((event: RemoteNodeEvent) => void) | null)?.({ type: 'disconnected', nodeId: 'node-1' });
 
     expect(store.nodes()[0]).toMatchObject({
       status: 'disconnected',
@@ -93,7 +93,7 @@ describe('RemoteNodesStore', () => {
     const store = TestBed.inject(RemoteNodesStore);
     store.nodes.set([makeNode('node-1', 'disconnected', false)]);
 
-    nodeEventCallback?.({
+    (nodeEventCallback as ((event: RemoteNodeEvent) => void) | null)?.({
       type: 'connected',
       node: makeNode('node-1', 'connected', true),
     });
@@ -124,7 +124,7 @@ describe('RemoteNodesStore', () => {
       activeInstances: 1,
     }]);
 
-    nodeEventCallback?.({
+    (nodeEventCallback as ((event: RemoteNodeEvent) => void) | null)?.({
       type: 'updated',
       node: {
         ...makeNode('node-1', 'connected', true),
@@ -200,7 +200,7 @@ describe('RemoteNodesStore', () => {
       },
     };
 
-    nodeEventCallback?.({
+    (nodeEventCallback as ((event: RemoteNodeEvent) => void) | null)?.({
       type: 'updated',
       node: liveUpdate,
     });

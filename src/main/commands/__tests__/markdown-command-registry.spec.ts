@@ -141,7 +141,7 @@ describe('mtime skip — per-directory optimisation', () => {
   it('re-walks a directory when mtime changes even within TTL', async () => {
     const { stat } = await import('fs/promises');
     let callCount = 0;
-    vi.mocked(stat).mockImplementation(async (p: string) => {
+    vi.mocked(stat).mockImplementation(async (p: import('fs').PathLike) => {
       statCalls.push(p as string);
       callCount++;
       // Second call returns a different mtime to simulate file change

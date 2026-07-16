@@ -280,7 +280,7 @@ describe('DarwinDesktopDriver', () => {
   });
 
   it('deduplicates concurrent requests for the same permission', async () => {
-    let release: (() => void) | null = null;
+    let release!: () => void;
     const requestScreenAccess = vi.fn(() =>
       new Promise<void>((resolve) => { release = resolve; }));
     const driver = new DarwinDesktopDriver({
@@ -292,7 +292,7 @@ describe('DarwinDesktopDriver', () => {
 
     const first = driver.requestSystemPermission('screen-recording');
     const second = driver.requestSystemPermission('screen-recording');
-    release?.();
+    release();
     await Promise.all([first, second]);
     expect(requestScreenAccess).toHaveBeenCalledOnce();
   });

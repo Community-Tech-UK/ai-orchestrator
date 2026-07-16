@@ -171,7 +171,7 @@ describe('NodeDetailComponent', () => {
     Object.defineProperty(fixture.componentInstance, 'node', { value: () => node });
     fixture.detectChanges();
 
-    const headings = [...(fixture.nativeElement as HTMLElement).querySelectorAll('.local-model-endpoint h5')]
+    const headings = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.local-model-endpoint h5'))
       .map((heading) => heading.textContent ?? '');
     expect(headings.some((heading) => heading.includes('Ollama') && heading.includes('Unavailable'))).toBe(true);
   });

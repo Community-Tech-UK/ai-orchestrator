@@ -11,7 +11,7 @@ import {
   loginCommandPreview,
   type NodeHealthEntry,
 } from './remote-nodes-browser-automation';
-import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
+import type { RemoteNodeRosterEntry, WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
 
 function entry(over: Partial<NodeHealthEntry> = {}): NodeHealthEntry {
   return {
@@ -144,7 +144,7 @@ describe('extensionRelayState', () => {
   });
 
   it('patches live node capabilities from an authoritative summary', () => {
-    const nodes = [{
+    const nodes: WorkerNodeInfo[] = [{
       id: 'n1',
       name: 'windows-pc',
       address: '',

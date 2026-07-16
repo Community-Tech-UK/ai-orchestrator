@@ -118,7 +118,7 @@ describe('WorkerModeComponent', () => {
     component.state.set('service-choice');
     fixture.detectChanges();
 
-    const runButton = Array.from(fixture.nativeElement.querySelectorAll('button'))
+    const runButton = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent.includes('Run while Harness is open')) as HTMLButtonElement;
     runButton.click();
     await fixture.whenStable();
@@ -133,7 +133,7 @@ describe('WorkerModeComponent', () => {
 
     component.state.set('service-choice');
     fixture.detectChanges();
-    const serviceButton = Array.from(fixture.nativeElement.querySelectorAll('button'))
+    const serviceButton = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent.includes('Install background service')) as HTMLButtonElement;
     serviceButton.click();
     await fixture.whenStable();
@@ -159,12 +159,12 @@ describe('WorkerModeComponent', () => {
     component.state.set('connected');
     fixture.detectChanges();
 
-    const stopButton = Array.from(fixture.nativeElement.querySelectorAll('button'))
+    const stopButton = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent.includes('Stop Worker')) as HTMLButtonElement;
     stopButton.click();
     await fixture.whenStable();
 
-    const unpairButton = Array.from(fixture.nativeElement.querySelectorAll('button'))
+    const unpairButton = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent.includes('Unpair this computer')) as HTMLButtonElement;
     unpairButton.click();
     await fixture.whenStable();

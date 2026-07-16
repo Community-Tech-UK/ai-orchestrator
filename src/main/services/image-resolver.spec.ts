@@ -129,6 +129,6 @@ function mockResponse(input: {
       input.body.buffer.slice(
         input.body.byteOffset,
         input.body.byteOffset + input.body.byteLength,
-      ),
+      ) as ArrayBuffer,
   };
 }

@@ -47,7 +47,7 @@ describe('settings export/import', () => {
       remoteNodesRegisteredNodes: '{"node":"secret-node"}',
       auxiliaryLlmEndpointsJson: '[{"apiKey":"secret"}]',
       projectPluginTrust: { '/Users/james/work/project': 'trusted' },
-    } as AppSettings;
+    } as unknown as AppSettings;
   });
 
   it('exports only portable non-secret settings', () => {

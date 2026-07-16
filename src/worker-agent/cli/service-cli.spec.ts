@@ -220,7 +220,7 @@ describe('service-cli', () => {
     await runServiceCommand(command!);
 
     const persisted = extensionRelayCliMocks.persistConfig.mock.calls.at(-1)?.[1] as Record<string, unknown>;
-    expect(persisted.coordinatorUrl).toBe('wss://mac.tail4fc107.ts.net:4878/worker');
+    expect(persisted['coordinatorUrl']).toBe('wss://mac.tail4fc107.ts.net:4878/worker');
     expect(mockInstall).toHaveBeenCalledWith(expect.objectContaining({
       coordinatorUrl: 'wss://mac.tail4fc107.ts.net:4878/worker',
     }));

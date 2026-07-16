@@ -42,7 +42,7 @@ describe('browser extension native runtime', () => {
 
   beforeEach(() => {
     nativeRuntimeMocks.execFileSync.mockReset();
-    nativeRuntimeMocks.homedir.mockReturnValue(process.env.HOME ?? '/tmp');
+    nativeRuntimeMocks.homedir.mockReturnValue(process.env['HOME'] ?? '/tmp');
   });
 
   afterEach(() => {

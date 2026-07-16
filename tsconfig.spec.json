@@ -11,5 +11,17 @@
     "packages/**/*.test.ts",
     "packages/contracts/src/**/*",
     "packages/sdk/src/**/*"
+  ],
+  // The base config excludes src/**/*.spec.ts so production builds skip tests.
+  // "exclude" is inherited wholesale unless overridden here, and an inherited
+  // exclude beats our include — without this block the spec program contains
+  // ZERO spec files and the typecheck gate silently passes on anything.
+  "exclude": [
+    "dist",
+    "apps",
+    "_scratch",
+    "vitest.config.ts",
+    "src/**/*.bench.ts",
+    "src/**/*.load.ts"
   ]
 }

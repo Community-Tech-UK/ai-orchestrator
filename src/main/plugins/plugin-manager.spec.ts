@@ -94,6 +94,7 @@ import { classifyPluginEntrypoint } from './plugin-entrypoint';
 import { getPluginRegistry, _resetPluginRegistryForTesting } from './plugin-registry';
 import type { TypedOrchestratorHooks } from '../../shared/types/plugin.types';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { Instance } from '../../shared/types/instance.types';
 
 function trustProjectRoot(projectRoot: string): void {
   const current = settingsMock.value['projectPluginTrust'];
@@ -684,10 +685,10 @@ describe('OrchestratorPluginManager', () => {
     const instanceManager = new EventEmitter() as InstanceManager & EventEmitter & {
       getInstance: ReturnType<typeof vi.fn>;
     };
-    instanceManager.getInstance = vi.fn(() => ({
+    instanceManager.getInstance = vi.fn<(id: string) => Instance | undefined>(() => ({
       id: 'inst-1',
       workingDirectory: '/tmp/project',
-    }));
+    }) as unknown as Instance);
 
     OrchestratorPluginManager._injectPluginForTesting(manager, '/tmp/project', {}, {
       slot: 'notifier',
@@ -744,10 +745,10 @@ describe('OrchestratorPluginManager', () => {
     const instanceManager = new EventEmitter() as InstanceManager & EventEmitter & {
       getInstance: ReturnType<typeof vi.fn>;
     };
-    instanceManager.getInstance = vi.fn(() => ({
+    instanceManager.getInstance = vi.fn<(id: string) => Instance | undefined>(() => ({
       id: 'inst-1',
       workingDirectory: '/tmp/project',
-    }));
+    }) as unknown as Instance);
 
     OrchestratorPluginManager._injectPluginForTesting(manager, '/tmp/project', {}, {
       slot: 'telemetry_exporter',

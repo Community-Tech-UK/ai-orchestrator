@@ -90,7 +90,7 @@ describe('RlmStorageMaintenanceService', () => {
       new Set(['execution-live']),
     ];
     const { service, database } = makeService({}, {
-      getProtectedSessionIds: vi.fn(() => protectedIds.shift() ?? new Set()),
+      getProtectedSessionIds: vi.fn(() => protectedIds.shift() ?? new Set<string>()),
     });
 
     service.preview({});

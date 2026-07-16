@@ -380,7 +380,6 @@ describe('CampaignStore', () => {
         id: `camp-${i}`,
         spec: buildSpec({ id: `camp-${i}` }),
         status: 'completed',
-        nodeRuns: new Map(),
         startedAt: 1_000_000 + i,
         endedAt: 1_000_100 + i,
       });

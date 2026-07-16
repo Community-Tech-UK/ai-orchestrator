@@ -11,7 +11,7 @@ type Cb<T> = (data: T) => void;
 
 /** Captures the event callbacks the service registers so tests can fire them. */
 class FakeApi {
-  onStarted?: Cb<{ instanceId: string; reviewId: string }>;
+  onStarted?: Cb<{ instanceId: string; reviewId: string; reviewStartedAt?: number }>;
   onResult?: Cb<AggregatedReview>;
   onDiscarded?: Cb<{ instanceId: string; reviewId: string; reason: 'superseded' }>;
   onAllUnavailable?: Cb<{ instanceId: string; reviewId: string }>;

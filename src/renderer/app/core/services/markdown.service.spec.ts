@@ -20,6 +20,7 @@ describe('MarkdownService.renderSync command stripping', () => {
       copyText: vi.fn().mockResolvedValue({ ok: true }),
       copyJSON: vi.fn().mockResolvedValue({ ok: true }),
       copyImage: vi.fn().mockResolvedValue({ ok: true }),
+      copyMessage: vi.fn().mockResolvedValue({ ok: true }),
     };
     TestBed.configureTestingModule({
       providers: [{ provide: CLIPBOARD_SERVICE, useValue: clipboard }],
@@ -221,6 +222,7 @@ describe('MarkdownService block-memoized rendering', () => {
       copyText: vi.fn().mockResolvedValue({ ok: true }),
       copyJSON: vi.fn().mockResolvedValue({ ok: true }),
       copyImage: vi.fn().mockResolvedValue({ ok: true }),
+      copyMessage: vi.fn().mockResolvedValue({ ok: true }),
     };
     TestBed.configureTestingModule({
       providers: [{ provide: CLIPBOARD_SERVICE, useValue: clipboard }],

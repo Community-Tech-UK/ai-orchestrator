@@ -116,7 +116,7 @@ function makeInstance(provider: Instance['provider'] = 'claude'): Instance {
     status: 'idle',
     workingDirectory: '/tmp/project',
     outputBuffer: [],
-  } as Instance;
+  } as unknown as Instance;
 }
 
 function makeInstanceManager(instance = makeInstance()) {
@@ -145,7 +145,7 @@ function makeLoopState(config: Partial<LoopConfig> & { initialPrompt: string; wo
     filesChanged: [],
     convergenceNote: null,
     manualReviewOnly: true,
-  } as LoopState;
+  } as unknown as LoopState;
 }
 
 describe('registerCommandHandlers', () => {

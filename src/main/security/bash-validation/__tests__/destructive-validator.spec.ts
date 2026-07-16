@@ -10,7 +10,7 @@ const ctx: ValidationContext = {
 };
 
 function check(cmd: string) {
-  return validator.validate(cmd, parser.parse(cmd), ctx);
+  return validator.validate(cmd, parser.parse(cmd));
 }
 
 describe('DestructiveValidator', () => {

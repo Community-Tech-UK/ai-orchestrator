@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyFile, mkdir, rm, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,16 +6,18 @@ import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { CodeIndexManager } from '../code-index-manager';
 import { workspaceHashForPath } from '../symbol-id';
+import type { SqliteDriver } from '../../db/sqlite-driver';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 
 const FIXTURE = resolve(__dirname, '../../../../test/fixtures/codemem-sample');
 
 describe('CodeIndexManager (cold index)', () => {
-  let db: Database.Database;
+  let db: SqliteDriver;
   let store: CasStore;
   let mgr: CodeIndexManager;
 
   beforeEach(() => {
-    db = new Database(':memory:');
+    db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
     mgr = new CodeIndexManager({ store });
@@ -60,7 +61,7 @@ describe('CodeIndexManager (cold index)', () => {
     const result = await mgr.coldIndex(FIXTURE);
     const firstRootHash = store.getWorkspaceRoot(result.workspaceHash)?.merkleRootHash;
 
-    const db2 = new Database(':memory:');
+    const db2 = defaultDriverFactory(':memory:');
     migrate(db2);
     const store2 = new CasStore(db2);
     const mgr2 = new CodeIndexManager({ store: store2 });
@@ -216,13 +217,13 @@ describe('CodeIndexManager (cold index)', () => {
 });
 
 describe('CodeIndexManager (incremental)', () => {
-  let db: Database.Database;
+  let db: SqliteDriver;
   let store: CasStore;
   let mgr: CodeIndexManager;
   let workDir: string;
 
   beforeEach(async () => {
-    db = new Database(':memory:');
+    db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
     mgr = new CodeIndexManager({

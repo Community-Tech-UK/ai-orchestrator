@@ -10,6 +10,7 @@ vi.mock('../../logging/logger', () => ({
 import { RuntimeReadinessCoordinator } from './runtime-readiness';
 import type { RuntimeReadinessDeps } from './runtime-readiness';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
+import type { InstanceStatus } from '../../../shared/types/instance.types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,10 +32,10 @@ function makeAdapter(name = 'claude-cli'): EventEmitter & {
 function makeDeps(
   adapter: CliAdapter | undefined,
   processId: number | null = 1,
-  status = 'running',
+  status: InstanceStatus = 'busy',
 ): RuntimeReadinessDeps {
   return {
-    getInstance: (_id) => ({ processId, status } as { processId: number | null; status: string }),
+    getInstance: (_id) => ({ processId, status }),
     getAdapter: (_id) => adapter,
   };
 }
@@ -152,7 +153,7 @@ describe('RuntimeReadinessCoordinator.waitForResumeHealth', () => {
   it('resolves false on timeout when instance is not live', async () => {
     const adapter = makeAdapter() as unknown as CliAdapter;
     const deps: RuntimeReadinessDeps = {
-      getInstance: (id) => (id === 'inst-1' ? { processId: 1, status: 'running' } : undefined),
+      getInstance: (id) => (id === 'inst-1' ? { processId: 1, status: 'busy' as InstanceStatus } : undefined),
       getAdapter: (_id) => adapter,
     };
     const coord = new RuntimeReadinessCoordinator(deps);
@@ -169,7 +170,7 @@ describe('RuntimeReadinessCoordinator.waitForResumeHealth', () => {
     const adapter = makeAdapter('claude-cli');
     adapter.formatter = { isWritable: vi.fn(() => true) };
     const deps: RuntimeReadinessDeps = {
-      getInstance: (_id) => ({ processId: 1, status: 'running' }),
+      getInstance: (_id) => ({ processId: 1, status: 'busy' as InstanceStatus }),
       getAdapter: (_id) => adapter as unknown as CliAdapter,
     };
     const coord = new RuntimeReadinessCoordinator(deps);
@@ -200,7 +201,7 @@ describe('RuntimeReadinessCoordinator.waitForAdapterWritable', () => {
     let writable = false;
     adapter.formatter = { isWritable: vi.fn(() => writable) };
     const deps: RuntimeReadinessDeps = {
-      getInstance: (_id) => ({ processId: 1, status: 'running' }),
+      getInstance: (_id) => ({ processId: 1, status: 'busy' as InstanceStatus }),
       getAdapter: (_id) => adapter as unknown as CliAdapter,
     };
     const coord = new RuntimeReadinessCoordinator(deps);
@@ -220,7 +221,7 @@ describe('RuntimeReadinessCoordinator.waitForAdapterWritable', () => {
     const adapter = makeAdapter('claude-cli');
     adapter.formatter = { isWritable: vi.fn(() => false) };
     const deps: RuntimeReadinessDeps = {
-      getInstance: (_id) => ({ processId: 1, status: 'running' }),
+      getInstance: (_id) => ({ processId: 1, status: 'busy' as InstanceStatus }),
       getAdapter: (_id) => adapter as unknown as CliAdapter,
     };
     const coord = new RuntimeReadinessCoordinator(deps);
@@ -235,7 +236,7 @@ describe('RuntimeReadinessCoordinator.waitForAdapterWritable', () => {
 
   it('returns false when adapter is not found', async () => {
     const deps: RuntimeReadinessDeps = {
-      getInstance: (_id) => ({ processId: 1, status: 'running' }),
+      getInstance: (_id) => ({ processId: 1, status: 'busy' as InstanceStatus }),
       getAdapter: (_id) => undefined,
     };
     const coord = new RuntimeReadinessCoordinator(deps);

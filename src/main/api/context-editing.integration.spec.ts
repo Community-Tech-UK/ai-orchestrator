@@ -17,7 +17,7 @@ import {
   ContextManagementResponse,
 } from '../../shared/types/api-features.types';
 
-const API_KEY = process.env.ANTHROPIC_API_KEY;
+const API_KEY = process.env['ANTHROPIC_API_KEY'];
 const TEST_MODEL = 'claude-sonnet-4-5-20250929';
 const hasApiKey = Boolean(API_KEY);
 

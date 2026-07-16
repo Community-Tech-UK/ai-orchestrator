@@ -79,9 +79,9 @@ describe('AutoUpdateService', () => {
 
   it('does not overlap update checks', async () => {
     const { service, updater } = make();
-    let resolveCheck: (() => void) | null = null;
+    let resolveCheck: (() => void) | null = null as (() => void) | null;
     updater.checkForUpdates.mockImplementationOnce(
-      () => new Promise<void>((resolve) => { resolveCheck = resolve; }),
+      () => new Promise<object>((resolve) => { resolveCheck = () => resolve({}); }),
     );
     service.initialize({ enabled: true });
 

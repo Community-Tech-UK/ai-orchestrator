@@ -52,12 +52,12 @@ function fakeTranscriptionProvider(
     getStatus: vi.fn(() => ({
       id,
       label: id,
-      source: id === 'openai-realtime' ? 'cloud' : 'local',
-      capabilities: ['stt'],
+      source: (id === 'openai-realtime' ? 'cloud' : 'local') as 'cloud' | 'local',
+      capabilities: ['stt' as const],
       available: true,
       configured: true,
       active: false,
-      privacy: id === 'openai-realtime' ? 'provider-cloud' : 'local',
+      privacy: (id === 'openai-realtime' ? 'provider-cloud' : 'local') as 'provider-cloud' | 'local',
       ...status,
     })),
     createSession: vi.fn(async () => ({

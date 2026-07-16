@@ -42,6 +42,7 @@ function makeInstance(id: string, status: InstanceStatus, overrides: Partial<Ins
     restartEpoch: 0,
     workingDirectory: `/home/user/project-${id}`,
     yoloMode: false,
+    launchMode: 'interactive',
     outputBuffer: [],
     ...overrides,
   };

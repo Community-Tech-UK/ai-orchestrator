@@ -223,7 +223,7 @@ describe('setupCompactionCoordinator', () => {
     const content = new TextEncoder().encode('authenticated evidence body');
     evidenceMocks.listEvidence.mockResolvedValue([makeEvidenceRecord(content.byteLength)]);
     evidenceMocks.read.mockResolvedValue(Uint8Array.from(content));
-    const sendInput = vi.fn(async () => undefined);
+    const sendInput = vi.fn(async (_instanceId: string, _message: string) => undefined);
     const instance = {
       id: 'inst-evidence',
       contextEvidence: {

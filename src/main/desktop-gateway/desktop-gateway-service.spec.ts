@@ -2,15 +2,15 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { DesktopGatewayService } from './desktop-gateway-service';
+import { DesktopGatewayService, type DesktopGatewayServiceOptions } from './desktop-gateway-service';
 import { InMemoryDesktopGatewayAuditStore } from './desktop-gateway-audit-store';
 import { InMemoryDesktopGrantStore } from './desktop-grant-store';
+import type { DesktopDriver } from './platform/desktop-driver';
 import type {
   DesktopAccessibilitySnapshotResult,
   DesktopAppDescriptor,
-  DesktopDriver,
   DesktopScreenshotResult,
-} from './platform/desktop-driver';
+} from '../../shared/types/desktop-gateway.types';
 
 const APP: DesktopAppDescriptor = {
   appId: 'darwin-window:preview:1',
@@ -194,7 +194,7 @@ describe('DesktopGatewayService', () => {
 
     await service.click(context(), {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
       elementUid: 'ax-save',
     });
 
@@ -230,7 +230,7 @@ describe('DesktopGatewayService', () => {
 
     await service.click(context(), {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
       elementUid: 'ax-safe',
       x: 0,
       y: 0,
@@ -267,13 +267,13 @@ describe('DesktopGatewayService', () => {
 
     await expect(service.click(context(), {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
       x: 140,
       y: 140,
     })).resolves.toMatchObject({ decision: 'allowed', outcome: 'ok' });
     await expect(service.click(context(), {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
       x: 0,
       y: 0,
     })).resolves.toMatchObject({
@@ -314,7 +314,7 @@ describe('DesktopGatewayService', () => {
 
     await expect(service.typeText(context(), {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
       text: 'ordinary-password',
     })).resolves.toMatchObject({
       decision: 'denied',
@@ -322,7 +322,7 @@ describe('DesktopGatewayService', () => {
     });
     await expect(service.click(context(), {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
       elementUid: 'ax-delete',
     })).resolves.toMatchObject({
       decision: 'denied',
@@ -361,7 +361,7 @@ describe('DesktopGatewayService', () => {
 
     await expect(service.click(context(), {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
       elementUid: 'ax-window',
     })).resolves.toMatchObject({
       decision: 'denied',
@@ -394,7 +394,7 @@ describe('DesktopGatewayService', () => {
     const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
     const base = {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
     };
 
     await expect(service.click(context(), {
@@ -449,7 +449,7 @@ describe('DesktopGatewayService', () => {
 
     await expect(service.click(context(), {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
       elementUid: 'ax-safe',
     })).resolves.toMatchObject({
       decision: 'denied',
@@ -486,7 +486,7 @@ describe('DesktopGatewayService', () => {
     });
     await expect(service.click(context(), {
       appId: APP.appId,
-      observationToken: waited.data!.observationToken,
+      observationToken: waited.data!.observationToken!,
       elementUid: 'ax-save',
     })).resolves.toMatchObject({ decision: 'allowed', outcome: 'ok' });
     expect(driver.click).toHaveBeenCalledWith(expect.objectContaining({
@@ -516,7 +516,7 @@ describe('DesktopGatewayService', () => {
     const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
     const base = {
       appId: APP.appId,
-      observationToken: snapshot.data!.observationToken,
+      observationToken: snapshot.data!.observationToken!,
     };
 
     await expect(service.drag(context(), {
@@ -758,7 +758,7 @@ describe('DesktopGatewayService', () => {
     await expect(
       service.click(context(), {
         appId: APP.appId,
-        observationToken: snapshot.data!.observationToken,
+        observationToken: snapshot.data!.observationToken!,
         elementUid: 'ax-button',
       }),
     ).resolves.toMatchObject({
@@ -807,7 +807,7 @@ describe('DesktopGatewayService', () => {
     await expect(
       service.typeText(context(), {
         appId: APP.appId,
-        observationToken: snapshot.data!.observationToken,
+        observationToken: snapshot.data!.observationToken!,
         text: 'super secret typed value',
       }),
     ).resolves.toMatchObject({
@@ -859,7 +859,7 @@ describe('DesktopGatewayService', () => {
     await expect(
       service.click(context(), {
         appId: APP.appId,
-        observationToken: snapshot.data!.observationToken,
+        observationToken: snapshot.data!.observationToken!,
         elementUid: 'ax-button',
       }),
     ).resolves.toMatchObject({
@@ -886,7 +886,7 @@ function makeService(options: {
   auditStore?: InMemoryDesktopGatewayAuditStore;
   now?: () => number;
   requireApprovalForInput?: boolean;
-  permissionRegistry?: ConstructorParameters<typeof DesktopGatewayService>[0]['permissionRegistry'];
+  permissionRegistry?: DesktopGatewayServiceOptions['permissionRegistry'];
 } = {}): DesktopGatewayService {
   return new DesktopGatewayService({
     driver: options.driver ?? makeDriver({
@@ -902,14 +902,14 @@ function makeService(options: {
     userDataPath: mkdtempSync(join(tmpdir(), 'aio-desktop-gateway-spec-')),
     permissionRegistry: options.permissionRegistry,
     settings: {
-      get: (key) => {
+      get: ((key: string) => {
         if (key === 'computerUseEnabled') return options.enabled ?? true;
         if (key === 'computerUseAllowedAppsJson') return JSON.stringify(options.allowedApps ?? []);
         if (key === 'computerUseDeniedAppsJson') return JSON.stringify(options.deniedApps ?? []);
         if (key === 'computerUseRequireApprovalForInput') return options.requireApprovalForInput ?? true;
         if (key === 'computerUseStoreScreenshotsForEscalations') return false;
         return undefined;
-      },
+      }) as unknown as NonNullable<DesktopGatewayServiceOptions['settings']>['get'],
     },
     now: options.now ?? (() => 1783468800000),
     tokenBytes: () => 'abcdef1234567890',
@@ -925,9 +925,9 @@ function makeDriver(options: {
     health: vi.fn(async () => ({
       platform: process.platform,
       supported: true,
-      screenCapture: 'available',
-      accessibility: 'unavailable',
-      input: 'unavailable',
+      screenCapture: 'available' as const,
+      accessibility: 'unavailable' as const,
+      input: 'unavailable' as const,
       setupActions: [],
     })),
     requestSystemPermission: vi.fn(async (permission) => ({
@@ -949,10 +949,10 @@ function makeDriver(options: {
       nodes: [],
       capturedAt: 1783468800000,
     }),
-    click: vi.fn(async () => ({ status: 'ok' })),
-    typeText: vi.fn(async () => ({ status: 'ok' })),
-    hotkey: vi.fn(async () => ({ status: 'ok' })),
-    scroll: vi.fn(async () => ({ status: 'ok' })),
-    drag: vi.fn(async () => ({ status: 'ok' })),
+    click: vi.fn(async () => ({ status: 'ok' as const })),
+    typeText: vi.fn(async () => ({ status: 'ok' as const })),
+    hotkey: vi.fn(async () => ({ status: 'ok' as const })),
+    scroll: vi.fn(async () => ({ status: 'ok' as const })),
+    drag: vi.fn(async () => ({ status: 'ok' as const })),
   };
 }

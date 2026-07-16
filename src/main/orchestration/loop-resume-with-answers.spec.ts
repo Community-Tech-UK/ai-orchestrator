@@ -11,6 +11,7 @@ function item(overrides: Partial<LoopOutstandingItem> = {}): LoopOutstandingItem
     kind: 'needs-human',
     text: 'Pick the interrupt mechanism',
     userResponse: null,
+    recommendedAnswer: null,
     status: 'open',
     loopStatus: 'completed-needs-review',
     createdAt: 1_700_000_000_000,

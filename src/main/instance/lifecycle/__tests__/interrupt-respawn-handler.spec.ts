@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../../../cli/adapters/adapter-factory';
 import { InterruptRespawnHandler } from '../interrupt-respawn-handler';
 import type { Instance, OutputMessage } from '../../../../shared/types/instance.types';
+import type { InterruptResult } from '../../../cli/adapters/base-cli-adapter.types';
 
 const providerRuntime = vi.hoisted(() => ({
   createAdapter: vi.fn(),
@@ -33,6 +34,7 @@ function createInstance(status: Instance['status'] = 'busy'): Instance {
     workerNodeId: undefined,
     depth: 0,
     terminationPolicy: 'terminate-children',
+    launchMode: 'orchestrated',
     contextInheritance: {} as Instance['contextInheritance'],
     agentId: 'build',
     agentMode: 'build',
@@ -68,7 +70,7 @@ function createInstance(status: Instance['status'] = 'busy'): Instance {
 }
 
 class InterruptProofAdapter extends EventEmitter {
-  interrupt = vi.fn(() => ({
+  interrupt = vi.fn<() => InterruptResult>(() => ({
     status: 'accepted' as const,
     turnId: 'turn-1',
     completion: Promise.resolve({
@@ -79,7 +81,7 @@ class InterruptProofAdapter extends EventEmitter {
   terminate = vi.fn().mockResolvedValue(undefined);
   getName = vi.fn(() => 'claude-cli');
   isRunning = vi.fn(() => true);
-  removeAllListeners(): this {
+  override removeAllListeners(): this {
     return super.removeAllListeners();
   }
 }

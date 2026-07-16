@@ -154,6 +154,7 @@ import {
 // ---------------------------------------------------------------------------
 
 type InvokeAgentPayload = {
+  correlationId: string;
   requestId: string;
   instanceId: string;
   agentId: string;

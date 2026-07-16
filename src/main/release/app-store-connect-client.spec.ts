@@ -72,7 +72,7 @@ describe('AppStoreConnectClient', () => {
     expect(requests[0].init.headers).toMatchObject({
       accept: 'application/json',
     });
-    expect((requests[0].init.headers as Record<string, string>).authorization)
+    expect((requests[0].init.headers as Record<string, string>)['authorization'])
       .toMatch(/^Bearer [^.]+\.[^.]+\.[^.]+$/);
   });
 

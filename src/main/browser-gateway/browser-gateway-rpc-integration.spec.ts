@@ -7,6 +7,8 @@ import {
   BrowserGatewayRpcServer,
   type BrowserGatewayRpcServerOptions,
 } from './browser-gateway-rpc-server';
+import type { BrowserGatewayContext } from './browser-gateway-service-types';
+import type { BrowserGatewayResult } from '@contracts/types/browser';
 
 describe('Browser Gateway RPC integration', () => {
   const servers: BrowserGatewayRpcServer[] = [];
@@ -21,7 +23,7 @@ describe('Browser Gateway RPC integration', () => {
   });
 
   it('forwards client calls over the local socket with injected instance context', async () => {
-    const getHealth = vi.fn(async (payload: Record<string, unknown>) => ({
+    const getHealth = vi.fn(async (payload: BrowserGatewayContext = {}): Promise<BrowserGatewayResult<BrowserGatewayContext>> => ({
       decision: 'allowed',
       outcome: 'succeeded',
       auditId: 'audit-1',

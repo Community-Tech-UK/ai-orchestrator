@@ -1,4 +1,4 @@
-import { execFile, spawn, spawnSync, type SpawnOptions } from 'node:child_process';
+import { execFile, spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import {
@@ -412,7 +412,7 @@ describe('LocalReviewToolRunner', () => {
         spawnProcess: (executable, args, options) => {
           if (args.includes('ls-files')) {
             signalEnumeration?.();
-            return child;
+            return child as unknown as ChildProcess;
           }
           return spawn(executable, args, options);
         },
@@ -974,7 +974,7 @@ describe('LocalReviewToolRunner', () => {
     const spawnProcess = vi.fn((executable: string, args: string[], options: SpawnOptions) => {
       if (!args.includes('diff')) return spawn(executable, args, options);
       signalSpawned?.();
-      return child;
+      return child as unknown as ChildProcess;
     });
     const controller = new AbortController();
     const terminatingRunner = new LocalReviewToolRunner(workspacePath, {

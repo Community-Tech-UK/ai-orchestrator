@@ -171,6 +171,7 @@ const mockConfig: WorkerConfig = {
   name: 'test-pc',
   coordinatorUrl: 'ws://localhost:4878',
   authToken: 'test-token',
+  namespace: 'default',
   maxConcurrentInstances: 10,
   workingDirectories: ['/tmp/work'],
   reconnectIntervalMs: 1000,
@@ -599,6 +600,7 @@ describe('WorkerAgent', () => {
     secondSocket.emit('open');
 
     const secondRegistration = JSON.parse(secondSocket.send.mock.calls[0][0] as string) as {
+      id: string;
       params: { token: string; recoveryToken?: string };
     };
     expect(secondRegistration.params).toMatchObject({

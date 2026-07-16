@@ -11,7 +11,7 @@
  * Cross-CLI parity scenarios live in `adapter-parity.spec.ts`.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { EventEmitter } from 'events';
 import { readFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -190,10 +190,10 @@ describe('ClaudeCliAdapter', () => {
       const out = adapter.parseOutput(ndjson);
       expect(out.content).toBe('Hi');
       // result.usage wins over per-turn assistant.message.usage.
-      expect(out.usage.totalTokens).toBe(9); // input+output, not cache.
-      expect(out.usage.inputTokens).toBe(3);
-      expect(out.usage.outputTokens).toBe(6);
-      expect(out.usage.cost).toBeCloseTo(0.0938);
+      expect(out.usage?.totalTokens).toBe(9); // input+output, not cache.
+      expect(out.usage?.inputTokens).toBe(3);
+      expect(out.usage?.outputTokens).toBe(6);
+      expect(out.usage?.cost).toBeCloseTo(0.0938);
     });
 
     it('falls back to summed assistant.message.usage when no result message', () => {
@@ -203,9 +203,9 @@ describe('ClaudeCliAdapter', () => {
       ].join('\n');
       const out = adapter.parseOutput(ndjson);
       expect(out.content).toBe('ab');
-      expect(out.usage.totalTokens).toBe(14); // (3+4) + (2+5)
-      expect(out.usage.inputTokens).toBe(5);
-      expect(out.usage.outputTokens).toBe(9);
+      expect(out.usage?.totalTokens).toBe(14); // (3+4) + (2+5)
+      expect(out.usage?.inputTokens).toBe(5);
+      expect(out.usage?.outputTokens).toBe(9);
     });
 
     it('still honours legacy system/context_usage schema as a final fallback', () => {
@@ -215,7 +215,7 @@ describe('ClaudeCliAdapter', () => {
       ].join('\n');
       const out = adapter.parseOutput(ndjson);
       expect(out.content).toBe('hi');
-      expect(out.usage.totalTokens).toBe(42);
+      expect(out.usage?.totalTokens).toBe(42);
     });
 
     it('returns 0 tokens (no field) when no usage data present', () => {
@@ -223,7 +223,7 @@ describe('ClaudeCliAdapter', () => {
         '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"silent"}]}}';
       const out = adapter.parseOutput(ndjson);
       expect(out.content).toBe('silent');
-      expect(out.usage.totalTokens).toBeUndefined();
+      expect(out.usage?.totalTokens).toBeUndefined();
     });
   });
 
@@ -494,7 +494,7 @@ describe('NdjsonParser (used by ClaudeCliAdapter for stream parsing)', () => {
 // ---------------------------------------------------------------------------
 
 describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
-  let killSpy: ReturnType<typeof vi.spyOn>;
+  let killSpy: MockInstance<typeof process.kill>;
   let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {

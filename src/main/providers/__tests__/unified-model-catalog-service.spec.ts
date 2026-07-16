@@ -517,7 +517,7 @@ describe('UnifiedModelCatalogService — precedence: user custom models', () => 
       get: (key: string) => unknown;
     };
     settings.get = vi.fn(() => ({}));
-    svc.attachSettingsManager(settings);
+    svc.attachSettingsManager(settings as unknown as Parameters<typeof svc.attachSettingsManager>[0]);
     vi.runAllTimers();
     listener.mockClear();
     svc.on(CATALOG_UPDATED_EVENT, listener);
@@ -547,7 +547,7 @@ describe('UnifiedModelCatalogService — precedence: user custom models', () => 
       claude: ['claude-custom-startup-opus'],
     }));
 
-    svc.attachSettingsManager(settings);
+    svc.attachSettingsManager(settings as unknown as Parameters<typeof svc.attachSettingsManager>[0]);
 
     expect(normalizeModelForProvider('claude', 'claude-custom-startup-opus')).toBe(
       'claude-custom-startup-opus',
@@ -636,7 +636,7 @@ describe('UnifiedModelCatalogService — precedence: catalog overrides', () => {
       getEntries: () => unknown[];
     };
     source.getEntries = vi.fn(() => []);
-    svc.attachCatalogOverrideSource(source);
+    svc.attachCatalogOverrideSource(source as unknown as Parameters<typeof svc.attachCatalogOverrideSource>[0]);
     vi.runAllTimers();
     const listener = vi.fn();
     svc.on(CATALOG_UPDATED_EVENT, listener);
@@ -674,7 +674,7 @@ describe('UnifiedModelCatalogService — precedence: catalog overrides', () => {
       source: 'catalog-override',
     }]);
 
-    svc.attachCatalogOverrideSource(source);
+    svc.attachCatalogOverrideSource(source as unknown as Parameters<typeof svc.attachCatalogOverrideSource>[0]);
 
     expect(normalizeModelForProvider('claude', 'claude-local-opus')).toBe('claude-local-opus');
   });

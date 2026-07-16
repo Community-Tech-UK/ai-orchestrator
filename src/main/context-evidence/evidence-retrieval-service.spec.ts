@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { EvidenceCard } from '@contracts/types/context-evidence';
 import type { EvidenceLedgerRecord } from '../conversation-ledger/context-evidence-ledger.types';
 import { EvidenceStorageError } from './evidence-storage.types';
+import type { EvidenceAccessPolicyDecision } from './evidence-access-policy';
 import {
   calculateEvidenceRangeTokenBudget,
   EvidenceRetrievalService,
@@ -463,7 +464,7 @@ function harness(
     verifyCitationDigest: vi.fn(async () => true),
   };
   const policy: EvidenceRetrievalPolicy = {
-    authorize: vi.fn(() => ({ allowed: true, disclosures: [] })),
+    authorize: vi.fn((): EvidenceAccessPolicyDecision => ({ allowed: true, disclosures: [] })),
   };
   return {
     service: new EvidenceRetrievalService({

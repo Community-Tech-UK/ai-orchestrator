@@ -125,7 +125,7 @@ describe('WorkerEmulatorManager', () => {
 
   it('skips an emulator console port when the paired adb port is unavailable', async () => {
     const children: FakeChild[] = [];
-    const spawnProcess = vi.fn(() => {
+    const spawnProcess = vi.fn<(...args: unknown[]) => ChildProcess>(() => {
       const child = new FakeChild();
       children.push(child);
       return child as unknown as ChildProcess;
@@ -204,7 +204,7 @@ describe('WorkerEmulatorManager', () => {
 
   it('retries a failed emulator boot with cold boot snapshots disabled', async () => {
     const children: FakeChild[] = [];
-    const spawnProcess = vi.fn(() => {
+    const spawnProcess = vi.fn<(...args: unknown[]) => ChildProcess>(() => {
       const child = new FakeChild();
       children.push(child);
       return child as unknown as ChildProcess;

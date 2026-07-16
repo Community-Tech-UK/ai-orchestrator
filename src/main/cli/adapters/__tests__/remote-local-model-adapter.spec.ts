@@ -16,15 +16,14 @@ vi.mock('../../../remote-node/worker-node-registry', () => ({
   getWorkerNodeRegistry: () => mockRegistry,
 }));
 
-import { RemoteLocalModelAdapter } from '../remote-local-model-adapter';
+import { RemoteLocalModelAdapter, type RemoteLocalModelRuntimeTarget } from '../remote-local-model-adapter';
 import type { WorkerNodeConnectionServer } from '../../../remote-node/worker-node-connection';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
-import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import type { UnifiedSpawnOptions } from '../adapter-factory';
 
 const TARGET_NODE_ID = 'node-worker-1';
 const REMOTE_SESSION_ID = 'local-model-session-1';
-const TARGET: Extract<ModelRuntimeTarget, { kind: 'local-model' }> = {
+const TARGET: RemoteLocalModelRuntimeTarget = {
   kind: 'local-model',
   source: 'worker-node',
   selectorId: 'lm://worker-node/node-worker-1/openai-compatible/openai-compatible/qwen',

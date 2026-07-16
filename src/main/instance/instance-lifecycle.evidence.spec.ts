@@ -7,6 +7,7 @@ vi.mock('electron', () => ({
 import { createInstance, type InstanceCreateConfig } from '../../shared/types/instance.types';
 import { initializeInstanceEvidenceOwnership } from '../context-evidence/evidence-conversation-resolver';
 import { reviveContinuitySession } from './lifecycle/continuity-revival';
+import type { SessionState } from '../session/session-continuity.types';
 
 function instance(provider: 'claude' | 'codex' = 'claude') {
   return createInstance({
@@ -149,7 +150,7 @@ describe('instance lifecycle context-evidence ownership gate', () => {
         activeFiles: [],
         skillsLoaded: [],
         hooksActive: [],
-      })),
+      } as unknown as SessionState)),
       createInstance: vi.fn(async (config) => {
         createConfig = config;
         return createInstance(config);

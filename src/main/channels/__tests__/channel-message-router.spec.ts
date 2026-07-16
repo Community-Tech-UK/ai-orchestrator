@@ -4,7 +4,7 @@ import { ChannelMessageRouter } from '../channel-message-router';
 import type { ChannelManager, ChannelEvent } from '../channel-manager';
 import type { ChannelPersistence } from '../channel-persistence';
 import type { ChannelRouteStore, SavedChannelRoutePin } from '../channel-route-store';
-import type { AccessPolicy, InboundChannelMessage, SentMessage } from '../../../shared/types/channels';
+import type { AccessPolicy, InboundChannelMessage, SendOptions, SentMessage } from '../../../shared/types/channels';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 // ---------------------------------------------------------------------------
@@ -179,7 +179,9 @@ function makeMockAdapter() {
   };
   return {
     status: 'connected',
-    sendMessage: vi.fn(async () => makeSentMessage()),
+    sendMessage: vi.fn<(chatId: string, content: string, options?: SendOptions) => Promise<SentMessage>>(
+      async () => makeSentMessage(),
+    ),
     addReaction: vi.fn(async () => undefined),
     sendFile: vi.fn(async () => makeSentMessage()),
     editMessage: vi.fn(async () => undefined),

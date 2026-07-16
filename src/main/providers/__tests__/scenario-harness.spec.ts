@@ -14,7 +14,7 @@ import type {
 
 function createOutputEvent(
   content: string,
-  messageType: ProviderRuntimeEvent extends { kind: 'output'; messageType?: infer T } ? T : never = 'assistant',
+  messageType: Extract<ProviderRuntimeEvent, { kind: 'output' }>['messageType'] = 'assistant',
 ): ProviderRuntimeEvent {
   return {
     kind: 'output',

@@ -74,9 +74,9 @@ describe('ProviderAdapterRegistry types', () => {
       provider: 'plugin:claude',
     };
 
-    // @ts-expect-error Built-in provider ids are not valid plugin provider ids.
     const _invalid: PluginProviderAdapterDescriptor = {
       ...base,
+      // @ts-expect-error Built-in provider ids are not valid plugin provider ids.
       provider: 'claude',
     };
   });

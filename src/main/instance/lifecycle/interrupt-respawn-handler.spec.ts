@@ -582,7 +582,7 @@ describe('InterruptRespawnHandler recovery replay', () => {
     mockPlanSessionRecovery.mockReturnValue({
       kind: 'native-resume',
       reason: 'persisted provider session is resumable',
-      sessionId: 'old-session',
+      providerSessionPersisted: true,
     });
     const previousAdapter = makeAdapter();
     const resumeAdapter = makeAdapter({

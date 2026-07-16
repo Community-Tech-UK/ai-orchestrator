@@ -30,7 +30,7 @@ function makeEntry(overrides: Partial<ConversationHistoryEntry> = {}): Pick<
     historyThreadId: null,
     nativeResumeFailedAt: null,
     ...overrides,
-  };
+  } as unknown as Pick<ConversationHistoryEntry, 'sessionId' | 'historyThreadId' | 'nativeResumeFailedAt'>;
 }
 
 // ── isRestoreInfrastructureMessage ────────────────────────────────────────────

@@ -47,7 +47,7 @@ function makeInstance(overrides: Partial<{
     contextUsage: { used: 0, total: 0, percentage: 0 },
     outputBuffer: [],
     ...overrides,
-  } as unknown as import('../../shared/types/instance.types').Instance;
+  } as unknown as import('../../../shared/types/instance.types').Instance;
 }
 
 function makeOutputMessage(overrides: Partial<{
@@ -62,7 +62,7 @@ function makeOutputMessage(overrides: Partial<{
     content: 'hello world',
     timestamp: 1000,
     ...overrides,
-  } as unknown as import('../../shared/types/instance.types').OutputMessage;
+  } as unknown as import('../../../shared/types/instance.types').OutputMessage;
 }
 
 function makeMcpSnapshot() {
@@ -300,7 +300,7 @@ describe('ContextWorkerClient', () => {
   it('does not include EventEmitter or functions in fire-and-forget message', () => {
     const instance = makeInstance();
     // Attach a non-cloneable field to verify it is stripped
-    (instance as unknown as Record<string, unknown>)._emitter = new EventEmitter();
+    (instance as unknown as Record<string, unknown>)['_emitter'] = new EventEmitter();
 
     client.ingestToRLM('inst-1', makeOutputMessage());
 

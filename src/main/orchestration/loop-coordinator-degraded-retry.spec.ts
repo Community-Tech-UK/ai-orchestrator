@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import type { ProviderLimitResumeScheduler } from './loop-coordinator.types';
 import { runLoopControlCli } from './loop-control-cli';
 import { CompletedFileWatcher } from './loop-completion-detector';
 import { classifyDegradedIteration } from './loop-coordinator-block-utils';
@@ -146,7 +147,7 @@ describe('LoopCoordinator degraded iteration retry', () => {
 
   it('parks structured rate-limit invocation errors before degraded retry', async () => {
     let invokeCount = 0;
-    const scheduler = vi.fn(() => () => { /* noop */ });
+    const scheduler = vi.fn<ProviderLimitResumeScheduler>(() => () => { /* noop */ });
     const providerLimitEvents: unknown[] = [];
     coordinator.setProviderLimitResumeScheduler(scheduler);
     coordinator.on('loop:provider-limit', (event) => providerLimitEvents.push(event));

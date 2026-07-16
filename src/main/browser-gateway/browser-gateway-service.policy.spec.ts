@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { BrowserGatewayService } from './browser-gateway-service';
 import { BrowserCampaignService } from './browser-campaign-store';
 import {
@@ -13,6 +13,28 @@ import {
   makeTarget,
 } from './browser-gateway-service.test-helpers';
 import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import type { BrowserDownloadFileResult, BrowserProfile, BrowserTarget } from '@contracts/types/browser';
+
+/**
+ * `makeService()`'s default driver mocks (browser-gateway-service.test-helpers.ts)
+ * infer narrow literal types for `downloadFile`/`openProfile` from their
+ * default implementations. These helpers re-type those mocks to the real
+ * driver contracts so per-test overrides/call assertions can use the full
+ * shape without touching the shared test-helpers file.
+ */
+function downloadFileMock(driver: { downloadFile: unknown }): Mock<
+  (...args: unknown[]) => Promise<BrowserDownloadFileResult>
+> {
+  return driver.downloadFile as Mock<(...args: unknown[]) => Promise<BrowserDownloadFileResult>>;
+}
+
+function openProfileMock(driver: { openProfile: unknown }): Mock<
+  (profile: BrowserProfile, startUrl?: string, preferredDebugPort?: number) => Promise<BrowserTarget[]>
+> {
+  return driver.openProfile as Mock<
+    (profile: BrowserProfile, startUrl?: string, preferredDebugPort?: number) => Promise<BrowserTarget[]>
+  >;
+}
 
 describe('BrowserGatewayService policy', () => {
   afterEach(() => {
@@ -145,7 +167,7 @@ describe('BrowserGatewayService policy', () => {
         }),
       ],
     });
-    driver.downloadFile.mockResolvedValue({
+    downloadFileMock(driver).mockResolvedValue({
       id: 'download-1',
       url: 'http://localhost:4567/report.csv',
       finalUrl: 'http://localhost:4567/report.csv',
@@ -236,7 +258,7 @@ describe('BrowserGatewayService policy', () => {
     });
 
     expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
-    const call = driver.openProfile.mock.calls[0];
+    const call = openProfileMock(driver).mock.calls[0];
     expect(call[0]).toMatchObject({ id: 'profile-1' });
     expect(call[2]).toBe(31234);
   });
@@ -250,7 +272,7 @@ describe('BrowserGatewayService policy', () => {
       provider: 'claude',
     });
 
-    const call = driver.openProfile.mock.calls[0];
+    const call = openProfileMock(driver).mock.calls[0];
     expect(call[0]).toMatchObject({ id: 'profile-1' });
     expect(call[2]).toBeUndefined();
   });
@@ -350,6 +372,7 @@ describe('BrowserGatewayService policy', () => {
           silent: true,
           staleForMs: 120_000,
         }),
+        getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
       },
     });
 

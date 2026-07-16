@@ -26,8 +26,8 @@ vi.mock('../instance-communication', () => {
       capturedCommunicationDeps = deps;
       fakeCommunication = new EventEmitter();
       // Minimal surface expected by InstanceManager
-      (fakeCommunication as EventEmitter & Record<string, unknown>).addToOutputBuffer = vi.fn();
-      (fakeCommunication as EventEmitter & Record<string, unknown>).setupInputHandling = vi.fn();
+      (fakeCommunication as EventEmitter & Record<string, unknown>)['addToOutputBuffer'] = vi.fn();
+      (fakeCommunication as EventEmitter & Record<string, unknown>)['setupInputHandling'] = vi.fn();
       return fakeCommunication;
     }),
   };
@@ -625,6 +625,7 @@ describe('InstanceManager settled events', () => {
       workerNodeId: undefined,
       depth: 0,
       terminationPolicy: 'terminate-children',
+      launchMode: 'orchestrated',
       contextInheritance: {} as Instance['contextInheritance'],
       agentId: 'build',
       agentMode: 'build',

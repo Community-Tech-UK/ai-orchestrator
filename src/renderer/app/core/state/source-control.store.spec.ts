@@ -127,7 +127,13 @@ function makeVcsMock() {
   const vcsPush = makeWrite('push');
   // Default: succeed. Tests can swap by replacing the impl per-call
   // (see the checkout-branch tests below).
-  const vcsCheckoutBranch = vi.fn(() => Promise.resolve({ success: true, data: { exitCode: 0 } }));
+  const vcsCheckoutBranch = vi.fn<
+    (payload: { workingDirectory: string; branchName: string; force?: boolean }) => Promise<{
+      success: boolean;
+      data?: { exitCode?: number; dirty?: boolean };
+      error?: { message?: string; code?: string };
+    }>
+  >(() => Promise.resolve({ success: true, data: { exitCode: 0 } }));
   const vcsOperationCancel = vi.fn(() => Promise.resolve({ success: true, data: { cancelled: true } }));
 
   const vcsGetBranches = vi.fn(() =>
@@ -1202,7 +1208,7 @@ describe('SourceControlStore', () => {
       expect(store.isLongOpActive('/work/p/r')).toBe(true);
       expect(store.longOpState('/work/p/r')?.kind).toBe('fetch');
       expect(pendingWrites[0].kind).toBe('fetch');
-      expect(typeof pendingWrites[0].payload.opId).toBe('string');
+      expect(typeof pendingWrites[0].payload['opId']).toBe('string');
 
       pendingWrites[0].resolve();
       await fetchOp;
@@ -1214,7 +1220,7 @@ describe('SourceControlStore', () => {
       await loadOneRepo();
       const fetchOp = store.fetch('/work/p/r');
       // Capture the opId we generated for this fetch
-      const opId = pendingWrites[0].payload.opId as string;
+      const opId = pendingWrites[0].payload['opId'] as string;
 
       // The handler is still in-flight; fire the terminal event manually
       // to simulate the main process telling us "completed".
@@ -1233,7 +1239,7 @@ describe('SourceControlStore', () => {
     it('cancelLongRunningOp forwards opId to vcsOperationCancel', async () => {
       await loadOneRepo();
       const fetchOp = store.fetch('/work/p/r');
-      const opId = pendingWrites[0].payload.opId as string;
+      const opId = pendingWrites[0].payload['opId'] as string;
 
       await store.cancelLongRunningOp('/work/p/r');
       expect(vcsOperationCancelMock).toHaveBeenCalledWith({ opId });

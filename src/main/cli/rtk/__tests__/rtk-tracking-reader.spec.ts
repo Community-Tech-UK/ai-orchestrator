@@ -90,7 +90,7 @@ function buildSharedDriver(
   const sharedDriver: SqliteDriver = new Proxy(db, {
     get(target, prop) {
       if (prop === 'close') return () => undefined;
-      const val = (target as Record<string, unknown>)[prop as string];
+      const val = (target as unknown as Record<string, unknown>)[prop as string];
       return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(target) : val;
     },
   }) as SqliteDriver;

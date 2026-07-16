@@ -1,5 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+// jsdom ships no type declarations and @types/jsdom is not installed. A
+// sibling spec (doc-review/artifact-choice-runtime.spec.ts) already declares
+// a `declare module 'jsdom'` ambient module for this package; adding a
+// second one here conflicts (TS2665), so this import is left untyped instead.
+// @ts-expect-error No type declarations available for 'jsdom' in this repo.
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -1109,7 +1114,7 @@ function createNativePortHarness(
 function loadPopupHarness(statusResponse: unknown): {
   chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
   document: Document;
-  window: Window;
+  window: Window & typeof globalThis;
 } {
   const popupHtml = readFileSync('resources/browser-extension/popup.html', 'utf-8');
   const popup = readFileSync('resources/browser-extension/popup.js', 'utf-8');
@@ -1145,7 +1150,7 @@ function loadPopupHarness(statusResponse: unknown): {
   return {
     chrome,
     document: dom.window.document,
-    window: dom.window as unknown as Window,
+    window: dom.window as unknown as Window & typeof globalThis,
   };
 }
 

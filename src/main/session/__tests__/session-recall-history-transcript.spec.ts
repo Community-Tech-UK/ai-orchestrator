@@ -6,6 +6,7 @@ import type { ConversationHistoryEntry } from '../../../shared/types/history.typ
 import type { AgentTreePersistence } from '../agent-tree-persistence';
 import type { SessionArchiveManager } from '../session-archive';
 import { SessionRecallService } from '../session-recall-service';
+import type { HistoryManager } from '../../history/history-manager';
 
 function makeEntry(overrides: Partial<ConversationHistoryEntry> = {}): ConversationHistoryEntry {
   return {
@@ -42,7 +43,7 @@ function makeService(entries: ConversationHistoryEntry[]): SessionRecallService 
     () => ({ listArchivedSessions: vi.fn(() => []) }) as unknown as SessionArchiveManager,
     () => ({
       getEntries: vi.fn(() => entries),
-    }),
+    }) as unknown as HistoryManager,
   );
 }
 

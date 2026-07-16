@@ -113,6 +113,7 @@ describe('resolveLocalReviewTarget', () => {
   ])('skips a $name target with a visible reason', ({ enabled, selectorId, inventory }) => {
     const result = resolveLocalReviewTarget({ enabled, selectorId, inventory });
     expect(result.status).toBe('skipped');
+    if (result.status !== 'skipped') throw new Error('expected a skipped resolution');
     expect(result.reason).toBeTruthy();
   });
 

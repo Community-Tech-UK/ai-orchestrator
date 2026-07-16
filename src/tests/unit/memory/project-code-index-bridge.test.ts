@@ -21,7 +21,7 @@ describe('ProjectCodeIndexBridge', () => {
     vi.clearAllMocks();
     rawDb = new Database(':memory:');
     rawDb.pragma('foreign_keys = ON');
-    db = rawDb;
+    db = rawDb as unknown as SqliteDriver;
     schema.createTables(db);
     schema.createMigrationsTable(db);
     schema.runMigrations(db);
@@ -97,7 +97,7 @@ describe('ProjectCodeIndexBridge', () => {
     const rootPath = await createProject({ 'src/main.ts': 'export const x = 1;' });
     let resolveEnsure!: (value: { workspaceHash: string; lastIndexedAt: number | null }) => void;
     const source = createSource({
-      ensureWorkspace: vi.fn(() => new Promise((resolve) => {
+      ensureWorkspace: vi.fn<(rootPath: string) => Promise<{ workspaceHash: string; lastIndexedAt: number | null }>>(() => new Promise((resolve) => {
         resolveEnsure = resolve;
       })),
       manifestEntries: [manifest('workspace-1', 'src/main.ts')],
@@ -145,7 +145,7 @@ describe('ProjectCodeIndexBridge', () => {
     await bridge.refreshProject(rootPath);
 
     const timeout = createBridge(rootPath, createSource({
-      ensureWorkspace: vi.fn(() => new Promise(() => {})),
+      ensureWorkspace: vi.fn<(rootPath: string) => Promise<{ workspaceHash: string; lastIndexedAt: number | null }>>(() => new Promise(() => {})),
     }), undefined, { timeoutMs: 5 });
     expect(await timeout.refreshProject(rootPath)).toMatchObject({
       status: 'failed',

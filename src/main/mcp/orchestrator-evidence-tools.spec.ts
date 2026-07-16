@@ -13,7 +13,7 @@ describe('orchestrator evidence MCP tools', () => {
       'evidence_verify',
     ]);
     for (const tool of tools) {
-      expect(tool.inputSchema.properties).not.toHaveProperty('conversationId');
+      expect(tool.inputSchema['properties']).not.toHaveProperty('conversationId');
     }
   });
 

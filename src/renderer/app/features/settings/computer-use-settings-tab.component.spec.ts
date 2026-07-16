@@ -137,7 +137,7 @@ describe('ComputerUseSettingsTabComponent', () => {
     configure();
     const fixture = render();
 
-    const button = fixture.nativeElement
+    const button = (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Open Screen Recording settings"]');
     button?.click();
 
@@ -149,7 +149,7 @@ describe('ComputerUseSettingsTabComponent', () => {
     configure({ enabled: false });
     const fixture = render();
 
-    const button = fixture.nativeElement
+    const button = (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Open Screen Recording settings"]');
     expect(button?.disabled).toBe(true);
   });
@@ -159,7 +159,7 @@ describe('ComputerUseSettingsTabComponent', () => {
     permissionStore.requesting.set('screen-recording');
     const fixture = render();
 
-    const button = fixture.nativeElement
+    const button = (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Open Screen Recording settings"]');
     expect(button?.disabled).toBe(true);
     expect(button?.textContent).toContain('Opening…');
@@ -188,10 +188,10 @@ describe('ComputerUseSettingsTabComponent', () => {
     permissionStore.repairReady.set(true);
     const fixture = render();
 
-    fixture.nativeElement
+    (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Repair macOS permissions"]')
       ?.click();
-    fixture.nativeElement
+    (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Restart AIO"]')
       ?.click();
 

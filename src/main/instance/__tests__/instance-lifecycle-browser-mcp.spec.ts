@@ -46,7 +46,7 @@ const mcpInjectionMocks = vi.hoisted(() => ({
 
 const orchestratorToolsMocks = vi.hoisted(() => ({
   buildOrchestratorToolsMcpConfig: vi.fn(() => '{"mcpServers":{"orchestrator":{}}}'),
-  getOrchestratorToolsRpcSocketPath: vi.fn(() => '/tmp/harness/ot-test.sock'),
+  getOrchestratorToolsRpcSocketPath: vi.fn<() => string | null>(() => '/tmp/harness/ot-test.sock'),
 }));
 
 const codememMocks = vi.hoisted(() => ({

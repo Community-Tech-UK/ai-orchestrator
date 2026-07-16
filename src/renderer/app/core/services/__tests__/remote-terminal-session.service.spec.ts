@@ -13,9 +13,9 @@ function makeApi() {
     terminalWrite: vi.fn(async () => ({ success: true })),
     terminalResize: vi.fn(async () => ({ success: true })),
     terminalKill: vi.fn(async () => ({ success: true })),
-    onTerminalSpawned: vi.fn((cb: Cb) => { subs.spawned = cb; return () => { subs.spawned = undefined; }; }),
-    onTerminalOutput: vi.fn((cb: Cb) => { subs.output = cb; return () => { subs.output = undefined; }; }),
-    onTerminalExit: vi.fn((cb: Cb) => { subs.exit = cb; return () => { subs.exit = undefined; }; }),
+    onTerminalSpawned: vi.fn((cb: Cb) => { subs['spawned'] = cb; return () => { subs['spawned'] = undefined; }; }),
+    onTerminalOutput: vi.fn((cb: Cb) => { subs['output'] = cb; return () => { subs['output'] = undefined; }; }),
+    onTerminalExit: vi.fn((cb: Cb) => { subs['exit'] = cb; return () => { subs['exit'] = undefined; }; }),
     _subs: subs,
   };
 }
@@ -61,9 +61,9 @@ describe('RemoteTerminalSessionService', () => {
     const events: TerminalLifecycleEvent[] = [];
     svc.subscribe((e) => events.push(e));
 
-    api._subs.spawned?.({ sessionId: 's1', pid: 42, nodeId: 'windows-pc' });
-    api._subs.output?.({ sessionId: 's1', data: 'hi' });
-    api._subs.exit?.({ sessionId: 's1', exitCode: 0, signal: null });
+    api._subs['spawned']?.({ sessionId: 's1', pid: 42, nodeId: 'windows-pc' });
+    api._subs['output']?.({ sessionId: 's1', data: 'hi' });
+    api._subs['exit']?.({ sessionId: 's1', exitCode: 0, signal: null });
 
     expect(events).toEqual([
       { kind: 'spawned', sessionId: 's1', pid: 42 },

@@ -310,7 +310,7 @@ describe('auxiliary-llm-handlers', () => {
         unrelatedKey: 'should-be-ignored',
       });
 
-      const calls = settingsMocks.set.mock.calls.map(([key]: [string]) => key);
+      const calls = settingsMocks.set.mock.calls.map((call) => call[0] as string);
       expect(calls).toContain('auxiliaryLlmEnabled');
       expect(calls).toContain('auxiliaryLlmRoutingMode');
       expect(calls).not.toContain('unrelatedKey');

@@ -144,7 +144,8 @@ describe('ComputerUsePermissionStore', () => {
   });
 
   it('deduplicates concurrent refreshes through one in-flight promise', async () => {
-    let release: ((value: ReturnType<typeof healthResponse>) => void) | null = null;
+    let release: ((value: ReturnType<typeof healthResponse>) => void) | null =
+      null as ((value: ReturnType<typeof healthResponse>) => void) | null;
     desktop.getHealth.mockImplementation(() =>
       new Promise((resolve) => { release = resolve; }));
     const store = setup();
@@ -244,7 +245,7 @@ describe('ComputerUsePermissionStore', () => {
   });
 
   it('deduplicates concurrent permission requests', async () => {
-    let release: ((value: unknown) => void) | null = null;
+    let release: ((value: unknown) => void) | null = null as ((value: unknown) => void) | null;
     desktop.requestSystemPermission.mockImplementation(() =>
       new Promise((resolve) => { release = resolve; }));
     const store = setup();

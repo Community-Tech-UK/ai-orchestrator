@@ -169,7 +169,7 @@ describe('LoopCoordinator review-driven completion', () => {
       iterationsOnCurrentStage: 0,
       recentWarnIterationSeqs: [],
     } as unknown as LoopState;
-    const iteration = {
+    const iteration: LoopIteration = {
       id: 'loop-rd-verify-infra-0',
       loopRunId: state.id,
       seq: 0,
@@ -193,7 +193,7 @@ describe('LoopCoordinator review-driven completion', () => {
       completionSignalsFired: [],
       verifyStatus: 'not-run',
       verifyOutputExcerpt: '',
-    } satisfies LoopIteration;
+    };
     const completionDetector = {
       runVerify: async () => ({
         status: 'failed' as const,
@@ -492,7 +492,7 @@ describe('LoopCoordinator review-driven completion', () => {
       reviewerSignal = input.signal;
       resolveReviewerStarted?.();
       await Promise.race([
-        new Promise<void>((resolve) => input.signal.addEventListener('abort', () => resolve(), { once: true })),
+        new Promise<void>((resolve) => input.signal!.addEventListener('abort', () => resolve(), { once: true })),
         sleep(100),
       ]);
       return {
@@ -503,7 +503,7 @@ describe('LoopCoordinator review-driven completion', () => {
         summary: '',
         tokensUsed: 0,
         costCents: 0,
-        spawnOutcome: input.signal.aborted ? 'cancelled' : 'settled',
+        spawnOutcome: input.signal!.aborted ? 'cancelled' : 'settled',
         fault: 'infra_error',
       };
     });

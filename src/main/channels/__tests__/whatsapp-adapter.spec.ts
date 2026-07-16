@@ -4,7 +4,7 @@ import { EventEmitter } from 'events';
 // ---------- Hoisted mock helpers ----------
 
 const { mockExistsSync } = vi.hoisted(() => {
-  return { mockExistsSync: vi.fn<[string], boolean>(() => false) };
+  return { mockExistsSync: vi.fn<(path: string) => boolean>(() => false) };
 });
 
 vi.mock('fs', async (importOriginal) => {
@@ -329,7 +329,7 @@ describe('WhatsAppAdapter', () => {
   it('sends pairing code reply to unknown sender in pairing mode', async () => {
     await adapter.connect(makeConfig());
 
-    const replyFn = vi.fn(async () => undefined);
+    const replyFn = vi.fn(async (_content: string) => undefined);
     const msg = makeWAMessage({
       from: 'new-user@c.us',
       reply: replyFn,
@@ -426,7 +426,7 @@ describe('WhatsAppAdapter', () => {
   it('pairSender succeeds with valid code', async () => {
     await adapter.connect(makeConfig());
 
-    const replyFn = vi.fn(async () => undefined);
+    const replyFn = vi.fn(async (_content: string) => undefined);
     const msg = makeWAMessage({
       from: 'new-user@c.us',
       reply: replyFn,

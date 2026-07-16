@@ -16,6 +16,6 @@ describe('isVerifiedNoChangeCompletionClaim', () => {
       verifyStatus: 'skipped',
       testPassCount: 152,
       testFailCount: 0,
-    } as LoopIteration)).toBe(false);
+    } as unknown as LoopIteration)).toBe(false);
   });
 });

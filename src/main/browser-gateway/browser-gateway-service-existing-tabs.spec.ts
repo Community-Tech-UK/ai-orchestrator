@@ -1072,6 +1072,7 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
           silent: true,
           staleForMs: 120_000,
         }),
+        getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
       },
     });
 
@@ -1125,6 +1126,7 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
           silent: true,
           staleForMs: 120_000,
         }),
+        getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
       },
     });
 
@@ -1380,6 +1382,7 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
           silent: true,
           staleForMs: 120_000,
         }),
+        getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
       },
     });
 
@@ -1849,7 +1852,7 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       ],
     });
     // Password inputs must never leak a value back to the agent.
-    const passwordCandidate = (result.data as Record<string, unknown>[])[2];
+    const passwordCandidate = (result.data as unknown as Record<string, unknown>[])[2];
     expect(passwordCandidate['value']).toBeUndefined();
   });
 });

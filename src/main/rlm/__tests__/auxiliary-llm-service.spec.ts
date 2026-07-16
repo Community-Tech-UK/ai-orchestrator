@@ -433,8 +433,8 @@ describe('AuxiliaryLlmService — manual-only routing', () => {
   });
 
   it('uses apiKeyEnv before apiKeyCommand when the environment variable resolves', async () => {
-    process.env.AIO_AUX_ENV_KEY = 'env-secret';
-    process.env.AIO_AUX_COMMAND_KEY = 'command-secret';
+    process.env['AIO_AUX_ENV_KEY'] = 'env-secret';
+    process.env['AIO_AUX_COMMAND_KEY'] = 'command-secret';
     const service = await getService();
     const mocks = await getMocks();
     mocks.probeOpenAi.mockResolvedValue(true);
@@ -467,7 +467,7 @@ describe('AuxiliaryLlmService — manual-only routing', () => {
   });
 
   it('falls through to apiKeyCommand when apiKeyEnv is configured but unset', async () => {
-    process.env.AIO_AUX_COMMAND_KEY = 'command-secret';
+    process.env['AIO_AUX_COMMAND_KEY'] = 'command-secret';
     const service = await getService();
     const mocks = await getMocks();
     mocks.probeOpenAi.mockResolvedValue(true);
@@ -500,7 +500,7 @@ describe('AuxiliaryLlmService — manual-only routing', () => {
   });
 
   it('does not log the resolved apiKeyCommand value', async () => {
-    process.env.AIO_AUX_COMMAND_KEY = 'command-secret-never-log';
+    process.env['AIO_AUX_COMMAND_KEY'] = 'command-secret-never-log';
     const service = await getService();
     const mocks = await getMocks();
     mocks.probeOpenAi.mockResolvedValue(true);

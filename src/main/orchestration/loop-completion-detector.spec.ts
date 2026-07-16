@@ -93,10 +93,13 @@ function makeState(workspaceCwd: string, over: Partial<LoopState> = {}): LoopSta
     doneSentinelPresentAtStart: false,
     planChecklistFullyCheckedAtStart: false,
     uncompletedPlanFilesAtStart: [],
+    manualReviewOnly: false,
     tokensSinceLastTestImprovement: 0,
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,
     recentWarnIterationSeqs: [],
+    completionAttempts: 0,
+    loopTasksLedgerResolvedAtStart: false,
     ...over,
   };
 }
@@ -765,6 +768,7 @@ describe('LoopCompletionDetector.runVerify', () => {
     cfg.completion.verifyTimeoutMs = 5000;
     const r = await det.runVerify(cfg);
     expect(r.status).toBe('failed');
+    if (r.status !== 'failed') throw new Error('expected failed verify outcome');
     expect(r.failureKind).toBe('command');
     expect(r.exitCode).toBe(1);
   });
@@ -777,6 +781,7 @@ describe('LoopCompletionDetector.runVerify', () => {
     cfg.completion.verifyTimeoutMs = 50;
     const r = await det.runVerify(cfg);
     expect(r.status).toBe('failed');
+    if (r.status !== 'failed') throw new Error('expected failed verify outcome');
     expect(r.failureKind).toBe('timeout');
     expect(r.exitCode).toBeNull();
   });
@@ -792,6 +797,7 @@ describe('LoopCompletionDetector.runVerify', () => {
       cfg.completion.verifyTimeoutMs = 5000;
       const r = await det.runVerify(cfg);
       expect(r.status).toBe('failed');
+      if (r.status !== 'failed') throw new Error('expected failed verify outcome');
       expect(r.failureKind).toBe('infra');
       expect(r.output).toContain('failed to spawn');
     } finally {

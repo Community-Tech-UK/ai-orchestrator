@@ -122,6 +122,7 @@ describe('RealtimeTranscriptionService', () => {
     const service = TestBed.inject(RealtimeTranscriptionService);
 
     await expect(service.connect({
+      transport: 'webrtc',
       sessionId: 'voice-session-1',
       clientSecret: 'ephemeral-client-secret',
       model: 'gpt-4o-transcribe',
@@ -143,6 +144,7 @@ describe('RealtimeTranscriptionService', () => {
     const service = TestBed.inject(RealtimeTranscriptionService);
 
     const connection = await service.connect({
+      transport: 'webrtc',
       sessionId: 'voice-session-1',
       clientSecret: 'ephemeral-client-secret',
       model: 'gpt-4o-transcribe',
@@ -178,11 +180,13 @@ describe('RealtimeTranscriptionService', () => {
     const service = TestBed.inject(RealtimeTranscriptionService);
 
     await expect(service.connect({
+      transport: 'webrtc',
       sessionId: 'voice-session-1',
       clientSecret: 'ephemeral-client-secret',
       model: 'gpt-4o-transcribe',
     }, createAudioContext())).rejects.toBeInstanceOf(VoiceTranscriptionError);
     await expect(service.connect({
+      transport: 'webrtc',
       sessionId: 'voice-session-1',
       clientSecret: 'ephemeral-client-secret',
       model: 'gpt-4o-transcribe',

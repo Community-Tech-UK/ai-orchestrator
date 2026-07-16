@@ -88,11 +88,12 @@ describe('LoopCoordinator checkpoint restore', () => {
             childInstanceId: 'child-restored',
             output: 'restored loop kept working',
             tokens: 1,
-            costCents: 0,
-            filesChanged: [{ path: 'src/restored.ts', contentHash: 'restored-1' }],
+            filesChanged: [{ path: 'src/restored.ts', additions: 1, deletions: 0, contentHash: 'restored-1' }],
             toolCalls: [],
             errors: [],
-            verify: { status: 'passed', output: 'ok' },
+            testPassCount: null,
+            testFailCount: null,
+            exitedCleanly: true,
           });
         });
       });
@@ -223,11 +224,12 @@ describe('LoopCoordinator checkpoint restore', () => {
             childInstanceId: 'child-provider-limit',
             output: 'provider-limit checkpoint resumed',
             tokens: 1,
-            costCents: 0,
-            filesChanged: [{ path: 'src/resumed.ts', contentHash: 'resumed-1' }],
+            filesChanged: [{ path: 'src/resumed.ts', additions: 1, deletions: 0, contentHash: 'resumed-1' }],
             toolCalls: [],
             errors: [],
-            verify: { status: 'passed', output: 'ok' },
+            testPassCount: null,
+            testFailCount: null,
+            exitedCleanly: true,
           });
         });
       });

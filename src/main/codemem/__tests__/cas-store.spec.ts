@@ -1,10 +1,10 @@
-import Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { vacuumFreelistPages } from '../cas-workspace-index-maintenance';
 import type { Chunk } from '../types';
 import type { SqliteDriver } from '../../db/sqlite-driver';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 
 const sampleChunk = (overrides: Partial<Chunk> = {}): Chunk => ({
   contentHash: 'a'.repeat(64),
@@ -22,11 +22,11 @@ const sampleChunk = (overrides: Partial<Chunk> = {}): Chunk => ({
 });
 
 describe('CasStore', () => {
-  let db: Database.Database;
+  let db: SqliteDriver;
   let store: CasStore;
 
   beforeEach(() => {
-    db = new Database(':memory:');
+    db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
   });
@@ -46,7 +46,7 @@ describe('CasStore', () => {
   });
 
   it('enables incremental vacuum for new codemem databases', () => {
-    const vacuumDb = new Database(':memory:');
+    const vacuumDb = defaultDriverFactory(':memory:');
     migrate(vacuumDb);
 
     expect(vacuumDb.pragma('auto_vacuum', { simple: true })).toBe(2);
@@ -76,7 +76,7 @@ describe('CasStore', () => {
   });
 
   it('clears stale unknown primary languages when migrating from schema version 3', () => {
-    const legacyDb = new Database(':memory:');
+    const legacyDb = defaultDriverFactory(':memory:');
     legacyDb.exec(`
       CREATE TABLE schema_version (
         version INTEGER PRIMARY KEY,

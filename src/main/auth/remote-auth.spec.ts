@@ -78,7 +78,7 @@ describe('RemoteAuthService', () => {
 
     const registered = auth.authenticateRegistration({
       nodeId: 'node-pair-both',
-      nodeName: payload.connectionConfig.name,
+      nodeName: payload.connectionConfig.name!,
       token: payload.connectionConfig.authToken,
     });
 

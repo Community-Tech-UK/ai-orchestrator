@@ -124,8 +124,8 @@ describe('CliAdapterWorkerProxy', () => {
     proxy.on('exit', exit);
 
     await proxy.spawn();
-    gateway.handler?.stdout('{"type":"message","role":"assistant","content":"hi"}\n');
-    gateway.handler?.stderr('fatal stderr');
+    gateway.handler?.stdout?.('{"type":"message","role":"assistant","content":"hi"}\n');
+    gateway.handler?.stderr?.('fatal stderr');
     gateway.handler?.streamIdle?.(1234);
 
     expect(output).toHaveBeenCalledWith(expect.objectContaining({ type: 'assistant', content: 'hi' }));
@@ -135,7 +135,7 @@ describe('CliAdapterWorkerProxy', () => {
     const turn = proxy.sendInput('interruptible');
     expect(proxy.interrupt()).toEqual({ status: 'accepted' });
     expect(gateway.signals).toEqual([{ instanceId: 'inst-2', signal: 'SIGINT' }]);
-    gateway.handler?.exited(0, null);
+    gateway.handler?.exited?.(0, null);
     await turn;
 
     const termGateway = new FakeGateway();
@@ -159,7 +159,7 @@ describe('CliAdapterWorkerProxy', () => {
     const exitOnly = vi.fn();
     exitProxy.on('exit', exitOnly);
     await exitProxy.spawn();
-    exitGateway.handler?.exited(0, null);
+    exitGateway.handler?.exited?.(0, null);
     expect(exitOnly).toHaveBeenCalledWith(0, null);
   });
 

@@ -1,11 +1,36 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { BrowserGatewayService } from './browser-gateway-service';
 import { stopBrowserCampaignRuntime } from './browser-campaign-runtime';
 import { makeGrant, makeProfile, makeService, makeTarget } from './browser-gateway-service.test-helpers';
 import { WorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import type { FillControlReadback } from './browser-fill-plan-executor';
+import type { BrowserElementContext } from '@contracts/types/browser';
+
+/**
+ * `makeService()`'s default driver mocks (browser-gateway-service.test-helpers.ts)
+ * infer narrow literal return types for `readControl`/`inspectElement` from
+ * their default implementations. These helpers re-type those mocks to the
+ * real driver contracts so per-test `mockResolvedValueOnce` overrides can use
+ * the full shape without touching the shared test-helpers file.
+ */
+function readControlMock(driver: { readControl: unknown }): Mock<
+  (profileId: string, targetId: string, selector: string) => Promise<FillControlReadback>
+> {
+  return driver.readControl as Mock<
+    (profileId: string, targetId: string, selector: string) => Promise<FillControlReadback>
+  >;
+}
+
+function inspectElementMock(driver: { inspectElement: unknown }): Mock<
+  (profileId: string, targetId: string, selector: string) => Promise<BrowserElementContext>
+> {
+  return driver.inspectElement as Mock<
+    (profileId: string, targetId: string, selector: string) => Promise<BrowserElementContext>
+  >;
+}
 
 describe('BrowserGatewayService approvals', () => {
   afterEach(() => {
@@ -239,7 +264,7 @@ describe('BrowserGatewayService approvals', () => {
 
   it('redacts element context before storing approval requests', async () => {
     const { service, driver, approvalRequests } = makeService();
-    driver.inspectElement.mockResolvedValueOnce({
+    inspectElementMock(driver).mockResolvedValueOnce({
       role: 'input',
       accessibleName: 'Token',
       visibleText: 'token=abc123',
@@ -592,7 +617,7 @@ describe('BrowserGatewayService approvals', () => {
     const { service, driver } = makeService({
       grants: [makeGrant()],
     });
-    driver.readControl.mockResolvedValueOnce({ checked: false });
+    readControlMock(driver).mockResolvedValueOnce({ checked: false });
 
     const request: Parameters<BrowserGatewayService['click']>[0] = {
       profileId: 'profile-1',
@@ -617,7 +642,7 @@ describe('BrowserGatewayService approvals', () => {
     const { service, driver } = makeService({
       grants: [makeGrant()],
     });
-    driver.readControl.mockResolvedValueOnce({ value: 'internal', selectedLabel: 'Internal' });
+    readControlMock(driver).mockResolvedValueOnce({ value: 'internal', selectedLabel: 'Internal' });
 
     const request: Parameters<BrowserGatewayService['select']>[0] = {
       profileId: 'profile-1',
@@ -643,7 +668,7 @@ describe('BrowserGatewayService approvals', () => {
     const { service, driver } = makeService({
       grants: [makeGrant()],
     });
-    driver.readControl
+    readControlMock(driver)
       .mockResolvedValueOnce({ value: 'One' })
       .mockResolvedValueOnce({ value: 'wrong' });
 
@@ -676,7 +701,7 @@ describe('BrowserGatewayService approvals', () => {
     const { service, driver } = makeService({
       grants: [makeGrant({ allowedActionClasses: ['input', 'credential'] })],
     });
-    driver.inspectElement
+    inspectElementMock(driver)
       .mockResolvedValueOnce({ label: 'Title', inputType: 'text' })
       .mockResolvedValueOnce({ label: 'Password', inputType: 'password' });
 

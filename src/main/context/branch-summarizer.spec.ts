@@ -64,7 +64,7 @@ describe('BranchSummarizer', () => {
   });
 
   it('labels transcript content as data and escapes its closing boundary', async () => {
-    const generate = vi.fn(async () => ({
+    const generate = vi.fn(async (_slot: string, _systemPrompt: string, _userPrompt: string) => ({
       text: 'safe summary',
       decision: { source: 'local' as const },
     }));
