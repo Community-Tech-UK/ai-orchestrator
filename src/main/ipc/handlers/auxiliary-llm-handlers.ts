@@ -11,6 +11,7 @@ import { getAuxiliaryLlmService } from '../../rlm/auxiliary-llm-service';
 import { HYDE_PROMPTS } from '../../rlm/hyde-service.constants';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
+import { pickSmaller } from '../../util/never-worse';
 import type { IpcResponse } from '../validated-handler';
 import type { AuxiliaryLlmEndpointConfig, AuxiliaryLlmSlot } from '../../../shared/types/auxiliary-llm.types';
 
@@ -262,7 +263,16 @@ export function registerAuxiliaryLlmHandlers(): void {
         WEB_EXTRACT_SYSTEM_PROMPT,
         buildWebExtractPrompt(text),
       );
-      return { success: true, data: { text: extracted, decision } };
+      // WS11.3 never-worse guard: an "extraction" that inflated the content is
+      // useless — return the original page text instead of a longer rewrite.
+      const guarded = pickSmaller(text, extracted);
+      if (guarded.picked === 'original') {
+        logger.warn('webExtract inflated content — returning original page text', {
+          originalSize: guarded.originalSize,
+          transformedSize: guarded.transformedSize,
+        });
+      }
+      return { success: true, data: { text: guarded.content, decision } };
     } catch (error) {
       logger.error('auxiliary-llm:extract-web failed', error instanceof Error ? error : undefined);
       return {

@@ -119,6 +119,12 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.VERIFICATION_RUNS_LIST, params),
     loopInferVerify: (workspaceCwd: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_INFER_VERIFY, { workspaceCwd }),
+    /** Fable WS6: list available loop recipe packs. */
+    loopListRecipes: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_LIST_RECIPES),
+    /** WS7: read-only plan-scope assessment (single-loop vs campaign). */
+    loopAssessScope: (workspaceCwd: string, planFile: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_ASSESS_SCOPE, { workspaceCwd, planFile }),
     loopListOutstanding: (
       params: {
         chatId?: string;
@@ -175,6 +181,18 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     // Campaign Mode
     // ============================================
 
+    /** WS8: build a campaign preview from a configured repository plan. */
+    campaignImportPlanPreview: (params: {
+      workspaceCwd: string;
+      planFile: string;
+      baseLoop: {
+        verifyCommand: string;
+        provider?: string;
+        maxCostCents?: number;
+        maxTurnsPerIteration?: number;
+      };
+    }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CAMPAIGN_IMPORT_PLAN_PREVIEW, params),
     campaignValidate: (spec: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CAMPAIGN_VALIDATE, spec),
 

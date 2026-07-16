@@ -217,6 +217,38 @@ describe('runFreshEyesReviewGate — D6 instant ALLOW (anti-self-grading)', () =
     expect(reviewer).not.toHaveBeenCalled();
     expect(result).toEqual({ blocked: false, ran: true, errored: false });
   });
+
+  it('WS6 Task 4: fires captureReviewLesson with the blocking verdict on a block', async () => {
+    const state = makeState({ freshEyesCleanForWorkState: true });
+    const iteration = makeIteration({
+      filesChanged: [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'h' }],
+    });
+    const captureReviewLesson = vi.fn();
+
+    const result = await runFreshEyesReviewGate({
+      ...gateArgs(state, iteration, blockedReview),
+      captureReviewLesson,
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(captureReviewLesson).toHaveBeenCalledTimes(1);
+    const verdict = captureReviewLesson.mock.calls[0][0];
+    expect(verdict.reviewers).toEqual(['stub']);
+    expect(verdict.findings[0]).toMatchObject({ title: 'Bug', severity: 'critical' });
+    expect(verdict.summary).toBe('blocked');
+  });
+
+  it('WS6 Task 4: does NOT fire captureReviewLesson on a clean pass', async () => {
+    const state = makeState({ freshEyesCleanForWorkState: undefined });
+    const captureReviewLesson = vi.fn();
+
+    await runFreshEyesReviewGate({
+      ...gateArgs(state, makeIteration(), cleanReview),
+      captureReviewLesson,
+    });
+
+    expect(captureReviewLesson).not.toHaveBeenCalled();
+  });
 });
 
 describe('trackRepeatedCompletionEvidence', () => {

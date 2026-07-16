@@ -510,7 +510,9 @@ export function registerInstanceHandlers(deps: {
     }
   );
 
-  // Change model (preserves conversation context)
+  // Change model and/or provider (preserves conversation context).
+  // Queue-aware: a change requested while the instance is busy is parked and
+  // auto-applied on the next transition into an input-waiting status.
   ipcMain.handle(
     IPC_CHANNELS.INSTANCE_CHANGE_MODEL,
     async (
@@ -524,11 +526,14 @@ export function registerInstanceHandlers(deps: {
           'INSTANCE_CHANGE_MODEL'
         );
 
-        const instance = await instanceManager.changeModel(
+        const instance = await instanceManager.requestModelChange(
           validatedPayload.instanceId,
-          validatedPayload.model,
-          validatedPayload.reasoningEffort,
-          validatedPayload.modelRuntimeTarget,
+          {
+            model: validatedPayload.model,
+            reasoningEffort: validatedPayload.reasoningEffort,
+            modelRuntimeTarget: validatedPayload.modelRuntimeTarget,
+            provider: validatedPayload.provider,
+          },
         );
 
         return {

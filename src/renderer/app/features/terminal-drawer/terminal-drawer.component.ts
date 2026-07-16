@@ -384,6 +384,16 @@ export class TerminalDrawerComponent {
     if (this.pendingOutput) {
       term.write(this.pendingOutput);
       this.pendingOutput = '';
+    } else if (this.sessionId) {
+      // WS11.7 re-attach: a fresh xterm for an ALREADY-live session (e.g. the
+      // terminal element was recreated) replays the retained scrollback so the
+      // window doesn't start blank mid-session.
+      const sessionId = this.sessionId;
+      void this.terminal.getBufferedOutput(sessionId)
+        .then((buffered) => {
+          if (buffered && this.matches(sessionId) && this.term === term) term.write(buffered);
+        })
+        .catch(() => undefined);
     }
     // Forward raw keystrokes (the whole point of a real terminal vs a line box).
     term.onData((data) => {

@@ -334,6 +334,16 @@ export class AutomationStore {
     return this.getRun(runId);
   }
 
+  /** WS5: link the loop run a loop-action automation run spawned. */
+  attachLoopRun(runId: string, loopRunId: string, now = Date.now()): AutomationRun | null {
+    this.db.prepare(`
+      UPDATE automation_runs
+      SET loop_run_id = ?, updated_at = ?
+      WHERE id = ? AND status = 'running'
+    `).run(loopRunId, now, runId);
+    return this.getRun(runId);
+  }
+
   terminalizeRun(
     runId: string,
     status: Exclude<AutomationRunStatus, 'pending' | 'running'>,
@@ -614,12 +624,25 @@ export class AutomationStore {
     `).run(nextFireAt, now, automationId);
   }
 
+  /**
+   * WS5: running runs that spawned a LOOP survive an app restart — the loop
+   * engine recovers its own runs, so the runner re-tracks these instead of
+   * failing them. Everything else running at boot is genuinely orphaned.
+   */
+  listRunningLoopLinkedRuns(): AutomationRun[] {
+    return this.db.prepare(`
+      SELECT *
+      FROM automation_runs
+      WHERE status = 'running' AND loop_run_id IS NOT NULL
+    `).all<AutomationRunRow>().map((row) => this.mapRun(row));
+  }
+
   failRunningRuns(reason: string, now = Date.now()): AutomationRun[] {
     const tx = this.db.transaction(() => {
       const rows = this.db.prepare(`
         SELECT *
         FROM automation_runs
-        WHERE status = 'running'
+        WHERE status = 'running' AND loop_run_id IS NULL
       `).all<AutomationRunRow>();
 
       this.db.prepare(`
@@ -628,7 +651,7 @@ export class AutomationStore {
             finished_at = ?,
             error = ?,
             updated_at = ?
-        WHERE status = 'running'
+        WHERE status = 'running' AND loop_run_id IS NULL
       `).run(now, reason, now);
 
       for (const row of rows) {

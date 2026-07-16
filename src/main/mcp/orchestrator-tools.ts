@@ -240,6 +240,13 @@ export const ReadNodeOutputArgsSchema = z.object({
    * with whatever is buffered so far. Capped well under the RPC timeout.
    */
   waitMs: z.number().int().min(0).max(120_000).optional(),
+  /**
+   * WS11.5 gap-free cursor: only return messages whose `seq` (buffer index)
+   * is strictly greater than this value. Pass the previous response's
+   * `lastSeq` to resume without gaps or duplicates. Mutually additive with
+   * `limit` (the cap applies after the cursor slice, oldest-first).
+   */
+  afterSeq: z.number().int().min(-1).optional(),
 });
 
 export type ReadNodeOutputArgs = z.infer<typeof ReadNodeOutputArgsSchema>;
@@ -248,6 +255,8 @@ export interface NodeOutputMessage {
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
   content: string;
   timestamp: number;
+  /** WS11.5: stable per-instance buffer index (same convention as the mobile gateway). */
+  seq: number;
 }
 
 export interface ReadNodeOutputResult {
@@ -259,6 +268,12 @@ export interface ReadNodeOutputResult {
   messageCount: number;
   /** True when older messages were dropped by `limit` or content was capped. */
   truncated: boolean;
+  /**
+   * WS11.5: `seq` of the newest message in the buffer (NOT just of this
+   * response's slice) — pass as the next call's `afterSeq` for a gap-free
+   * resume. -1 when the buffer is empty.
+   */
+  lastSeq: number;
   messages: NodeOutputMessage[];
 }
 
@@ -271,6 +286,63 @@ export interface ReadNodeOutputResult {
 export type ReadInstanceOutputFn = (
   args: ReadNodeOutputArgs,
 ) => Promise<ReadNodeOutputResult | null>;
+
+/** Per-message content cap for read_node_output responses. */
+export const READ_NODE_OUTPUT_MAX_MESSAGE_CONTENT = 8_000;
+
+/**
+ * WS11.5 — pure serialization for `read_node_output`, extracted so the cursor
+ * semantics are directly testable. `seq` === buffer index (the same convention
+ * as the mobile gateway's `fromSeq` replay): with `afterSeq` the slice runs
+ * OLDEST-first from the cursor so consecutive reads are gap-free; without it,
+ * the legacy most-recent-window behaviour is preserved.
+ */
+export function buildReadNodeOutputResult(opts: {
+  instanceId: string;
+  status: string;
+  done: boolean;
+  buffer: readonly { type: NodeOutputMessage['type']; content?: string; timestamp: number }[];
+  limit?: number;
+  afterSeq?: number;
+  maxContentChars?: number;
+}): ReadNodeOutputResult {
+  const limit = opts.limit ?? 100;
+  const maxContentChars = opts.maxContentChars ?? READ_NODE_OUTPUT_MAX_MESSAGE_CONTENT;
+  const { buffer } = opts;
+  const cursorMode = typeof opts.afterSeq === 'number';
+  const startIdx = cursorMode
+    ? Math.max(0, Math.floor(opts.afterSeq!) + 1)
+    : Math.max(0, buffer.length - limit);
+  const sliced = cursorMode ? buffer.slice(startIdx, startIdx + limit) : buffer.slice(startIdx);
+
+  let contentCapped = false;
+  const messages = sliced.map((m, sliceIdx) => {
+    let content = m.content ?? '';
+    if (content.length > maxContentChars) {
+      content = `${content.slice(0, maxContentChars)}… [truncated]`;
+      contentCapped = true;
+    }
+    return { type: m.type, content, timestamp: m.timestamp, seq: startIdx + sliceIdx };
+  });
+
+  // "Truncated" = this response omitted messages the caller has NOT seen:
+  // cursor mode when `limit` cut into the post-cursor window; legacy mode when
+  // the most-recent window skipped older messages. Messages already consumed
+  // via `afterSeq` don't count.
+  const droppedUnseen = cursorMode
+    ? messages.length < Math.max(0, buffer.length - startIdx)
+    : startIdx > 0;
+
+  return {
+    instanceId: opts.instanceId,
+    status: opts.status,
+    done: opts.done,
+    messageCount: buffer.length,
+    truncated: contentCapped || droppedUnseen,
+    lastSeq: buffer.length - 1,
+    messages,
+  };
+}
 
 export interface OrchestratorToolRuntimeContext extends FileTransferToolContext {
   db: SqliteDriver;
@@ -578,6 +650,14 @@ export function createOrchestratorToolDefinitions(
             maximum: 120000,
             description:
               'Optionally block up to this many milliseconds, polling until the turn completes. 0/omitted returns immediately.',
+          },
+          afterSeq: {
+            type: 'integer',
+            minimum: -1,
+            description:
+              'Cursor for gap-free consecutive reads: only messages with seq greater than this are returned. '
+              + 'Pass the previous response\'s lastSeq. If a response comes back with lastSeq < your afterSeq, '
+              + 'the retained window rotated — re-read once without afterSeq to resync.',
           },
         },
         required: ['instanceId'],

@@ -85,6 +85,12 @@ export class RemoteTerminalSessionService implements TerminalSession {
     if (!res?.success) throw new Error(res?.error?.message ?? 'Failed to kill terminal');
   }
 
+  async getBufferedOutput(sessionId: TerminalSessionId): Promise<string | null> {
+    const res = await this.requireApi().terminalGetBuffer(sessionId);
+    if (!res?.success) return null;
+    return (res.data as { output: string | null } | undefined)?.output ?? null;
+  }
+
   subscribe(listener: (event: TerminalLifecycleEvent) => void): () => void {
     const api = this.ipc.getApi();
     if (!api) return () => undefined;
@@ -138,6 +144,11 @@ export class TerminalSessionStub implements TerminalSession {
     void sessionId;
     void signal;
     return this.fail('kill');
+  }
+
+  getBufferedOutput(sessionId: TerminalSessionId): Promise<string | null> {
+    void sessionId;
+    return Promise.resolve(null);
   }
 
   subscribe(listener: (event: TerminalLifecycleEvent) => void): () => void {

@@ -1,5 +1,6 @@
 import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import type {
   CampaignEdge,
@@ -110,6 +111,7 @@ export class CampaignPageComponent implements OnInit {
   protected readonly providers = PROVIDERS;
   protected readonly stages = STAGES;
   store = inject(CampaignStore);
+  private route = inject(ActivatedRoute);
 
   title = signal('New campaign');
   nodes = signal<EditorNode[]>([this.createNode(1, 80, 120)]);
@@ -127,6 +129,19 @@ export class CampaignPageComponent implements OnInit {
   isolationEnabled = signal(false);
   editorError = signal<string | null>(null);
   editorNotice = signal<string | null>(null);
+  // ── WS8: import an implementation plan as a sequential campaign ──
+  importPlanFile = signal('');
+  importVerifyCommand = signal('');
+  importWorkspaceCwd = signal('');
+  importPreview = signal<{
+    nodeCount: number;
+    perNodeCapCents: number;
+    aggregateMaxCostCents: number;
+    workstreams: { id: string; title: string }[];
+    sourceDigest: string;
+  } | null>(null);
+  /** The generated spec (source of truth while unedited); editing clears it. */
+  importedSpec = signal<CampaignSpec | null>(null);
   private nextNodeNumber = 2;
   private drag = signal<DragState | null>(null);
 
@@ -136,9 +151,20 @@ export class CampaignPageComponent implements OnInit {
   ngOnInit(): void {
     this.store.ensureWired();
     void this.store.load();
+    // WS8: the loop panel's campaign-required refusal navigates here with
+    // the plan path (and context) prefilled — never auto-previews or starts.
+    const params = this.route.snapshot.queryParamMap;
+    const planFile = params.get('planFile');
+    if (planFile) this.importPlanFile.set(planFile);
+    const workspaceCwd = params.get('workspaceCwd');
+    if (workspaceCwd) this.importWorkspaceCwd.set(workspaceCwd);
+    const verifyCommand = params.get('verifyCommand');
+    if (verifyCommand) this.importVerifyCommand.set(verifyCommand);
   }
 
   resetEditor(): void {
+    this.importedSpec.set(null);
+    this.importPreview.set(null);
     this.title.set('New campaign');
     this.nodes.set([this.createNode(1, 80, 120)]);
     this.edges.set([]);
@@ -158,11 +184,13 @@ export class CampaignPageComponent implements OnInit {
     this.selectedNodeId.set(node.id);
     this.edgeTo.set(node.id);
     this.clearMessages();
+    this.invalidateImportOnEdit();
   }
 
   updateNode(id: string, patch: Partial<EditorNode>): void {
     this.nodes.update((nodes) => nodes.map((node) => node.id === id ? { ...node, ...patch } : node));
     this.clearMessages();
+    this.invalidateImportOnEdit();
   }
 
   removeNode(id: string): void {
@@ -174,6 +202,7 @@ export class CampaignPageComponent implements OnInit {
     this.edgeFrom.set(remaining[0]?.id ?? '');
     this.edgeTo.set(remaining[0]?.id ?? '');
     this.clearMessages();
+    this.invalidateImportOnEdit();
   }
 
   addEdge(): void {
@@ -190,11 +219,13 @@ export class CampaignPageComponent implements OnInit {
     this.edges.update((edges) => [...edges.filter((e) => !(e.from === from && e.to === to)), edge]);
     this.editorError.set(null);
     this.editorNotice.set('Edge added');
+    this.invalidateImportOnEdit();
   }
 
   removeEdge(edge: EditorEdge): void {
     this.edges.update((edges) => edges.filter((e) => e !== edge));
     this.clearMessages();
+    this.invalidateImportOnEdit();
   }
 
   async onValidateSpec(): Promise<void> {
@@ -214,6 +245,71 @@ export class CampaignPageComponent implements OnInit {
     this.editorError.set(res.success ? (res.data?.errors.join('; ') || 'Invalid campaign spec') : (res.error?.message ?? 'Validation failed'));
   }
 
+  /** WS8: build the sequential-campaign preview. NEVER starts anything. */
+  async onImportPlanPreview(): Promise<void> {
+    const planFile = this.importPlanFile().trim();
+    const workspaceCwd = this.importWorkspaceCwd().trim();
+    if (!planFile || !workspaceCwd) {
+      this.editorError.set('Plan import needs a workspace path and a workspace-relative plan file.');
+      this.editorNotice.set(null);
+      return;
+    }
+    const res = await this.store.importPlanPreview({
+      workspaceCwd,
+      planFile,
+      baseLoop: { verifyCommand: this.importVerifyCommand().trim() },
+    });
+    if (!res.success || !res.data) {
+      this.editorNotice.set(null);
+      this.editorError.set(res.error?.message ?? 'Plan import failed');
+      return;
+    }
+    const spec = res.data.spec;
+    this.importedSpec.set(spec);
+    this.importPreview.set({
+      nodeCount: spec.nodes.length,
+      perNodeCapCents: spec.nodes[0]?.loopConfig.caps?.maxCostCents ?? 0,
+      aggregateMaxCostCents: res.data.aggregateMaxCostCents,
+      workstreams: res.data.assessment.workstreams.map((w) => ({ id: w.id, title: w.title })),
+      sourceDigest: res.data.sourceDigest,
+    });
+    // Mirror the generated campaign into the editor for DISPLAY; the generated
+    // spec itself is what starts (the editor mapping cannot express per-node
+    // caps/gate flags, and duplicating construction here is forbidden).
+    this.title.set(spec.title);
+    this.nodes.set(spec.nodes.map((node, index) => ({
+      ...this.createNode(index + 1, 80 + index * 130, 120),
+      id: node.id,
+      label: node.label ?? node.id,
+      initialPrompt: node.loopConfig.initialPrompt,
+      workspaceCwd: node.loopConfig.workspaceCwd,
+      verifyCommand: node.loopConfig.completion?.verifyCommand ?? '',
+    })));
+    this.edges.set(spec.edges.map((edge) => ({
+      from: edge.from,
+      to: edge.to,
+      mode: 'is' as EdgeMode,
+      status: 'completed' as LoopTerminalStatus,
+      statuses: ['completed' as LoopTerminalStatus],
+    })));
+    this.selectedNodeId.set(spec.nodes[0]?.id ?? '');
+    this.maxParallel.set(spec.policy.maxParallel);
+    this.onNodeNeedsReview.set(spec.policy.onNodeNeedsReview);
+    this.isolationEnabled.set(false);
+    this.editorError.set(null);
+    this.editorNotice.set(
+      `Imported ${spec.nodes.length} node(s) from ${planFile}. Review the preview below — nothing starts until you press Run campaign.`,
+    );
+  }
+
+  /** WS8: any structural edit discards the generated spec (re-import to regenerate). */
+  private invalidateImportOnEdit(): void {
+    if (!this.importedSpec()) return;
+    this.importedSpec.set(null);
+    this.importPreview.set(null);
+    this.editorNotice.set('Plan import discarded — the campaign was edited. Re-import to regenerate the sequential nodes.');
+  }
+
   async onRunCampaign(): Promise<void> {
     const localErrors = this.localValidationErrors();
     if (localErrors.length > 0) {
@@ -221,7 +317,10 @@ export class CampaignPageComponent implements OnInit {
       this.editorNotice.set(null);
       return;
     }
-    const spec = this.buildSpec();
+    // WS8: a pristine plan import starts the GENERATED spec (with its
+    // source digest for the main-process staleness check); edited campaigns
+    // start from the editor as before.
+    const spec = this.importedSpec() ?? this.buildSpec();
     const validation = await this.store.validate(spec);
     if (!validation.success || !validation.data?.valid) {
       this.editorNotice.set(null);

@@ -29,6 +29,37 @@ describe('instance.schemas', () => {
     }).reasoningEffort).toBeNull();
   });
 
+  it('accepts a target provider for a cross-provider swap', () => {
+    expect(InstanceChangeModelPayloadSchema.parse({
+      instanceId: 'instance-1',
+      model: 'gpt-5.5',
+      provider: 'codex',
+    }).provider).toBe('codex');
+  });
+
+  it('allows omitting the model when a provider is given (remembered default wins)', () => {
+    const parsed = InstanceChangeModelPayloadSchema.parse({
+      instanceId: 'instance-1',
+      provider: 'codex',
+    });
+    expect(parsed.model).toBeUndefined();
+    expect(parsed.provider).toBe('codex');
+  });
+
+  it('rejects payloads with neither model nor provider', () => {
+    expect(InstanceChangeModelPayloadSchema.safeParse({
+      instanceId: 'instance-1',
+      reasoningEffort: 'high',
+    }).success).toBe(false);
+  });
+
+  it('rejects the auto sentinel as a swap target', () => {
+    expect(InstanceChangeModelPayloadSchema.safeParse({
+      instanceId: 'instance-1',
+      provider: 'auto',
+    }).success).toBe(false);
+  });
+
   it('accepts local model runtime targets on model change payloads', () => {
     const modelRuntimeTarget = {
       kind: 'local-model',

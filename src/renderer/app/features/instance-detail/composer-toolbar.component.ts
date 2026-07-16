@@ -34,14 +34,14 @@ import { CompactModelPickerComponent } from '../models/compact-model-picker.comp
 import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type { InstanceProvider, InstanceStatus } from '../../core/state/instance/instance.types';
+import type { DesiredRuntime } from '../../../../shared/types/instance.types';
 import type {
   InstanceRuntimeSummary,
   ModelRuntimeTarget,
 } from '../../../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
-import { getModelSwitchUnavailableReason } from '../../../../shared/types/instance-status-policy';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
-import { DEFAULT_INSTANCE_PROVIDERS } from '../models/provider-menu.constants';
+import { DEFAULT_INSTANCE_PROVIDERS, PROVIDER_MENU_LABELS } from '../models/provider-menu.constants';
 
 /** Circumference of the SVG ring (r=8, so C ≈ 50.27). */
 const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
@@ -100,6 +100,19 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
           (selectionChange)="onPickerSelectionChange($event)"
         />
       }
+
+      <!-- (c) Queued change badge — a swap requested while busy applies on the
+           next idle; clicking the ✕ cancels it. -->
+      @if (desiredRuntimeLabel(); as pendingLabel) {
+        <button
+          type="button"
+          class="pending-model-chip"
+          [title]="'Will switch to ' + pendingLabel + ' when the current turn finishes. Click to cancel.'"
+          (click)="cancelPendingChange()"
+        >
+          ⏳ {{ pendingLabel }} <span class="pending-model-chip__x" aria-hidden="true">✕</span>
+        </button>
+      }
     </div>
   `,
   styles: [`
@@ -149,6 +162,26 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       color: var(--text-muted);
       min-width: 26px;
       letter-spacing: 0.02em;
+    }
+
+    .pending-model-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 26px;
+      padding: 0 10px;
+      border: 1px dashed var(--warning-color, #eab308);
+      border-radius: 13px;
+      background: transparent;
+      color: var(--warning-color, #eab308);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .pending-model-chip__x {
+      opacity: 0.8;
     }
 
     .runtime-summary-chip {
@@ -251,21 +284,44 @@ export class ComposerToolbarComponent {
    * label instead of pretending the backing CLI provider/model is the runtime. */
   runtimeSummary = input<InstanceRuntimeSummary | undefined>(undefined);
 
-  /** Live instance status. Drives gating of the picker — the backend only
-   * accepts model/reasoning switches while waiting for user input, so the
-   * picker is disabled (with an explanatory tooltip) otherwise to avoid a
-   * silently-rejected change. */
+  /** Live instance status. Drives gating of the picker. */
   instanceStatus = input<InstanceStatus | undefined>(undefined);
 
   /**
-   * Reason the picker is disabled, or `undefined` when a switch is allowed.
-   * Mirrors the backend's `changeModel` precondition so the UI matches it.
+   * Provider/model change queued while the instance is busy (applied on the
+   * next idle). Drives the pending chip next to the picker.
    */
-  readonly modelSwitchDisabledReason = computed(() =>
-    getModelSwitchUnavailableReason(this.instanceStatus()),
-  );
+  desiredRuntime = input<DesiredRuntime | undefined>(undefined);
+
+  /**
+   * Reason the picker is disabled, or `undefined` when a switch is allowed.
+   * The backend queues changes requested while the instance is busy, so only
+   * terminal states — where no future idle will ever apply the change —
+   * disable the picker.
+   */
+  readonly modelSwitchDisabledReason = computed(() => {
+    const status = this.instanceStatus();
+    if (status === 'terminated' || status === 'failed' || status === 'hibernated') {
+      return 'Model changes require a live session.';
+    }
+    return undefined;
+  });
 
   readonly pickerProviders = DEFAULT_INSTANCE_PROVIDERS;
+
+  /** Compact "Provider · model" label for the queued-change chip. */
+  readonly desiredRuntimeLabel = computed<string | null>(() => {
+    const pending = this.desiredRuntime();
+    if (!pending) return null;
+    const providerLabel = pending.provider
+      ? PROVIDER_MENU_LABELS[pending.provider as PickerProvider] ?? pending.provider
+      : null;
+    if (pending.modelRuntimeTarget?.kind === 'local-model') {
+      return `Local · ${pending.modelRuntimeTarget.modelId}`;
+    }
+    const model = pending.model ?? 'default model';
+    return providerLabel ? `${providerLabel} · ${model}` : model;
+  });
 
   /** Holds the user's pending selection in the picker. Initialised in ngOnInit. */
   readonly pendingSelection = signal<PendingSelection | null>(null);
@@ -302,22 +358,53 @@ export class ComposerToolbarComponent {
   async onPickerSelectionChange(sel: PendingSelection): Promise<void> {
     this.pendingSelection.set(sel);
 
-    // Only send IPC when we have a real model selected.
-    if (!sel.model) return;
-
     // Reasoning effort is owned by the picker. When the user didn't pick a
     // level (reasoning === null), pass undefined so the backend preserves the
     // instance's current effort rather than forcing a default.
     const reasoningEffort = sel.reasoning ?? undefined;
 
-    const model = sel.modelRuntimeTarget?.kind === 'local-model'
-      ? sel.modelRuntimeTarget.modelId
-      : sel.model;
     if (sel.modelRuntimeTarget) {
-      await this.ipc.changeModel(this.instanceId(), model, reasoningEffort, sel.modelRuntimeTarget);
+      // Local-model runtime targets route via modelRuntimeTarget, never via a
+      // CLI provider swap.
+      await this.ipc.changeModel(
+        this.instanceId(),
+        sel.modelRuntimeTarget.kind === 'local-model' ? sel.modelRuntimeTarget.modelId : sel.model ?? undefined,
+        reasoningEffort,
+        sel.modelRuntimeTarget,
+      );
       return;
     }
-    await this.ipc.changeModel(this.instanceId(), model, reasoningEffort);
+    if (sel.provider === 'local-model') {
+      // A local-model pick without a decoded runtime target is incomplete.
+      return;
+    }
+    // Cross-provider swaps pass the target provider; a missing model falls
+    // back to the backend's remembered per-provider default.
+    if (!sel.model && !sel.provider) return;
+    await this.ipc.changeModel(
+      this.instanceId(),
+      sel.model ?? undefined,
+      reasoningEffort,
+      undefined,
+      sel.provider,
+    );
+  }
+
+  /**
+   * Cancel a queued model change by re-requesting the live configuration —
+   * the backend treats a request matching the current config as a cancel.
+   */
+  async cancelPendingChange(): Promise<void> {
+    if (!this.desiredRuntime()) return;
+    const provider = this.provider();
+    const model = this.currentModel();
+    if (provider === 'ollama') {
+      // 'ollama' is not a swap target; cancel via the current model instead.
+      if (!model) return;
+      await this.ipc.changeModel(this.instanceId(), model, undefined);
+      return;
+    }
+    await this.ipc.changeModel(this.instanceId(), model, undefined, undefined, provider);
   }
 }
 

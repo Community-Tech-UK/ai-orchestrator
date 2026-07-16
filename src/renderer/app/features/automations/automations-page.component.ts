@@ -21,10 +21,14 @@ import type { PendingSelection, PickerProvider } from '../models/compact-model-p
 import { AutomationWebhooksPanelComponent } from './automation-webhooks-panel.component';
 import {
   emptyForm,
+  formToLoopAction,
+  formToTrigger,
   fromLocalDateInput,
   toLocalDateInput,
   type AutomationFormModel,
 } from './automation-form-model';
+import { AutomationIpcService } from '../../core/services/ipc/automation-ipc.service';
+import type { WebhookRouteConfig } from '../../../../shared/types/webhook.types';
 import { describeSchedule } from './schedule-format';
 
 type OverlayMode = 'detail' | 'form' | 'chat' | null;
@@ -48,7 +52,11 @@ interface AutomationGroup {
 })
 export class AutomationsPageComponent {
   private readonly instances = inject(InstanceStore);
+  private readonly automationIpc = inject(AutomationIpcService);
   store = inject(AutomationStore);
+
+  /** WS5: webhook routes for the trigger picker (loaded when the form opens). */
+  webhookRoutes = signal<WebhookRouteConfig[]>([]);
 
   selectedId = signal<string | null>(null);
   selectedTemplateId = signal('');
@@ -348,6 +356,7 @@ export class AutomationsPageComponent {
     this.store.clearPreflight();
     this.form.set({ ...emptyForm(), workingDirectory: this.defaultWorkingDirectory() });
     this.overlay.set('form');
+    void this.loadWebhookRoutes();
   }
 
   editSelected(): void {
@@ -358,6 +367,30 @@ export class AutomationsPageComponent {
     this.store.clearPreflight();
     this.form.set(this.toForm(automation));
     this.overlay.set('form');
+    void this.loadWebhookRoutes();
+  }
+
+  /** WS5: routes for the trigger picker; failure keeps the picker empty. */
+  async loadWebhookRoutes(): Promise<void> {
+    const response = await this.automationIpc.webhookListRoutes();
+    if (response.success) {
+      this.webhookRoutes.set(response.data ?? []);
+    }
+  }
+
+  addWebhookFilter(): void {
+    this.patchForm({
+      webhookFilters: [...this.form().webhookFilters, { path: '', operator: 'equals', value: '' }],
+    });
+  }
+
+  updateWebhookFilter(index: number, patch: Partial<AutomationFormModel['webhookFilters'][number]>): void {
+    const filters = this.form().webhookFilters.map((filter, i) => (i === index ? { ...filter, ...patch } : filter));
+    this.patchForm({ webhookFilters: filters });
+  }
+
+  removeWebhookFilter(index: number): void {
+    this.patchForm({ webhookFilters: this.form().webhookFilters.filter((_, i) => i !== index) });
   }
 
   patchForm(patch: Partial<AutomationFormModel>): void {
@@ -450,7 +483,9 @@ export class AutomationsPageComponent {
       reasoningEffort: model.reasoningEffort || undefined,
       forceNodeId: model.forceNodeId || undefined,
       attachments: model.attachments,
+      loop: formToLoopAction(model),
     };
+    const trigger = formToTrigger(model);
 
     const ok = model.id
       ? await this.store.update(model.id, {
@@ -458,6 +493,7 @@ export class AutomationsPageComponent {
           description: model.description || undefined,
           enabled: model.enabled,
           schedule,
+          trigger,
           missedRunPolicy: model.missedRunPolicy,
           concurrencyPolicy: model.concurrencyPolicy,
           action,
@@ -467,6 +503,7 @@ export class AutomationsPageComponent {
           description: model.description || undefined,
           enabled: model.enabled,
           schedule,
+          trigger,
           missedRunPolicy: model.missedRunPolicy,
           concurrencyPolicy: model.concurrencyPolicy,
           action,
@@ -479,6 +516,10 @@ export class AutomationsPageComponent {
 
   canSave(): boolean {
     const model = this.form();
+    // WS5: a webhook trigger needs a route; a loop action needs its verify
+    // authority (the WS6 policy would refuse the run at dispatch anyway).
+    if (model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) return false;
+    if (model.loopEnabled && !model.loopVerifyCommand.trim()) return false;
     return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading());
   }
 
@@ -650,6 +691,14 @@ export class AutomationsPageComponent {
       reasoningEffort: automation.action.reasoningEffort ?? '',
       forceNodeId: automation.action.forceNodeId ?? '',
       attachments: automation.action.attachments ?? [],
+      triggerKind: automation.trigger?.kind === 'webhook' ? 'webhook' : 'schedule',
+      webhookRouteId: automation.trigger?.kind === 'webhook' ? automation.trigger.routeId : '',
+      webhookFilters: automation.trigger?.kind === 'webhook' ? [...automation.trigger.filters] : [],
+      loopEnabled: Boolean(automation.action.loop),
+      loopVerifyCommand: automation.action.loop?.verifyCommand ?? '',
+      loopIsolateWorkspace: automation.action.loop?.isolateWorkspace ?? true,
+      loopMaxIterations: automation.action.loop?.maxIterations != null ? String(automation.action.loop.maxIterations) : '',
+      loopMaxCostCents: automation.action.loop?.maxCostCents != null ? String(automation.action.loop.maxCostCents) : '',
     };
   }
 

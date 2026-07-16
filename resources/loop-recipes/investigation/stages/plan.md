@@ -1,0 +1,1 @@
+Scope the investigation: in `{{tasksPath}}`, list the concrete questions / sub-claims you must resolve to answer the goal (one checkbox each). Do not draft a software plan.

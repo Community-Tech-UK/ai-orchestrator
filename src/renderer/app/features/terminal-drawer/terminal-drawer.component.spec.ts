@@ -67,6 +67,7 @@ class FakeTerminalSession implements TerminalSession {
   readonly write = vi.fn(async () => undefined);
   readonly resize = vi.fn(async () => undefined);
   readonly kill = vi.fn(async () => undefined);
+  readonly getBufferedOutput = vi.fn(async (): Promise<string | null> => null);
 
   subscribe(listener: (event: TerminalLifecycleEvent) => void): () => void {
     this.listener = listener;

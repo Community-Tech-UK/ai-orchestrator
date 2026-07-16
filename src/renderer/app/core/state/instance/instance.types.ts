@@ -19,6 +19,7 @@ import type {
   InstanceStatus as SharedInstanceStatus,
   InstanceRecoveryMethod,
   InstanceWaitReason,
+  DesiredRuntime,
   ThinkingContent,
 } from '../../../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../../../shared/types/worker-node.types';
@@ -123,6 +124,12 @@ export interface Instance {
    * pending affordance.
    */
   pendingYoloMode?: boolean;
+  /**
+   * Provider/model change queued while the instance is busy; applied
+   * automatically once it next waits for input. Undefined when no change is
+   * pending. Drives the model picker's pending badge.
+   */
+  desiredRuntime?: DesiredRuntime;
   /** Fast mode: faster output at some capability cost (Claude Opus / Codex priority tier). */
   fastMode?: boolean;
   launchMode: InstanceLaunchMode;

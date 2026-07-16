@@ -148,6 +148,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   modelCatalogRemoteOverrideUrl: '',
   parserBufferMaxKB: 1024, // 1MB max parser buffer
   codememEnabled: true,
+  // Fable WS6: PLAN-stage prior context surfacing (both default ON).
+  loopSurfaceCodemem: true,
+  loopSurfaceLessons: true,
   codememIndexingEnabled: true,
   codememLspWorkerEnabled: true,
   codememPrewarmEnabled: true,
@@ -160,6 +163,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   chromeDevtoolsAttachProfileId: '',
   browserVaultMasterPasswordFile: '',
   browserVaultAutoUnlock: false,
+  browserAuxExtractionEnabled: false,
   browserAllowSharedTabCredentialFill: false,
 
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)

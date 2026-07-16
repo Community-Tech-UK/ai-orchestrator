@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   LoopCompletionConfigSchema,
+  LoopConfigInputSchema,
   LoopConfigSchema,
   LoopCrossModelReviewConfigSchema,
   LoopHardCapsSchema,
@@ -208,6 +209,17 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
       expect(parsed.completionSignalsFired[0].openCount).toBe(0);
       expect(parsed.completionSignalsFired[1].openCount).toBeUndefined();
+    });
+
+    it('WS6: round-trips maxTurnsPerIteration on the config input (previously stripped)', () => {
+      const base = {
+        initialPrompt: 'do thing',
+        workspaceCwd: '/tmp',
+      };
+      expect(LoopConfigInputSchema.parse({ ...base, maxTurnsPerIteration: 30 }).maxTurnsPerIteration).toBe(30);
+      expect(LoopConfigInputSchema.parse({ ...base, maxTurnsPerIteration: null }).maxTurnsPerIteration).toBeNull();
+      expect(LoopConfigInputSchema.parse(base).maxTurnsPerIteration).toBeUndefined();
+      expect(LoopConfigInputSchema.safeParse({ ...base, maxTurnsPerIteration: 0 }).success).toBe(false);
     });
 
     it('round-trips WS2 openLeafIds and keeps them optional (back-compat)', () => {

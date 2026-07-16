@@ -61,7 +61,7 @@ import {
 } from './loop-control';
 import { invokeLoopChildIteration } from './loop-child-invoker';
 import { computeWorkHash } from './loop-work-hash';
-import { detectConvergeUntilCleanIntent, detectLoopGoalIntent } from './loop-intent';
+import { detectConvergeUntilCleanIntent, resolveLoopGoalIntent } from './loop-intent';
 import {
   boundFullOutput,
   applyVerifyOutcomeToIteration,
@@ -121,6 +121,12 @@ import {
   type LoopMemoryStore,
 } from './loop-memory';
 import { applyLoopContextSurvivalDecision, defaultLoopContextSurvivalManager, type LoopContextSurvivalManager } from './loop-context-survival';
+import {
+  buildAttemptReviewEndEvidence,
+  decideDegradedRetry,
+  resolveAttemptEvidence,
+  type LoopInvocationAttemptEvidence,
+} from './loop-invocation-attempt';
 import {
   classifyDegradedIteration as classifyDegradedIterationHelper,
   drainFollowUpsForCompletion,
@@ -200,6 +206,11 @@ import {
   isTerminalLoopRuntimeStatus,
 } from './loop-runtime-status';
 import { recordLoopLearningForState } from './loop-learning-recorder';
+import { assemblePlanStageContext } from './loop-prior-context';
+import { CodeRetrievalService } from '../codemem/code-retrieval-service';
+import { getLessonStore } from '../memory/lesson-store';
+import { getSettingsManager } from '../core/config/settings-manager';
+import { captureReviewLessonForVerdict } from './loop-review-lesson-capture-wiring';
 import {
   computeObjectiveEvidenceKey,
   isLedgerConvergenceStalled,
@@ -725,13 +736,15 @@ export class LoopCoordinator extends EventEmitter {
     // Classify the GOAL only (config.initialPrompt) — never the iteration
     // directive, which defaults to a generic "continue… update… rename"
     // boilerplate that would mask an audit goal as implementation.
-    if (partialConfig.goalIntent === undefined) {
-      const goalIntent = detectLoopGoalIntent(config.initialPrompt);
-      config.goalIntent = goalIntent.intent;
-      if (goalIntent.intent === 'investigation') {
+    // WS6: same shared resolver as `prepareLoopStartConfig` and the renderer's
+    // submit gate — the verification policy must see one consistent intent.
+    const resolvedIntent = resolveLoopGoalIntent(partialConfig.goalIntent, config.initialPrompt);
+    if (!resolvedIntent.explicit) {
+      config.goalIntent = resolvedIntent.intent;
+      if (resolvedIntent.intent === 'investigation') {
         logger.info(
           'Loop start: detected investigation goal — answer/report mode (no production edits)',
-          { workspaceCwd: config.workspaceCwd, reason: goalIntent.reason },
+          { workspaceCwd: config.workspaceCwd, reason: resolvedIntent.reason },
         );
       }
     }
@@ -1002,9 +1015,49 @@ export class LoopCoordinator extends EventEmitter {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+    // Fable WS6 Task 3: assemble the bounded PLAN-stage prior context
+    // (codemem hits for the goal + surfaced lessons). Best-effort and
+    // settings-gated (both default ON); failures degrade to no block.
+    let planStageContext: string | undefined;
+    try {
+      const appSettings = getSettingsManager().getAll() as {
+        codememEnabled?: boolean;
+        loopSurfaceCodemem?: boolean;
+        loopSurfaceLessons?: boolean;
+      };
+      const block = await assemblePlanStageContext({
+        goal: config.initialPrompt,
+        workspaceCwd: config.workspaceCwd,
+        surfaceCodemem: (appSettings.codememEnabled ?? false) && (appSettings.loopSurfaceCodemem ?? true),
+        surfaceLessons: appSettings.loopSurfaceLessons ?? true,
+        searchCodemem: async (goal, workspaceCwd, limit) => {
+          const results = await new CodeRetrievalService().search({
+            query: goal,
+            workspacePath: workspaceCwd,
+            limit,
+          });
+          return results.map((result) => ({
+            path: result.relativePath,
+            startLine: result.startLine,
+            excerpt: result.content,
+          }));
+        },
+        surfaceLearnings: async (workspaceCwd, limit) => {
+          const learnings = await this.loopMemoryStore.surfaceLearnings(workspaceCwd, limit);
+          const lessons = getLessonStore().active().slice(0, limit).map((lesson) => lesson.text);
+          return [...learnings, ...lessons].slice(0, limit);
+        },
+      });
+      if (block) planStageContext = block;
+    } catch (err) {
+      logger.warn('Loop start: PLAN prior-context assembly failed (skipped)', {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     const existingSessionContext = runtimeContext?.existingSessionContext?.trim() || undefined;
-    if (existingSessionContext || priorObservations) {
-      this.runtimeContexts.set(id, { existingSessionContext, priorObservations });
+    if (existingSessionContext || priorObservations || planStageContext) {
+      this.runtimeContexts.set(id, { existingSessionContext, priorObservations, planStageContext });
     }
 
     wireLoopCompletionWatcher(watcher, state, (eventName, payload) => this.emit(eventName, payload));
@@ -1902,6 +1955,7 @@ export class LoopCoordinator extends EventEmitter {
             pendingInterventions: drainNowInterventions,
             existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
             priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
+            planStageContext: this.runtimeContexts.get(state.id)?.planStageContext,
           })
         : this.appendLoopControlPrompt(state, stageMachine.buildPrompt({
             config: state.config,
@@ -1910,6 +1964,7 @@ export class LoopCoordinator extends EventEmitter {
             capUsage: { totalTokens: state.totalTokens, totalCostCents: state.totalCostCents },
             existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
             priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
+            planStageContext: this.runtimeContexts.get(state.id)?.planStageContext,
             uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
             manualReviewOnly: state.manualReviewOnly && !crossModelReviewEnabled,
           }));
@@ -1978,6 +2033,10 @@ export class LoopCoordinator extends EventEmitter {
         // a resume signal.
         if (isParkedLoopRuntimeState(state)) break;
 
+        // WS5: workspace-effect evidence for this attempt (unknown when a
+        // throw bypassed the invoker's observers — never assumed clean).
+        const attemptEvidence = resolveAttemptEvidence(childResult, invocationFailure, invocationError);
+
         if (!childResult && invocationFailure) {
           const route = routeClassifiedLoopInvocationFailure({
             state, error: invocationFailure, seq, stage,
@@ -1986,7 +2045,21 @@ export class LoopCoordinator extends EventEmitter {
             providerLimitHandler: this.providerLimitHandler,
             emit: (eventName, payload) => this.emit(eventName, payload),
           });
-          if (route === 'retry-fresh') { contextOverflowRecoveryAttempted = true; forceContextReset = true; continue; }
+          if (route === 'retry-fresh') {
+            // WS5 matrix: a fresh-context overflow recovery is allowed ONLY
+            // when the failed attempt provably wrote nothing.
+            if (attemptEvidence.workspaceEffect === 'none-observed') {
+              contextOverflowRecoveryAttempted = true;
+              forceContextReset = true;
+              continue;
+            }
+            this.pauseIterationForAttemptReview(state, seq, attemptEvidence,
+              'context-overflow recovery blocked: the failed attempt has '
+              + (attemptEvidence.workspaceEffect === 'writes-observed'
+                ? 'already written into the workspace'
+                : 'an unprovable workspace state'));
+            return;
+          }
           if (route === 'terminated') return;
           if (route !== 'none') break;
         }
@@ -2025,10 +2098,25 @@ export class LoopCoordinator extends EventEmitter {
         }
 
         // Degraded-iteration resilience (transient invocation error / void
-        // iteration): retry the SAME seq a bounded number of times.
+        // iteration): retry the SAME seq a bounded number of times — but WS5:
+        // ONLY when the failed attempt provably made no workspace writes.
+        // Writes-observed / unknown attempts pause for review instead of
+        // replaying (a blind replay can double-apply work). With retries
+        // disabled (maxRetries 0) the pre-WS5 flow is preserved.
         if (degradedAttempts >= maxRetries) break;
         const degraded = classifyDegradedIterationHelper(childResult, invocationError);
         if (!degraded) break;
+        const retryDecision = decideDegradedRetry({
+          evidence: attemptEvidence,
+          degradedReason: degraded,
+          attemptsSoFar: degradedAttempts,
+          maxRetries,
+        });
+        if (retryDecision.action === 'pause-review') {
+          this.pauseIterationForAttemptReview(state, seq, attemptEvidence, retryDecision.reason);
+          return;
+        }
+        if (retryDecision.action !== 'retry') break;
         degradedAttempts++;
 
         this.emit('loop:activity', {
@@ -2037,12 +2125,14 @@ export class LoopCoordinator extends EventEmitter {
           stage,
           timestamp: Date.now(),
           kind: 'status',
-          message: `Degraded iteration (${degraded}) — retrying with a fresh session (attempt ${degradedAttempts + 1}/${maxRetries + 1})`,
-          detail: { reason: degraded, invocationError: invocationError ?? undefined },
+          message: `Degraded iteration (${degraded}) — ${retryDecision.note} (attempt ${degradedAttempts + 1}/${maxRetries + 1})`,
+          detail: { reason: degraded, invocationError: invocationError ?? undefined, workspaceEffect: attemptEvidence.workspaceEffect },
         });
-        logger.warn('Retrying degraded loop iteration', { loopRunId: state.id, seq, attempt: degradedAttempts, reason: degraded });
-        // Force a fresh session on retry so a wedged same-session adapter recycles.
-        forceContextReset = true;
+        logger.warn('Retrying degraded loop iteration', { loopRunId: state.id, seq, attempt: degradedAttempts, reason: degraded, workspaceEffect: attemptEvidence.workspaceEffect });
+        // WS5: preserve the surviving native thread when the adapter proved it
+        // is reusable; otherwise force a fresh session so a wedged same-session
+        // adapter recycles.
+        forceContextReset = !retryDecision.preserveThread;
       }
       if (!childResult) {
         if (state.terminalIntentPending) {
@@ -3293,6 +3383,12 @@ export class LoopCoordinator extends EventEmitter {
       reviewer: this.freshEyesReviewer,
       emit: (eventName, payload) => this.emit(eventName, payload),
       setConvergenceNote: (note) => this.convergenceNotes.set(state.id, note),
+      captureReviewLesson: (verdict) => captureReviewLessonForVerdict({
+        loopRunId: state.id,
+        goal: state.config.initialPrompt,
+        kind: 'fresh-eyes',
+        verdict,
+      }),
     });
   }
 
@@ -3341,6 +3437,37 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   // ============ Internal — helpers ============
+
+  /**
+   * WS5: park the loop as a SUCCESSFUL completed-needs-review because a
+   * degraded/failed attempt cannot be safely replayed (writes observed, or the
+   * workspace state is unprovable). Seals the attempt evidence into
+   * `endEvidence` — changed paths / observer-failure reason survive restarts —
+   * and never replays the iteration.
+   */
+  private pauseIterationForAttemptReview(
+    state: LoopState,
+    seq: number,
+    evidence: LoopInvocationAttemptEvidence,
+    reason: string,
+  ): void {
+    const fullReason =
+      `Iteration ${seq} paused for review instead of an automatic replay: ${reason}`;
+    state.endEvidence = buildAttemptReviewEndEvidence(evidence, seq);
+    this.clearInFlightIteration(state, seq);
+    logger.warn('Pausing loop for attempt review (side-effect-aware retry)', {
+      loopRunId: state.id,
+      seq,
+      workspaceEffect: evidence.workspaceEffect,
+      changedPathCount: evidence.filesChanged.length,
+    });
+    this.emit('loop:completed-needs-review', {
+      loopRunId: state.id,
+      reason: fullReason,
+      acceptedByOperator: false,
+    });
+    this.terminate(state, 'completed-needs-review', fullReason);
+  }
 
   private iterationIdempotencyKey(loopRunId: string, seq: number): string {
     return `${loopRunId}:iteration:${seq}`;
@@ -3528,6 +3655,9 @@ export class LoopCoordinator extends EventEmitter {
     state.endedAt = Date.now();
     state.endReason = reason ?? status;
     state.endEvidence = {
+      // WS5: preserve evidence staged by the terminal decision (e.g. the
+      // attempt-review pause records changed paths / observer failures here).
+      ...state.endEvidence,
       lastIterationSeq: state.totalIterations - 1,
       terminalIntent: state.terminalIntentHistory?.at(-1),
     };

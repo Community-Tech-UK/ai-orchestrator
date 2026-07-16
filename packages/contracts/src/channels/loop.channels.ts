@@ -17,6 +17,10 @@ export const LOOP_CHANNELS = {
   /** LF-3a: preview the verify command the loop would auto-infer for a
    *  workspace, so the config panel can show "verify: <inferred>" before start. */
   LOOP_INFER_VERIFY: 'loop:infer-verify',
+  /** WS7: read-only plan-scope assessment (single-loop vs campaign). */
+  LOOP_ASSESS_SCOPE: 'loop:assess-scope',
+  /** Fable WS6: list available loop recipe packs (built-in + user). */
+  LOOP_LIST_RECIPES: 'loop:list-recipes',
   /** List outstanding items (Needs human / Open questions) captured from
    *  completed loop runs, optionally scoped to a session and/or workspace. */
   LOOP_LIST_OUTSTANDING: 'loop:list-outstanding',

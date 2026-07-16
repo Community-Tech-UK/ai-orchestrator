@@ -44,6 +44,7 @@ function makeRun(overrides: Partial<AutomationRun> = {}): AutomationRun {
     startedAt: 2_000,
     finishedAt: null,
     instanceId: null,
+    loopRunId: null,
     error: null,
     outputSummary: null,
     outputFullRef: null,

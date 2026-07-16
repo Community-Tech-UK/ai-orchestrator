@@ -3,13 +3,18 @@
  *
  * Extracted from `loop-handlers.ts` so it can be unit-tested without importing
  * `electron` (the handler module pulls in `ipcMain` at the top level). Owns the
- * two start-time safety rules:
- *   1. when no verify command is supplied (and the loop isn't operator-reviewed),
- *      default the completion authority to the fresh-eyes cross-model review
- *      instead of forcing a heavy machine verify command; an explicit
- *      `crossModelReview` choice from the caller is preserved;
- *   2. require a non-null estimated usage cap for operator-reviewed loops, which sit
- *      paused awaiting a human Accept and get resumed repeatedly.
+ * start-time safety rules (WS6 verification-authority policy):
+ *   1. goal intent is classified here (shared resolver, explicit intent wins)
+ *      BEFORE validation, because the policy depends on it;
+ *   2. an IMPLEMENTATION loop must carry a real verification authority — a
+ *      non-empty verify command, or explicitly enabled operator-reviewed
+ *      completion with a finite estimated cost cap. Investigation loops may
+ *      use review/report authority. Cross-model review is corroboration, not
+ *      the substitute authority for autonomous completion;
+ *   3. operator-reviewed loops require a non-null estimated usage cap — they
+ *      sit paused awaiting a human Accept and get resumed repeatedly.
+ * Validation happens in this main-process seam so IPC/programmatic callers
+ * cannot bypass the renderer's submit gating.
  */
 
 import { getLogger } from '../logging/logger';
@@ -23,6 +28,7 @@ import {
   resolvePhase4ContextStrategy,
 } from '../../shared/types/loop-phase4.types';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
+import { resolveLoopGoalIntent } from '../../shared/utils/loop-intent';
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
 
 const logger = getLogger('LoopStartConfig');
@@ -73,6 +79,11 @@ export async function prepareLoopStartConfig(
 ): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
   const verifyCommand = config.completion?.verifyCommand?.trim() ?? '';
   const audit = prepareUserStartedAuditConfig(config);
+  // WS6: classify goal intent BEFORE validation — the verification policy
+  // depends on it, and this seam runs before `startLoop` derives intent.
+  // The shared resolver keeps both seams (and the renderer's submit gate)
+  // consistent; an explicit caller-supplied intent is preserved.
+  const goalIntent = resolveLoopGoalIntent(config.goalIntent, config.initialPrompt);
   // LF-3a: operator-reviewed loops sit paused waiting for a human Accept and get
   // resumed/re-attempted repeatedly, so require an explicit local usage cap.
   if (
@@ -85,6 +96,26 @@ export async function prepareLoopStartConfig(
       'unbounded run is unsafe. Set Estimated usage cap, or configure a verify command.',
     );
   }
+  // WS6 verification-authority policy: an IMPLEMENTATION loop cannot imply
+  // autonomous completion without a real verification authority — it needs a
+  // machine verify command, or the explicitly operator-reviewed mode (whose
+  // finite-cap requirement is enforced above plus the finite default).
+  // Investigation loops may use review/report authority (their deliverable is
+  // a cited REPORT.md gated by the completion detector, not a build). Cross-
+  // model review remains corroboration, never the substitute authority.
+  if (
+    goalIntent.intent === 'implementation'
+    && !verifyCommand
+    && !config.completion?.allowOperatorReviewedCompletion
+  ) {
+    throw new Error(
+      'Implementation loops need a verification authority: set a verify command '
+      + '(tests/build/typecheck), or explicitly enable operator-reviewed completion '
+      + '(pauses for your sign-off; requires a finite estimated cost cap). '
+      + 'Cross-model review alone cannot confirm autonomous completion.',
+    );
+  }
+  const resolvedGoalIntent = goalIntent.intent;
   // Completion mode. The default for user-started loops is 'review-driven':
   // the loop's engine is a fresh-eyes self-review that keeps fixing what it
   // finds until N consecutive clean passes — the proven manual workflow,
@@ -107,6 +138,7 @@ export async function prepareLoopStartConfig(
     return finalizeStartConfig({
       ...config,
       audit,
+      goalIntent: resolvedGoalIntent,
       completion: {
         ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
         ...(config.completion ?? {}),
@@ -120,6 +152,7 @@ export async function prepareLoopStartConfig(
     return finalizeStartConfig({
       ...config,
       audit,
+      goalIntent: resolvedGoalIntent,
       completion: {
         ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
         ...(config.completion ?? {}),
@@ -137,6 +170,7 @@ export async function prepareLoopStartConfig(
     return finalizeStartConfig({
       ...config,
       audit,
+      goalIntent: resolvedGoalIntent,
       completion: {
         ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
         ...config.completion,

@@ -51,6 +51,29 @@ export type AutomationSchedule =
       timezone?: string;
     };
 
+/**
+ * Fable WS5: run the automation's prompt as an autonomous LOOP instead of a
+ * one-shot instance turn ("issue in, worked branch out"). The prompt becomes
+ * the loop goal (webhook payloads interpolate through the egress-gated
+ * template first). WS6 verification-authority policy applies: an autonomous
+ * implementation loop needs a real verify command, so it is required here.
+ */
+export interface AutomationLoopAction {
+  /** Verification authority for autonomous completion (WS6 policy — required). */
+  verifyCommand: string;
+  /**
+   * Run in an isolated per-run git worktree (default true — externally
+   * triggered work must not dirty the operator's main checkout).
+   */
+  isolateWorkspace?: boolean;
+  /** Iteration cap override (default: loop engine default). */
+  maxIterations?: number;
+  /** Cost cap override in cents (default: loop engine default). */
+  maxCostCents?: number;
+  /** Loop recipe name (default 'coding'). */
+  loopRecipe?: string;
+}
+
 export interface AutomationAction {
   prompt: string;
   workingDirectory: string;
@@ -61,6 +84,8 @@ export interface AutomationAction {
   reasoningEffort?: AutomationReasoningEffort;
   forceNodeId?: string;
   attachments?: FileAttachment[];
+  /** WS5: when present, the action spawns a loop instead of a one-shot instance. */
+  loop?: AutomationLoopAction;
   systemAction?:
     | {
         type: 'loopProviderLimitResume';
@@ -149,6 +174,8 @@ export interface AutomationRun {
   startedAt: number | null;
   finishedAt: number | null;
   instanceId: string | null;
+  /** WS5: the loop run this automation run spawned (loop actions only). */
+  loopRunId: string | null;
   error: string | null;
   outputSummary: string | null;
   outputFullRef: string | null;

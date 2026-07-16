@@ -165,45 +165,23 @@
             >
               {{ currentModelDisplayName() }}
             </span>
-          } @else if (availableModels().length > 0) {
-            <div class="model-selector-inline">
-              <button
-                class="model-btn"
-                [style.border-color]="modelBtnBorderColor()"
-                [style.background]="modelBtnBgColor()"
-                [style.color]="providerColor()"
-                [disabled]="isRuntimeLocked()"
-                (click)="$event.stopPropagation(); toggleModelDropdown.emit()"
-                [title]="'Model: ' + currentModelId()"
-              >
-                {{ currentModelDisplayName() }}
-                <span class="dropdown-caret">▼</span>
-              </button>
-              @if (showModelDropdown()) {
-                <div class="model-dropdown">
-                  @for (model of availableModels(); track model.id) {
-                    <button
-                      class="model-option"
-                      [class.selected]="model.id === currentModelId()"
-                      (click)="selectModel.emit(model.id)"
-                    >
-                      <span class="model-name">{{ model.name }}</span>
-                      <span class="model-tier" [class]="'tier-' + model.tier">{{ model.tier }}</span>
-                      @if (model.id === currentModelId()) {
-                        <span class="check">✓</span>
-                      }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-            @if (showModelDropdown()) {
+          } @else {
+            <app-compact-model-picker
+              mode="pending-create"
+              [providers]="pickerProviders"
+              [selection]="pickerSelection()"
+              [disabledReason]="pickerDisabledReason()"
+              (selectionChange)="modelSelectionChange.emit($event)"
+            />
+            @if (desiredRuntimeLabel(); as pendingLabel) {
               <button
                 type="button"
-                class="model-backdrop"
-                aria-label="Close model menu"
-                (click)="closeModelDropdown.emit()"
-              ></button>
+                class="pending-model-badge"
+                [title]="'Will switch to ' + pendingLabel + ' when the current turn finishes. Click to cancel.'"
+                (click)="cancelDesiredRuntime.emit()"
+              >
+                ⏳ {{ pendingLabel }} <span aria-hidden="true">✕</span>
+              </button>
             }
           }
           <button

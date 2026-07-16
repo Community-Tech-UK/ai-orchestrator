@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { detectAndroidIntent } from '../channels/android-intent';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
+import { buildReadNodeOutputResult } from '../mcp/orchestrator-tools';
 import { defaultOperatorDbPath } from '../operator/operator-database';
 import {
   getWorkerNodeConnectionServer,
@@ -477,26 +478,17 @@ export function createOrchestratorToolsStep(
               return null;
             }
           }
-          const limit = args.limit ?? 100;
-          const buffer = instance.outputBuffer ?? [];
-          const sliced = buffer.slice(-limit);
-          let contentCapped = false;
-          const messages = sliced.map((m) => {
-            let content = m.content ?? '';
-            if (content.length > MAX_MESSAGE_CONTENT) {
-              content = `${content.slice(0, MAX_MESSAGE_CONTENT)}… [truncated]`;
-              contentCapped = true;
-            }
-            return { type: m.type, content, timestamp: m.timestamp };
-          });
-          return {
+          // WS11.5: pure serialization (cursor semantics) lives beside the
+          // tool types — see buildReadNodeOutputResult in orchestrator-tools.ts.
+          return buildReadNodeOutputResult({
             instanceId: instance.id,
             status: instance.status,
             done: !WORKING_STATUSES.has(instance.status),
-            messageCount: buffer.length,
-            truncated: contentCapped || sliced.length < buffer.length,
-            messages,
-          };
+            buffer: instance.outputBuffer ?? [],
+            limit: args.limit,
+            afterSeq: args.afterSeq,
+            maxContentChars: MAX_MESSAGE_CONTENT,
+          });
         },
         settingsManager: getSettingsManager(),
         broadcastSettingsChange: (payload) => broadcastSettingsChanged(windowManager, payload),

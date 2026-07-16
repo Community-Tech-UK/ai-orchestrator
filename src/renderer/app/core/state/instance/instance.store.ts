@@ -27,7 +27,7 @@ import { InstanceMessagingStore } from './instance-messaging.store';
 import { AutomationStore } from '../automation.store';
 
 // Types
-import type { InstanceStatus, CreateInstanceConfig, OutputMessage } from './instance.types';
+import type { Instance, InstanceStatus, CreateInstanceConfig, OutputMessage } from './instance.types';
 import type { CreateInstanceWithMessageOptions } from './instance-list.store';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
@@ -169,6 +169,17 @@ export class InstanceStore implements OnDestroy {
     );
     this.addSubscription(
       this.eventBus.instanceOutput$.subscribe(({ instanceId, message }) => {
+
+        // Surface model-change problems as toasts — these system messages are
+        // easy to miss in the transcript, and a silently-degraded model is the
+        // main reason a swap can look like it "didn't work".
+        if (
+          message.type === 'system'
+          && (message.metadata?.['kind'] === 'model-selection-degraded'
+            || message.metadata?.['kind'] === 'pending-model-change-failed')
+        ) {
+          this.toast.show(message.content, 'error');
+        }
 
         // Track tool usage for activity status
         if (message.type === 'tool_use' && message.metadata?.['name']) {
@@ -336,6 +347,13 @@ export class InstanceStore implements OnDestroy {
           waitReason: update.waitReason !== undefined ? (update.waitReason ?? undefined) : inst.waitReason,
           selfManagesAutoCompaction:
             update.selfManagesAutoCompaction ?? inst.selfManagesAutoCompaction,
+          // Provider changes after a cross-provider swap of an existing session.
+          ...(update.provider ? { provider: update.provider as Instance['provider'] } : {}),
+          // null clears a queued model change; undefined preserves existing.
+          desiredRuntime:
+            update.desiredRuntime !== undefined
+              ? (update.desiredRuntime ?? undefined)
+              : inst.desiredRuntime,
           ...(update.displayName ? { displayName: update.displayName } : {}),
           ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
         });
@@ -434,6 +452,13 @@ export class InstanceStore implements OnDestroy {
             waitReason: update.waitReason !== undefined ? (update.waitReason ?? undefined) : instance.waitReason,
             selfManagesAutoCompaction:
               update.selfManagesAutoCompaction ?? instance.selfManagesAutoCompaction,
+            // Provider changes after a cross-provider swap of an existing session.
+            ...(update.provider ? { provider: update.provider as Instance['provider'] } : {}),
+            // null clears a queued model change; undefined preserves existing.
+            desiredRuntime:
+              update.desiredRuntime !== undefined
+                ? (update.desiredRuntime ?? undefined)
+                : instance.desiredRuntime,
             ...(update.displayName ? { displayName: update.displayName } : {}),
             ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
           });
@@ -647,14 +672,15 @@ export class InstanceStore implements OnDestroy {
     return this.listStore.changeAgentMode(instanceId, newAgentId);
   }
 
-  /** Change model for an instance */
+  /** Change model — and optionally provider — for an instance (queue-aware). */
   async changeModel(
     instanceId: string,
-    newModel: string,
+    newModel: string | undefined,
     reasoningEffort?: ReasoningEffort | null,
     modelRuntimeTarget?: ModelRuntimeTarget,
+    provider?: Exclude<Instance['provider'], 'ollama'>,
   ): Promise<void> {
-    return this.listStore.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget);
+    return this.listStore.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget, provider);
   }
 
   /** Clear error state */

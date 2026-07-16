@@ -32,6 +32,9 @@ export function createTerminalDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       ipcRenderer.invoke(ch.TERMINAL_RESIZE, { sessionId, cols, rows }),
     terminalKill: (sessionId: string, signal?: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.TERMINAL_KILL, { sessionId, signal }),
+    /** WS11.7: retained scrollback for replay on (re)attach. */
+    terminalGetBuffer: (sessionId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.TERMINAL_GET_BUFFER, { sessionId }),
 
     onTerminalOutput: sub(ch.TERMINAL_OUTPUT),
     onTerminalExit: sub(ch.TERMINAL_EXIT),

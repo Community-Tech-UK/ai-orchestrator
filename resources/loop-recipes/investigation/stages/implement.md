@@ -1,0 +1,1 @@
+Do the investigation: read the relevant code, resolve each open question in the ledger, and write/extend `{{reportPath}}` with the answer and `file:line` citations. **Do not edit production code.** Run read-only checks (grep/tests/build output) only to gather evidence.

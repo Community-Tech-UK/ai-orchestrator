@@ -34,7 +34,7 @@ import {
 } from './browser-gateway-service-helpers';
 import { providerFromContext } from './browser-gateway-action-guard';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
-import { redactBrowserText } from './browser-redaction';
+import { boundBrowserText } from './browser-redaction';
 import { postTimeoutMutationProbe } from './browser-existing-tab-timeout-probe';
 
 const EXTENSION_COMMAND_RESULT_GRACE_MS = 5_000;
@@ -373,7 +373,7 @@ export class BrowserExistingTabOperations {
         data: {
           title: fresh.title ?? '',
           url: fresh.url,
-          text: redactBrowserText(fresh.text ?? '').slice(0, 12_000),
+          text: boundBrowserText(fresh.text ?? ''),
         },
       });
     } catch (error) {
@@ -412,7 +412,7 @@ export class BrowserExistingTabOperations {
       data: {
         title: attachment.title ?? '',
         url: attachment.url,
-        text: redactBrowserText(attachment.text ?? '').slice(0, 12_000),
+        text: boundBrowserText(attachment.text ?? ''),
       },
     });
   }

@@ -41,6 +41,7 @@ export interface AutomationRunRow {
   started_at: number | null;
   finished_at: number | null;
   instance_id: string | null;
+  loop_run_id: string | null;
   error: string | null;
   output_summary: string | null;
   output_full_ref: string | null;

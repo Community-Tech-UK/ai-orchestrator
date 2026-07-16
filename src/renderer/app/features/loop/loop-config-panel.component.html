@@ -66,6 +66,17 @@
     </select>
   </section>
 
+  <section class="row">
+    <label for="loop-cfg-recipe">Loop recipe <span class="hint">(stage prompts)</span></label>
+    <select id="loop-cfg-recipe" [ngModel]="loopRecipe()" (ngModelChange)="loopRecipe.set($event)">
+      @for (option of recipeOptions(); track option.name) {
+        <option [value]="option.name" [title]="option.description">
+          {{ option.name }}{{ option.source === 'user' ? ' (user)' : '' }}
+        </option>
+      }
+    </select>
+  </section>
+
   @if (completionMode() === 'review-driven') {
     <section class="row">
       <label for="loop-cfg-clean-passes">
@@ -124,13 +135,33 @@
       <input id="loop-cfg-cap-hours" type="number" min="1" max="168" [ngModel]="maxHours()" (ngModelChange)="maxHours.set($event)" />
     </div>
     <div>
-      <label for="loop-cfg-cap-cost">Estimated usage cap ($) <span class="hint">(blank = no cap)</span></label>
-      <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxDollars()" (ngModelChange)="maxDollars.set($event)" />
+      <label for="loop-cfg-cap-cost">Estimated usage cap ($)</label>
+      <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" [placeholder]="allowUnbounded() ? 'Unbounded' : 'Required'" [ngModel]="maxDollars()" (ngModelChange)="onMaxDollarsChange($event)" />
+    </div>
+    <div>
+      <label for="loop-cfg-max-turns">Max turns / iteration <span class="hint">(blank = provider default)</span></label>
+      <input id="loop-cfg-max-turns" type="number" min="1" max="500" placeholder="30" [ngModel]="maxTurns()" (ngModelChange)="onMaxTurnsChange($event)" />
     </div>
     <div>
       <label for="loop-cfg-cap-tokens">Max tokens <span class="hint">(blank = no cap)</span></label>
       <input id="loop-cfg-cap-tokens" type="number" min="10000" max="100000000" step="100000" placeholder="No cap" [ngModel]="maxTokens()" (ngModelChange)="onMaxTokensChange($event)" />
     </div>
+  </section>
+
+  <section class="row budget-note">
+    <label class="checkbox-row" for="loop-cfg-allow-unbounded">
+      <input
+        id="loop-cfg-allow-unbounded"
+        type="checkbox"
+        [checked]="allowUnbounded()"
+        (change)="allowUnbounded.set(toggleEvent($event))"
+      />
+      Allow unbounded estimated spend
+    </label>
+    <p class="hint budget-copy">
+      The spend check runs between iterations, so a single iteration is bounded
+      primarily by the turn cap.
+    </p>
   </section>
 
   <button

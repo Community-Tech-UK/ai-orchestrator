@@ -125,6 +125,31 @@ describe('evaluatePingPongCompletion', () => {
     expect(deps.foldReviewerSpend).toHaveBeenCalledWith(100, 5);
   });
 
+  it('WS3 e2e: a seeded secret in the worktree diff never reaches the reviewer input', async () => {
+    // Real git repo with a committed file, then an unstaged secret-bearing edit.
+    const { execFileSync } = await import('node:child_process');
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace, stdio: 'pipe' });
+    git('init');
+    git('config', 'user.email', 't@t.local');
+    git('config', 'user.name', 't');
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(join(workspace, '.env'), 'GITHUB_TOKEN=placeholder\n');
+    git('add', '.env');
+    git('commit', '-m', 'seed', '--no-gpg-sign');
+    const token = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD';
+    writeFileSync(join(workspace, '.env'), `GITHUB_TOKEN=${token}\n`);
+
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
+    await evaluatePingPongCompletion(baseDeps(state, reviewer));
+
+    expect(reviewer).toHaveBeenCalledOnce();
+    const input = reviewer.mock.calls[0][0];
+    expect(input.diff).toBeTruthy();
+    expect(input.diff).not.toContain(token);
+    expect(input.diff).toContain('[REDACTED — potential secret]');
+  });
+
   it('starts the authoritative remote review and local advisory pass concurrently', async () => {
     const state = makeState(workspace);
     let resolveRemote!: (value: PingPongReviewResult) => void;

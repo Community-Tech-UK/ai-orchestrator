@@ -18,6 +18,8 @@ export const TERMINAL_CHANNELS = {
   TERMINAL_WRITE: 'terminal:write',
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_KILL: 'terminal:kill',
+  /** WS11.7: retained-scrollback replay for renderer (re)attach. */
+  TERMINAL_GET_BUFFER: 'terminal:get-buffer',
 
   // events (main → renderer)
   TERMINAL_OUTPUT: 'terminal:output',

@@ -77,8 +77,8 @@ describe('curateNotesContent (LF-3)', () => {
 });
 
 describe('defaultLoopConfig cost cap (LF-3)', () => {
-  it('defaults maxCostCents to no estimated usage cap', () => {
+  it('WS6: defaults maxCostCents to the finite $30 cap', () => {
     const cfg = defaultLoopConfig('/tmp/ws', 'goal');
-    expect(cfg.caps.maxCostCents).toBeNull();
+    expect(cfg.caps.maxCostCents).toBe(3_000);
   });
 });

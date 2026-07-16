@@ -41,6 +41,10 @@ describe('LoopConfigPanelComponent', () => {
     fixture = TestBed.createComponent(LoopConfigPanelComponent);
     component = fixture.componentInstance;
     (component as unknown as { workspaceCwd: () => string }).workspaceCwd = () => '/tmp/project';
+    // WS6: the default prompt is an implementation goal, which now requires a
+    // verification authority to submit. Give the shared baseline a verify
+    // command so tests whose subject is NOT the authority gate stay focused.
+    component.verifyCommand.set('npm test');
     fixture.detectChanges();
   });
 
@@ -167,11 +171,67 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(4);
   });
 
-  it('defaults to no estimated spend cap', () => {
+  it('WS6: defaults to a finite $30 estimated spend cap', () => {
     const config = component.buildConfig();
 
-    expect(component.maxDollars()).toBeNull();
-    expect(config?.caps?.maxCostCents).toBeNull();
+    expect(component.maxDollars()).toBe(30);
+    expect(config?.caps?.maxCostCents).toBe(3_000);
+  });
+
+  it('WS6: a blank spend cap requires the deliberate unbounded toggle', () => {
+    component.maxDollars.set(null);
+
+    expect(component.canSubmit()).toBe(false);
+    expect(component.validationError()).toContain('Allow unbounded');
+
+    component.allowUnbounded.set(true);
+
+    expect(component.canSubmit()).toBe(true);
+    expect(component.buildConfig()?.caps?.maxCostCents).toBeNull();
+  });
+
+  it('Fable WS6: defaults the loop recipe to coding and emits it in the config', () => {
+    const config = component.buildConfig();
+
+    expect(component.loopRecipe()).toBe('coding');
+    expect(config?.loopRecipe).toBe('coding');
+  });
+
+  it('Fable WS6: a selected recipe is emitted in the config', () => {
+    component.recipeOptions.set([
+      { name: 'coding', description: 'd', source: 'built-in' },
+      { name: 'doc-work', description: 'd', source: 'built-in' },
+    ]);
+    component.loopRecipe.set('doc-work');
+
+    expect(component.buildConfig()?.loopRecipe).toBe('doc-work');
+  });
+
+  it('WS6: defaults max turns per iteration to 30 and emits it', () => {
+    const config = component.buildConfig();
+
+    expect(component.maxTurns()).toBe(30);
+    expect(config?.maxTurnsPerIteration).toBe(30);
+  });
+
+  it('WS6: submit is blocked with an inline reason when an implementation goal has no verification authority', () => {
+    component.verifyCommand.set('');
+
+    expect(component.canSubmit()).toBe(false);
+    expect(component.validationError()).toContain('verification authority');
+    expect(component.buildConfig()).toBeNull();
+
+    // Operator-reviewed completion is a valid authority (finite cap present).
+    component.operatorReviewedCompletion.set(true);
+
+    expect(component.canSubmit()).toBe(true);
+  });
+
+  it('WS6: an investigation goal may submit without a verify command', () => {
+    component.prompt.set('investigate why startup is slow and report the root cause');
+    component.verifyCommand.set('');
+
+    expect(component.canSubmit()).toBe(true);
   });
 
   it('defaults to no token cap (iteration/wall-time caps govern)', () => {
@@ -398,6 +458,9 @@ describe('LoopConfigPanelComponent', () => {
   it('requires an estimated usage cap before enabling branch-select on stuck', () => {
     component.branchSelect.set(true);
     component.maxDollars.set(null);
+    // WS6: even with the deliberate unbounded toggle on, branch-select still
+    // demands its own cap (it multiplies spend by the fanout).
+    component.allowUnbounded.set(true);
     fixture.detectChanges();
 
     expect(component.validationError()).toBe('Branch-select on stuck requires an estimated usage cap ($). Set Estimated usage cap.');

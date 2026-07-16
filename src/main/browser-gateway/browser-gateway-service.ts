@@ -73,6 +73,7 @@ import {
   toAgentSafeTarget,
 } from './browser-safe-dto';
 import {
+  boundBrowserText,
   redactBrowserNetworkRequests,
   redactBrowserText,
   redactElementContext,
@@ -155,9 +156,11 @@ import type {
   BrowserGatewayNavigateRequest,
   BrowserGatewayScreenshotRequest,
   BrowserGatewayServiceOptions,
+  BrowserGatewaySnapshotRequest,
   BrowserGatewayTargetRequest,
   BrowserGatewayUpdateProfileRequest,
 } from './browser-gateway-service-types';
+import { maybeExtractPageText } from './browser-aux-extraction';
 import type { FillControlReadback, FillPlanResult } from './browser-fill-plan-executor';
 import {
   executeFillPlanOperation,
@@ -192,6 +195,7 @@ export type {
   BrowserGatewayNavigateRequest,
   BrowserGatewayScreenshotRequest,
   BrowserGatewayServiceOptions,
+  BrowserGatewaySnapshotRequest,
   BrowserGatewayTargetRequest,
   BrowserGatewayUpdateProfileRequest,
 } from './browser-gateway-service-types';
@@ -767,11 +771,14 @@ export class BrowserGatewayService {
   }
 
   async snapshot(
-    request: BrowserGatewayTargetRequest,
+    request: BrowserGatewaySnapshotRequest,
   ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>> {
     const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
     if (existingTab) {
-      return this.existingTabOperations.snapshot(request, existingTab);
+      return this.applySnapshotExtraction(
+        await this.existingTabOperations.snapshot(request, existingTab),
+        request.extractionHint,
+      );
     }
 
     const profile = this.profileStore.getProfile(request.profileId);
@@ -817,23 +824,26 @@ export class BrowserGatewayService {
 
     try {
       const snapshot = await this.driver.snapshot(profile.id, target.id);
-      return this.result({
-        context: request,
-        profileId: profile.id,
-        targetId: target.id,
-        action: 'snapshot',
-        toolName: 'browser.snapshot',
-        actionClass: 'read',
-        decision: 'allowed',
-        outcome: 'succeeded',
-        summary: 'Captured text snapshot from allowed origin',
-        origin: originDecision.origin,
-        url: currentUrl,
-        data: {
-          ...snapshot,
-          text: redactBrowserText(snapshot.text).slice(0, 12_000),
-        },
-      });
+      return this.applySnapshotExtraction(
+        this.result({
+          context: request,
+          profileId: profile.id,
+          targetId: target.id,
+          action: 'snapshot',
+          toolName: 'browser.snapshot',
+          actionClass: 'read',
+          decision: 'allowed',
+          outcome: 'succeeded',
+          summary: 'Captured text snapshot from allowed origin',
+          origin: originDecision.origin,
+          url: currentUrl,
+          data: {
+            ...snapshot,
+            text: boundBrowserText(snapshot.text),
+          },
+        }),
+        request.extractionHint,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return this.result({
@@ -852,6 +862,28 @@ export class BrowserGatewayService {
         data: null,
       });
     }
+  }
+
+  /**
+   * WS11.2: with `browserAuxExtractionEnabled` ON and an extractionHint on the
+   * request, replace the (already redacted + spillover-bounded) snapshot text
+   * with an aux-model extract, preserving the spillover reference so the raw
+   * capture stays reachable. Best-effort — any failure keeps the raw text.
+   */
+  private async applySnapshotExtraction(
+    result: BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>,
+    extractionHint: string | undefined,
+  ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>> {
+    const rawText = result.data?.text;
+    if (!rawText || !extractionHint?.trim()) return result;
+    const extracted = await maybeExtractPageText(rawText, extractionHint);
+    if (extracted === null) return result;
+    // Preserve the spillover reference truncateToolOutput embedded, if any.
+    const spillNote = /\n\n\[Output truncated\.[^\]]*\]$/.exec(rawText)?.[0] ?? '';
+    return {
+      ...result,
+      data: { ...result.data!, text: `${extracted}${spillNote}` },
+    };
   }
 
   async screenshot(

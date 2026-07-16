@@ -56,6 +56,10 @@ export interface LifecycleDependencies {
     activityState?: import('../../shared/types/activity.types').ActivityState,
     currentModel?: string,
     waitReason?: InstanceWaitReason | null,
+    extras?: {
+      provider?: Instance['provider'];
+      desiredRuntime?: Instance['desiredRuntime'] | null;
+    },
   ) => void;
   serializeForIpc: (instance: Instance) => Record<string, unknown>;
   setupAdapterEvents: (instanceId: string, adapter: CliAdapter) => void;

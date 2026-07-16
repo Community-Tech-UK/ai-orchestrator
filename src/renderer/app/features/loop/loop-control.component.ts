@@ -108,6 +108,7 @@ import { VerificationRunHistoryComponent } from './verification-run-history.comp
     <app-rlm-storage-maintenance
       [loopRunId]="active()?.id ?? null"
       [refreshKey]="active() ? active()!.status + ':' + active()!.totalIterations : null"
+      [showModal]="false"
     />
 
     @if (active(); as a) {

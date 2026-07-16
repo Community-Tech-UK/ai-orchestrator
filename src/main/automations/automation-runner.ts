@@ -39,6 +39,8 @@ import type {
 } from './automation-runner-types';
 import { renderWebhookPromptTemplate } from './webhook-prompt-template';
 import { readAutomationModelDefaults, resolveAutomationSpawnTarget, type AutomationModelDefaults } from './automation-model-defaults';
+import { AutomationLoopRunDispatcher, defaultLoopRunExists, recoverLoopLinkedRuns } from './automation-loop-run';
+import { getNotificationService } from '../notifications/notification-service';
 
 const logger = getLogger('AutomationRunner');
 
@@ -59,6 +61,8 @@ export class AutomationRunner {
   private readonly instanceByRun = new Map<string, string>();
   private initialized = false;
   private retryScheduler: RetrySchedulerCallback | null = null;
+  /** WS5: lazy — only loop-action automations pay for the loop-engine binding. */
+  private loopRunDispatcher: AutomationLoopRunDispatcher | null = null;
 
   constructor(
     private readonly store: AutomationStore,
@@ -114,6 +118,16 @@ export class AutomationRunner {
         this.events.emitScheduleDeactivated({ automationId: run.automationId });
       }
     }
+
+    // WS5: loop-linked running runs survive a restart — see recoverLoopLinkedRuns.
+    recoverLoopLinkedRuns({
+      runs: this.store.listRunningLoopLinkedRuns(),
+      dispatcher: () => this.requireLoopRunDispatcher(),
+      loopRunExists: defaultLoopRunExists,
+      store: this.store,
+      now: () => this.now(),
+      onTerminal: (run, options) => this.handleTerminalRun(run, options),
+    });
   }
 
   async fire(automationId: string, options: AutomationFireOptions): Promise<AutomationFireOutcome> {
@@ -207,6 +221,13 @@ export class AutomationRunner {
         destination: claimed.snapshot.destination,
       });
       this.handleTerminalRun(terminal);
+      return;
+    }
+
+    // WS5: loop actions spawn an autonomous loop instead of a one-shot
+    // instance. The dispatcher terminalizes the run when the loop ends.
+    if (claimed.snapshot.action.loop) {
+      await this.requireLoopRunDispatcher().dispatch(claimed);
       return;
     }
 
@@ -355,6 +376,17 @@ export class AutomationRunner {
 
   private dispatchSystemActionIfHandled(claimed: ClaimedAutomationRun): AutomationRun | null {
     return dispatchAutomationSystemAction(claimed, { store: this.store, now: () => this.now() });
+  }
+
+  private requireLoopRunDispatcher(): AutomationLoopRunDispatcher {
+    if (!this.loopRunDispatcher) {
+      this.loopRunDispatcher = new AutomationLoopRunDispatcher({
+        store: this.store,
+        now: () => this.now(),
+        onTerminal: (run, options) => this.handleTerminalRun(run, options),
+      });
+    }
+    return this.loopRunDispatcher;
   }
 
   private reconcileInstanceState(instance: Instance): void {
@@ -535,6 +567,7 @@ export class AutomationRunner {
             consecutiveFailures: outcome.automation?.consecutiveFailures,
             lastFailureReason: run.error ?? undefined,
           });
+          this.notifyAutoDisabled(run.automationId, outcome.automation?.consecutiveFailures, run.error ?? undefined);
           this.emitAutomationState(run.automationId);
           this.events.emitScheduleDeactivated({ automationId: run.automationId });
         }
@@ -592,6 +625,25 @@ export class AutomationRunner {
    * Called from AutomationScheduler.onRetryTimer when concurrencyPolicy=skip
    * and the retry timer fires but a run is still active.
    */
+  /**
+   * WS5 breaker: an auto-disabled automation is an operator-actionable event —
+   * raise a deduped notification (best-effort; never disrupt run bookkeeping).
+   */
+  private notifyAutoDisabled(automationId: string, consecutiveFailures?: number, reason?: string): void {
+    try {
+      getNotificationService().notify({
+        kind: 'automation-breaker',
+        title: 'Automation auto-disabled',
+        body: `Disabled after ${consecutiveFailures ?? 'repeated'} consecutive failures`
+          + `${reason ? ` (last: ${reason.slice(0, 200)})` : ''}. Re-enable it from the Automations page.`,
+        urgency: 'critical',
+        fingerprintFields: { automationId },
+      });
+    } catch {
+      // Notification failure must never affect run bookkeeping.
+    }
+  }
+
   recordGiveUpOutcome(originalRun: AutomationRun): void {
     const outcome = this.store.recordRunOutcome(
       originalRun.automationId,
@@ -604,6 +656,7 @@ export class AutomationRunner {
         automationId: originalRun.automationId,
         consecutiveFailures: outcome.automation?.consecutiveFailures,
       });
+      this.notifyAutoDisabled(originalRun.automationId, outcome.automation?.consecutiveFailures, originalRun.error ?? undefined);
       this.emitAutomationState(originalRun.automationId);
       this.events.emitScheduleDeactivated({ automationId: originalRun.automationId });
     }

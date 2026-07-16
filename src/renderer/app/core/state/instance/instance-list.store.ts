@@ -19,7 +19,6 @@ import type {
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
-import { getModelSwitchUnavailableReason } from '../../../../../shared/types/instance-status-policy';
 import {
   fileToAttachments,
   validateFiles,
@@ -444,13 +443,17 @@ export class InstanceListStore {
   }
 
   /**
-   * Change model for an instance
+   * Change model — and optionally provider — for an instance. Queue-aware:
+   * a change requested while the instance is busy is parked by the backend
+   * (`desiredRuntime`) and auto-applied on the next idle, so there is no
+   * renderer-side status gate here anymore.
    */
   async changeModel(
     instanceId: string,
-    newModel: string,
+    newModel: string | undefined,
     reasoningEffort?: ReasoningEffort | null,
     modelRuntimeTarget?: ModelRuntimeTarget,
+    provider?: Exclude<Instance['provider'], 'ollama'>,
   ): Promise<void> {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
@@ -459,39 +462,48 @@ export class InstanceListStore {
       reasoningEffort === undefined
         ? instance.reasoningEffort
         : reasoningEffort ?? undefined;
+    const sameProvider = provider === undefined || provider === instance.provider;
     if (
       !modelRuntimeTarget &&
+      sameProvider &&
       instance.currentModel === newModel &&
-      instance.reasoningEffort === nextReasoningEffort
+      instance.reasoningEffort === nextReasoningEffort &&
+      instance.desiredRuntime === undefined
     ) {
       return;
     }
 
-    const unavailableReason = getModelSwitchUnavailableReason(instance.status);
-    if (unavailableReason) {
-      this.stateService.setError(unavailableReason);
-      return;
-    }
-
-    const response = modelRuntimeTarget
-      ? await this.ipc.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget)
-      : await this.ipc.changeModel(instanceId, newModel, reasoningEffort);
+    const response = await this.ipc.changeModel(
+      instanceId,
+      newModel,
+      reasoningEffort,
+      modelRuntimeTarget,
+      provider,
+    );
 
     if (response.success && 'data' in response && response.data) {
       const data = response.data as {
         currentModel?: string;
+        provider?: Instance['provider'];
         reasoningEffort?: ReasoningEffort | null;
         runtimeSummary?: Instance['runtimeSummary'] | null;
         status?: string;
+        desiredRuntime?: Instance['desiredRuntime'];
       };
+      // When the change was queued (instance busy), currentModel/provider are
+      // unchanged and desiredRuntime carries the parked request.
       this.stateService.updateInstance(instanceId, {
-        currentModel: data.currentModel || newModel,
-        reasoningEffort: data.reasoningEffort ?? nextReasoningEffort,
+        currentModel: data.currentModel ?? instance.currentModel,
+        provider: data.provider ?? instance.provider,
+        reasoningEffort: data.reasoningEffort ?? undefined,
         runtimeSummary: data.runtimeSummary ?? undefined,
-        status: (data.status as InstanceStatus) || 'idle',
+        status: (data.status as InstanceStatus) || instance.status,
+        desiredRuntime: data.desiredRuntime,
       });
     } else if ('error' in response) {
       console.error('Failed to change model:', response.error);
+      const message = (response.error as { message?: string } | undefined)?.message;
+      this.toast.show(message || 'Could not change model. Please try again.', 'error');
     }
   }
 
@@ -727,6 +739,9 @@ export class InstanceListStore {
           : undefined,
       waitReason: this.isRecord(d['waitReason'])
         ? (d['waitReason'] as Instance['waitReason'])
+        : undefined,
+      desiredRuntime: this.isRecord(d['desiredRuntime'])
+        ? (d['desiredRuntime'] as unknown as Instance['desiredRuntime'])
         : undefined,
       selfManagesAutoCompaction:
         typeof d['selfManagesAutoCompaction'] === 'boolean'

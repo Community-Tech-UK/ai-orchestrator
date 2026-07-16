@@ -96,6 +96,9 @@ export interface CampaignSpec {
   createdAt: number;
   /** Optional: external reference (PR URL, issue, plan file). */
   sourceRef?: string;
+  /** WS8: sha256 of the imported plan text at preview time. Campaign start
+   *  re-hashes the plan and rejects a stale preview when they differ. */
+  sourceDigest?: string;
 }
 
 // -------------------------------------------------------------------------

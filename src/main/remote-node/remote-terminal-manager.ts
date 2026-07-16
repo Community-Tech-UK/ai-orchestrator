@@ -50,7 +50,17 @@ interface RegistryTerminalExitEvent {
 
 interface ManagedRemoteSession {
   nodeId: string;
+  /** WS11.7 ring buffer: recent output chunks, trimmed to RETAINED_OUTPUT_BYTES. */
+  outputChunks: string[];
+  outputBytes: number;
 }
+
+/**
+ * WS11.7: retained output per terminal session (256 KiB default) so a renderer
+ * that (re)attaches — reopened panel, window reload — can replay recent
+ * scrollback instead of starting blank.
+ */
+export const RETAINED_OUTPUT_BYTES = 256 * 1024;
 
 let sessionCounter = 0;
 
@@ -63,6 +73,13 @@ export class RemoteTerminalManager extends EventEmitter {
   private readonly onTerminalOutput = (event: RegistryTerminalOutputEvent): void => {
     const session = this.sessions.get(event.sessionId);
     if (!session || session.nodeId !== event.nodeId) return;
+    // WS11.7: retain a bounded scrollback for replay on renderer (re)attach.
+    session.outputChunks.push(event.data);
+    session.outputBytes += Buffer.byteLength(event.data);
+    while (session.outputBytes > RETAINED_OUTPUT_BYTES && session.outputChunks.length > 1) {
+      const dropped = session.outputChunks.shift()!;
+      session.outputBytes -= Buffer.byteLength(dropped);
+    }
     this.emit('output', { sessionId: event.sessionId, data: event.data });
   };
 
@@ -108,7 +125,7 @@ export class RemoteTerminalManager extends EventEmitter {
     const sessionId = `term-${Date.now()}-${++sessionCounter}`;
     // Register the session BEFORE the RPC resolves so output that races ahead of
     // the create response isn't dropped (mirrors RemoteCliAdapter.spawn).
-    this.sessions.set(sessionId, { nodeId: req.nodeId });
+    this.sessions.set(sessionId, { nodeId: req.nodeId, outputChunks: [], outputBytes: 0 });
 
     try {
       const result = await connection.sendRpc<{ sessionId: string; pid: number }>(
@@ -175,6 +192,16 @@ export class RemoteTerminalManager extends EventEmitter {
 
   getNodeForSession(sessionId: string): string | undefined {
     return this.sessions.get(sessionId)?.nodeId;
+  }
+
+  /**
+   * WS11.7: the retained scrollback (last ~256 KiB) for a live session, or
+   * null when the session is unknown/exited. The renderer writes this to the
+   * terminal before subscribing to live output on (re)attach.
+   */
+  getBufferedOutput(sessionId: string): string | null {
+    const session = this.sessions.get(sessionId);
+    return session ? session.outputChunks.join('') : null;
   }
 
   activeSessionCount(): number {

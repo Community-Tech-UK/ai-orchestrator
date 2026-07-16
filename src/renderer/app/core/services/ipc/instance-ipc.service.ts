@@ -206,20 +206,25 @@ export class InstanceIpcService {
   }
 
   /**
-   * Change model for an instance (preserves conversation context)
+   * Change model and/or provider for an instance (preserves conversation
+   * context). `model` may be omitted when `provider` is set — the backend
+   * falls back to the remembered per-provider default. Requests made while
+   * the instance is busy are queued and applied on the next idle.
    */
   async changeModel(
     instanceId: string,
-    model: string,
+    model: string | undefined,
     reasoningEffort?: ReasoningEffort | null,
     modelRuntimeTarget?: ModelRuntimeTarget,
+    provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok',
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.changeModel({
       instanceId,
-      model,
+      ...(model !== undefined ? { model } : {}),
       reasoningEffort,
       ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
+      ...(provider ? { provider } : {}),
     });
   }
 

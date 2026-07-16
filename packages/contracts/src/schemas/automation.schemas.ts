@@ -82,6 +82,15 @@ export const AutomationActionSchema = z.object({
   reasoningEffort: AutomationReasoningEffortSchema.optional(),
   forceNodeId: z.string().uuid().optional(),
   attachments: z.array(AutomationFileAttachmentSchema).max(10).optional(),
+  // WS5: spawn-loop action — the prompt becomes an autonomous loop goal.
+  // verifyCommand is required (WS6 verification-authority policy).
+  loop: z.object({
+    verifyCommand: z.string().min(1).max(2000),
+    isolateWorkspace: z.boolean().optional(),
+    maxIterations: z.number().int().min(1).max(1000).optional(),
+    maxCostCents: z.number().int().min(1).max(1_000_000).optional(),
+    loopRecipe: z.string().min(1).max(100).optional(),
+  }).optional(),
   systemAction: z.discriminatedUnion('type', [
     z.object({
       type: z.literal('loopProviderLimitResume'),

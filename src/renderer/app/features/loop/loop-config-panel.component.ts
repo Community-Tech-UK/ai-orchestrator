@@ -11,6 +11,7 @@ import {
   REMOTE_REVIEWER_PROVIDER_DEFINITIONS,
   type RemoteReviewerProvider,
 } from '../../../../shared/types/reviewer-provider.types';
+import { resolveLoopGoalIntent } from '../../../../shared/utils/loop-intent';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
 // We must include all sub-fields whenever caps/completion/progressThresholds
@@ -19,6 +20,10 @@ const DEFAULT_CAPS = {
   maxIterations: 50,
   maxToolCallsPerIteration: 200,
 };
+/** WS6: finite new-loop defaults (mirrors DEFAULT_LOOP_MAX_COST_CENTS = 3000
+ *  and LOOP_DEFAULT_MAX_TURNS_PER_ITERATION = 30 in shared loop types). */
+const DEFAULT_MAX_DOLLARS = 30;
+const DEFAULT_MAX_TURNS_PER_ITERATION = 30;
 /** Lower bound for the optional token cap. Below this a single substantial
  *  iteration (file reads + a long turn) would trip it instantly, which is the
  *  exact foot-gun the old hidden 1M default caused on 1M-context models. */
@@ -148,7 +153,20 @@ export class LoopConfigPanelComponent {
   planFile = signal('');
   maxIterations = signal<number | null>(DEFAULT_CAPS.maxIterations);
   maxHours = signal(DEFAULT_MAX_WALL_TIME_HOURS);
-  maxDollars = signal<number | null>(null);
+  /** WS6: new loops default to a finite $30 estimated cost cap. `null`
+   *  (unbounded) requires the deliberate `allowUnbounded` toggle below. */
+  maxDollars = signal<number | null>(DEFAULT_MAX_DOLLARS);
+  /** WS6: deliberate "Allow unbounded estimated spend" choice. Only while
+   *  enabled may the cost cap be blank (emitting explicit `null`). */
+  allowUnbounded = signal(false);
+  /** WS6: per-iteration turn cap — the primary bound WITHIN an iteration
+   *  (the cost check runs between iterations). */
+  maxTurns = signal<number | null>(DEFAULT_MAX_TURNS_PER_ITERATION);
+  /** Fable WS6: selected recipe pack for the per-stage work prompts. */
+  loopRecipe = signal('coding');
+  recipeOptions = signal<{ name: string; description: string; source: 'built-in' | 'user' }[]>([
+    { name: 'coding', description: 'Default software-implementation stages.', source: 'built-in' },
+  ]);
   /** Total token budget across the whole loop. Null = no cap (the default),
    *  so iterations/hours/spend govern. Previously hard-coded to 1M and hidden
    *  from the UI, which silently killed 1M-context runs after one iteration. */
@@ -223,6 +241,9 @@ export class LoopConfigPanelComponent {
   });
 
   constructor() {
+    // Fable WS6: populate the recipe picker (falls back to the static
+    // `coding` entry outside Electron or on failure).
+    void this.loadRecipeOptions();
     // Scope history to the workspace so directives don't leak across
     // unrelated projects on the same machine.
     effect(() => {
@@ -318,7 +339,15 @@ export class LoopConfigPanelComponent {
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
     if (this.maxHours() > MAX_WALL_TIME_HOURS) return 'Max wall time must be 168 hours or less.';
     const maxDollars = this.maxDollars();
-    if (maxDollars !== null && maxDollars < 1) return 'Estimated usage cap must be at least $1, or blank for no cap.';
+    if (maxDollars !== null && maxDollars < 1) return 'Estimated usage cap must be at least $1.';
+    // WS6: blank spend is a deliberate choice, not a default.
+    if (maxDollars === null && !this.allowUnbounded()) {
+      return 'Estimated usage cap is blank — set a cap, or enable "Allow unbounded estimated spend".';
+    }
+    const maxTurns = this.maxTurns();
+    if (maxTurns !== null && (!Number.isFinite(maxTurns) || maxTurns < 1 || maxTurns > 500)) {
+      return 'Max turns per iteration must be between 1 and 500, or blank for the provider default.';
+    }
     const maxTokens = this.maxTokens();
     if (maxTokens !== null && (!Number.isFinite(maxTokens) || maxTokens < MIN_MAX_TOKENS)) {
       return 'Max tokens must be at least 10,000, or blank for no cap.';
@@ -350,6 +379,17 @@ export class LoopConfigPanelComponent {
     if (this.operatorReviewedCompletion() && maxDollars === null) {
       return 'Operator-reviewed completion requires an estimated usage cap ($). Set Estimated usage cap, or add a verify command.';
     }
+    // WS6 verification authority (same rule enforced in the main process):
+    // an implementation goal cannot imply autonomous completion without a
+    // verify command or explicit operator-reviewed authority.
+    if (
+      resolveLoopGoalIntent(undefined, this.prompt()).intent === 'implementation'
+      && !this.verifyCommand().trim()
+      && !this.operatorReviewedCompletion()
+    ) {
+      return 'Implementation goals need a verification authority: add a verify command '
+        + '(tests/build/typecheck), or enable operator-reviewed completion.';
+    }
     return null;
   });
 
@@ -376,6 +416,24 @@ export class LoopConfigPanelComponent {
     }
     const numeric = typeof value === 'number' ? value : Number(value);
     this.maxIterations.set(numeric);
+  }
+
+  onMaxDollarsChange(value: number | string | null): void {
+    if (value === null || value === '') {
+      this.maxDollars.set(null);
+      return;
+    }
+    const numeric = typeof value === 'number' ? value : Number(value);
+    this.maxDollars.set(numeric);
+  }
+
+  onMaxTurnsChange(value: number | string | null): void {
+    if (value === null || value === '') {
+      this.maxTurns.set(null);
+      return;
+    }
+    const numeric = typeof value === 'number' ? value : Number(value);
+    this.maxTurns.set(numeric);
   }
 
   onMaxTokensChange(value: number | string | null): void {
@@ -424,6 +482,19 @@ export class LoopConfigPanelComponent {
    * Called by the host (input-panel) when the user hits Send while the
    * panel is open — the panel itself no longer has a Start Loop button.
    */
+  /** Fable WS6: populate the recipe picker from the main-process registry. */
+  async loadRecipeOptions(): Promise<void> {
+    const res = await this.loopIpc.listRecipes();
+    if (res.success && res.data?.recipes?.length) {
+      this.recipeOptions.set(res.data.recipes.map((r) => ({
+        name: r.name, description: r.description, source: r.source,
+      })));
+      if (!res.data.recipes.some((r) => r.name === this.loopRecipe())) {
+        this.loopRecipe.set('coding');
+      }
+    }
+  }
+
   buildConfig(): LoopStartConfigInput | null {
     if (!this.canSubmit()) return null;
     const provider = this.provider();
@@ -439,6 +510,8 @@ export class LoopConfigPanelComponent {
       reviewStyle: this.reviewStyle(),
       contextStrategy: this.contextStrategy(),
       initialStage: this.initialStage(),
+      maxTurnsPerIteration: this.maxTurns(),
+      loopRecipe: this.loopRecipe(),
       caps: {
         maxIterations: this.maxIterations(),
         maxWallTimeMs: this.maxHours() * 60 * 60 * 1000,

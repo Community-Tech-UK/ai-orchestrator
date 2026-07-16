@@ -183,6 +183,10 @@ Located in `src/main/session/`:
 
 Session tracking is wired into instance lifecycle: `startTracking()` on create, `stopTracking()` on remove, `shutdown()` before app exit.
 
+### Checkpoint rewind (user-facing)
+
+Turn-granular git checkpoints (`src/main/session/git-checkpoint-store.ts` — hidden refs + isolated index + shadow-repo fallback) are user-reachable: the instance detail view embeds the checkpoint timeline (`src/renderer/app/features/checkpoints/checkpoint-timeline.component.ts`, mounted at `instance-detail.component.html` in the session panel), which lists per-session snapshots and offers a confirm-gated **Restore** (workspace files and, optionally, messages). Restores route through the session-recovery IPC; no separate affordance is needed.
+
 ## Instance Lifecycle
 
 Located in `src/main/instance/`:

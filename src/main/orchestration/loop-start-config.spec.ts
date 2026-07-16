@@ -30,7 +30,9 @@ function mkConfig(overrides: Partial<LoopConfigInput> = {}): LoopConfigInput {
     initialPrompt: 'goal',
     workspaceCwd: workspace,
     caps: base.caps,
-    completion: base.completion,
+    // WS6: the neutral base carries a machine verify command so tests whose
+    // subject is NOT the verification-authority policy satisfy it by default.
+    completion: { ...base.completion, verifyCommand: 'npm test' },
     ...overrides,
   } as LoopConfigInput;
 }
@@ -39,10 +41,12 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
   it('defaults user-started loops to review-driven (self-review) — no auto cross-model review, no inferred verify command', async () => {
     // Even with a package.json "verify" script present, we no longer infer or
     // force it. The default is review-driven self-review; cross-model review is
-    // an opt-in, so it must NOT be auto-enabled.
+    // an opt-in, so it must NOT be auto-enabled. (Investigation goal: WS6
+    // allows review/report authority without a machine verify command.)
     writeFileSync(join(workspace, 'package.json'), JSON.stringify({ scripts: { verify: 'npm test' } }));
 
     const prepared = await prepareLoopStartConfig(mkConfig({
+      goalIntent: 'investigation',
       completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', mode: undefined },
     }));
 
@@ -60,17 +64,55 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
     expect(prepared.completion?.mode).toBe('review-driven');
   });
 
-  it('does not throw when no verify command and not operator-reviewed — defaults to review-driven', async () => {
+  it('WS6: REJECTS an implementation loop with no verify command and no operator-reviewed authority', async () => {
+    await expect(
+      prepareLoopStartConfig(mkConfig({
+        completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', mode: undefined },
+      })),
+    ).rejects.toThrow(/verification authority/i);
+  });
+
+  it('WS6: an INVESTIGATION loop may run with review/report authority (no verify command)', async () => {
     const prepared = await prepareLoopStartConfig(mkConfig({
+      initialPrompt: 'investigate why startup is slow and report the root cause',
+      goalIntent: undefined,
       completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', mode: undefined },
     }));
 
+    expect(prepared.goalIntent).toBe('investigation');
     expect(prepared.completion?.mode).toBe('review-driven');
     expect(prepared.completion?.verifyCommand ?? '').toBe('');
   });
 
+  it('WS6: an ambiguous goal is classified implementation and held to the policy', async () => {
+    await expect(
+      prepareLoopStartConfig(mkConfig({
+        initialPrompt: 'goal',
+        goalIntent: undefined,
+        completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', mode: undefined },
+      })),
+    ).rejects.toThrow(/verification authority/i);
+  });
+
+  it('WS6: start-boundary — a rejected config never reaches loop start (the reject IS the boundary)', async () => {
+    // prepareLoopStartConfig is awaited by the IPC handler BEFORE
+    // LoopCoordinator.startLoop; a rejection here means no adapter or
+    // coordinator invocation can occur. Prove the promise rejects rather
+    // than resolving into a config that could be passed onward.
+    let prepared: unknown = null;
+    try {
+      prepared = await prepareLoopStartConfig(mkConfig({
+        completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '' },
+      }));
+    } catch {
+      // expected
+    }
+    expect(prepared).toBeNull();
+  });
+
   it('honours an explicit gated mode and defaults its authority to fresh-eyes cross-model review when no verify command', async () => {
     const prepared = await prepareLoopStartConfig(mkConfig({
+      goalIntent: 'investigation',
       completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', mode: 'gated' },
     }));
 
@@ -80,6 +122,7 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
 
   it('preserves an explicit crossModelReview choice (disabled) without forcing the default', async () => {
     const prepared = await prepareLoopStartConfig(mkConfig({
+      goalIntent: 'investigation',
       completion: {
         ...defaultLoopConfig(workspace, 'g').completion,
         verifyCommand: '',

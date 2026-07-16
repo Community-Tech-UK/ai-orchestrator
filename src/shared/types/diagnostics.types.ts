@@ -155,6 +155,25 @@ export interface InstructionDiagnostic {
   candidates?: string[];
 }
 
+export type LoopRecipeDiagnosticKind =
+  | 'user-override'
+  | 'malformed-pack'
+  | 'missing-stage-file'
+  | 'unknown-recipe-fallback';
+
+/**
+ * Fable WS6: a loop-recipe pack collision or fallback, surfaced in the Doctor
+ * "Commands & Skills" section. `user-override` is informational (a user pack
+ * intentionally shadows a built-in); the rest indicate a broken pack that fell
+ * back to a built-in / default.
+ */
+export interface LoopRecipeDiagnostic {
+  recipe: string;
+  kind: LoopRecipeDiagnosticKind;
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+}
+
 export interface DoctorReport {
   schemaVersion: 1;
   generatedAt: number;
@@ -165,6 +184,7 @@ export interface DoctorReport {
   commandDiagnostics: CommandDiagnosticsSnapshot;
   skillDiagnostics: SkillDiagnostic[];
   instructionDiagnostics: InstructionDiagnostic[];
+  loopRecipeDiagnostics: LoopRecipeDiagnostic[];
   sections: DoctorSectionSummary[];
 }
 

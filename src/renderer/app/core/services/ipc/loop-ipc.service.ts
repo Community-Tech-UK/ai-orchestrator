@@ -59,6 +59,10 @@ export interface LoopStartConfigInput {
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
   reviewStyle?: 'single' | 'debate' | 'star-chamber';
   contextStrategy?: 'fresh-child' | 'hybrid' | 'same-session';
+  /** WS6: per-iteration agentic turn cap (`null` = provider default). */
+  maxTurnsPerIteration?: number | null;
+  /** Fable WS6: named loop recipe pack for the per-stage work prompts. */
+  loopRecipe?: string;
   caps?: Partial<{
     maxIterations: number | null;
     maxWallTimeMs: number;
@@ -171,6 +175,18 @@ export class LoopIpcService {
 
   private get ngZone() {
     return this.base.getNgZone();
+  }
+
+  /** Fable WS6: list available loop recipe packs for the config picker. */
+  async listRecipes(): Promise<IpcResponse<{
+    recipes: { name: string; description: string; source: 'built-in' | 'user'; verifyCommandSuggestions: string[] }[];
+    diagnostics: { recipe: string; kind: string; detail: string }[];
+  }>> {
+    const api = this.base.getApi() as unknown as { loopListRecipes?: () => Promise<unknown> } | null;
+    if (!api?.loopListRecipes) {
+      return { success: false, error: { message: 'Not in Electron' } } as never;
+    }
+    return (await api.loopListRecipes()) as never;
   }
 
   async start(

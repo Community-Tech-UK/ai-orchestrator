@@ -1,0 +1,10 @@
+{
+  "name": "investigation",
+  "description": "Answer-with-evidence stages for audit/question goals — mirrors the previous goalIntent investigation branch verbatim.",
+  "version": 1,
+  "stages": {
+    "plan": "stages/plan.md",
+    "review": "stages/review.md",
+    "implement": "stages/implement.md"
+  }
+}

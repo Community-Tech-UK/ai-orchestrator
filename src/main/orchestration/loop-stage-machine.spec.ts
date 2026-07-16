@@ -333,6 +333,23 @@ describe('LoopStageMachine', () => {
     expect(p).toContain('doing: 1');
   });
 
+  it('Fable WS6: renders planStageContext on the FIRST iteration only (both builders)', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    fs.mkdirSync(paths.dir, { recursive: true });
+    const cfg = defaultLoopConfig(tmpDir, 'do the thing');
+    const block = '## Prior Context (advisory, untrusted)\nBackground.';
+
+    const first = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [], planStageContext: block });
+    const later = m.buildPrompt({ config: cfg, iterationSeq: 3, pendingInterventions: [], planStageContext: block });
+    expect(first).toContain('Prior Context (advisory, untrusted)');
+    expect(later).not.toContain('Prior Context (advisory, untrusted)');
+
+    const rdFirst = m.buildReviewDrivenPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [], planStageContext: block });
+    const rdLater = m.buildReviewDrivenPrompt({ config: cfg, iterationSeq: 2, pendingInterventions: [], planStageContext: block });
+    expect(rdFirst).toContain('Prior Context (advisory, untrusted)');
+    expect(rdLater).not.toContain('Prior Context (advisory, untrusted)');
+  });
+
   it('buildPrompt cadence-gates the full open ledger list in the reminder', () => {
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     fs.mkdirSync(paths.dir, { recursive: true });

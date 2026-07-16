@@ -100,6 +100,7 @@ function makeReport(): DoctorReport {
     },
     skillDiagnostics: [],
     instructionDiagnostics: [],
+    loopRecipeDiagnostics: [],
     sections: [],
   };
 }

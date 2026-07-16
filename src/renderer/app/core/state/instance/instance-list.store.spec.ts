@@ -621,10 +621,21 @@ describe('InstanceListStore', () => {
     expect(stateService.state().error).toBe('Illegal transition: terminated → initializing');
   });
 
-  it('does not request a model change while an instance is not waiting for user input', async () => {
+  it('sends a busy-instance model change and stores the queued pending state', async () => {
+    // The backend queues changes requested while busy (desiredRuntime)
+    // and applies them on the next idle, so the store no longer gates on
+    // status — it forwards the request and mirrors the parked state.
+    ipc.changeModel.mockResolvedValue({
+      success: true,
+      data: {
+        currentModel: 'sonnet',
+        status: 'processing',
+        desiredRuntime: { model: 'sonnet[1m]' },
+      },
+    });
     const instance = store.deserializeInstance({
       id: 'instance-model-blocked',
-      displayName: 'Blocked model switch',
+      displayName: 'Queued model switch',
       createdAt: 1,
       historyThreadId: 'thread-model-blocked',
       parentId: null,
@@ -646,9 +657,17 @@ describe('InstanceListStore', () => {
 
     await store.changeModel(instance.id, 'sonnet[1m]');
 
-    expect(ipc.changeModel).not.toHaveBeenCalled();
-    expect(stateService.getInstance(instance.id)?.currentModel).toBe('sonnet');
-    expect(stateService.state().error).toContain('waiting for user input');
+    expect(ipc.changeModel).toHaveBeenCalledWith(
+      instance.id,
+      'sonnet[1m]',
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(stateService.getInstance(instance.id)).toMatchObject({
+      currentModel: 'sonnet',
+      desiredRuntime: { model: 'sonnet[1m]' },
+    });
   });
 
   it('passes reasoning effort through model changes and stores the returned value', async () => {
@@ -686,7 +705,7 @@ describe('InstanceListStore', () => {
       changeModel: (instanceId: string, newModel: string, reasoningEffort?: 'high') => Promise<void>;
     }).changeModel(instance.id, 'sonnet[1m]', 'high');
 
-    expect(ipc.changeModel).toHaveBeenCalledWith(instance.id, 'sonnet[1m]', 'high');
+    expect(ipc.changeModel).toHaveBeenCalledWith(instance.id, 'sonnet[1m]', 'high', undefined, undefined);
     expect(stateService.getInstance(instance.id)).toMatchObject({
       currentModel: 'sonnet[1m]',
       reasoningEffort: 'high',

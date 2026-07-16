@@ -52,6 +52,8 @@ export const CampaignSpecSchema = z.object({
   policy: CampaignPolicySchema,
   createdAt: z.number().int().positive(),
   sourceRef: z.string().max(2000).optional(),
+  /** WS8: preview-time plan digest for the start-time staleness check. */
+  sourceDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 // -------------------------------------------------------------------------
@@ -77,3 +79,15 @@ export const CampaignResumePayloadSchema = z.object({
 });
 
 export const CampaignValidatePayloadSchema = CampaignSpecSchema;
+
+/** WS8: preview payload — plan path + base loop settings for node configs. */
+export const CampaignImportPlanPreviewPayloadSchema = z.object({
+  workspaceCwd: z.string().min(1).max(2000),
+  planFile: z.string().min(1).max(2000),
+  baseLoop: z.object({
+    verifyCommand: z.string().max(4000),
+    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
+    maxCostCents: z.number().int().positive().max(1_000_000).optional(),
+    maxTurnsPerIteration: z.number().int().positive().max(1000).optional(),
+  }),
+});

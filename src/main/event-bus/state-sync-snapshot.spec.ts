@@ -260,6 +260,7 @@ function makeAutomationRun(overrides: Partial<AutomationRun>): AutomationRun {
     startedAt: null,
     finishedAt: null,
     instanceId: null,
+    loopRunId: null,
     error: null,
     outputSummary: null,
     outputFullRef: null,

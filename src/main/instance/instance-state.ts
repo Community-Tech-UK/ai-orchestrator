@@ -236,6 +236,16 @@ export class InstanceStateManager extends EventEmitter {
      * Omit (undefined) to preserve the previous value.
      */
     waitReason?: InstanceWaitReason | null,
+    /**
+     * Rare fields grouped into an options bag rather than extending the
+     * positional tail: `provider` announces a cross-provider swap;
+     * `desiredRuntime` broadcasts a queued (or cleared, via null)
+     * while-busy runtime change. Omitted fields preserve pending values.
+     */
+    extras?: {
+      provider?: Instance['provider'];
+      desiredRuntime?: Instance['desiredRuntime'] | null;
+    },
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
     const runtimeSummary: InstanceRuntimeSummary | null | undefined =
@@ -269,6 +279,12 @@ export class InstanceStateManager extends EventEmitter {
       historyThreadId: sessionState?.historyThreadId ?? existing?.historyThreadId,
       // waitReason: null clears it; undefined preserves existing.
       waitReason: waitReason !== undefined ? waitReason : existing?.waitReason,
+      provider: extras?.provider ?? existing?.provider,
+      // desiredRuntime: null clears it; undefined preserves existing.
+      desiredRuntime:
+        extras?.desiredRuntime !== undefined
+          ? extras.desiredRuntime
+          : existing?.desiredRuntime,
     });
   }
 

@@ -71,10 +71,18 @@ const ALLOWLIST: Record<string, number> = {
   // Allowlisted for the loop-engine/Pi-Task-18 fields (ledger-stall bounds,
   // CompletionSignalEvidence.openCount, LoopState ledger +
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
-  'packages/contracts/src/schemas/loop.schemas.ts': 807,
-  'packages/contracts/src/types/transport.types.ts': 1788,
+  // Raised 807 -> 864 (Fable WS6 loopRecipe/maxTurnsPerIteration/singleLoopOverride
+  // + WS7 scope-assessment + WS8 ledger-convergence schemas).
+  'packages/contracts/src/schemas/loop.schemas.ts': 864,
+  // Raised 1788 -> 1803 for the provider swap fields on the change-model and
+  // state-update payloads (provider + pendingModelChange round-trip).
+  'packages/contracts/src/types/transport.types.ts': 1803,
   // Main process — automations
   'src/main/automations/automation-store.ts': 861,
+  // Added 2026-07-16 at 753 (Fable WS5 spawn-loop dispatch branch + recovery
+  // seams + breaker auto-disable notification; the loop logic itself lives in
+  // automation-loop-run.ts). Re-tighten after the next runner split.
+  'src/main/automations/automation-runner.ts': 753,
   // Main process — browser gateway
   // Raised 2284 -> 2400 for the execute_fill_plan + fill_credential service
   // methods (delegators to browser-form-fill-operations) + the credential
@@ -125,7 +133,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/instance/instance-context.ts': 1265,
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
-  'src/main/instance/instance-lifecycle.ts': 3528,
+  // Tightened 3528 -> 3405 after extracting changeModel's execution body into
+  // lifecycle/runtime-reconciler.ts (provider/model swap is its first client;
+  // desired-runtime queueing lives in lifecycle/desired-runtime-queue.ts).
+  'src/main/instance/instance-lifecycle.ts': 3405,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
   'src/main/instance/instance-manager.ts': 2722,
@@ -134,6 +145,10 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
   'src/main/ipc/handlers/instance-handlers.ts': 1158,
+  // Added 2026-07-16 at 794 (Fable WS6 LOOP_LIST_RECIPES + WS7 LOOP_ASSESS_SCOPE
+  // read-only endpoints and the LOOP_START scope guard). Re-tighten after the
+  // loop-handler split.
+  'src/main/ipc/handlers/loop-handlers.ts': 794,
   'src/main/ipc/handlers/mcp-handlers.ts': 925,
   'src/main/ipc/handlers/session-handlers.ts': 1045,
   'src/main/ipc/handlers/vcs-handlers.ts': 992,
@@ -147,6 +162,10 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — MCP
   'src/main/mcp/mcp-manager.ts': 1025,
   'src/main/mcp/mcp-tool-search.ts': 735,
+  // Added 2026-07-16 at 771 (Fable WS11.5 read_node_output afterSeq cursor:
+  // buildReadNodeOutputResult pure serialization + schema/doc additions live
+  // beside the tool types). Re-tighten after a tool-defs split.
+  'src/main/mcp/orchestrator-tools.ts': 771,
   // Crossed 700 by two lines of sync_to_node/sync_from_node context wiring.
   'src/main/mcp/orchestrator-tools-rpc-server.ts': 710,
   // Main process — remote node file transfer
@@ -177,7 +196,10 @@ const ALLOWLIST: Record<string, number> = {
   // Re-tightened after extracting loop-branch-selector-helpers.ts, then again
   // after extracting invocation-model-resolver.ts (model resolution + cheap-model
   // eligibility classifier).
-  'src/main/orchestration/default-invokers.ts': 1543,
+  // Raised 2026-07-16 (loop-convergence WS4+WS5 seams; observer/discipline glue
+  // already extracted to loop-attempt-observation.ts / loop-context-discipline-runtime.ts —
+  // re-tighten after the next invoker refactor).
+  'src/main/orchestration/default-invokers.ts': 1597,
   'src/main/orchestration/embedding-service.ts': 845,
   // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
   // integration points. Audit mechanics live in loop-audit-runtime.ts.
@@ -186,11 +208,21 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3480 -> 3496 for D5 self-declared more-work-remaining completion veto.
   // Raised 3496 -> 3567 for fail-closed ratchet hook termination,
   // tool-rw-lock-conflict terminal failures, and explicit loop failure signaling.
-  'src/main/orchestration/loop-coordinator.ts': 3606,
+  // Raised 2026-07-16 (loop-convergence WS3+WS5 decision seams; pure logic lives in
+  // loop-ledger-progress.ts / loop-invocation-attempt.ts — re-tighten at WS10).
+  // Raised 3719 -> 3780 (Fable WS6 Task 3 PLAN prior-context assembly + Task 4
+  // review-lesson gate wiring). Capture wiring itself lives in
+  // loop-review-lesson-capture-wiring.ts / loop-prior-context.ts — re-tighten
+  // after the next coordinator extraction.
+  'src/main/orchestration/loop-coordinator.ts': 3780,
   // Re-tightened after extracting loop-completed-plan-helpers.ts.
   'src/main/orchestration/loop-completion-detector.ts': 794,
   'src/main/orchestration/loop-store.ts': 767,
   'src/main/orchestration/loop-progress-detector.ts': 755,
+  // Added 2026-07-16 at 714 (Fable WS6 Task 3: planStageContext threaded through
+  // buildPrompt/buildReviewDrivenPrompt; recipe stage-work now resolves via
+  // loop-recipes.ts). Re-tighten after the prompt-builder extraction.
+  'src/main/orchestration/loop-stage-machine.ts': 714,
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
   'src/main/orchestration/orchestration-handler.ts': 1458,
   'src/main/orchestration/supervisor.ts': 735,
@@ -238,6 +270,9 @@ const ALLOWLIST: Record<string, number> = {
   // reconciler wiring (status-reconciler service owns the polling logic).
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 825,
   'src/renderer/app/core/state/instance/instance.store.ts': 749,
+  // Added 2026-07-16 at 710 (Fable WS6 recipe picker options + WS6 maxTurns/
+  // allowUnbounded loop-config plumbing). Re-tighten after a store split.
+  'src/renderer/app/core/state/loop.store.ts': 710,
   'src/renderer/app/core/state/source-control.store.ts': 976,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
@@ -262,6 +297,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
   // Raised 992 -> 1051 for the Task 18 renderer follow-up affordance (queue a
   // `follow-up` from the loop control bar) — completes end-to-end exposure.
+  // Added 2026-07-16 at 736 (Fable WS5 trigger picker, webhook filter rows,
+  // and loop-action controls on the automation editor; pure mapping lives in
+  // automation-form-model.ts). Re-tighten after a form-component split.
+  'src/renderer/app/features/automations/automations-page.component.ts': 736,
   'src/renderer/app/features/loop/loop-control.component.ts': 1073,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,

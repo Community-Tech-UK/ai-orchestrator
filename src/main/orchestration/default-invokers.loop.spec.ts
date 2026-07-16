@@ -288,6 +288,46 @@ describe('Loop Mode invoker plumbing', () => {
     }
   });
 
+  it('WS5: a FAILED attempt still reports its observed workspace delta (writes-observed evidence)', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'inv-ws5-'));
+    try {
+      registerDefaultLoopInvoker({} as never);
+      // The "agent" writes a file, THEN the invocation blows up — the error
+      // path must still observe the write and refuse to call it clean.
+      hoisted.sendMessage.mockImplementation(async () => {
+        fs.writeFileSync(path.join(repoRoot, 'half-written.ts'), 'export const partial = true;\n');
+        throw new Error('stream cut mid-write');
+      });
+
+      const callbackResult = await emitIteration({ workspaceCwd: repoRoot });
+
+      const failure = callbackResult as { error: string; attemptEvidence?: {
+        outcome: string; workspaceEffect: string; filesChanged: { path: string }[];
+      } };
+      expect(failure.error).toContain('stream cut mid-write');
+      expect(failure.attemptEvidence?.outcome).toBe('failed');
+      expect(failure.attemptEvidence?.workspaceEffect).toBe('writes-observed');
+      expect(failure.attemptEvidence?.filesChanged.map((c) => c.path)).toContain('half-written.ts');
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('WS5: a failed attempt with NO writes reports none-observed evidence (safe to replay)', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'inv-ws5-clean-'));
+    try {
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockRejectedValue(new Error('transient RPC failure'));
+
+      const callbackResult = await emitIteration({ workspaceCwd: repoRoot });
+
+      const failure = callbackResult as { error: string; attemptEvidence?: { workspaceEffect: string } };
+      expect(failure.attemptEvidence?.workspaceEffect).toBe('none-observed');
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   it('resolves and creates loop child adapters for non-Claude chat providers', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.resolveCliType.mockResolvedValueOnce('gemini');

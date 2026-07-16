@@ -13,6 +13,7 @@ import type {
   OutputMessage,
   InstanceProvider,
   InstanceLaunchMode,
+  DesiredRuntime,
   SessionDiffStats,
 } from '@shared/types/instance.types';
 import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
@@ -119,6 +120,17 @@ export interface InstanceStateUpdatePayload {
    * after spawn. Undefined before an adapter is attached.
    */
   selfManagesAutoCompaction?: boolean;
+  /**
+   * Provider after a cross-provider swap of an existing session. Optional
+   * because almost all state updates don't change it; undefined preserves
+   * the renderer's existing value.
+   */
+  provider?: InstanceProvider;
+  /**
+   * Desired runtime queued while the instance was busy. null clears the
+   * pending affordance (applied or cancelled); undefined preserves.
+   */
+  desiredRuntime?: DesiredRuntime | null;
 }
 
 export interface InstanceOutputPayload {
@@ -161,13 +173,16 @@ export interface InstanceRenamePayload {
 
 export interface InstanceChangeModelPayload {
   instanceId: string;
-  model: string;
+  /** Optional only when `provider` is set (swap falls back to the remembered per-provider default). */
+  model?: string;
   modelRuntimeTarget?: ModelRuntimeTarget;
   /**
    * Undefined preserves the current override, null clears to provider default,
    * and a value respawns the adapter with that thinking/reasoning effort.
    */
   reasoningEffort?: ReasoningEffort | null;
+  /** Target provider for a cross-provider swap of an existing session. */
+  provider?: InstanceProvider;
 }
 
 // ============================================

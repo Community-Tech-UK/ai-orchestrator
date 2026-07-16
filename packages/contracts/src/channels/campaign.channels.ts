@@ -9,6 +9,8 @@ export const CAMPAIGN_CHANNELS = {
   CAMPAIGN_HALT: 'campaign:halt',
   CAMPAIGN_RESUME: 'campaign:resume',
   CAMPAIGN_VALIDATE: 'campaign:validate',
+  /** WS8: build a preview campaign from a configured repository plan. */
+  CAMPAIGN_IMPORT_PLAN_PREVIEW: 'campaign:import-plan-preview',
 
   // Push events (main → renderer)
   CAMPAIGN_STATE_CHANGED: 'campaign:state-changed',

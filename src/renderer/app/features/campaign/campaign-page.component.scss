@@ -66,3 +66,31 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; opacit
   .cp-policy-row, .cp-edge-row { grid-template-columns: 1fr; }
   .cp-inspector { min-height: 0; }
 }
+
+/* WS8: plan-import panel */
+.cp-import {
+  padding: 12px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  margin-bottom: 12px;
+
+  .import-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-end;
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      flex: 1 1 220px;
+    }
+  }
+
+  .import-preview {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+}

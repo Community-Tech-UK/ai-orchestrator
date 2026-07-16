@@ -11,6 +11,7 @@ import {
 import type { LoopCompletionDetector } from './loop-completion-detector';
 import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import { collectWorkspaceDiff } from './loop-diff';
+import { redactForEgress } from '../security/content-egress-gate';
 import {
   computeCompletionEvidenceHash,
   computeReviewThreadSet,
@@ -216,6 +217,17 @@ export function trackRepeatedCompletionEvidence(args: {
   }
 }
 
+/**
+ * Fable WS6 Task 4: a blocking fresh-eyes verdict is a durable lesson. The
+ * coordinator supplies this to distill the blocking findings into the lesson
+ * store (fire-and-forget; must never affect the gate outcome).
+ */
+export interface ReviewVerdictForLesson {
+  reviewers: string[];
+  findings: { title: string; body: string; severity?: string; file?: string }[];
+  summary: string;
+}
+
 export async function runFreshEyesReviewGate(args: {
   state: LoopState;
   signalId: string;
@@ -224,8 +236,10 @@ export async function runFreshEyesReviewGate(args: {
   reviewer: FreshEyesReviewer;
   emit: LoopEmit;
   setConvergenceNote: (note: string) => void;
+  /** WS6 Task 4: capture a lesson from a blocking verdict (best-effort). */
+  captureReviewLesson?: (verdict: ReviewVerdictForLesson) => void;
 }): Promise<FreshEyesGateResult> {
-  const { state, signalId, iteration, verifyOutput, reviewer, emit, setConvergenceNote } = args;
+  const { state, signalId, iteration, verifyOutput, reviewer, emit, setConvergenceNote, captureReviewLesson } = args;
   const reviewCfg = state.config.completion.crossModelReview;
   // A4: consume the one-shot contradiction flag before the enabled check so a
   // contradiction-forced review runs even when crossModelReview is off/absent.
@@ -278,6 +292,16 @@ export async function runFreshEyesReviewGate(args: {
   // use executionCwd so the reviewer sees the actual changes.
   const diffCwd = state.config.executionCwd ?? state.config.workspaceCwd;
   const workspaceDiff = collectWorkspaceDiff(diffCwd);
+  // WS3: the diff is reviewer egress — gate it here so EVERY reviewer
+  // implementation (not just the default cross-model service, which gates
+  // again idempotently) receives a redacted copy.
+  const diffEgress = redactForEgress(workspaceDiff.diff, { kind: 'diff' });
+  if (diffEgress.secretsFound) {
+    logger.warn('Fresh-eyes review diff contained potential secrets — redacted before reviewer egress', {
+      loopRunId: state.id,
+      secretCount: diffEgress.secretCount,
+    });
+  }
   const iterationFiles = iteration.filesChanged.map((f) => f.path);
   const filesChangedThisIteration = iterationFiles.length > 0
     ? iterationFiles
@@ -290,7 +314,7 @@ export async function runFreshEyesReviewGate(args: {
       workspaceCwd: state.config.workspaceCwd,
       goal: state.config.initialPrompt,
       iterationOutput: iteration.outputExcerpt,
-      diff: workspaceDiff.diff,
+      diff: diffEgress.content,
       diffSource: workspaceDiff.source,
       filesChangedThisIteration,
       uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
@@ -416,6 +440,18 @@ export async function runFreshEyesReviewGate(args: {
     signal: signalId,
     blocking: ranked.length,
     severities: orderedSeverities,
+  });
+  // WS6 Task 4: a blocking cross-model verdict is a durable lesson — distill it
+  // into the lesson store. Fire-and-forget: never let it affect the gate result.
+  captureReviewLesson?.({
+    reviewers: reviewResult.reviewersUsed,
+    findings: dedupedFindings.map((f) => ({
+      title: f.title,
+      body: f.body,
+      severity: f.severity,
+      file: f.file,
+    })),
+    summary: reviewResult.summary,
   });
   return { blocked: true, ran: true, errored: false, blockingSeverities: orderedSeverities };
 }

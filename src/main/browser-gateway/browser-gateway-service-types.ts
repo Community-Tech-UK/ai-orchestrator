@@ -39,6 +39,15 @@ export interface BrowserGatewayTargetRequest extends BrowserGatewayContext {
   targetId: string;
 }
 
+/**
+ * WS11.2: snapshot may carry an extraction hint — with
+ * `browserAuxExtractionEnabled` ON, the page text is distilled by the aux
+ * `webExtract` slot around this goal instead of returning the raw dump.
+ */
+export interface BrowserGatewaySnapshotRequest extends BrowserGatewayTargetRequest {
+  extractionHint?: string;
+}
+
 export interface BrowserGatewayScreenshotRequest
   extends BrowserGatewayContext,
     BrowserScreenshotRequest {}

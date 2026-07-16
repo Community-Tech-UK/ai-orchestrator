@@ -64,4 +64,15 @@ export const RLM_MIGRATIONS_046_050: Migration[] = [
       ALTER TABLE automations DROP COLUMN trigger_json;
     `,
   },
+  {
+    // Fable WS5: automation runs that spawn a LOOP (instead of a one-shot
+    // instance) link the loop run for provenance/outcome capture.
+    name: '050_automation_run_loop_link',
+    up: `
+      ALTER TABLE automation_runs ADD COLUMN loop_run_id TEXT;
+    `,
+    down: `
+      ALTER TABLE automation_runs DROP COLUMN loop_run_id;
+    `,
+  },
 ];

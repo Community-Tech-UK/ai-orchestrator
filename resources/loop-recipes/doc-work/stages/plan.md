@@ -1,0 +1,1 @@
+Outline the documentation work: audience, the questions each document must answer, and the source-of-truth code or behaviour every section will be checked against. List the concrete sections/files in `{{tasksPath}}` (one checkbox each). Do not draft software plans.

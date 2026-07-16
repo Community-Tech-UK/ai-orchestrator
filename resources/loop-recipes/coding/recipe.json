@@ -1,0 +1,11 @@
+{
+  "name": "coding",
+  "description": "Default software-implementation stages — extracted verbatim from the previously hardcoded loop prompts (behaviour-identical default).",
+  "version": 1,
+  "stages": {
+    "plan": "stages/plan.md",
+    "review": "stages/review.md",
+    "implement": "stages/implement.md"
+  },
+  "verifyCommandSuggestions": ["npm run test:quiet", "npm test", "make check"]
+}

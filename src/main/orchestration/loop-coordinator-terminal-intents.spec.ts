@@ -517,7 +517,14 @@ describe('LoopCoordinator terminal intents', () => {
   }, 20_000);
 
   it('uses iterationTimeoutMs for the child invocation backstop', async () => {
-    const loopError = waitForEvent<{ error: string }>(coordinator, 'loop:error', LOOP_EVENT_TIMEOUT_MS);
+    // WS5: a timed-out attempt bypassed the invoker's workspace observers, so
+    // its effect is UNKNOWN — the loop pauses for review instead of erroring
+    // (an automatic replay over unprovable side effects is unsafe). The
+    // subject here is unchanged: the backstop fires at the PER-ITERATION
+    // timeout (25ms), not the total wall cap.
+    const pausedForReview = waitForEvent<{ reason: string }>(
+      coordinator, 'loop:completed-needs-review', LOOP_EVENT_TIMEOUT_MS,
+    );
     coordinator.on('loop:invoke-iteration', () => {
       // Intentionally never invokes the callback. The coordinator backstop
       // must use the per-iteration timeout rather than the total wall cap.
@@ -530,8 +537,8 @@ describe('LoopCoordinator terminal intents', () => {
       iterationTimeoutMs: 25,
     });
 
-    await expect(loopError).resolves.toMatchObject({
-      error: expect.stringContaining('timed out after 25ms'),
+    await expect(pausedForReview).resolves.toMatchObject({
+      reason: expect.stringContaining('timed out after 25ms'),
     });
   }, 20_000);
 

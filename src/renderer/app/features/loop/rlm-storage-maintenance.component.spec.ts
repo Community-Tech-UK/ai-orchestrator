@@ -75,6 +75,22 @@ describe('RlmStorageMaintenanceComponent', () => {
     expect(fixture.nativeElement.querySelector('.spinner')).toBeNull();
   });
 
+  it('renders only the banner when the modal surface is disabled (loop HUD host)', () => {
+    (fixture.componentInstance as unknown as { showModal: () => boolean }).showModal = () => false;
+    store.modalOpen.set(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('RLM storage needs maintenance');
+    expect(fixture.nativeElement.querySelector('.modal-backdrop')).toBeNull();
+  });
+
+  it('renders only the modal when the warning surface is disabled (app-shell host)', () => {
+    (fixture.componentInstance as unknown as { showWarning: () => boolean }).showWarning = () => false;
+    store.modalOpen.set(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('RLM storage needs maintenance');
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeTruthy();
+  });
+
   it('does not render the modal when mounted with a persisted terminal status', async () => {
     fixture.destroy();
     TestBed.resetTestingModule();

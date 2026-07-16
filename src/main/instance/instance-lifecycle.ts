@@ -42,6 +42,7 @@ import type {
   InstanceCreateConfig,
   InstanceStatus,
   OutputMessage,
+  RuntimeChangeRequest,
 } from '../../shared/types/instance.types';
 import { getModelSwitchUnavailableReason } from '../../shared/types/instance-status-policy';
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
@@ -77,6 +78,9 @@ import { resolveInitialModel } from './lifecycle/resolve-initial-model';
 import { createModelSelectionDegradationNotice, resolveAvailableModelSelection, type ModelSelectionDegradation } from './lifecycle/model-selection-degradation';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import { YoloModeQueue } from './lifecycle/yolo-mode-queue';
+import { DesiredRuntimeQueue } from './lifecycle/desired-runtime-queue';
+import { RuntimeReconciler } from './lifecycle/runtime-reconciler';
+import type { SwapTargetProvider } from './lifecycle/model-change-provider-swap';
 import {
   applyOutputStyle,
   applyResolvedOutputStyle,
@@ -165,6 +169,10 @@ export class InstanceLifecycleManager extends EventEmitter {
   private recoveryEngine: RecoveryRecipeEngine | null = null;
   /** Queue-aware YOLO toggling (park-while-busy + auto-apply-on-idle). */
   private _yoloQueue?: YoloModeQueue;
+  /** Queue-aware runtime changes (park-while-busy + auto-apply-on-settle). */
+  private _desiredRuntimeQueue?: DesiredRuntimeQueue;
+  /** Single owner of runtime changes (provider/model swap; more paths migrate here). */
+  private _runtimeReconciler?: RuntimeReconciler;
   /**
    * Create-time enrichers (per instance → label → section text) that missed the
    * deadline and are being deferred into the next turn's continuity preamble.
@@ -500,6 +508,8 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     // Auto-apply a YOLO toggle that was queued while the instance was busy.
     this.yoloQueue.onSettled(instance);
+    // Auto-apply a runtime (provider/model) change that was queued while busy.
+    this.desiredRuntimeQueue.onSettled(instance);
   }
 
   /** Lazily built so it can close over deps/setYoloMode/emit after construction. */
@@ -512,6 +522,46 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.emit('yolo-toggled', payload);
       },
     }));
+  }
+
+  /** Lazily built so it can close over deps/reconciler/emit after construction. */
+  private get desiredRuntimeQueue(): DesiredRuntimeQueue {
+    return (this._desiredRuntimeQueue ??= new DesiredRuntimeQueue({
+      getInstance: (id) => this.deps.getInstance(id),
+      applyChange: (id, desired) => this.runtimeReconciler.applyRuntimeChange(id, desired),
+      publishPendingState: (instance) => {
+        this.deps.queueUpdate(
+          instance.id,
+          instance.status,
+          instance.contextUsage,
+          undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+          { desiredRuntime: instance.desiredRuntime ?? null },
+        );
+      },
+      notifyApplyFailure: (instance, message) => {
+        this.deps.addToOutputBuffer(instance, message);
+        this.emit('output', { instanceId: instance.id, message });
+      },
+    }));
+  }
+
+  /**
+   * Queue-aware runtime change for the UI: applies immediately when the
+   * instance is waiting for input, else parks the desired runtime and
+   * auto-applies on the next settle. A request without a provider keeps the
+   * instance's current provider ('auto' is normalized away — it is never a
+   * concrete runtime).
+   */
+  async requestModelChange(instanceId: string, request: RuntimeChangeRequest): Promise<Instance> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+    const provider = request.provider === 'auto' ? undefined : request.provider;
+    return this.desiredRuntimeQueue.requestChange(instanceId, {
+      ...request,
+      provider: provider ?? instance.provider,
+    });
   }
 
   private resetTerminalStateForRestart(instance: Instance): void {
@@ -3102,267 +3152,67 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   }
 
   // ============================================
-  // Model Switching
+  // Model / Runtime Switching (RuntimeReconciler)
   // ============================================
 
   /**
-   * Change the model for an instance while preserving conversation context.
-   * Follows the same pattern as toggleYoloMode: terminate adapter, update state, respawn with resume.
+   * Change the model — and optionally the provider — for an instance while
+   * preserving conversation context. Thin shim over the RuntimeReconciler:
+   * builds a {@link DesiredRuntime} (provider defaults to the instance's
+   * current one) and delegates. Kept for API stability — the external
+   * callers and IPC surface are unchanged.
+   *
+   * A cross-provider swap (`targetProvider` differs from the instance's
+   * provider) never native-resumes: the old provider's session is terminated,
+   * its resume cursor is cleared, and context is carried over via the replay
+   * continuity preamble.
    */
   async changeModel(
     instanceId: string,
-    newModel: string,
+    requestedModel: string | undefined,
     reasoningEffort?: Instance['reasoningEffort'] | null,
     modelRuntimeTarget?: Instance['modelRuntimeTarget'],
+    targetProvider?: SwapTargetProvider,
   ): Promise<Instance> {
     const instance = this.deps.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+    return this.runtimeReconciler.applyRuntimeChange(instanceId, {
+      provider: targetProvider ?? instance.provider,
+      ...(requestedModel !== undefined ? { model: requestedModel } : {}),
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+      ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
+    });
+  }
 
-    const release = await getSessionMutex().acquire(instanceId, 'model-change');
-    try {
-      const unavailableReason = getModelSwitchUnavailableReason(instance.status);
-      if (unavailableReason) {
-        throw new Error(unavailableReason);
-      }
-
-      const oldModel = instance.currentModel || 'default';
-      const oldReasoningEffort = instance.reasoningEffort;
-      const localModelTarget = modelRuntimeTarget?.kind === 'local-model'
-        ? modelRuntimeTarget
-        : null;
-      const nextReasoningEffort =
-        reasoningEffort === undefined
-          ? instance.reasoningEffort
-          : reasoningEffort ?? undefined;
-      logger.info('Changing model', {
-        instanceId,
-        oldModel,
-        newModel,
-        oldReasoningEffort,
-        nextReasoningEffort,
-        adapterExists: !!this.deps.getAdapter(instanceId)
-      });
-
-      let nextExecutionLocation = instance.executionLocation;
-      if (localModelTarget) {
-        await this.assertLocalModelRuntimeAvailable(localModelTarget);
-        nextExecutionLocation = resolveExecutionLocation({
-          workingDirectory: instance.workingDirectory,
-          modelRuntimeTarget: localModelTarget,
-        });
-      }
-
-      // Check if there's a conversation to resume
-      const hasConversation = instance.outputBuffer.some(
-        (msg) => msg.type === 'user' || msg.type === 'assistant'
-      );
-
-      // Terminate existing adapter
-      const oldAdapter = this.deps.getAdapter(instanceId);
-      const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
-      if (oldAdapter) {
-        this.deps.deleteAdapter(instanceId);
-        await oldAdapter.terminate(true);
-      }
-
-      // Update instance state
-      this.transitionState(instance, 'initializing');
-
-      // Resolve agent and permissions (same as toggleYoloMode)
-      const agent = getAgentById(instance.agentId) || getDefaultAgent();
-      const toolPermissions = buildToolPermissionConfig(agent.permissions, {
-        allowedToolsPolicy: 'standard-unless-yolo',
-        yoloMode: instance.yoloMode,
-      });
-      attachToolFilterMetadata(instance, toolPermissions.toolFilter);
-
-      const cliType = await this.resolveCliTypeForInstance(instance);
-      // Claude native resume reconnects to the existing provider session, whose
-      // model binding can remain the previous model. Use replay continuity for
-      // Claude model changes so the fresh process is actually launched with the
-      // selected model.
-      const shouldResume =
-        hasConversation
-        && oldAdapterCapabilities.supportsResume
-        && cliType !== 'claude'
-        && !localModelTarget;
-      const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
-
-      // Validate model against provider before passing it
-      let validatedModel: string | undefined = localModelTarget?.modelId ?? newModel;
-      if (!localModelTarget && isModelTier(newModel)) {
-        validatedModel = resolveModelForTier(newModel, cliType);
-      }
-
-      // Mirrors spawn-time validation against CLI discovery + unified catalog snapshot.
-      const modelToValidate = validatedModel;
-      if (!localModelTarget && modelToValidate !== undefined) {
-        const knownModelIds = await getKnownModelsForCli(cliType);
-        const selection = resolveAvailableModelSelection({
-          provider: cliType,
-          requestedModel: modelToValidate,
-          knownModelIds,
-          fallbackModel: getDefaultModelForCli(cliType),
-          allowDynamicCodexModel:
-            cliType === 'codex' && looksLikeCodexModelId(modelToValidate),
-        });
-        if (selection.degradation) {
-          logger.warn('Model not valid for target provider during changeModel, using provider default', {
-            model: selection.degradation.requestedModel,
-            provider: cliType,
-            validModelCount: knownModelIds.length,
-            fallbackModel: selection.degradation.fallbackModel ?? 'provider-default',
-          });
-          this.emitModelSelectionDegradation(instance, selection.degradation);
-        }
-        validatedModel = selection.model;
-      }
-
-      const newSessionId = shouldResume && shouldForkSession
-        ? generateId()
-        : (shouldResume ? instance.sessionId : generateId());
-      instance.sessionId = newSessionId;
-
-      instance.currentModel = validatedModel;
-      instance.reasoningEffort = nextReasoningEffort;
-      instance.executionLocation = nextExecutionLocation;
-      if (localModelTarget) {
-        instance.modelRuntimeTarget = localModelTarget;
-        instance.runtimeSummary = buildLocalModelRuntimeSummary(localModelTarget);
-      } else {
-        instance.modelRuntimeTarget = undefined;
-        instance.runtimeSummary = undefined;
-      }
-      const contextTotal = getProviderModelContextWindow(cliType, validatedModel);
-      instance.contextUsage = {
-        ...instance.contextUsage,
-        total: contextTotal,
-        percentage: contextTotal > 0
-          ? Math.min((instance.contextUsage.used / contextTotal) * 100, 100)
-          : 0
-      };
-
-      const spawnOptions: UnifiedSpawnOptions = {
-        instanceId: instance.id,
-        sessionId: newSessionId,
-        workingDirectory: instance.workingDirectory,
-        systemPrompt: agent.systemPrompt,
-        model: validatedModel,
-        yoloMode: instance.yoloMode,
-        launchMode: instance.launchMode,
-        bare: instance.bareMode === true,
-        reasoningEffort: nextReasoningEffort,
-        fastMode: instance.fastMode,
-        residentClaude: this.residentClaudeForSpawn(instance),
-        allowedTools: toolPermissions.allowedTools,
-        disallowedTools: toolPermissions.disallowedToolsForSpawn,
-        resume: shouldResume,
-        forkSession: shouldForkSession,
-        mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
-        browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
-          instance.executionLocation,
-          instance.id,
-          cliType,
-        ) ?? undefined,
-        nodePlacement: instance.nodePlacement,
-        permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-        rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
-        ...(localModelTarget ? { modelRuntimeTarget: localModelTarget } : {}),
-      };
-
-      let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
-      this.deps.setupAdapterEvents(instanceId, adapter);
-      this.deps.setAdapter(instanceId, adapter);
-
-      try {
-        let pid: number;
-        try {
-          pid = await adapter.spawn();
-          instance.processId = pid;
-          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
-            throw new Error('Native resume did not stabilize after model change');
-          }
-          await this.waitForInputReadinessBoundary(instanceId, adapter);
-        } catch (spawnError) {
-          if (shouldResume) {
-            logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
-            await adapter.terminate(true);
-
-            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
-            instance.sessionId = fallbackOptions.sessionId;
-            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
-            this.deps.setupAdapterEvents(instanceId, adapter);
-            this.deps.setAdapter(instanceId, adapter);
-
-            pid = await adapter.spawn();
-            try {
-              await getSessionContinuityManager().writeThroughIdentityLocked(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
-            } catch (err) {
-              logger.warn('writeThroughIdentity failed after fresh fallback (model-change)', {
-                instanceId,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-            await this.waitForInputReadinessBoundary(instanceId, adapter);
-
-            if (hasConversation) {
-              this.prepareStatusForAdapterInput(instance);
-              await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
-            }
-          } else {
-            throw spawnError;
-          }
-        }
-
-        instance.processId = pid;
-        this.transitionState(instance, 'idle');
-        logger.info('Model changed successfully', {
-          instanceId,
-          pid,
-          newModel: validatedModel || 'provider-default',
-          reasoningEffort: nextReasoningEffort ?? 'provider-default',
-          resumed: shouldResume,
-        });
-
-        if (!shouldResume && hasConversation) {
-          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'model-change'));
-        }
-
-        // Notify the instance about the model change
-        await adapter.sendInput(
-          `[System: Model changed from ${oldModel} to ${validatedModel || 'provider default'}. Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been preserved.]`
-        );
-      } catch (error) {
-        this.transitionState(instance, 'error');
-        logger.error('Failed to change model', error instanceof Error ? error : undefined, { instanceId, newModel });
-        throw error;
-      }
-
-      this.deps.queueUpdate(
-        instanceId,
-        instance.status,
-        instance.contextUsage,
-        undefined,
-        undefined,
-        undefined,
-        instance.executionLocation,
-        undefined,
-        undefined,
-        instance.currentModel,
-      );
-      this.emit('model-changed', {
-        instanceId,
-        model: newModel,
-        reasoningEffort: nextReasoningEffort,
-      });
-
-      return instance;
-    } finally {
-      release();
-    }
+  /** Lazily built so it can close over the lifecycle's private helpers. */
+  private get runtimeReconciler(): RuntimeReconciler {
+    return (this._runtimeReconciler ??= new RuntimeReconciler({
+      getInstance: (id) => this.deps.getInstance(id),
+      getAdapter: (id) => this.deps.getAdapter(id),
+      setAdapter: (id, adapter) => this.deps.setAdapter(id, adapter),
+      deleteAdapter: (id) => this.deps.deleteAdapter(id),
+      setupAdapterEvents: (id, adapter) => this.deps.setupAdapterEvents(id, adapter),
+      transitionState: (instance, status) => this.transitionState(instance, status),
+      resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance),
+      getAdapterRuntimeCapabilities: (adapter) => this.getAdapterRuntimeCapabilities(adapter),
+      assertLocalModelRuntimeAvailable: (target) => this.assertLocalModelRuntimeAvailable(target),
+      residentClaudeForSpawn: (instance) => this.residentClaudeForSpawn(instance),
+      createRuntimeAdapter: (cliType, options, executionLocation) =>
+        this.createRuntimeAdapter(cliType, options, executionLocation),
+      waitForResumeHealth: (id) => this.waitForResumeHealth(id),
+      waitForInputReadinessBoundary: (id, adapter) => this.waitForInputReadinessBoundary(id, adapter),
+      prepareStatusForAdapterInput: (instance) => this.prepareStatusForAdapterInput(instance),
+      buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
+      buildFallbackHistory: (instance, reason) => this.buildFallbackHistory(instance, reason),
+      emitModelSelectionDegradation: (instance, degradation) =>
+        this.emitModelSelectionDegradation(instance, degradation),
+      emitRuntimeChanged: (payload) => this.emit('model-changed', payload),
+      getSettings: () => this.settings.getAll(),
+      spawnConfigBuilder: this.spawnConfigBuilder,
+      queueUpdate: (...args) => this.deps.queueUpdate(...args),
+    }));
   }
 
   // ============================================

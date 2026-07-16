@@ -76,7 +76,7 @@ import type {
   OutputMessage,
 } from '../../core/state/instance/instance.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
-import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
+import type { InstanceWaitReason, DesiredRuntime } from '../../../../shared/types/instance.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import {
   tryStartLoopFromPanel,
@@ -161,6 +161,8 @@ export class InputPanelComponent implements OnDestroy {
   currentModel = input<string | undefined>(undefined);
   currentReasoningEffort = input<ReasoningEffort | null | undefined>(undefined);
   runtimeSummary = input<InstanceRuntimeSummary | undefined>(undefined);
+  /** Provider/model change queued while busy — forwarded to the composer toolbar's pending chip. */
+  desiredRuntime = input<DesiredRuntime | undefined>(undefined);
   workingDirectory = input<string | null>(null);
   loopChatId = input<string | null>(null);
   contextUsage = input<ContextUsage | undefined>(undefined);

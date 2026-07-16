@@ -1,0 +1,1 @@
+Re-read `{{reportPath}}` with completely fresh eyes. Is every claim backed by `file:line` evidence? Flag and fix any unverified assertion, gap, or item you accepted from a doc without confirming in code.

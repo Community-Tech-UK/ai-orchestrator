@@ -414,6 +414,45 @@ describe('AutomationStore', () => {
     expect(completed?.outputSummary).toBe('summary');
   });
 
+  describe('WS5 loop-linked runs', () => {
+    async function startRunningRun(): Promise<{ automationId: string; runId: string }> {
+      const automation = await store.create({
+        name: 'Webhook loop',
+        schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: {
+          prompt: 'Fix the reported issue',
+          workingDirectory: '/tmp',
+          loop: { verifyCommand: 'npm test' },
+        },
+      }, 1_000, 100);
+      const decision = store.decideAndInsertRun(automation, 'webhook', 2_000, 2_000);
+      if (decision.kind !== 'started') throw new Error(`expected started, got ${decision.kind}`);
+      return { automationId: automation.id, runId: decision.run.id };
+    }
+
+    it('attachLoopRun round-trips loopRunId and preserves the loop action in the snapshot', async () => {
+      const { runId } = await startRunningRun();
+      const attached = store.attachLoopRun(runId, 'loop-run-42', 3_000);
+      expect(attached?.loopRunId).toBe('loop-run-42');
+      expect(attached?.configSnapshot?.action.loop?.verifyCommand).toBe('npm test');
+      expect(store.getRun(runId)?.loopRunId).toBe('loop-run-42');
+    });
+
+    it('failRunningRuns skips loop-linked runs (loops recover across restarts) and lists them for re-tracking', async () => {
+      const { runId } = await startRunningRun();
+      store.attachLoopRun(runId, 'loop-run-42', 3_000);
+
+      const failed = store.failRunningRuns('App restarted', 4_000);
+      expect(failed.map((run) => run.id)).not.toContain(runId);
+      expect(store.getRun(runId)?.status).toBe('running');
+
+      const linked = store.listRunningLoopLinkedRuns();
+      expect(linked.map((run) => run.id)).toContain(runId);
+    });
+  });
+
   describe('recordRunOutcome (failure tracking + auto-disable)', () => {
     async function makeAutomation(target: AutomationStore = store): Promise<string> {
       const automation = await target.create({

@@ -348,6 +348,16 @@ export const LoopConfigSchema = z.object({
    *  on terminal-success (via a dedicated integration worktree, never the root
    *  checkout). Default: true when isolateLoopWorkspaces is true. */
   autoIntegrateWorktree: z.boolean().optional(),
+  /** WS6: per-iteration agentic turn cap — the primary bound WITHIN an
+   *  iteration (the spend check runs between iterations). `null` = provider
+   *  default. Previously absent here, so the renderer's value was silently
+   *  stripped at the IPC boundary and only the shared default ever applied. */
+  maxTurnsPerIteration: z.number().int().positive().max(1000).nullable().optional(),
+  /** Fable WS6: named recipe pack for the per-stage work prompts. */
+  loopRecipe: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).max(100).optional(),
+  /** WS7: deliberate single-loop override of a campaign-recommended plan
+   *  assessment. Persisted so restarts/audits show the choice was explicit. */
+  singleLoopOverride: z.boolean().optional(),
 });
 
 /** Partial config the renderer may submit; main process fills defaults. */
@@ -770,6 +780,25 @@ export const VerificationRunsListPayloadSchema = z.object({
 });
 
 /** LF-3a: preview the auto-inferred verify command for a workspace. */
+/** WS7: request/response for the read-only plan-scope assessment. */
+export const LoopAssessScopePayloadSchema = z.object({
+  workspaceCwd: z.string().min(1),
+  /** Workspace-relative plan file path (same field the loop config uses). */
+  planFile: z.string().min(1),
+});
+
+export const LoopScopeAssessmentSchema = z.object({
+  disposition: z.enum(['single-loop', 'campaign-recommended', 'campaign-required']),
+  reasons: z.array(z.enum(['explicit-one-workstream-rule', 'multiple-workstreams', 'oversized-checklist'])),
+  workstreams: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    startLine: z.number().int().positive(),
+    endLine: z.number().int().positive(),
+  })),
+  checklistLeafCount: z.number().int().nonnegative(),
+});
+
 export const LoopInferVerifyPayloadSchema = z.object({
   workspaceCwd: z.string().min(1),
 });
@@ -827,6 +856,8 @@ export type LoopListByChatPayload = z.infer<typeof LoopListByChatPayloadSchema>;
 export type LoopGetIterationsPayload = z.infer<typeof LoopGetIterationsPayloadSchema>;
 export type VerificationRunsListPayload = z.infer<typeof VerificationRunsListPayloadSchema>;
 export type LoopInferVerifyPayload = z.infer<typeof LoopInferVerifyPayloadSchema>;
+export type LoopAssessScopePayload = z.infer<typeof LoopAssessScopePayloadSchema>;
+export type LoopScopeAssessmentContract = z.infer<typeof LoopScopeAssessmentSchema>;
 export type LoopOutstandingItemPayload = z.infer<typeof LoopOutstandingItemSchema>;
 export type LoopListOutstandingPayload = z.infer<typeof LoopListOutstandingPayloadSchema>;
 export type LoopSetOutstandingStatusPayload = z.infer<typeof LoopSetOutstandingStatusPayloadSchema>;

@@ -156,6 +156,7 @@ describe('DoctorService', () => {
       },
       skillDiagnostics: [{ code: 'missing-file', severity: 'error', message: 'missing' }],
       instructionDiagnostics: [],
+      loopRecipeDiagnostics: [],
     } satisfies Omit<DoctorReport, 'sections'>);
 
     expect(summaries.map((summary) => summary.id)).toEqual([
@@ -169,6 +170,36 @@ describe('DoctorService', () => {
     ]);
     expect(summaries.find((summary) => summary.id === 'cli-health')?.severity).toBe('info');
     expect(summaries.find((summary) => summary.id === 'commands-and-skills')?.severity).toBe('error');
+  });
+
+  it('escalates the commands-and-skills section on a malformed loop recipe (Fable WS6)', () => {
+    const service = new DoctorService();
+    const base: Omit<DoctorReport, 'sections'> = {
+      schemaVersion: 1,
+      generatedAt: 1,
+      startupCapabilities: null,
+      providerDiagnoses: [],
+      cliHealth: { installs: [], updatePlans: [], generatedAt: 1 },
+      browserAutomation: null,
+      commandDiagnostics: { available: true, diagnostics: [], scanDirs: [], generatedAt: 1 },
+      skillDiagnostics: [],
+      instructionDiagnostics: [],
+      loopRecipeDiagnostics: [
+        { recipe: 'coding', kind: 'malformed-pack', severity: 'error', message: 'bad json' },
+      ],
+    };
+    const section = service.buildSectionSummaries(base).find((s) => s.id === 'commands-and-skills');
+    expect(section?.severity).toBe('error');
+    expect(section?.headline).toContain('recipe diagnostic');
+
+    // A user-override alone is informational, not an error/warning.
+    const overrideOnly = service.buildSectionSummaries({
+      ...base,
+      loopRecipeDiagnostics: [
+        { recipe: 'coding', kind: 'user-override', severity: 'info', message: 'user pack overrides built-in' },
+      ],
+    }).find((s) => s.id === 'commands-and-skills');
+    expect(overrideOnly?.severity).toBe('ok');
   });
 
   it('adds bridge-backed plugin providers to the doctor report provider diagnoses', async () => {

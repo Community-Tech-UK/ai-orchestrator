@@ -12,6 +12,7 @@ import type {
 } from '../../shared/types/provider-quota.types';
 import type { QuotaThrottleDecision } from './loop-quota-throttle';
 import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
+import type { LoopInvocationAttemptEvidence } from './loop-invocation-attempt';
 
 /**
  * @deprecated Flat $15 per 1M tokens. This was applied to a token total that
@@ -75,6 +76,8 @@ export interface LoopChildResult {
    * skips these to avoid double-recording the same turn.
    */
   transcriptBound?: boolean;
+  /** WS5: workspace-effect evidence for this attempt (side-effect-aware retry). */
+  attemptEvidence?: LoopInvocationAttemptEvidence;
 }
 
 export interface LoopChildInvocationError {
@@ -87,6 +90,8 @@ export interface LoopChildInvocationError {
   provider?: string;
   model?: string;
   instanceId?: string;
+  /** WS5: workspace-effect evidence for the failed attempt (side-effect-aware retry). */
+  attemptEvidence?: LoopInvocationAttemptEvidence;
 }
 
 export type LoopChildInvocationCallbackResult = LoopChildResult | LoopChildInvocationError;
@@ -129,4 +134,6 @@ export type ProviderLimitResumeScheduler = (
 export interface LoopRuntimeContext {
   existingSessionContext?: string;
   priorObservations?: string[];
+  /** Fable WS6: bounded PLAN-stage prior-context block (advisory, untrusted). */
+  planStageContext?: string;
 }

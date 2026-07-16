@@ -15,7 +15,7 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (store.visible(); as visible) {
+    @if (showWarning() && store.visible(); as visible) {
       <section class="rlm-storage-warning" [attr.data-level]="store.health()?.level">
         <div>
           <strong>{{ store.health()?.level === 'critical' ? 'RLM storage limit reached' : 'RLM storage needs maintenance' }}</strong>
@@ -31,7 +31,7 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
       </section>
     }
 
-    @if (store.modalOpen()) {
+    @if (showModal() && store.modalOpen()) {
       <div class="modal-backdrop" role="presentation">
         <section
           #dialog
@@ -172,11 +172,27 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
 export class RlmStorageMaintenanceComponent implements OnInit {
   readonly loopRunId = input<string | null>(null);
   readonly refreshKey = input<string | null>(null);
+  /** Render the inline storage-health warning banner (contextual, in the loop HUD). */
+  readonly showWarning = input(true);
+  /**
+   * Render the maintenance dialog overlay. The app shell mounts one instance with
+   * this enabled so the modal survives a renderer reload that has no selected
+   * instance; the loop HUD instance disables it to avoid a duplicate overlay.
+   */
+  readonly showModal = input(true);
   protected readonly store = inject(RlmStorageMaintenanceStore);
   private focusReturnTarget: HTMLElement | null = null;
   @ViewChild('dialog')
   private set dialog(element: ElementRef<HTMLElement> | undefined) {
-    if (element) queueMicrotask(() => element.nativeElement.focus());
+    if (element) {
+      // Capture the element that opened the modal here rather than at click time:
+      // the opener (e.g. the banner's "Review cleanup" button) may live in a
+      // different component instance, and this also covers reload recovery.
+      if (document.activeElement instanceof HTMLElement) {
+        this.focusReturnTarget = document.activeElement;
+      }
+      queueMicrotask(() => element.nativeElement.focus());
+    }
   }
   private readonly refreshOnLoopChange = effect(() => {
     this.loopRunId();
@@ -189,7 +205,6 @@ export class RlmStorageMaintenanceComponent implements OnInit {
   }
 
   protected openPreview(): void {
-    this.focusReturnTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     void this.store.openPreview(this.loopRunId() ?? undefined);
   }
   protected run(): void { void this.store.run(this.loopRunId() ?? undefined); }

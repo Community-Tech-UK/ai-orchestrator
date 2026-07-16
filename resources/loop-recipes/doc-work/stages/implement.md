@@ -1,0 +1,1 @@
+Write or update the next document section from the ledger. Ground every statement in the current code (cite paths where the doc format allows). Keep terminology consistent with the codebase, prefer concrete examples over abstractions, and update any adjacent docs the change makes stale. Record progress in `{{notesPath}}`.

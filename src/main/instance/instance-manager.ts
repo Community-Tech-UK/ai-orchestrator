@@ -34,7 +34,8 @@ import type {
   ExportedSession,
   FileAttachment,
   ForkConfig,
-  OutputMessage
+  OutputMessage,
+  RuntimeChangeRequest
 } from '../../shared/types/instance.types';
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { generateId, generateInstanceId } from '../../shared/utils/id-generator';
@@ -450,7 +451,7 @@ export class InstanceManager extends EventEmitter {
       deleteDiffTracker: (id) => this.state.deleteDiffTracker(id),
       getInstanceCount: () => this.state.getInstanceCount(),
       forEachInstance: (cb) => this.state.forEachInstance(cb),
-      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason) => (
+      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason, extras) => (
         this.state.queueUpdate(
           id,
           status,
@@ -463,6 +464,7 @@ export class InstanceManager extends EventEmitter {
           activityState,
           currentModel,
           waitReason,
+          extras,
         )
       ),
       serializeForIpc: (inst) => this.state.serializeForIpc(inst),
@@ -1417,11 +1419,22 @@ export class InstanceManager extends EventEmitter {
 
   async changeModel(
     instanceId: string,
-    newModel: string,
+    newModel: string | undefined,
     reasoningEffort?: Instance['reasoningEffort'] | null,
     modelRuntimeTarget?: Instance['modelRuntimeTarget'],
+    targetProvider?: Exclude<Instance['provider'], 'auto'>,
   ): Promise<Instance> {
-    return this.lifecycle.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget);
+    return this.lifecycle.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget, targetProvider);
+  }
+
+  /**
+   * Queue-aware runtime (provider/model) change for the UI: applies
+   * immediately when the instance is waiting for input, else parks the
+   * desired runtime and auto-applies on the next settle. See
+   * {@link InstanceLifecycleManager.requestModelChange}.
+   */
+  async requestModelChange(instanceId: string, request: RuntimeChangeRequest): Promise<Instance> {
+    return this.lifecycle.requestModelChange(instanceId, request);
   }
 
   interruptInstance(instanceId: string): boolean {

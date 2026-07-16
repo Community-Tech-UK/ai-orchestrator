@@ -111,6 +111,11 @@
     </div>
   }
 
+  <!-- RLM maintenance modal, mounted at the shell so an in-flight run's dialog
+       survives a renderer reload even with no selected instance. The inline
+       storage warning banner still lives in the loop HUD, so it is disabled here. -->
+  <app-rlm-storage-maintenance [showWarning]="false" />
+
   <!-- C2: remote-terminal drawer (xterm.js streaming a node-pty session on a worker node) -->
   <app-terminal-drawer [isOpen]="terminalOpen()" (closeRequested)="terminalOpen.set(false)" />
 </div>

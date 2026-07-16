@@ -228,6 +228,8 @@ export const SETTINGS_TOOL_POLICY = {
   modelCatalogRemoteOverrideUrl: open(optionalHttpUrlSchema),
   parserBufferMaxKB: open(numberSettingSchema('parserBufferMaxKB')),
   codememEnabled: open(z.boolean()),
+  loopSurfaceCodemem: open(z.boolean()),
+  loopSurfaceLessons: open(z.boolean()),
   codememIndexingEnabled: open(z.boolean()),
   codememLspWorkerEnabled: open(z.boolean(), true),
   codememPrewarmEnabled: open(z.boolean()),
@@ -246,6 +248,8 @@ export const SETTINGS_TOOL_POLICY = {
   // from settings export; the password itself is never stored here or logged.
   browserVaultMasterPasswordFile: secret(),
   browserVaultAutoUnlock: readOnly(),
+  // WS11.2: routes page text through the aux model; operator decides.
+  browserAuxExtractionEnabled: readOnly(),
   // Security-sensitive: authorizes autonomous credential fills on the user's
   // real shared browser. An autonomous agent must never flip this via the safe
   // settings tool — only the local operator (UI / privileged aio-mcp CLI /

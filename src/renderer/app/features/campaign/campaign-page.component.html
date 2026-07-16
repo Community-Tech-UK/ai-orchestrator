@@ -16,6 +16,44 @@
     </div>
   </header>
 
+  <section class="cp-import" aria-label="Import implementation plan">
+    <h3>Import implementation plan</h3>
+    <p class="hint">
+      Builds one sequential loop node per plan workstream plus a final
+      integration gate. Importing only shows a preview — nothing starts until
+      you press Run.
+    </p>
+    <div class="import-fields">
+      <label>Workspace
+        <input type="text" placeholder="/path/to/repo" [ngModel]="importWorkspaceCwd()" (ngModelChange)="importWorkspaceCwd.set($event)" />
+      </label>
+      <label>Plan file (workspace-relative)
+        <input type="text" placeholder="docs/plans/my-plan.md" [ngModel]="importPlanFile()" (ngModelChange)="importPlanFile.set($event)" />
+      </label>
+      <label>Verify command (copied into every node)
+        <input type="text" placeholder="npm test" [ngModel]="importVerifyCommand()" (ngModelChange)="importVerifyCommand.set($event)" />
+      </label>
+      <button type="button" (click)="onImportPlanPreview()">Preview import</button>
+    </div>
+    @if (importPreview(); as preview) {
+      <div class="import-preview" role="status">
+        <p>
+          <strong>{{ preview.nodeCount }}</strong> sequential node(s)
+          ({{ preview.workstreams.length }} workstream(s) + integration gate) ·
+          per-node cap ${{ preview.perNodeCapCents / 100 }} ·
+          worst-case aggregate ${{ preview.aggregateMaxCostCents / 100 }}
+          (an upper bound, not a guaranteed charge) ·
+          max parallel 1, pauses on needs-review.
+        </p>
+        <p class="hint">
+          The final integration gate is the only node allowed to rename the plan
+          _completed.md. Starting re-checks the plan digest
+          ({{ preview.sourceDigest.slice(0, 8) }}…) and refuses a stale preview.
+        </p>
+      </div>
+    }
+  </section>
+
   <section class="cp-editor">
     <div class="cp-editor-main">
       <div class="cp-policy-row">

@@ -2,6 +2,7 @@ import type {
   AutomationAction,
   AutomationConcurrencyPolicy,
   AutomationMissedRunPolicy,
+  AutomationWebhookFilter,
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 
@@ -16,6 +17,10 @@ export interface AutomationFormModel {
   runAtLocal: string;
   missedRunPolicy: AutomationMissedRunPolicy;
   concurrencyPolicy: AutomationConcurrencyPolicy;
+  /** WS5: what starts this automation — the schedule, or a webhook route. */
+  triggerKind: 'schedule' | 'webhook';
+  webhookRouteId: string;
+  webhookFilters: AutomationWebhookFilter[];
   prompt: string;
   workingDirectory: string;
   provider: AutomationAction['provider'];
@@ -25,6 +30,12 @@ export interface AutomationFormModel {
   reasoningEffort: AutomationAction['reasoningEffort'] | '';
   forceNodeId: string;
   attachments: FileAttachment[];
+  /** WS5: run the prompt as an autonomous loop instead of a one-shot turn. */
+  loopEnabled: boolean;
+  loopVerifyCommand: string;
+  loopIsolateWorkspace: boolean;
+  loopMaxIterations: string;
+  loopMaxCostCents: string;
 }
 
 export function emptyForm(): AutomationFormModel {
@@ -38,6 +49,9 @@ export function emptyForm(): AutomationFormModel {
     runAtLocal: toLocalDateInput(Date.now() + 60 * 60 * 1000),
     missedRunPolicy: 'notify',
     concurrencyPolicy: 'skip',
+    triggerKind: 'schedule',
+    webhookRouteId: '',
+    webhookFilters: [],
     prompt: '',
     workingDirectory: '',
     provider: 'auto',
@@ -47,6 +61,46 @@ export function emptyForm(): AutomationFormModel {
     reasoningEffort: '',
     forceNodeId: '',
     attachments: [],
+    loopEnabled: false,
+    loopVerifyCommand: '',
+    loopIsolateWorkspace: true,
+    loopMaxIterations: '',
+    loopMaxCostCents: '',
+  };
+}
+
+/** Build the persisted trigger from the form (WS5). */
+export function formToTrigger(model: AutomationFormModel):
+  | { kind: 'schedule' }
+  | { kind: 'webhook'; routeId: string; filters: AutomationWebhookFilter[] } {
+  if (model.triggerKind === 'webhook' && model.webhookRouteId.trim()) {
+    return {
+      kind: 'webhook',
+      routeId: model.webhookRouteId.trim(),
+      filters: model.webhookFilters
+        .map((filter) => ({
+          path: filter.path.trim(),
+          operator: filter.operator,
+          value: filter.value,
+        }))
+        .filter((filter) => filter.path.length > 0),
+    };
+  }
+  return { kind: 'schedule' };
+}
+
+/** Build the persisted loop action from the form, or undefined (WS5). */
+export function formToLoopAction(model: AutomationFormModel): AutomationAction['loop'] {
+  if (!model.loopEnabled || !model.loopVerifyCommand.trim()) {
+    return undefined;
+  }
+  const maxIterations = Number.parseInt(model.loopMaxIterations, 10);
+  const maxCostCents = Number.parseInt(model.loopMaxCostCents, 10);
+  return {
+    verifyCommand: model.loopVerifyCommand.trim(),
+    isolateWorkspace: model.loopIsolateWorkspace,
+    ...(Number.isFinite(maxIterations) && maxIterations > 0 ? { maxIterations } : {}),
+    ...(Number.isFinite(maxCostCents) && maxCostCents > 0 ? { maxCostCents } : {}),
   };
 }
 

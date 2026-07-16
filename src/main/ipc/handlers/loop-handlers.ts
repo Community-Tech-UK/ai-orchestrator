@@ -13,6 +13,7 @@ import {
   LoopSetOutstandingStatusPayloadSchema,
   LoopExportOutstandingPayloadSchema,
   LoopResumeWithAnswersPayloadSchema,
+  LoopAssessScopePayloadSchema,
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
@@ -21,6 +22,11 @@ import { buildLoopCheckpoint } from '../../orchestration/loop-checkpoint';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
 import { prepareLoopStartConfig } from '../../orchestration/loop-start-config';
+import { assessLoopScope, type LoopScopeAssessment } from '../../orchestration/loop-scope-assessment';
+import { loadLoopRecipeRegistry } from '../../orchestration/loop-recipes';
+import { readUtf8FileHead } from '../../orchestration/bounded-file-read';
+import { isInsideOrEqual } from '../../util/path-helpers';
+import path from 'path';
 import { exportOutstandingMarkdown } from '../../orchestration/loop-outstanding-export';
 import { buildResumeWithAnswersPrompt } from '../../orchestration/loop-resume-with-answers';
 import {
@@ -242,12 +248,61 @@ export function registerLoopHandlers(deps: {
   coordinator.on('loop:cancelled', (data: unknown) => send(IPC_CHANNELS.LOOP_CANCELLED, data));
   coordinator.on('loop:error', (data: unknown) => send(IPC_CHANNELS.LOOP_ERROR, data));
 
+  // WS7: bounded, path-safe plan read + pure scope assessment. Read-only.
+  const LOOP_SCOPE_PLAN_MAX_BYTES = 1_048_576; // 1 MiB — plans are text files.
+  async function assessConfiguredPlanScope(
+    workspaceCwd: string,
+    planFile: string,
+  ): Promise<LoopScopeAssessment> {
+    const resolved = path.resolve(workspaceCwd, planFile);
+    if (!isInsideOrEqual(workspaceCwd, resolved)) {
+      throw new Error('planFile must resolve inside the workspace');
+    }
+    const { text } = await readUtf8FileHead(resolved, LOOP_SCOPE_PLAN_MAX_BYTES);
+    return assessLoopScope(text);
+  }
+
   // ────── command handlers ──────
 
   ipcMain.handle(IPC_CHANNELS.LOOP_START, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopStartPayloadSchema, payload, 'LOOP_START');
       const startConfig = await prepareLoopStartConfig(validated.config);
+      // WS7: a configured plan whose own text contradicts single-loop
+      // execution must not start as one. `campaign-required` cannot be
+      // bypassed; `campaign-recommended` may proceed only with the persisted
+      // deliberate override so restarts/audits show the choice was explicit.
+      if (startConfig.planFile?.trim()) {
+        const scopeAssessment = await assessConfiguredPlanScope(
+          startConfig.workspaceCwd,
+          startConfig.planFile.trim(),
+        );
+        const overridden = (startConfig as { singleLoopOverride?: boolean }).singleLoopOverride === true;
+        if (
+          scopeAssessment.disposition === 'campaign-required'
+          || (scopeAssessment.disposition === 'campaign-recommended' && !overridden)
+        ) {
+          const required = scopeAssessment.disposition === 'campaign-required';
+          logger.warn('LOOP_START refused by plan-scope assessment', {
+            planFile: startConfig.planFile,
+            disposition: scopeAssessment.disposition,
+            reasons: scopeAssessment.reasons,
+          });
+          return {
+            success: false,
+            data: { scopeAssessment },
+            error: {
+              code: required ? 'LOOP_SCOPE_CAMPAIGN_REQUIRED' : 'LOOP_SCOPE_CAMPAIGN_RECOMMENDED',
+              message: required
+                ? `The configured plan forbids single-loop execution (${scopeAssessment.reasons.join(', ')}; `
+                  + `${scopeAssessment.workstreams.length} workstreams). Run it as a campaign.`
+                : `The configured plan looks larger than one loop (${scopeAssessment.reasons.join(', ')}). `
+                  + 'Run it as a campaign, or re-submit with the deliberate single-loop override.',
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
       const existingSessionContext = buildExistingSessionContext(
         deps.instanceManager,
         validated.chatId,
@@ -450,6 +505,38 @@ export function registerLoopHandlers(deps: {
 
   // LF-3a: preview the auto-inferred verify command so the config panel can
   // show what will gate completion before the loop starts.
+  ipcMain.handle(IPC_CHANNELS.LOOP_LIST_RECIPES, async (): Promise<IpcResponse> => {
+    try {
+      // Fable WS6: read-only manifest summaries for the config-panel picker.
+      // forceReload so a user pack dropped in while the app runs shows up.
+      const registry = loadLoopRecipeRegistry(true);
+      return {
+        success: true,
+        data: {
+          recipes: [...registry.recipes.values()].map((recipe) => ({
+            name: recipe.manifest.name,
+            description: recipe.manifest.description,
+            source: recipe.source,
+            verifyCommandSuggestions: recipe.manifest.verifyCommandSuggestions ?? [],
+          })),
+          diagnostics: registry.diagnostics,
+        },
+      };
+    } catch (error) {
+      return errorResponse('LOOP_LIST_RECIPES_FAILED', error);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LOOP_ASSESS_SCOPE, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopAssessScopePayloadSchema, payload, 'LOOP_ASSESS_SCOPE');
+      const assessment = await assessConfiguredPlanScope(validated.workspaceCwd, validated.planFile);
+      return { success: true, data: { assessment } };
+    } catch (error) {
+      return errorResponse('LOOP_ASSESS_SCOPE_FAILED', error);
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.LOOP_INFER_VERIFY, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopInferVerifyPayloadSchema, payload, 'LOOP_INFER_VERIFY');
@@ -537,6 +624,16 @@ export function registerLoopHandlers(deps: {
       // start preparation as normal LOOP_START. That preserves source choices
       // while also restoring runtime-only planner functions and applying the
       // current safety defaults for fallback runs.
+      //
+      // WS6 verification authority: a resumed run whose source config carried
+      // no verify command (or whose config is lost) must still be startable —
+      // the human is ALREADY in the loop (they just answered its questions).
+      // Fall back to explicit operator-reviewed completion, which is a valid
+      // authority under the policy (the finite default cost cap applies).
+      const sourceVerify = sourceConfig?.completion?.verifyCommand?.trim() ?? '';
+      const operatorReviewedFallback = sourceVerify
+        ? {}
+        : { allowOperatorReviewedCompletion: true };
       const resumeConfig = sourceConfig
         ? {
             ...sourceConfig,
@@ -546,13 +643,23 @@ export function registerLoopHandlers(deps: {
             executionCwd: undefined,
             worktreeBranch: undefined,
             nextObjectivePlanner: undefined,
-            completion: { ...sourceConfig.completion, requireCompletedFileRename: false },
+            completion: {
+              ...sourceConfig.completion,
+              requireCompletedFileRename: false,
+              ...operatorReviewedFallback,
+            },
           }
         : {
             initialPrompt: prompt,
             workspaceCwd: validated.workspaceCwd,
             planFile: undefined,
-            completion: { requireCompletedFileRename: false },
+            completion: {
+              requireCompletedFileRename: false,
+              // Keep the documented review-driven default for fallback resumes;
+              // the operator-reviewed flag is the authority, not a mode switch.
+              mode: 'review-driven' as const,
+              ...operatorReviewedFallback,
+            },
           };
       const partialConfig = await prepareLoopStartConfig(resumeConfig);
 

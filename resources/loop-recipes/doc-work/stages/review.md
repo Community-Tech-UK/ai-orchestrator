@@ -1,0 +1,1 @@
+Re-read the drafted docs with completely fresh eyes as the target reader. Verify every factual claim against the actual code or runtime behaviour it describes (never from memory), fix inaccuracies, tighten structure, and cut filler. If a claim cannot be verified, mark it explicitly rather than shipping it.

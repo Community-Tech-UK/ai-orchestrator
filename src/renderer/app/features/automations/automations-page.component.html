@@ -245,6 +245,49 @@
                   </div>
                 </div>
 
+                <label>
+                  <span>Trigger</span>
+                  <select name="triggerKind" [ngModel]="form().triggerKind" (ngModelChange)="patchForm({ triggerKind: $event })">
+                    <option value="schedule">Schedule</option>
+                    <option value="webhook">Webhook route</option>
+                  </select>
+                </label>
+
+                @if (form().triggerKind === 'webhook') {
+                  <label>
+                    <span>Webhook Route</span>
+                    <select name="webhookRouteId" [ngModel]="form().webhookRouteId" (ngModelChange)="patchForm({ webhookRouteId: $event })" required>
+                      <option value="">Select a route…</option>
+                      @for (route of webhookRoutes(); track route.id) {
+                        <option [value]="route.id">{{ route.path }}</option>
+                      }
+                    </select>
+                    <span class="hint">The route must also allow this automation (Webhooks panel below).</span>
+                  </label>
+
+                  @for (filter of form().webhookFilters; track $index) {
+                    <div class="form-grid webhook-filter-row">
+                      <label>
+                        <span>Payload field</span>
+                        <input [name]="'filterPath' + $index" placeholder="issue.state" [ngModel]="filter.path" (ngModelChange)="updateWebhookFilter($index, { path: $event })" />
+                      </label>
+                      <label>
+                        <span>Match</span>
+                        <select [name]="'filterOp' + $index" [ngModel]="filter.operator" (ngModelChange)="updateWebhookFilter($index, { operator: $event })">
+                          <option value="equals">equals</option>
+                          <option value="contains">contains</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Value</span>
+                        <input [name]="'filterValue' + $index" [ngModel]="filter.value" (ngModelChange)="updateWebhookFilter($index, { value: $event })" />
+                      </label>
+                      <button class="btn" type="button" (click)="removeWebhookFilter($index)">Remove</button>
+                    </div>
+                  }
+                  <button class="btn" type="button" (click)="addWebhookFilter()">Add payload filter</button>
+                }
+
                 <div class="form-grid">
                   <label>
                     <span>Schedule</span>
@@ -293,7 +336,37 @@
                 <label>
                   <span>Prompt</span>
                   <textarea name="prompt" rows="8" [ngModel]="form().prompt" (ngModelChange)="patchForm({ prompt: $event })" required></textarea>
+                  @if (form().triggerKind === 'webhook') {
+                    <span class="hint">Use {{ '{' }}{{ '{' }}payload.field{{ '}' }}{{ '}' }} to insert webhook payload values (secrets are redacted).</span>
+                  }
                 </label>
+
+                <label class="checkbox">
+                  <input name="loopEnabled" type="checkbox" [ngModel]="form().loopEnabled" (ngModelChange)="patchForm({ loopEnabled: $event })" />
+                  <span>Run as autonomous loop (issue in, worked branch out)</span>
+                </label>
+
+                @if (form().loopEnabled) {
+                  <label>
+                    <span>Verify Command (required)</span>
+                    <input name="loopVerifyCommand" placeholder="npm test" [ngModel]="form().loopVerifyCommand" (ngModelChange)="patchForm({ loopVerifyCommand: $event })" required />
+                    <span class="hint">The loop only completes autonomously when this command passes.</span>
+                  </label>
+                  <div class="form-grid">
+                    <label class="checkbox">
+                      <input name="loopIsolateWorkspace" type="checkbox" [ngModel]="form().loopIsolateWorkspace" (ngModelChange)="patchForm({ loopIsolateWorkspace: $event })" />
+                      <span>Isolated worktree</span>
+                    </label>
+                    <label>
+                      <span>Max iterations</span>
+                      <input name="loopMaxIterations" type="number" min="1" [ngModel]="form().loopMaxIterations" (ngModelChange)="patchForm({ loopMaxIterations: $event })" />
+                    </label>
+                    <label>
+                      <span>Max cost (cents)</span>
+                      <input name="loopMaxCostCents" type="number" min="1" [ngModel]="form().loopMaxCostCents" (ngModelChange)="patchForm({ loopMaxCostCents: $event })" />
+                    </label>
+                  </div>
+                }
 
                 <div class="form-grid">
                   <div class="model-choice">

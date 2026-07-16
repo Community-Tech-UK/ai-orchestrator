@@ -112,6 +112,7 @@ export function mapRunRow(row: AutomationRunRow): AutomationRun {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     instanceId: row.instance_id,
+    loopRunId: row.loop_run_id,
     error: row.error,
     outputSummary: row.output_summary,
     outputFullRef: row.output_full_ref,

@@ -6,7 +6,7 @@ import { Injectable } from '@angular/core';
 import type { ExecutionLocation } from '../../../../shared/types/worker-node.types';
 import type { ActivityState } from '../../../../shared/types/activity.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
-import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
+import type { InstanceWaitReason, DesiredRuntime } from '../../../../shared/types/instance.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 
 export interface StateUpdate {
@@ -59,6 +59,13 @@ export interface StateUpdate {
    * context-warning banner since AIO does not auto-compact these instances.
    */
   selfManagesAutoCompaction?: boolean;
+  /** Provider after a cross-provider swap; undefined preserves existing. */
+  provider?: string;
+  /**
+   * Model/provider change queued while busy. null means "clear"; undefined
+   * means "preserve existing value" — same semantics as waitReason above.
+   */
+  desiredRuntime?: DesiredRuntime | null;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;

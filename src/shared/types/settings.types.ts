@@ -169,6 +169,10 @@ export interface AppSettings extends DesktopComputerUseSettings {
   modelCatalogRemoteOverrideUrl: string;
   parserBufferMaxKB: number; // max size for NDJSON parser buffer
   codememEnabled: boolean;
+  /** Fable WS6: surface codemem hits for the goal in a loop's first prompt. */
+  loopSurfaceCodemem: boolean;
+  /** Fable WS6: surface prior lessons/learnings in a loop's first prompt. */
+  loopSurfaceLessons: boolean;
   codememIndexingEnabled: boolean;
   codememLspWorkerEnabled: boolean;
   /**
@@ -221,6 +225,13 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * master-password source (setting or AIO_BW_MASTER_PASSWORD_FILE).
    */
   browserVaultAutoUnlock: boolean;
+  /**
+   * WS11.2 "big model asks, small model reads": when true, browser.snapshot
+   * calls that carry an extractionHint run the captured page text through the
+   * auxiliary `webExtract` slot and return the distilled extract (never-worse
+   * guarded) instead of the raw dump. Default OFF.
+   */
+  browserAuxExtractionEnabled: boolean;
   /**
    * When true, browser.fill_credential and the credential steps of
    * browser.execute_fill_plan may run on the user's SHARED existing Chrome tabs

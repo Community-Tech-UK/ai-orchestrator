@@ -161,5 +161,7 @@ function toInvocationError(result: LoopChildInvocationError): Error {
   if (result.provider !== undefined) error.provider = result.provider;
   if (result.model !== undefined) error.model = result.model;
   if (result.instanceId !== undefined) error.instanceId = result.instanceId;
+  // WS5: carry the failed attempt's workspace-effect evidence to the retry seam.
+  if (result.attemptEvidence !== undefined) error.attemptEvidence = result.attemptEvidence;
   return error;
 }

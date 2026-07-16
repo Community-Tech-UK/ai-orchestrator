@@ -20,6 +20,9 @@ import { StatusIndicatorComponent } from '../instance-list/status-indicator.comp
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
 import { ContextBarComponent } from './context-bar.component';
 import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import { DEFAULT_INSTANCE_PROVIDERS, PROVIDER_MENU_LABELS } from '../models/provider-menu.constants';
+import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { SkillStore } from '../../core/state/skill.store';
 import { HookStore } from '../../core/state/hook.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
@@ -40,7 +43,7 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent],
   templateUrl: './instance-header.component.html',
   styleUrl: './instance-header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -59,9 +62,7 @@ export class InstanceHeaderComponent implements OnInit {
   isChangingMode = input(false);
   isTogglingYolo = input(false);
   isTogglingFastMode = input(false);
-  showModelDropdown = input(false);
   currentModel = input<string | undefined>(undefined);
-  models = input<ModelDisplayInfo[]>([]);
   contextUsage = input<ContextUsage | null>(null);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
@@ -266,9 +267,10 @@ export class InstanceHeaderComponent implements OnInit {
   toggleFastMode = output<void>();
   selectFolder = output<string>();
   interrupt = output<void>();
-  toggleModelDropdown = output<void>();
-  closeModelDropdown = output<void>();
-  selectModel = output<string>();
+  /** Provider/model/effort pick committed in the header's compact picker. */
+  modelSelectionChange = output<PendingSelection>();
+  /** Cancel a model change that was queued while the instance was busy. */
+  cancelDesiredRuntime = output<void>();
   toggleFileExplorer = output<void>();
   toggleSourceControl = output<void>();
   reviewPanelToggle = output<void>();
@@ -307,25 +309,64 @@ export class InstanceHeaderComponent implements OnInit {
     return this.getProviderColor(this.instance().provider, this.runtimeSummary());
   });
 
-  availableModels = computed((): ModelDisplayInfo[] => {
-    return this.models();
-  });
-
   currentModelId = computed(() => {
     const runtimeSummary = this.runtimeSummary();
     if (runtimeSummary?.kind === 'local-model') {
       return runtimeSummary.modelId || this.currentModel() || '';
     }
-    return this.currentModel() || this.availableModels()[0]?.id || '';
+    return this.currentModel() || '';
   });
 
   currentModelDisplayName = computed(() => {
     return resolveHeaderModelDisplayName({
       runtimeSummary: this.runtimeSummary(),
       currentModel: this.currentModel(),
-      availableModels: this.availableModels(),
+      availableModels: [],
       provider: this.instance().provider,
     });
+  });
+
+  /** Providers offered by the header picker (same list as the composer). */
+  readonly pickerProviders = DEFAULT_INSTANCE_PROVIDERS;
+
+  /**
+   * Current provider/model/effort mapped to the compact picker's selection.
+   * `ollama` collapses to `claude` because the picker has no Ollama tab.
+   */
+  readonly pickerSelection = computed<PendingSelection>(() => {
+    const inst = this.instance();
+    const provider = (inst.provider === 'ollama' ? 'claude' : inst.provider) as PickerProvider;
+    return {
+      provider,
+      model: this.currentModel() ?? null,
+      reasoning: inst.reasoningEffort ?? null,
+    };
+  });
+
+  /**
+   * The backend queues changes requested while busy, so the picker only
+   * disables in terminal states where no future idle will apply them.
+   */
+  readonly pickerDisabledReason = computed<string | null>(() => {
+    const status = this.instance().status;
+    if (status === 'terminated' || status === 'failed' || status === 'hibernated') {
+      return 'Model changes require a live session.';
+    }
+    return null;
+  });
+
+  /** Compact "Provider · model" label for the queued-change chip. */
+  readonly desiredRuntimeLabel = computed<string | null>(() => {
+    const pending = this.instance().desiredRuntime;
+    if (!pending) return null;
+    const providerLabel = pending.provider
+      ? PROVIDER_MENU_LABELS[pending.provider as PickerProvider] ?? pending.provider
+      : null;
+    if (pending.modelRuntimeTarget?.kind === 'local-model') {
+      return `Local · ${pending.modelRuntimeTarget.modelId}`;
+    }
+    const model = pending.model ?? 'default model';
+    return providerLabel ? `${providerLabel} · ${model}` : model;
   });
 
   modelBtnBorderColor = computed(() => {

@@ -20,9 +20,11 @@ describe('defaultLoopConfig', () => {
     expect(config.caps.maxTokens).toBeNull();
   });
 
-  it('defaults the estimated cost cap to unbounded', () => {
+  it('WS6: defaults the estimated cost cap to 3,000 cents ($30)', () => {
     const config = defaultLoopConfig('/tmp/project', 'finish the backlog');
 
-    expect(config.caps.maxCostCents).toBeNull();
+    expect(config.caps.maxCostCents).toBe(3_000);
+    // WS6: new loops are finite by default — 30 turns per iteration.
+    expect(config.maxTurnsPerIteration).toBe(30);
   });
 });

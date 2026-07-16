@@ -1,0 +1,10 @@
+{
+  "name": "doc-work",
+  "description": "Documentation-focused stages: structure and accuracy over code changes; verification is reader-facing correctness.",
+  "version": 1,
+  "stages": {
+    "plan": "stages/plan.md",
+    "review": "stages/review.md",
+    "implement": "stages/implement.md"
+  }
+}

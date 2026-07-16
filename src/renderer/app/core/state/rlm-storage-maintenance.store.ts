@@ -37,6 +37,12 @@ export class RlmStorageMaintenanceStore implements OnDestroy {
 
   private readonly api: RlmStorageApi | null;
   private readonly unsubscribe: (() => void) | null;
+  /**
+   * The loop that initiated the current preview/run, remembered so the modal can
+   * resume it even when the modal is rendered by a host (the app shell) that has
+   * no selected instance and therefore no `loopRunId` of its own.
+   */
+  private pendingLoopRunId: string | undefined;
 
   constructor() {
     this.api = (window as unknown as { electronAPI?: Partial<RlmStorageApi> }).electronAPI as RlmStorageApi | null ?? null;
@@ -81,6 +87,7 @@ export class RlmStorageMaintenanceStore implements OnDestroy {
 
   async openPreview(loopRunId?: string): Promise<void> {
     if (!this.api || this.busy()) return;
+    this.pendingLoopRunId = loopRunId;
     this.busy.set(true);
     this.error.set(null);
     try {
@@ -106,11 +113,14 @@ export class RlmStorageMaintenanceStore implements OnDestroy {
 
   async run(loopRunId?: string): Promise<void> {
     if (!this.api || this.busy() || !this.preview()?.canRun) return;
+    // Fall back to the loop captured at preview time so a modal rendered outside
+    // the selected-instance path (the app shell) still resumes the right loop.
+    const targetLoopRunId = loopRunId ?? this.pendingLoopRunId;
     this.busy.set(true);
     this.error.set(null);
     this.result.set(null);
     try {
-      const response = await this.api.rlmStorageRunMaintenance(loopRunId);
+      const response = await this.api.rlmStorageRunMaintenance(targetLoopRunId);
       if (!response.success || !response.data) {
         this.error.set(response.error?.message ?? 'RLM maintenance failed');
         this.progress.set(null);

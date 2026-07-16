@@ -234,13 +234,17 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     },
 
     /**
-     * Change model for an instance (preserves conversation context)
+     * Change model and/or provider for an instance (preserves conversation
+     * context). `model` may be omitted when `provider` is set — the backend
+     * falls back to the remembered per-provider default. Requests made while
+     * the instance is busy are queued and applied on the next idle.
      */
     changeModel: (payload: {
       instanceId: string;
-      model: string;
+      model?: string;
       reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow' | null;
       modelRuntimeTarget?: ModelRuntimeTarget;
+      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_CHANGE_MODEL, payload);
     },

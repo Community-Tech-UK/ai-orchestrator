@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { redactBrowserText, redactBrowserUrl, redactHeaders } from './browser-redaction';
+import { boundBrowserText, redactBrowserText, redactBrowserUrl, redactHeaders } from './browser-redaction';
 
 describe('browser-redaction', () => {
   it('redacts sensitive browser headers and leaves safe headers intact', () => {
@@ -52,5 +52,21 @@ describe('browser-redaction', () => {
     expect(result).not.toContain('secret');
     expect(result).not.toContain('sess-1');
     expect(result).toContain('safe=value');
+  });
+});
+
+describe('boundBrowserText (WS11.1 page-text spillover cap)', () => {
+  it('returns small pages unchanged (after redaction)', () => {
+    expect(boundBrowserText('hello page')).toBe('hello page');
+  });
+
+  it('caps an oversized synthetic page with a spillover reference instead of silently dropping text', () => {
+    // ~40k lines / ~400 KB — far over the 2000-line / 51 KB preview caps.
+    const hugePage = Array.from({ length: 40_000 }, (_, i) => `line-${i} content`).join('\n');
+    const bounded = boundBrowserText(hugePage);
+    expect(bounded.length).toBeLessThan(hugePage.length);
+    expect(bounded).toContain('line-0 content'); // head preserved
+    expect(bounded).toContain('[Output truncated'); // spill marker present
+    expect(bounded).not.toContain('line-39999'); // tail actually cut from preview
   });
 });

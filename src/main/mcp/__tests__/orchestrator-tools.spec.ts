@@ -12,7 +12,8 @@ import {
 } from '../../operator/git-batch-service';
 import { OperatorRunStore } from '../../operator/operator-run-store';
 import type { OperatorGitBatchSummary } from '../../../shared/types/operator.types';
-import { createOrchestratorToolDefinitions } from '../orchestrator-tools';
+import {
+  buildReadNodeOutputResult, createOrchestratorToolDefinitions } from '../orchestrator-tools';
 
 describe('orchestrator MCP tools', () => {
   const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
@@ -661,7 +662,8 @@ describe('orchestrator MCP tools', () => {
           done: true,
           messageCount: 1,
           truncated: false,
-          messages: [{ type: 'assistant', content: 'Windows 11', timestamp: 1 }],
+          lastSeq: 0,
+          messages: [{ type: 'assistant', content: 'Windows 11', timestamp: 1, seq: 0 }],
         };
       },
     });
@@ -1178,3 +1180,52 @@ function evidenceCoordinatorStub(captureAioMcpResult: ReturnType<typeof vi.fn>) 
     captureAioMcpResult,
   };
 }
+
+describe('buildReadNodeOutputResult (WS11.5 afterSeq cursor)', () => {
+  const buffer = Array.from({ length: 6 }, (_, i) => ({
+    type: 'assistant' as const,
+    content: `msg-${i}`,
+    timestamp: i,
+  }));
+  const base = { instanceId: 'inst-1', status: 'idle', done: true, buffer };
+
+  it('legacy mode returns the most-recent window with seqs and marks older messages truncated', () => {
+    const result = buildReadNodeOutputResult({ ...base, limit: 2 });
+    expect(result.messages.map((m) => m.seq)).toEqual([4, 5]);
+    expect(result.messages.map((m) => m.content)).toEqual(['msg-4', 'msg-5']);
+    expect(result.truncated).toBe(true); // 4 older messages skipped
+    expect(result.lastSeq).toBe(5);
+    expect(result.messageCount).toBe(6);
+  });
+
+  it('consecutive cursor reads are gap-free and duplicate-free', () => {
+    const first = buildReadNodeOutputResult({ ...base, afterSeq: -1, limit: 3 });
+    expect(first.messages.map((m) => m.seq)).toEqual([0, 1, 2]);
+    expect(first.truncated).toBe(true); // limit cut into the unseen window
+
+    const second = buildReadNodeOutputResult({ ...base, afterSeq: 2, limit: 3 });
+    expect(second.messages.map((m) => m.seq)).toEqual([3, 4, 5]);
+    expect(second.truncated).toBe(false); // everything unseen was returned
+    expect(second.lastSeq).toBe(5);
+
+    const third = buildReadNodeOutputResult({ ...base, afterSeq: second.lastSeq });
+    expect(third.messages).toEqual([]);
+    expect(third.truncated).toBe(false);
+  });
+
+  it('a rotated window is detectable: cursor past the buffer returns empty with lastSeq < afterSeq', () => {
+    const result = buildReadNodeOutputResult({ ...base, afterSeq: 40 });
+    expect(result.messages).toEqual([]);
+    expect(result.lastSeq).toBe(5);
+  });
+
+  it('caps oversized message content and flags truncated', () => {
+    const result = buildReadNodeOutputResult({
+      ...base,
+      buffer: [{ type: 'assistant', content: 'x'.repeat(50), timestamp: 1 }],
+      maxContentChars: 10,
+    });
+    expect(result.messages[0].content).toContain('… [truncated]');
+    expect(result.truncated).toBe(true);
+  });
+});

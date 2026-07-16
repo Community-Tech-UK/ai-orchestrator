@@ -15,6 +15,7 @@ import {
   isReviewerAvailabilityFault,
 } from '../../shared/types/loop.types';
 import { collectWorkspaceDiff } from './loop-diff';
+import { redactForEgress } from '../security/content-egress-gate';
 import { isReviewDrivenProductionChange } from './loop-coordinator-completion-gates';
 import { resolvePingPongSubject } from './pingpong-intent-classifier';
 import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
@@ -317,6 +318,17 @@ export async function evaluatePingPongCompletion(
   // use executionCwd so the ping-pong reviewer sees the actual changes.
   const diffCwd = state.config.executionCwd ?? state.config.workspaceCwd;
   const workspaceDiff = collectWorkspaceDiff(diffCwd);
+  // WS3: the diff leaves the process for a different-provider reviewer session —
+  // pass it through the egress gate (marker-preserving) before it reaches any
+  // prompt. Idempotent, so downstream gates double-redacting is harmless.
+  const diffEgress = redactForEgress(workspaceDiff.diff, { kind: 'diff' });
+  if (diffEgress.secretsFound) {
+    logger.warn('Ping-pong review diff contained potential secrets — redacted before reviewer egress', {
+      loopRunId: state.id,
+      secretCount: diffEgress.secretCount,
+    });
+  }
+  const reviewDiff = diffEgress.content;
   const reviewer = deps.reviewer ?? agenticPingPongReviewer;
   const localAdvisoryReviewer = deps.localAdvisoryReviewer ?? runLocalOnlyFreshEyesReview;
   const timeoutMs = Math.max(60_000, (reviewCfg.timeoutSeconds || 0) * 1000 || DEFAULT_REVIEWER_TIMEOUT_MS);
@@ -341,7 +353,7 @@ export async function evaluatePingPongCompletion(
     ledger: pp.ledger,
     roundNumber: pp.roundCount + 1,
     maxRounds,
-    diff: workspaceDiff.diff,
+    diff: reviewDiff,
     diffSource: workspaceDiff.source,
     blockingSeverities: reviewCfg.blockingSeverities,
     timeoutMs,
@@ -357,7 +369,7 @@ export async function evaluatePingPongCompletion(
     workspaceCwd: diffCwd,
     goal: state.config.initialPrompt,
     iterationOutput: fullOutput,
-    diff: workspaceDiff.diff,
+    diff: reviewDiff,
     diffSource: workspaceDiff.source,
     filesChangedThisIteration: iteration.filesChanged.map((file) => file.path),
     uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,

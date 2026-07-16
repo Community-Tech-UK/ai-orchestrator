@@ -20,8 +20,10 @@ import type {
   DoctorReport,
   DoctorSectionId,
   DoctorSectionSummary,
+  LoopRecipeDiagnostic,
   ProviderDiagnosisSnapshot,
 } from '../../shared/types/diagnostics.types';
+import { loadLoopRecipeRegistry } from '../orchestration/loop-recipes';
 import type { StartupCapabilityCheck } from '../../shared/types/startup-capability.types';
 import { getInstructionDiagnosticsService } from './instruction-diagnostics-service';
 import { getSkillDiagnosticsService } from './skill-diagnostics-service';
@@ -132,6 +134,7 @@ export class DoctorService {
       commandDiagnostics,
       skillDiagnostics,
       instructionDiagnostics,
+      loopRecipeDiagnostics: this.getLoopRecipeDiagnostics(Boolean(options.force)),
     };
     const report: DoctorReport = {
       ...reportWithoutSections,
@@ -169,6 +172,9 @@ export class DoctorService {
       ? report.commandDiagnostics.diagnostics.length
       : 0;
     const skillErrors = report.skillDiagnostics.filter((item) => item.severity === 'error').length;
+    const recipeDiagnostics = report.loopRecipeDiagnostics ?? [];
+    const recipeErrors = recipeDiagnostics.filter((item) => item.severity === 'error').length;
+    const recipeWarnings = recipeDiagnostics.filter((item) => item.severity === 'warning').length;
     const instructionErrors = report.instructionDiagnostics.filter((item) => item.severity === 'error').length;
     const instructionWarnings = report.instructionDiagnostics.filter((item) => item.severity === 'warning').length;
 
@@ -212,10 +218,12 @@ export class DoctorService {
       {
         id: 'commands-and-skills',
         label: SECTION_LABELS['commands-and-skills'],
-        severity: skillErrors > 0 ? 'error' : commandCount > 0 || report.skillDiagnostics.length > 0 ? 'warning' : 'ok',
-        headline: commandCount + report.skillDiagnostics.length === 0
+        severity: skillErrors > 0 || recipeErrors > 0
+          ? 'error'
+          : commandCount > 0 || report.skillDiagnostics.length > 0 || recipeWarnings > 0 ? 'warning' : 'ok',
+        headline: commandCount + report.skillDiagnostics.length + recipeDiagnostics.length === 0
           ? report.commandDiagnostics.available ? 'No command or skill issues' : 'Command diagnostics unavailable'
-          : `${commandCount + report.skillDiagnostics.length} command or skill diagnostic${commandCount + report.skillDiagnostics.length === 1 ? '' : 's'}`,
+          : `${commandCount + report.skillDiagnostics.length + recipeDiagnostics.length} command, skill, or recipe diagnostic${commandCount + report.skillDiagnostics.length + recipeDiagnostics.length === 1 ? '' : 's'}`,
       },
       {
         id: 'instructions',
@@ -232,6 +240,26 @@ export class DoctorService {
         headline: 'Redacted local support bundle available',
       },
     ];
+  }
+
+  /**
+   * Fable WS6: surface loop-recipe pack collisions/fallbacks. Best-effort — a
+   * recipe-loader failure must not sink the whole Doctor report.
+   */
+  private getLoopRecipeDiagnostics(force: boolean): LoopRecipeDiagnostic[] {
+    try {
+      return loadLoopRecipeRegistry(force).diagnostics.map((d) => ({
+        recipe: d.recipe,
+        kind: d.kind,
+        severity: d.kind === 'user-override'
+          ? 'info'
+          : d.kind === 'unknown-recipe-fallback' ? 'warning' : 'error',
+        message: d.detail,
+      }));
+    } catch (error) {
+      logger.warn('Loop recipe diagnostics failed', { error: String(error) });
+      return [];
+    }
   }
 
   private async getStartupCapabilities(): Promise<DoctorReport['startupCapabilities']> {

@@ -17,6 +17,23 @@ export class CampaignIpcService {
     return (await this.api.campaignValidate(spec)) as IpcResponse<{ valid: boolean; errors: string[] }>;
   }
 
+  /** WS8: build a campaign preview from a configured repository plan. */
+  async importPlanPreview(params: {
+    workspaceCwd: string;
+    planFile: string;
+    baseLoop: { verifyCommand: string; provider?: string; maxCostCents?: number; maxTurnsPerIteration?: number };
+  }): Promise<IpcResponse<{
+    spec: CampaignSpec;
+    sourceDigest: string;
+    aggregateMaxCostCents: number;
+    assessment: { disposition: string; reasons: string[]; workstreams: { id: string; title: string }[] };
+  }>> {
+    if (!this.api) return notInElectron() as never;
+    return (await (this.api as unknown as {
+      campaignImportPlanPreview: (p: unknown) => Promise<unknown>;
+    }).campaignImportPlanPreview(params)) as never;
+  }
+
   async start(spec: CampaignSpec): Promise<IpcResponse<{ campaign: CampaignRunDto }>> {
     if (!this.api) return notInElectron() as IpcResponse<{ campaign: CampaignRunDto }>;
     return (await this.api.campaignStart(spec)) as IpcResponse<{ campaign: CampaignRunDto }>;

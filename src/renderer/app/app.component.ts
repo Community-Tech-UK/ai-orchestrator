@@ -34,6 +34,7 @@ import { ComputerUsePermissionBannerComponent } from './core/state/computer-use-
 import { BrowserApprovalsBannerComponent } from './core/state/browser-approvals-banner.component';
 import { ComputerUsePermissionChipComponent } from './core/state/computer-use-permission-chip.component';
 import { NotificationCenterComponent } from './features/title-bar/notification-center.component';
+import { RlmStorageMaintenanceComponent } from './features/loop/rlm-storage-maintenance.component';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -87,6 +88,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     ComputerUsePermissionBannerComponent,
     ComputerUsePermissionChipComponent,
     NotificationCenterComponent,
+    RlmStorageMaintenanceComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',

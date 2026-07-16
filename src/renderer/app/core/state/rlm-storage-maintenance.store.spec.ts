@@ -72,6 +72,16 @@ describe('RlmStorageMaintenanceStore', () => {
     expect(api.rlmStorageGetHealth).toHaveBeenCalledTimes(2);
   });
 
+  it('runs against the loop remembered from preview when the modal host has none', async () => {
+    const store = new RlmStorageMaintenanceStore();
+    await store.openPreview('loop-42');
+
+    // The shell-mounted modal calls run() without a loopRunId of its own.
+    await store.run();
+
+    expect(api.rlmStorageRunMaintenance).toHaveBeenCalledWith('loop-42');
+  });
+
   it('surfaces failed preview IPC', async () => {
     api.rlmStoragePreviewMaintenance.mockResolvedValue({
       success: false,

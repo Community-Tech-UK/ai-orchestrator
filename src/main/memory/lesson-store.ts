@@ -140,3 +140,16 @@ export class LessonStore {
     return typeof limit === 'number' ? ranked.slice(0, Math.max(0, limit)) : ranked;
   }
 }
+
+let singleton: LessonStore | null = null;
+
+/** Fable WS6: process-wide lesson store (loop review/debate lesson capture). */
+export function getLessonStore(): LessonStore {
+  if (!singleton) singleton = new LessonStore();
+  return singleton;
+}
+
+/** Test seam. */
+export function _resetLessonStoreForTesting(): void {
+  singleton = null;
+}

@@ -8,7 +8,7 @@ vi.mock('./worker-node-connection', () => ({
 }));
 
 import { getWorkerNodeRegistry, WorkerNodeRegistry } from './worker-node-registry';
-import { RemoteTerminalManager, getRemoteTerminalManager } from './remote-terminal-manager';
+import { RemoteTerminalManager, getRemoteTerminalManager, RETAINED_OUTPUT_BYTES } from './remote-terminal-manager';
 
 interface OutputEvent {
   sessionId: string;
@@ -73,6 +73,32 @@ describe('RemoteTerminalManager', () => {
     registry.emit('remote:terminal-output', { nodeId: 'win', sessionId: 'ghost', data: 'wrong-session' });
 
     expect(outputs).toEqual([{ sessionId, data: 'hello' }]);
+  });
+
+  it('WS11.7: retains recent output for replay on (re)attach, bounded to the ring size', async () => {
+    sendRpc.mockResolvedValue({ sessionId: 'x', pid: 1 });
+    const mgr = getRemoteTerminalManager();
+    const { sessionId } = await mgr.spawn({ nodeId: 'win', cwd: '/repo' });
+    const registry = getWorkerNodeRegistry();
+
+    registry.emit('remote:terminal-output', { nodeId: 'win', sessionId, data: '$ ls\n' });
+    registry.emit('remote:terminal-output', { nodeId: 'win', sessionId, data: 'src package.json\n' });
+    expect(mgr.getBufferedOutput(sessionId)).toBe('$ ls\nsrc package.json\n');
+
+    // Overflow the ring: the oldest chunks are dropped, total stays bounded.
+    const bigChunk = 'y'.repeat(64 * 1024);
+    for (let i = 0; i < 8; i++) {
+      registry.emit('remote:terminal-output', { nodeId: 'win', sessionId, data: bigChunk });
+    }
+    const buffered = mgr.getBufferedOutput(sessionId)!;
+    expect(buffered.length).toBeLessThanOrEqual(RETAINED_OUTPUT_BYTES);
+    expect(buffered).not.toContain('$ ls'); // earliest output rotated out
+    expect(buffered.endsWith(bigChunk)).toBe(true); // newest retained
+
+    // Unknown/exited sessions replay nothing.
+    expect(mgr.getBufferedOutput('ghost')).toBeNull();
+    registry.emit('remote:terminal-exit', { nodeId: 'win', sessionId, exitCode: 0, signal: null });
+    expect(mgr.getBufferedOutput(sessionId)).toBeNull();
   });
 
   it('emits exit, drops the session, and ignores later output', async () => {

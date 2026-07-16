@@ -403,7 +403,7 @@ export class LoopStore {
     chatId: string,
     config: LoopStartConfigInput,
     attachments?: { name: string; data: Uint8Array }[],
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{ ok: boolean; error?: string; errorCode?: string }> {
     if (this.startingByChat.has(chatId)) {
       return { ok: false, error: 'A loop is already starting for this chat — please wait.' };
     }
@@ -413,7 +413,17 @@ export class LoopStore {
     this.startingByChat.add(chatId);
     try {
       const r = await this.ipc.start(chatId, config, attachments);
-      if (!r.success) return { ok: false, error: r.error?.message ?? 'unknown error' };
+      if (!r.success) {
+        return {
+          ok: false,
+          error: r.error?.message ?? 'unknown error',
+          // WS8: hosts route LOOP_SCOPE_CAMPAIGN_* refusals to the Campaign
+          // import flow with the plan path prefilled.
+          ...(r.error && 'code' in r.error && typeof r.error.code === 'string'
+            ? { errorCode: r.error.code }
+            : {}),
+        };
+      }
       if (r.data?.state) this.upsertActive(r.data.state);
       return { ok: true };
     } catch (error) {

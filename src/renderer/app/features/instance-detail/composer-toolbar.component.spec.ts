@@ -142,7 +142,7 @@ describe('ComposerToolbarComponent', () => {
 
   // ── 6. onPickerSelectionChange calls ipc.changeModel ─────────────────────
 
-  it('calls changeModel with the selected model and no forced effort', async () => {
+  it('calls changeModel with the selected model, its provider, and no forced effort', async () => {
     await component.onPickerSelectionChange({
       provider: 'claude',
       model: 'claude-3-5-sonnet',
@@ -150,11 +150,30 @@ describe('ComposerToolbarComponent', () => {
     });
 
     // reasoning omitted (undefined) so the backend preserves current effort
-    // rather than the old `medium` downgrade.
+    // rather than the old `medium` downgrade. The provider travels with every
+    // request so cross-provider picks actually swap the session's CLI.
     expect(ipcStub.changeModel).toHaveBeenCalledWith(
       'inst-1',
       'claude-3-5-sonnet',
       undefined,
+      undefined,
+      'claude',
+    );
+  });
+
+  it('passes the target provider for a cross-provider pick', async () => {
+    await component.onPickerSelectionChange({
+      provider: 'codex',
+      model: 'gpt-5.5',
+      reasoning: null,
+    });
+
+    expect(ipcStub.changeModel).toHaveBeenCalledWith(
+      'inst-1',
+      'gpt-5.5',
+      undefined,
+      undefined,
+      'codex',
     );
   });
 
@@ -167,13 +186,32 @@ describe('ComposerToolbarComponent', () => {
       reasoning: 'high',
     });
 
-    expect(ipcStub.changeModel).toHaveBeenCalledWith('inst-1', 'claude-3-7-sonnet', 'high');
+    expect(ipcStub.changeModel).toHaveBeenCalledWith(
+      'inst-1',
+      'claude-3-7-sonnet',
+      'high',
+      undefined,
+      'claude',
+    );
   });
 
-  // ── 8. onPickerSelectionChange is no-op when model is null ──────────────
+  // ── 8. Null model still sends when a provider is picked (backend falls
+  //       back to the remembered per-provider default) ─────────────────────
 
-  it('does not call changeModel when picker selection has null model', async () => {
-    await component.onPickerSelectionChange({ provider: 'claude', model: null, reasoning: null });
+  it('sends a provider-only request when the model is null', async () => {
+    await component.onPickerSelectionChange({ provider: 'codex', model: null, reasoning: null });
+
+    expect(ipcStub.changeModel).toHaveBeenCalledWith(
+      'inst-1',
+      undefined,
+      undefined,
+      undefined,
+      'codex',
+    );
+  });
+
+  it('ignores an incomplete local-model pick (no runtime target)', async () => {
+    await component.onPickerSelectionChange({ provider: 'local-model', model: null, reasoning: null });
 
     expect(ipcStub.changeModel).not.toHaveBeenCalled();
   });
@@ -205,7 +243,8 @@ describe('ComposerToolbarComponent', () => {
     );
   });
 
-  // ── 9. Picker gating mirrors the backend changeModel precondition ────────
+  // ── 9. Picker gating — busy states queue on the backend, so only terminal
+  //       states disable the picker ─────────────────────────────────────────
 
   it('allows the picker when the instance is waiting for user input', () => {
     overrideInputs(component, {});
@@ -213,10 +252,31 @@ describe('ComposerToolbarComponent', () => {
     expect(component.modelSwitchDisabledReason()).toBeUndefined();
   });
 
-  it('disables the picker with a reason while the instance is processing', () => {
+  it('keeps the picker enabled while the instance is processing (change is queued)', () => {
     overrideInputs(component, {});
     (component as unknown as Record<string, unknown>)['instanceStatus'] = () => 'processing';
-    expect(component.modelSwitchDisabledReason()).toContain('waiting for user input');
+    expect(component.modelSwitchDisabledReason()).toBeUndefined();
+  });
+
+  it('disables the picker for terminal states', () => {
+    overrideInputs(component, {});
+    (component as unknown as Record<string, unknown>)['instanceStatus'] = () => 'terminated';
+    expect(component.modelSwitchDisabledReason()).toContain('live session');
+  });
+
+  it('labels a queued change and cancels it via the live config', async () => {
+    const w = component as unknown as Record<string, unknown>;
+    w['desiredRuntime'] = () => ({ provider: 'codex', model: 'gpt-5.5' });
+    expect(component.desiredRuntimeLabel()).toBe('Codex · gpt-5.5');
+
+    await component.cancelPendingChange();
+    expect(ipcStub.changeModel).toHaveBeenCalledWith(
+      'inst-1',
+      'claude-opus-4-5',
+      undefined,
+      undefined,
+      'claude',
+    );
   });
 
   it('exposes Local Models in the live picker for runtime-target switching', () => {

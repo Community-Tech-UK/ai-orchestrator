@@ -19,7 +19,28 @@ import {
   QuotaSetPollIntervalPayloadSchema,
 } from '@contracts/schemas/quota';
 import { getProviderQuotaService } from '../../core/system/provider-quota-service';
-import { WindowManager } from '../../window-manager';
+import type { WindowManager } from '../../window-manager';
+import { getNotificationService, type NotificationInput } from '../../notifications/notification-service';
+import type { ProviderQuotaPacingAlert } from '../../../shared/types/provider-quota.types';
+
+/**
+ * Fable WS2 Task 4: an early pacing warning is operator-actionable ("this
+ * window will exhaust before it resets — slow down or switch provider"), so it
+ * goes through the WS10 notification service (fingerprint-deduped per
+ * provider+window) in addition to the renderer badge. Pure builder, exported
+ * for the spec.
+ */
+export function buildQuotaPacingNotification(alert: ProviderQuotaPacingAlert): NotificationInput {
+  return {
+    kind: 'quota-pacing',
+    title: `${alert.provider} quota pacing warning`,
+    body:
+      `${alert.window.label}: ${Math.round(alert.utilizationPercent)}% used with only ` +
+      `${Math.round(alert.elapsedPercent)}% of the window elapsed — on pace to exhaust before reset.`,
+    urgency: 'normal',
+    fingerprintFields: { provider: alert.provider, windowId: alert.window.id },
+  };
+}
 
 export function registerQuotaHandlers(deps: {
   windowManager: WindowManager;
@@ -173,6 +194,12 @@ export function registerQuotaHandlers(deps: {
 
   quotaService.on('quota-pacing-warning', (alert) => {
     deps.windowManager.sendToRenderer(IPC_CHANNELS.QUOTA_PACING_WARNING, alert);
+    // WS2 Task 4: also raise a deduped operator notification (WS10 service).
+    try {
+      getNotificationService().notify(buildQuotaPacingNotification(alert));
+    } catch {
+      // Notification failure must never break quota event forwarding.
+    }
   });
 
   quotaService.on('quota-exhausted', (alert) => {

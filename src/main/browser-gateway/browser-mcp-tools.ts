@@ -465,7 +465,18 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     grantId: stringProp,
     reason: stringProp,
   }, ['grantId']),
-  'browser.snapshot': targetSchema,
+  'browser.snapshot': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    extractionHint: {
+      type: 'string',
+      description:
+        'WS11.2 optional: what you are looking for on the page. When the operator has enabled '
+        + 'browserAuxExtractionEnabled, the page text is distilled by a local auxiliary model around '
+        + 'this goal and the extract is returned instead of the raw dump (never-worse guarded; the '
+        + 'full capture stays reachable via the spillover file reference). Ignored when the setting is off.',
+    },
+  }, ['profileId', 'targetId']),
   'browser.accessibility_snapshot': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,

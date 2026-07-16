@@ -240,6 +240,31 @@ export interface CommunicationToken {
 
 export type InstanceRecoveryMethod = 'native' | 'replay' | 'fresh' | 'failed';
 
+/**
+ * Desired runtime attachment for an instance — the RuntimeReconciler's input.
+ * The conversation is the durable entity; a provider/model is a replaceable
+ * runtime attachment described by this shape. `model` undefined lets the
+ * target provider's remembered/default model win; `reasoningEffort` undefined
+ * preserves the current effort, null clears to the provider default.
+ * `fastMode` is carried but not yet a change trigger (reconciler follow-up).
+ */
+export interface DesiredRuntime {
+  provider: InstanceProvider;
+  model?: string;
+  reasoningEffort?: ReasoningEffort | null;
+  fastMode?: boolean;
+  modelRuntimeTarget?: ModelRuntimeTarget;
+}
+
+/**
+ * A runtime-change request as it arrives over IPC: identical to
+ * {@link DesiredRuntime} except the provider may be omitted (meaning "keep
+ * the instance's current provider").
+ */
+export type RuntimeChangeRequest = Omit<DesiredRuntime, 'provider'> & {
+  provider?: InstanceProvider;
+};
+
 /** Trusted AIO-owned conversation anchor supplied by an app-owned runtime. */
 export interface EvidenceConversationOwnerReference {
   kind: 'chat';
@@ -394,6 +419,14 @@ export interface Instance {
    * Cleared once applied or cancelled. Undefined means no change is queued.
    */
   pendingYoloMode?: boolean;
+  /**
+   * Desired runtime queued while the instance was busy. Runtime changes
+   * (model/provider) respawn the session, which is refused mid-turn; a change
+   * requested while busy is parked here and applied by the RuntimeReconciler
+   * on the next transition to an input-waiting status. Cleared once applied
+   * or cancelled. Undefined means no change is queued.
+   */
+  desiredRuntime?: DesiredRuntime;
   launchMode: InstanceLaunchMode; // Orchestrated agent loop or human-driven interactive terminal
   provider: InstanceProvider; // Which CLI provider is being used
   /** Run Claude in lightweight --bare mode when supported. Defaults false. */

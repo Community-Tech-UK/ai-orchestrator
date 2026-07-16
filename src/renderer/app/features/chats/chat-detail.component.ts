@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
 import type { ChatProvider } from '../../../../shared/types/chat.types';
 import type { ConversationMessageRecord } from '../../../../shared/types/conversation-ledger.types';
@@ -46,6 +47,7 @@ import type { ChatOlderMessagesLoadResult } from '../../core/state/chat.store';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChatDetailComponent {
+  private router = inject(Router);
   readonly chatStore = inject(ChatStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly instanceStore = inject(InstanceStore);
@@ -452,6 +454,20 @@ export class ChatDetailComponent {
         payload.onResolved(true);
       } else {
         const msg = r.error ?? 'unknown error';
+        // WS8: a plan-scope refusal routes to the Campaign import flow with
+        // the plan prefilled (the campaign page never auto-starts anything).
+        if (r.errorCode?.startsWith('LOOP_SCOPE_CAMPAIGN')) {
+          this.chatStore.setError(`Loop start refused: ${msg} Opening Campaigns with the plan prefilled.`);
+          void this.router.navigate(['/campaigns'], {
+            queryParams: {
+              planFile: payload.config.planFile ?? '',
+              workspaceCwd: payload.config.workspaceCwd,
+              verifyCommand: payload.config.completion?.verifyCommand ?? '',
+            },
+          });
+          payload.onResolved(false, msg);
+          return;
+        }
         this.chatStore.setError(`Loop start failed: ${msg}`);
         payload.onResolved(false, msg);
       }

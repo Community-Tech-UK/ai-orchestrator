@@ -47,6 +47,10 @@ const TerminalKillSchema = z.object({
   signal: z.string().optional(),
 });
 
+const TerminalGetBufferSchema = z.object({
+  sessionId: z.string().min(1),
+});
+
 function errorResponse(code: string, error: unknown): IpcResponse {
   return {
     success: false,
@@ -124,6 +128,17 @@ export function registerTerminalHandlers(deps: { windowManager: WindowManager })
       return { success: true };
     } catch (error) {
       return errorResponse('TERMINAL_KILL_FAILED', error);
+    }
+  });
+
+  // WS11.7: retained scrollback so a re-attaching renderer replays recent
+  // output instead of starting blank. `data: null` = unknown/exited session.
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_GET_BUFFER, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const { sessionId } = TerminalGetBufferSchema.parse(payload);
+      return { success: true, data: { output: manager.getBufferedOutput(sessionId) } };
+    } catch (error) {
+      return errorResponse('TERMINAL_GET_BUFFER_FAILED', error);
     }
   });
 

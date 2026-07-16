@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1080,
+    "channelCount": 1084,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5010,399 +5010,419 @@
         "line": 1257
       },
       {
+        "name": "LOOP_ASSESS_SCOPE",
+        "value": "loop:assess-scope",
+        "line": 1259
+      },
+      {
+        "name": "LOOP_LIST_RECIPES",
+        "value": "loop:list-recipes",
+        "line": 1261
+      },
+      {
         "name": "LOOP_LIST_OUTSTANDING",
         "value": "loop:list-outstanding",
-        "line": 1260
+        "line": 1264
       },
       {
         "name": "LOOP_SET_OUTSTANDING_STATUS",
         "value": "loop:set-outstanding-status",
-        "line": 1262
+        "line": 1266
       },
       {
         "name": "LOOP_EXPORT_OUTSTANDING",
         "value": "loop:export-outstanding",
-        "line": 1264
+        "line": 1268
       },
       {
         "name": "LOOP_RESUME_WITH_ANSWERS",
         "value": "loop:resume-with-answers",
-        "line": 1267
+        "line": 1271
       },
       {
         "name": "LOOP_PINGPONG_SKIP_ROUND",
         "value": "loop:pingpong-skip-round",
-        "line": 1269
+        "line": 1273
       },
       {
         "name": "LOOP_PINGPONG_FORCE_ARBITRATION",
         "value": "loop:pingpong-force-arbitration",
-        "line": 1271
+        "line": 1275
       },
       {
         "name": "LOOP_STARTED",
         "value": "loop:started",
-        "line": 1274
+        "line": 1278
       },
       {
         "name": "LOOP_ITERATION_STARTED",
         "value": "loop:iteration-started",
-        "line": 1275
+        "line": 1279
       },
       {
         "name": "LOOP_ACTIVITY",
         "value": "loop:activity",
-        "line": 1276
+        "line": 1280
       },
       {
         "name": "LOOP_ITERATION_COMPLETE",
         "value": "loop:iteration-complete",
-        "line": 1277
+        "line": 1281
       },
       {
         "name": "LOOP_PAUSED_NO_PROGRESS",
         "value": "loop:paused-no-progress",
-        "line": 1278
+        "line": 1282
       },
       {
         "name": "LOOP_CLAIMED_DONE_BUT_FAILED",
         "value": "loop:claimed-done-but-failed",
-        "line": 1279
+        "line": 1283
       },
       {
         "name": "LOOP_TERMINAL_INTENT_RECORDED",
         "value": "loop:terminal-intent-recorded",
-        "line": 1280
+        "line": 1284
       },
       {
         "name": "LOOP_TERMINAL_INTENT_REJECTED",
         "value": "loop:terminal-intent-rejected",
-        "line": 1281
+        "line": 1285
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_STARTED",
         "value": "loop:fresh-eyes-review-started",
-        "line": 1282
+        "line": 1286
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_PASSED",
         "value": "loop:fresh-eyes-review-passed",
-        "line": 1283
+        "line": 1287
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_FAILED",
         "value": "loop:fresh-eyes-review-failed",
-        "line": 1284
+        "line": 1288
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_BLOCKED",
         "value": "loop:fresh-eyes-review-blocked",
-        "line": 1285
+        "line": 1289
       },
       {
         "name": "LOOP_INTERVENTION_APPLIED",
         "value": "loop:intervention-applied",
-        "line": 1286
+        "line": 1290
       },
       {
         "name": "LOOP_COMPLETED",
         "value": "loop:completed",
-        "line": 1287
+        "line": 1291
       },
       {
         "name": "LOOP_COMPLETED_NEEDS_REVIEW",
         "value": "loop:completed-needs-review",
-        "line": 1289
+        "line": 1293
       },
       {
         "name": "LOOP_NOTES_CURATED",
         "value": "loop:notes-curated",
-        "line": 1291
+        "line": 1295
       },
       {
         "name": "LOOP_CONTEXT_COMPACTED",
         "value": "loop:context-compacted",
-        "line": 1293
+        "line": 1297
       },
       {
         "name": "LOOP_BRANCH_SELECT",
         "value": "loop:branch-select",
-        "line": 1295
+        "line": 1299
       },
       {
         "name": "LOOP_PLAN_REGENERATED",
         "value": "loop:plan-regenerated",
-        "line": 1297
+        "line": 1301
       },
       {
         "name": "LOOP_LEDGER_LINT",
         "value": "loop:ledger-lint",
-        "line": 1300
+        "line": 1304
       },
       {
         "name": "LOOP_STEERING_DOWNGRADED",
         "value": "loop:steering-downgraded",
-        "line": 1304
+        "line": 1308
       },
       {
         "name": "LOOP_FOLLOW_UP_DRAINED",
         "value": "loop:follow-up-drained",
-        "line": 1307
+        "line": 1311
       },
       {
         "name": "LOOP_MORE_WORK_DECLARED",
         "value": "loop:more-work-declared",
-        "line": 1310
+        "line": 1314
       },
       {
         "name": "LOOP_FAILED",
         "value": "loop:failed",
-        "line": 1311
+        "line": 1315
       },
       {
         "name": "LOOP_CAP_REACHED",
         "value": "loop:cap-reached",
-        "line": 1312
+        "line": 1316
       },
       {
         "name": "LOOP_PROVIDER_LIMIT",
         "value": "loop:provider-limit",
-        "line": 1317
+        "line": 1321
       },
       {
         "name": "LOOP_CANCELLED",
         "value": "loop:cancelled",
-        "line": 1318
+        "line": 1322
       },
       {
         "name": "LOOP_ERROR",
         "value": "loop:error",
-        "line": 1319
+        "line": 1323
       },
       {
         "name": "LOOP_STATE_CHANGED",
         "value": "loop:state-changed",
-        "line": 1320
+        "line": 1324
       },
       {
         "name": "LOOP_OUTSTANDING_CHANGED",
         "value": "loop:outstanding-changed",
-        "line": 1323
+        "line": 1327
       },
       {
         "name": "MOBILE_GATEWAY_GET_STATUS",
         "value": "mobile-gateway:get-status",
-        "line": 1325
+        "line": 1329
       },
       {
         "name": "MOBILE_GATEWAY_START",
         "value": "mobile-gateway:start",
-        "line": 1326
+        "line": 1330
       },
       {
         "name": "MOBILE_GATEWAY_STOP",
         "value": "mobile-gateway:stop",
-        "line": 1327
+        "line": 1331
       },
       {
         "name": "MOBILE_GATEWAY_ISSUE_PAIRING",
         "value": "mobile-gateway:issue-pairing",
-        "line": 1328
+        "line": 1332
       },
       {
         "name": "MOBILE_GATEWAY_LIST_DEVICES",
         "value": "mobile-gateway:list-devices",
-        "line": 1329
+        "line": 1333
       },
       {
         "name": "MOBILE_GATEWAY_REVOKE_DEVICE",
         "value": "mobile-gateway:revoke-device",
-        "line": 1330
+        "line": 1334
       },
       {
         "name": "TERMINAL_SPAWN",
         "value": "terminal:spawn",
-        "line": 1333
+        "line": 1337
       },
       {
         "name": "TERMINAL_WRITE",
         "value": "terminal:write",
-        "line": 1334
+        "line": 1338
       },
       {
         "name": "TERMINAL_RESIZE",
         "value": "terminal:resize",
-        "line": 1335
+        "line": 1339
       },
       {
         "name": "TERMINAL_KILL",
         "value": "terminal:kill",
-        "line": 1336
+        "line": 1340
+      },
+      {
+        "name": "TERMINAL_GET_BUFFER",
+        "value": "terminal:get-buffer",
+        "line": 1342
       },
       {
         "name": "TERMINAL_OUTPUT",
         "value": "terminal:output",
-        "line": 1339
+        "line": 1345
       },
       {
         "name": "TERMINAL_EXIT",
         "value": "terminal:exit",
-        "line": 1340
+        "line": 1346
       },
       {
         "name": "TERMINAL_SPAWNED",
         "value": "terminal:spawned",
-        "line": 1341
+        "line": 1347
       },
       {
         "name": "AUXILIARY_LLM_LIST_CANDIDATES",
         "value": "auxiliary-llm:list-candidates",
-        "line": 1343
+        "line": 1349
       },
       {
         "name": "AUXILIARY_LLM_PROBE_ENDPOINT",
         "value": "auxiliary-llm:probe-endpoint",
-        "line": 1344
+        "line": 1350
       },
       {
         "name": "AUXILIARY_LLM_TEST_GENERATE",
         "value": "auxiliary-llm:test-generate",
-        "line": 1345
+        "line": 1351
       },
       {
         "name": "AUXILIARY_LLM_SAVE_SETTINGS",
         "value": "auxiliary-llm:save-settings",
-        "line": 1346
+        "line": 1352
       },
       {
         "name": "AUXILIARY_LLM_EXTRACT_WEB",
         "value": "auxiliary-llm:extract-web",
-        "line": 1347
+        "line": 1353
       },
       {
         "name": "CAMPAIGN_START",
         "value": "campaign:start",
-        "line": 1350
+        "line": 1356
       },
       {
         "name": "CAMPAIGN_GET",
         "value": "campaign:get",
-        "line": 1351
+        "line": 1357
       },
       {
         "name": "CAMPAIGN_LIST",
         "value": "campaign:list",
-        "line": 1352
+        "line": 1358
       },
       {
         "name": "CAMPAIGN_HALT",
         "value": "campaign:halt",
-        "line": 1353
+        "line": 1359
       },
       {
         "name": "CAMPAIGN_RESUME",
         "value": "campaign:resume",
-        "line": 1354
+        "line": 1360
       },
       {
         "name": "CAMPAIGN_VALIDATE",
         "value": "campaign:validate",
-        "line": 1355
+        "line": 1361
+      },
+      {
+        "name": "CAMPAIGN_IMPORT_PLAN_PREVIEW",
+        "value": "campaign:import-plan-preview",
+        "line": 1363
       },
       {
         "name": "CAMPAIGN_STATE_CHANGED",
         "value": "campaign:state-changed",
-        "line": 1358
+        "line": 1366
       },
       {
         "name": "DOC_REVIEW_LIST",
         "value": "doc-review:list",
-        "line": 1362
+        "line": 1370
       },
       {
         "name": "DOC_REVIEW_GET",
         "value": "doc-review:get",
-        "line": 1364
+        "line": 1372
       },
       {
         "name": "DOC_REVIEW_READ_ARTIFACT",
         "value": "doc-review:read-artifact",
-        "line": 1366
+        "line": 1374
       },
       {
         "name": "DOC_REVIEW_SUBMIT_DECISION",
         "value": "doc-review:submit-decision",
-        "line": 1370
+        "line": 1378
       },
       {
         "name": "DOC_REVIEW_DISMISS",
         "value": "doc-review:dismiss",
-        "line": 1372
+        "line": 1380
       },
       {
         "name": "DOC_REVIEW_OPEN_EXTERNAL",
         "value": "doc-review:open-external",
-        "line": 1374
+        "line": 1382
       },
       {
         "name": "DOC_REVIEW_RETRY_DELIVERY",
         "value": "doc-review:retry-delivery",
-        "line": 1376
+        "line": 1384
       },
       {
         "name": "DOC_REVIEW_CHANGED",
         "value": "doc-review:changed",
-        "line": 1380
+        "line": 1388
       },
       {
         "name": "NOTIFICATION_LIST",
         "value": "notification:list",
-        "line": 1382
+        "line": 1390
       },
       {
         "name": "NOTIFICATION_DELTA",
         "value": "notification:delta",
-        "line": 1383
+        "line": 1391
       },
       {
         "name": "CONTEXT_EVIDENCE_LIST",
         "value": "context-evidence:list",
-        "line": 1385
+        "line": 1393
       },
       {
         "name": "CONTEXT_EVIDENCE_GET_CARD",
         "value": "context-evidence:get-card",
-        "line": 1386
+        "line": 1394
       },
       {
         "name": "CONTEXT_EVIDENCE_SEARCH",
         "value": "context-evidence:search",
-        "line": 1387
+        "line": 1395
       },
       {
         "name": "CONTEXT_EVIDENCE_READ",
         "value": "context-evidence:read",
-        "line": 1388
+        "line": 1396
       },
       {
         "name": "CONTEXT_EVIDENCE_COMPARE",
         "value": "context-evidence:compare",
-        "line": 1389
+        "line": 1397
       },
       {
         "name": "CONTEXT_EVIDENCE_VERIFY",
         "value": "context-evidence:verify",
-        "line": 1390
+        "line": 1398
       },
       {
         "name": "CONTEXT_EVIDENCE_GET_METRICS",
         "value": "context-evidence:get-metrics",
-        "line": 1391
+        "line": 1399
       },
       {
         "name": "CONTEXT_EVIDENCE_STATE_CHANGED",
         "value": "context-evidence:state-changed",
-        "line": 1392
+        "line": 1400
       }
     ]
   },
@@ -5497,15 +5517,11 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3645
+      "lines": 3775
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
       "lines": 3564
-    },
-    {
-      "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3558
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
@@ -5517,6 +5533,10 @@
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
+      "lines": 3408
+    },
+    {
+      "path": "src/main/instance/instance-lifecycle.ts",
       "lines": 3408
     },
     {
@@ -5545,7 +5565,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2741
+      "lines": 2754
     },
     {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
@@ -5577,7 +5597,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2444
+      "lines": 2476
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -5648,6 +5668,10 @@
       "lines": 1830
     },
     {
+      "path": "packages/contracts/src/types/transport.types.ts",
+      "lines": 1804
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
       "lines": 1803
     },
@@ -5656,16 +5680,12 @@
       "lines": 1800
     },
     {
-      "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1789
-    },
-    {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1755
+      "lines": 1795
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1747
+      "lines": 1749
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -5685,7 +5705,11 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1589
+      "lines": 1597
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "lines": 1583
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -5694,10 +5718,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
       "lines": 1561
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1555
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
@@ -5714,6 +5734,10 @@
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
       "lines": 1498
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
+      "lines": 1485
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
@@ -5772,6 +5796,10 @@
       "lines": 1347
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
+      "lines": 1346
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
       "lines": 1344
     },
@@ -5821,10 +5849,6 @@
     },
     {
       "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
-      "lines": 1281
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
       "lines": 1281
     },
     {
@@ -5888,12 +5912,12 @@
       "lines": 1237
     },
     {
-      "path": "docs/superpowers/plans/2026-03-14-session-recovery-features.md",
-      "lines": 1231
+      "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
+      "lines": 1232
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
-      "lines": 1229
+      "path": "docs/superpowers/plans/2026-03-14-session-recovery-features.md",
+      "lines": 1231
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
@@ -5904,6 +5928,10 @@
       "lines": 1214
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 1206
+    },
+    {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
       "lines": 1203
     },
@@ -5912,28 +5940,20 @@
       "lines": 1203
     },
     {
-      "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",
-      "lines": 1186
+      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
+      "lines": 1188
     },
     {
-      "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
-      "lines": 1181
+      "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",
+      "lines": 1186
     },
     {
       "path": "src/main/orchestration/debate-coordinator.ts",
       "lines": 1180
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
-      "lines": 1179
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
       "lines": 1177
-    },
-    {
-      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
-      "lines": 1176
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase3-monorepo-consolidation_completed.md",
@@ -5945,7 +5965,7 @@
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1159
+      "lines": 1164
     },
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
@@ -6013,7 +6033,7 @@
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 1074
+      "lines": 1075
     },
     {
       "path": "src/main/instance/instance-orchestration.ts",
@@ -6252,6 +6272,10 @@
       "lines": 888
     },
     {
+      "path": "src/main/automations/automation-store.ts",
+      "lines": 885
+    },
+    {
       "path": "src/main/conversation-ledger/__tests__/conversation-ledger-store.spec.ts",
       "lines": 882
     },
@@ -6272,6 +6296,10 @@
       "lines": 867
     },
     {
+      "path": "packages/contracts/src/schemas/loop.schemas.ts",
+      "lines": 865
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-11-f4-f5-transcript-performance.md",
       "lines": 864
     },
@@ -6281,10 +6309,6 @@
     },
     {
       "path": "docs/superpowers/plans/_archive/2026-07-13-codex-context-pressure-guard-superseded.md",
-      "lines": 862
-    },
-    {
-      "path": "src/main/automations/automation-store.ts",
       "lines": 862
     },
     {
@@ -6368,10 +6392,6 @@
       "lines": 836
     },
     {
-      "path": "packages/contracts/src/schemas/loop.schemas.ts",
-      "lines": 834
-    },
-    {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
       "lines": 826
     },
@@ -6416,6 +6436,10 @@
       "lines": 813
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 812
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
       "lines": 811
     },
@@ -6438,6 +6462,10 @@
     {
       "path": "src/renderer/app/features/remote-config/remote-config-page.component.ts",
       "lines": 807
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
+      "lines": 806
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",

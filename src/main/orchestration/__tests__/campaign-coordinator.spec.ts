@@ -22,7 +22,7 @@ function buildSpec(overrides: Partial<CampaignSpec> = {}): CampaignSpec {
     id: 'camp-1',
     title: 'Test campaign',
     nodes: [
-      { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+      { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
     ],
     edges: [],
     policy: { onNodeNeedsReview: 'pause-campaign', maxParallel: 3 },
@@ -82,8 +82,8 @@ describe('validateCampaignSpec — basic validation', () => {
   it('rejects duplicate node ids', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'a', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
     }));
     expect(result.valid).toBe(false);
@@ -118,8 +118,8 @@ describe('validateCampaignSpec — basic validation', () => {
   it('rejects edge predicates with invalid terminal statuses', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'unknown-status' as never } }],
     }));
@@ -131,8 +131,8 @@ describe('validateCampaignSpec — basic validation', () => {
   it('rejects interrupted edge predicates because loop runs never emit that terminal status', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'interrupted' as never } }],
     }));
@@ -144,8 +144,8 @@ describe('validateCampaignSpec — basic validation', () => {
   it('rejects provider-limit edge predicates because provider-limit nodes are resumable', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'provider-limit' as never } }],
     }));
@@ -157,8 +157,8 @@ describe('validateCampaignSpec — basic validation', () => {
   it('rejects edge predicates with an empty status list', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b', when: { type: 'in', statuses: [] } }],
     }));
@@ -176,8 +176,8 @@ describe('validateCampaignSpec — cycle detection', () => {
   it('accepts a sequential A→B spec', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b' }],
     }));
@@ -187,9 +187,9 @@ describe('validateCampaignSpec — cycle detection', () => {
   it('accepts a fan-out A→{B,C} spec', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'c', loopConfig: { initialPrompt: 'C', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'c', loopConfig: { initialPrompt: 'C', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b' }, { from: 'a', to: 'c' }],
     }));
@@ -199,10 +199,10 @@ describe('validateCampaignSpec — cycle detection', () => {
   it('accepts a diamond A→{B,C}→D spec', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'c', loopConfig: { initialPrompt: 'C', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'd', loopConfig: { initialPrompt: 'D', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'c', loopConfig: { initialPrompt: 'C', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'd', loopConfig: { initialPrompt: 'D', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [
         { from: 'a', to: 'b' },
@@ -217,8 +217,8 @@ describe('validateCampaignSpec — cycle detection', () => {
   it('rejects a simple cycle A→B→A', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b' }, { from: 'b', to: 'a' }],
     }));
@@ -229,9 +229,9 @@ describe('validateCampaignSpec — cycle detection', () => {
   it('rejects a longer cycle A→B→C→A', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'c', loopConfig: { initialPrompt: 'C', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'c', loopConfig: { initialPrompt: 'C', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }, { from: 'c', to: 'a' }],
     }));
@@ -428,7 +428,7 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
     const run = await coordinator.startCampaign(buildSpec({
       id: 'camp-worktree',
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/repo' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/repo', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       policy: { onNodeNeedsReview: 'pause-campaign', maxParallel: 1, isolation: 'worktree' },
     }));
@@ -458,8 +458,8 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
     const run = await coordinator.startCampaign(buildSpec({
       id: 'camp-start-node-fails',
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: ['a'] },
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: ['a'] },
       ],
       edges: [{ from: 'a', to: 'b' }],
       policy: { onNodeNeedsReview: 'pause-campaign', maxParallel: 1 },
@@ -492,7 +492,7 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
     const run = await coordinator.startCampaign(buildSpec({
       id: 'camp-halted-while-starting',
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       policy: { onNodeNeedsReview: 'pause-campaign', maxParallel: 1 },
     }));
@@ -598,8 +598,8 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
     const spec = buildSpec({
       id: 'camp-recover-provider-limit-completed',
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: ['a'] },
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: ['a'] },
       ],
       edges: [{ from: 'a', to: 'b' }],
     });
@@ -697,8 +697,8 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
     const spec = buildSpec({
       id: 'camp-recover-completed-node',
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b' }],
     });
@@ -783,8 +783,8 @@ describe('evaluatePredicate — edge gate predicates', () => {
   it('gated skip — spec with when predicate is valid', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
       ],
       edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'completed' } }],
     }));
@@ -803,8 +803,8 @@ describe('CampaignCoordinator — skipped dependency propagation', () => {
     const spec = buildSpec({
       id: 'camp-skip-propagates',
       nodes: [
-        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
-        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: ['a'] },
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: ['a'] },
       ],
       edges: [{ from: 'a', to: 'b' }],
     });
@@ -971,8 +971,8 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
       spec: buildSpec({
         id: 'camp-child-failed',
         nodes: [
-          { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
-          { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: ['a'] },
+          { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+          { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: ['a'] },
         ],
         edges: [{ from: 'a', to: 'b' }],
       }),
@@ -1098,8 +1098,8 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
       spec: buildSpec({
         id: 'camp-running-sibling-while-needs-review-paused',
         nodes: [
-          { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
-          { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: [] },
+          { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+          { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
         ],
       }),
       status: 'paused',

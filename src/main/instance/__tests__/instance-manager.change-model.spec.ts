@@ -281,8 +281,12 @@ function makeMockAdapter() {
 
 vi.mock('../../cli/adapters/adapter-factory', () => ({
   createCliAdapter: mockCreateCliAdapter,
-  resolveCliType: vi.fn().mockResolvedValue('claude'),
-  getCliDisplayName: vi.fn(() => 'Claude Code'),
+  // Return the concretely requested CLI (available), falling back to claude
+  // for 'auto'. Provider-swap tests override with mockResolvedValueOnce to
+  // simulate a missing target CLI.
+  resolveCliType: vi.fn(async (requested?: string) =>
+    requested && requested !== 'auto' ? requested : 'claude'),
+  getCliDisplayName: vi.fn((cli: string) => (cli === 'claude' ? 'Claude Code' : cli)),
 }));
 
 vi.mock('../../local-models/local-model-inventory-service', () => ({
@@ -1155,6 +1159,206 @@ describe('InstanceManager', () => {
       );
     });
 
+    it('swaps provider with a fresh session (never native resume) and clears the resume cursor', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      expect(instance.provider).toBe('claude');
+      instance.outputBuffer.push(
+        {
+          id: 'user-before-swap',
+          timestamp: Date.now() - 1000,
+          type: 'user',
+          content: 'Please double check where we are.',
+        },
+        {
+          id: 'assistant-before-swap',
+          timestamp: Date.now(),
+          type: 'assistant',
+          content: 'We are midway through the task.',
+        },
+      );
+      mockCreateCliAdapter.mockClear();
+      mockSessionContinuity.writeThroughIdentityLocked.mockClear();
+
+      const updated = await manager.changeModel(instance.id, 'gpt-5.5', undefined, undefined, 'codex');
+
+      expect(updated.provider).toBe('codex');
+      expect(updated.currentModel).toBe('gpt-5.5');
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'codex',
+        expect.objectContaining({
+          model: 'gpt-5.5',
+          resume: false,
+          forkSession: false,
+        }),
+        expect.anything(),
+      );
+      // Replay continuity carries the context; the old provider's session and
+      // resume cursor are gone for good.
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        expect.stringContaining('provider-change'),
+      );
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        expect.stringContaining('Provider changed from claude'),
+      );
+      expect(mockSessionContinuity.writeThroughIdentityLocked).toHaveBeenCalledWith(
+        instance.id,
+        expect.objectContaining({ resumeCursor: null }),
+      );
+      // The tracked session snapshot must adopt the new provider so a later
+      // history restore spawns the swapped CLI, not the pre-swap one.
+      expect(mockSessionContinuity.updateState).toHaveBeenCalledWith(
+        instance.id,
+        expect.objectContaining({ provider: 'codex', modelId: 'gpt-5.5' }),
+      );
+    });
+
+    it('falls back to the remembered per-provider model when the swap has no explicit model', async () => {
+      mockSettingsGetAll.mockReturnValue({
+        ...mockSettingsData,
+        defaultModelByProvider: { codex: 'gpt-5.5' },
+      } as ReturnType<typeof mockSettingsGetAll>);
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      mockCreateCliAdapter.mockClear();
+
+      const updated = await manager.changeModel(instance.id, undefined, undefined, undefined, 'codex');
+
+      expect(updated.provider).toBe('codex');
+      expect(updated.currentModel).toBe('gpt-5.5');
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'codex',
+        expect.objectContaining({ model: 'gpt-5.5' }),
+        expect.anything(),
+      );
+    });
+
+    it('rejects a provider swap when the target CLI is not available', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      mockAdapterTerminate.mockClear();
+      const { resolveCliType } = await import('../../cli/adapters/adapter-factory');
+      vi.mocked(resolveCliType).mockResolvedValueOnce('claude'); // codex missing → silent fallback
+
+      await expect(
+        manager.changeModel(instance.id, 'gpt-5.5', undefined, undefined, 'codex'),
+      ).rejects.toThrow('CLI is not installed or not available');
+
+      expect(instance.provider).toBe('claude');
+      expect(instance.currentModel).toBe('sonnet');
+      // The old adapter must be untouched — availability fails before teardown.
+      expect(mockAdapterTerminate).not.toHaveBeenCalled();
+    });
+
+    it('swapping A→B→A never attempts a native resume against a stale session', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      instance.outputBuffer.push({
+        id: 'user-1', timestamp: Date.now(), type: 'user', content: 'hello',
+      });
+
+      await manager.changeModel(instance.id, 'gpt-5.5', undefined, undefined, 'codex');
+      mockCreateCliAdapter.mockClear();
+      await manager.changeModel(instance.id, 'claude-opus-4-8', undefined, undefined, 'claude');
+
+      expect(instance.provider).toBe('claude');
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'claude',
+        expect.objectContaining({ resume: false, forkSession: false }),
+        expect.anything(),
+      );
+    });
+
+    it('maps the reasoning effort onto the target provider during a swap', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      instance.reasoningEffort = 'max'; // Claude-only tier
+      mockCreateCliAdapter.mockClear();
+
+      const updated = await manager.changeModel(instance.id, 'gpt-5.5', undefined, undefined, 'codex');
+
+      expect(updated.reasoningEffort).toBe('xhigh');
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'codex',
+        expect.objectContaining({ reasoningEffort: 'xhigh' }),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('requestModelChange (queue-aware)', () => {
+    it('queues the change while busy instead of throwing, then applies on settle', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      manager.updateInstanceStatus(instance.id, 'ready');
+      manager.updateInstanceStatus(instance.id, 'busy');
+      mockCreateCliAdapter.mockClear();
+
+      const queued = await manager.requestModelChange(instance.id, {
+        provider: 'codex',
+        model: 'gpt-5.5',
+      });
+
+      expect(queued.desiredRuntime).toEqual({ provider: 'codex', model: 'gpt-5.5' });
+      expect(queued.provider).toBe('claude');
+      expect(mockCreateCliAdapter).not.toHaveBeenCalled();
+
+      // Settling into an input-waiting status auto-applies the parked change.
+      manager.updateInstanceStatus(instance.id, 'idle');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      // The apply respawns asynchronously; give the mutex + spawn a beat.
+      await vi.waitFor(() => {
+        expect(instance.provider).toBe('codex');
+      });
+      expect(instance.desiredRuntime).toBeUndefined();
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'codex',
+        expect.objectContaining({ model: 'gpt-5.5' }),
+        expect.anything(),
+      );
+    });
+
+    it('cancels a queued change when the live config is re-selected', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      manager.updateInstanceStatus(instance.id, 'ready');
+      manager.updateInstanceStatus(instance.id, 'busy');
+      mockCreateCliAdapter.mockClear();
+
+      await manager.requestModelChange(instance.id, { provider: 'codex', model: 'gpt-5.5' });
+      expect(instance.desiredRuntime).toBeDefined();
+
+      await manager.requestModelChange(instance.id, {
+        provider: 'claude',
+        model: instance.currentModel,
+      });
+      expect(instance.desiredRuntime).toBeUndefined();
+      expect(mockCreateCliAdapter).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('changeModel status gate', () => {
     it.each([
       'processing',
       'thinking_deeply',

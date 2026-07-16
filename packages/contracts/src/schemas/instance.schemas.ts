@@ -245,12 +245,28 @@ export const InstanceChangeAgentPayloadSchema = z.object({
 
 export type InstanceChangeAgentPayload = z.infer<typeof InstanceChangeAgentPayloadSchema>;
 
+/** Concrete provider targets for a cross-provider swap (no 'auto' sentinel). */
+const InstanceChangeProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
+
 export const InstanceChangeModelPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
-  model: RequiredModelIdSchema,
+  /**
+   * Optional only when `provider` is set (cross-provider swap without an
+   * explicit model falls back to the remembered per-provider default).
+   */
+  model: RequiredModelIdSchema.optional(),
   reasoningEffort: ReasoningEffortSchema.nullable().optional(),
   modelRuntimeTarget: ModelRuntimeTargetSchema.optional(),
-});
+  /**
+   * Target CLI provider for a cross-provider swap of an existing session.
+   * Omitted (or equal to the instance's current provider) means a plain
+   * model change within the current provider.
+   */
+  provider: InstanceChangeProviderSchema.optional(),
+}).refine(
+  (data) => data.model !== undefined || data.provider !== undefined,
+  { message: 'model is required unless provider is provided', path: ['model'] },
+);
 
 export type InstanceChangeModelPayload = z.infer<typeof InstanceChangeModelPayloadSchema>;
 

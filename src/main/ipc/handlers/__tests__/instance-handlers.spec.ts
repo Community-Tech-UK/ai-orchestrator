@@ -137,6 +137,7 @@ function makeMockInstanceManager(): InstanceManager {
     toggleYoloMode: vi.fn(),
     requestYoloModeToggle: vi.fn(),
     changeModel: vi.fn(),
+    requestModelChange: vi.fn(),
     serializeForIpc: vi.fn((inst: unknown) => inst as Record<string, unknown>),
     getOrchestrationHandler: vi.fn().mockReturnValue(orchestration),
     sendInputResponse: vi.fn(),
@@ -420,8 +421,8 @@ describe('instance-handlers', () => {
         endpointId: 'ollama',
         modelId: 'qwen',
       };
-      vi.mocked(mockInstanceManager.changeModel).mockResolvedValue(
-        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.changeModel>>
+      vi.mocked(mockInstanceManager.requestModelChange).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.requestModelChange>>
       );
 
       const result = await invoke(IPC_CHANNELS.INSTANCE_CHANGE_MODEL, {
@@ -432,11 +433,37 @@ describe('instance-handlers', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(mockInstanceManager.changeModel).toHaveBeenCalledWith(
+      expect(mockInstanceManager.requestModelChange).toHaveBeenCalledWith(
         'inst-1',
-        modelRuntimeTarget.modelId,
-        null,
-        modelRuntimeTarget,
+        {
+          model: modelRuntimeTarget.modelId,
+          reasoningEffort: null,
+          modelRuntimeTarget,
+          provider: undefined,
+        },
+      );
+    });
+
+    it('forwards a cross-provider swap request', async () => {
+      const fakeInstance = { id: 'inst-swap', communicationTokens: undefined };
+      vi.mocked(mockInstanceManager.requestModelChange).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.requestModelChange>>
+      );
+
+      const result = await invoke(IPC_CHANNELS.INSTANCE_CHANGE_MODEL, {
+        instanceId: 'inst-1',
+        provider: 'codex',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.requestModelChange).toHaveBeenCalledWith(
+        'inst-1',
+        {
+          model: undefined,
+          reasoningEffort: undefined,
+          modelRuntimeTarget: undefined,
+          provider: 'codex',
+        },
       );
     });
   });

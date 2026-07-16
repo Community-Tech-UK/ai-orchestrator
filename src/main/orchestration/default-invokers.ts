@@ -688,6 +688,10 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
 import type { LoopChildInvocationError, LoopChildResult, LoopChildUsage } from './loop-coordinator';
 import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
+import {
+  buildObservedAttemptEvidence,
+  createAttemptDeltaObserver,
+} from './loop-attempt-observation';
 import { defaultLoopContextConfig, LOOP_DEFAULT_MAX_TURNS_PER_ITERATION } from '../../shared/types/loop.types';
 import { evaluateLoopContextDiscipline } from './loop-context-discipline-runtime';
 import { attachInvocationActivity, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
@@ -719,13 +723,6 @@ export {
   classifyIterationErrors,
   parseTestCounts,
 } from './default-loop-invoker-helpers';
-import {
-  diffFileChangeSnapshots,
-  mergeFileChanges,
-  snapshotFileChangesViaGit,
-  snapshotFileChangesViaWorkspace,
-  snapshotWorkspaceFiles,
-} from './loop-workspace-snapshot';
 
 
 /**
@@ -1299,11 +1296,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       }
     }
 
+    // WS5: capture the before-snapshot OUTSIDE the try so the error path can
+    // still observe the workspace delta (when isolation is active this is the
+    // worktree, not the repo root). Observer failure ⇒ `unknown` evidence.
+    const attemptObserver = createAttemptDeltaObserver(workspaceDir);
     try {
-      // When isolation is active, snapshot the worktree (executionCwd), not the
-      // repo root — the agent edits the worktree and the diff must reflect that.
-      const workspaceBefore = snapshotWorkspaceFiles(workspaceDir);
-      const gitBefore = snapshotFileChangesViaGit(workspaceDir);
       const result = await invokeCliTextResponse({
         instanceManager,
         // When borrowing the parent instance's adapter, pass the instance id so
@@ -1377,15 +1374,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         enableAdapterResume(reusedAdapter);
       }
 
-      const workspaceDelta = snapshotFileChangesViaWorkspace(workspaceBefore, workspaceDir);
-      const gitDelta = diffFileChangeSnapshots(
-        gitBefore,
-        snapshotFileChangesViaGit(workspaceDir),
-      );
-      const filesChanged = mergeFileChanges(
-        workspaceDelta,
-        gitDelta,
-      );
+      const observedDelta = attemptObserver.observe();
+      const filesChanged = observedDelta ?? [];
       // FU-5: derive structured signals from the actual iteration output.
       // testPassCount/testFailCount feeds the D / D-prime signals;
       // errors feeds the E signal; toolCalls (collected via the activity
@@ -1454,6 +1444,15 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // forked-session path (fresh / persistent / non-borrowable provider)
         // produces no transcript turn and is written into the canonical thread.
         transcriptBound: borrowedFromInstance,
+        // WS5: structured attempt evidence — the observed workspace effect
+        // decides whether a degraded attempt may ever be replayed.
+        attemptEvidence: buildObservedAttemptEvidence({
+          outcome: result.degradedReason ? 'degraded' : 'completed',
+          outputOrError: outputWithSafetyFailure,
+          observedDelta,
+          providerThreadReusable: Boolean(sameSession && reusedAdapter),
+          reason: result.degradedReason ?? attemptObserver.failureNote(),
+        }),
       };
 
       // LF-1: context discipline for the loop's OWN persistent same-session
@@ -1543,6 +1542,15 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         error: err,
         provider: p.provider,
         model: p.model,
+      });
+      // WS5: even a thrown/timed-out attempt reports its observed workspace
+      // effect. Observer failure yields `unknown` — never `none-observed`.
+      failure.attemptEvidence = buildObservedAttemptEvidence({
+        outcome: 'failed',
+        outputOrError: failure.error,
+        observedDelta: attemptObserver.observe(),
+        providerThreadReusable: Boolean(sameSession && reusedAdapter),
+        reason: attemptObserver.failureNote(),
       });
       p.callback(failure);
     }

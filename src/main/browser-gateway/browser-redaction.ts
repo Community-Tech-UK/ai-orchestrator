@@ -1,4 +1,5 @@
 import type { BrowserElementContext } from '@contracts/types/browser';
+import { truncateToolOutput } from '../util/tool-output-truncation';
 
 const REDACTED = '[REDACTED]';
 
@@ -132,4 +133,15 @@ function isStringRecord(value: unknown): value is Record<string, string> {
       !Array.isArray(value) &&
       Object.values(value).every((item) => typeof item === 'string'),
   );
+}
+
+/**
+ * Fable WS11.1 — redact then BOUND page text through the shared tool-output
+ * spillover util (51 KB / 2000-line preview; full redacted text spilled to a
+ * file the agent can Read with offset/limit). Replaces the old silent
+ * `.slice(0, 12_000)` that dropped the rest of large pages irrecoverably.
+ * Redaction runs FIRST so the spilled file never contains raw secrets.
+ */
+export function boundBrowserText(value: string): string {
+  return truncateToolOutput(redactBrowserText(value)).content;
 }

@@ -56,6 +56,9 @@ export class CampaignStore {
     return this.ipc.validate(spec);
   }
 
+  /** WS8: campaign preview from a plan — never starts anything. */
+  importPlanPreview = this.ipc.importPlanPreview.bind(this.ipc);
+
   async start(spec: CampaignSpec): Promise<IpcResponse<{ campaign: CampaignRunDto }>> {
     const res = await this.ipc.start(spec);
     if (res.success && res.data?.campaign) {

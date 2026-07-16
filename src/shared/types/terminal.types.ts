@@ -22,4 +22,10 @@ export interface TerminalSession {
   resize(sessionId: TerminalSessionId, cols: number, rows: number): Promise<void>;
   kill(sessionId: TerminalSessionId, signal?: NodeJS.Signals): Promise<void>;
   subscribe(listener: (event: TerminalLifecycleEvent) => void): () => void;
+  /**
+   * WS11.7: retained scrollback (last ~256 KiB) for a live session, or null
+   * when unknown/exited. Write this to the terminal BEFORE subscribing on
+   * (re)attach so reopened panels don't start blank.
+   */
+  getBufferedOutput(sessionId: TerminalSessionId): Promise<string | null>;
 }

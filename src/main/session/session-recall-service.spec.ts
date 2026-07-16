@@ -40,6 +40,7 @@ function makeAutomationRun(overrides: Partial<AutomationRun> = {}): AutomationRu
     startedAt: 110,
     finishedAt: 120,
     instanceId: 'inst-1',
+    loopRunId: null,
     error: 'provider failed',
     outputSummary: null,
     outputFullRef: '/tmp/output.json',

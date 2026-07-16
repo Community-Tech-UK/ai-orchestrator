@@ -694,6 +694,10 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
       config: {
         initialPrompt: 'Build the thing.',
         workspaceCwd: tempWorkspace,
+        // WS6: a blank-verify IMPLEMENTATION start is now rejected up front;
+        // this test's subject is legacy gated-mode preservation, so give it
+        // the investigation authority (mirrors loop-start-config.spec.ts).
+        goalIntent: 'investigation',
         completion: {
           ...defaultLoopConfig(tempWorkspace, 'Build the thing.').completion,
           verifyCommand: '',
@@ -1158,7 +1162,11 @@ describe('terminal summary instance-id fallback', () => {
   });
 });
 
-type IpcHandler = (event: unknown, payload: unknown) => Promise<{ success: boolean; data?: unknown }>;
+type IpcHandler = (event: unknown, payload: unknown) => Promise<{
+  success: boolean;
+  data?: unknown;
+  error?: { code: string; message: string; timestamp: number };
+}>;
 
 function findIpcHandler(channel: string): IpcHandler {
   const handleMock = ipcMain.handle as unknown as { mock: { calls: [string, IpcHandler][] } };
@@ -1226,3 +1234,112 @@ function makeLoopIteration(overrides: Partial<LoopIteration> = {}): LoopIteratio
     ...overrides,
   };
 }
+
+describe('WS7: plan-scope assessment (LOOP_ASSESS_SCOPE + LOOP_START guard)', () => {
+  const CAMPAIGN_REQUIRED_PLAN = [
+    '# Plan',
+    'implement one workstream per run.',
+    '## WS1 — First',
+    '- [ ] a',
+    '## WS2 — Second',
+    '- [ ] b',
+  ].join('\n');
+
+  function makeWorkspaceWithPlan(planText: string): string {
+    tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-scope-'));
+    writeFileSync(join(tempWorkspace, 'PLAN.md'), planText);
+    return tempWorkspace;
+  }
+
+  function register(): void {
+    registerLoopHandlers({
+      windowManager: { sendToRenderer: vi.fn() } as never,
+      instanceManager: makeInstanceManager([]),
+    });
+  }
+
+  function startPayload(workspaceCwd: string, extras: Record<string, unknown> = {}): unknown {
+    return {
+      chatId: 'chat-1',
+      config: {
+        initialPrompt: 'Work through the plan.',
+        workspaceCwd,
+        planFile: 'PLAN.md',
+        completion: {
+          ...defaultLoopConfig(workspaceCwd, 'x').completion,
+          verifyCommand: 'true',
+        },
+        ...extras,
+      },
+    };
+  }
+
+  it('LOOP_ASSESS_SCOPE returns the assessment for a configured plan file', async () => {
+    const workspace = makeWorkspaceWithPlan(CAMPAIGN_REQUIRED_PLAN);
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_ASSESS_SCOPE);
+
+    const response = await handler({}, { workspaceCwd: workspace, planFile: 'PLAN.md' });
+
+    expect(response.success).toBe(true);
+    expect((response.data as { assessment: { disposition: string; workstreams: unknown[] } }).assessment)
+      .toMatchObject({ disposition: 'campaign-required' });
+  });
+
+  it('LOOP_ASSESS_SCOPE rejects a plan path outside the workspace', async () => {
+    const workspace = makeWorkspaceWithPlan('# ok');
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_ASSESS_SCOPE);
+
+    const response = await handler({}, { workspaceCwd: workspace, planFile: '../outside.md' });
+
+    expect(response.success).toBe(false);
+    expect(response.error?.message).toContain('inside the workspace');
+  });
+
+  it('LOOP_START refuses a campaign-required plan and never reaches the coordinator', async () => {
+    const workspace = makeWorkspaceWithPlan(CAMPAIGN_REQUIRED_PLAN);
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
+
+    const response = await handler({}, startPayload(workspace));
+
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('LOOP_SCOPE_CAMPAIGN_REQUIRED');
+    expect((response.data as { scopeAssessment: { workstreams: unknown[] } }).scopeAssessment.workstreams)
+      .toHaveLength(2);
+    // Start-boundary regression: no coordinator invocation after refusal.
+    expect(hoisted.coordinator.startLoop).not.toHaveBeenCalled();
+  });
+
+  it('LOOP_START blocks campaign-recommended without the override and allows it with the persisted override', async () => {
+    const recommendedPlan = CAMPAIGN_REQUIRED_PLAN.replace('implement one workstream per run.', '');
+    const workspace = makeWorkspaceWithPlan(recommendedPlan);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
+
+    const blocked = await handler({}, startPayload(workspace));
+    expect(blocked.success).toBe(false);
+    expect(blocked.error?.code).toBe('LOOP_SCOPE_CAMPAIGN_RECOMMENDED');
+    expect(hoisted.coordinator.startLoop).not.toHaveBeenCalled();
+
+    const allowed = await handler({}, startPayload(workspace, { singleLoopOverride: true }));
+    expect(allowed.success).toBe(true);
+    expect(hoisted.coordinator.startLoop).toHaveBeenCalledTimes(1);
+  });
+
+  it('LOOP_START with a single-loop plan starts normally', async () => {
+    const workspace = makeWorkspaceWithPlan('# Small plan\n- [ ] one\n- [ ] two\n');
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
+
+    const response = await handler({}, startPayload(workspace));
+
+    expect(response.success).toBe(true);
+    expect(hoisted.coordinator.startLoop).toHaveBeenCalledTimes(1);
+  });
+});
