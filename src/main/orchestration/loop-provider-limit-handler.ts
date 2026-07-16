@@ -4,6 +4,10 @@ import type {
   ProviderQuotaSnapshot,
 } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
+import {
+  EARLY_RESUME_PROBE_MS,
+  snapshotShowsLimitLifted,
+} from '../instance/instance-provider-limit-handler';
 import { getLogger } from '../logging/logger';
 import {
   evaluateQuotaThrottle,
@@ -20,7 +24,7 @@ export class LoopProviderLimitHandler {
   private quotaSnapshotProvider: (provider: ProviderId) => ProviderQuotaSnapshot | null = () => null;
   private quotaSnapshotRefresher: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null = null;
   private allowOverage = false;
-  private providerLimitLedger: Pick<ProviderLimitLedger, 'record' | 'getActive'> | null = null;
+  private providerLimitLedger: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'> | null = null;
   private resumeCancellers = new Map<string, () => void>();
   private providerLimitResumeScheduler: ProviderLimitResumeScheduler | null = null;
 
@@ -44,8 +48,36 @@ export class LoopProviderLimitHandler {
     this.allowOverage = allow;
   }
 
-  setProviderLimitLedger(ledger: Pick<ProviderLimitLedger, 'record' | 'getActive'> | null): void {
+  setProviderLimitLedger(ledger: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'> | null): void {
     this.providerLimitLedger = ledger;
+  }
+
+  /**
+   * Override of the durable known-limit gate (mirrors the instance handler's
+   * clearKnownLimitGate). Called on a manual loop resume and on an early-lift
+   * probe hit: without it, the next iteration's preflight
+   * ({@link maybeParkKnownProviderLimit}) re-parks the loop off the same —
+   * possibly stale — ledger row. If the provider is in fact still limited,
+   * the next failed iteration re-records a fresh gate.
+   */
+  clearKnownLimitGate(provider: ProviderId, model: string | null): void {
+    const ledger = this.providerLimitLedger;
+    if (!ledger) return;
+    try {
+      const cleared = ledger.clearActive({ provider, model });
+      if (cleared > 0) {
+        logger.info('Cleared active provider-limit gate for loop resume (user/probe override)', {
+          provider,
+          model,
+          cleared,
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to clear provider-limit gate for loop resume', {
+        provider,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   setProviderLimitResumeScheduler(scheduler: ProviderLimitResumeScheduler | null): void {
@@ -276,7 +308,62 @@ export class LoopProviderLimitHandler {
       });
     }
     if (!cancel) cancel = this.scheduleInProcessResume(state.id, opts.resumeAt);
-    this.resumeCancellers.set(state.id, cancel);
+
+    // Quota parks additionally probe for an early lift (reset credit applied,
+    // quota purchased) so the loop doesn't overstay a stale recorded reset.
+    // Wakeup parks are scheduled sleeps, not limits — never probe those.
+    const stopEarlyResumeProbe = opts.source === 'wakeup'
+      ? () => {}
+      : this.startEarlyResumeProbe(state, opts.resumeAt);
+    const cancelSchedule = cancel;
+    this.resumeCancellers.set(state.id, () => {
+      cancelSchedule();
+      stopEarlyResumeProbe();
+    });
+  }
+
+  /**
+   * While parked on a provider limit, periodically re-probe the live quota and
+   * resume as soon as a fresh snapshot shows headroom on every window — the
+   * recorded resumeAt then acts only as a fallback ceiling. Mirrors the
+   * regular-session probe in instance-provider-limit-handler.ts: skips once
+   * the scheduled resume is imminent, never overlaps requests, and treats
+   * probe failures as "still limited".
+   */
+  private startEarlyResumeProbe(state: LoopState, resumeAt: number): () => void {
+    const refresher = this.quotaSnapshotRefresher;
+    if (!refresher) return () => {};
+
+    const loopRunId = state.id;
+    const provider = this.quotaIdForLoopProvider(state);
+    let inFlight = false;
+    const timer = setInterval(() => {
+      if (!this.resumeCancellers.has(loopRunId) || inFlight) return;
+      if (resumeAt - Date.now() < 60_000) return; // scheduled resume is about to fire anyway
+      inFlight = true;
+      void refresher(provider)
+        .then((snapshot) => {
+          if (!this.resumeCancellers.has(loopRunId) || !snapshotShowsLimitLifted(snapshot)) return;
+          logger.info('Loop provider limit lifted early per fresh quota probe; resuming now', {
+            loopRunId,
+            provider,
+            recordedResumeAt: resumeAt,
+          });
+          // Drop the durable gate first, or the next iteration's ledger
+          // preflight instantly re-parks the freshly resumed loop.
+          this.clearKnownLimitGate(provider, null);
+          this.clearResumeTimer(loopRunId);
+          this.deps.resumeLoop(loopRunId);
+        })
+        .catch(() => {
+          // Probe failure proves nothing — keep the park and retry next tick.
+        })
+        .finally(() => {
+          inFlight = false;
+        });
+    }, EARLY_RESUME_PROBE_MS);
+    if (typeof timer.unref === 'function') timer.unref();
+    return () => clearInterval(timer);
   }
 
   private scheduleInProcessResume(loopRunId: string, resumeAt: number): () => void {

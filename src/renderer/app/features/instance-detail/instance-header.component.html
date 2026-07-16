@@ -32,20 +32,6 @@
             @if (waitReasonLabel()) {
               <span class="wait-reason-label" [title]="waitReasonDetail()">{{ waitReasonLabel() }}</span>
             }
-            @if (isQuotaParked()) {
-              <button
-                type="button"
-                class="provider-limit-action"
-                title="Resume this session now instead of waiting for the quota window to reset"
-                (click)="resumeFromProviderLimit()"
-              >Resume now</button>
-              <button
-                type="button"
-                class="provider-limit-action provider-limit-action--cancel"
-                title="Cancel the auto-resume for this session"
-                (click)="cancelProviderLimitPark()"
-              >Cancel</button>
-            }
           </div>
         </div>
 

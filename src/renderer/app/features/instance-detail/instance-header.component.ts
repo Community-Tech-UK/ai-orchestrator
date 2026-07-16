@@ -26,7 +26,6 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
-import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import type { ContextUsage, Instance } from '../../core/state/instance.store';
 import { getModelShortName } from '../../../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
@@ -51,7 +50,6 @@ export class InstanceHeaderComponent implements OnInit {
   private hookStore = inject(HookStore);
   private fileIpc = inject(FileIpcService);
   private electronIpc = inject(ElectronIpcService);
-  private instanceIpc = inject(InstanceIpcService);
   private readonly remoteNodeStore = inject(RemoteNodeStore);
 
   private nameInput = viewChild<ElementRef<HTMLInputElement>>('nameInput');
@@ -100,19 +98,6 @@ export class InstanceHeaderComponent implements OnInit {
       || status === 'interrupt-escalating';
   });
 
-  /** True while the session is parked awaiting a provider quota-window reset. */
-  readonly isQuotaParked = computed(() => this.instance().waitReason?.kind === 'quota-park');
-
-  /** Resume a provider-limit-parked session immediately (skip the wait). */
-  resumeFromProviderLimit(): void {
-    void this.instanceIpc.providerLimitResumeNow(this.instance().id);
-  }
-
-  /** Cancel the provider-limit park so the session will not auto-resume. */
-  cancelProviderLimitPark(): void {
-    void this.instanceIpc.providerLimitCancel(this.instance().id);
-  }
-
   readonly waitReasonLabel = computed(() => {
     const wr = this.instance().waitReason;
     if (!wr) return null;
@@ -125,11 +110,9 @@ export class InstanceHeaderComponent implements OnInit {
         const secsLeft = Math.max(0, Math.round((wr.retryAt - Date.now()) / 1000));
         return secsLeft > 0 ? `Backing off — retry in ${secsLeft}s` : 'Retrying…';
       }
-      case 'quota-park': {
-        const secsLeft = Math.max(0, Math.round((wr.resumeAt - Date.now()) / 1000));
-        const minsLeft = Math.ceil(secsLeft / 60);
-        return secsLeft > 60 ? `Provider limit — resumes in ${minsLeft}m` : secsLeft > 0 ? `Provider limit — resumes in ${secsLeft}s` : 'Resuming from provider limit…';
-      }
+      // 'quota-park' renders as a banner above the composer (input-panel), not here.
+      case 'quota-park':
+        return null;
       case 'provider-slot':
         return `Waiting for ${wr.provider} slot…`;
       case 'resume-proof':

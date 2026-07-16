@@ -1,4 +1,23 @@
 <div class="input-panel">
+  <!-- Provider quota park: gates the composer, so it renders here rather than in the header -->
+  @if (quotaParkLabel()) {
+    <div class="quota-park-bar" role="status" [title]="quotaParkDetail()">
+      <span class="quota-park-text">{{ quotaParkLabel() }}</span>
+      <button
+        type="button"
+        class="quota-park-btn"
+        title="Resume this session now instead of waiting"
+        (click)="onResumeFromProviderLimit()"
+      >Resume now</button>
+      <button
+        type="button"
+        class="quota-park-btn quota-park-btn--secondary"
+        title="Cancel the auto-resume for this session"
+        (click)="onCancelProviderLimitPark()"
+      >Cancel</button>
+    </div>
+  }
+
   <!-- Pending files and folders preview -->
   @if (pendingFilePreviews().length > 0 || pendingFolders().length > 0) {
     <div class="pending-files">

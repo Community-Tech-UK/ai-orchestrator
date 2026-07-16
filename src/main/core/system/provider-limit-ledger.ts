@@ -125,6 +125,35 @@ export class ProviderLimitLedger {
     return this.db.prepareCached('DELETE FROM provider_limit_events WHERE resume_at <= ?').run(now).changes;
   }
 
+  /**
+   * User-override clear: delete the still-active (future-dated) gates that
+   * would hold a turn for this model — the exact-model row and the
+   * account-wide fallback. A recorded resumeAt can go stale mid-window (e.g.
+   * the user applies a reset credit or purchases more quota on the provider
+   * side), and without this the durable row keeps holding every send until
+   * its wall-clock expiry. Called when the user explicitly resumes or
+   * dismisses a quota park; if the provider is in fact still limited, the
+   * very next failed turn re-records a fresh gate.
+   *
+   * `model: null` clears provider-wide (every model plus the account gate):
+   * callers without a model scope are acting on account-level evidence (a
+   * user override, or a quota probe whose windows are account-level), which
+   * invalidates every recorded gate for the provider. Leaving model-scoped
+   * rows behind would let a stale gate instantly re-park the resumed session.
+   */
+  clearActive(params: { provider: ProviderId; model: string | null; now?: number }): number {
+    const model = normalizeModel(params.model);
+    const now = params.now ?? Date.now();
+    if (model === null) {
+      return this.db.prepareCached(
+        'DELETE FROM provider_limit_events WHERE provider = ? AND resume_at > ?',
+      ).run(params.provider, now).changes;
+    }
+    return this.db.prepareCached(
+      "DELETE FROM provider_limit_events WHERE provider = ? AND (model = ? OR model = '') AND resume_at > ?",
+    ).run(params.provider, model, now).changes;
+  }
+
   /** A successful turn after a reset clears that model and any account-wide gate. */
   clearAfterSuccessfulTurn(params: { provider: ProviderId; model: string | null; now?: number }): number {
     const model = normalizeModel(params.model);
@@ -144,10 +173,11 @@ export class ProviderLimitLedger {
  * Lazy runtime port for callers that construct before the RLM database is
  * initialized (notably InstanceManager's lightweight test and renderer paths).
  */
-export function getProviderLimitLedgerPort(): Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearAfterSuccessfulTurn'> {
+export function getProviderLimitLedgerPort(): Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive' | 'clearAfterSuccessfulTurn'> {
   return {
     record: (event) => ProviderLimitLedger.getInstance().record(event),
     getActive: (query) => ProviderLimitLedger.getInstance().getActive(query),
+    clearActive: (params) => ProviderLimitLedger.getInstance().clearActive(params),
     clearAfterSuccessfulTurn: (params) => ProviderLimitLedger.getInstance().clearAfterSuccessfulTurn(params),
   };
 }

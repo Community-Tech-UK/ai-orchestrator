@@ -265,6 +265,13 @@ class CommandManager {
    * Execute a command from a command string (e.g., "/review focus on errors")
    */
   async executeCommandString(input: string, workingDirectory?: string): Promise<ParsedCommand | null> {
+    // Only slash-prefixed input is a command. Plain chat messages must pass
+    // through untouched: resolveCommand's first-word fallback exists for the
+    // command palette, and without this guard a message starting with a
+    // command name ("Fix the build please") would silently expand into that
+    // command's template on the send path.
+    if (!parseCommandString(input)) return null;
+
     const resolved = await this.resolveCommand(input, workingDirectory);
     if (resolved.kind !== 'exact' && resolved.kind !== 'alias') return null;
 

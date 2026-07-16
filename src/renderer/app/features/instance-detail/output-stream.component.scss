@@ -151,17 +151,17 @@
         color: var(--text-primary);
       }
 
-      /* #6: System messages — constrained width, centered */
+      /* #6: System messages — constrained width, centered, neutral (blue-on-dark read badly) */
       .message-system {
         width: fit-content;
         max-width: 90%;
         margin: 4px auto;
         padding: 8px 14px;
-        background: rgba(var(--info-rgb), 0.06);
-        border: 1px solid rgba(var(--info-rgb), 0.10);
+        background: var(--surface-sunken-bg, rgba(255, 255, 255, 0.03));
+        border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
         border-radius: 12px;
         font-size: 12px;
-        color: var(--info-color);
+        color: var(--text-secondary);
       }
 
       .message-error {

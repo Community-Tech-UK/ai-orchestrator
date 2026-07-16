@@ -46,6 +46,21 @@ export function truncateQueuedMessage(message: string): string {
   return firstLine + (message.includes('\n') ? '...' : '');
 }
 
+/**
+ * Countdown text for the quota-park banner above the composer. The park
+ * auto-resumes at the recorded reset AND re-probes for an early lift, so the
+ * copy says "by", not "in" — the recorded time is a ceiling, not a promise.
+ */
+export function formatQuotaParkCountdown(resumeAt: number, now: number): string {
+  const secsLeft = Math.max(0, Math.round((resumeAt - now) / 1000));
+  if (secsLeft <= 0) return 'resuming…';
+  if (secsLeft < 60) return `auto-resumes in ${secsLeft}s`;
+  const minsLeft = Math.ceil(secsLeft / 60);
+  if (minsLeft < 120) return `auto-resumes in ≤${minsLeft}m`;
+  const hours = Math.floor(minsLeft / 60);
+  return `auto-resumes in ≤${hours}h ${minsLeft % 60}m`;
+}
+
 export function formatWaitReasonLabel(wr: InstanceWaitReason | undefined): string | null {
   if (!wr) return null;
   switch (wr.kind) {

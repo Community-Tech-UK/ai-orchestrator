@@ -425,7 +425,7 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   /** Bind the durable cross-runtime provider-limit ledger (runtime / tests). */
-  setProviderLimitLedger(ledger: Pick<ProviderLimitLedger, 'record' | 'getActive'> | null): void {
+  setProviderLimitLedger(ledger: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'> | null): void {
     this.providerLimitHandler.setProviderLimitLedger(ledger);
   }
 
@@ -1242,6 +1242,15 @@ export class LoopCoordinator extends EventEmitter {
     }
     // A manual resume supersedes any pending provider-limit auto-resume timer.
     this.providerLimitHandler.clearResumeTimer(loopRunId);
+    if (state.status === 'provider-limit') {
+      // A manual resume is a user override of the recorded limit: drop the
+      // durable gate provider-wide, or the next iteration's ledger preflight
+      // (maybeParkKnownProviderLimit) instantly re-parks the loop off the
+      // same — possibly stale — row. Recorded reset times go stale when the
+      // user applies a reset credit or buys quota mid-window; if the provider
+      // is in fact still limited, the next failed iteration re-records.
+      this.providerLimitHandler.clearKnownLimitGate(state.config.provider, null);
+    }
     state.status = 'running';
     // A3 (#29): no longer waiting on input once the operator resumes.
     state.pausedForInput = false;

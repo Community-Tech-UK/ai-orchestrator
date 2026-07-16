@@ -17,6 +17,14 @@ const logger = getLogger('InstanceProviderLimitHandler');
  */
 const RESUME_DEDUPE_MS = 60_000;
 
+/**
+ * How often a parked session re-probes the provider's live quota for an early
+ * lift. The recorded resumeAt is only what the provider said at failure time;
+ * the limit can clear sooner (a reset credit applied, extra quota purchased),
+ * and without a re-probe the park silently overstays. Exported for tests.
+ */
+export const EARLY_RESUME_PROBE_MS = 3 * 60_000;
+
 export interface InstanceProviderLimitHandlerDeps {
   /** Feature gate — regular-session auto-resume is opt-in (default OFF). */
   isEnabled: () => boolean;
@@ -34,10 +42,21 @@ export interface InstanceProviderLimitHandlerDeps {
    * to derive a reset time from.
    */
   refreshQuotaSnapshot?: (provider: ProviderId) => void;
+  /**
+   * On-demand live quota probe used by the parked early-resume checker.
+   * Resolves the fresh snapshot, or null on failure. Wired to
+   * ProviderQuotaService.refresh().
+   */
+  probeQuotaSnapshot?: (provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>;
   /** Durable cross-instance provider-limit cache. Injectable for focused tests. */
-  providerLimitLedger?: Pick<ProviderLimitLedger, 'record' | 'getActive'>;
+  providerLimitLedger?: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'>;
   /** Working directory for the instance (needed by the durable automation). */
   getWorkspaceCwd: (instanceId: string) => string | undefined;
+  /**
+   * Provider + resolved model for the instance, used to scope the ledger
+   * user-override clear on resume/cancel. Null when the instance is gone.
+   */
+  getProviderModel?: (instanceId: string) => { provider: InstanceProvider; model: string | null } | null;
   /**
    * Whether the instance is currently live and can accept a re-sent turn. Used
    * post-restart: when false, the durable automation falls through to its own
@@ -71,6 +90,8 @@ export type MaybeParkKnownParams = Omit<MaybeParkParams, 'resetAtHint'>;
 interface ParkEntry {
   cancel: () => void;
   resumePrompt: string | null;
+  /** Stops the periodic early-resume quota probe for this park. */
+  stopEarlyResumeProbe: () => void;
 }
 
 /**
@@ -208,7 +229,11 @@ export class InstanceProviderLimitHandler {
       resumeInstance: (id, opts) => this.resumeNow(id, opts),
     });
 
-    this.parked.set(params.instanceId, { cancel, resumePrompt: params.resumePrompt });
+    this.parked.set(params.instanceId, {
+      cancel,
+      resumePrompt: params.resumePrompt,
+      stopEarlyResumeProbe: this.startEarlyResumeProbe(params.instanceId, providerId, resumeAt),
+    });
     logger.info('Parked regular session on provider limit; will auto-resume at window reset', {
       instanceId: params.instanceId,
       provider: providerId,
@@ -238,7 +263,16 @@ export class InstanceProviderLimitHandler {
 
     const entry = this.parked.get(instanceId);
     this.parked.delete(instanceId);
-    if (entry) entry.cancel();
+    if (entry) {
+      entry.cancel();
+      entry.stopEarlyResumeProbe();
+    }
+
+    // Drop the durable known-limit gate BEFORE re-sending: the re-sent turn
+    // travels the normal send path, whose preflight (maybeParkKnown) would
+    // otherwise instantly re-park it off the same — possibly stale — ledger
+    // row, making "Resume now" a silent no-op until the recorded reset time.
+    this.clearKnownLimitGate(instanceId);
 
     deps.setWaitReason(instanceId, null);
 
@@ -283,6 +317,7 @@ export class InstanceProviderLimitHandler {
     // is live; otherwise let the automation revive the thread and dispatch.
     if (deps.isResumable?.(instanceId)) {
       this.lastResumeAt.set(instanceId, now);
+      this.clearKnownLimitGate(instanceId);
       deps.setWaitReason(instanceId, null);
       if (fallbackPrompt && fallbackPrompt.length > 0) {
         deps.resendInput(instanceId, fallbackPrompt);
@@ -296,15 +331,94 @@ export class InstanceProviderLimitHandler {
   cancel(instanceId: string): boolean {
     const entry = this.parked.get(instanceId);
     this.parked.delete(instanceId);
-    if (entry) entry.cancel();
+    if (entry) {
+      entry.cancel();
+      entry.stopEarlyResumeProbe();
+    }
     // Block a racing timer/automation from re-sending after an explicit cancel.
     this.lastResumeAt.set(instanceId, Date.now());
+    // A dismissal is also a user override: without this, the user's next
+    // typed message would be re-held by the send-path preflight against the
+    // same (possibly stale) ledger row and the park would come straight back.
+    this.clearKnownLimitGate(instanceId);
     this.deps?.setWaitReason(instanceId, null);
     return !!entry;
   }
 
+  /**
+   * User-override of the durable known-limit gate for this instance's
+   * provider/model. A recorded resumeAt can go stale mid-window (the user
+   * applies a reset credit or buys more quota), and the ledger has no way to
+   * observe that — an explicit resume/cancel is the signal to trust the user
+   * and actually attempt the next turn. If the provider is still limited, the
+   * failed turn re-parks with a fresh reset hint, so a wrong override costs
+   * one rejected request.
+   */
+  private clearKnownLimitGate(instanceId: string): void {
+    const deps = this.deps;
+    const ledger = deps?.providerLimitLedger;
+    if (!deps || !ledger || !deps.getProviderModel) return;
+
+    const info = deps.getProviderModel(instanceId);
+    if (!info) return;
+    const providerId = toProviderId(info.provider);
+    if (!providerId) return;
+
+    const cleared = ledger.clearActive({ provider: providerId, model: info.model });
+    if (cleared > 0) {
+      logger.info('Cleared active provider-limit gate (user override)', {
+        instanceId,
+        provider: providerId,
+        model: info.model,
+        cleared,
+      });
+    }
+  }
+
   isParked(instanceId: string): boolean {
     return this.parked.has(instanceId);
+  }
+
+  /**
+   * While parked, periodically re-probe the provider's live quota and resume
+   * as soon as a fresh snapshot shows the limit has lifted — the recorded
+   * resumeAt then acts only as a fallback ceiling. Skips the probe once the
+   * scheduled resume is imminent, never overlaps requests, and treats probe
+   * failures as "still limited" (retry next tick). The interval is unref'd
+   * and stopped by resumeNow/cancel via the park entry.
+   */
+  private startEarlyResumeProbe(
+    instanceId: string,
+    providerId: ProviderId,
+    resumeAt: number,
+  ): () => void {
+    const probe = this.deps?.probeQuotaSnapshot;
+    if (!probe) return () => {};
+
+    let inFlight = false;
+    const timer = setInterval(() => {
+      if (!this.parked.has(instanceId) || inFlight) return;
+      if (resumeAt - Date.now() < 60_000) return; // scheduled resume is about to fire anyway
+      inFlight = true;
+      void probe(providerId)
+        .then((snapshot) => {
+          if (!this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot)) return;
+          logger.info('Provider limit lifted early per fresh quota probe; resuming parked session now', {
+            instanceId,
+            provider: providerId,
+            recordedResumeAt: resumeAt,
+          });
+          this.resumeNow(instanceId);
+        })
+        .catch(() => {
+          // Probe failure proves nothing — keep the park and retry next tick.
+        })
+        .finally(() => {
+          inFlight = false;
+        });
+    }, EARLY_RESUME_PROBE_MS);
+    timer.unref?.();
+    return () => clearInterval(timer);
   }
 
   /**
@@ -332,6 +446,7 @@ export class InstanceProviderLimitHandler {
     for (const entry of this.parked.values()) {
       try {
         entry.cancel();
+        entry.stopEarlyResumeProbe();
       } catch {
         // ignore
       }
@@ -340,6 +455,18 @@ export class InstanceProviderLimitHandler {
     this.lastResumeAt.clear();
     this.deps = null;
   }
+}
+
+/**
+ * A parked limit counts as lifted only when a fresh, successful snapshot
+ * reports headroom on EVERY window (a reset credit zeroes the exhausted
+ * window; other windows may still be pinned). An errored/absent snapshot or
+ * one with no windows proves nothing and keeps the park. Shared with the
+ * loop-side early-resume probe (loop-provider-limit-handler.ts).
+ */
+export function snapshotShowsLimitLifted(snapshot: ProviderQuotaSnapshot | null): boolean {
+  if (!snapshot || !snapshot.ok || snapshot.windows.length === 0) return false;
+  return snapshot.windows.every((w) => w.limit <= 0 || w.used < w.limit);
 }
 
 function toProviderId(provider: InstanceProvider): ProviderId | null {

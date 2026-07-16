@@ -422,8 +422,19 @@ export class InstanceManager extends EventEmitter {
           });
         });
       },
+      probeQuotaSnapshot: async (provider) => {
+        try {
+          return await getProviderQuotaService().refresh(provider);
+        } catch {
+          return null;
+        }
+      },
       providerLimitLedger: getProviderLimitLedgerPort(),
       getWorkspaceCwd: (id) => this.state.getInstance(id)?.workingDirectory,
+      getProviderModel: (id) => {
+        const inst = this.state.getInstance(id);
+        return inst ? { provider: inst.provider, model: inst.currentModel ?? null } : null;
+      },
       isResumable: (id) => { const inst = this.state.getInstance(id); return !!inst && inst.status !== 'terminated' && inst.status !== 'failed'; },
     });
 

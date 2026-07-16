@@ -162,6 +162,24 @@ describe('CommandManager', () => {
     expect(resolved?.resolvedPrompt).toBe('Prepare release for patch build');
   });
 
+  it('does not expand plain messages whose first word matches a command name', async () => {
+    const manager = new CommandManager();
+
+    // Regression: "Fix please, and then I will commit." was rewritten into the
+    // /fix template on the send path because the first word matched a command.
+    expect(await manager.executeCommandString('Fix please, and then I will commit.')).toBeNull();
+    expect(await manager.executeCommandString('test the login flow')).toBeNull();
+    expect(await manager.executeCommandString('Why is this failing?')).toBeNull();
+  });
+
+  it('still expands slash-prefixed built-in commands', async () => {
+    const manager = new CommandManager();
+    const resolved = await manager.executeCommandString('/fix failing login test');
+
+    expect(resolved?.command.name).toBe('fix');
+    expect(resolved?.resolvedPrompt).toContain('failing login test');
+  });
+
   it('keeps local commands ahead of markdown commands with the same name', async () => {
     const markdownCommand: CommandTemplate = {
       id: createMarkdownCommandId('review'),

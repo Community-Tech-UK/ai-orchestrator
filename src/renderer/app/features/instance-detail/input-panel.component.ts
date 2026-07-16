@@ -23,6 +23,7 @@ import { ActionDispatchService } from '../../core/services/action-dispatch.servi
 import { DraftService } from '../../core/services/draft.service';
 import { KeybindingService, type KeybindingEvent } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
+import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import {
   VoiceConversationSessionContext,
   VoiceConversationStore,
@@ -89,6 +90,7 @@ import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.typ
 import {
   commandSuggestionText,
   defaultWakeupLocal,
+  formatQuotaParkCountdown,
   formatWaitReasonLabel,
   formatFileSize,
   formatVoiceStatusLabel,
@@ -130,6 +132,7 @@ export class InputPanelComponent implements OnDestroy {
   private actionDispatch = inject(ActionDispatchService);
   private keybindingService = inject(KeybindingService);
   private orchestrationIpc = inject(OrchestrationIpcService);
+  private instanceIpc = inject(InstanceIpcService);
   private promptHistoryStore = inject(PromptHistoryStore);
   private loopPanelOpener = inject(LoopPanelOpenerService);
   protected voice = inject(VoiceConversationStore);
@@ -168,6 +171,35 @@ export class InputPanelComponent implements OnDestroy {
   waitReason = input<InstanceWaitReason | undefined>(undefined);
 
   readonly holdReasonLabel = computed<string | null>(() => formatWaitReasonLabel(this.waitReason()));
+
+  /** Quota-park banner state (moved here from the header — it gates the composer, so it lives with it). */
+  readonly quotaPark = computed(() => {
+    const wr = this.waitReason();
+    return wr?.kind === 'quota-park' ? wr : null;
+  });
+  private readonly quotaParkNow = signal(Date.now());
+  private readonly quotaParkTicker = effect((onCleanup) => {
+    if (!this.quotaPark()) return;
+    const timer = setInterval(() => this.quotaParkNow.set(Date.now()), 1000);
+    onCleanup(() => clearInterval(timer));
+  });
+  readonly quotaParkLabel = computed(() => {
+    const park = this.quotaPark();
+    return park ? `Provider limit — ${formatQuotaParkCountdown(park.resumeAt, this.quotaParkNow())}` : null;
+  });
+  readonly quotaParkDetail = computed(() => {
+    const park = this.quotaPark();
+    if (!park) return '';
+    return `Parked on a ${park.provider} limit. Re-checks the live quota every few minutes and resumes as soon as the limit lifts; resumes at ${new Date(park.resumeAt).toLocaleTimeString()} at the latest.`;
+  });
+
+  onResumeFromProviderLimit(): void {
+    void this.instanceIpc.providerLimitResumeNow(this.instanceId());
+  }
+
+  onCancelProviderLimitPark(): void {
+    void this.instanceIpc.providerLimitCancel(this.instanceId());
+  }
 
   // Computed preview data for pending files
   pendingFilePreviews = computed(() => {

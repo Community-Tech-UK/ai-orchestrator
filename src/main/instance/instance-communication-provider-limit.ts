@@ -62,7 +62,7 @@ export function tryParkOnProviderLimit(
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: 'Provider limit reached. This session is parked and will resume automatically when the quota window resets.',
+      content: 'Provider limit reached. This session is parked and will auto-resume as soon as the limit lifts (re-checked every few minutes), or at the quota window reset at the latest.',
       metadata: { providerLimitParked: true },
     };
     deps.addToOutputBuffer(instance, parkMessage);
