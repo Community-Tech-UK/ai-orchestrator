@@ -281,7 +281,12 @@
 
         @if (contextUsage(); as usage) {
           <div class="header-context">
-            <app-context-bar [usage]="usage" [showDetails]="true" [showCost]="false" />
+            <app-context-bar
+              [usage]="usage"
+              [showDetails]="true"
+              [showCost]="false"
+              [instanceId]="instance().id"
+            />
           </div>
         }
       </div>

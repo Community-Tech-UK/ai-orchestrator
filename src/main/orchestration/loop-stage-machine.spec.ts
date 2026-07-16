@@ -328,7 +328,7 @@ describe('LoopStageMachine', () => {
       pendingInterventions: [],
     });
 
-    expect(p).toContain('Ledger status: 2/4 resolved');
+    expect(p).toContain('Ledger status: 2/4 leaves resolved');
     expect(p).toContain('next: Wire F1 re-anchor reminder');
     expect(p).toContain('doing: 1');
   });

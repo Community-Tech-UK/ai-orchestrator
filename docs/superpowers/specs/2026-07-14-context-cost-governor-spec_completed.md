@@ -1,9 +1,16 @@
 # Context Cost Governor Architecture Spec
 
 **Date:** 2026-07-14  
-**Status:** Approved for implementation; active and uncommitted  
-**Implementation plan:** `docs/superpowers/plans/2026-07-14-context-cost-governor-plan.md`  
+**Status:** Implemented and verified 2026-07-16; active and uncommitted  
+**Implementation plan:** `docs/superpowers/plans/2026-07-14-context-cost-governor-plan_completed.md`  
 **Scope:** Codex app-server turns only. Prompt payload reduction and graph retrieval are separate projects.
+
+**As-built note:** The interrupt/compact/continue orchestration described below is implemented via
+the provider-neutral `ContextSafetyPolicy` + `ProviderContextActionExecutor` architecture (built
+later as part of the provider-agnostic-context-evidence work) rather than an adapter-internal
+decision loop. See the plan's As-Built section for exact file:line citations. All guarantees
+described here (proof-gated compaction, epoch-scoped recovery, retryable pause, fixed-instruction
+same-thread continuation) hold under the actual implementation.
 
 ## Problem
 

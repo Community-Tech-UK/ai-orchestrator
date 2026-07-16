@@ -6,11 +6,13 @@ import { z, ZodError } from 'zod/v4';
 import type {
   FsReadDirectoryParams,
   FsReadFileParams,
+  FsReadFileChunkParams,
   FsSearchParams,
   FsStatParams,
   FsUnwatchParams,
   FsWatchParams,
-  FsWriteFileParams
+  FsWriteFileParams,
+  FsWriteFileChunkParams
 } from '../shared/types/remote-fs.types';
 import type {
   SyncApplyDeltaParams,
@@ -256,6 +258,16 @@ export class WorkerRpcDispatcher {
         case COORDINATOR_TO_NODE.FS_WRITE_FILE:
           result = await this.deps.getFilesystemHandler().writeFile(
             params as unknown as FsWriteFileParams
+          );
+          break;
+        case COORDINATOR_TO_NODE.FS_READ_FILE_CHUNK:
+          result = await this.deps.getFilesystemHandler().readFileChunk(
+            params as unknown as FsReadFileChunkParams
+          );
+          break;
+        case COORDINATOR_TO_NODE.FS_WRITE_FILE_CHUNK:
+          result = await this.deps.getFilesystemHandler().writeFileChunk(
+            params as unknown as FsWriteFileChunkParams
           );
           break;
         case COORDINATOR_TO_NODE.SYNC_SCAN_DIRECTORY:

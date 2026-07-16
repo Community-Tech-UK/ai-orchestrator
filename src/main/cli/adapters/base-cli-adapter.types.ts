@@ -216,6 +216,22 @@ export type CliSpawnMode =
   | 'unknown';
 
 /**
+ * WS4 (loop-convergence plan) — one truthful adapter-level context occupancy
+ * observation. `known` requires a CURRENT numerator (what sits in the window
+ * right now) and a positive provider-reported or model-resolved window as the
+ * denominator. Anything the adapter cannot prove is `unknown` with a reason:
+ *  - `not-reported`   no per-turn/session occupancy sample has arrived yet
+ *  - `aggregate-only` the mode only exposes cumulative token totals, which
+ *                     cannot prove occupancy (e.g. Codex `exec`)
+ *  - `invalid-sample` a sample exists but its values are unusable
+ * Consumers (loop context discipline) must never substitute aggregate token
+ * totals for an unknown observation — aggregates are cost/diagnostics only.
+ */
+export type ContextUsageObservation =
+  | { status: 'known'; used: number; total: number; source: 'provider-turn' | 'provider-session' }
+  | { status: 'unknown'; reason: 'not-reported' | 'aggregate-only' | 'invalid-sample' };
+
+/**
  * B9 — Emitted when an adapter's spawn mode is first established or changes at
  * runtime. The canonical case is Codex silently degrading from `app-server` to
  * `subprocess-exec` when app-server init fails — previously invisible, now a

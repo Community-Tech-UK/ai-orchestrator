@@ -1614,4 +1614,59 @@ describe('CodexCliAdapter', () => {
       expect(errorMessages[0].content).toContain('http 500');
     });
   });
+  describe('getLastContextUsage (WS4 truthful occupancy)', () => {
+    type Internals = {
+      useAppServer: boolean;
+      lastTurnTokens: number;
+      codexReportedContextWindow: number;
+    };
+    const appServerAdapter = (over: Partial<Internals> = {}): CodexCliAdapter => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as Internals;
+      internals.useAppServer = true;
+      internals.lastTurnTokens = over.lastTurnTokens ?? 0;
+      internals.codexReportedContextWindow = over.codexReportedContextWindow ?? 0;
+      return adapter;
+    };
+
+    it('reports known occupancy from lastTurnTokens against the provider-reported window', () => {
+      const adapter = appServerAdapter({ lastTurnTokens: 60_000, codexReportedContextWindow: 200_000 });
+      expect(adapter.getLastContextUsage()).toEqual({
+        status: 'known', used: 60_000, total: 200_000, source: 'provider-turn',
+      });
+    });
+
+    it('tracks a later turn sample (no second accumulator)', () => {
+      const adapter = appServerAdapter({ lastTurnTokens: 60_000, codexReportedContextWindow: 200_000 });
+      (adapter as unknown as Internals).lastTurnTokens = 150_000;
+      expect(adapter.getLastContextUsage()).toEqual({
+        status: 'known', used: 150_000, total: 200_000, source: 'provider-turn',
+      });
+    });
+
+    it('reports unknown: not-reported before the first occupancy sample', () => {
+      const adapter = appServerAdapter({ codexReportedContextWindow: 200_000 });
+      expect(adapter.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'not-reported' });
+    });
+
+    it('falls back to the model-resolved window when Codex has not reported one', () => {
+      // codexReportedContextWindow = 0 -> resolveContextWindow() uses the
+      // model-capabilities registry, which is positive for the default model.
+      const adapter = appServerAdapter({ lastTurnTokens: 50_000 });
+      const observation = adapter.getLastContextUsage();
+      expect(observation.status).toBe('known');
+      if (observation.status === 'known') {
+        expect(observation.used).toBe(50_000);
+        expect(observation.total).toBeGreaterThan(0);
+      }
+    });
+
+    it('reports unknown: invalid-sample for malformed values', () => {
+      const negative = appServerAdapter({ lastTurnTokens: -5, codexReportedContextWindow: 200_000 });
+      expect(negative.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'invalid-sample' });
+
+      const nan = appServerAdapter({ lastTurnTokens: Number.NaN, codexReportedContextWindow: 200_000 });
+      expect(nan.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'invalid-sample' });
+    });
+  });
 });

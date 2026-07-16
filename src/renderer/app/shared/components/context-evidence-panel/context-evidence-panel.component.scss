@@ -1,0 +1,140 @@
+.evidence-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.evidence-error {
+  color: var(--error-color, #ef4444);
+}
+
+.evidence-loading,
+.evidence-empty {
+  color: var(--text-muted);
+}
+
+.evidence-section h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.occupancy-unknown {
+  color: var(--warning-color, #f59e0b);
+}
+
+.provenance-badge,
+.sensitivity-badge,
+.status-badge,
+.completeness-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.status-badge.degraded {
+  color: var(--error-color, #ef4444);
+  border-color: var(--error-color, #ef4444);
+}
+
+.paused-badge {
+  margin-left: 8px;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  color: var(--warning-color, #f59e0b);
+  border: 1px solid var(--warning-color, #f59e0b);
+}
+
+.working-set-list,
+.metrics-grid,
+.record-list,
+.card-citations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.working-set-list li,
+.metrics-grid li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 4px 12px;
+}
+
+.metrics-grid li {
+  justify-content: space-between;
+}
+
+.metric-value {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.record-row {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.record-row.degraded {
+  border-color: var(--error-color, #ef4444);
+}
+
+.record-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.record-id {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.record-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.degraded-disclosure {
+  color: var(--error-color, #ef4444);
+}
+
+.inspection-content {
+  max-height: 160px;
+  overflow-y: auto;
+  background: rgba(6, 10, 9, 0.42);
+  padding: 6px 8px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+.inspection-actions {
+  display: flex;
+  gap: 8px;
+}

@@ -145,6 +145,12 @@ const controlSurfaceRoutes: Routes = [
       import('./features/browser/browser-page.component').then((m) => m.BrowserPageComponent),
   },
   {
+    path: 'files',
+    data: controlSurfaceRouteData('files'),
+    loadComponent: () =>
+      import('./features/files/files-page.component').then((m) => m.FilesPageComponent),
+  },
+  {
     path: 'vcs',
     data: controlSurfaceRouteData('vcs'),
     loadComponent: () =>

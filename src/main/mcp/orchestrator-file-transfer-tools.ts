@@ -62,6 +62,15 @@ export const UploadToNodeArgsSchema = z.object({
   overwrite: z.boolean().optional(),
 }).strict();
 
+export const SyncDirectoryArgsSchema = z.object({
+  node: NodeTargetSchema,
+  localPath: LocalPathSchema,
+  remotePath: RemotePathSchema,
+  exclude: z.array(z.string().trim().min(1).max(300)).max(64).optional(),
+  dryRun: z.boolean().optional(),
+  deleteExtraneous: z.boolean().optional(),
+}).strict();
+
 export const CollectBrowserDownloadArgsSchema = z.object({
   node: NodeTargetSchema,
   profileId: z.string().trim().min(1).max(200).optional(),
@@ -78,6 +87,7 @@ export type FindNodeFilesArgs = z.infer<typeof FindNodeFilesArgsSchema>;
 export type GetNodeFileInfoArgs = z.infer<typeof GetNodeFileInfoArgsSchema>;
 export type DownloadFromNodeArgs = z.infer<typeof DownloadFromNodeArgsSchema>;
 export type UploadToNodeArgs = z.infer<typeof UploadToNodeArgsSchema>;
+export type SyncDirectoryArgs = z.infer<typeof SyncDirectoryArgsSchema>;
 export type CollectBrowserDownloadArgs = z.infer<typeof CollectBrowserDownloadArgsSchema>;
 
 export interface FileTransferToolMeta {
@@ -94,6 +104,8 @@ export type FindNodeFilesFn = FileTransferToolFn<FindNodeFilesArgs>;
 export type GetNodeFileInfoFn = FileTransferToolFn<GetNodeFileInfoArgs>;
 export type DownloadFromNodeFn = FileTransferToolFn<DownloadFromNodeArgs>;
 export type UploadToNodeFn = FileTransferToolFn<UploadToNodeArgs>;
+export type SyncToNodeFn = FileTransferToolFn<SyncDirectoryArgs>;
+export type SyncFromNodeFn = FileTransferToolFn<SyncDirectoryArgs>;
 export type CollectBrowserDownloadFn = FileTransferToolFn<CollectBrowserDownloadArgs>;
 
 export interface FileTransferToolContext {
@@ -102,6 +114,8 @@ export interface FileTransferToolContext {
   getNodeFileInfo?: FileTransferToolFn<GetNodeFileInfoArgs> | null;
   downloadFromNode?: FileTransferToolFn<DownloadFromNodeArgs> | null;
   uploadToNode?: FileTransferToolFn<UploadToNodeArgs> | null;
+  syncToNode?: FileTransferToolFn<SyncDirectoryArgs> | null;
+  syncFromNode?: FileTransferToolFn<SyncDirectoryArgs> | null;
   collectBrowserDownload?: FileTransferToolFn<CollectBrowserDownloadArgs> | null;
   instanceId?: string | null;
 }
@@ -216,6 +230,50 @@ export function createFileTransferToolDefinitions(
       handler: async (args) => {
         const parsed = UploadToNodeArgsSchema.parse(args);
         return requireTransferFn(context.uploadToNode, 'upload_to_node')(parsed, meta(context));
+      },
+    },
+    {
+      name: 'sync_to_node',
+      description:
+        'Rsync-style sync of a local workspace folder onto a connected worker node: only new and changed files are sent (delta transfer for modified files). Use instead of many upload_to_node calls when moving a folder or batch of files.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          node: { type: 'string', description: 'Worker node name or id.' },
+          localPath: { type: 'string', description: 'Local workspace folder to sync from.' },
+          remotePath: { type: 'string', description: 'Remote destination folder inside a writable transfer root or worker working directory.' },
+          exclude: { type: 'array', items: { type: 'string' }, description: 'Glob-style relative paths to skip.' },
+          dryRun: { type: 'boolean', description: 'Report what would change without transferring. Defaults to false.' },
+          deleteExtraneous: { type: 'boolean', description: 'Delete remote files missing locally. Defaults to false.' },
+        },
+        required: ['node', 'localPath', 'remotePath'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        const parsed = SyncDirectoryArgsSchema.parse(args);
+        return requireTransferFn(context.syncToNode, 'sync_to_node')(parsed, meta(context));
+      },
+    },
+    {
+      name: 'sync_from_node',
+      description:
+        'Rsync-style sync of a folder on a connected worker node into the local workspace: only new and changed files are fetched (delta transfer for modified files). Use instead of many download_from_node calls.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          node: { type: 'string', description: 'Worker node name or id.' },
+          localPath: { type: 'string', description: 'Local workspace destination folder.' },
+          remotePath: { type: 'string', description: 'Remote source folder inside an allowlisted transfer root or worker working directory.' },
+          exclude: { type: 'array', items: { type: 'string' }, description: 'Glob-style relative paths to skip.' },
+          dryRun: { type: 'boolean', description: 'Report what would change without transferring. Defaults to false.' },
+          deleteExtraneous: { type: 'boolean', description: 'Delete local files missing remotely. Defaults to false.' },
+        },
+        required: ['node', 'localPath', 'remotePath'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        const parsed = SyncDirectoryArgsSchema.parse(args);
+        return requireTransferFn(context.syncFromNode, 'sync_from_node')(parsed, meta(context));
       },
     },
     {

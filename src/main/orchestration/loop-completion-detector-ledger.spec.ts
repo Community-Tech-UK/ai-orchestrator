@@ -99,6 +99,39 @@ describe('LoopCompletionDetector — LOOP_TASKS.md ledger (LF-4)', () => {
     expect(sigs.find((s) => s.id === 'done-sentinel')?.sufficient).toBe(true);
   });
 
+  it('exposes unresolved LEAF ids as structured evidence (WS2)', async () => {
+    writeFileSync(paths.tasks, [
+      '- [ ] parent <!-- loop-task-id:p -->',
+      '  - [x] child done <!-- loop-task-id:c.done -->',
+      '  - [ ] child open <!-- loop-task-id:c.open -->',
+      '- [~] solo doing <!-- loop-task-id:solo -->',
+    ].join('\n'));
+    const state = makeState();
+
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+
+    const ledger = sigs.find((s) => s.id === 'ledger-complete');
+    // The open parent is structural: only the two open LEAVES count/block.
+    expect(ledger?.openCount).toBe(2);
+    expect(ledger?.openLeafIds).toEqual(['c.open', 'solo']);
+  });
+
+  it('completes on leaves alone — an open structural parent does not block (WS2)', async () => {
+    writeFileSync(paths.tasks, [
+      '- [ ] parent <!-- loop-task-id:p -->',
+      '  - [x] child one <!-- loop-task-id:c1 -->',
+      '  - [-] child two — deferred: out of scope <!-- loop-task-id:c2 -->',
+    ].join('\n'));
+    const state = makeState();
+
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+
+    const ledger = sigs.find((s) => s.id === 'ledger-complete');
+    expect(ledger?.sufficient).toBe(true);
+    expect(ledger?.openCount).toBe(0);
+    expect(ledger?.openLeafIds).toEqual([]);
+  });
+
   it('is a no-op when LOOP_TASKS.md is absent or has no items', async () => {
     writeFileSync(loopStateFile(paths, 'DONE.txt'), 'done\n');
     writeFileSync(paths.tasks, '# Loop Tasks\n\njust a heading, no checkboxes\n');

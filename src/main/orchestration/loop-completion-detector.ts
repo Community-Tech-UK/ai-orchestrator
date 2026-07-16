@@ -55,6 +55,9 @@ import type {
 
 const logger = getLogger('LoopCompletionDetector');
 
+/** WS2: cap on unresolved-leaf ids attached to `ledger-complete` evidence. */
+const LEDGER_OPEN_LEAF_ID_CAP = 32;
+
 /**
  * Build the spawn invocation for a verify command.
  *
@@ -574,20 +577,29 @@ export class LoopCompletionDetector {
               id: 'ledger-complete',
               sufficient: isImplement,
               openCount: 0,
+              openLeafIds: [],
               detail: isImplement
-                ? `All ${ledger.total} ${LOOP_TASKS_FILE} items resolved (done/deferred) during this run`
-                : `All ${ledger.total} ${LOOP_TASKS_FILE} items resolved, but stage is not IMPLEMENT — ignoring`,
+                ? `All ${ledger.total} ${LOOP_TASKS_FILE} leaf items resolved (done/deferred) during this run`
+                : `All ${ledger.total} ${LOOP_TASKS_FILE} leaf items resolved, but stage is not IMPLEMENT — ignoring`,
             });
           }
         } else {
-          // Open items remain → the ledger blocks completion. Demote every
+          // Open leaf items remain → the ledger blocks completion. Demote every
           // other signal so the loop keeps working the ledger, and record why.
+          // WS2: expose the unresolved LEAF ids as structured evidence so
+          // convergence tracking can distinguish "the same items are still
+          // open" from "different items are open" (openCount alone can't).
           const open = ledger.total - ledger.resolved;
+          const openLeafIds = ledger.items
+            .filter((item) => item.leaf && (item.state === 'todo' || item.state === 'doing'))
+            .slice(0, LEDGER_OPEN_LEAF_ID_CAP)
+            .map((item) => item.id);
           for (const evidence of out) evidence.sufficient = false;
           out.push({
             id: 'ledger-complete',
             sufficient: false,
             openCount: open,
+            openLeafIds,
             detail: `${LOOP_TASKS_FILE} has ${open} open item(s)` +
               (ledger.nextTodo ? ` — next: ${ledger.nextTodo}` : '') +
               ' — completion blocked until every item is done or deferred (with a reason)',

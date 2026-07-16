@@ -3,14 +3,16 @@
  */
 
 import { DecimalPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
-import { ContextUsage } from '../../core/state/instance.store';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
+import { ContextUsage, InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { ContextEvidencePanelComponent } from '../../shared/components/context-evidence-panel/context-evidence-panel.component';
 
 @Component({
   selector: 'app-context-bar',
   standalone: true,
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, ContextEvidencePanelComponent],
   template: `
     <div class="context-bar" [class.compact]="compact()">
       <div class="bar-track">
@@ -38,7 +40,29 @@ import { SettingsStore } from '../../core/state/settings.store';
       } @else {
         <span class="compact-label">{{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%</span>
       }
+
+      @if (instanceId()) {
+        <button
+          type="button"
+          class="evidence-toggle"
+          aria-label="Toggle context evidence panel"
+          [attr.aria-expanded]="evidencePanelOpen()"
+          (click)="toggleEvidencePanel()"
+        >
+          Evidence
+        </button>
+      }
     </div>
+
+    @if (evidencePanelOpen()) {
+      @if (evidenceScope(); as scope) {
+        <app-context-evidence-panel [scope]="scope" />
+      } @else {
+        <p class="evidence-unavailable" role="status">
+          No context evidence conversation is linked to this instance yet.
+        </p>
+      }
+    }
   `,
   styles: [`
     .context-bar {
@@ -146,6 +170,27 @@ import { SettingsStore } from '../../core/state/settings.store';
         text-align: left;
       }
     }
+
+    .evidence-toggle {
+      flex-shrink: 0;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+
+      &:hover {
+        color: var(--text-primary);
+        background: var(--bg-hover);
+      }
+    }
+
+    .evidence-unavailable {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -154,7 +199,14 @@ export class ContextBarComponent {
   compact = input<boolean>(false);
   showDetails = input<boolean>(false);
   showCost = input<boolean>(true);
+  /**
+   * Optional instance identity used solely to open the context evidence
+   * panel — never used to derive or adjust the occupancy figures above.
+   */
+  instanceId = input<string | null>(null);
+
   private settings = inject(SettingsStore);
+  private instanceStore = inject(InstanceStore);
 
   /** Per-call `showCost` input AND the global cost-visibility setting. */
   readonly showCostEffective = computed(() => this.showCost() && this.settings.showCost());
@@ -173,4 +225,24 @@ export class ContextBarComponent {
     const cost = this.usage().costEstimate;
     return cost !== undefined && cost > 0 ? cost : null;
   });
+
+  private readonly evidencePanelOpenState = signal(false);
+  readonly evidencePanelOpen = this.evidencePanelOpenState.asReadonly();
+
+  /**
+   * Derived strictly from real instance ownership state
+   * (`instance.contextEvidence.conversationId`, populated by the main
+   * process); `null` when no conversation is linked yet rather than a
+   * fabricated scope.
+   */
+  readonly evidenceScope = computed<ContextEvidenceScope | null>(() => {
+    const id = this.instanceId();
+    if (!id) return null;
+    const conversationId = this.instanceStore.getInstance(id)?.contextEvidence?.conversationId;
+    return conversationId ? { conversationId, owner: { kind: 'instance', instanceId: id } } : null;
+  });
+
+  toggleEvidencePanel(): void {
+    this.evidencePanelOpenState.update((open) => !open);
+  }
 }

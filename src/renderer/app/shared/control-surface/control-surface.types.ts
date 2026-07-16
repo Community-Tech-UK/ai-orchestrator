@@ -44,6 +44,7 @@ export type ControlSurfaceId =
   | 'lsp'
   | 'mcp'
   | 'browser'
+  | 'files'
   | 'vcs'
   | 'tasks'
   | 'plan'

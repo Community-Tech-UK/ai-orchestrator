@@ -1434,6 +1434,71 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.terminate).not.toHaveBeenCalled();
     });
 
+    const sameSessionContextConfig = {
+      contextStrategy: 'same-session',
+      context: { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } },
+    };
+
+    async function runSameSessionIteration(loopRunId: string, tokens: number): Promise<LoopChildResult | { error: string }> {
+      const iteration = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: `${loopRunId}::0`,
+          loopRunId,
+          chatId: `chat-${loopRunId}`,
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 0,
+          prompt: 'iter 0',
+          config: sameSessionContextConfig,
+          callback: resolve,
+        });
+      });
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: tokens } });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      return iteration;
+    }
+
+    it('WS4 REGRESSION: 7M aggregate tokens + a known 60k/200k observation (30%) must NOT recycle at 60%', async () => {
+      registerDefaultLoopInvoker({} as never);
+      (hoisted.adapterRef.current as unknown as { getLastContextUsage: () => unknown }).getLastContextUsage =
+        () => ({ status: 'known', used: 60_000, total: 200_000, source: 'provider-turn' });
+
+      const result = await runSameSessionIteration('loop-ws4-known-low', 7_000_000);
+
+      // The old aggregate/synthetic-window fallback would have recycled at
+      // "3500%"; truthful occupancy (30%) must not.
+      expect((result as LoopChildResult).contextCompacted).toBeUndefined();
+      expect(hoisted.terminate).not.toHaveBeenCalled();
+    });
+
+    it('WS4: a known observation over the threshold recycles with the occupancy reason', async () => {
+      registerDefaultLoopInvoker({} as never);
+      (hoisted.adapterRef.current as unknown as { getLastContextUsage: () => unknown }).getLastContextUsage =
+        () => ({ status: 'known', used: 130_000, total: 200_000, source: 'provider-turn' });
+
+      const result = await runSameSessionIteration('loop-ws4-known-high', 10_000);
+
+      const compacted = (result as LoopChildResult).contextCompacted;
+      expect(compacted).toBeDefined();
+      expect(compacted?.previousUtilization).toBeCloseTo(0.65, 5);
+      expect(compacted?.reason).toContain('context occupancy');
+    });
+
+    it('WS4 REGRESSION: 7M aggregate tokens + unknown (aggregate-only) occupancy must NOT recycle', async () => {
+      registerDefaultLoopInvoker({} as never);
+      (hoisted.adapterRef.current as unknown as { getLastContextUsage: () => unknown }).getLastContextUsage =
+        () => ({ status: 'unknown', reason: 'aggregate-only' });
+
+      const result = await runSameSessionIteration('loop-ws4-unknown', 7_000_000);
+
+      // The deleted fallback divided 7M by the synthetic window and recycled;
+      // an unproven occupancy must never recycle.
+      expect((result as LoopChildResult).contextCompacted).toBeUndefined();
+      expect(hoisted.terminate).not.toHaveBeenCalled();
+    });
+
     it('B8: recycles a same-session loop adapter when the requested model changes', async () => {
       registerDefaultLoopInvoker({} as never);
       hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });

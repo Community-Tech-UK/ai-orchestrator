@@ -16,7 +16,13 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
   imports: [DatePipe],
   template: `
     <div class="tool-group" [class.expanded]="isExpanded()">
-      <button class="tool-group-header" (click)="toggle()">
+      <button
+        class="tool-group-header"
+        type="button"
+        [attr.aria-expanded]="isExpanded()"
+        [attr.aria-label]="summaryLabel()"
+        (click)="toggle()"
+      >
         <span class="tool-icon">{{ isExpanded() ? '▼' : '▶' }}</span>
         <span class="tool-label">{{ summaryLabel() }}</span>
         <span class="tool-time">
@@ -197,27 +203,55 @@ export class ToolGroupComponent {
   isExpanded = computed(() => this.expansionState.isExpanded(this.instanceId(), this.itemId()));
 
   /**
-   * Summary label showing tool names, e.g. "Tool calls: Read, Bash, Edit (6)"
+   * Actual tool-call count in this group — counts real `tool_use` messages,
+   * never the combined tool_use+tool_result renderer wrapper count.
+   */
+  readonly toolCallCount = computed(
+    () => this.toolMessages().filter((msg) => msg.type === 'tool_use').length,
+  );
+
+  /**
+   * Total characters of actual tool-result content currently held by this
+   * group's messages. Counts `content.length` on `tool_result` messages only
+   * — never a fabricated or renderer-side estimate.
+   */
+  readonly resultCharacterCount = computed(() => this.toolMessages()
+    .filter((msg) => msg.type === 'tool_result')
+    .reduce((total, msg) => total + (msg.content?.length ?? 0), 0));
+
+  /**
+   * Count of results whose metadata explicitly reports externalization
+   * (`metadata['externalized']` boolean). Returns `null` when no message in
+   * the group carries that field at all, so the summary can omit the segment
+   * rather than reporting a fabricated zero.
+   */
+  readonly externalizedResultCount = computed<number | null>(() => {
+    const flags = this.toolMessages()
+      .filter((msg) => msg.type === 'tool_result')
+      .map((msg) => msg.metadata?.['externalized']);
+    const hasExternalizationData = flags.some((flag) => typeof flag === 'boolean');
+    return hasExternalizationData ? flags.filter((flag) => flag === true).length : null;
+  });
+
+  /**
+   * Truthful collapsed summary, e.g. "44 calls · 900,532 characters · 25
+   * results externalized". Every segment is a real count derived from the
+   * messages this component received; the externalized segment is omitted
+   * entirely when that data isn't present rather than showing a guessed 0.
    */
   summaryLabel = computed(() => {
-    const msgs = this.toolMessages();
-    const toolUses = msgs.filter(m => m.type === 'tool_use');
-    const names = toolUses
-      .map(m => this.getToolName(m))
-      .filter(n => n !== 'Tool Call');
+    const callCount = this.toolCallCount();
+    const characterCount = this.resultCharacterCount();
+    const externalizedCount = this.externalizedResultCount();
 
-    const uniqueNames = [...new Set(names)];
-    const count = msgs.length;
-
-    if (uniqueNames.length === 0) {
-      return `${count} tool call${count !== 1 ? 's' : ''}`;
+    const parts = [
+      `${callCount.toLocaleString('en-US')} call${callCount !== 1 ? 's' : ''}`,
+      `${characterCount.toLocaleString('en-US')} character${characterCount !== 1 ? 's' : ''}`,
+    ];
+    if (externalizedCount !== null) {
+      parts.push(`${externalizedCount.toLocaleString('en-US')} result${externalizedCount !== 1 ? 's' : ''} externalized`);
     }
-
-    const nameStr = uniqueNames.length <= 4
-      ? uniqueNames.join(', ')
-      : uniqueNames.slice(0, 3).join(', ') + ` +${uniqueNames.length - 3} more`;
-
-    return `${nameStr} (${count})`;
+    return parts.join(' · ');
   });
 
   /**

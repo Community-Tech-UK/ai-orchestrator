@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
 import type { ChatProvider } from '../../../../shared/types/chat.types';
 import type { ConversationMessageRecord } from '../../../../shared/types/conversation-ledger.types';
 import type { FileAttachment, InstanceStatus, OutputMessage } from '../../../../shared/types/instance.types';
@@ -20,6 +21,7 @@ import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
 import { SessionArtifactsStripComponent } from './session-artifacts-strip.component';
+import { ContextEvidencePanelComponent } from '../../shared/components/context-evidence-panel/context-evidence-panel.component';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
@@ -37,6 +39,7 @@ import type { ChatOlderMessagesLoadResult } from '../../core/state/chat.store';
     CompactModelPickerComponent,
     LoopControlComponent,
     SessionArtifactsStripComponent,
+    ContextEvidencePanelComponent,
   ],
   templateUrl: './chat-detail.component.html',
   styleUrl: './chat-detail.component.scss',
@@ -92,6 +95,19 @@ export class ChatDetailComponent {
     return [...ledgerMessages, ...runtimeOnly];
   });
   readonly hasMessages = computed(() => this.detail()?.conversation.messages.length ? true : false);
+  /**
+   * Scope for the context evidence panel — derives strictly from this
+   * chat's already-known ledger conversation identity (`ledgerThreadId`,
+   * the same conversation id the main process uses to authorize
+   * context-evidence IPC for a chat-owned scope). `null` until a chat is
+   * selected, never a fabricated placeholder.
+   */
+  readonly evidenceScope = computed<ContextEvidenceScope | null>(() => {
+    const chat = this.chat();
+    if (!chat) return null;
+    return { conversationId: chat.ledgerThreadId, owner: { kind: 'chat', chatId: chat.id } };
+  });
+  readonly evidencePanelOpen = signal(false);
   readonly setupComplete = computed(() => {
     const chat = this.chat();
     return !!chat?.provider && !!chat.currentCwd;
@@ -400,6 +416,10 @@ export class ChatDetailComponent {
     }
     const trimmed = cwd.replace(/\/+$/, '');
     return trimmed.split('/').pop() || cwd;
+  }
+
+  toggleEvidencePanel(): void {
+    this.evidencePanelOpen.update((open) => !open);
   }
 
   /**

@@ -14,6 +14,7 @@ import type { ProviderPromptWeightBreakdown } from '@contracts/types/provider-ru
 import type {
   FailedImageRef,
   FileAttachment,
+  InstanceContextEvidenceState,
   InstanceLaunchMode as SharedInstanceLaunchMode,
   InstanceStatus as SharedInstanceStatus,
   InstanceRecoveryMethod,
@@ -83,6 +84,13 @@ export interface Instance {
   isRenamed?: boolean;
   createdAt: number;
   historyThreadId: string;
+  /**
+   * Canonical AIO conversation ownership for context evidence, when enabled.
+   * Populated over IPC by the main process (see `serializeInstance`); this
+   * type mirrors that already-transmitted field so renderer scope derivation
+   * for the context evidence panel never fabricates a conversation id.
+   */
+  contextEvidence?: InstanceContextEvidenceState;
   parentId: string | null;
   childrenIds: string[];
   agentId: string; // Agent profile ID ('build', 'plan', 'review', etc.)

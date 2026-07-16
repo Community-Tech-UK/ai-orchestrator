@@ -38,6 +38,11 @@ const node = {
 const sendRpc = vi.fn();
 const copyFromRemote = vi.fn();
 const copyToRemote = vi.fn();
+const runSync = vi.fn();
+
+vi.mock('./directory-sync-service', () => ({
+  getDirectorySyncService: () => ({ runSync }),
+}));
 
 vi.mock('./worker-node-registry', () => ({
   getWorkerNodeRegistry: () => ({
@@ -58,6 +63,7 @@ vi.mock('./worker-node-connection', () => ({
 }));
 
 vi.mock('./file-transfer-service', () => ({
+  MAX_STREAM_TRANSFER_BYTES: 2 * 1024 * 1024 * 1024,
   getFileTransferService: () => ({
     copyFromRemote,
     copyToRemote,
@@ -78,16 +84,17 @@ describe('RemoteNodeFileTransferMcpService', () => {
     sendRpc.mockReset();
     copyFromRemote.mockReset();
     copyToRemote.mockReset();
+    runSync.mockReset();
   });
 
-  it('refuses downloads larger than the node fileTransfer max before reading bytes', async () => {
+  it('refuses downloads above the streaming cap before reading bytes', async () => {
     const tools = createRemoteNodeFileTransferImplementations({
       resolveLocalWorkspace: () => mkdtempSync(join(tmpdir(), 'aio-transfer-workspace-')),
     });
     sendRpc.mockResolvedValueOnce({
       exists: true,
       isDirectory: false,
-      size: 17,
+      size: 3 * 1024 * 1024 * 1024,
       modifiedAt: Date.now(),
       platform: 'win32',
       withinBrowsableRoot: true,
@@ -584,5 +591,111 @@ describe('RemoteNodeFileTransferMcpService', () => {
         rootId: 'downloads',
       },
     });
+  });
+
+  it('sync_to_node pushes an existing workspace folder into a writable transfer root', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'aio-sync-workspace-'));
+    mkdirSync(join(workspace, 'screens'));
+    writeFileSync(join(workspace, 'screens', 'a.png'), 'png');
+    const tools = createRemoteNodeFileTransferImplementations({
+      resolveLocalWorkspace: () => workspace,
+    });
+    runSync.mockResolvedValueOnce({
+      jobId: 'job-1',
+      added: 1,
+      removed: 0,
+      modified: 0,
+      identical: 4,
+      totalBytesTransferred: 3,
+      totalBytesLogical: 3,
+      durationMs: 12,
+      errors: [],
+      diff: {
+        added: [{ relativePath: 'a.png', size: 3, modifiedAt: 1, hash: 'x' }],
+        removed: [],
+        modified: [],
+        identical: [],
+      },
+    });
+
+    const result = await tools.syncToNode({
+      node: 'windows-pc',
+      localPath: 'screens',
+      remotePath: 'C:\\Users\\James\\.orchestrator\\_scratch\\aio-transfers\\screens',
+    }, { callerInstanceId: 'instance-1' });
+
+    expect(runSync).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      nodeId: 'node-1',
+      direction: 'push',
+      localPath: join(workspace, 'screens'),
+      remotePath: 'C:\\Users\\James\\.orchestrator\\_scratch\\aio-transfers\\screens',
+    }));
+    expect(result).toMatchObject({
+      ok: true,
+      added: 1,
+      identical: 4,
+      addedFiles: { paths: ['a.png'], truncated: false },
+    });
+  });
+
+  it('sync_to_node refuses a read-only transfer root without starting a sync', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'aio-sync-workspace-'));
+    mkdirSync(join(workspace, 'screens'));
+    const tools = createRemoteNodeFileTransferImplementations({
+      resolveLocalWorkspace: () => workspace,
+    });
+
+    await expect(tools.syncToNode({
+      node: 'windows-pc',
+      localPath: 'screens',
+      remotePath: 'C:\\Users\\James\\Downloads\\screens',
+    }, { callerInstanceId: 'instance-1' })).rejects.toThrow(/remote_write_refused/);
+    expect(runSync).not.toHaveBeenCalled();
+  });
+
+  it('sync_from_node refuses a remote folder outside the allowlisted roots', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'aio-sync-workspace-'));
+    const tools = createRemoteNodeFileTransferImplementations({
+      resolveLocalWorkspace: () => workspace,
+    });
+
+    await expect(tools.syncFromNode({
+      node: 'windows-pc',
+      localPath: 'incoming',
+      remotePath: 'C:\\Windows\\System32',
+    }, { callerInstanceId: 'instance-1' })).rejects.toThrow(/path_outside_allowed_roots/);
+    expect(runSync).not.toHaveBeenCalled();
+  });
+
+  it('sync_from_node creates the local destination folder and pulls', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'aio-sync-workspace-'));
+    const tools = createRemoteNodeFileTransferImplementations({
+      resolveLocalWorkspace: () => workspace,
+    });
+    runSync.mockResolvedValueOnce({
+      jobId: 'job-2',
+      added: 2,
+      removed: 0,
+      modified: 1,
+      identical: 0,
+      totalBytesTransferred: 9,
+      totalBytesLogical: 9,
+      durationMs: 20,
+      errors: [],
+    });
+
+    const result = await tools.syncFromNode({
+      node: 'windows-pc',
+      localPath: 'incoming/screens',
+      remotePath: 'C:\\Users\\James\\Downloads\\screens',
+    }, { callerInstanceId: 'instance-1' });
+
+    expect(runSync).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      nodeId: 'node-1',
+      direction: 'pull',
+      localPath: join(workspace, 'incoming', 'screens'),
+      remotePath: 'C:\\Users\\James\\Downloads\\screens',
+    }));
+    expect(result).toMatchObject({ ok: true, added: 2, modified: 1 });
   });
 });

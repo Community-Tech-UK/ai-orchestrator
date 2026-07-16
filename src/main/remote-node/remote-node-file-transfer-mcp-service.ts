@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getLogger } from '../logging/logger';
 import { SecurityFilter } from './security-filter';
-import { getFileTransferService } from './file-transfer-service';
+import { getFileTransferService, MAX_STREAM_TRANSFER_BYTES } from './file-transfer-service';
 import { NodeFileTransferMcpError } from './remote-node-file-transfer-mcp-errors';
 import {
   assertClosestExistingPathInsideWorkspace,
@@ -32,11 +32,16 @@ import type {
   GetNodeFileInfoFn,
   ListNodeFilesArgs,
   ListNodeFilesFn,
+  SyncDirectoryArgs,
+  SyncFromNodeFn,
+  SyncToNodeFn,
   UploadToNodeArgs,
   UploadToNodeFn,
   DownloadFromNodeFn,
   CollectBrowserDownloadFn,
 } from '../mcp/orchestrator-file-transfer-tools';
+import { getDirectorySyncService } from './directory-sync-service';
+import type { SyncResult } from '../../shared/types/sync.types';
 import type {
   FsEntry,
   FsReadDirectoryResult,
@@ -94,6 +99,8 @@ export function createRemoteNodeFileTransferImplementations(
   getNodeFileInfo: GetNodeFileInfoFn;
   downloadFromNode: DownloadFromNodeFn;
   uploadToNode: UploadToNodeFn;
+  syncToNode: SyncToNodeFn;
+  syncFromNode: SyncFromNodeFn;
   collectBrowserDownload: CollectBrowserDownloadFn;
 } {
   const service = new RemoteNodeFileTransferMcpService(options);
@@ -103,6 +110,8 @@ export function createRemoteNodeFileTransferImplementations(
     getNodeFileInfo: (args, meta) => service.getNodeFileInfo(args, meta),
     downloadFromNode: (args, meta) => service.downloadFromNode(args, meta),
     uploadToNode: (args, meta) => service.uploadToNode(args, meta),
+    syncToNode: (args, meta) => service.syncToNode(args, meta),
+    syncFromNode: (args, meta) => service.syncFromNode(args, meta),
     collectBrowserDownload: (args, meta) => service.collectBrowserDownload(args, meta),
   };
 }
@@ -237,11 +246,11 @@ class RemoteNodeFileTransferMcpService {
     if (stat.isDirectory) {
       throw new NodeFileTransferMcpError('not_a_file', `Remote path is a directory: ${args.remotePath}`);
     }
-    if (stat.size > resolved.fileTransfer.maxFileBytes) {
+    if (stat.size > MAX_STREAM_TRANSFER_BYTES) {
       throw new NodeFileTransferMcpError(
         'file_too_large_for_v1_transfer',
         `File is ${stat.size} bytes`,
-        'streaming transfer required for files over 50 MB',
+        'streamed transfers support files up to 2 GiB',
       );
     }
     const localPath = await this.resolveLocalDestination(args.localPath, args.remotePath, meta);
@@ -277,16 +286,14 @@ class RemoteNodeFileTransferMcpService {
   async uploadToNode(args: UploadToNodeArgs, meta: FileTransferToolMeta = {}): Promise<unknown> {
     const resolved = this.resolveNode(args.node);
     const localPath = await this.resolveLocalSource(args.localPath, meta);
-    const buffer = await fs.readFile(localPath);
-    const digest = sha256(buffer);
-    if (args.expectedSha256 && digest !== args.expectedSha256.toLowerCase()) {
-      throw new NodeFileTransferMcpError('integrity_mismatch', 'Local source hash did not match expectedSha256');
-    }
-    if (buffer.length > resolved.fileTransfer.maxFileBytes) {
+    // Size gate before any read: the transfer service hashes while it streams,
+    // so loading the file here just to hash it would defeat streaming.
+    const stat = await fs.stat(localPath);
+    if (stat.size > MAX_STREAM_TRANSFER_BYTES) {
       throw new NodeFileTransferMcpError(
         'file_too_large_for_v1_transfer',
-        `File is ${buffer.length} bytes`,
-        'streaming transfer required for files over 50 MB',
+        `File is ${stat.size} bytes`,
+        'streamed transfers support files up to 2 GiB',
       );
     }
     const remotePath = args.remotePath ?? this.defaultRemoteScratchPath(resolved, localPath);
@@ -324,6 +331,50 @@ class RemoteNodeFileTransferMcpService {
       size: result.size,
       sha256: result.sha256,
     };
+  }
+
+  async syncToNode(args: SyncDirectoryArgs, meta: FileTransferToolMeta = {}): Promise<unknown> {
+    const resolved = this.resolveNode(args.node);
+    const localPath = await this.resolveLocalSyncDirectory(args.localPath, meta, { mustExist: true });
+    this.requireRemoteWrite(resolved, args.remotePath);
+    const result = await getDirectorySyncService().runSync({
+      nodeId: resolved.node.id,
+      localPath,
+      remotePath: args.remotePath,
+      direction: 'push',
+      exclude: args.exclude,
+      dryRun: args.dryRun,
+      deleteExtraneous: args.deleteExtraneous,
+    });
+    audit('sync_to_node', 'allowed', resolved.node, {
+      callerInstanceId: meta.callerInstanceId,
+      sourcePath: localPath,
+      destinationPath: args.remotePath,
+      size: result.totalBytesTransferred,
+    });
+    return summarizeSyncResult(resolved.node, localPath, args.remotePath, args.dryRun === true, result);
+  }
+
+  async syncFromNode(args: SyncDirectoryArgs, meta: FileTransferToolMeta = {}): Promise<unknown> {
+    const resolved = this.resolveNode(args.node);
+    this.requireRemoteRead(resolved, args.remotePath);
+    const localPath = await this.resolveLocalSyncDirectory(args.localPath, meta, { mustExist: false });
+    const result = await getDirectorySyncService().runSync({
+      nodeId: resolved.node.id,
+      localPath,
+      remotePath: args.remotePath,
+      direction: 'pull',
+      exclude: args.exclude,
+      dryRun: args.dryRun,
+      deleteExtraneous: args.deleteExtraneous,
+    });
+    audit('sync_from_node', 'allowed', resolved.node, {
+      callerInstanceId: meta.callerInstanceId,
+      sourcePath: args.remotePath,
+      destinationPath: localPath,
+      size: result.totalBytesTransferred,
+    });
+    return summarizeSyncResult(resolved.node, localPath, args.remotePath, args.dryRun === true, result);
   }
 
   async collectBrowserDownload(args: CollectBrowserDownloadArgs, meta: FileTransferToolMeta = {}): Promise<unknown> {
@@ -470,7 +521,7 @@ class RemoteNodeFileTransferMcpService {
     if (!root) return 'outsideRoots';
     if (SecurityFilter.isRestrictedPath(remotePath)) return 'sensitiveName';
     if (root.approvalRequired) return 'restricted';
-    if ((stat?.size ?? 0) > resolved.fileTransfer.maxFileBytes) return 'tooLarge';
+    if ((stat?.size ?? 0) > MAX_STREAM_TRANSFER_BYTES) return 'tooLarge';
     return 'normal';
   }
 
@@ -592,6 +643,30 @@ class RemoteNodeFileTransferMcpService {
     return destination;
   }
 
+  private async resolveLocalSyncDirectory(
+    localPath: string,
+    meta: FileTransferToolMeta,
+    options: { mustExist: boolean },
+  ): Promise<string> {
+    const workspace = this.workspace(meta);
+    const resolved = resolveInsideWorkspace(workspace, localPath);
+    if (SecurityFilter.isRestrictedPath(resolved)) {
+      throw new NodeFileTransferMcpError('local_write_refused', `Local sync directory is restricted: ${resolved}`);
+    }
+    if (options.mustExist) {
+      await assertExistingPathInsideWorkspace(workspace, resolved, 'Local sync directory');
+      const stat = await fs.stat(resolved);
+      if (!stat.isDirectory()) {
+        throw new NodeFileTransferMcpError('not_a_directory', `Local sync path is not a directory: ${resolved}`);
+      }
+      return resolved;
+    }
+    await assertClosestExistingPathInsideWorkspace(workspace, resolved, 'Local sync directory');
+    await fs.mkdir(resolved, { recursive: true });
+    await assertExistingPathInsideWorkspace(workspace, resolved, 'Local sync directory');
+    return resolved;
+  }
+
   private async resolveLocalSource(localPath: string, meta: FileTransferToolMeta): Promise<string> {
     const workspace = this.workspace(meta);
     const source = resolveInsideWorkspace(workspace, localPath);
@@ -670,6 +745,49 @@ function publicRoot(root: WorkerNodeFileTransferRoot): Record<string, unknown> {
     read: root.read,
     write: root.write,
     approvalRequired: root.approvalRequired === true,
+  };
+}
+
+const SYNC_SUMMARY_PATH_LIMIT = 50;
+
+/**
+ * Agent-facing sync result: counts plus capped path lists. The full diff can
+ * run to thousands of entries — returning it verbatim would blow the caller's
+ * context for no decision value.
+ */
+function summarizeSyncResult(
+  node: WorkerNodeInfo,
+  localPath: string,
+  remotePath: string,
+  dryRun: boolean,
+  result: SyncResult,
+): Record<string, unknown> {
+  const cap = (paths: string[]) => ({
+    paths: paths.slice(0, SYNC_SUMMARY_PATH_LIMIT),
+    truncated: paths.length > SYNC_SUMMARY_PATH_LIMIT,
+  });
+  return {
+    ok: result.errors.length === 0,
+    nodeId: node.id,
+    nodeName: node.name,
+    localPath,
+    remotePath,
+    dryRun,
+    added: result.added,
+    removed: result.removed,
+    modified: result.modified,
+    identical: result.identical,
+    totalBytesTransferred: result.totalBytesTransferred,
+    totalBytesLogical: result.totalBytesLogical,
+    durationMs: result.durationMs,
+    errors: result.errors.slice(0, SYNC_SUMMARY_PATH_LIMIT),
+    ...(result.diff
+      ? {
+          addedFiles: cap(result.diff.added.map((entry) => entry.relativePath)),
+          modifiedFiles: cap(result.diff.modified.map((entry) => entry.relativePath)),
+          removedFiles: cap(result.diff.removed.map((entry) => entry.relativePath)),
+        }
+      : {}),
   };
 }
 

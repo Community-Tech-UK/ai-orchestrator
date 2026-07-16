@@ -437,8 +437,30 @@ export const CompletionSignalEvidenceSchema = z.object({
   detail: z.string(),
   /** Structured open-item count for the `ledger-complete` signal (0 when the
    *  ledger is fully resolved). Undefined for every other signal id. Mirrors
-   *  `CompletionSignalEvidence.openCount`. */
+   *  `CompletionSignalEvidence.openCount`. WS2: counts open LEAF items only. */
   openCount: z.number().int().nonnegative().optional(),
+  /** WS2: stable ids of the unresolved leaf tasks behind `openCount` (capped).
+   *  Present only on the `ledger-complete` signal. Mirrors
+   *  `CompletionSignalEvidence.openLeafIds`. */
+  openLeafIds: z.array(z.string()).optional(),
+});
+
+/** WS2/WS3: ledger task state persisted in the convergence tracker. Mirrors
+ *  `LoopLedgerTaskState`. */
+export const LoopLedgerTaskStateSchema = z.enum(['todo', 'doing', 'done', 'deferred']);
+
+/** WS2/WS3: persisted known-leaf-task inventory for transition-based
+ *  convergence. Mirrors `LedgerConvergenceState`. Optional on LoopState so
+ *  old checkpoints (legacy count fields only) remain readable. */
+export const LedgerConvergenceStateSchema = z.object({
+  version: z.literal(1),
+  knownTaskStates: z.record(z.string(), LoopLedgerTaskStateSchema),
+  plannedLeafIds: z.array(z.string()),
+  discoveredLeafIds: z.array(z.string()),
+  noMeaningfulTransitionIterations: z.number().int().nonnegative(),
+  lastObjectiveEvidenceKey: z.string().optional(),
+  /** True while the last snapshot had duplicate/malformed ids (repair = progress). */
+  inventoryInvalid: z.boolean().optional(),
 });
 
 export const LoopTerminalIntentKindSchema = z.enum(['complete', 'block', 'fail', 'wakeup']);
@@ -604,6 +626,10 @@ export const LoopStateSchema = z.object({
   /** Consecutive iterations since the ledger open-count last reached a new low.
    *  Mirrors `LoopState.ledgerNoImprovementIterations`. */
   ledgerNoImprovementIterations: z.number().int().nonnegative().optional(),
+  /** WS2/WS3: transition-based convergence tracker (known leaf-task inventory).
+   *  Optional for back-compat with checkpoints that carry only the two legacy
+   *  count fields above. Mirrors `LoopState.ledgerConvergence`. */
+  ledgerConvergence: LedgerConvergenceStateSchema.optional(),
   /** F2 (#22): coordinator-enforced REVIEW→PLAN back-edge count this run.
    *  Mirrors `LoopState.reviewCycles`. Optional for back-compat with rows
    *  persisted before the field existed. */

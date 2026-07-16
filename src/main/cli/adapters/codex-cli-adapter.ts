@@ -29,6 +29,7 @@ import {
   ResumeAttemptResult,
   TurnInterruptCompletion,
   type AdapterCapabilities,
+  type ContextUsageObservation,
 } from './base-cli-adapter';
 import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } from '../../../shared/types/instance.types';
 import { PROVIDER_MODEL_LIST, type ModelDisplayInfo } from '../../../shared/types/provider.types';
@@ -382,6 +383,27 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const model = this.cliConfig.model ?? 'default';
     const caps = getModelCapabilitiesRegistry().getCapabilities('codex', model);
     return caps.contextWindow;
+  }
+
+  /**
+   * WS4 (loop-convergence plan): truthful current context occupancy.
+   * App-server mode reports `known` only when a real `thread/tokenUsage/updated`
+   * occupancy sample exists (`lastTurnTokens > 0`) AND a positive
+   * provider-reported/model-resolved window is available. Exec mode only has
+   * aggregate token totals, which cannot prove occupancy — `unknown:
+   * aggregate-only`, never a fabricated percentage.
+   */
+  override getLastContextUsage(): ContextUsageObservation {
+    if (!this.useAppServer) return { status: 'unknown', reason: 'aggregate-only' };
+    if (!Number.isFinite(this.lastTurnTokens) || this.lastTurnTokens < 0) {
+      return { status: 'unknown', reason: 'invalid-sample' };
+    }
+    if (this.lastTurnTokens === 0) return { status: 'unknown', reason: 'not-reported' };
+    const total = this.resolveContextWindow();
+    if (!Number.isFinite(total) || total <= 0) {
+      return { status: 'unknown', reason: 'invalid-sample' };
+    }
+    return { status: 'known', used: this.lastTurnTokens, total, source: 'provider-turn' };
   }
 
   /**

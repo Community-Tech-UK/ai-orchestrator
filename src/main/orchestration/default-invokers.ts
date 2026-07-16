@@ -689,7 +689,7 @@ import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
 import type { LoopChildInvocationError, LoopChildResult, LoopChildUsage } from './loop-coordinator';
 import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
 import { defaultLoopContextConfig, LOOP_DEFAULT_MAX_TURNS_PER_ITERATION } from '../../shared/types/loop.types';
-import { shouldRecycleLoopContext } from './loop-context-discipline';
+import { evaluateLoopContextDiscipline } from './loop-context-discipline-runtime';
 import { attachInvocationActivity, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
 import { observeLoopProviderRuntimeEvents } from './loop-provider-event-capture';
 import {
@@ -857,6 +857,9 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // LF-1: cumulative same-session tokens per loop, used to decide when to
   // recycle the persistent adapter to a fresh session (context discipline).
   const loopContextTokens = new Map<string, number>();
+  // WS4: loops already told (once) that occupancy is unavailable, so the
+  // unknown-observation diagnostic stays bounded instead of firing per iteration.
+  const loopOccupancyUnavailableNotified = new Set<string>();
 
   const terminateTrackedAdapter = async (adapter: unknown, graceful: boolean): Promise<void> => {
     if (adapter && typeof adapter === 'object') {
@@ -942,6 +945,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     persistentLoopAdapters.delete(loopRunId);
     persistentLoopAdapterModels.delete(loopRunId);
     loopContextTokens.delete(loopRunId); // LF-1: drop cumulative-token tracking.
+    loopOccupancyUnavailableNotified.delete(loopRunId); // WS4: reset the bounded diagnostic.
     if (adapters.size === 0) return Promise.resolve();
     const promise = Promise.allSettled(
       [...adapters].map(async (adapter) => {
@@ -1462,29 +1466,25 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         const ctxCfg = p.config?.context?.compaction ?? defaultLoopContextConfig().compaction;
         const cumulative = (loopContextTokens.get(p.loopRunId) ?? 0) + (result.tokens || 0);
         loopContextTokens.set(p.loopRunId, cumulative);
-        // Prefer the adapter's REAL context occupancy (last per-API-call usage,
-        // including cache tokens) over the cumulative-token heuristic. The
-        // cumulative metric sums generation tokens across every turn against a
-        // synthetic 200k window, so it recycles long before the actual context
-        // fills — and a single multi-turn iteration can report thousands of
-        // percent. Adapters without per-call usage fall back to the heuristic.
-        const occupancySource = persistentLoopAdapters.get(p.loopRunId) as
-          | { getLastContextUsage?: () => { used: number; total: number } | null }
-          | undefined;
-        const occupancy = occupancySource?.getLastContextUsage?.() ?? null;
-        const decision = shouldRecycleLoopContext({
+        // WS4: recycle ONLY on the adapter's proven current occupancy (the
+        // discriminated observation) — the aggregate/synthetic-window fallback
+        // is gone. See loop-context-discipline-runtime for the seam logic.
+        const { decision, notifyUnavailable } = evaluateLoopContextDiscipline({
+          adapter: persistentLoopAdapters.get(p.loopRunId),
           enabled: ctxCfg.enabled,
-          cumulativeTokens: cumulative,
           resetAtUtilization: ctxCfg.resetAtUtilization,
-          ...(typeof p.contextWindowTokens === 'number'
-            && Number.isFinite(p.contextWindowTokens)
-            && p.contextWindowTokens > 0
-            ? { windowTokens: p.contextWindowTokens }
-            : {}),
-          ...(occupancy && occupancy.used > 0 && occupancy.total > 0
-            ? { occupancyTokens: occupancy.used, occupancyWindowTokens: occupancy.total }
-            : {}),
+          cumulativeTokens: cumulative,
+          ...(typeof p.contextWindowTokens === 'number' ? { calibratedWindowTokens: p.contextWindowTokens } : {}),
+          alreadyNotifiedUnavailable: loopOccupancyUnavailableNotified.has(p.loopRunId),
         });
+        if (notifyUnavailable) {
+          loopOccupancyUnavailableNotified.add(p.loopRunId);
+          emitActivity({
+            kind: 'status',
+            message: `Context recycling inactive: ${decision.reason}`,
+            detail: { loopRunId: p.loopRunId },
+          });
+        }
         if (decision.recycle) {
           await recyclePersistentLoopAdapter(p.loopRunId);
           childResult.contextCompacted = {

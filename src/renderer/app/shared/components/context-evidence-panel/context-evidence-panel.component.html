@@ -1,0 +1,176 @@
+<section class="evidence-panel" aria-label="Context evidence">
+  @if (store.error(); as error) {
+    <p class="evidence-error" role="alert">{{ error }}</p>
+  }
+
+  @if (store.loading()) {
+    <p class="evidence-loading" role="status">Loading context evidence…</p>
+  }
+
+  @if (store.metrics(); as metrics) {
+    <section class="evidence-section" aria-label="Context occupancy">
+      <h3>Context occupancy</h3>
+      @if (metrics.occupancy.status === 'known') {
+        <p class="occupancy-known" data-testid="occupancy-known">
+          {{ metrics.occupancy.used | number:'1.0-0' }} / {{ metrics.occupancy.total | number:'1.0-0' }} tokens
+          used (provider-reported)
+        </p>
+      } @else {
+        <p class="occupancy-unknown" role="status" data-testid="occupancy-unknown">
+          Occupancy unknown — {{ metrics.occupancy.reason }}
+        </p>
+      }
+
+      <p class="cumulative-input" data-testid="cumulative-input">
+        @if (metrics.cumulativeTokens !== undefined) {
+          Cumulative input this conversation: {{ metrics.cumulativeTokens | number:'1.0-0' }} tokens
+        } @else {
+          Cumulative input: not reported
+        }
+      </p>
+    </section>
+
+    <section class="evidence-section" aria-label="Working set allocation">
+      <h3>
+        Working set
+        @if (estimateProvenance(); as provenance) {
+          <span class="provenance-badge" [attr.data-testid]="'estimate-' + provenance">{{ provenance }}</span>
+        }
+      </h3>
+      @if (workingSetRows().length > 0) {
+        <ul class="working-set-list">
+          @for (row of workingSetRows(); track row.label) {
+            <li>
+              <span class="row-label">{{ row.label }}</span>
+              <span class="row-tokens">{{ row.tokens | number:'1.0-0' }} tokens</span>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p>Working set allocation not reported.</p>
+      }
+    </section>
+
+    <section class="evidence-section" aria-label="Evidence and tool metrics">
+      <h3>Evidence &amp; tool activity</h3>
+      <ul class="metrics-grid">
+        <li><span class="metric-label">Evidence records</span><span class="metric-value">{{ metrics.evidenceRecordCount | number:'1.0-0' }}</span></li>
+        <li><span class="metric-label">Evidence cards</span><span class="metric-value">{{ metrics.evidenceCardCount | number:'1.0-0' }}</span></li>
+        <li><span class="metric-label">Exact excerpts</span><span class="metric-value">{{ metrics.exactExcerptCount | number:'1.0-0' }}</span></li>
+        <li><span class="metric-label">Encrypted stored bytes</span><span class="metric-value">{{ getFormattedBytes(metrics.externallyStoredBytes) }}</span></li>
+        <li><span class="metric-label">Model requests</span><span class="metric-value">{{ metrics.modelRequestCount | number:'1.0-0' }}</span></li>
+        <li><span class="metric-label">Tool calls</span><span class="metric-value">{{ metrics.toolCallCount | number:'1.0-0' }}</span></li>
+        <li><span class="metric-label">Tool result bytes</span><span class="metric-value">{{ getFormattedBytes(metrics.toolResultBytes) }}</span></li>
+      </ul>
+    </section>
+
+    <section class="evidence-section" aria-label="Enforcement state">
+      <h3>Enforcement</h3>
+      <p>
+        Mode: <strong data-testid="enforcement-mode">{{ metrics.enforcementMode }}</strong>
+        @if (isPaused()) {
+          <span class="paused-badge" role="status" data-testid="paused-badge">Paused — awaiting recovery</span>
+        }
+      </p>
+      <p>Last action: {{ metrics.lastAction ?? 'None recorded' }}</p>
+      <p>Recovery count: {{ metrics.recoveryCount | number:'1.0-0' }}</p>
+    </section>
+  } @else if (!store.loading()) {
+    <p class="evidence-empty">No context evidence metrics have loaded for this conversation yet.</p>
+  }
+
+  <section class="evidence-section" aria-label="Evidence records">
+    <h3>Evidence records</h3>
+    @if (store.records().length === 0) {
+      <p>No evidence records for this conversation yet.</p>
+    } @else {
+      <ul class="record-list" role="list">
+        @for (record of store.records(); track record.id) {
+          <li
+            class="record-row"
+            [class.degraded]="getIsDegradedStatus(record.status)"
+            [attr.data-testid]="'record-' + record.id"
+          >
+            <div class="record-summary">
+              <span class="record-id">{{ record.id }}</span>
+              <span
+                class="status-badge"
+                [class.degraded]="getIsDegradedStatus(record.status)"
+                [attr.data-testid]="'status-' + record.id"
+              >{{ getStatusLabel(record.status) }}</span>
+              <span class="completeness-badge" [attr.data-testid]="'completeness-' + record.id">
+                {{ getCaptureCompletenessLabel(record.captureCompleteness) }}
+              </span>
+              <span class="sensitivity-badge">{{ getSensitivityLabel(record.sensitivity) }}</span>
+              <span class="provenance-badge">{{ getProvenanceTrustLabel(record.provenanceTrust) }}</span>
+            </div>
+
+            @if (getStatusDisclosure(record.status); as disclosure) {
+              <p class="degraded-disclosure" role="status" [attr.data-testid]="'disclosure-' + record.id">
+                {{ disclosure }}
+              </p>
+            }
+
+            <div class="record-actions">
+              <button
+                type="button"
+                [attr.aria-label]="'Open card for evidence ' + record.id"
+                (click)="openCard(record)"
+              >
+                Open card
+              </button>
+              <button
+                type="button"
+                [disabled]="!canInspect(record)"
+                [attr.aria-label]="'Inspect evidence ' + record.id"
+                (click)="startInspection(record)"
+              >
+                Inspect
+              </button>
+            </div>
+
+            @if (inspectingId() === record.id && store.readResult(); as read) {
+              @if (read.evidenceId === record.id) {
+                <div class="inspection-result" [attr.data-testid]="'inspection-' + record.id">
+                  <p class="citation-range">
+                    Bytes {{ read.citation.startByte }}–{{ read.citation.endByte }}
+                    (capture: {{ getCaptureCompletenessLabel(read.captureCompleteness) }})
+                  </p>
+                  <pre class="inspection-content">{{ read.content }}</pre>
+                  @if (read.disclosure; as readDisclosure) {
+                    <p class="inspection-disclosure">{{ readDisclosure }}</p>
+                  }
+                  <div class="inspection-actions">
+                    @if (hasMoreChunks(record)) {
+                      <button type="button" (click)="readNextChunk(record)">Load next chunk</button>
+                    }
+                    <button type="button" (click)="closeInspection()">Close</button>
+                  </div>
+                </div>
+              }
+            }
+
+            @if (store.selectedCard(); as cardResponse) {
+              @if (cardResponse.card.evidenceId === record.id) {
+                <div class="card-result" [attr.data-testid]="'card-' + record.id">
+                  <p class="card-status">Card status: {{ cardResponse.card.status }}</p>
+                  <p class="card-summary">{{ cardResponse.card.summary }}</p>
+                  @if (cardResponse.card.citations.length > 0) {
+                    <ul class="card-citations">
+                      @for (citation of cardResponse.card.citations; track $index) {
+                        <li>Bytes {{ citation.startByte }}–{{ citation.endByte }}</li>
+                      }
+                    </ul>
+                  }
+                  @if (cardResponse.disclosure; as cardDisclosure) {
+                    <p class="card-disclosure">{{ cardDisclosure }}</p>
+                  }
+                </div>
+              }
+            }
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</section>

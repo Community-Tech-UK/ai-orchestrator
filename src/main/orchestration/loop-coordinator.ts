@@ -201,9 +201,10 @@ import {
 } from './loop-runtime-status';
 import { recordLoopLearningForState } from './loop-learning-recorder';
 import {
-  extractLedgerOpenCount,
-  updateLedgerProgress,
-  isLedgerStalled,
+  computeObjectiveEvidenceKey,
+  isLedgerConvergenceStalled,
+  unresolvedKnownTaskIds,
+  updateLedgerConvergence,
 } from './loop-ledger-progress';
 import { lintTaskLedger } from './loop-ledger-lint';
 import { importTerminalIntentsForBoundary as importTerminalIntentsForBoundaryHelper } from './loop-terminal-intent-importer';
@@ -2211,6 +2212,7 @@ export class LoopCoordinator extends EventEmitter {
       state.totalCostCents += costCents;
       state.iterationsOnCurrentStage += 1;
       // Token-burn-without-progress accounting:
+      const previousHighestTestPassCount = state.highestTestPassCount;
       const newPasses = childResult.testPassCount ?? 0;
       if (newPasses > state.highestTestPassCount) {
         state.highestTestPassCount = newPasses;
@@ -2219,8 +2221,43 @@ export class LoopCoordinator extends EventEmitter {
         state.tokensSinceLastTestImprovement += tokens;
       }
 
+      // -- WS3: transition-based ledger convergence --
+      // Reads the ledger snapshot directly (not CompletionSignalEvidence
+      // openCount): known leaf tasks that actually transition are progress even
+      // when the raw open count rises because new tasks were discovered.
+      // Runs BEFORE progress detection so Signal C can see a meaningful
+      // transition made this iteration.
+      let ledgerStalled = false;
+      let ledgerMeaningfulTransition = false;
+      const ledgerSnapshot = await stageMachine.readTaskLedger();
+      const convergenceUpdate = updateLedgerConvergence(
+        state.ledgerConvergence,
+        ledgerSnapshot,
+        computeObjectiveEvidenceKey({
+          verificationRuns: this.verificationRunLedger.listForLoop(state.id) ?? [],
+          testPassCount: childResult.testPassCount ?? null,
+          previousHighestTestPassCount,
+        }),
+      );
+      if (convergenceUpdate) {
+        // The tracker is now the single writer; the two legacy count fields
+        // (ledgerOpenCountBest / ledgerNoImprovementIterations) stay readable
+        // on old checkpoints but are no longer written.
+        state.ledgerConvergence = convergenceUpdate.next;
+        ledgerMeaningfulTransition = convergenceUpdate.meaningfulTransition;
+        for (const warning of convergenceUpdate.warnings) {
+          logger.warn('Loop ledger convergence warning', { loopRunId: state.id, warning });
+        }
+        ledgerStalled = reviewDriven && isLedgerConvergenceStalled(
+          convergenceUpdate.next,
+          state.config.completion.maxLedgerStallIterations,
+        );
+      }
+
       // -- progress detection --
-      const evaluation = this.progressDetector.evaluate(state, history, iteration);
+      const evaluation = this.progressDetector.evaluate(state, history, iteration, {
+        meaningfulLedgerActivity: ledgerMeaningfulTransition,
+      });
       iteration.progressVerdict = evaluation.verdict;
       iteration.progressSignals = evaluation.signals;
 
@@ -2260,24 +2297,6 @@ export class LoopCoordinator extends EventEmitter {
         verificationRuns: this.verificationRunLedger.listForLoop(state.id),
       });
       iteration.completionSignalsFired = completionSignals;
-
-      // -- ledger-progress stall tracking (non-convergence backstop) --
-      // Keys off the ledger open-count reaching a new low, NOT file churn, so it
-      // catches a loop that edits files every round but never closes an item.
-      // Only meaningful when a ledger is active (openCount !== null).
-      let ledgerStalled = false;
-      const ledgerOpenCount = extractLedgerOpenCount(completionSignals);
-      if (ledgerOpenCount !== null) {
-        const progress = updateLedgerProgress(state, ledgerOpenCount);
-        state.ledgerOpenCountBest = progress.ledgerOpenCountBest;
-        state.ledgerNoImprovementIterations = progress.ledgerNoImprovementIterations;
-        ledgerStalled = reviewDriven
-          && isLedgerStalled(state, ledgerOpenCount, state.config.completion.maxLedgerStallIterations);
-      } else {
-        // Ledger inactive this iteration — reset the counter so a ledger that
-        // appears later isn't pre-stalled by stale accounting.
-        state.ledgerNoImprovementIterations = 0;
-      }
 
       // -- verify-before-stop --
       // I/O (verify runs, fresh-eyes gate) is performed here as before;
@@ -2918,29 +2937,39 @@ export class LoopCoordinator extends EventEmitter {
       // hard cap or the circuit breaker trips — surfacing as a misleading
       // `error` (see the one-more-floor 3h/$8 spin). Stop as a SUCCESSFUL
       // `completed-needs-review` so a human can glance, with a convergence note.
-      // -- terminal: ledger-progress stall (non-convergence backstop) --
+      // -- terminal: ledger-convergence stall (non-convergence backstop) --
       // The file-churn stall guard below resets whenever ANY production file
       // changes, so a loop that edits files every round but never CLOSES a
       // ledger item (an open-ended "continue remaining slices" bucket that
       // re-expands as fast as it drains, or a hardware/manual-gated item that
       // can never reach [x]) never trips it and spins to the iteration cap.
-      // This check keys off the ledger open-count failing to reach a new low for
-      // N iterations — the true convergence signal in ledger mode, independent
-      // of file churn. Terminal is a SUCCESSFUL completed-needs-review so a human
-      // can glance and either finish the bookkeeping or defer the open items.
-      if (ledgerStalled) {
-        const openBest = state.ledgerOpenCountBest ?? 0;
-        const stalledFor = state.ledgerNoImprovementIterations ?? 0;
+      // WS3: this check keys off known leaf TASKS failing to transition for N
+      // iterations — resolving distinct leaves counts as progress even while
+      // discoveries keep the raw open count flat (the old historical-minimum
+      // measure read that as a stall). Terminal is a SUCCESSFUL
+      // completed-needs-review so a human can glance and either finish the
+      // bookkeeping or defer the open items.
+      if (ledgerStalled && state.ledgerConvergence) {
+        const tracker = state.ledgerConvergence;
+        const openIds = unresolvedKnownTaskIds(tracker);
+        const stalledFor = tracker.noMeaningfulTransitionIterations;
+        const limit = state.config.completion.maxLedgerStallIterations;
+        const idList = (ids: string[]): string =>
+          ids.slice(0, 12).join(', ') + (ids.length > 12 ? `, … ${ids.length - 12} more` : '');
         const reason =
-          `Review-driven loop stalled: LOOP_TASKS.md open-count has not reached a new low ` +
-          `for ${stalledFor} iteration(s) (best ${openBest} item(s) still open). The loop is ` +
-          `changing files each round but not closing ledger items — likely an open-ended or ` +
-          `externally-gated item that can never reach [x]. Stopped for human review instead of ` +
-          `spinning to a hard cap.`;
+          `Review-driven loop stalled: no meaningful LOOP_TASKS.md task transition for ` +
+          `${stalledFor} consecutive iteration(s) (limit ${limit}). ` +
+          `Unchanged open leaf task(s): ${idList(openIds)}.` +
+          (tracker.discoveredLeafIds.length > 0
+            ? ` Discovered during the run: ${idList(tracker.discoveredLeafIds)}.`
+            : '') +
+          ` The loop is changing files each round but not closing ledger items — likely an ` +
+          `open-ended or externally-gated item that can never reach [x]. Stopped for human ` +
+          `review instead of spinning to a hard cap.`;
         if (!this.convergenceNotes.has(state.id)) {
           this.convergenceNotes.set(
             state.id,
-            `ledger stall: ${openBest} open, no new low for ${stalledFor} iters`,
+            `ledger stall: ${openIds.length} open, no meaningful transition for ${stalledFor} iters`,
           );
         }
         recordLoopLearningForState({

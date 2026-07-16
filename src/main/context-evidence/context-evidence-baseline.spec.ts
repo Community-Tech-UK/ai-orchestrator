@@ -1,9 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
+import { expandIncidentManifest, readIncidentManifest } from './__fixtures__/incident-replay-manifest';
 
 const electronMocks = vi.hoisted(() => ({
   getPath: vi.fn(() => '/tmp/aio-context-evidence-baseline'),
@@ -67,64 +66,6 @@ import { ProviderRuntimeEventBus, type PendingEnvelope } from '../providers/prov
 import { InstanceCommunicationManager } from '../instance/instance-communication';
 import { CodexContextCostController } from '../cli/adapters/codex/context-cost-controller';
 import { CodexTurnCostGovernor } from '../cli/adapters/codex/turn-cost-governor';
-
-interface IncidentManifest {
-  schemaVersion: 1;
-  incident: {
-    initialInputTokens: number;
-    modelRequests: number;
-    currentOccupancyTokens: number;
-    contextWindowTokens: number;
-    cumulativeProcessingTokens: number;
-  };
-  controlledUngovernedBaseline: {
-    cumulativeInputTokens: number;
-    cachedInputTokens: number;
-    cacheAssumption: string;
-  };
-  generator: {
-    algorithm: 'quotient-remainder-ascii';
-    groups: {
-      category: string;
-      toolName: string;
-      callCount: number;
-      externalizableCount: number;
-      resultCharacters: number;
-      fillCharacter: string;
-    }[];
-  };
-}
-
-interface ExpandedCall {
-  category: string;
-  toolName: string;
-  externalizable: boolean;
-  result: string;
-}
-
-function readIncidentManifest(): { raw: string; manifest: IncidentManifest } {
-  const raw = readFileSync(
-    resolve(
-      process.cwd(),
-      'src/main/context-evidence/__fixtures__/codex-44-call-incident.manifest.json',
-    ),
-    'utf8',
-  );
-  return { raw, manifest: JSON.parse(raw) as IncidentManifest };
-}
-
-function expandIncident(manifest: IncidentManifest): ExpandedCall[] {
-  return manifest.generator.groups.flatMap((group) => {
-    const baseCharacters = Math.floor(group.resultCharacters / group.callCount);
-    const remainder = group.resultCharacters % group.callCount;
-    return Array.from({ length: group.callCount }, (_, index) => ({
-      category: group.category,
-      toolName: group.toolName,
-      externalizable: index < group.externalizableCount,
-      result: group.fillCharacter.repeat(baseCharacters + (index < remainder ? 1 : 0)),
-    }));
-  });
-}
 
 class FakeAdapter extends EventEmitter {
   sendInput = vi.fn().mockResolvedValue(undefined);
@@ -195,7 +136,7 @@ describe('provider-agnostic context evidence incident baseline', () => {
 
   it('expands the compact sanitized manifest to the exact incident shape', () => {
     const { raw, manifest } = readIncidentManifest();
-    const calls = expandIncident(manifest);
+    const calls = expandIncidentManifest(manifest);
     const resultText = calls.map((call) => call.result).join('');
 
     expect(raw.length).toBeLessThan(4_000);

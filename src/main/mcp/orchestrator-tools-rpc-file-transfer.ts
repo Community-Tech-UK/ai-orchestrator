@@ -4,6 +4,7 @@ import {
   FindNodeFilesArgsSchema,
   GetNodeFileInfoArgsSchema,
   ListNodeFilesArgsSchema,
+  SyncDirectoryArgsSchema,
   UploadToNodeArgsSchema,
 } from './orchestrator-tools';
 
@@ -13,6 +14,8 @@ export const FILE_TRANSFER_TOOL_NAMES = [
   'get_node_file_info',
   'download_from_node',
   'upload_to_node',
+  'sync_to_node',
+  'sync_from_node',
   'collect_browser_download',
 ] as const;
 
@@ -41,6 +44,16 @@ export const FILE_TRANSFER_RPC_SPECS = [
     method: 'orchestrator_tools.upload_to_node',
     toolName: 'upload_to_node',
     schema: UploadToNodeArgsSchema,
+  },
+  {
+    method: 'orchestrator_tools.sync_to_node',
+    toolName: 'sync_to_node',
+    schema: SyncDirectoryArgsSchema,
+  },
+  {
+    method: 'orchestrator_tools.sync_from_node',
+    toolName: 'sync_from_node',
+    schema: SyncDirectoryArgsSchema,
   },
   {
     method: 'orchestrator_tools.collect_browser_download',

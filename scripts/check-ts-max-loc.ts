@@ -80,7 +80,10 @@ const ALLOWLIST: Record<string, number> = {
   // methods (delegators to browser-form-fill-operations) + the credential
   // vault/authorization wiring for unattended overnight form-filling.
   // Raised 2400 -> 2410 for the email_code mailbox-reader pass-through.
-  'src/main/browser-gateway/browser-gateway-service.ts': 2410,
+  // Raised 2410 -> 2445 for resolveUploadApproval: the shared denied-upload
+  // approval path (stored request + auto-approve) that both the managed and
+  // existing-tab upload branches must go through.
+  'src/main/browser-gateway/browser-gateway-service.ts': 2445,
   // Main process — desktop gateway
   // Crossed 700 during the in-flight desktop computer-use gateway work
   // (2026-07-12). Allowlisted at its then-current size so the gate stays
@@ -144,6 +147,15 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — MCP
   'src/main/mcp/mcp-manager.ts': 1025,
   'src/main/mcp/mcp-tool-search.ts': 735,
+  // Crossed 700 by two lines of sync_to_node/sync_from_node context wiring.
+  'src/main/mcp/orchestrator-tools-rpc-server.ts': 710,
+  // Main process — remote node file transfer
+  // Crossed 700 adding the sync_to_node/sync_from_node MCP handlers, which
+  // must share this service's node/root/workspace validation helpers.
+  'src/main/remote-node/remote-node-file-transfer-mcp-service.ts': 830,
+  // Crossed 700 adding readFileChunk/writeFileChunk for streamed transfers,
+  // which must share this handler's path/root/symlink write validations.
+  'src/main/remote-node/node-filesystem-handler.ts': 760,
   // Main process — mobile gateway
   'src/main/mobile-gateway/mobile-gateway-server.ts': 1528,
   // Main process — memory

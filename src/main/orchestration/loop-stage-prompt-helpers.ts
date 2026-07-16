@@ -52,20 +52,29 @@ export function renderSystemReminder(options: {
 
 export function renderLedgerReminder(ledger: LoopTaskLedger, iterationSeq: number, tasksPath: string): string {
   const lines = [
-    `- Ledger anchor: \`${tasksPath}\`. Keep exactly one \`[~]\` doing item when work is active; all terminal items must be \`[x]\` or \`[-]\` with a reason.`,
+    `- Ledger anchor: \`${tasksPath}\`. Keep exactly one \`[~]\` doing item when work is active; all terminal items must be \`[x]\` or \`[-]\` with a reason. Keep every existing \`<!-- loop-task-id:… -->\` comment unchanged and give each newly discovered item a new unique id. A parent row with indented children is a structural summary — only leaf items gate the stop.`,
   ];
   if (ledger.total === 0) {
     lines.push('- Ledger status: no checkbox items yet; seed the ledger before trying to stop.');
     return lines.join('\n');
   }
-  const doingCount = ledger.items.filter((item) => item.state === 'doing').length;
+  const leaves = ledger.items.filter((item) => item.leaf);
+  const doingCount = leaves.filter((item) => item.state === 'doing').length;
   const next = ledger.nextTodo ? `next: ${ledger.nextTodo}` : 'next: none';
-  lines.push(`- Ledger status: ${ledger.resolved}/${ledger.total} resolved; ${next}; doing: ${doingCount}.`);
-  const openItems = ledger.items.filter((item) => item.state === 'todo' || item.state === 'doing');
-  if (iterationSeq > 0 && iterationSeq % 10 === 0 && openItems.length > 0) {
+  lines.push(`- Ledger status: ${ledger.resolved}/${ledger.total} leaves resolved; ${next}; doing: ${doingCount}.`);
+  // WS2 iteration-time convergence warning: duplicate / malformed ids break
+  // task-transition tracking — tell the worker to repair them now.
+  if (ledger.duplicateIds.length > 0) {
+    lines.push(`- Ledger id warning: duplicate loop-task-id(s) ${ledger.duplicateIds.map((id) => `\`${id}\``).join(', ')} — give each item a unique id.`);
+  }
+  if (ledger.malformedIds.length > 0) {
+    lines.push(`- Ledger id warning: ${ledger.malformedIds.length} malformed loop-task-id comment(s) — ids must be letters/digits then letters/digits/._- .`);
+  }
+  const openLeaves = leaves.filter((item) => item.state === 'todo' || item.state === 'doing');
+  if (iterationSeq > 0 && iterationSeq % 10 === 0 && openLeaves.length > 0) {
     lines.push('- Open ledger items:');
-    for (const item of openItems.slice(0, 8)) lines.push(`  - ${renderLedgerItem(item)}`);
-    if (openItems.length > 8) lines.push(`  - ... ${openItems.length - 8} more`);
+    for (const item of openLeaves.slice(0, 8)) lines.push(`  - ${renderLedgerItem(item)}`);
+    if (openLeaves.length > 8) lines.push(`  - ... ${openLeaves.length - 8} more`);
   }
   return lines.join('\n');
 }

@@ -4,7 +4,10 @@ import { lintTaskLedger, lintLedgerItem } from './loop-ledger-lint';
 import type { LoopTaskItem } from './loop-task-ledger';
 
 function item(text: string, state: LoopTaskItem['state'] = 'todo'): LoopTaskItem {
-  return { text, state, reason: '' };
+  return {
+    id: 'test.id', idSource: 'explicit', text, state, reason: '',
+    depth: 0, parentId: null, leaf: true,
+  };
 }
 
 describe('lintLedgerItem', () => {
@@ -70,5 +73,18 @@ describe('lintTaskLedger', () => {
 
   it('returns an empty array for an absent/empty ledger', () => {
     expect(lintTaskLedger(parseTaskLedger(''))).toEqual([]);
+  });
+
+  it('surfaces duplicate explicit ids (WS2) instead of silently collapsing them', () => {
+    const md = '- [ ] one <!-- loop-task-id:dup -->\n- [x] two <!-- loop-task-id:dup -->';
+    const findings = lintTaskLedger(parseTaskLedger(md));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ category: 'duplicate-id', item: 'dup' });
+  });
+
+  it('surfaces malformed explicit ids (WS2)', () => {
+    const findings = lintTaskLedger(parseTaskLedger('- [ ] task <!-- loop-task-id:has spaces -->'));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ category: 'malformed-id', item: 'has spaces' });
   });
 });

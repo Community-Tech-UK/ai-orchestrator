@@ -86,7 +86,10 @@ import { BrowserManualHandoffOperations } from './browser-manual-handoff-operati
 import {
   classifyBrowserFillForm,
 } from './browser-action-classifier';
-import { validateBrowserUploadPath } from './browser-upload-policy';
+import {
+  validateBrowserUploadPath,
+  type BrowserUploadPolicyResult,
+} from './browser-upload-policy';
 import {
   BrowserExtensionTabStore,
   type BrowserExistingTabAttachment,
@@ -107,6 +110,7 @@ import {
 import {
   BrowserGatewayActionGuard,
   providerFromContext,
+  type BrowserGatewayPreparedMutation,
 } from './browser-gateway-action-guard';
 import { autoApproveBrowserApproval } from './browser-auto-approve';
 import { HEAVY_DOM_COMMAND_TIMEOUT_MS } from './browser-mutation-safety';
@@ -1626,22 +1630,16 @@ export class BrowserGatewayService {
         autonomous: prepared.grant.autonomous,
       });
       if (!uploadDecision.allowed) {
-        return this.result({
-          context: request,
-          profileId: request.profileId,
-          targetId: request.targetId,
-          action: 'upload_file',
-          toolName: 'browser.upload_file',
+        const approvalOutcome = this.resolveUploadApproval(request, prepared, uploadDecision);
+        if (approvalOutcome.result) {
+          return approvalOutcome.result;
+        }
+        prepared = {
+          grant: approvalOutcome.autoGrant,
           actionClass: 'file-upload',
-          decision: 'requires_user',
-          outcome: 'not_run',
-          requestId: `browser-${Date.now()}`,
-          reason: uploadDecision.reason,
-          summary: `browser.upload_file requires user approval: ${uploadDecision.reason}`,
           origin: prepared.origin,
           url: prepared.url,
-          data: null,
-        });
+        };
       }
       try {
         let uploadFilePath = uploadDecision.resolvedPath ?? request.filePath;
@@ -1703,59 +1701,16 @@ export class BrowserGatewayService {
       autonomous: prepared.grant.autonomous,
     });
     if (!uploadDecision.allowed) {
-      const uploadRoots = proposedUploadRoots(
-        prepared.grant.uploadRoots,
-        uploadDecision.resolvedPath,
-      );
-      const approval = this.approvalStore.createRequest({
-        instanceId: request.instanceId ?? 'unknown',
-        provider: providerFromContext(request.provider),
-        profileId: request.profileId,
-        targetId: request.targetId,
-        toolName: 'browser.upload_file',
-        action: 'upload_file',
+      const approvalOutcome = this.resolveUploadApproval(request, prepared, uploadDecision);
+      if (approvalOutcome.result) {
+        return approvalOutcome.result;
+      }
+      prepared = {
+        grant: approvalOutcome.autoGrant,
         actionClass: 'file-upload',
         origin: prepared.origin,
         url: prepared.url,
-        selector: request.selector,
-        filePath: uploadDecision.resolvedPath ?? request.filePath,
-        detectedFileType: uploadDecision.detectedFileType,
-        proposedGrant: {
-          mode: uploadDecision.requiresPerActionApproval ? 'per_action' : 'session',
-          allowedOrigins: prepared.grant.allowedOrigins,
-          allowedActionClasses: ['file-upload'],
-          allowExternalNavigation: false,
-          uploadRoots,
-          autonomous: false,
-        },
-        expiresAt: Date.now() + 30 * 60 * 1000,
-      });
-      const autoGrant = this.autoApproveApproval(approval);
-      if (autoGrant) {
-        prepared = {
-          grant: autoGrant,
-          actionClass: 'file-upload',
-          origin: prepared.origin,
-          url: prepared.url,
-        };
-      } else {
-        return this.result({
-          context: request,
-          profileId: request.profileId,
-          targetId: request.targetId,
-          action: 'upload_file',
-          toolName: 'browser.upload_file',
-          actionClass: 'file-upload',
-          decision: 'requires_user',
-          outcome: 'not_run',
-          requestId: approval.requestId,
-          reason: uploadDecision.reason,
-          summary: `browser.upload_file requires user approval: ${uploadDecision.reason}`,
-          origin: prepared.origin,
-          url: prepared.url,
-          data: null,
-        });
-      }
+      };
     }
     try {
       await this.driver.uploadFile(
@@ -1768,6 +1723,101 @@ export class BrowserGatewayService {
     } catch (error) {
       return this.actionGuard.mutationFailed(request, 'upload_file', 'browser.upload_file', prepared, error);
     }
+  }
+
+  /**
+   * Record a stored approval request for a denied upload, then try
+   * auto-approval. Every upload path (managed profile AND shared existing
+   * tab) must come through here: returning `requires_user` without a stored
+   * request leaves the user nothing to approve anywhere in the UI, so the
+   * agent waits on a decision that can never be made.
+   */
+  private resolveUploadApproval(
+    request: BrowserGatewayContext & BrowserUploadFileRequest,
+    prepared: BrowserGatewayPreparedMutation,
+    uploadDecision: BrowserUploadPolicyResult,
+  ):
+    | { autoGrant: BrowserPermissionGrant; result?: undefined }
+    | { autoGrant?: undefined; result: BrowserGatewayResult<null> } {
+    if (uploadDecision.reason === 'file_not_found') {
+      // No approval could make a nonexistent file uploadable, so a stored
+      // request would only mislead the user. The common cause is an agent
+      // passing a worker-node path after pre-copying the file there.
+      return {
+        result: this.result({
+          context: request,
+          profileId: request.profileId,
+          targetId: request.targetId,
+          action: 'upload_file',
+          toolName: 'browser.upload_file',
+          actionClass: 'file-upload',
+          decision: 'denied',
+          outcome: 'not_run',
+          // `reason` is the only field the calling agent sees — summary goes
+          // to the audit log. Keep the machine-readable code as the prefix.
+          reason:
+            'file_not_found: filePath must be readable on the coordinator (the machine '
+            + 'running AI Orchestrator). Pass a coordinator-local path even for tabs on a '
+            + 'remote worker node — Browser Gateway stages the file onto the node '
+            + 'automatically. Do not pre-copy the file to the node and pass a node-local path.',
+          summary: 'browser.upload_file denied: filePath not readable on the coordinator',
+          origin: prepared.origin,
+          url: prepared.url,
+          data: null,
+        }),
+      };
+    }
+    const approval = this.approvalStore.createRequest({
+      instanceId: request.instanceId ?? 'unknown',
+      provider: providerFromContext(request.provider),
+      profileId: request.profileId,
+      targetId: request.targetId,
+      toolName: 'browser.upload_file',
+      action: 'upload_file',
+      actionClass: 'file-upload',
+      origin: prepared.origin,
+      url: prepared.url,
+      selector: request.selector,
+      filePath: uploadDecision.resolvedPath ?? request.filePath,
+      detectedFileType: uploadDecision.detectedFileType,
+      proposedGrant: {
+        mode: uploadDecision.requiresPerActionApproval ? 'per_action' : 'session',
+        allowedOrigins: prepared.grant.allowedOrigins,
+        allowedActionClasses: ['file-upload'],
+        allowExternalNavigation: false,
+        uploadRoots: proposedUploadRoots(prepared.grant.uploadRoots, uploadDecision.resolvedPath),
+        autonomous: false,
+      },
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+    const autoGrant = this.autoApproveApproval(approval);
+    if (autoGrant) {
+      return { autoGrant };
+    }
+    return {
+      result: this.result({
+        context: request,
+        profileId: request.profileId,
+        targetId: request.targetId,
+        action: 'upload_file',
+        toolName: 'browser.upload_file',
+        actionClass: 'file-upload',
+        decision: 'requires_user',
+        outcome: 'not_run',
+        requestId: approval.requestId,
+        // `reason` is the only field the calling agent sees — summary goes to
+        // the audit log. Keep the machine-readable code as the prefix.
+        reason:
+          `${uploadDecision.reason}: a pending approval request was recorded. `
+          + 'Ask the user to approve it on this instance\'s approvals card (below '
+          + 'the chat) or on the Browser Gateway page (/browser), then retry the '
+          + 'upload. There is no popup dialog.',
+        summary: `browser.upload_file requires user approval: ${uploadDecision.reason}`,
+        origin: prepared.origin,
+        url: prepared.url,
+        data: null,
+      }),
+    };
   }
 
   async downloadFile(

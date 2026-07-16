@@ -95,6 +95,42 @@ const FILE_TRANSFER_FORWARDER_TOOLS: {
     },
   },
   {
+    name: 'sync_to_node',
+    description:
+      'Rsync-style sync of a local workspace folder onto a worker node: only new and changed files are sent (delta transfer for modified files). Use instead of many upload_to_node calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node: { type: 'string' },
+        localPath: { type: 'string' },
+        remotePath: { type: 'string' },
+        exclude: { type: 'array', items: { type: 'string' } },
+        dryRun: { type: 'boolean' },
+        deleteExtraneous: { type: 'boolean' },
+      },
+      required: ['node', 'localPath', 'remotePath'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'sync_from_node',
+    description:
+      'Rsync-style sync of a worker-node folder into the local workspace: only new and changed files are fetched (delta transfer for modified files). Use instead of many download_from_node calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node: { type: 'string' },
+        localPath: { type: 'string' },
+        remotePath: { type: 'string' },
+        exclude: { type: 'array', items: { type: 'string' } },
+        dryRun: { type: 'boolean' },
+        deleteExtraneous: { type: 'boolean' },
+      },
+      required: ['node', 'localPath', 'remotePath'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'collect_browser_download',
     description:
       'Find a recent browser download on a worker node, preferring browserDownloads from the managed Chrome profile before user Downloads, and transfer it when exactly one strong candidate matches.',

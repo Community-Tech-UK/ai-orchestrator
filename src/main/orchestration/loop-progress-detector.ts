@@ -216,12 +216,25 @@ export function signalB_editChurn(
 export function signalC_stageStagnation(
   state: LoopState,
   th: LoopProgressThresholds,
+  meaningfulLedgerActivity = false,
 ): ProgressSignalEvidence | null {
   const stage = state.currentStage;
   const count = state.iterationsOnCurrentStage;
   const warn = th.stageWarnIterations[stage];
   const crit = th.stageCriticalIterations[stage];
   if (count >= crit) {
+    // WS3: stage duration alone is not CRITICAL while the ledger shows a
+    // meaningful task transition (or fresh objective evidence) this iteration —
+    // a long IMPLEMENT stint that keeps closing leaves is working, not stuck.
+    // Preserved as a WARN so genuine stagnation still escalates via the window.
+    if (meaningfulLedgerActivity) {
+      return {
+        id: 'C',
+        verdict: 'WARN',
+        message: `${count} iterations on ${stage} (>= critical ${crit}) — held at WARN: meaningful ledger transition this iteration`,
+        detail: { stage, count, criticalThreshold: crit, heldByLedgerTransition: true },
+      };
+    }
     return {
       id: 'C',
       verdict: 'CRITICAL',
@@ -635,12 +648,13 @@ export class LoopProgressDetector {
     state: LoopState,
     history: LoopIteration[],
     current: LoopIteration,
+    options?: { meaningfulLedgerActivity?: boolean },
   ): LoopProgressEvaluation {
     const th = state.config.progressThresholds;
     const candidates: (ProgressSignalEvidence | null)[] = [
       signalA_identicalWorkHash(history, current, th),
       signalB_editChurn(history, current, th),
-      signalC_stageStagnation(state, th),
+      signalC_stageStagnation(state, th, options?.meaningfulLedgerActivity ?? false),
       signalD_testOscillation(history, current),
       signalDPrime_testStagnationWithWrites(history, current, th),
       signalE_errorRepeat(history, current, th),

@@ -35,7 +35,18 @@ export async function retrieveEvidenceCard(
   if (!input.conversationId.trim()) {
     return deny(input, options, 'OWNERSHIP_REQUIRED');
   }
-  const metadata = await options.ledger.getEvidenceCard(input.conversationId, input.cardId);
+  let metadata = await options.ledger.getEvidenceCard(input.conversationId, input.cardId);
+  if (!metadata) {
+    // `EvidenceRecord` metadata does not expose card ids, so callers (the
+    // renderer panel in particular) can only key inspection by EVIDENCE id.
+    // Resolve the newest card for that evidence within the same conversation —
+    // identical ownership scoping and status filters as the direct lookup.
+    const cards = await options.ledger.listEvidenceCards(input.conversationId, {
+      evidenceId: input.cardId,
+      limit: 1,
+    });
+    metadata = cards[0] ?? null;
+  }
   if (!metadata?.blobRef) return deny(input, options, 'EVIDENCE_CARD_NOT_FOUND');
   const record = await options.ledger.getEvidence(input.conversationId, metadata.evidenceId);
   if (!record || !isReadableRecord(record)) {

@@ -258,9 +258,52 @@ export interface CompletionSignalEvidence {
    * Structured open-item count for the `ledger-complete` signal (0 when the
    * ledger is fully resolved, >0 while items remain). Undefined for every other
    * signal id. Consumed by the ledger-progress stall tracker so it never has to
-   * parse the human-readable `detail` string.
+   * parse the human-readable `detail` string. WS2: counts open LEAF items only —
+   * a parent row with children is a structural summary, not blocking work.
    */
   openCount?: number;
+  /**
+   * WS2: stable ids of the unresolved LEAF tasks behind `openCount`, so
+   * convergence tracking can tell "the same 4 items are still open" apart from
+   * "4 different items are open" without re-parsing the ledger text. Present
+   * only on the `ledger-complete` signal (empty array when fully resolved);
+   * capped to the first 32 ids to bound evidence size.
+   */
+  openLeafIds?: string[];
+}
+
+/** Ledger task state as persisted in convergence tracking (mirrors the
+ * `LoopTaskState` union in the main-process ledger parser). */
+export type LoopLedgerTaskState = 'todo' | 'doing' | 'done' | 'deferred';
+
+/**
+ * WS2/WS3 (loop-convergence plan): persisted, versioned inventory of known
+ * ledger leaf tasks. Replaces the historical-minimum stall counters: the first
+ * non-empty ledger snapshot freezes `plannedLeafIds`; later ids are recorded in
+ * `discoveredLeafIds` (still required for completion, but their arrival cannot
+ * erase the history of previously resolved work). Optional on LoopState —
+ * old checkpoints that carry only `ledgerOpenCountBest` /
+ * `ledgerNoImprovementIterations` remain readable; migration happens when the
+ * first new snapshot is observed.
+ */
+export interface LedgerConvergenceState {
+  version: 1;
+  /** Last observed state per known leaf task id. */
+  knownTaskStates: Record<string, LoopLedgerTaskState>;
+  /** Leaf ids present in the first non-empty ledger snapshot (frozen). */
+  plannedLeafIds: string[];
+  /** Leaf ids that appeared after the planned set was frozen. */
+  discoveredLeafIds: string[];
+  /** Consecutive iterations without a meaningful task transition. */
+  noMeaningfulTransitionIterations: number;
+  /** Dedup key of the last objective evidence (verify pass / test-count high). */
+  lastObjectiveEvidenceKey?: string;
+  /**
+   * True while the last snapshot had duplicate/malformed explicit ids. Lets a
+   * later repair ("previously malformed/duplicate inventory becomes valid")
+   * count as a meaningful transition. Absent = valid.
+   */
+  inventoryInvalid?: boolean;
 }
 
 export type LoopTerminalIntentKind = 'complete' | 'block' | 'fail' | 'wakeup';
@@ -401,6 +444,13 @@ export interface LoopState {
   ledgerOpenCountBest?: number;
   /** Consecutive iterations since the ledger open-count last reached a new low. */
   ledgerNoImprovementIterations?: number;
+  /**
+   * WS2/WS3: transition-based convergence tracker (known leaf-task inventory).
+   * Optional — absent on checkpoints written before the field existed; those
+   * keep using the two legacy count fields above until the first new snapshot
+   * initializes this tracker.
+   */
+  ledgerConvergence?: LedgerConvergenceState;
   /**
    * B5: set at the end of an iteration whose context was reset/compacted (LF-1
    * utilization recycle, PLAN→IMPLEMENT reset, or degraded-retry fresh session).

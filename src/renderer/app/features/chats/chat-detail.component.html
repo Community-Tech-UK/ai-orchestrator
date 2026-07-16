@@ -41,8 +41,23 @@
         } @else {
           <span class="runtime-pill status-pill">Dormant</span>
         }
+        <button
+          type="button"
+          class="compact-button evidence-toggle"
+          aria-label="Toggle context evidence panel"
+          [attr.aria-expanded]="evidencePanelOpen()"
+          (click)="toggleEvidencePanel()"
+        >
+          Evidence
+        </button>
       </div>
     </header>
+
+    @if (evidencePanelOpen()) {
+      @if (evidenceScope(); as scope) {
+        <app-context-evidence-panel [scope]="scope" />
+      }
+    }
 
     <section class="chat-settings" aria-label="Chat settings">
       <label class="field project-field">

@@ -121,6 +121,30 @@ export class RemoteNodeIpcService {
     return (result.data ?? null) as RemoteNodeRosterEntry | null;
   }
 
+  async copyToRemote(payload: {
+    nodeId: string;
+    localPath: string;
+    remotePath: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!this.api) return { success: false, error: 'Not in Electron' };
+    const result = await this.api.remoteNodeCopyToRemote(payload) as IpcResult | null;
+    return result?.success
+      ? { success: true }
+      : { success: false, error: result?.error?.message ?? 'Transfer failed' };
+  }
+
+  async copyFromRemote(payload: {
+    nodeId: string;
+    remotePath: string;
+    localPath: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!this.api) return { success: false, error: 'Not in Electron' };
+    const result = await this.api.remoteNodeCopyFromRemote(payload) as IpcResult | null;
+    return result?.success
+      ? { success: true }
+      : { success: false, error: result?.error?.message ?? 'Transfer failed' };
+  }
+
   async getServerStatus(): Promise<RemoteNodeServerStatus> {
     if (!this.api) return { running: false };
     const result = await this.api.remoteNodeGetServerStatus() as IpcResult | null;

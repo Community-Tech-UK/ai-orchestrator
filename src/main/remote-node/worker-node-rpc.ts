@@ -58,6 +58,8 @@ export const COORDINATOR_TO_NODE = {
   FS_UNWATCH: 'fs.unwatch',
   FS_READ_FILE: 'fs.readFile',
   FS_WRITE_FILE: 'fs.writeFile',
+  FS_READ_FILE_CHUNK: 'fs.readFileChunk',
+  FS_WRITE_FILE_CHUNK: 'fs.writeFileChunk',
   SYNC_SCAN_DIRECTORY: 'sync.scanDirectory',
   SYNC_GET_BLOCK_SIGNATURES: 'sync.getBlockSignatures',
   SYNC_COMPUTE_DELTA: 'sync.computeDelta',

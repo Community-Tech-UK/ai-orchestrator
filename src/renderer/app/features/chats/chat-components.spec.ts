@@ -18,6 +18,23 @@ describe('chat feature templates', () => {
     expect(template).toContain('(keydown.enter)="applyCwd()"');
   });
 
+  it('exposes a context evidence toggle that hosts the panel for the chat-owned conversation scope', () => {
+    const template = readFileSync(
+      'src/renderer/app/features/chats/chat-detail.component.html',
+      'utf-8',
+    );
+    const source = readFileSync(
+      'src/renderer/app/features/chats/chat-detail.component.ts',
+      'utf-8',
+    );
+
+    expect(template).toContain('aria-label="Toggle context evidence panel"');
+    expect(template).toContain('(click)="toggleEvidencePanel()"');
+    expect(template).toContain('<app-context-evidence-panel [scope]="scope" />');
+    expect(source).toContain('ledgerThreadId');
+    expect(source).toContain("owner: { kind: 'chat', chatId: chat.id }");
+  });
+
   it('surfaces chat-scoped operator runs with refresh and cancellation actions', () => {
     const template = readFileSync(
       'src/renderer/app/features/chats/chat-detail.component.html',

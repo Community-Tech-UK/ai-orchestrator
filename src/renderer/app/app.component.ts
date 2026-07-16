@@ -31,6 +31,7 @@ import type { HarnessRole } from '../../shared/types/pair-both.types';
 import { AppUpdateStore } from './core/state/app-update.store';
 import { AppUpdateBannerComponent } from './shared/components/app-update-banner/app-update-banner.component';
 import { ComputerUsePermissionBannerComponent } from './core/state/computer-use-permission-banner.component';
+import { BrowserApprovalsBannerComponent } from './core/state/browser-approvals-banner.component';
 import { ComputerUsePermissionChipComponent } from './core/state/computer-use-permission-chip.component';
 import { NotificationCenterComponent } from './features/title-bar/notification-center.component';
 
@@ -82,6 +83,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     RoleChoiceComponent,
     WorkerModeComponent,
     AppUpdateBannerComponent,
+    BrowserApprovalsBannerComponent,
     ComputerUsePermissionBannerComponent,
     ComputerUsePermissionChipComponent,
     NotificationCenterComponent,

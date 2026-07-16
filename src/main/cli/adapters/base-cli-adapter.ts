@@ -26,6 +26,7 @@ import type {
   CliResponse,
   CliSpawnMode,
   CliStatus,
+  ContextUsageObservation,
   InterruptResult,
   ProviderRuntimeSnapshot,
   SpawnModeChange,
@@ -73,6 +74,7 @@ export type {
   CliStatus,
   CliToolCall,
   CliUsage,
+  ContextUsageObservation,
   InterruptResult,
   ProviderRuntimeSnapshot,
   ResumeAttemptResult,
@@ -281,6 +283,19 @@ export abstract class BaseCliAdapter extends EventEmitter {
   protected abstract sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void>;
 
   // ============ Common Methods with Default Implementations ============
+
+  /**
+   * WS4 (loop-convergence plan): current provider-native context occupancy as
+   * a discriminated observation. The base implementation reports
+   * `unknown: not-reported`; adapters override it ONLY when they can prove a
+   * current-window numerator against a positive provider-reported or
+   * model-resolved denominator. Consumers must treat `unknown` as
+   * "no utilization decision possible" — never substitute aggregate token
+   * totals (those are cost/diagnostics only).
+   */
+  getLastContextUsage(): ContextUsageObservation {
+    return { status: 'unknown', reason: 'not-reported' };
+  }
 
   /**
    * Initialize the CLI adapter (verify availability)

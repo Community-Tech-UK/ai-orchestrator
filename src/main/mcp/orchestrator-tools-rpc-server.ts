@@ -205,6 +205,8 @@ export class OrchestratorToolsRpcServer {
       getNodeFileInfo: options.getNodeFileInfo ?? null,
       downloadFromNode: options.downloadFromNode ?? null,
       uploadToNode: options.uploadToNode ?? null,
+      syncToNode: options.syncToNode ?? null,
+      syncFromNode: options.syncFromNode ?? null,
       collectBrowserDownload: options.collectBrowserDownload ?? null,
     };
     this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;

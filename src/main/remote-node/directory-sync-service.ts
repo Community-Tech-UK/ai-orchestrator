@@ -171,6 +171,25 @@ export class DirectorySyncService {
     return jobId;
   }
 
+  /**
+   * Run a sync job to completion and return its result. Used by callers that
+   * need the outcome in one call (the MCP sync tools); the renderer keeps
+   * using startSync + progress polling.
+   */
+  async runSync(params: SyncJobParams | LegacySyncJobParams): Promise<SyncResult> {
+    const normalized = normalizeSyncParams(params);
+    const registry = getWorkerNodeRegistry();
+    const node = registry.getNode(normalized.remoteNodeId);
+    if (!node) {
+      throw new Error(`Node not found: ${normalized.remoteNodeId}`);
+    }
+
+    const jobId = crypto.randomUUID();
+    const job = new SyncJob(jobId, normalized);
+    this.jobs.set(jobId, job);
+    return job.run();
+  }
+
   getProgress(jobId: string): SyncProgress | undefined {
     return this.jobs.get(jobId)?.progress;
   }

@@ -117,7 +117,9 @@ describe('LoopCoordinator ledger-progress stall backstop', () => {
 
     const final = coordinator.getLoop(state.id);
     expect(final?.status).toBe('completed-needs-review');
-    expect(evt.reason).toMatch(/open-count has not reached a new low/i);
+    expect(evt.reason).toMatch(/no meaningful LOOP_TASKS\.md task transition/i);
+    // WS3: the terminal reason names the unchanged open leaf task(s) by id.
+    expect(evt.reason).toMatch(/Unchanged open leaf task\(s\): lf-[0-9a-f]{12}/);
     // Fired well before the 30-iteration cap — a few iterations after the
     // open-count plateaued (limit 3), not at the cap.
     expect(iterations).toBeLessThan(10);

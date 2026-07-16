@@ -394,4 +394,13 @@ Hey! I'm here. What do you want to tackle?`;
       expect(caps.liveSteer).toBe(true);
     });
   });
+
+  describe('getLastContextUsage (WS4 truthful occupancy)', () => {
+    it('exec mode reports unknown: aggregate-only — cumulative totals cannot prove occupancy', () => {
+      const adapter = new CodexCliAdapter();
+      // Even with turn tokens tracked, exec mode has no per-turn occupancy proof.
+      (adapter as unknown as { lastTurnTokens: number }).lastTurnTokens = 7_000_000;
+      expect(adapter.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'aggregate-only' });
+    });
+  });
 });

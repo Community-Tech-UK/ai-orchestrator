@@ -20,6 +20,8 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'get_node_file_info',
       'download_from_node',
       'upload_to_node',
+      'sync_to_node',
+      'sync_from_node',
       'collect_browser_download',
       'list_settings',
       'get_setting',

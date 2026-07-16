@@ -22,7 +22,7 @@
 
 import type { LoopTaskItem, LoopTaskLedger } from './loop-task-ledger';
 
-export type LedgerLintCategory = 'open-ended' | 'external-gated';
+export type LedgerLintCategory = 'open-ended' | 'external-gated' | 'duplicate-id' | 'malformed-id';
 
 export interface LedgerLintFinding {
   /** The offending item's text. */
@@ -84,6 +84,27 @@ export function lintTaskLedger(ledger: LoopTaskLedger): LedgerLintFinding[] {
   for (const item of ledger.items) {
     const finding = lintLedgerItem(item);
     if (finding) out.push(finding);
+  }
+  // WS2: duplicate / malformed explicit ids are never silently collapsed — the
+  // parser keeps every item and reports the offending ids here so the operator
+  // (start-time) and the worker (iteration-time reminder) can repair them.
+  for (const id of ledger.duplicateIds) {
+    out.push({
+      item: id,
+      category: 'duplicate-id',
+      reason:
+        `explicit loop-task-id "${id}" appears on more than one item — ` +
+        'convergence tracking cannot tell the items apart; give each item a unique id',
+    });
+  }
+  for (const id of ledger.malformedIds) {
+    out.push({
+      item: id,
+      category: 'malformed-id',
+      reason:
+        `malformed loop-task-id "${id}" (allowed: letters/digits then letters/digits/._-) — ` +
+        'the item fell back to a text fingerprint that will not survive rewording; fix the id',
+    });
   }
   return out;
 }

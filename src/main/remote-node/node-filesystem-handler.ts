@@ -5,6 +5,8 @@ import { SecurityFilter } from './security-filter';
 import { ProjectDiscovery } from './project-discovery';
 import { getLogger } from '../logging/logger';
 import { readFilesystemDirectoryTree } from '../services/filesystem-directory-reader';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import type {
   FsReadDirectoryParams,
   FsReadDirectoryResult,
@@ -17,7 +19,11 @@ import type {
   FsUnwatchParams,
   FsReadFileParams,
   FsReadFileResult,
+  FsReadFileChunkParams,
+  FsReadFileChunkResult,
   FsWriteFileParams,
+  FsWriteFileChunkParams,
+  FsWriteFileChunkResult,
   FsErrorCode,
   FsChangeEvent,
   FsEventNotification
@@ -28,7 +34,13 @@ const logger = getLogger('NodeFilesystemHandler');
 
 const DEFAULT_LIMIT = 500;
 const DEFAULT_DEPTH = 1;
-const MAX_READ_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+const MAX_READ_FILE_SIZE = 50 * 1024 * 1024; // 50 MB (single-RPC whole-file reads)
+/** Per-chunk cap for streamed transfers; stays well under the WS payload cap after base64. */
+const MAX_CHUNK_BYTES = 16 * 1024 * 1024;
+/** Total-size cap for streamed transfers. */
+const MAX_STREAM_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2 GiB
+/** Suffix for in-progress streamed writes; renamed into place on commit. */
+const PARTIAL_SUFFIX = '.aio-partial';
 
 /** Simple extension → MIME type mapping for common file types */
 const MIME_TYPES: Record<string, string> = {
@@ -558,6 +570,163 @@ export class NodeFilesystemHandler {
     return { ok: true, size: buffer.length };
   }
 
+  // -------------------------------------------------------------------------
+  // Streamed transfers (files above the single-RPC size cap)
+  // -------------------------------------------------------------------------
+
+  async readFileChunk(params: FsReadFileChunkParams): Promise<FsReadFileChunkResult> {
+    const resolvedPath = await this.validatePath(params.path);
+    if (SecurityFilter.isRestrictedPath(resolvedPath)) {
+      throw new FsRpcError(
+        'EACCES',
+        resolvedPath,
+        `EACCES: '${path.basename(resolvedPath)}' is a restricted file`,
+        false,
+        'Restricted files (credentials, keys, secrets) cannot be read remotely.'
+      );
+    }
+    const stat = await fs.stat(resolvedPath);
+    if (stat.isDirectory()) {
+      throw new FsRpcError(
+        'ENOTDIR',
+        resolvedPath,
+        `ENOTDIR: '${resolvedPath}' is a directory, not a file`
+      );
+    }
+    if (stat.size > MAX_STREAM_FILE_SIZE) {
+      throw new FsRpcError(
+        'EACCES',
+        resolvedPath,
+        `File too large: ${stat.size} bytes exceeds the ${MAX_STREAM_FILE_SIZE} byte streaming limit`
+      );
+    }
+    const length = Math.min(params.length, MAX_CHUNK_BYTES);
+    const handle = await fs.open(resolvedPath, 'r');
+    try {
+      const buffer = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, params.offset);
+      return {
+        data: buffer.subarray(0, bytesRead).toString('base64'),
+        bytesRead,
+        size: stat.size,
+        eof: params.offset + bytesRead >= stat.size,
+      };
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async writeFileChunk(params: FsWriteFileChunkParams): Promise<FsWriteFileChunkResult> {
+    const targetPath = path.resolve(params.path);
+    if (!this.isWritablePath(targetPath)) {
+      throw new FsRpcError(
+        'EOUTOFSCOPE',
+        targetPath,
+        `EOUTOFSCOPE: path '${targetPath}' is outside browsable roots`,
+        false,
+        'Only paths within the configured working directories are writable.'
+      );
+    }
+    if (SecurityFilter.isRestrictedPath(targetPath)) {
+      throw new FsRpcError(
+        'EACCES',
+        targetPath,
+        `EACCES: cannot write to restricted filename '${path.basename(targetPath)}'`,
+        false,
+        'Restricted files (credentials, keys, secrets) cannot be written remotely.'
+      );
+    }
+    if (params.totalSize > MAX_STREAM_FILE_SIZE) {
+      throw new FsRpcError(
+        'EACCES',
+        targetPath,
+        `File too large: ${params.totalSize} bytes exceeds the ${MAX_STREAM_FILE_SIZE} byte streaming limit`
+      );
+    }
+
+    const partialPath = `${targetPath}${PARTIAL_SUFFIX}`;
+    const buffer = Buffer.from(params.data, 'base64');
+
+    if (params.offset === 0) {
+      await this.validateWritableParent(targetPath);
+      if (params.mkdirp !== false) {
+        await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      }
+      await this.assertRealParentStillWritable(targetPath);
+      const existingStat = await lstatOrNull(targetPath);
+      if (existingStat?.isSymbolicLink()) {
+        throw new FsRpcError(
+          'EACCES',
+          targetPath,
+          `EACCES: cannot write through symbolic link '${path.basename(targetPath)}'`,
+          false,
+          'Symbolic link destinations are refused for remote file writes.'
+        );
+      }
+      await fs.rm(partialPath, { force: true });
+    }
+
+    const partialStat = await lstatOrNull(partialPath);
+    const currentSize = params.offset === 0 ? 0 : partialStat?.size ?? -1;
+    if (currentSize !== params.offset) {
+      await fs.rm(partialPath, { force: true });
+      throw new FsRpcError(
+        'EIO',
+        targetPath,
+        `EIO: chunk offset ${params.offset} does not continue the partial file (have ${currentSize} bytes)`,
+        true,
+        'Restart the streamed transfer from offset 0.'
+      );
+    }
+
+    const handle = await fs.open(partialPath, params.offset === 0 ? 'w' : 'r+');
+    try {
+      await handle.write(buffer, 0, buffer.length, params.offset);
+    } finally {
+      await handle.close();
+    }
+
+    if (!params.done) {
+      return { ok: true, bytesWritten: buffer.length, committed: false };
+    }
+
+    const finalStat = await fs.stat(partialPath);
+    if (finalStat.size !== params.totalSize) {
+      await fs.rm(partialPath, { force: true });
+      throw new FsRpcError(
+        'EIO',
+        targetPath,
+        `EIO: streamed file is ${finalStat.size} bytes, expected ${params.totalSize}`,
+        true,
+        'Restart the streamed transfer from offset 0.'
+      );
+    }
+    const digest = await sha256File(partialPath);
+    // Windows rename() refuses to replace an existing file, so clear the
+    // destination first — writability was already validated above.
+    await fs.rm(targetPath, { force: true });
+    await fs.rename(partialPath, targetPath);
+    logger.info('writeFileChunk committed', { path: targetPath, size: finalStat.size });
+    return {
+      ok: true,
+      bytesWritten: buffer.length,
+      committed: true,
+      size: finalStat.size,
+      sha256: digest,
+    };
+  }
+
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve());
+    stream.on('error', reject);
+  });
+  return hash.digest('hex');
 }
 
 async function lstatOrNull(filePath: string): Promise<import('node:fs').Stats | null> {

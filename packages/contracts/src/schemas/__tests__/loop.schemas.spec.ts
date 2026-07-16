@@ -209,6 +209,18 @@ describe('Loop schemas — type/schema drift guards', () => {
       expect(parsed.completionSignalsFired[0].openCount).toBe(0);
       expect(parsed.completionSignalsFired[1].openCount).toBeUndefined();
     });
+
+    it('round-trips WS2 openLeafIds and keeps them optional (back-compat)', () => {
+      const parsed = LoopIterationSchema.parse({
+        ...baseIteration,
+        completionSignalsFired: [
+          { id: 'ledger-complete', sufficient: false, detail: 'open', openCount: 2, openLeafIds: ['ws4.a', 'lf-0123456789ab'] },
+          { id: 'ledger-complete', sufficient: true, detail: 'legacy row without ids', openCount: 0 },
+        ],
+      });
+      expect(parsed.completionSignalsFired[0].openLeafIds).toEqual(['ws4.a', 'lf-0123456789ab']);
+      expect(parsed.completionSignalsFired[1].openLeafIds).toBeUndefined();
+    });
   });
 
   describe('LoopContextWindowCalibrationSchema model', () => {
@@ -315,6 +327,42 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
       expect(parsed.ledgerOpenCountBest).toBe(3);
       expect(parsed.ledgerNoImprovementIterations).toBe(4);
+    });
+
+    it('accepts an OLD checkpoint with only the legacy count fields (WS2 back-compat)', () => {
+      // Pre-WS2 rows carry the two counters and no ledgerConvergence tracker.
+      const parsed = LoopStateSchema.parse({
+        ...baseState,
+        ledgerOpenCountBest: 4,
+        ledgerNoImprovementIterations: 8,
+      });
+      expect(parsed.ledgerConvergence).toBeUndefined();
+    });
+
+    it('round-trips the WS2 ledgerConvergence tracker', () => {
+      const tracker = {
+        version: 1 as const,
+        knownTaskStates: { 'ws4.a': 'done' as const, 'ws4.b': 'todo' as const },
+        plannedLeafIds: ['ws4.a', 'ws4.b'],
+        discoveredLeafIds: ['ws5.c'],
+        noMeaningfulTransitionIterations: 2,
+        lastObjectiveEvidenceKey: 'verify-pass:abc',
+      };
+      const parsed = LoopStateSchema.parse({ ...baseState, ledgerConvergence: tracker });
+      expect(parsed.ledgerConvergence).toEqual(tracker);
+    });
+
+    it('rejects a ledgerConvergence tracker with an unknown task state', () => {
+      expect(LoopStateSchema.safeParse({
+        ...baseState,
+        ledgerConvergence: {
+          version: 1,
+          knownTaskStates: { 'ws4.a': 'finished' },
+          plannedLeafIds: [],
+          discoveredLeafIds: [],
+          noMeaningfulTransitionIterations: 0,
+        },
+      }).success).toBe(false);
     });
 
     it('round-trips justCompacted (B5 canary flag)', () => {

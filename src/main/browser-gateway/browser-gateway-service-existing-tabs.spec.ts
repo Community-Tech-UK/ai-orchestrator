@@ -795,6 +795,188 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
+  it('records a stored approval request when an existing-tab upload is outside the granted roots', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-denied-'));
+    const filePath = path.join(tempDir, 'app.ipa');
+    fs.writeFileSync(filePath, 'fake app');
+    const resolvedFilePath = fs.realpathSync(filePath);
+    const sendCommand = vi.fn(async () => ({ uploaded: true, fileCount: 1, files: [] }));
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'App Store Connect',
+      url: 'https://appstoreconnect.apple.com/apps',
+      origin: 'https://appstoreconnect.apple.com',
+      allowedOrigins: appStoreConnectTab.allowedOrigins,
+    };
+    const { service, approvalRequests } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          provider: 'claude',
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['file-upload'],
+          uploadRoots: [path.join(tempDir, 'somewhere-else')],
+        }),
+      ],
+    });
+
+    const result = await service.uploadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: 'input[type=file]',
+      filePath,
+      actionHint: 'Upload app binary',
+    });
+
+    // A requires_user answer is only actionable when a request the user can
+    // approve actually exists — a synthetic requestId with no stored row left
+    // the agent waiting on a decision nobody could ever make.
+    expect(approvalRequests).toHaveLength(1);
+    expect(approvalRequests[0]).toMatchObject({
+      instanceId: 'instance-1',
+      toolName: 'browser.upload_file',
+      actionClass: 'file-upload',
+      status: 'pending',
+      filePath: resolvedFilePath,
+    });
+    expect(approvalRequests[0].proposedGrant.uploadRoots).toContain(path.dirname(resolvedFilePath));
+    expect(result).toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+      reason: expect.stringContaining('root_not_allowed'),
+      requestId: approvalRequests[0].requestId,
+    });
+    // The agent-visible reason must say where the human actually approves.
+    expect(result.reason).toContain('approvals card');
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('denies an existing-tab upload of a nonexistent path with coordinator-local guidance instead of recording an approval', async () => {
+    const sendCommand = vi.fn(async () => ({ uploaded: true, fileCount: 1, files: [] }));
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'App Store Connect',
+      url: 'https://appstoreconnect.apple.com/apps',
+      origin: 'https://appstoreconnect.apple.com',
+      allowedOrigins: appStoreConnectTab.allowedOrigins,
+    };
+    const { service, approvalRequests } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          provider: 'claude',
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['file-upload'],
+        }),
+      ],
+    });
+
+    // The BinsOut failure mode: the agent pre-copied the file to the worker
+    // node and passed the node-local path, which the coordinator cannot read.
+    const result = await service.uploadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: 'input[type=file]',
+      filePath: 'C:\\Users\\worker\\Documents\\Work\\_scratch\\staged.jpg',
+      actionHint: 'Upload image',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: expect.stringContaining('file_not_found'),
+    });
+    // The agent-visible reason must explain the coordinator-local path model.
+    expect(result.reason).toContain('coordinator');
+    // Approving cannot make a nonexistent file readable — no request row.
+    expect(approvalRequests).toHaveLength(0);
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('auto-approves a denied existing-tab upload and proceeds when the predicate allows it', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-auto-'));
+    const filePath = path.join(tempDir, 'app.ipa');
+    fs.writeFileSync(filePath, 'fake app');
+    const resolvedFilePath = fs.realpathSync(filePath);
+    const sendCommand = vi.fn(async () => ({
+      uploaded: true,
+      selector: 'input[type=file]',
+      fileCount: 1,
+      files: [{ name: 'app.ipa', size: Buffer.byteLength('fake app') }],
+    }));
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'App Store Connect',
+      url: 'https://appstoreconnect.apple.com/apps',
+      origin: 'https://appstoreconnect.apple.com',
+      allowedOrigins: appStoreConnectTab.allowedOrigins,
+    };
+    const { service, approvalRequests } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      autoApproveRequests: () => true,
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          provider: 'claude',
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['file-upload'],
+          uploadRoots: [path.join(tempDir, 'somewhere-else')],
+        }),
+      ],
+    });
+
+    const result = await service.uploadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: 'input[type=file]',
+      filePath,
+      actionHint: 'Upload app binary',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(approvalRequests).toHaveLength(1);
+    expect(approvalRequests[0].status).toBe('approved');
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'upload_file',
+      payload: {
+        selector: 'input[type=file]',
+        filePath: resolvedFilePath,
+      },
+    }));
+  });
+
   it('downloads files in existing Chrome tabs through the extension and returns the completed file record', async () => {
     const sendCommand = vi.fn(async () => ({
       id: 14,

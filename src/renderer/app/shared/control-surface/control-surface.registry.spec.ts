@@ -35,6 +35,7 @@ const EXPECTED_PATHS = [
   '/lsp',
   '/mcp',
   '/browser',
+  '/files',
   '/vcs',
   '/tasks',
   '/plan',

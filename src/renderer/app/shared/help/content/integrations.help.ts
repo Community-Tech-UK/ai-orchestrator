@@ -111,6 +111,33 @@ export const BROWSER_GATEWAY_HELP: HelpEntry = {
   ],
 };
 
+export const FILES_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Moves files between this Mac and a connected worker node. The left pane browses local folders, the right pane browses the worker’s approved folders. Drag files across to copy them; every copy is checksummed.',
+    },
+    {
+      kind: 'steps',
+      heading: 'Copying a file',
+      items: [
+        'Pick a worker and one of its approved folders in the right pane.',
+        'Pick a local folder in the left pane.',
+        'Drag files from one pane and drop them on the other.',
+        'Watch the transfer log below the panes for the result.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'warning',
+      heading: 'Folders and large files',
+      body: 'Folders are not draggable — ask an agent to run a folder sync instead. Single files over 50 MB are refused until streaming transfers land.',
+    },
+  ],
+};
+
 export const REMOTE_ACCESS_HELP: HelpEntry = {
   sections: [
     {

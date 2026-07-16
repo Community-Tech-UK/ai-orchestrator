@@ -85,6 +85,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'lsp', path: '/lsp', label: 'Language Server', subtitle: 'Inspect language-server integration state.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'mcp', path: '/mcp', label: 'MCP Servers', subtitle: 'Manage tool servers shared across provider CLIs.', group: 'integrations', kind: 'integration', dashboard: true, settings: true }),
   surface({ id: 'browser', path: '/browser', label: 'Browser Gateway', subtitle: 'Control managed browser automation.', group: 'integrations', kind: 'tool', layout: 'wide', dashboard: true }),
+  surface({ id: 'files', path: '/files', label: 'Files', subtitle: 'Move files between this Mac and worker nodes.', group: 'integrations', kind: 'tool', layout: 'wide', dashboard: true }),
   surface({ id: 'vcs', path: '/vcs', label: 'Git', subtitle: 'Review source-control state and changes.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'tasks', path: '/tasks', label: 'Background Jobs', subtitle: 'Monitor local background repo jobs.', group: 'code', kind: 'diagnostic', dashboard: true }),
   surface({ id: 'plan', path: '/plan', label: 'Plan Mode', subtitle: 'Draft and review structured implementation plans.', group: 'code', kind: 'tool', dashboard: true }),

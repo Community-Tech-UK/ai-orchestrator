@@ -5497,7 +5497,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3616
+      "lines": 3645
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -5521,7 +5521,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3243
+      "lines": 3265
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -5577,7 +5577,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2394
+      "lines": 2444
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -5589,7 +5589,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2323
+      "lines": 2332
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5620,6 +5620,10 @@
       "lines": 2070
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
+      "lines": 2041
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
       "lines": 2006
     },
@@ -5634,10 +5638,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
       "lines": 1867
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
-      "lines": 1859
     },
     {
       "path": "src/main/instance/instance-communication.spec.ts",
@@ -5660,12 +5660,16 @@
       "lines": 1789
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1755
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
       "lines": 1747
     },
     {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1690
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 1673
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
@@ -5674,10 +5678,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 1618
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
@@ -5932,6 +5932,10 @@
       "lines": 1177
     },
     {
+      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
+      "lines": 1176
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase3-monorepo-consolidation_completed.md",
       "lines": 1167
     },
@@ -5962,10 +5966,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave2-navigation-pickers-prompt-recall-design_completed.md",
       "lines": 1139
-    },
-    {
-      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
-      "lines": 1128
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md",
@@ -6176,6 +6176,10 @@
       "lines": 957
     },
     {
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 956
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-11-harness-mobile-codex-redesign_completed.md",
       "lines": 953
     },
@@ -6189,10 +6193,6 @@
     },
     {
       "path": "src/main/app/initialization-steps.ts",
-      "lines": 941
-    },
-    {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 941
     },
     {
@@ -6368,6 +6368,10 @@
       "lines": 836
     },
     {
+      "path": "packages/contracts/src/schemas/loop.schemas.ts",
+      "lines": 834
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
       "lines": 826
     },
@@ -6400,6 +6404,10 @@
       "lines": 816
     },
     {
+      "path": "src/main/remote-node/remote-node-file-transfer-mcp-service.ts",
+      "lines": 816
+    },
+    {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
     },
@@ -6424,8 +6432,8 @@
       "lines": 809
     },
     {
-      "path": "packages/contracts/src/schemas/loop.schemas.ts",
-      "lines": 808
+      "path": "src/main/orchestration/loop-completion-detector.ts",
+      "lines": 807
     },
     {
       "path": "src/renderer/app/features/remote-config/remote-config-page.component.ts",

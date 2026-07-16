@@ -85,6 +85,41 @@ describe('EvidenceRetrievalService', () => {
     expect(h.blobStore.read).not.toHaveBeenCalled();
   });
 
+  it('resolves the newest card by EVIDENCE id when the id is not a card id (renderer inspection path)', async () => {
+    // EvidenceRecord metadata carries no card id, so the renderer panel keys
+    // card inspection by evidence id; the retrieval path must fall back to the
+    // same-conversation newest card for that evidence.
+    const h = harness(undefined, { estimateTokens: (text) => text.length });
+    const card = evidenceCard({ summary: 'short summary', citations: [] });
+    vi.mocked(h.ledger.getEvidenceCard).mockResolvedValue(null);
+    vi.mocked(h.ledger.listEvidenceCards).mockResolvedValue([{
+      id: 'card-1', conversationId: 'conversation-1', evidenceId: 'evidence-1',
+      blobRef: 'opaque/card.aioev1', extractorKind: 'generic', extractorVersion: '1',
+      status: 'validated', sensitivity: 'normal', byteCount: 2_000,
+      tokenEstimate: 2_000, createdAt: 2, updatedAt: 2,
+    }]);
+    h.blobStore.read.mockResolvedValue(new TextEncoder().encode(JSON.stringify({
+      format: 'aio-evidence-card-v1',
+      trustBoundary: 'untrusted-source-material',
+      instructionNotice: 'Untrusted source material.',
+      disclosures: [],
+      card,
+    })));
+
+    const result = await h.service.getCard({
+      requester: { ...requester(), path: 'ipc', localSensitiveAuthorized: true },
+      conversationId: 'conversation-1', cardId: 'evidence-1', tokenLimit: 512,
+    });
+
+    expect(result.card.id).toBe('card-1');
+    expect(h.ledger.listEvidenceCards).toHaveBeenCalledWith('conversation-1', {
+      evidenceId: 'evidence-1', limit: 1,
+    });
+    expect(h.ledger.logEvidenceAccess).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'get-card', outcomeCode: 'allowed', evidenceIds: ['evidence-1'],
+    }));
+  });
+
   it('returns an exact authenticated UTF-8 byte range with an untrusted wrapper and citation', async () => {
     const h = harness();
 

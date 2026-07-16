@@ -65,4 +65,25 @@ describe('buildLoopCheckpoint', () => {
     expect(checkpoint.historyTail[0]?.seq).toBe(3);
     expect(checkpoint.updatedAt).toBe(500);
   });
+
+  it('WS3: persists the ledgerConvergence tracker with the state', () => {
+    const withTracker: LoopState = {
+      ...state(),
+      ledgerConvergence: {
+        version: 1,
+        knownTaskStates: { 'ws4.a': 'done', 'ws4.b': 'todo' },
+        plannedLeafIds: ['ws4.a', 'ws4.b'],
+        discoveredLeafIds: ['ws5.c'],
+        noMeaningfulTransitionIterations: 2,
+        lastObjectiveEvidenceKey: 'verify-pass:r1',
+      },
+    };
+    const checkpoint = buildLoopCheckpoint({ state: withTracker, history: [], now: 500 });
+    expect(checkpoint.state.ledgerConvergence).toEqual(withTracker.ledgerConvergence);
+  });
+
+  it('WS3: a checkpoint without the tracker (old row) stays valid', () => {
+    const checkpoint = buildLoopCheckpoint({ state: state(), history: [], now: 500 });
+    expect(checkpoint.state.ledgerConvergence).toBeUndefined();
+  });
 });

@@ -143,6 +143,16 @@ describe('signal C — stage stagnation', () => {
     const sig = signalC_stageStagnation(state, T);
     expect(sig?.verdict).toBe('CRITICAL');
   });
+  it('WS3: held at WARN past critical when the iteration made a meaningful ledger transition', () => {
+    const state = makeState({ currentStage: 'PLAN', iterationsOnCurrentStage: T.stageCriticalIterations.PLAN });
+    const sig = signalC_stageStagnation(state, T, true);
+    expect(sig?.verdict).toBe('WARN');
+    expect(sig?.detail?.['heldByLedgerTransition']).toBe(true);
+  });
+  it('WS3: stays CRITICAL when there is genuinely no ledger transition', () => {
+    const state = makeState({ currentStage: 'PLAN', iterationsOnCurrentStage: T.stageCriticalIterations.PLAN });
+    expect(signalC_stageStagnation(state, T, false)?.verdict).toBe('CRITICAL');
+  });
 });
 
 describe('signal D — test oscillation', () => {

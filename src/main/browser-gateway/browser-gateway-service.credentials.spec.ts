@@ -102,7 +102,7 @@ describe('BrowserGatewayService credentials', () => {
       })).resolves.toMatchObject({
         decision: 'requires_user',
         outcome: 'not_run',
-        reason: 'root_not_allowed',
+        reason: expect.stringContaining('root_not_allowed'),
       });
       expect(approvalRequests[0]?.filePath).toBe(fs.realpathSync(deniedFile));
       expect(approvalRequests[0]?.detectedFileType).toBe('application/zip');

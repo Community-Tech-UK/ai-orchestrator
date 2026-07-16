@@ -18,6 +18,7 @@ import {
   CliToolCall,
   CliUsage,
   ndjsonSafeStringify,
+  type ContextUsageObservation,
   type InterruptResult,
   type ResumeAttemptResult,
   type TurnInterruptCompletion,
@@ -186,14 +187,22 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   /**
-   * Last accurate per-API-call context occupancy, or null before the first
-   * per-call usage arrives. Unlike the cumulative result-line usage (which
-   * sums input across every agentic turn), this reflects what actually sits
-   * in the context window right now — callers like Loop Mode's context
-   * discipline use it to decide when to recycle a persistent session.
+   * Last accurate per-API-call context occupancy. Unlike the cumulative
+   * result-line usage (which sums input across every agentic turn), this
+   * reflects what actually sits in the context window right now — callers
+   * like Loop Mode's context discipline use it to decide when to recycle a
+   * persistent session. WS4: returns the discriminated observation —
+   * `unknown: not-reported` before the first per-call sample, and
+   * `unknown: invalid-sample` for a sample with unusable values.
    */
-  getLastContextUsage(): { used: number; total: number } | null {
-    return this.lastObservedContextUsage ? { ...this.lastObservedContextUsage } : null;
+  override getLastContextUsage(): ContextUsageObservation {
+    const sample = this.lastObservedContextUsage;
+    if (!sample) return { status: 'unknown', reason: 'not-reported' };
+    if (!Number.isFinite(sample.used) || !Number.isFinite(sample.total)
+      || sample.used <= 0 || sample.total <= 0) {
+      return { status: 'unknown', reason: 'invalid-sample' };
+    }
+    return { status: 'known', used: sample.used, total: sample.total, source: 'provider-turn' };
   }
 
   getResumeAttemptResult(): ResumeAttemptResult | null {

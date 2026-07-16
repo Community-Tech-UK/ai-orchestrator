@@ -56,6 +56,45 @@ export interface FsWriteFileParams {
   mkdirp?: boolean;
 }
 
+export interface FsReadFileChunkParams {
+  path: string;
+  /** Byte offset to read from. */
+  offset: number;
+  /** Bytes to read; capped by the worker's per-chunk limit. */
+  length: number;
+}
+
+export interface FsReadFileChunkResult {
+  data: string; // base64-encoded chunk
+  bytesRead: number;
+  /** Total file size, so the reader can plan remaining chunks. */
+  size: number;
+  eof: boolean;
+}
+
+export interface FsWriteFileChunkParams {
+  path: string;
+  data: string; // base64-encoded chunk
+  /** Byte offset this chunk starts at; chunks must arrive sequentially. */
+  offset: number;
+  /** Expected final file size, verified on commit. */
+  totalSize: number;
+  /** True on the final chunk: verifies, hashes, and renames into place. */
+  done: boolean;
+  /** Create intermediate directories if they don't exist (default: true) */
+  mkdirp?: boolean;
+}
+
+export interface FsWriteFileChunkResult {
+  ok: true;
+  bytesWritten: number;
+  committed: boolean;
+  /** Final size — present once committed. */
+  size?: number;
+  /** SHA-256 of the committed file — present once committed. */
+  sha256?: string;
+}
+
 export interface FsReadDirectoryResult {
   entries: FsEntry[];
   cursor?: string;
@@ -106,7 +145,8 @@ export type FsErrorCode =
   | 'EACCES'
   | 'EOUTOFSCOPE'
   | 'ETIMEOUT'
-  | 'ENOTDIR';
+  | 'ENOTDIR'
+  | 'EIO';
 
 export interface FsErrorData {
   fsCode: FsErrorCode;

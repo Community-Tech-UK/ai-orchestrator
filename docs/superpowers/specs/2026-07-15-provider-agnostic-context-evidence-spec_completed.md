@@ -1,8 +1,8 @@
 # Provider-Agnostic Context Evidence Architecture
 
 **Date:** 2026-07-15  
-**Status:** Approved by James's explicit implementation request on 2026-07-15; active and uncommitted  
-**Implementation plan:** `docs/superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan.md`  
+**Status:** Implemented and verified 2026-07-16 (agent-runnable gates green: full suite 13,968 tests, typechecks, lint, LOC, incident-replay CLI 83.9% reduction). Provider live validation deferred to the linked plan's `_livetest.md`; every provider mode defaults `off`. Uncommitted.  
+**Implementation plan:** `docs/superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan_completed.md` (see its As-Built Evidence section for the requirement→test map, measurements, and deviations)  
 **Scope:** Interactive AIO conversations and agentic turns across Codex, Claude, Gemini, and Copilot
 
 ## Summary

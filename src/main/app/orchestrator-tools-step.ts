@@ -569,6 +569,8 @@ export function createOrchestratorToolsStep(
         getNodeFileInfo: fileTransferTools.getNodeFileInfo,
         downloadFromNode: fileTransferTools.downloadFromNode,
         uploadToNode: fileTransferTools.uploadToNode,
+        syncToNode: fileTransferTools.syncToNode,
+        syncFromNode: fileTransferTools.syncFromNode,
         collectBrowserDownload: fileTransferTools.collectBrowserDownload,
         // #18a/#19: strip the spawn-capable `run_on_node` tool from instances
         // that have already reached the spawn-depth limit — defense-in-depth
