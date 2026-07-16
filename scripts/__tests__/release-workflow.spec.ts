@@ -79,6 +79,11 @@ describe("Harness release workflow", () => {
 
     expect(buildIndex).toBeGreaterThanOrEqual(0);
     expect(steps[buildIndex]?.run).toBe("npm run build");
+    expect(steps[buildIndex]?.env).toEqual({
+      NODE_OPTIONS: "--max-old-space-size=5120",
+      NG_BUILD_PARALLEL_TS: "false",
+      NG_BUILD_MAX_WORKERS: "2",
+    });
     expect(packageIndex).toBeGreaterThan(buildIndex);
     expect(smokeIndex).toBeGreaterThan(packageIndex);
     expect(steps[smokeIndex]?.run).toBe("node scripts/packaged-startup-smoke.js");

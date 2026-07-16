@@ -164,6 +164,10 @@ jobs:
 
       - name: Build application
         run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
+          NG_BUILD_PARALLEL_TS: "false"
+          NG_BUILD_MAX_WORKERS: "2"
 
       - name: Verify native ABI
         run: node scripts/verify-native-abi.js
