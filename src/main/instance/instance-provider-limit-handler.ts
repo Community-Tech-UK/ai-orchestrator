@@ -64,6 +64,13 @@ export interface InstanceProviderLimitHandlerDeps {
    */
   isResumable?: (instanceId: string) => boolean;
   /**
+   * WS7 Phase B (offered switch): invoked once per successful park with the
+   * park facts. The wiring decides whether to offer a provider switch
+   * (fallback list configured + resume far enough away) and notifies.
+   * Best-effort; never blocks the park.
+   */
+  onParked?: (params: { instanceId: string; provider: ProviderId; resumeAt: number }) => void;
+  /**
    * Schedule the durable + in-process resume. Injectable for tests; defaults to
    * {@link scheduleInstanceProviderLimitResume} in production.
    */
@@ -240,6 +247,12 @@ export class InstanceProviderLimitHandler {
       resumeAt,
       reason: params.reason,
     });
+    // WS7 Phase B: let the wiring offer a provider switch for long parks.
+    try {
+      deps.onParked?.({ instanceId: params.instanceId, provider: providerId, resumeAt });
+    } catch {
+      // best-effort — the offer must never affect the park itself
+    }
     return 'parked';
   }
 

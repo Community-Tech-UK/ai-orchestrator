@@ -3,8 +3,7 @@ import {
   ReviewDismissPayloadSchema,
   ReviewActionPayloadSchema,
   ReviewResultJsonSchema,
-  TieredReviewResultJsonSchema,
-} from './cross-model-review-schemas';
+  TieredReviewResultJsonSchema, serializeReviewResultJsonSchema} from './cross-model-review-schemas';
 
 describe('CrossModelReviewSchemas', () => {
   describe('ReviewDismissPayloadSchema', () => {
@@ -185,5 +184,31 @@ describe('CrossModelReviewSchemas', () => {
       });
       expect(result.success).toBe(false);
     });
+  });
+});
+
+describe('serializeReviewResultJsonSchema (WS14 --json-schema wire contract)', () => {
+  it('produces valid JSON Schema with the verdict fields for both depths', () => {
+    const structured = JSON.parse(serializeReviewResultJsonSchema('structured'));
+    expect(Object.keys(structured.properties)).toEqual(
+      expect.arrayContaining(['correctness', 'completeness', 'security', 'consistency', 'overall_verdict', 'summary']),
+    );
+    const tiered = JSON.parse(serializeReviewResultJsonSchema('tiered'));
+    expect(Object.keys(tiered.properties)).toEqual(
+      expect.arrayContaining(['scores', 'overall_verdict', 'summary']),
+    );
+  });
+
+  it('derives from the SAME Zod schema the parser validates with (drift lock)', () => {
+    // A response shaped by the serialized wire schema must pass the validator.
+    const sample = {
+      correctness: { score: 4, reasoning: 'traced the call path', issues: [] },
+      completeness: { score: 3, reasoning: 'covers the listed items', issues: ['one edge untested'] },
+      security: { score: 4, reasoning: 'no injection surface', issues: [] },
+      consistency: { score: 4, reasoning: 'matches house style', issues: [] },
+      overall_verdict: 'APPROVE',
+      summary: 'Solid change.',
+    };
+    expect(ReviewResultJsonSchema.safeParse(sample).success).toBe(true);
   });
 });

@@ -106,6 +106,28 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
     expect(h.handler.isParked('i1')).toBe(true);
   });
 
+  it('invokes onParked with the park facts (WS7 Phase B offered-switch seam), fail-soft', () => {
+    const parkedCalls: Array<{ instanceId: string; provider: string; resumeAt: number }> = [];
+    const resumeAt = Date.now() + 60_000;
+    const withOffer = makeHarness({
+      onParked: (params) => parkedCalls.push(params),
+    });
+    withOffer.handler.maybePark({
+      instanceId: 'i1', provider: CLAUDE, resetAtHint: resumeAt, reason: 'limit', resumePrompt: null,
+    });
+    expect(parkedCalls).toEqual([{ instanceId: 'i1', provider: 'claude', resumeAt }]);
+
+    // A throwing offer hook must never break the park itself.
+    const withThrowingOffer = makeHarness({
+      onParked: () => { throw new Error('offer exploded'); },
+    });
+    const result = withThrowingOffer.handler.maybePark({
+      instanceId: 'i2', provider: CLAUDE, resetAtHint: resumeAt, reason: 'limit', resumePrompt: null,
+    });
+    expect(result).toBe('parked');
+    expect(withThrowingOffer.handler.isParked('i2')).toBe(true);
+  });
+
   it('skips when the feature is disabled', () => {
     h.enabled.value = false;
     expect(h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: null })).toBe('skipped');

@@ -50,14 +50,17 @@ import type {
 } from '../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
+import type {
+  RecoveryRespawnHooks,
+  RecoveryRespawnOutcome,
+  RecoveryRespawnRequest,
+} from './runtime-reconciler.types';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
-import { getProviderRuntimeService } from '../../providers/provider-runtime-service';
 import { withOperationDeadline, isDeadlineExceeded } from '../../runtime/operation-deadline';
 import { getOrCreateTurnSupervisor } from '../../session/session-turn-supervisor';
 import { getOrCreateCircuitBreaker } from './respawn-circuit-breaker';
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 import { getLastStopSnapshotIfInitialized } from '../../session/last-stop-snapshot';
-import { applyProviderSessionDurability } from './provider-session-durability';
 import {
   type QueueUpdate,
   INTERRUPT_FORCE_ABORT_MS,
@@ -124,11 +127,33 @@ export interface InterruptRespawnDeps {
   buildFallbackHistory: (instance: Instance, reason: string) => Promise<string>;
   queueContinuityPreamble?: (instanceId: string, preamble: string) => void;
 
+  /**
+   * Spec item 2: the RuntimeReconciler's recovery-respawn spawn core
+   * (spawn → resume-health → fresh-fallback → identity persist → continuity).
+   * The handler stays the recovery orchestrator (breaker, lock, abort
+   * decisions, interrupt phases); called under the handler-held session lock.
+   */
+  applyRecoveryRespawn: (
+    instanceId: string,
+    request: RecoveryRespawnRequest,
+    hooks: RecoveryRespawnHooks,
+  ) => Promise<RecoveryRespawnOutcome>;
+
   /** Forward an 'output' event onto the lifecycle EventEmitter. */
   emitOutput: (instanceId: string, message: OutputMessage) => void;
 
   /** Optional marker bridge for transcript-visible recovery boundaries. */
   emitDisplayMarker?: (instance: Instance, message: OutputMessage) => void;
+
+  /**
+   * WS7 Phase B (optional, fail-soft): invoked when the recovery ladder has
+   * fully exhausted and the instance is about to become a dead corpse in
+   * `error` state. Wired to the regular-session provider-failover orchestrator;
+   * when it swaps the session to a fallback provider the instance recovers
+   * instead of staying errored. Best-effort — a throw here never affects the
+   * terminal error path.
+   */
+  onRecoveryLadderExhausted?: (instance: Instance, error: unknown) => void;
 }
 
 export class InterruptRespawnHandler {
@@ -198,24 +223,6 @@ export class InterruptRespawnHandler {
       addToOutputBuffer,
       emitOutput,
     });
-  }
-
-  private createRuntimeAdapter(
-    cliType: CliType,
-    options: UnifiedSpawnOptions,
-    executionLocation?: ExecutionLocation,
-  ): CliAdapter {
-    const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
-    const harnessCliEnv = this.deps.getHarnessCliEnv?.(
-      executionLocation,
-      options.instanceId,
-      options.env,
-    );
-    const durableOptions = applyProviderSessionDurability(cliType, instance, {
-      ...options,
-      ...(harnessCliEnv ? { env: harnessCliEnv } : {}),
-    });
-    return getProviderRuntimeService().createAdapter({ cliType, options: durableOptions, executionLocation });
   }
 
   private isInterruptRecoveryStatus(status: InstanceStatus): boolean {
@@ -835,130 +842,43 @@ export class InterruptRespawnHandler {
         ) ?? undefined,
         permissionHookPath: this.deps.getPermissionHookPath(instance.yoloMode),
       };
-      let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
-      this.deps.setupAdapterEvents(instanceId, adapter);
-      this.deps.setAdapter(instanceId, adapter);
-
       try {
-        if (this.shouldAbortRespawn(instanceId, instance)) {
-          await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'pre-spawn interrupt respawn cancellation');
-          return;
-        }
-
         logger.debug('Spawning new process after interrupt', { instanceId });
-        let pid: number;
-        let actuallyResumed = shouldResume;
-        let recoveryInputSent = false;
-        try {
-          pid = await adapter.spawn();
-          instance.processId = pid;
-          if (shouldResume && !(await this.deps.waitForResumeHealth(instanceId))) {
-            throw new Error('Native resume did not stabilize after interrupt');
-          }
-          instance.providerSessionId = newSessionId;
-          await this.deps.waitForAdapterWritable(instanceId, 3000);
-        } catch (spawnError) {
-          if (this.shouldAbortRespawn(instanceId, instance)) {
-            await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'interrupt respawn spawn cancelled');
-            return;
-          }
-
-          // Resume failed (e.g., corrupted session with empty messages).
-          // Fall back to a fresh session with replay continuity message.
-          if (shouldResume) {
-            logger.warn('Resume failed after interrupt, falling back to fresh session', {
-              instanceId,
-              error: spawnError instanceof Error ? spawnError.message : String(spawnError),
-            });
-            // Remove event listeners BEFORE terminating so the exit handler
-            // doesn't treat the resume adapter's exit as a real instance exit
-            // (which would set the instance to terminated/error state and clear
-            // queued messages on the frontend).
-            adapter.removeAllListeners();
-            // eslint-disable-next-line @typescript-eslint/no-empty-function
-            await adapter.terminate(true).catch(() => {});
-
-            const fallbackSessionId = generateId();
-            instance.sessionId = fallbackSessionId;
-            // Fresh session — unblock future resume attempts against the new id.
-            instance.sessionResumeBlacklisted = false;
-            // New fresh session is not yet persisted; block a premature
-            // re-resume until its first turn settles.
-            instance.providerSessionPersisted = false;
-            const fallbackOptions: UnifiedSpawnOptions = {
-              ...spawnOptions,
-              resume: false,
-              forkSession: false,
-              sessionId: fallbackSessionId,
-            };
-            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
-            this.deps.setupAdapterEvents(instanceId, adapter);
-            this.deps.setAdapter(instanceId, adapter);
-
-            if (this.shouldAbortRespawn(instanceId, instance)) {
-              await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'pre-spawn interrupt fallback cancellation');
-              return;
-            }
-
-            pid = await adapter.spawn();
-            actuallyResumed = false;
-            instance.processId = pid;
-            instance.providerSessionId = fallbackSessionId;
-            // C1/B4: Persist the fresh session ID before reporting respawn
-            // complete so a crash cannot replay the old doomed session/cursor.
-            try {
-              await getSessionContinuityManagerIfInitialized()?.writeThroughIdentityLocked(instanceId, {
-                sessionId: fallbackSessionId,
-                resumeCursor: null,
-              });
-            } catch (err) {
-              logger.warn('writeThroughIdentity failed after interrupt fresh fallback', {
-                instanceId,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-            await this.deps.waitForAdapterWritable(instanceId, 3000);
-
-            if (hasConversation) {
-              const fallbackHistory = await this.deps.buildFallbackHistory(instance, 'resume-failed-fallback');
+        // Spec item 2: the spawn core (spawn → resume-health → fresh-fallback
+        // ordering → writeThroughIdentityLocked → continuity delivery) is owned
+        // by the RuntimeReconciler; this handler stays the recovery
+        // orchestrator. Called under the session lock acquired above.
+        const outcome = await this.deps.applyRecoveryRespawn(
+          instanceId,
+          {
+            cliType,
+            spawnOptions,
+            shouldResume,
+            hasConversation,
+            postSpawnProviderSessionId: newSessionId,
+            replayReason,
+            fallbackReason: 'resume-failed-fallback',
+          },
+          {
+            shouldAbort: () => this.shouldAbortRespawn(instanceId, instance),
+            onAborted: (abortedAdapter, note) =>
+              this.cleanupAbortedRespawnAdapter(instanceId, instance, abortedAdapter, note),
+            waitReady: () => this.deps.waitForAdapterWritable(instanceId, 3000),
+            deliverContinuity: async (deliveryAdapter, preamble) => {
               if (this.deps.queueContinuityPreamble) {
-                this.deps.queueContinuityPreamble(instanceId, fallbackHistory);
-              } else {
-                await adapter.sendInput(fallbackHistory);
-                recoveryInputSent = true;
+                this.deps.queueContinuityPreamble(instanceId, preamble);
+                return false;
               }
-            }
-          } else {
-            throw spawnError;
-          }
-        }
-        if (this.shouldAbortRespawn(instanceId, instance)) {
-          await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'post-spawn interrupt respawn cancellation');
+              await deliveryAdapter.sendInput(preamble);
+              return true;
+            },
+          },
+        );
+        if (outcome.status === 'aborted') {
           return;
         }
-
-        instance.recoveryMethod = actuallyResumed ? 'native' : (hasConversation ? 'replay' : 'fresh');
-        if (actuallyResumed) {
-          // Clear any stale blacklist — resume just succeeded against this id.
-          instance.sessionResumeBlacklisted = false;
-          // A confirmed native resume proves the session is on disk.
-          instance.providerSessionPersisted = true;
-        }
+        const { pid, actuallyResumed, recoveryInputSent } = outcome;
         logger.info('Process respawned successfully', { instanceId, pid, resumed: actuallyResumed });
-
-        instance.processId = pid;
-
-        if (!actuallyResumed && shouldResume) {
-          // Already queued/sent continuity in the fallback path above.
-        } else if (!shouldResume && hasConversation) {
-          const replayContinuity = this.deps.buildReplayContinuityMessage(instance, replayReason);
-          if (this.deps.queueContinuityPreamble) {
-            this.deps.queueContinuityPreamble(instanceId, replayContinuity);
-          } else {
-            await adapter.sendInput(replayContinuity);
-            recoveryInputSent = true;
-          }
-        }
 
         if (recoveryInputSent) {
           if (this.isInterruptRecoveryStatus(instance.status)) {
@@ -1059,6 +979,14 @@ export class InterruptRespawnHandler {
           undefined,
           null, // clear waitReason — error terminal state
         );
+        // WS7 Phase B: the recovery ladder has fully exhausted — offer a
+        // provider failover before the instance stays a dead corpse.
+        // Fail-soft: never let it perturb the terminal error path.
+        try {
+          this.deps.onRecoveryLadderExhausted?.(instance, error);
+        } catch {
+          // best-effort
+        }
         throw error;
       }
     } finally {
@@ -1218,126 +1146,42 @@ export class InterruptRespawnHandler {
         ) ?? undefined,
         permissionHookPath: this.deps.getPermissionHookPath(instance.yoloMode),
       };
-      let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
-      this.deps.setupAdapterEvents(instanceId, adapter);
-      this.deps.setAdapter(instanceId, adapter);
-
       try {
-        if (this.shouldAbortRespawn(instanceId, instance)) {
-          await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'pre-spawn auto-respawn cancellation');
-          return;
-        }
-
-        let pid: number;
-        let actuallyResumed = shouldResume;
-        let recoveryInputSent = false;
-        try {
-          pid = await adapter.spawn();
-          instance.processId = pid;
-          if (shouldResume && !(await this.deps.waitForResumeHealth(instanceId))) {
-            throw new Error('Native resume did not stabilize after unexpected exit');
-          }
-          instance.providerSessionId = newSessionId;
-          await this.deps.waitForAdapterWritable(instanceId, 3000);
-        } catch (spawnError) {
-          if (this.shouldAbortRespawn(instanceId, instance)) {
-            await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'auto-respawn spawn cancelled');
-            return;
-          }
-
-          if (shouldResume) {
-            logger.warn('Resume failed during auto-respawn, falling back to fresh session', {
-              instanceId,
-              error: spawnError instanceof Error ? spawnError.message : String(spawnError),
-            });
-            // Remove event listeners BEFORE terminating so the exit handler
-            // doesn't treat the resume adapter's exit as a real instance exit
-            // (which would set the instance to terminated/error state and clear
-            // queued messages on the frontend).
-            adapter.removeAllListeners();
-            await adapter.terminate(true).catch(() => { /* ignore */ });
-
-            const fallbackSessionId = generateId();
-            instance.sessionId = fallbackSessionId;
-            // Fresh session — unblock future resume attempts against the new id.
-            instance.sessionResumeBlacklisted = false;
-            // New fresh session is not yet persisted; block a premature
-            // re-resume until its first turn settles.
-            instance.providerSessionPersisted = false;
-            const fallbackOptions: UnifiedSpawnOptions = {
-              ...spawnOptions,
-              resume: false,
-              forkSession: false,
-              sessionId: fallbackSessionId,
-            };
-            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
-            this.deps.setupAdapterEvents(instanceId, adapter);
-            this.deps.setAdapter(instanceId, adapter);
-
-            if (this.shouldAbortRespawn(instanceId, instance)) {
-              await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'pre-spawn auto-respawn fallback cancellation');
-              return;
-            }
-
-            pid = await adapter.spawn();
-            actuallyResumed = false;
-            instance.processId = pid;
-            instance.providerSessionId = fallbackSessionId;
-            // C1/B4: Persist the fresh session ID before reporting respawn
-            // complete so a crash cannot replay the old doomed session/cursor.
-            try {
-              await getSessionContinuityManagerIfInitialized()?.writeThroughIdentityLocked(instanceId, {
-                sessionId: fallbackSessionId,
-                resumeCursor: null,
-              });
-            } catch (err) {
-              logger.warn('writeThroughIdentity failed after auto-respawn fresh fallback', {
-                instanceId,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-            await this.deps.waitForAdapterWritable(instanceId, 3000);
-
-            if (hasConversation) {
-              const fallbackHistory = await this.deps.buildFallbackHistory(instance, 'auto-respawn-fallback');
+        // Spec item 3: same reconciler-owned spawn core as the interrupt path
+        // (spawn → resume-health → fresh-fallback ordering →
+        // writeThroughIdentityLocked → continuity delivery). Called under the
+        // session lock acquired above.
+        const outcome = await this.deps.applyRecoveryRespawn(
+          instanceId,
+          {
+            cliType,
+            spawnOptions,
+            shouldResume,
+            hasConversation,
+            postSpawnProviderSessionId: newSessionId,
+            replayReason: 'auto-respawn',
+            fallbackReason: 'auto-respawn-fallback',
+          },
+          {
+            shouldAbort: () => this.shouldAbortRespawn(instanceId, instance),
+            onAborted: (abortedAdapter, note) =>
+              this.cleanupAbortedRespawnAdapter(instanceId, instance, abortedAdapter, note),
+            waitReady: () => this.deps.waitForAdapterWritable(instanceId, 3000),
+            deliverContinuity: async (deliveryAdapter, preamble) => {
               if (this.deps.queueContinuityPreamble) {
-                this.deps.queueContinuityPreamble(instanceId, fallbackHistory);
-              } else {
-                await adapter.sendInput(fallbackHistory);
-                recoveryInputSent = true;
+                this.deps.queueContinuityPreamble(instanceId, preamble);
+                return false;
               }
-            }
-          } else {
-            throw spawnError;
-          }
-        }
-        if (this.shouldAbortRespawn(instanceId, instance)) {
-          await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'post-spawn auto-respawn cancellation');
+              await deliveryAdapter.sendInput(preamble);
+              return true;
+            },
+          },
+        );
+        if (outcome.status === 'aborted') {
           return;
         }
-
-        instance.recoveryMethod = actuallyResumed ? 'native' : (hasConversation ? 'replay' : 'fresh');
-        if (actuallyResumed) {
-          // Clear any stale blacklist — resume just succeeded against this id.
-          instance.sessionResumeBlacklisted = false;
-          // A confirmed native resume proves the session is on disk.
-          instance.providerSessionPersisted = true;
-        }
+        const { pid, actuallyResumed, recoveryInputSent } = outcome;
         logger.info('Auto-respawn successful', { instanceId, pid, resumed: actuallyResumed });
-
-        instance.processId = pid;
-
-        if (!actuallyResumed && shouldResume) {
-          // Already queued/sent continuity in the fallback path.
-        } else if (!shouldResume && hasConversation) {
-          const replayContinuity = this.deps.buildReplayContinuityMessage(instance, 'auto-respawn');
-          if (this.deps.queueContinuityPreamble) {
-            this.deps.queueContinuityPreamble(instanceId, replayContinuity);
-          } else {
-            await adapter.sendInput(replayContinuity);
-            recoveryInputSent = true;
-          }
-        }
 
         if (recoveryInputSent) {
           if (instance.status === 'respawning') {
@@ -1412,6 +1256,14 @@ export class InterruptRespawnHandler {
           undefined,
           null, // clear waitReason — error terminal state
         );
+        // WS7 Phase B: the recovery ladder has fully exhausted — offer a
+        // provider failover before the instance stays a dead corpse.
+        // Fail-soft: never let it perturb the terminal error path.
+        try {
+          this.deps.onRecoveryLadderExhausted?.(instance, error);
+        } catch {
+          // best-effort
+        }
         throw error;
       }
     } finally {

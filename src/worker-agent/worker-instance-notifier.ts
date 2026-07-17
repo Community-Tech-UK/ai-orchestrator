@@ -4,10 +4,13 @@ import {
 } from '../main/remote-node/worker-node-rpc';
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from '../main/remote-node/rpc-schemas';
 import type { RpcMessage } from './worker-rpc-types';
+import type { WorkerStreamDurability } from './worker-stream-durability';
 
 interface WorkerInstanceNotifierOptions {
   getSocket: () => WebSocket | null;
   getToken: () => string | undefined;
+  /** WS15 — durable ring for output/context/complete (seq/ack/replay). */
+  durability?: WorkerStreamDurability;
 }
 
 interface WorkerInstanceNotifierSendOptions {
@@ -15,7 +18,7 @@ interface WorkerInstanceNotifierSendOptions {
 }
 
 export class WorkerInstanceNotifier {
-  private outputBuffer: { instanceId: string; message: unknown }[] = [];
+  private outputBuffer: { instanceId: string; message: unknown; durableSeq?: number }[] = [];
   private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private criticalMessageQueue: RpcMessage[] = [];
   private criticalSeq = 0;
@@ -189,7 +192,15 @@ export class WorkerInstanceNotifier {
   }
 
   sendOutputNotification(instanceId: string, message: unknown): void {
-    this.outputBuffer.push({ instanceId, message: this.capOutputMessage(instanceId, message) });
+    const capped = this.capOutputMessage(instanceId, message);
+    // WS15: assign the durable seq at ENQUEUE time so replay order matches
+    // emission order even across batching.
+    const durableSeq = this.options.durability?.record(
+      instanceId,
+      NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
+      { instanceId, message: capped },
+    );
+    this.outputBuffer.push({ instanceId, message: capped, ...(durableSeq !== undefined ? { durableSeq } : {}) });
 
     if (this.outputBuffer.length >= WorkerInstanceNotifier.OUTPUT_BATCH_MAX_SIZE) {
       this.flushOutputBuffer();
@@ -218,26 +229,66 @@ export class WorkerInstanceNotifier {
   }
 
   sendCompleteNotification(instanceId: string, response: unknown): void {
+    const durableSeq = this.options.durability?.record(
+      instanceId,
+      NODE_TO_COORDINATOR.INSTANCE_COMPLETE,
+      { instanceId, response },
+    );
     this.send({
       jsonrpc: '2.0',
       method: NODE_TO_COORDINATOR.INSTANCE_COMPLETE,
       params: {
         instanceId,
         response,
+        ...(durableSeq !== undefined ? { durableSeq } : {}),
         token: this.options.getToken()
       }
     });
   }
 
   sendContextNotification(instanceId: string, usage: unknown): void {
+    const durableSeq = this.options.durability?.record(
+      instanceId,
+      NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
+      { instanceId, usage },
+    );
     this.send({
       jsonrpc: '2.0',
       method: NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
       params: {
         instanceId,
         usage,
+        ...(durableSeq !== undefined ? { durableSeq } : {}),
         token: this.options.getToken()
       }
+    });
+  }
+
+  /**
+   * WS15 — replay buffered durable events after the given cursors (reconnect
+   * recovery). Frames are re-sent individually, tagged `replay: true`, with
+   * the CURRENT token. Returns a per-instance summary for the RPC response.
+   */
+  replayDurableEvents(
+    cursors: Array<{ instanceId: string; afterSeq: number }>,
+  ): Array<{ instanceId: string; replayed: number; gapThroughSeq?: number }> {
+    const durability = this.options.durability;
+    if (!durability) return cursors.map((c) => ({ instanceId: c.instanceId, replayed: 0 }));
+    const token = this.options.getToken();
+    return cursors.map(({ instanceId, afterSeq }) => {
+      const result = durability.replayAfter(instanceId, afterSeq);
+      for (const event of result.events) {
+        this.send({
+          jsonrpc: '2.0',
+          method: event.method,
+          params: { ...event.params, durableSeq: event.seq, replay: true, token },
+        });
+      }
+      return {
+        instanceId,
+        replayed: result.events.length,
+        ...(result.gapThroughSeq !== undefined ? { gapThroughSeq: result.gapThroughSeq } : {}),
+      };
     });
   }
 
@@ -307,6 +358,7 @@ export class WorkerInstanceNotifier {
         params: {
           instanceId: items[0].instanceId,
           message: items[0].message,
+          ...(items[0].durableSeq !== undefined ? { durableSeq: items[0].durableSeq } : {}),
           token
         }
       });

@@ -6,6 +6,10 @@ import {
   BrowserGatewayRpcClient,
   type BrowserGatewayRpcClientLike,
 } from './browser-gateway-rpc-client';
+import {
+  BROWSER_TOOL_DEFERRAL_ENV,
+  createDeferredBrowserMcpTools,
+} from './browser-mcp-deferral';
 import { createBrowserMcpTools } from './browser-mcp-tools';
 
 const logger = getLogger('BrowserMcpStdioServer');
@@ -27,7 +31,23 @@ export async function runBrowserMcpForwarder(
   getLogManager().updateConfig({ enableConsole: false });
 
   const server = McpServer.getInstance();
-  server.registerTools(createBrowserMcpTools(client));
+  const toolDeferral = process.env[BROWSER_TOOL_DEFERRAL_ENV] === '1';
+  if (toolDeferral) {
+    // WS9 deferral: list only the core set + search/describe; all tools stay
+    // dispatchable. Reveals push a list_changed so the client re-lists.
+    server.on('tools-list-changed', () => {
+      stdout.write(
+        `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })}\n`,
+      );
+    });
+    server.registerTools(
+      createDeferredBrowserMcpTools(client, {
+        onReveal: (names) => server.revealTools(names),
+      }),
+    );
+  } else {
+    server.registerTools(createBrowserMcpTools(client));
+  }
   server.start();
 
   const shutdown = (): void => {

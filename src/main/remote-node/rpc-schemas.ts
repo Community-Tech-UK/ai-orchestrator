@@ -441,6 +441,22 @@ export const LocalModelSessionSendInputParamsSchema = z.object({
   attachments: z.array(FileAttachmentSchema.extend({ data: z.string() })).max(64).optional(),
 });
 
+/** WS15 — durable-stream resume: replay everything after each cursor. */
+export const StreamResumeParamsSchema = z.object({
+  cursors: z.array(z.object({
+    instanceId: z.string().min(1).max(200),
+    afterSeq: z.number().int().min(0),
+  })).max(500),
+});
+
+/** WS15 — durable-stream ack: the coordinator has processed through seq. */
+export const StreamAckParamsSchema = z.object({
+  cursors: z.array(z.object({
+    instanceId: z.string().min(1).max(200),
+    seq: z.number().int().min(1),
+  })).max(500),
+});
+
 export const LocalModelSessionIdParamsSchema = z.object({
   sessionId: z.string().min(1).max(200),
 });

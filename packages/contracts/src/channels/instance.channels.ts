@@ -25,6 +25,8 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_PROVIDER_LIMIT_RESUME_NOW: 'instance:provider-limit-resume-now',
   /** Cancel a provider-limit park so the session won't auto-resume. */
   INSTANCE_PROVIDER_LIMIT_CANCEL: 'instance:provider-limit-cancel',
+  INSTANCE_FAILOVER_NOW: 'instance:failover-now',
+  INSTANCE_HARDENED_ALLOW_PATH: 'instance:hardened-allow-path',
   INSTANCE_STATE_UPDATE: 'instance:state-update',
   INSTANCE_BATCH_UPDATE: 'instance:batch-update',
   INSTANCE_CREATED: 'instance:created',

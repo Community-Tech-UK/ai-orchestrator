@@ -15,11 +15,21 @@
 
 export type LessonStatus = 'active' | 'deprecated';
 
+/**
+ * WS16 provenance: gates instruction-grade use. `agent-derived` lessons (the
+ * default — captured by loop review/debate) may only appear inside advisory,
+ * clearly-labelled blocks, never system-prompt-tier content.
+ */
+export type LessonProvenance = 'user-authored' | 'agent-derived' | 'imported';
+
 export interface Lesson {
   id: string;
   text: string;
   reinforcements: number;
+  /** WS16 — times a surfaced lesson was actually USED by a later iteration. */
+  uses: number;
   status: LessonStatus;
+  provenance: LessonProvenance;
   /** Id of the lesson this one replaced, if any. */
   supersedes?: string;
   createdAt: number;
@@ -54,7 +64,11 @@ export class LessonStore {
    * already exists, its reinforcement count is incremented (reinforce, don't
    * duplicate); otherwise a new active lesson is created.
    */
-  capture(text: string, now: number = Date.now()): CaptureResult {
+  capture(
+    text: string,
+    now: number = Date.now(),
+    provenance: LessonProvenance = 'agent-derived',
+  ): CaptureResult {
     const normalized = normalizeLessonText(text);
     if (!normalized) {
       throw new Error('Cannot capture an empty lesson');
@@ -64,6 +78,8 @@ export class LessonStore {
       if (lesson.status === 'active' && normalizeLessonText(lesson.text) === normalized) {
         lesson.reinforcements += 1;
         lesson.updatedAt = now;
+        // A user-authored re-capture upgrades provenance (trust only rises).
+        if (provenance === 'user-authored') lesson.provenance = 'user-authored';
         return { lesson, reinforced: true };
       }
     }
@@ -73,12 +89,29 @@ export class LessonStore {
       id,
       text: text.trim(),
       reinforcements: 1,
+      uses: 0,
       status: 'active',
+      provenance,
       createdAt: now,
       updatedAt: now,
     };
     this.lessons.set(id, lesson);
     return { lesson, reinforced: false };
+  }
+
+  /**
+   * WS16 reinforcement-ON-USE: a surfaced lesson that a later iteration
+   * actually referenced. Distinct from capture's duplicate bump — this is the
+   * strongest signal (used > merely re-observed) and feeds ranking. Returns
+   * the updated lesson, or undefined for an unknown/deprecated id.
+   */
+  reinforceOnUse(id: string, now: number = Date.now()): Lesson | undefined {
+    const lesson = this.lessons.get(id);
+    if (!lesson || lesson.status !== 'active') return undefined;
+    lesson.uses += 1;
+    lesson.reinforcements += 1;
+    lesson.updatedAt = now;
+    return lesson;
   }
 
   /**
@@ -98,7 +131,9 @@ export class LessonStore {
       id,
       text: newText.trim(),
       reinforcements: old.reinforcements + 1,
+      uses: old.uses,
       status: 'active',
+      provenance: old.provenance,
       supersedes: oldId,
       createdAt: now,
       updatedAt: now,
@@ -131,9 +166,12 @@ export class LessonStore {
    * first, then most-recently-updated, then stable by id. Optionally limited.
    */
   digest(limit?: number): Lesson[] {
+    // WS16: used lessons rank above merely-reinforced ones (reinforcements
+    // already includes each use, but ties break toward actually-used).
     const ranked = this.active().sort(
       (a, b) =>
         b.reinforcements - a.reinforcements ||
+        b.uses - a.uses ||
         b.updatedAt - a.updatedAt ||
         a.id.localeCompare(b.id),
     );

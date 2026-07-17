@@ -1,0 +1,13 @@
+# WS16 labeled queries (v1). type=code → codemem BM25; type=lesson → digest-top-k scenario labels.
+{"id":"q-session-token","type":"code","query":"issue session token for authenticated user","relevant":["auth-token"]}
+{"id":"q-token-rotation","type":"code","query":"rotate refresh session token before expiry","relevant":["auth-refresh"]}
+{"id":"q-backoff","type":"code","query":"exponential backoff jitter retry delay","relevant":["retry-backoff"]}
+{"id":"q-reconnect","type":"code","query":"websocket reconnect after link drop","relevant":["ws-reconnect"]}
+{"id":"q-flush-buffer","type":"code","query":"flush buffered messages once socket is open","relevant":["queue-drain"]}
+{"id":"q-usage-report","type":"code","query":"usage metering csv report","relevant":["csv-export"]}
+{"id":"q-strip-scripts","type":"code","query":"strip script tags untrusted html","relevant":["sanitize-html"]}
+{"id":"q-ndjson","type":"code","query":"parse newline delimited json event","relevant":["parse-ndjson"]}
+{"id":"q-auth-any","type":"code","query":"signed session token","relevant":["auth-token","auth-refresh"]}
+{"id":"q-lesson-mutex","type":"lesson","query":"scenario: about to write provider identity during recovery","relevant":["lesson-lock-order"]}
+{"id":"q-lesson-tests","type":"lesson","query":"scenario: running the full test suite in an agent loop","relevant":["lesson-quiet-tests"]}
+{"id":"q-lesson-top3","type":"lesson","query":"scenario: highest-value standing lessons","relevant":["lesson-lock-order","lesson-quiet-tests","lesson-verify-wiring"]}

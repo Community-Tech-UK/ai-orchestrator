@@ -283,7 +283,7 @@ export class IpcMainHandler {
     registerHistorySearchHandlers();
     registerResumeHandlers({ instanceManager: this.instanceManager });
     registerWorkflowHandlers();
-    registerDiagnosticsHandlers();
+    registerDiagnosticsHandlers({ instanceManager: this.instanceManager });
     registerNotificationHandlers({ windowManager: this.windowManager });
     registerContextEvidenceHandlers({
       instanceManager: this.instanceManager,

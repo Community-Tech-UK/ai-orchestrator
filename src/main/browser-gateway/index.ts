@@ -59,6 +59,7 @@ export * from './browser-grant-policy';
 export * from './browser-grant-store';
 export * from './browser-health-service';
 export * from './browser-mcp-config';
+export * from './browser-mcp-deferral';
 export * from './browser-mcp-tools';
 export * from './browser-origin-policy';
 export * from './browser-process-launcher';

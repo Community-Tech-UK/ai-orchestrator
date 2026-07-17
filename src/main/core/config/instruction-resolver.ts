@@ -5,6 +5,11 @@ import * as yaml from 'js-yaml';
 import { execFile } from 'child_process';
 import { getLogger } from '../../logging/logger';
 import { interpolateConfigString } from './config-interpolation';
+import {
+  getInstructionTrustEvaluator,
+  sha256OfContent,
+} from '../../security/instruction-trust-store';
+import { maxScanSeverity, scanContent } from '../../security/content-scanner';
 import type {
   InstructionMigrationDraft,
   InstructionResolution,
@@ -54,6 +59,8 @@ export interface ResolveInstructionStackParams {
   workingDirectory: string;
   contextPaths?: string[];
   customPaths?: string[];
+  /** WS12: injectable trust gate (tests); defaults to settings + pin store. */
+  trustGate?: InstructionTrustGate;
 }
 
 function normalizePath(value: string): string {
@@ -523,6 +530,8 @@ export async function resolveInstructionStack(
         : 'Pattern did not match the current context.';
   }
 
+  const trustGate = params.trustGate ?? resolveDefaultTrustGate();
+  const trustWarnings: string[] = [];
   const mergedParts: string[] = [];
   for (const source of sources.filter((item) => item.loaded && item.applied)) {
     const content = await fs.readFile(source.path, 'utf-8');
@@ -531,6 +540,14 @@ export async function resolveInstructionStack(
       source.reason = 'File was empty after removing frontmatter.';
       source.applied = false;
       continue;
+    }
+    // WS12 instruction trust gate — project-sourced files only; user-global
+    // and AIO-owned content is operator-authored and exempt (plan guardrail).
+    if (trustGate.mode !== 'off' && source.scope !== 'user') {
+      applyTrustGateToSource(source, content, trustGate, trustWarnings);
+      if (!source.applied) {
+        continue; // enforce-mode skip — skipped, not warned (rtk semantics)
+      }
     }
     mergedParts.push(contentWithoutFrontmatter);
   }
@@ -548,9 +565,77 @@ export async function resolveInstructionStack(
     contextPaths: rawContextPaths.map(normalizePath),
     mergedContent: interpolated.content,
     sources,
-    warnings: [...buildWarnings(sources), ...interpolationWarnings],
+    warnings: [...buildWarnings(sources), ...trustWarnings, ...interpolationWarnings],
     timestamp: Date.now(),
   };
+}
+
+// ─── WS12 instruction trust gate ────────────────────────────────────────────
+
+export interface InstructionTrustGate {
+  mode: 'off' | 'warn' | 'enforce';
+  evaluate: (canonicalPath: string, sha256: string) => 'approved' | 'changed' | 'unknown';
+}
+
+/**
+ * Default gate: mode from settings (`instructionTrustGate`, default warn),
+ * verdicts from the hash-pin store. Fails OPEN to `off` when settings or
+ * storage are unavailable (unit tests, non-Electron contexts) so the resolver
+ * stays usable everywhere; enforce-mode storage failures inside `evaluate`
+ * fail SECURE to `unknown` (= skipped) via the store's own accessor.
+ */
+function resolveDefaultTrustGate(): InstructionTrustGate {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getSettingsManager } = require('./settings-manager') as typeof import('./settings-manager');
+    const mode = getSettingsManager().getAll().instructionTrustGate;
+    if (mode !== 'warn' && mode !== 'enforce') {
+      return { mode: 'off', evaluate: () => 'unknown' };
+    }
+    return { mode, evaluate: getInstructionTrustEvaluator() };
+  } catch {
+    return { mode: 'off', evaluate: () => 'unknown' };
+  }
+}
+
+/** Hash, scan, and gate one loaded project-sourced instruction file. */
+function applyTrustGateToSource(
+  source: ResolvedInstructionSource,
+  content: string,
+  gate: InstructionTrustGate,
+  warnings: string[],
+): void {
+  const sha256 = sha256OfContent(content);
+  source.sha256 = sha256;
+  source.trust = gate.evaluate(source.path, sha256);
+  source.scanFindings = scanContent(content);
+  const critical = maxScanSeverity(source.scanFindings) === 'critical';
+
+  if (gate.mode === 'enforce') {
+    if (source.trust !== 'approved') {
+      source.applied = false;
+      source.reason = source.trust === 'changed'
+        ? 'Blocked by instruction trust gate: file changed since approval.'
+        : 'Blocked by instruction trust gate: file has not been approved.';
+      return;
+    }
+    if (critical) {
+      source.applied = false;
+      source.reason = 'Blocked by instruction trust gate: critical scanner finding.';
+      return;
+    }
+    return;
+  }
+
+  // warn mode: load unchanged, surface the state (measurement release).
+  if (source.trust !== 'approved') {
+    warnings.push(
+      `Instruction trust: ${source.label} is ${source.trust === 'changed' ? 'CHANGED since approval' : 'not yet approved'} (${source.path}).`,
+    );
+  }
+  if (critical) {
+    warnings.push(`Instruction trust: ${source.label} has a critical scanner finding (${source.path}).`);
+  }
 }
 
 export function createInstructionMigrationDraft(

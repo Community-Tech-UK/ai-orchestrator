@@ -36,13 +36,17 @@ export function computeRuntimeDiff(instance: Instance, desired: DesiredRuntime):
   const reasoningChanged =
     desired.reasoningEffort !== undefined
     && (desired.reasoningEffort ?? undefined) !== instance.reasoningEffort;
+  const yoloModeChanged =
+    desired.yoloMode !== undefined && desired.yoloMode !== instance.yoloMode;
 
   return {
     providerChanged,
     modelChanged,
     reasoningChanged,
     runtimeTargetChanged,
-    hasChanges: providerChanged || modelChanged || reasoningChanged || runtimeTargetChanged,
+    yoloModeChanged,
+    hasChanges:
+      providerChanged || modelChanged || reasoningChanged || runtimeTargetChanged || yoloModeChanged,
   };
 }
 

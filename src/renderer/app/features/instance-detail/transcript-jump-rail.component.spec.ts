@@ -6,12 +6,13 @@
  *      transcript overflows.
  *   2. visible() is false when the transcript does not overflow.
  *   3. visible() is true with enough user messages and overflow.
- *   4. markers() positions ticks proportionally within the rail and stays
- *      empty while geometry is stale (target/anchor length mismatch).
+ *   4. markers() bunches ticks in a fixed-spacing cluster centred in the rail
+ *      and follows the target count directly when items change.
  *   5. jumpTo() smooth-scrolls the viewport to the row (minus margin) and
  *      applies the jump-flash class, removed on animationend.
  *   6. Hover shows the preview only after the delay; leaving the rail cancels
- *      a pending hover.
+ *      a pending hover; file chips cap at the display limit with an overflow
+ *      count.
  *   7. activeIndex() tracks scrollTop against anchor offsets.
  */
 
@@ -68,7 +69,7 @@ interface RailInternals {
   visible(): boolean;
   markers(): { target: { itemId: string }; top: number }[];
   activeIndex(): number;
-  hoverPreview(): { target: { promptExcerpt: string } } | null;
+  hoverPreview(): { target: { promptExcerpt: string }; chips: string[]; moreCount: number } | null;
   jumpTo(index: number): void;
   onTickEnter(index: number): void;
   onRailLeave(): void;
@@ -152,21 +153,21 @@ describe('TranscriptJumpRailComponent', () => {
 
   // ── Markers ────────────────────────────────────────────────────────────────
 
-  it('positions ticks proportionally within the rail height', () => {
+  it('bunches ticks in a fixed-spacing cluster centred in the rail', () => {
     const { items } = threeQuestionSetup();
     const markers = internals.markers();
     expect(markers.map((m) => m.target.itemId)).toEqual(items.map((i) => i.id));
-    // anchors at 0/800/1600 of scrollHeight 2000, rail 400px → 0/160/320
-    expect(markers.map((m) => m.top)).toEqual([0, 160, 320]);
+    // 3 ticks, 12px spacing → 24px cluster centred in the 400px rail
+    expect(markers.map((m) => m.top)).toEqual([188, 200, 212]);
   });
 
-  it('renders no markers while measurement is stale after items changed', () => {
+  it('tracks the target count immediately when items change (no anchor alignment)', () => {
     threeQuestionSetup();
     expect(internals.markers()).toHaveLength(3);
 
     const grown = [userItem('one'), userItem('two'), userItem('three'), userItem('four')];
-    itemsInput.set(grown); // no re-measure yet — anchor count no longer matches
-    expect(internals.markers()).toEqual([]);
+    itemsInput.set(grown); // re-measure still pending — cluster layout only needs the count
+    expect(internals.markers()).toHaveLength(4);
   });
 
   // ── Jump behaviour ─────────────────────────────────────────────────────────
@@ -210,6 +211,32 @@ describe('TranscriptJumpRailComponent', () => {
     internals.onRailLeave();
     vi.advanceTimersByTime(150);
     expect(internals.hoverPreview()).toBeNull();
+  });
+
+  it('caps preview file chips and reports the overflow count', () => {
+    vi.useFakeTimers();
+    const first = userItem('one');
+    const edits: DisplayItem = {
+      id: 'item-edits',
+      type: 'tool-group',
+      toolMessages: ['a.ts', 'b.ts', 'c.ts'].map((name, i) => ({
+        id: `tool-${i}`,
+        timestamp: i,
+        type: 'tool_use',
+        content: '',
+        metadata: { name: 'Edit', input: { file_path: `/repo/${name}` } },
+      })),
+    };
+    const items = [first, edits, userItem('two'), userItem('three')];
+    const anchors = items
+      .filter((item) => item.type === 'message')
+      .map((item, i) => ({ itemId: item.id, offsetTop: i * 800 }));
+    setup(items, makeViewport({ scrollHeight: 2000, clientHeight: 500, anchors }));
+
+    internals.onTickEnter(0);
+    vi.advanceTimersByTime(150);
+    expect(internals.hoverPreview()?.chips).toEqual(['a.ts', 'b.ts']);
+    expect(internals.hoverPreview()?.moreCount).toBe(1);
   });
 
   // ── Active tick ────────────────────────────────────────────────────────────

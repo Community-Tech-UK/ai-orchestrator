@@ -17,7 +17,7 @@ function truncateContent(value: string, maxChars: number): string {
   return `${normalized.slice(0, maxChars)}...[truncated]`;
 }
 
-function extractUnresolvedItems(messages: OutputMessage[], maxItems: number): string[] {
+export function extractUnresolvedItems(messages: OutputMessage[], maxItems: number): string[] {
   const unresolved = new Set<string>();
 
   for (const message of messages.slice(-40)) {

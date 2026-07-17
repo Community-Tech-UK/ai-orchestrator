@@ -2,7 +2,7 @@
  * History Types - Types for conversation history persistence
  */
 
-import type { InstanceProvider, OutputMessage } from './instance.types';
+import type { BrowserToolsMode, InstanceProvider, OutputMessage } from './instance.types';
 import type { InstanceRuntimeSummary } from './local-model-runtime.types';
 import type { SessionRecallResult } from './session-recall.types';
 import { deriveAttachmentTaskTitle, extractAttachmentPreamble, sanitizeGeneratedTitle } from './title-derivation';
@@ -126,6 +126,15 @@ export interface ConversationHistoryEntry {
 
   /** User-facing runtime label captured at archive time, e.g. local model + worker node. */
   runtimeSummary?: InstanceRuntimeSummary;
+
+  /**
+   * WS9 per-instance browser tool surface captured at archive time, so a
+   * restored session keeps its override (undefined = global setting decides).
+   */
+  browserToolsMode?: BrowserToolsMode;
+
+  /** WS13 hardened (Seatbelt) flag captured at archive time so a restored session keeps its jail. */
+  hardened?: boolean;
 
   /** Where the instance ran (local or remote node) */
   executionLocation?: ExecutionLocation;

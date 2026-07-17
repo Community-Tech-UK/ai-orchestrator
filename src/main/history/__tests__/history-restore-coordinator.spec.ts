@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationData } from '../../../shared/types/history.types';
+
+const { mockSettings } = vi.hoisted(() => ({
+  mockSettings: { sessionHandoffStateEnabled: false },
+}));
+vi.mock('../../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ getAll: () => mockSettings }),
+}));
 import type { Instance, OutputMessage } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import {
@@ -264,6 +271,98 @@ describe('HistoryRestoreCoordinator', () => {
       expect(result.restoreMode).toBe('resume-unconfirmed');
       // markNativeResumeFailed is NOT called — the instance is alive, just unconfirmed
       expect(markNativeResumeFailed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ladder regression locks (spec item 4)', () => {
+    it('a post-provider-swap entry native-resumes against the CURRENT provider/session only, and falls back cleanly when that resume dies', async () => {
+      // Shape after a provider swap was archived: new provider, the fresh
+      // post-swap session id, no recorded native-resume failure.
+      loadConversation.mockResolvedValue(
+        conversation({ provider: 'codex', sessionId: 'post-swap-session' }),
+      );
+      // The native rung's instance dies (fresh session never persisted a turn).
+      getInstance.mockReturnValue(undefined);
+      createInstance.mockImplementation(
+        async (config: { resume?: boolean; historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+          makeInstance({
+            id: config.resume ? 'native-instance' : 'fallback-instance',
+            historyThreadId: config.historyThreadId ?? 'history-thread',
+            outputBuffer: config.initialOutputBuffer ?? [],
+          }),
+      );
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      // First attempt: native resume with the entry's CURRENT provider + session.
+      const nativeConfig = createInstance.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(nativeConfig).toMatchObject({
+        resume: true,
+        sessionId: 'post-swap-session',
+        provider: 'codex',
+      });
+      // Dead resume → recorded as failed, ladder lands on the fallback rung.
+      expect(markNativeResumeFailed).toHaveBeenCalledWith('entry-1');
+      expect(result.restoreMode).toBe('replay-fallback');
+      const fallbackConfig = createInstance.mock.calls[1]?.[0] as Record<string, unknown>;
+      expect(fallbackConfig['resume']).toBeUndefined();
+      expect(fallbackConfig['provider']).toBe('codex');
+    });
+
+    it('skips the native rung entirely when the entry recorded a prior native-resume failure', async () => {
+      loadConversation.mockResolvedValue(
+        conversation({ nativeResumeFailedAt: Date.now() - 5_000 }),
+      );
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('replay-fallback');
+      expect(createInstance).toHaveBeenCalledTimes(1);
+      const config = createInstance.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(config['resume']).toBeUndefined();
+    });
+
+    it('prefers the maintained-handoff render for the fallback preamble when the feature is ON', async () => {
+      mockSettings.sessionHandoffStateEnabled = true;
+      try {
+        loadConversation.mockResolvedValue(conversation({ nativeResumeFailedAt: Date.now() }));
+
+        await coordinator.restore(manager, 'entry-1');
+
+        expect(queueContinuityPreamble).toHaveBeenCalledWith(
+          'fallback-instance',
+          expect.stringContaining('maintained handoff document (history-restore-replay)'),
+        );
+      } finally {
+        mockSettings.sessionHandoffStateEnabled = false;
+      }
+    });
+
+    it('passes the archived browserToolsMode through both restore rungs', async () => {
+      // Native rung.
+      loadConversation.mockResolvedValue(conversation({ browserToolsMode: 'off' }));
+      const nativeInstance = makeInstance({ id: 'native-instance', status: 'idle' });
+      getInstance.mockImplementation((id: string) =>
+        id === 'native-instance' ? nativeInstance : undefined,
+      );
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = (id: string) =>
+        id === 'native-instance'
+          ? { getResumeAttemptResult: () => ({ source: 'native' as const, confirmed: true }) }
+          : undefined;
+      createInstance.mockImplementation(
+        async (config: { historyThreadId?: string }) =>
+          makeInstance({ id: 'native-instance', historyThreadId: config.historyThreadId ?? 'history-thread' }),
+      );
+      await coordinator.restore(manager, 'entry-1');
+      expect(createInstance.mock.calls[0]?.[0]).toMatchObject({ browserToolsMode: 'off' });
+
+      // Fallback rung.
+      createInstance.mockClear();
+      loadConversation.mockResolvedValue(
+        conversation({ browserToolsMode: 'eager', nativeResumeFailedAt: Date.now() }),
+      );
+      await coordinator.restore(manager, 'entry-1');
+      expect(createInstance.mock.calls[0]?.[0]).toMatchObject({ browserToolsMode: 'eager' });
     });
   });
 });

@@ -95,6 +95,8 @@ vi.mock('../../runtime/operation-deadline', async (importOriginal) => {
 });
 
 import { InterruptRespawnHandler } from './interrupt-respawn-handler';
+import { RuntimeReconciler } from './runtime-reconciler';
+import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 
 // ── Fake helpers ──────────────────────────────────────────────────────────────
 
@@ -148,7 +150,7 @@ interface FakeDepsState {
 }
 
 function makeDeps(state: FakeDepsState): InterruptRespawnDeps {
-  return {
+  const deps: InterruptRespawnDeps = {
     getInstance: () => state.instance,
     getAdapter: () => state.adapter,
     setAdapter: (_id, a) => { state.adapter = a; },
@@ -174,8 +176,26 @@ function makeDeps(state: FakeDepsState): InterruptRespawnDeps {
     waitForAdapterWritable: vi.fn().mockResolvedValue(true),
     buildReplayContinuityMessage: vi.fn(() => 'replay preamble'),
     buildFallbackHistory: vi.fn().mockResolvedValue('fallback history'),
+    applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
     emitOutput: vi.fn(),
   };
+  // Real spawn core so the fallback-ordering tests keep exercising the actual
+  // logic — a RuntimeReconciler wired to the same fake state, exactly like the
+  // lifecycle wiring in production. Only the members applyRecoveryRespawn uses
+  // are provided.
+  const reconciler = new RuntimeReconciler({
+    getInstance: deps.getInstance,
+    setAdapter: deps.setAdapter,
+    setupAdapterEvents: deps.setupAdapterEvents,
+    createRuntimeAdapter: (cliType: unknown, options: unknown, executionLocation: unknown) =>
+      mockCreateAdapter(cliType, options, executionLocation),
+    waitForResumeHealth: (id: string) => deps.waitForResumeHealth(id),
+    buildReplayContinuityMessage: deps.buildReplayContinuityMessage,
+    buildFallbackHistory: deps.buildFallbackHistory,
+  } as unknown as RuntimeReconcilerDeps);
+  deps.applyRecoveryRespawn = (instanceId, request, hooks) =>
+    reconciler.applyRecoveryRespawn(instanceId, request, hooks);
+  return deps;
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -540,7 +560,14 @@ describe('InterruptRespawnHandler recovery replay', () => {
 
   it('queues fresh-session continuity for the next user turn instead of running replay under the session lock', async () => {
     const release = vi.fn();
-    mockSessionMutex.acquire.mockResolvedValue(release);
+    // Mirror the real mutex: after acquire, getLockInfo reports a holder —
+    // applyRecoveryRespawn asserts the caller holds the session lock.
+    mockSessionMutex.acquire.mockImplementation(async () => {
+      mockSessionMutex.getLockInfo.mockReturnValue({
+        source: 'respawn-unexpected', acquiredAt: Date.now(), durationMs: 0,
+      });
+      return release;
+    });
     const previousAdapter = makeAdapter();
     const replacementAdapter = makeAdapter({
       spawn: vi.fn().mockResolvedValue(84),
@@ -578,7 +605,14 @@ describe('InterruptRespawnHandler recovery replay', () => {
 
   it('queues transcript fallback after native resume fails instead of replaying it under the session lock', async () => {
     const release = vi.fn();
-    mockSessionMutex.acquire.mockResolvedValue(release);
+    // Mirror the real mutex: after acquire, getLockInfo reports a holder —
+    // applyRecoveryRespawn asserts the caller holds the session lock.
+    mockSessionMutex.acquire.mockImplementation(async () => {
+      mockSessionMutex.getLockInfo.mockReturnValue({
+        source: 'respawn-interrupt', acquiredAt: Date.now(), durationMs: 0,
+      });
+      return release;
+    });
     mockPlanSessionRecovery.mockReturnValue({
       kind: 'native-resume',
       reason: 'persisted provider session is resumable',
@@ -633,5 +667,50 @@ describe('InterruptRespawnHandler recovery replay', () => {
     expect(fallbackAdapter.sendInput).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledOnce();
     expect(instance.status).toBe('idle');
+  });
+});
+
+describe('InterruptRespawnHandler recovery-ladder exhaustion (WS7 Phase B)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCircuitBreaker.recordAttempt.mockReturnValue(0);
+    mockPlanSessionRecovery.mockReturnValue({ kind: 'fresh', reason: 'fresh', providerSessionPersisted: false });
+    mockSessionMutex.acquire.mockImplementation(async () => {
+      mockSessionMutex.getLockInfo.mockReturnValue({ source: 'respawn', acquiredAt: Date.now(), durationMs: 0 });
+      return vi.fn();
+    });
+  });
+
+  it('fires onRecoveryLadderExhausted when the fresh spawn fails terminally', async () => {
+    // Fresh (non-resume) plan whose only spawn rejects → no fallback → error catch.
+    const deadAdapter = makeAdapter({ spawn: vi.fn().mockRejectedValue(new Error('provider auth 401')) });
+    mockCreateAdapter.mockReturnValue(deadAdapter);
+    const instance = makeInstance({ status: 'respawning', executionLocation: { type: 'local' }, outputBuffer: [] });
+    const state: FakeDepsState = { instance, adapter: makeAdapter(), queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const deps = makeDeps(state);
+    const onRecoveryLadderExhausted = vi.fn();
+    deps.onRecoveryLadderExhausted = onRecoveryLadderExhausted;
+    const handler = new InterruptRespawnHandler(deps);
+
+    await expect(handler.respawnAfterInterrupt('inst-1')).rejects.toThrow('provider auth 401');
+
+    expect(instance.status).toBe('error');
+    expect(onRecoveryLadderExhausted).toHaveBeenCalledWith(instance, expect.any(Error));
+  });
+
+  it('does not fire the callback on a successful respawn', async () => {
+    const okAdapter = makeAdapter({ spawn: vi.fn().mockResolvedValue(99) });
+    mockCreateAdapter.mockReturnValue(okAdapter);
+    const instance = makeInstance({ status: 'respawning', executionLocation: { type: 'local' }, outputBuffer: [] });
+    const state: FakeDepsState = { instance, adapter: makeAdapter(), queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const deps = makeDeps(state);
+    const onRecoveryLadderExhausted = vi.fn();
+    deps.onRecoveryLadderExhausted = onRecoveryLadderExhausted;
+    const handler = new InterruptRespawnHandler(deps);
+
+    await handler.respawnAfterInterrupt('inst-1');
+
+    expect(instance.status).toBe('idle');
+    expect(onRecoveryLadderExhausted).not.toHaveBeenCalled();
   });
 });

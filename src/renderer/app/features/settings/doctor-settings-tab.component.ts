@@ -222,6 +222,11 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
 
               @case ('instructions') {
                 <h4>Instructions</h4>
+                @if (approvableTrustRows(report).length > 1) {
+                  <button type="button" class="btn btn-secondary" (click)="approveAllTrust(report)" [disabled]="approvingTrust()">
+                    {{ approvingTrust() ? 'Approving…' : 'Approve all listed files for this project' }}
+                  </button>
+                }
                 @if (report.instructionDiagnostics.length === 0) {
                   <p class="muted">No instruction diagnostics for this workspace.</p>
                 } @else {
@@ -232,6 +237,15 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                         <span>{{ diag.severity }}</span>
                         <p>{{ diag.message }}</p>
                         @if (diag.filePath) { <code>{{ diag.filePath }}</code> }
+                        @if (diag.code === 'instruction-trust' && diag.sha256 && diag.filePath && diag.scanSeverity !== 'critical') {
+                          <button
+                            type="button"
+                            class="btn btn-secondary"
+                            title="Pin this file at its current content hash; it re-flags if it changes again"
+                            (click)="approveTrust(diag.filePath, diag.sha256)"
+                            [disabled]="approvingTrust()"
+                          >Approve</button>
+                        }
                       </div>
                     }
                   </div>
@@ -337,6 +351,38 @@ export class DoctorSettingsTabComponent implements OnInit {
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
+  }
+
+  /** WS12: pending state for trust approvals. */
+  readonly approvingTrust = signal(false);
+
+  /** Trust rows that can be pinned (critical scanner findings are not one-click approvable). */
+  approvableTrustRows(report: { instructionDiagnostics: { code: string; filePath?: string; sha256?: string; scanSeverity?: string }[] }): { path: string; sha256: string }[] {
+    return report.instructionDiagnostics
+      .filter((d) => d.code === 'instruction-trust' && d.filePath && d.sha256 && d.scanSeverity !== 'critical')
+      .map((d) => ({ path: d.filePath as string, sha256: d.sha256 as string }));
+  }
+
+  async approveTrust(path: string, sha256: string): Promise<void> {
+    await this.approveTrustFiles([{ path, sha256 }]);
+  }
+
+  async approveAllTrust(report: { instructionDiagnostics: { code: string; filePath?: string; sha256?: string; scanSeverity?: string }[] }): Promise<void> {
+    await this.approveTrustFiles(this.approvableTrustRows(report));
+  }
+
+  private async approveTrustFiles(files: { path: string; sha256: string }[]): Promise<void> {
+    if (files.length === 0) return;
+    const api = this.ipc.getApi();
+    if (!api?.instructionTrustApprove) return;
+    this.approvingTrust.set(true);
+    try {
+      await api.instructionTrustApprove(files);
+      // Re-collect so approved rows disappear from the list.
+      await this.store.load({ workingDirectory: this.workingDirectory(), force: true });
+    } finally {
+      this.approvingTrust.set(false);
+    }
   }
 
   async exportBundle(): Promise<void> {

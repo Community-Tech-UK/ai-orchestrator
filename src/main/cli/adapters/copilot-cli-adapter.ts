@@ -27,7 +27,7 @@ import {
   CliStatus,
   CliUsage,
 } from './base-cli-adapter';
-import type { ResumeAttemptResult } from './base-cli-adapter';
+import type { AdapterCapabilities, InterruptResult, ResumeAttemptResult } from './base-cli-adapter';
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { getLogger } from '../../logging/logger';
 import type {
@@ -39,6 +39,8 @@ import type {
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
+import { startCopilotServerMode } from './copilot/copilot-server-mode';
+import type { CopilotServerSession } from './copilot/copilot-server-session'; import type { CopilotServerTurnBridge } from './copilot/copilot-server-turn-bridge';
 import { parseNdjsonLine, parseStreamingJson } from '../json-parse';
 import { probeVersionStatus } from './cli-status-probe';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
@@ -86,6 +88,9 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   /** Reasoning blocks accumulated during the current turn (reset per message). */
   private currentMessageReasoning: ThinkingContent[] = [];
+  /** WS14 server mode: persistent SDK-backed session; null = exec-per-message. */
+  private serverSession: CopilotServerSession | null = null;
+  private serverBridge: CopilotServerTurnBridge | null = null;
 
   constructor(config: CopilotCliConfig = {}) {
     const launch = getDefaultCopilotCliLaunch();
@@ -742,6 +747,12 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       );
     }
 
+    // WS14 server mode: prefer a persistent SDK-backed session (steering,
+    // real context occupancy, native session continuity) when the installed
+    // CLI package bundles the SDK. ANY failure falls back to exec-per-message
+    // — today's behavior, verbatim.
+    await this.tryStartServerMode();
+
     this.isSpawned = true;
     // Use a synthetic PID — there's no persistent process to attach to.
     // Each sendInput() will spawn a new child; its real PID is available via
@@ -751,6 +762,37 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     this.emit('status', 'idle' as InstanceStatus);
 
     return fakePid;
+  }
+
+  /** WS14: attempt to open the persistent server-mode session (fail-soft). */
+  private async tryStartServerMode(): Promise<void> {
+    const result = await startCopilotServerMode({
+      workingDir: this.cliConfig.workingDir,
+      model: this.cliConfig.model,
+      resumeSessionId: this.copilotSessionId,
+      host: {
+        emitOutput: (message) => this.emit('output', message),
+        emitStatus: (status) => this.emit('status', status),
+        emitContext: (usage) => this.emit('context', usage),
+        emitError: (error) => this.emit('error', error),
+        noteSessionNotFound: () => {
+          if (this.lastResumeAttemptResult?.source === 'native') {
+            this.lastResumeAttemptResult = {
+              ...this.lastResumeAttemptResult,
+              confirmed: false,
+              reason: 'session-not-found',
+            };
+          }
+        },
+      },
+      onFallback: (reason) => this.setSpawnMode('subprocess-exec', { reason, degraded: true }),
+    });
+    if (!result) return;
+    this.serverSession = result.session;
+    this.serverBridge = result.bridge;
+    if (result.copilotSessionId) this.copilotSessionId = result.copilotSessionId;
+    this.lastResumeAttemptResult = result.resumeProof;
+    this.setSpawnMode('app-server');
   }
 
   /**
@@ -766,26 +808,30 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       throw new Error('Copilot adapter does not currently support attachments in orchestrator mode.');
     }
 
-    // Fold the outgoing user message into the cumulative-token estimate so
-    // the context bar reflects input as well as output. Copilot's `result.usage`
-    // doesn't split input/output tokens, so this is the only place we can
-    // credit input bytes against context occupancy.
-    this.cumulativeTokensUsed += this.estimateTokens(message);
-
-    // Record resume attempt proof (B2).
-    if (this.copilotSessionId) {
-      this.lastResumeAttemptResult = {
-        source: 'native',
-        confirmed: false,
-        requestedSessionId: this.copilotSessionId,
-      };
-    } else {
-      this.lastResumeAttemptResult = { source: 'fresh-fallback', confirmed: false };
+    if (!this.serverSession) {
+      // Exec mode: fold the outgoing message into the cumulative-token
+      // estimate (result.usage has no input/output split) and record the
+      // per-send resume proof (B2). Server mode needs neither — continuity
+      // proof is recorded once at spawn, REAL context rides session.usage_info.
+      this.cumulativeTokensUsed += this.estimateTokens(message);
+      this.lastResumeAttemptResult = this.copilotSessionId
+        ? { source: 'native', confirmed: false, requestedSessionId: this.copilotSessionId }
+        : { source: 'fresh-fallback', confirmed: false };
     }
 
     this.emit('status', 'busy' as InstanceStatus);
 
     try {
+      // WS14 server mode: submit to the persistent session; the bridge flips
+      // status to idle when the runtime emits `session.idle`.
+      if (this.serverSession) {
+        this.serverBridge?.resetTurn();
+        await this.serverSession.send(
+          this.cliConfig.systemPrompt ? `${this.cliConfig.systemPrompt}\n\n${message}` : message,
+        );
+        return;
+      }
+
       const cliMessage: CliMessage = {
         role: 'user',
         content: message,
@@ -808,11 +854,44 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     }
   }
 
+  /** WS14 server mode: abort the in-flight turn; the session stays valid. */
+  override interrupt(): InterruptResult {
+    if (this.serverSession) {
+      const session = this.serverSession;
+      const completionPromise: Promise<import('./base-cli-adapter').TurnInterruptCompletion> = session
+        .abort()
+        .then(() => {
+          this.emit('status', 'idle' as InstanceStatus);
+          return { status: 'interrupted' as const };
+        })
+        .catch((error: unknown) => ({
+          status: 'rejected' as const,
+          reason: error instanceof Error ? error.message : String(error),
+        }));
+      return { status: 'accepted', completion: completionPromise };
+    }
+    return super.interrupt();
+  }
+
+  override getAdapterCapabilities(): AdapterCapabilities {
+    if (this.serverSession) {
+      // liveSteer stays false until the livetest proves send-during-turn steers rather than erroring.
+      return { residentSession: true, liveInterrupt: true, liveSteer: false };
+    }
+    return super.getAdapterCapabilities();
+  }
+
   /**
    * Override terminate to clean up spawned state.
    */
   override async terminate(graceful = true): Promise<void> {
     const wasSpawned = this.isSpawned;
+    if (this.serverSession) {
+      const session = this.serverSession;
+      this.serverSession = null;
+      this.serverBridge = null;
+      await session.dispose();
+    }
     await super.terminate(graceful);
     this.isSpawned = false;
     this.copilotSessionId = null;

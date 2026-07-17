@@ -65,6 +65,16 @@ export const TieredReviewResultJsonSchema = z.object({
   critical_issues: z.array(IssueSchema).max(20).optional(),
 });
 
+/**
+ * WS14 — serialized JSON Schema for Claude's `--json-schema` structured-output
+ * flag on one-shot review spawns. Derived from the SAME Zod schema the parser
+ * validates with, so the wire contract and the validator cannot drift.
+ */
+export function serializeReviewResultJsonSchema(reviewDepth: 'structured' | 'tiered'): string {
+  const schema = reviewDepth === 'tiered' ? TieredReviewResultJsonSchema : ReviewResultJsonSchema;
+  return JSON.stringify(z.toJSONSchema(schema));
+}
+
 export type ReviewDismissPayload = z.infer<typeof ReviewDismissPayloadSchema>;
 export type ReviewActionPayload = z.infer<typeof ReviewActionPayloadSchema>;
 export type ReviewResultJson = z.infer<typeof ReviewResultJsonSchema>;

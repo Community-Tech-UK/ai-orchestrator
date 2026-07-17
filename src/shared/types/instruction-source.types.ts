@@ -23,6 +23,22 @@ export interface ResolvedInstructionSource {
   reason?: string;
   matchPatterns?: string[];
   matchedPaths?: string[];
+  /**
+   * WS12 instruction trust gate: pin verdict for project-sourced files
+   * ('approved' | 'changed' | 'unknown'); undefined for exempt scopes
+   * (user-global / AIO-owned) or when the gate is off.
+   */
+  trust?: 'approved' | 'changed' | 'unknown';
+  /** WS12 content-scanner sha256 of the loaded content (approval anchor). */
+  sha256?: string;
+  /** WS12 scanner findings (advisory; `critical` blocks in enforce mode). */
+  scanFindings?: Array<{
+    ruleId: string;
+    severity: 'info' | 'warn' | 'critical';
+    message: string;
+    line: number;
+    excerpt: string;
+  }>;
 }
 
 export interface InstructionResolution {

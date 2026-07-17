@@ -110,6 +110,8 @@ describe('RpcEventRouter', () => {
   let mockConnection: EventEmitter & {
     sendResponse: ReturnType<typeof vi.fn>;
     disconnectNode: ReturnType<typeof vi.fn>;
+    sendNotification: ReturnType<typeof vi.fn>;
+    sendRpc: ReturnType<typeof vi.fn>;
   };
   let mockBrowserBridge: {
     attachTab: ReturnType<typeof vi.fn>;
@@ -128,6 +130,8 @@ describe('RpcEventRouter', () => {
     mockConnection = Object.assign(new EventEmitter(), {
       sendResponse: vi.fn(),
       disconnectNode: vi.fn(),
+      sendNotification: vi.fn(() => true),
+      sendRpc: vi.fn(async () => ({ cursors: [] })),
     });
     mockBrowserBridge = {
       attachTab: vi.fn(),
@@ -701,5 +705,55 @@ describe('RpcEventRouter', () => {
       params: {},
     });
     expect(mockHealth.stopMonitoring).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // WS15 — durable-stream dedupe + resume-on-register
+  // -------------------------------------------------------------------------
+
+  it('drops replayed instance.output frames whose durableSeq is behind the cursor', () => {
+    registry.registerNode(makeNode('node-d'));
+    const outputs: unknown[] = [];
+    registry.on('remote:instance-output', (payload) => outputs.push(payload));
+
+    const frame = (seq: number) => ({
+      jsonrpc: '2.0' as const,
+      method: 'instance.output',
+      params: { instanceId: 'inst-1', message: { n: seq }, durableSeq: seq },
+    });
+    mockConnection.emit('rpc:notification', 'node-d', frame(1));
+    mockConnection.emit('rpc:notification', 'node-d', frame(2));
+    mockConnection.emit('rpc:notification', 'node-d', frame(2)); // replay duplicate
+    mockConnection.emit('rpc:notification', 'node-d', frame(1)); // stale replay
+
+    expect(outputs).toHaveLength(2);
+  });
+
+  it('asks a durable worker to replay after cursors on re-registration', () => {
+    // First registration establishes cursors via received frames.
+    mockConnection.emit('rpc:request', 'node-d', makeRpcRequest('node.register', {
+      nodeId: 'node-d',
+      name: 'node-d',
+      capabilities: { ...makeCapabilities(), streamDurability: 1, streamEpoch: 42 },
+    }));
+    mockConnection.emit('rpc:notification', 'node-d', {
+      jsonrpc: '2.0',
+      method: 'instance.output',
+      params: { instanceId: 'inst-1', message: { n: 1 }, durableSeq: 4 },
+    });
+
+    // Re-registration (same epoch) → resume RPC with afterSeq = cursor.
+    mockConnection.emit('rpc:request', 'node-d', makeRpcRequest('node.register', {
+      nodeId: 'node-d',
+      name: 'node-d',
+      capabilities: { ...makeCapabilities(), streamDurability: 1, streamEpoch: 42 },
+    }));
+
+    expect(mockConnection.sendRpc).toHaveBeenCalledWith(
+      'node-d',
+      'node.streamResume',
+      { cursors: [{ instanceId: 'inst-1', afterSeq: 4 }] },
+      15_000,
+    );
   });
 });

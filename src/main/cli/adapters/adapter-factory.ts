@@ -30,6 +30,9 @@ import type { CliType as SettingsCliType } from '../../../shared/types/settings.
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getLogger } from '../../logging/logger';
+import { BaseCliAdapter } from './base-cli-adapter';
+import { defaultHardenedWritableRoots } from '../../sandbox/seatbelt';
+import { getInstanceExtraWritableRoots, isInstanceHardened } from '../../instance/lifecycle/hardened-mode-scoping';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import {
@@ -183,6 +186,8 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     mcpConfig: buildClaudeMcpConfig(options),
     reasoningEffort: options.reasoningEffort,
     fastMode: options.fastMode,
+    fallbackModel: options.fallbackModel,
+    jsonSchema: options.jsonSchema,
     residentClaude: options.residentClaude,
     bare: options.bare,
     name: options.name,
@@ -616,36 +621,56 @@ export function createCliAdapter(
     return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, effectiveOptions);
   }
 
-  switch (cliType) {
-    case 'claude':
-      return createClaudeAdapter(effectiveOptions);
+  const adapter = (() => {
+    switch (cliType) {
+      case 'claude':
+        return createClaudeAdapter(effectiveOptions);
 
-    case 'codex':
-      return createCodexAdapter(effectiveOptions);
+      case 'codex':
+        return createCodexAdapter(effectiveOptions);
 
-    case 'gemini':
-      // Legacy alias — should not normally be reached (resolveCliType maps
-      // gemini→antigravity), but kept so any direct `gemini` caller still works.
-      return createGeminiAdapter(effectiveOptions);
+      case 'gemini':
+        // Legacy alias — should not normally be reached (resolveCliType maps
+        // gemini→antigravity), but kept so any direct `gemini` caller still works.
+        return createGeminiAdapter(effectiveOptions);
 
-    case 'antigravity':
-      return createAntigravityAdapter(effectiveOptions);
+      case 'antigravity':
+        return createAntigravityAdapter(effectiveOptions);
 
-    case 'copilot':
-      return createCopilotAdapter(effectiveOptions);
+      case 'copilot':
+        return createCopilotAdapter(effectiveOptions);
 
-    case 'cursor':
-      return createCursorAdapter(effectiveOptions);
+      case 'cursor':
+        return createCursorAdapter(effectiveOptions);
 
-    case 'grok':
-      return createGrokAdapter(effectiveOptions);
+      case 'grok':
+        return createGrokAdapter(effectiveOptions);
 
-    case 'ollama':
-      return createOllamaAdapter(effectiveOptions);
+      case 'ollama':
+        return createOllamaAdapter(effectiveOptions);
 
-    default:
-      throw new Error(`Unknown CLI type: ${cliType}`);
+      default:
+        throw new Error(`Unknown CLI type: ${cliType}`);
+    }
+  })();
+  // WS13 hardened mode: per-instance registry keyed by instance id (browser-tool-scoping
+  // precedent) — every create/respawn path inherits it with no threading.
+  if (isInstanceHardened(effectiveOptions.instanceId)) {
+    if (!(adapter instanceof BaseCliAdapter)) {
+      // Remote adapters spawn on a worker node, outside the local Seatbelt choke point. FAIL CLOSED.
+      throw new Error(
+        'Hardened mode is not supported for remote instances (Phase A is local macOS only).',
+      );
+    }
+    adapter.configureHardenedMode({
+      writableRoots: [
+        ...defaultHardenedWritableRoots(effectiveOptions.workingDirectory),
+        // Session-scoped allow-and-retry grants (WS13 slice 3).
+        ...getInstanceExtraWritableRoots(effectiveOptions.instanceId),
+      ],
+    });
   }
+  return adapter;
 }
 
 /**

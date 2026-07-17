@@ -20,6 +20,16 @@ provider or implementing a missing feature.
 
 Legend: ✅ Implemented · ⚠️ Partial · ❌ Not supported · 🔲 Untested
 
+> **WS14 Claude flag pack (2026-07-17):** the Claude adapter now supports
+> `--fallback-model` (per-spawn option or global `claudeFallbackModel` setting;
+> omitted when equal to the primary), `--json-schema` structured output for
+> one-shot review verdict spawns (wire schema derived from the parser's own Zod
+> schema — `serializeReviewResultJsonSchema`), and the hygiene env pack
+> (`DISABLE_UPDATES=1`, per-session `CLAUDE_CODE_TMPDIR`, and
+> `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` behind the default-OFF
+> `claudeSubprocessEnvScrub` setting). Stream-idle/watchdog env vars were
+> verified UNSUPPORTED in CLI 2.1.211 (binary-string search) and are omitted.
+
 ---
 
 ## Core Protocol

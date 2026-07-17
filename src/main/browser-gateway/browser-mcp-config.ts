@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import type { AcpMcpServerConfig } from '../../shared/types/cli.types';
+import { BROWSER_TOOL_DEFERRAL_ENV } from './browser-mcp-deferral';
 import { tomlArray, tomlBareKey, tomlString } from './mcp-config-toml-helpers';
 
 /**
@@ -24,6 +25,12 @@ export interface BrowserGatewayMcpConfigOptions {
   socketPath: string;
   instanceId: string;
   provider?: string;
+  /**
+   * WS9 tool-schema economy: when true the forwarder registers only the core
+   * tool set plus `browser.tool_search`/`browser.tool_describe`; the rest load
+   * on demand. Sets AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL=1 in the bridge env.
+   */
+  toolDeferral?: boolean;
   exists?: (candidatePath: string) => boolean;
 }
 
@@ -45,6 +52,7 @@ export function resolveBrowserGatewayBridgeSpec(
     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
     ...(options.provider ? { AI_ORCHESTRATOR_BROWSER_PROVIDER: options.provider } : {}),
+    ...(options.toolDeferral ? { [BROWSER_TOOL_DEFERRAL_ENV]: '1' } : {}),
   };
 
   return {

@@ -51,6 +51,9 @@ export const COORDINATOR_TO_NODE = {
   TERMINAL_RESIZE: 'terminal.resize',
   TERMINAL_KILL: 'terminal.kill',
   NODE_PING: 'node.ping',
+  // WS15 stream durability: replay request after reconnect + cursor acks.
+  STREAM_RESUME: 'node.streamResume',
+  STREAM_ACK: 'node.streamAck',
   FS_READ_DIRECTORY: 'fs.readDirectory',
   FS_STAT: 'fs.stat',
   FS_SEARCH: 'fs.search',

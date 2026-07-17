@@ -8,9 +8,9 @@
  *
  * This helper parks a change requested while busy in
  * {@link Instance.desiredRuntime} and lets the RuntimeReconciler apply it the
- * moment the instance transitions into an input-waiting status. It is the
- * generalized replacement for the `pendingYoloMode` pattern (yolo itself
- * migrates in a follow-up — see the runtime-reconciler migration spec).
+ * moment the instance transitions into an input-waiting status. It replaced
+ * the bespoke `pendingYoloMode`/`YoloModeQueue` pattern — yolo flips ride the
+ * same queue (`DesiredRuntime.yoloMode`) since the 2026-07-17 migration.
  */
 
 import { getLogger } from '../../logging/logger';
@@ -149,7 +149,7 @@ export class DesiredRuntimeQueue {
           id: generateId(),
           timestamp: Date.now(),
           type: 'system',
-          content: `Queued model change could not be applied: ${message}`,
+          content: `Queued runtime change could not be applied: ${message}`,
           metadata: { kind: 'pending-model-change-failed' },
         });
       }

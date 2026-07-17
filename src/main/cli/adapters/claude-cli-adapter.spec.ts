@@ -290,6 +290,53 @@ describe('ClaudeCliAdapter reasoning effort', () => {
   });
 });
 
+describe('ClaudeCliAdapter WS14 flag pack', () => {
+  function getBuildArgs(adapter: ClaudeCliAdapter): string[] {
+    return (
+      adapter as unknown as {
+        buildArgs: (message: { role: 'user'; content: string }) => string[];
+      }
+    ).buildArgs({ role: 'user', content: 'test' });
+  }
+
+  it('passes --fallback-model from the adapter factory', () => {
+    const adapter = createClaudeAdapter({ model: 'claude-opus-4-8', fallbackModel: 'claude-sonnet-5' });
+    const args = getBuildArgs(adapter);
+    const i = args.indexOf('--fallback-model');
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe('claude-sonnet-5');
+  });
+
+  it('omits --fallback-model when it equals the primary model or is unset', () => {
+    const same = getBuildArgs(createClaudeAdapter({ model: 'claude-opus-4-8', fallbackModel: 'claude-opus-4-8' }));
+    expect(same).not.toContain('--fallback-model');
+    const unset = getBuildArgs(createClaudeAdapter({ model: 'claude-opus-4-8' }));
+    expect(unset).not.toContain('--fallback-model');
+  });
+
+  it('passes --json-schema for structured one-shot output (POSIX: inline value)', () => {
+    const schema = '{"type":"object","properties":{"ok":{"type":"boolean"}}}';
+    const adapter = createClaudeAdapter({ jsonSchema: schema });
+    const args = getBuildArgs(adapter);
+    const i = args.indexOf('--json-schema');
+    expect(i).toBeGreaterThan(-1);
+    // On POSIX materializeInlineJsonArg is a pass-through; on Windows it would
+    // be a temp-file path (shell:true strips quotes from inline JSON).
+    if (process.platform !== 'win32') {
+      expect(args[i + 1]).toBe(schema);
+    } else {
+      expect(args[i + 1]).toMatch(/arg-\d+\.json$/);
+    }
+  });
+
+  it('applies the hygiene env pack to the spawn env', () => {
+    const adapter = createClaudeAdapter({ sessionId: 'sess-envpack' });
+    const env = (adapter as unknown as { config: { env?: Record<string, string> } }).config.env;
+    expect(env?.['DISABLE_UPDATES']).toBe('1');
+    expect(env?.['CLAUDE_CODE_TMPDIR']).toContain('aio-claude-tmp');
+  });
+});
+
 describe('ClaudeCliAdapter --max-turns backstop', () => {
   function getBuildArgs(adapter: ClaudeCliAdapter): string[] {
     return (

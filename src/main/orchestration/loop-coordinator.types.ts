@@ -136,4 +136,6 @@ export interface LoopRuntimeContext {
   priorObservations?: string[];
   /** Fable WS6: bounded PLAN-stage prior-context block (advisory, untrusted). */
   planStageContext?: string;
+  /** WS16: {id,text} of lessons surfaced this run, for reinforce-on-use crediting. */
+  surfacedLessons?: { id: string; text: string }[];
 }

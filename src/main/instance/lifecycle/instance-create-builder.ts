@@ -19,6 +19,8 @@ import {
 
 interface BuildInstanceRecordOptions {
   defaultYoloMode: boolean;
+  /** WS7 Phase B — global fallback-provider list seeded onto new instances. */
+  defaultFailoverProviders?: string[];
   getParent: (id: string) => Instance | undefined;
   now?: () => number;
 }
@@ -95,6 +97,12 @@ export function buildInstanceRecord(
     launchMode: config.launchMode ?? 'orchestrated',
     provider: config.provider || 'auto',
     bareMode: config.bareMode ?? false,
+    ...(config.browserToolsMode ? { browserToolsMode: config.browserToolsMode } : {}),
+    ...(config.hardened ? { hardened: true } : {}),
+    // WS7 Phase B: per-instance override wins; else seed from the global list.
+    ...((config.failoverProviders ?? options.defaultFailoverProviders)?.length
+      ? { failoverProviders: config.failoverProviders ?? options.defaultFailoverProviders }
+      : {}),
     // Seed from the caller's explicit pick so the renderer chip matches the
     // draft composer before Phase-2 async init resolves settings fallbacks.
     ...(localModelTarget

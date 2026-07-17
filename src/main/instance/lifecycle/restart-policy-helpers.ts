@@ -15,6 +15,8 @@ import { getProviderModelContextWindow } from '../../../shared/types/provider.ty
 import { generateId } from '../../../shared/utils/id-generator';
 import { buildReplayContinuityMessage as buildSharedReplayContinuityMessage } from '../../session/replay-continuity';
 import { buildFallbackHistoryMessage } from '../../session/fallback-history';
+import { getHandoffStateService } from '../../session/handoff-state-service';
+import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('RestartPolicyHelpers');
@@ -48,9 +50,27 @@ export class RestartPolicyHelpers {
 
   /**
    * Build a replay continuity message for the given instance.
-   * Falls back to a generic continuity notice if the shared builder returns empty.
+   *
+   * Hydration-ladder bottom rung (spec item 5): when
+   * `sessionHandoffStateEnabled` is ON, prefer the incrementally maintained
+   * handoff document; fall through to the swap-time replay preamble when no
+   * state was maintained. OFF ⇒ byte-identical to the historical behavior.
+   * Falls back to a generic continuity notice if every builder returns empty.
    */
   buildReplayContinuityMessage(instance: Instance, reason: string): string {
+    try {
+      if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
+        const handoff = getHandoffStateService().buildHandoffDocument(instance, reason);
+        if (handoff) {
+          return handoff;
+        }
+      }
+    } catch (error) {
+      logger.warn('Handoff render failed; using replay preamble', {
+        instanceId: instance.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     return buildSharedReplayContinuityMessage(this.activeMessages.getActiveMessages(instance), { reason })
       || [
         '[SYSTEM CONTINUITY NOTICE]',

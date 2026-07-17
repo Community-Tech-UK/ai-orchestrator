@@ -39,6 +39,7 @@ import { NodeFilesystemHandler } from '../main/remote-node/node-filesystem-handl
 import { SyncHandler } from './sync-handler';
 import { WorkerTerminalHandler } from './worker-terminal-handler';
 import { WorkerInstanceNotifier } from './worker-instance-notifier';
+import { WorkerStreamDurability } from './worker-stream-durability';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import { WorkerBrowserManager } from './worker-browser-manager';
 import { WorkerCdpTunnel } from './worker-cdp-tunnel';
@@ -99,6 +100,7 @@ export class WorkerAgent extends EventEmitter {
   private syncHandler: SyncHandler | null = null;
   private terminalHandler: WorkerTerminalHandler | null = null;
   private readonly notifier: WorkerInstanceNotifier;
+  private readonly streamDurability: WorkerStreamDurability;
   private readonly rpcDispatcher: WorkerRpcDispatcher;
   private readonly browserManager: WorkerBrowserManager;
   private readonly androidManager: WorkerAndroidManager;
@@ -142,9 +144,11 @@ export class WorkerAgent extends EventEmitter {
     this.localModelSessionManager = new LocalModelSessionManager({
       maxSessions: config.maxConcurrentInstances,
     });
+    this.streamDurability = new WorkerStreamDurability();
     this.notifier = new WorkerInstanceNotifier({
       getSocket: () => this.ws,
       getToken: () => this.config.nodeToken ?? this.config.authToken,
+      durability: this.streamDurability,
     });
     this.rpcDispatcher = new WorkerRpcDispatcher({
       config: this.config,
@@ -158,6 +162,10 @@ export class WorkerAgent extends EventEmitter {
       stopManagedBrowser: () => this.browserManager.shutdown(),
       sendResult: (id, result) => this.notifier.sendResult(id, result),
       sendError: (id, code, message) => this.notifier.sendError(id, code, message),
+      replayDurableEvents: (cursors) => this.notifier.replayDurableEvents(cursors),
+      ackDurableEvents: (cursors) => {
+        for (const cursor of cursors) this.streamDurability.ack(cursor.instanceId, cursor.seq);
+      },
     });
     wireCdpTunnelEvents(this.cdpTunnel, this.notifier, this.config);
     wireInstanceEvents(this.instanceManager, this.localModelSessionManager, this.notifier);

@@ -28,6 +28,11 @@ export function isStatelessExecAdapter(adapter: CliAdapter): boolean {
   ) {
     return false;
   }
+  // A resident session is definitionally not exec-per-message (WS14: copilot
+  // server mode; also codex app-server, which additionally escapes above).
+  if (adapter instanceof BaseCliAdapter && adapter.getAdapterCapabilities().residentSession) {
+    return false;
+  }
   const adapterName = adapter.getName().toLowerCase();
   return [
     'antigravity-cli',

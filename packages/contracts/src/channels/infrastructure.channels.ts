@@ -35,6 +35,9 @@ export const INFRASTRUCTURE_CHANNELS = {
 
   // Instruction inspection and migration
   INSTRUCTIONS_RESOLVE: 'instructions:resolve',
+  INSTRUCTION_TRUST_APPROVE: 'instructions:trust-approve',
+  INSTRUCTION_TRUST_REVOKE: 'instructions:trust-revoke',
+  INSTRUCTION_TRUST_LIST: 'instructions:trust-list',
   INSTRUCTIONS_CREATE_DRAFT: 'instructions:create-draft',
 
   // Remote Configuration

@@ -12,6 +12,9 @@ import type {
   WorkerNodeExtensionRelaySummary,
   WorkerNodeFileTransferSummary,
 } from '../shared/types/worker-node.types';
+
+/** WS15 — stable per-process epoch; a restart invalidates coordinator cursors. */
+const STREAM_EPOCH = Date.now();
 import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 import {
@@ -75,6 +78,9 @@ export async function reportCapabilities(
     ...(androidAutomation ? { androidAutomation } : {}),
     hasDocker: detectDocker(),
     maxConcurrentInstances,
+    // WS15: this worker buffers durable events and supports seq/ack/replay.
+    streamDurability: 1,
+    streamEpoch: STREAM_EPOCH,
     workingDirectories,
     browsableRoots: workingDirectories,
     ...(fileTransfer ? { fileTransfer } : {}),

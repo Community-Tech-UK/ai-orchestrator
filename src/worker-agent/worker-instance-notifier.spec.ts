@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WorkerInstanceNotifier } from './worker-instance-notifier';
+import { WorkerStreamDurability } from './worker-stream-durability';
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from '../main/remote-node/rpc-schemas';
 
 // Minimal ws stand-in: OPEN, records sent frames.
@@ -83,5 +84,79 @@ describe('WorkerInstanceNotifier oversized-frame protection', () => {
 
     expect(sent).toBe(false);
     expect(socket.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkerInstanceNotifier durable-stream integration (WS15)', () => {
+  function makeDurableNotifier() {
+    const socket = new FakeSocket();
+    const durability = new WorkerStreamDurability();
+    const notifier = new WorkerInstanceNotifier({
+      getSocket: () => socket as never,
+      getToken: () => 'tok-current',
+      durability,
+    });
+    return { socket, durability, notifier };
+  }
+
+  it('tags single output frames with durableSeq assigned at enqueue time', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    notifier.sendOutputNotification('inst-1', { type: 'assistant', content: 'hi' });
+    notifier.flushOutputBuffer();
+    const frame = JSON.parse(socket.sent[0]);
+    expect(frame.method).toBe('instance.output');
+    expect(frame.params.durableSeq).toBe(1);
+  });
+
+  it('tags each batched item with its own durableSeq', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    notifier.sendOutputNotification('inst-1', { n: 1 });
+    notifier.sendOutputNotification('inst-1', { n: 2 });
+    notifier.flushOutputBuffer();
+    const frame = JSON.parse(socket.sent[0]);
+    expect(frame.method).toBe('instance.outputBatch');
+    expect(frame.params.items.map((i: { durableSeq: number }) => i.durableSeq)).toEqual([1, 2]);
+  });
+
+  it('records context and complete notifications durably', () => {
+    const { socket, durability, notifier } = makeDurableNotifier();
+    notifier.sendContextNotification('inst-1', { used: 5 });
+    notifier.sendCompleteNotification('inst-1', { ok: true });
+    expect(JSON.parse(socket.sent[0]).params.durableSeq).toBe(1);
+    expect(JSON.parse(socket.sent[1]).params.durableSeq).toBe(2);
+    expect(durability.stats().events).toBe(2);
+  });
+
+  it('replays after a cursor with replay flag and the CURRENT token', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    notifier.sendOutputNotification('inst-1', { n: 1 });
+    notifier.sendOutputNotification('inst-1', { n: 2 });
+    notifier.flushOutputBuffer();
+    socket.sent.length = 0;
+
+    const summary = notifier.replayDurableEvents([{ instanceId: 'inst-1', afterSeq: 1 }]);
+    expect(summary).toEqual([{ instanceId: 'inst-1', replayed: 1 }]);
+    const frame = JSON.parse(socket.sent[0]);
+    expect(frame.method).toBe('instance.output');
+    expect(frame.params.durableSeq).toBe(2);
+    expect(frame.params.replay).toBe(true);
+    expect(frame.params.token).toBe('tok-current');
+  });
+
+  it('acked events never replay; unacked survive a socket outage', () => {
+    const { socket, durability, notifier } = makeDurableNotifier();
+    notifier.sendOutputNotification('inst-1', { n: 1 });
+    notifier.flushOutputBuffer();
+    // Socket goes away; the next event is DROPPED from the wire but recorded durably.
+    socket.readyState = 3;
+    notifier.sendOutputNotification('inst-1', { n: 2 });
+    notifier.flushOutputBuffer();
+    durability.ack('inst-1', 1);
+
+    socket.readyState = 1;
+    socket.sent.length = 0;
+    const summary = notifier.replayDurableEvents([{ instanceId: 'inst-1', afterSeq: 1 }]);
+    expect(summary[0].replayed).toBe(1);
+    expect(JSON.parse(socket.sent[0]).params.message).toEqual({ n: 2 });
   });
 });

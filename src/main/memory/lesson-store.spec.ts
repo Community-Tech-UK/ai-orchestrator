@@ -83,3 +83,48 @@ describe('LessonStore', () => {
     expect(() => s.supersede('nope', 'x', 0)).toThrow(/Unknown lesson/);
   });
 });
+
+describe('LessonStore WS16 — reinforce-on-use, provenance, use-weighted digest', () => {
+  it('defaults to agent-derived provenance and zero uses', () => {
+    const store = new LessonStore();
+    const { lesson } = store.capture('trace wiring before claiming behavior', 100);
+    expect(lesson.provenance).toBe('agent-derived');
+    expect(lesson.uses).toBe(0);
+  });
+
+  it('capture can mark user-authored provenance and upgrades on re-capture', () => {
+    const store = new LessonStore();
+    store.capture('always run the quiet test runner', 100); // agent-derived
+    const re = store.capture('always run the quiet test runner', 200, 'user-authored');
+    expect(re.reinforced).toBe(true);
+    expect(re.lesson.provenance).toBe('user-authored');
+  });
+
+  it('reinforceOnUse bumps uses AND reinforcements; unknown/deprecated → undefined', () => {
+    const store = new LessonStore();
+    const { lesson } = store.capture('acquire mutex before identity write', 100);
+    const used = store.reinforceOnUse(lesson.id, 200);
+    expect(used?.uses).toBe(1);
+    expect(used?.reinforcements).toBe(2);
+    expect(store.reinforceOnUse('nope', 300)).toBeUndefined();
+    store.deprecate(lesson.id);
+    expect(store.reinforceOnUse(lesson.id, 400)).toBeUndefined();
+  });
+
+  it('digest ranks used lessons above merely-captured ones at equal capture count', () => {
+    const store = new LessonStore();
+    const a = store.capture('lesson A', 100).lesson;
+    store.capture('lesson B', 100);
+    store.reinforceOnUse(a.id, 200); // A used once → higher reinforcements
+    expect(store.digest()[0].text).toBe('lesson A');
+  });
+
+  it('supersede carries uses and provenance forward', () => {
+    const store = new LessonStore();
+    const { lesson } = store.capture('old lesson', 100, 'user-authored');
+    store.reinforceOnUse(lesson.id, 150);
+    const next = store.supersede(lesson.id, 'new lesson', 200);
+    expect(next.provenance).toBe('user-authored');
+    expect(next.uses).toBe(1);
+  });
+});

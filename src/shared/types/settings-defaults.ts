@@ -164,6 +164,22 @@ export const DEFAULT_SETTINGS: AppSettings = {
   browserVaultMasterPasswordFile: '',
   browserVaultAutoUnlock: false,
   browserAuxExtractionEnabled: false,
+  // Decision 6 (fable plan review, 2026-07-13): deferred by default.
+  browserMcpToolDeferral: true,
+  // Spec item 5: OFF until provider-swap livetest evidence motivates it.
+  sessionHandoffStateEnabled: false,
+  // WS16: agent-derived memories never reach system-prompt tier by default.
+  memoryInstructionGate: true,
+  // WS14: empty = no automatic overload fallback model.
+  claudeFallbackModel: '',
+  // WS14: OFF until the livetest proves hooks/RTK survive the scrub.
+  claudeSubprocessEnvScrub: false,
+  // WS7 Phase B: empty = failover off (explicit opt-in consent).
+  sessionFailoverProviders: [],
+  sessionFailoverMaxSwitches: 1,
+  sessionFailoverOfferAfterMinutes: 30,
+  // WS12: warn-mode measurement release first; enforce is the end-state.
+  instructionTrustGate: 'warn',
   browserAllowSharedTabCredentialFill: false,
 
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)

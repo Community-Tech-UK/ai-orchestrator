@@ -27,6 +27,7 @@ import {
   withConnectionAddress,
 } from './worker-node-connection-helpers';
 import { bindWorkerNodeRosterUpdates } from './worker-node-roster-updates';
+import { ConnectionDisconnectLifecycle } from './connection-disconnect-lifecycle';
 
 // Re-exported for existing importers (tests, dispatch classification callers).
 export { isWorkerNodeWorkDispatchMethod };
@@ -34,15 +35,6 @@ export { isWorkerNodeWorkDispatchMethod };
 const logger = getLogger('WorkerNodeConnection');
 
 const RPC_TIMEOUT_MS = 30_000;
-
-/**
- * How long a node's registry entry and in-flight RPCs are held after the active
- * socket closes, waiting for a re-registration. A flapping link (or a worker
- * doing a fast reconnect) that re-registers within this window is treated as a
- * single continuous session: the node is NOT deregistered and in-flight work is
- * NOT failed. Kept short so a genuine disconnect is still noticed promptly.
- */
-const DISCONNECT_GRACE_MS = 2_500;
 
 /** Sliding window + threshold for flap-storm detection (replaces per node). */
 const FLAP_WINDOW_MS = 60_000;
@@ -65,9 +57,20 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   private readonly nodeToSocket = new Map<string, WebSocket>();
   private readonly socketToNode = new Map<WebSocket, string>();
   private readonly pending = new Map<string | number, PendingRpc>();
-  // Grace timers keyed by nodeId: a scheduled "true disconnect" that fires only
-  // if the node does not re-register within DISCONNECT_GRACE_MS.
-  private readonly disconnectGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Grace + parked-work disconnect windows (see connection-disconnect-lifecycle).
+  private readonly disconnectLifecycle = new ConnectionDisconnectLifecycle({
+    isNodeConnected: (nodeId) => this.isNodeConnected(nodeId),
+    isDurableNode: (nodeId) =>
+      (getWorkerNodeRegistry().getNode(nodeId)?.capabilities?.streamDurability ?? 0) >= 1,
+    hasPendingWork: (nodeId) =>
+      [...this.pending.values()].some((pending) => pending.nodeId === nodeId && pending.isWork),
+    rejectPending: (nodeId, reason, filter) => this.rejectPendingForNode(nodeId, reason, filter),
+    onTrueDisconnect: (nodeId) => {
+      const node = getWorkerNodeRegistry().getNode(nodeId);
+      logger.info('Node WebSocket disconnected', { node: node?.name ?? nodeId, nodeId });
+      this.emit('node:ws-disconnected', nodeId);
+    },
+  });
   private readonly flapDetector = new ConnectionFlapDetector(FLAP_WINDOW_MS, FLAP_THRESHOLD);
   private requestCounter = 0;
   private stopRosterUpdates: (() => void) | null = null;
@@ -161,11 +164,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       this.pending.delete(id);
     }
 
-    // Cancel any in-flight disconnect grace timers and clear flap state.
-    for (const timer of this.disconnectGraceTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.disconnectGraceTimers.clear();
+    // Cancel any in-flight disconnect grace/parked timers and clear flap state.
+    this.disconnectLifecycle.clearAll();
     this.flapDetector.clear();
 
     // Close all WebSocket connections
@@ -281,9 +281,15 @@ export class WorkerNodeConnectionServer extends EventEmitter {
    * when a node's WebSocket truly disconnects so that in-flight requests fail
    * promptly instead of hanging until their (possibly disabled) timeout.
    */
-  private rejectPendingForNode(nodeId: string, reason: string): void {
+  private rejectPendingForNode(
+    nodeId: string,
+    reason: string,
+    filter: 'all' | 'non-work' | 'work' = 'all',
+  ): void {
     for (const [id, pending] of this.pending) {
       if (pending.nodeId !== nodeId) continue;
+      if (filter === 'non-work' && pending.isWork) continue;
+      if (filter === 'work' && !pending.isWork) continue;
       if (pending.timer) clearTimeout(pending.timer);
       this.pending.delete(id);
       if (pending.isWork) {
@@ -301,11 +307,16 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     }
   }
 
-  sendNotification(nodeId: string, method: string, params?: unknown, scope?: RpcScope): void {
+  /**
+   * Returns false when the node is not connected (WS15 typed failure — callers
+   * can react instead of the send silently vanishing). Write errors after a
+   * successful handoff are still logged asynchronously.
+   */
+  sendNotification(nodeId: string, method: string, params?: unknown, scope?: RpcScope): boolean {
     const ws = this.nodeToSocket.get(nodeId);
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      logger.warn('sendNotification: node not connected', { nodeId, method });
-      return;
+      logger.warn('sendNotification: node not connected — notification NOT delivered', { nodeId, method });
+      return false;
     }
 
     const notification = createRpcNotification(method, params, undefined, scope);
@@ -314,6 +325,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         logger.error('sendNotification failed', err, { nodeId, method });
       }
     });
+    return true;
   }
 
   broadcast(method: string, params?: unknown): void {
@@ -416,44 +428,12 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       // reconnect) frequently re-registers within a couple seconds; the node's
       // CLIs keep running locally the whole time. Start a short grace window and
       // only treat this as a true disconnect if no re-registration arrives.
-      this.beginDisconnectGrace(nodeId);
+      this.disconnectLifecycle.beginGrace(nodeId);
     });
 
     ws.on('error', (err) => {
       logger.error('WebSocket error', err, { nodeId: nodeId ?? 'unregistered' });
     });
-  }
-
-  /**
-   * Schedule a "true disconnect" for a node whose active socket just closed. If
-   * the node re-registers within DISCONNECT_GRACE_MS, {@link cancelDisconnectGrace}
-   * clears this timer and the session is treated as continuous (no deregister,
-   * in-flight RPCs preserved). Otherwise the node is deregistered and its
-   * in-flight RPCs are failed.
-   */
-  private beginDisconnectGrace(nodeId: string): void {
-    const existing = this.disconnectGraceTimers.get(nodeId);
-    if (existing) {
-      clearTimeout(existing);
-    }
-    const timer = setTimeout(() => {
-      this.disconnectGraceTimers.delete(nodeId);
-      // Re-registered during the window? A live socket means the session is
-      // continuous — nothing to do.
-      if (this.isNodeConnected(nodeId)) {
-        return;
-      }
-      // Grace elapsed with no re-registration — this is a real disconnect.
-      this.rejectPendingForNode(nodeId, `Node disconnected: ${nodeId}`);
-      const node = getWorkerNodeRegistry().getNode(nodeId);
-      logger.info('Node WebSocket disconnected', { node: node?.name ?? nodeId, nodeId });
-      this.emit('node:ws-disconnected', nodeId);
-    }, DISCONNECT_GRACE_MS);
-    // Don't keep the event loop alive purely for this timer.
-    if (typeof timer.unref === 'function') {
-      timer.unref();
-    }
-    this.disconnectGraceTimers.set(nodeId, timer);
   }
 
   /**
@@ -477,20 +457,6 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         windowMs: FLAP_WINDOW_MS,
       });
     }
-  }
-
-  /**
-   * Cancel a pending disconnect grace timer because the node re-registered.
-   * Returns true if a grace window was actually in progress.
-   */
-  private cancelDisconnectGrace(nodeId: string): boolean {
-    const timer = this.disconnectGraceTimers.get(nodeId);
-    if (!timer) {
-      return false;
-    }
-    clearTimeout(timer);
-    this.disconnectGraceTimers.delete(nodeId);
-    return true;
   }
 
   private handleRegistration(
@@ -563,7 +529,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     // Cancelling the grace timer keeps the node in the registry and preserves
     // its in-flight RPCs (they were never rejected), effectively re-binding them
     // to this new socket.
-    const withinGrace = this.cancelDisconnectGrace(newNodeId);
+    const withinGrace = this.disconnectLifecycle.cancelOnReregister(newNodeId);
     if (withinGrace) {
       logger.info('Node re-registered within disconnect grace — treating as continuous session', {
         node: name,

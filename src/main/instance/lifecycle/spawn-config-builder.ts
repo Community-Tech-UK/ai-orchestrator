@@ -23,7 +23,10 @@ import {
 } from '../../../shared/types/mcp-scopes.types';
 import {
   buildBrowserGatewayMcpConfigJson,
+  createBrowserMcpTools,
+  createDeferredBrowserMcpTools,
   getBrowserGatewayRpcSocketPath,
+  measureToolSchemaBytes,
   type BrowserGatewayMcpConfigOptions,
   buildChromeDevtoolsMcpConfigJson,
   resolveChromeDevtoolsBrowserUrl,
@@ -52,6 +55,10 @@ import {
 } from '../../mcp/orchestrator-tools-mcp-config';
 import { getOrchestratorToolsRpcSocketPath } from '../../mcp/orchestrator-tools-rpc-server';
 import { resolveAioMcpCliPath } from '../../util/aio-mcp-cli-path';
+import {
+  getInstanceBrowserToolsMode,
+  resolveBrowserToolsMode,
+} from './browser-tool-scoping';
 
 const logger = getLogger('SpawnConfigBuilder');
 
@@ -79,6 +86,12 @@ export interface SpawnConfigBuilderDeps {
  */
 export class SpawnConfigBuilder {
   private rtkHookEligibility: boolean | null = null;
+  private browserToolSchemaMeasurement: {
+    visibleToolCount: number;
+    visibleSchemaBytes: number;
+    fullToolCount: number;
+    fullSchemaBytes: number;
+  } | null = null;
   private readonly settings: SettingsManager;
 
   constructor(deps: SpawnConfigBuilderDeps) {
@@ -298,12 +311,73 @@ export class SpawnConfigBuilder {
     if (!aioMcpCliPath) {
       return null;
     }
+    // WS9: per-instance mode wins over the global deferral setting; 'off'
+    // disables the browser-gateway MCP server for this instance entirely.
+    const mode = resolveBrowserToolsMode(
+      getInstanceBrowserToolsMode(instanceId),
+      this.settings.getAll().browserMcpToolDeferral,
+    );
+    if (mode === 'off') {
+      logger.info('Browser gateway MCP disabled for instance (browserToolsMode=off)', { instanceId });
+      return null;
+    }
+    const toolDeferral = mode === 'deferred';
+    this.logBrowserToolSchemaBytes(instanceId, toolDeferral);
     return {
       aioMcpCliPath,
       socketPath,
       instanceId,
       ...(provider ? { provider } : {}),
+      ...(toolDeferral ? { toolDeferral } : {}),
     };
+  }
+
+  /**
+   * WS9 telemetry: log the browser tool-schema bytes a session will receive
+   * from its initial tools/list, next to the full-surface cost, so the
+   * deferral win is measurable per spawn. Computed from static tool
+   * definitions only — no gateway round trip.
+   */
+  private logBrowserToolSchemaBytes(instanceId: string, toolDeferral: boolean): void {
+    try {
+      const measurement = this.getBrowserToolSchemaMeasurement();
+      if (!toolDeferral) {
+        logger.info('Browser gateway tool schemas injected eagerly', {
+          instanceId,
+          toolCount: measurement.fullToolCount,
+          schemaBytes: measurement.fullSchemaBytes,
+        });
+        return;
+      }
+      logger.info('Browser gateway tool schemas deferred', { instanceId, ...measurement });
+    } catch (error) {
+      logger.warn('Failed to measure browser tool schema bytes', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** Static per-process measurement — tool definitions never change at runtime. */
+  private getBrowserToolSchemaMeasurement(): {
+    visibleToolCount: number;
+    visibleSchemaBytes: number;
+    fullToolCount: number;
+    fullSchemaBytes: number;
+  } {
+    if (!this.browserToolSchemaMeasurement) {
+      const noopClient = { call: async () => ({}) };
+      const fullTools = createBrowserMcpTools(noopClient);
+      const deferredTools = createDeferredBrowserMcpTools(noopClient, { onReveal: () => {} });
+      const visibleTools = deferredTools.filter((tool) => !tool.hidden);
+      this.browserToolSchemaMeasurement = {
+        visibleToolCount: visibleTools.length,
+        visibleSchemaBytes: measureToolSchemaBytes(visibleTools),
+        fullToolCount: fullTools.length,
+        fullSchemaBytes: measureToolSchemaBytes(fullTools),
+      };
+    }
+    return this.browserToolSchemaMeasurement;
   }
 
   getComputerUseMcpOptions(

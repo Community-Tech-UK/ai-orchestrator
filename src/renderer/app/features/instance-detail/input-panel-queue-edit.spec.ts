@@ -13,6 +13,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderType } from '../../core/services/provider-state.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
+import { InstanceStore } from '../../core/state/instance.store';
 import { DraftService } from '../../core/services/draft.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
@@ -174,6 +175,7 @@ describe('InputPanelComponent queued message editing', () => {
         { provide: NewSessionDraftService, useValue: createNewSessionDraftMock() },
         { provide: SettingsStore, useValue: { defaultYoloMode: signal(false) } },
         { provide: ActionDispatchService, useValue: { dispatch: vi.fn() } },
+        { provide: InstanceStore, useValue: { getInstance: vi.fn(() => undefined) } },
         {
           provide: KeybindingService,
           useValue: {

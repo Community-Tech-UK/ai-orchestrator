@@ -1367,43 +1367,6 @@
   font-size: 10px;
 }
 
-.quota-park-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  margin-bottom: 8px;
-  border-radius: 8px;
-  background: var(--surface-sunken-bg, rgba(255, 255, 255, 0.03));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-  font-size: 12px;
-  color: var(--text-secondary);
-  cursor: help;
-
-  .quota-park-text {
-    flex: 1;
-  }
-
-  .quota-park-btn {
-    font-size: 11px;
-    padding: 2px 10px;
-    border-radius: 5px;
-    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-
-    &:hover {
-      background: var(--hover-bg, rgba(255, 255, 255, 0.06));
-      color: var(--text-primary, #fff);
-    }
-
-    &.quota-park-btn--secondary {
-      color: var(--text-muted);
-    }
-  }
-}
-
 .edit-mode-bar {
   display: flex;
   align-items: center;

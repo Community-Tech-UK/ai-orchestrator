@@ -1,22 +1,10 @@
 <div class="input-panel">
-  <!-- Provider quota park: gates the composer, so it renders here rather than in the header -->
-  @if (quotaParkLabel()) {
-    <div class="quota-park-bar" role="status" [title]="quotaParkDetail()">
-      <span class="quota-park-text">{{ quotaParkLabel() }}</span>
-      <button
-        type="button"
-        class="quota-park-btn"
-        title="Resume this session now instead of waiting"
-        (click)="onResumeFromProviderLimit()"
-      >Resume now</button>
-      <button
-        type="button"
-        class="quota-park-btn quota-park-btn--secondary"
-        title="Cancel the auto-resume for this session"
-        (click)="onCancelProviderLimitPark()"
-      >Cancel</button>
-    </div>
-  }
+  <!-- Quota-park + hardened-denial session bars (they gate the composer) -->
+  <app-composer-banners
+    [instanceId]="instanceId()"
+    [waitReason]="waitReason()"
+    [instanceStatus]="instanceStatus()"
+  />
 
   <!-- Pending files and folders preview -->
   @if (pendingFilePreviews().length > 0 || pendingFolders().length > 0) {
@@ -145,6 +133,17 @@
             <span class="yolo-icon">{{ effectiveYoloMode() ? '⚡' : '🛡️' }}</span>
             <span class="yolo-label">YOLO {{ effectiveYoloMode() ? 'ON' : 'OFF' }}</span>
           </button>
+          @if (showHardenedToggle()) {
+            <button
+              class="yolo-toggle hardened-toggle"
+              [class.active]="draftHardened()"
+              (click)="onToggleHardened()"
+              [title]="draftHardened() ? 'Hardened ON — CLI runs inside the macOS Seatbelt sandbox (writes confined to the workspace)' : 'Hardened OFF — CLI runs unsandboxed'"
+            >
+              <span class="yolo-icon">{{ draftHardened() ? '🔒' : '🔓' }}</span>
+              <span class="yolo-label">Hardened {{ draftHardened() ? 'ON' : 'OFF' }}</span>
+            </button>
+          }
         </div>
       </div>
     </div>

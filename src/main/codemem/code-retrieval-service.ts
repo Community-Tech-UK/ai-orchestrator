@@ -4,6 +4,8 @@ import type { CasStore } from './cas-store';
 import type { IndexWorkerGateway } from './index-worker-gateway';
 import { inferLanguage } from './code-index-manager';
 import { searchHydratedChunks, type CodeRetrievalResult } from './workspace-chunk-search';
+import { sanitizeRetrievalQuery } from '../memory/retrieval-eval/query-sanitizer';
+import { getRecallTraceStore } from '../memory/retrieval-eval/recall-trace-store';
 
 export type { CodeRetrievalResult };
 
@@ -50,11 +52,37 @@ export class CodeRetrievalService {
   }
 
   async search(options: CodeRetrievalSearchOptions): Promise<CodeRetrievalResult[]> {
-    const query = options.query.trim();
+    const rawQuery = options.query.trim();
+    if (rawQuery.length < 2) return [];
+
+    // WS16: recover search intent from over-long pasted queries before FTS.
+    const sanitized = sanitizeRetrievalQuery(rawQuery);
+    const query = sanitized.query;
     if (query.length < 2) return [];
 
     const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 8), 50));
     const workspacePath = path.resolve(options.workspacePath);
+    const results = await this.searchInternal(query, workspacePath, limit, options.maxTokens);
+    // WS16: recall trace (raw + sanitized retained locally for offline analysis).
+    try {
+      getRecallTraceStore().record({
+        surface: 'codemem',
+        query,
+        rawQuery: sanitized.sanitized ? rawQuery : undefined,
+        sanitizedQuery: sanitized.sanitized ? query : undefined,
+        returned: results.map((r) => ({ id: r.relativePath, score: r.score })),
+      });
+    } catch { /* tracing is best-effort observability */ }
+    return results;
+  }
+
+  private async searchInternal(
+    query: string,
+    workspacePath: string,
+    limit: number,
+    maxTokens: number | undefined,
+  ): Promise<CodeRetrievalResult[]> {
+    const options = { maxTokens };
 
     // Preferred path: run the FTS + chunk hydration in the index worker, off the
     // main event loop. The gateway returns null on timeout/degradation (→ ripgrep)

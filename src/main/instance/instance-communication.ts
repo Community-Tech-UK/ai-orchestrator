@@ -11,6 +11,9 @@ import { getLogger } from '../logging/logger';
 import { getOutputStorageManager } from '../memory';
 import { getCostTracker } from '../core/system/cost-tracker';
 import { recordInstanceTurnAttribution } from '../core/system/cost-attribution';
+import { getCacheAnalyticsService } from '../context/cache-analytics-service';
+import { getHandoffStateService } from '../session/handoff-state-service';
+import { noteSandboxDenialOnExit } from './lifecycle/sandbox-exit-advice';
 import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { getHookManager } from '../hooks/hook-manager';
 import { emitPluginHook } from '../plugins/hook-emitter';
@@ -275,6 +278,14 @@ export class InstanceCommunicationManager extends EventEmitter {
         usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning, cost: typeof providerCost === 'number' ? providerCost : undefined },
         costKnown: typeof providerCost === 'number',
       });
+      // WS8 cache-efficiency analytics: feed the per-turn cache sample so the
+      // instance-detail panel can trend hit ratio and flag cache breaks.
+      getCacheAnalyticsService().recordTurn(instanceId, { input, cacheRead, cacheWrite });
+      // Spec item 5: maintain the rolling handoff document as turns complete
+      // (cheap, no LLM; only when the feature is enabled).
+      if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
+        getHandoffStateService().noteTurnCompleted(instance);
+      }
     } catch (err) {
       logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
     }
@@ -2256,6 +2267,11 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         const newStatus = code === 0 ? 'terminated' : 'error';
         logger.info('Instance exited unexpectedly', { instanceId, newStatus, code, signal });
+        // WS13 slice 3: hardened-denial classification + notification (see
+        // lifecycle/sandbox-exit-advice.ts). Empty string when not a denial.
+        const sandboxAdvice = newStatus === 'error'
+          ? noteSandboxDenialOnExit(instanceId, code, instance.outputBuffer)
+          : '';
         if (newStatus === 'error') {
           dispatchInstanceLifecycleHook('StopFailure', instance, {
             errorMessage: `Process exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`,
@@ -2271,7 +2287,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           undefined,
           undefined,
           undefined,
-          newStatus === 'error' ? buildCrashError(`Process exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`) : undefined
+          newStatus === 'error' ? buildCrashError(`Process exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}${sandboxAdvice}`) : undefined
         );
 
         this.deps.deleteAdapter(instanceId);

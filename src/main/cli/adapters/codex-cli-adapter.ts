@@ -533,7 +533,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     // Decide which mode to use
-    const appServerAvailable = Boolean(status.metadata?.['appServerAvailable']);
+    // WS13: the app-server rides a SHARED broker process that spawns outside
+    // the BaseCliAdapter Seatbelt choke point (and cannot be jailed with one
+    // instance's writable roots). A hardened instance therefore always runs
+    // exec mode, whose per-turn spawns go through the sandbox wrap.
+    const appServerAvailable =
+      Boolean(status.metadata?.['appServerAvailable']) && !this.isHardenedModeConfigured();
     // Always run codex against a prepared CODEX_HOME (unless the caller set
     // an explicit override): AIO session history must stay out of the user's
     // ~/.codex so the Codex app never lists orchestrator-driven sessions.

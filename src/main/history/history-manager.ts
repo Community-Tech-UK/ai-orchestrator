@@ -244,6 +244,9 @@ export class HistoryManager {
         provider: instance.provider,
         currentModel: instance.currentModel,
         runtimeSummary: instance.runtimeSummary ?? previousEntries.find((e) => e.runtimeSummary)?.runtimeSummary,
+        // WS9: keep the per-instance browser tool surface across archive → restore (carried across re-archival like runtimeSummary).
+        browserToolsMode: instance.browserToolsMode ?? previousEntries.find((e) => e.browserToolsMode)?.browserToolsMode,
+        hardened: instance.hardened ?? previousEntries.find((e) => e.hardened)?.hardened,
         executionLocation,
         snippets,
         // Net line-change summary for the completed session, shown as the

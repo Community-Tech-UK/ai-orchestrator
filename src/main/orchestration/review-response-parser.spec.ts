@@ -94,3 +94,27 @@ describe('isLikelyReviewRefusal', () => {
     expect(isLikelyReviewRefusal('')).toBe(false);
   });
 });
+
+describe('parseCrossModelReviewResponse fuzz — malformed input never silently parses (WS14)', () => {
+  const MALFORMED: Array<[string, string]> = [
+    ['empty string', ''],
+    ['plain prose', 'The change looks fine to me overall, nice work.'],
+    ['truncated JSON', '{"correctness": {"score": 8, "reasoning": "ok"'],
+    ['valid JSON, wrong shape', JSON.stringify({ verdict: 'ship it', score: 11 })],
+    ['array instead of object', JSON.stringify([1, 2, 3])],
+    ['scores as bare numbers with no verdict', JSON.stringify({ correctness: 9, completeness: 9, security: 9, consistency: 9 })],
+    ['invalid verdict enum', JSON.stringify({
+      correctness: { score: 8, reasoning: 'ok' },
+      completeness: { score: 8, reasoning: 'ok' },
+      security: { score: 8, reasoning: 'ok' },
+      consistency: { score: 8, reasoning: 'ok' },
+      overall_verdict: 'SHIP_IT',
+      summary: 'fine',
+    })],
+    ['JSON buried in prose but still wrong shape', 'Here is my review: {"thoughts": "solid"} — hope that helps!'],
+  ];
+
+  it.each(MALFORMED)('returns null for %s', (_label, raw) => {
+    expect(parseCrossModelReviewResponse('claude', raw, 'structured', 0)).toBeNull();
+  });
+});

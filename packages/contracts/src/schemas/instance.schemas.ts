@@ -154,6 +154,8 @@ export const InstanceCreatePayloadSchema = z.object({
   fastMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),
   nodePlacement: NodePlacementPrefsSchema.optional(),
+  browserToolsMode: z.enum(['eager', 'deferred', 'off']).optional(),
+  hardened: z.boolean().optional(),
 });
 
 export type ValidatedInstanceCreatePayload = z.infer<typeof InstanceCreatePayloadSchema>;
@@ -172,6 +174,8 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   fastMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),
   nodePlacement: NodePlacementPrefsSchema.optional(),
+  browserToolsMode: z.enum(['eager', 'deferred', 'off']).optional(),
+  hardened: z.boolean().optional(),
 });
 
 // ============ Instance Input ============
@@ -328,6 +332,16 @@ export type InputRequiredResponsePayload = z.infer<typeof InputRequiredResponseP
 
 export const InstanceInterruptPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
+});
+
+export const InstanceFailoverNowPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+/** WS13 slice 3 — session-scoped Seatbelt grant: allow a path and restart into the rebuilt jail. */
+export const InstanceHardenedAllowPathPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  path: z.string().min(1).max(4096),
 });
 
 export const InstanceProviderLimitResumeNowPayloadSchema = z.object({

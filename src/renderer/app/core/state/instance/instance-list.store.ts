@@ -37,6 +37,8 @@ export interface CreateInstanceWithMessageOptions {
   yoloMode?: boolean;
   bareMode?: boolean;
   fastMode?: boolean;
+  /** WS13 — run the CLI inside the macOS Seatbelt jail. */
+  hardened?: boolean;
   launchMode?: Instance['launchMode'];
   forceNodeId?: string;
 }
@@ -152,6 +154,8 @@ export class InstanceListStore {
         bareMode: config.bareMode,
         fastMode: this.resolveFastModeForCreate(config.fastMode, config.provider),
         forceNodeId: config.forceNodeId,
+        ...(config.browserToolsMode ? { browserToolsMode: config.browserToolsMode } : {}),
+        ...(config.hardened ? { hardened: true } : {}),
       };
       const result = await Promise.race([
         this.ipc.createInstance(payload).then((response) => ({
@@ -263,6 +267,7 @@ export class InstanceListStore {
         ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         bareMode,
         fastMode: this.resolveFastModeForCreate(fastMode, provider),
+        ...(options.hardened ? { hardened: true } : {}),
         forceNodeId,
       });
       console.log('InstanceListStore: createInstanceWithMessage result:', result);
@@ -375,17 +380,19 @@ export class InstanceListStore {
 
     if (response.success && 'data' in response) {
       // Queue-aware: when settled, yoloMode flips; when busy, yoloMode is
-      // unchanged and pendingYoloMode carries the parked value (auto-applied on
-      // idle, at which point a yolo-toggled push clears it). An authoritative
-      // yolo-toggled event also syncs these fields — this is immediate feedback.
+      // unchanged and the parked value rides in desiredRuntime.yoloMode
+      // (auto-applied on idle, at which point a yolo-toggled push clears it).
+      // The wire Instance no longer carries pendingYoloMode — the renderer's
+      // convenience field is fed from desiredRuntime here and kept in sync by
+      // the authoritative yolo-toggled event. This is immediate feedback.
       const data = response.data as
-        | { yoloMode?: boolean; pendingYoloMode?: boolean; status?: string }
+        | { yoloMode?: boolean; desiredRuntime?: { yoloMode?: boolean } | null; status?: string }
         | undefined;
       const newYoloMode = data?.yoloMode ?? !instance.yoloMode;
 
       this.stateService.updateInstance(instanceId, {
         yoloMode: newYoloMode,
-        pendingYoloMode: data?.pendingYoloMode,
+        pendingYoloMode: data?.desiredRuntime?.yoloMode,
         status: (data?.status as InstanceStatus) || instance.status,
       });
     } else if ('error' in response) {

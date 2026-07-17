@@ -8,6 +8,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
+import { resolveHardenedSpawn } from '../../sandbox/seatbelt';
 import { getOutputPersistenceManager } from '../../context/output-persistence';
 import { buildCliSpawnOptions } from '../cli-environment';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
@@ -494,6 +495,22 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
   /** Cached Windows launcher resolution: `undefined` = unattempted; `null` = failed. */
   private resolvedWindowsLauncher: WindowsCliLauncher | null | undefined;
+
+  /** WS13 hardened mode — set post-construction by the adapter factory. */
+  private hardenedMode: { writableRoots: string[] } | null = null;
+
+  /**
+   * Enable Seatbelt hardened mode for every subsequent spawn of this adapter
+   * (macOS only; the spawn fails closed when sandbox-exec is unavailable).
+   */
+  configureHardenedMode(params: { writableRoots: string[] }): void {
+    this.hardenedMode = { writableRoots: [...params.writableRoots] };
+  }
+
+  /** Whether this adapter will jail its spawns (subclasses gate mode choices on it). */
+  protected isHardenedModeConfigured(): boolean {
+    return this.hardenedMode !== null;
+  }
   private readonly posixSpawnCommandResolver = new PosixSpawnCommandResolver();
   /**
    * Resolve the final spawn target just before `spawn()`. On Windows this maps
@@ -548,7 +565,23 @@ export abstract class BaseCliAdapter extends EventEmitter {
     const mergedEnv = { ...safeEnv, ...this.config.env };
     const spawnOptions = buildCliSpawnOptions(mergedEnv);
 
-    const target = this.resolveSpawnTarget(this.config.command, fullArgs, spawnOptions);
+    // WS13 hardened mode: wrap the CLI in the macOS Seatbelt jail. Fail-closed
+    // — resolveHardenedSpawn throws when sandbox-exec is unavailable, so a
+    // hardened instance never silently runs unsandboxed.
+    const hardenedTarget = resolveHardenedSpawn({
+      hardened: this.hardenedMode !== null,
+      command: this.config.command,
+      args: fullArgs,
+      writableRoots: this.hardenedMode?.writableRoots ?? [],
+    });
+    if (this.hardenedMode) {
+      logger.info('Spawning CLI under Seatbelt hardened mode', {
+        adapter: this.getName(),
+        writableRootCount: this.hardenedMode.writableRoots.length,
+      });
+    }
+
+    const target = this.resolveSpawnTarget(hardenedTarget.command, hardenedTarget.args, spawnOptions);
     const useShell = target.shell;
     const detached = target.detached ?? !useShell;
 

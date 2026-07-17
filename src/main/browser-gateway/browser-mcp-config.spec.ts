@@ -68,6 +68,19 @@ describe('browser-mcp-config', () => {
     });
   });
 
+  it('sets the tool-deferral env flag only when requested (WS9)', () => {
+    const withDeferral = resolveBrowserGatewayBridgeSpec({
+      ...options,
+      toolDeferral: true,
+    });
+    expect(withDeferral?.env).toMatchObject({
+      AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL: '1',
+    });
+
+    const withoutDeferral = resolveBrowserGatewayBridgeSpec(options);
+    expect(withoutDeferral?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
+  });
+
   it('builds Codex TOML config pointing at the aio-mcp SEA', () => {
     const config = buildBrowserGatewayCodexConfigToml({
       ...options,

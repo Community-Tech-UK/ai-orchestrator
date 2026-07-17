@@ -169,6 +169,25 @@ export function createInitializationSteps(
       },
     },
     {
+      name: 'Context analytics',
+      fn: () => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { wireContextAnalytics } = require('../context/context-analytics-wiring') as typeof import('../context/context-analytics-wiring');
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getSettingsManager } = require('../core/config/settings-manager') as typeof import('../core/config/settings-manager');
+          wireContextAnalytics({
+            instanceEvents: instanceManager,
+            settingsEvents: getSettingsManager(),
+          });
+        } catch (error) {
+          logger.warn('Context analytics wiring failed; cache-break correlation is unavailable this session', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
       name: 'Operator database',
       fn: () => {
         try {

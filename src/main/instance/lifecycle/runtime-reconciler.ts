@@ -23,7 +23,10 @@ import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getModelSwitchUnavailableReason } from '../../../shared/types/instance-status-policy';
 import { getSessionMutex } from '../../session/session-mutex';
-import { getSessionContinuityManager } from '../../session/session-continuity';
+import {
+  getSessionContinuityManager,
+  getSessionContinuityManagerIfInitialized,
+} from '../../session/session-continuity';
 import {
   getDefaultModelForCli,
   getProviderModelContextWindow,
@@ -49,7 +52,12 @@ import {
 import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
-import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
+import type {
+  RecoveryRespawnHooks,
+  RecoveryRespawnOutcome,
+  RecoveryRespawnRequest,
+  RuntimeReconcilerDeps,
+} from './runtime-reconciler.types';
 
 const logger = getLogger('RuntimeReconciler');
 
@@ -88,6 +96,25 @@ export class RuntimeReconciler {
       const isProviderSwap = diff.providerChanged;
       const targetProvider = desired.provider as SwapTargetProvider;
       const settingsAll = this.deps.getSettings();
+      const nextYoloMode = desired.yoloMode === undefined ? instance.yoloMode : desired.yoloMode;
+      // A change that touches ONLY the permission posture uses yolo's own
+      // continuity rule (below) instead of planContinuity, which forces
+      // replay for every Claude change to guarantee a *model* change actually
+      // takes effect. That reasoning doesn't apply when the model isn't
+      // changing — Claude native-resume is safe for a pure yolo toggle.
+      const isYoloOnlyChange =
+        diff.yoloModeChanged
+        && !diff.providerChanged
+        && !diff.modelChanged
+        && !diff.reasoningChanged
+        && !diff.runtimeTargetChanged;
+      if (diff.yoloModeChanged && nextYoloMode) {
+        logger.warn('YOLO mode enabled for instance', {
+          instanceId: instance.id,
+          parentId: instance.parentId,
+          provider: instance.provider,
+        });
+      }
 
       let newModel = desired.model;
       if (isProviderSwap) {
@@ -139,12 +166,13 @@ export class RuntimeReconciler {
 
       // Update instance state
       this.deps.transitionState(instance, 'initializing');
+      instance.yoloMode = nextYoloMode;
 
-      // Resolve agent and permissions (same as toggleYoloMode)
+      // Resolve agent and permissions
       const agent = getAgentById(instance.agentId) || getDefaultAgent();
       const toolPermissions = buildToolPermissionConfig(agent.permissions, {
         allowedToolsPolicy: 'standard-unless-yolo',
-        yoloMode: instance.yoloMode,
+        yoloMode: nextYoloMode,
       });
       attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
@@ -163,13 +191,17 @@ export class RuntimeReconciler {
       }
 
       const cliType = await this.deps.resolveCliTypeForInstance(instance);
-      const continuity = planContinuity({
-        diff,
-        capabilities: oldAdapterCapabilities,
-        hasConversation,
-        cliType,
-        isLocalModelTarget: !!localModelTarget,
-      });
+      const continuity = isYoloOnlyChange
+        ? (hasConversation && oldAdapterCapabilities.supportsResume
+            ? (oldAdapterCapabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume')
+            : 'replay')
+        : planContinuity({
+            diff,
+            capabilities: oldAdapterCapabilities,
+            hasConversation,
+            cliType,
+            isLocalModelTarget: !!localModelTarget,
+          });
       const shouldResume = continuity !== 'replay';
       const shouldForkSession = continuity === 'native-resume-fork';
 
@@ -340,16 +372,37 @@ export class RuntimeReconciler {
 
         if (!shouldResume && hasConversation) {
           await adapter.sendInput(
-            this.deps.buildReplayContinuityMessage(instance, isProviderSwap ? 'provider-change' : 'model-change'),
+            this.deps.buildReplayContinuityMessage(
+              instance,
+              isYoloOnlyChange ? 'yolo-toggle' : isProviderSwap ? 'provider-change' : 'model-change',
+            ),
           );
         }
 
-        // Notify the instance about the change
-        await adapter.sendInput(
-          isProviderSwap
-            ? `[System: Provider changed from ${oldProvider} (model ${oldModel}) to ${instance.provider} (model ${validatedModel || 'provider default'}). Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been carried over from the previous provider.]`
-            : `[System: Model changed from ${oldModel} to ${validatedModel || 'provider default'}. Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been preserved.]`
-        );
+        if (isYoloOnlyChange) {
+          // Notify the instance about the permission-posture change.
+          await adapter.sendInput(
+            nextYoloMode
+              ? '[System: YOLO mode enabled - tool permissions are now pre-configured for this mode.]'
+              : '[System: YOLO mode disabled - tool permissions will now require approval.]'
+          );
+        } else {
+          // Notify the instance about the change
+          await adapter.sendInput(
+            isProviderSwap
+              ? `[System: Provider changed from ${oldProvider} (model ${oldModel}) to ${instance.provider} (model ${validatedModel || 'provider default'}). Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been carried over from the previous provider.]`
+              : `[System: Model changed from ${oldModel} to ${validatedModel || 'provider default'}. Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been preserved.]`
+          );
+          if (diff.yoloModeChanged) {
+            // Combined change (e.g. a queued model swap and a queued yolo
+            // flip both landed together) — also announce the permission change.
+            await adapter.sendInput(
+              nextYoloMode
+                ? '[System: YOLO mode enabled - tool permissions are now pre-configured for this mode.]'
+                : '[System: YOLO mode disabled - tool permissions will now require approval.]'
+            );
+          }
+        }
       } catch (error) {
         if (isProviderSwap) {
           // Leave the instance pointed at its previous provider so a manual
@@ -380,16 +433,193 @@ export class RuntimeReconciler {
         undefined,
         { provider: instance.provider, desiredRuntime: null },
       );
-      this.deps.emitRuntimeChanged({
-        instanceId,
-        model: validatedModel ?? newModel,
-        provider: instance.provider,
-        reasoningEffort: nextReasoningEffort,
-      });
+      if (!isYoloOnlyChange) {
+        // A pure permission-posture flip is not a model/provider change —
+        // the old toggleYoloMode never announced one either.
+        this.deps.emitRuntimeChanged({
+          instanceId,
+          model: validatedModel ?? newModel,
+          provider: instance.provider,
+          reasoningEffort: nextReasoningEffort,
+        });
+      }
+      if (diff.yoloModeChanged) {
+        // Live push for the renderer's pending-yolo convenience state. This
+        // also covers the deferred auto-apply path, which never goes through
+        // the requestYoloModeToggle wrapper.
+        this.deps.emitYoloToggled({ instanceId, yoloMode: nextYoloMode });
+      }
 
       return instance;
     } finally {
       release();
     }
+  }
+
+  /**
+   * Spec item 2: the recovery-respawn spawn core (interrupt today; the
+   * unexpected-exit and history-restore paths migrate onto this in items 3/4).
+   *
+   * Contract: the CALLER holds the per-instance session lock (acquired with
+   * its recovery metadata before breaker/abort/plan work) — asserted here so
+   * misuse fails loudly instead of racing. This preserves the "reconciler is
+   * the single mutex-owning executor" intent without re-entering the
+   * non-reentrant SessionMutex (see the self-deadlock incident).
+   *
+   * Owns, in incident-hardened order: adapter create/register → abort check →
+   * spawn → resume-health wait → readiness wait; on resume failure:
+   * listener-strip → terminate → fresh session identity
+   * (blacklist/persisted flags) → re-create → abort check → spawn →
+   * `writeThroughIdentityLocked` (fresh id, null cursor, BEFORE reporting
+   * complete) → readiness wait → fallback-history delivery. Success-path
+   * session flags and `recoveryMethod` are set here; all interrupt-phase and
+   * renderer bookkeeping stays with the orchestrator.
+   */
+  async applyRecoveryRespawn(
+    instanceId: string,
+    request: RecoveryRespawnRequest,
+    hooks: RecoveryRespawnHooks,
+  ): Promise<RecoveryRespawnOutcome> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+    if (!getSessionMutex().getLockInfo(instanceId)) {
+      throw new Error(
+        'applyRecoveryRespawn requires the caller to hold the session lock (recovery-entry contract)',
+      );
+    }
+
+    let adapter = this.deps.createRuntimeAdapter(
+      request.cliType,
+      request.spawnOptions,
+      instance.executionLocation,
+    );
+    this.deps.setupAdapterEvents(instanceId, adapter);
+    this.deps.setAdapter(instanceId, adapter);
+
+    if (hooks.shouldAbort()) {
+      await hooks.onAborted(adapter, 'pre-spawn recovery respawn cancellation');
+      return { status: 'aborted' };
+    }
+
+    let pid: number;
+    let actuallyResumed = request.shouldResume;
+    let recoveryInputSent = false;
+    try {
+      pid = await adapter.spawn();
+      instance.processId = pid;
+      if (request.shouldResume && !(await this.deps.waitForResumeHealth(instanceId))) {
+        throw new Error('Native resume did not stabilize during recovery respawn');
+      }
+      instance.providerSessionId = request.postSpawnProviderSessionId;
+      await hooks.waitReady(adapter);
+    } catch (spawnError) {
+      if (hooks.shouldAbort()) {
+        await hooks.onAborted(adapter, 'recovery respawn spawn cancelled');
+        return { status: 'aborted' };
+      }
+      if (!request.shouldResume) {
+        throw spawnError;
+      }
+
+      // Resume failed (e.g. corrupted session). Fall back to a fresh session
+      // with replay continuity.
+      logger.warn('Resume failed during recovery respawn, falling back to fresh session', {
+        instanceId,
+        error: spawnError instanceof Error ? spawnError.message : String(spawnError),
+      });
+      // Remove listeners BEFORE terminating so the exit handler does not treat
+      // the doomed resume adapter's exit as a real instance exit.
+      adapter.removeAllListeners();
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      await adapter.terminate(true).catch(() => {});
+
+      const fallbackSessionId = generateId();
+      instance.sessionId = fallbackSessionId;
+      // Fresh session — unblock future resume attempts against the new id,
+      // and block a premature re-resume until its first turn settles.
+      instance.sessionResumeBlacklisted = false;
+      instance.providerSessionPersisted = false;
+      const fallbackOptions: UnifiedSpawnOptions = {
+        ...request.spawnOptions,
+        resume: false,
+        forkSession: false,
+        sessionId: fallbackSessionId,
+      };
+      adapter = this.deps.createRuntimeAdapter(
+        request.cliType,
+        fallbackOptions,
+        instance.executionLocation,
+      );
+      this.deps.setupAdapterEvents(instanceId, adapter);
+      this.deps.setAdapter(instanceId, adapter);
+
+      if (hooks.shouldAbort()) {
+        await hooks.onAborted(adapter, 'pre-spawn recovery fallback cancellation');
+        return { status: 'aborted' };
+      }
+
+      pid = await adapter.spawn();
+      actuallyResumed = false;
+      instance.processId = pid;
+      instance.providerSessionId = fallbackSessionId;
+      // C1/B4: Persist the fresh session ID before reporting respawn complete
+      // so a crash cannot replay the old doomed session/cursor.
+      try {
+        await getSessionContinuityManagerIfInitialized()?.writeThroughIdentityLocked(instanceId, {
+          sessionId: fallbackSessionId,
+          resumeCursor: null,
+        });
+      } catch (err) {
+        logger.warn('writeThroughIdentity failed after recovery fresh fallback', {
+          instanceId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      await hooks.waitReady(adapter);
+
+      if (request.hasConversation) {
+        recoveryInputSent = await hooks.deliverContinuity(
+          adapter,
+          await this.deps.buildFallbackHistory(instance, request.fallbackReason),
+        );
+      }
+    }
+
+    if (hooks.shouldAbort()) {
+      await hooks.onAborted(adapter, 'post-spawn recovery respawn cancellation');
+      return { status: 'aborted' };
+    }
+
+    instance.recoveryMethod = actuallyResumed
+      ? 'native'
+      : (request.hasConversation ? 'replay' : 'fresh');
+    if (actuallyResumed) {
+      // Clear any stale blacklist — resume just succeeded against this id —
+      // and record that the provider session is demonstrably on disk.
+      instance.sessionResumeBlacklisted = false;
+      instance.providerSessionPersisted = true;
+    }
+    instance.processId = pid;
+
+    if (!actuallyResumed && request.shouldResume) {
+      // Continuity already delivered in the fallback path above.
+    } else if (!request.shouldResume && request.hasConversation) {
+      recoveryInputSent = await hooks.deliverContinuity(
+        adapter,
+        this.deps.buildReplayContinuityMessage(instance, request.replayReason),
+      );
+    }
+
+    logger.info('Recovery respawn complete', { instanceId, pid, resumed: actuallyResumed });
+    return {
+      status: 'ok',
+      pid,
+      adapter,
+      actuallyResumed,
+      recoveryInputSent,
+      sessionId: instance.sessionId,
+    };
   }
 }

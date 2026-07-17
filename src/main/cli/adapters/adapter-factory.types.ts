@@ -83,6 +83,10 @@ export interface UnifiedSpawnOptions {
   outputSchema?: Record<string, unknown>;
   /** Reasoning effort level for the model. Claude also accepts session-only max/workflow. */
   reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow';
+  /** WS14 — Claude `--fallback-model` override (settings default applies when unset). */
+  fallbackModel?: string;
+  /** WS14 — serialized JSON Schema for Claude `--json-schema` structured one-shot output. */
+  jsonSchema?: string;
   /** Fast mode: faster output at some capability cost. Claude → `fastMode`
    *  settings key (Opus-only); Codex → `priority` service tier. Ignored by
    *  providers that don't support it. */

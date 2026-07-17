@@ -124,6 +124,10 @@ export interface Instance {
    * pending affordance.
    */
   pendingYoloMode?: boolean;
+  /** WS7 Phase B — fallback providers this session may switch to (wire field). */
+  failoverProviders?: string[];
+  /** WS13 — this session's CLI runs inside the macOS Seatbelt jail (wire field). */
+  hardened?: boolean;
   /**
    * Provider/model change queued while the instance is busy; applied
    * automatically once it next waits for input. Undefined when no change is
@@ -206,6 +210,10 @@ export interface CreateInstanceConfig {
   /** Explicit fast-mode override; when omitted, resolved from per-provider memory. */
   fastMode?: boolean;
   forceNodeId?: string;
+  /** WS9 per-instance browser tool surface; omitted = global setting decides. */
+  browserToolsMode?: 'eager' | 'deferred' | 'off';
+  /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
+  hardened?: boolean;
 }
 
 // ============================================

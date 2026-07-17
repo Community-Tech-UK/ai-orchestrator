@@ -172,6 +172,23 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
       });
     },
 
+    /** WS12: pin (approve) instruction files at their current hashes — batch-capable. */
+    instructionTrustApprove: (
+      files: Array<{ path: string; sha256: string }>,
+    ): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTRUCTION_TRUST_APPROVE, { files });
+    },
+
+    /** WS12: revoke an instruction-file trust pin. */
+    instructionTrustRevoke: (path: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTRUCTION_TRUST_REVOKE, { path });
+    },
+
+    /** WS12: list all instruction-file trust pins. */
+    instructionTrustList: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTRUCTION_TRUST_LIST, {});
+    },
+
     /**
      * Generate a migration draft for `.orchestrator/INSTRUCTIONS.md`.
      */

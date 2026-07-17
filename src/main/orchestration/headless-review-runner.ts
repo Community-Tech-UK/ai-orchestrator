@@ -5,6 +5,7 @@ import { aggregateReviewFindings, type AggregatableFinding } from './review-find
 import { angleForReviewer, buildStructuredReviewPrompt, buildTieredReviewPrompt, truncateForReview } from './review-prompts';
 import { createLocalReviewExecutionPlan, runReviewExecutionBatch } from './review-execution-batch';
 import { parseCrossModelReviewResponse } from './review-response-parser';
+import { serializeReviewResultJsonSchema } from '../../shared/validation/cross-model-review-schemas';
 import { summarizeHeadlessReview, toHeadlessFindings } from './headless-review-findings';
 import { resolveAntigravityReviewModelPlan } from './antigravity-review-model-routing';
 import { resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
@@ -81,13 +82,16 @@ export async function runHeadlessReviewCommand(
               : [configuredModel];
             let lastResponseLength = 0;
             let parsed: ReviewResult | null = null;
+            // WS14: Claude reviewers get the verdict schema natively (--json-schema);
+            // the host applies it only when the resolved CLI is actually claude.
+            const jsonSchema = serializeReviewResultJsonSchema(reviewDepth);
             for (const reviewerModel of reviewerModels) {
               const needsModelOverride = reviewer === 'antigravity' && reviewerModel !== configuredModel;
               const rawResponse = needsModelOverride
                 ? await dependencies.host.dispatchReviewerPrompt(
-                    reviewer, prompt, cwd, abort.signal, { modelOverride: reviewerModel },
+                    reviewer, prompt, cwd, abort.signal, { modelOverride: reviewerModel, jsonSchema },
                   )
-                : await dependencies.host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal);
+                : await dependencies.host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal, { jsonSchema });
               lastResponseLength = rawResponse?.length ?? 0;
               parsed = parseCrossModelReviewResponse(reviewer, rawResponse, reviewDepth, 0);
               if (parsed) break;

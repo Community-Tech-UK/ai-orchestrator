@@ -359,6 +359,16 @@ export class InstanceHeaderComponent implements OnInit {
   readonly desiredRuntimeLabel = computed<string | null>(() => {
     const pending = this.instance().desiredRuntime;
     if (!pending) return null;
+    // A queued change that is ONLY a yolo flip must not render a misleading
+    // "Provider · default model" chip — the pending-yolo indicator covers it.
+    const inst = this.instance();
+    const isYoloOnly =
+      pending.yoloMode !== undefined
+      && pending.model === undefined
+      && pending.modelRuntimeTarget === undefined
+      && pending.reasoningEffort === undefined
+      && (!pending.provider || pending.provider === inst.provider);
+    if (isYoloOnly) return null;
     const providerLabel = pending.provider
       ? PROVIDER_MENU_LABELS[pending.provider as PickerProvider] ?? pending.provider
       : null;

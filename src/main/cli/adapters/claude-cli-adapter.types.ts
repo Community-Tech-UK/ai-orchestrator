@@ -131,6 +131,13 @@ export interface ClaudeCliSpawnOptions {
    *  requires a paid subscription/credits. The CLI surfaces a "fast mode
    *  unavailable" notice when it can't honor it. Defaults to false. */
   fastMode?: boolean;
+  /** WS14 — `--fallback-model`: the CLI automatically retries with this model
+   *  when the primary is overloaded. Omitted when unset or equal to `model`. */
+  fallbackModel?: string;
+  /** WS14 — serialized JSON Schema for `--json-schema` structured output on
+   *  one-shot utility spawns (review verdicts). Inline JSON is materialized to
+   *  a temp file for Windows-arg safety, like `--settings`. */
+  jsonSchema?: string;
   /**
    * Enable the resident-session interrupt path.
    *

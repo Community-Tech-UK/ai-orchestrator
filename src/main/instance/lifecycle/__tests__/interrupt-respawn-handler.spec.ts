@@ -1,7 +1,10 @@
 import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../../../cli/adapters/adapter-factory';
-import { InterruptRespawnHandler } from '../interrupt-respawn-handler';
+import { InterruptRespawnHandler, type InterruptRespawnDeps } from '../interrupt-respawn-handler';
+import { RuntimeReconciler } from '../runtime-reconciler';
+import type { RuntimeReconcilerDeps } from '../runtime-reconciler.types';
+import { applyProviderSessionDurability } from '../provider-session-durability';
 import type { Instance, OutputMessage } from '../../../../shared/types/instance.types';
 import type { InterruptResult } from '../../../cli/adapters/base-cli-adapter.types';
 
@@ -104,6 +107,48 @@ class RespawnReplacementAdapter extends EventEmitter {
   }
 }
 
+
+/**
+ * Production wiring in miniature: applyRecoveryRespawn backed by a real
+ * RuntimeReconciler over this spec's fakes, with adapter creation mirroring
+ * the lifecycle's (session durability applied, provider runtime service
+ * invoked with the {cliType, options, executionLocation} shape the
+ * assertions below rely on).
+ */
+function withRealRecoveryCore(deps: InterruptRespawnDeps): InterruptRespawnDeps {
+  const reconciler = new RuntimeReconciler({
+    getInstance: deps.getInstance,
+    setAdapter: deps.setAdapter,
+    setupAdapterEvents: deps.setupAdapterEvents,
+    createRuntimeAdapter: (cliType: unknown, options: unknown, executionLocation: unknown) => {
+      // Mirror the lifecycle's creator: harness CLI env, then session
+      // durability, then the provider runtime service.
+      const spawnOptions = options as { instanceId?: string; env?: Record<string, string> };
+      const inst = spawnOptions.instanceId ? deps.getInstance(spawnOptions.instanceId) : undefined;
+      const harnessCliEnv = deps.getHarnessCliEnv?.(
+        executionLocation as Parameters<NonNullable<InterruptRespawnDeps['getHarnessCliEnv']>>[0],
+        spawnOptions.instanceId,
+        spawnOptions.env,
+      );
+      const durableOptions = applyProviderSessionDurability(
+        cliType as Parameters<typeof applyProviderSessionDurability>[0],
+        inst,
+        {
+          ...(options as Record<string, unknown>),
+          ...(harnessCliEnv ? { env: harnessCliEnv } : {}),
+        } as Parameters<typeof applyProviderSessionDurability>[2],
+      );
+      return providerRuntime.createAdapter({ cliType, options: durableOptions, executionLocation });
+    },
+    waitForResumeHealth: (id: string) => deps.waitForResumeHealth(id),
+    buildFallbackHistory: deps.buildFallbackHistory,
+    buildReplayContinuityMessage: deps.buildReplayContinuityMessage,
+  } as unknown as RuntimeReconcilerDeps);
+  deps.applyRecoveryRespawn = (instanceId, request, hooks) =>
+    reconciler.applyRecoveryRespawn(instanceId, request, hooks);
+  return deps;
+}
+
 describe('InterruptRespawnHandler', () => {
   let instance: Instance;
   let adapter: InterruptProofAdapter;
@@ -124,7 +169,7 @@ describe('InterruptRespawnHandler', () => {
     });
     emitOutput = vi.fn();
 
-    handler = new InterruptRespawnHandler({
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
       getInstance: (id) => (id === instance.id ? instance : undefined),
       getAdapter: () => adapter as unknown as CliAdapter,
       setAdapter: vi.fn(),
@@ -151,8 +196,10 @@ describe('InterruptRespawnHandler', () => {
       waitForAdapterWritable: vi.fn(),
       buildReplayContinuityMessage: () => '',
       buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
       emitOutput,
-    });
+    }));
   });
 
   it('uses interrupt completion proof to return to idle without respawning', async () => {
@@ -304,7 +351,7 @@ describe('InterruptRespawnHandler', () => {
     });
     const setupAdapterEvents = vi.fn();
 
-    handler = new InterruptRespawnHandler({
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
       getInstance: (id) => (id === instance.id ? instance : undefined),
       getAdapter: () => currentAdapter,
       setAdapter,
@@ -331,8 +378,10 @@ describe('InterruptRespawnHandler', () => {
       waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
       buildReplayContinuityMessage: () => 'replay continuity',
       buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
       emitOutput,
-    });
+    }));
 
     const respawn = handler.respawnAfterUnexpectedExit(instance.id);
     for (let attempt = 0; attempt < 5 && replacement.spawn.mock.calls.length === 0; attempt++) {
@@ -376,7 +425,7 @@ describe('InterruptRespawnHandler', () => {
       currentAdapter = undefined;
     });
 
-    handler = new InterruptRespawnHandler({
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
       getInstance: (id) => (id === instance.id ? instance : undefined),
       getAdapter: () => currentAdapter,
       setAdapter,
@@ -403,8 +452,10 @@ describe('InterruptRespawnHandler', () => {
       waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
       buildReplayContinuityMessage: () => 'replay continuity',
       buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
       emitOutput,
-    });
+    }));
 
     await handler.respawnAfterUnexpectedExit(instance.id);
 
@@ -445,7 +496,7 @@ describe('InterruptRespawnHandler', () => {
       currentAdapter = undefined;
     });
 
-    handler = new InterruptRespawnHandler({
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
       getInstance: (id) => (id === instance.id ? instance : undefined),
       getAdapter: () => currentAdapter,
       setAdapter,
@@ -472,8 +523,10 @@ describe('InterruptRespawnHandler', () => {
       waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
       buildReplayContinuityMessage: () => 'replay continuity',
       buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
       emitOutput,
-    });
+    }));
 
     await handler.respawnAfterUnexpectedExit(instance.id);
 
@@ -513,7 +566,7 @@ describe('InterruptRespawnHandler', () => {
     });
     const getHarnessCliEnv = vi.fn(() => harnessCliEnv);
 
-    handler = new InterruptRespawnHandler({
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
       getInstance: (id) => (id === instance.id ? instance : undefined),
       getAdapter: () => currentAdapter,
       setAdapter,
@@ -541,8 +594,10 @@ describe('InterruptRespawnHandler', () => {
       waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
       buildReplayContinuityMessage: () => 'replay continuity',
       buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
       emitOutput,
-    });
+    }));
 
     await handler.respawnAfterUnexpectedExit(instance.id);
 
@@ -576,7 +631,7 @@ describe('InterruptRespawnHandler', () => {
       currentAdapter = undefined;
     });
 
-    handler = new InterruptRespawnHandler({
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
       getInstance: (id) => (id === instance.id ? instance : undefined),
       getAdapter: () => currentAdapter,
       setAdapter,
@@ -603,8 +658,10 @@ describe('InterruptRespawnHandler', () => {
       waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
       buildReplayContinuityMessage: () => 'replay continuity',
       buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
       emitOutput,
-    });
+    }));
 
     await handler.respawnAfterUnexpectedExit(instance.id);
 
@@ -637,7 +694,7 @@ describe('InterruptRespawnHandler', () => {
       currentAdapter = undefined;
     });
 
-    handler = new InterruptRespawnHandler({
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
       getInstance: (id) => (id === instance.id ? instance : undefined),
       getAdapter: () => currentAdapter,
       setAdapter,
@@ -664,8 +721,10 @@ describe('InterruptRespawnHandler', () => {
       waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
       buildReplayContinuityMessage: () => 'replay continuity',
       buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
       emitOutput,
-    });
+    }));
 
     await handler.respawnAfterUnexpectedExit(instance.id);
 

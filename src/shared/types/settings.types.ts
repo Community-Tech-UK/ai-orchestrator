@@ -233,6 +233,59 @@ export interface AppSettings extends DesktopComputerUseSettings {
    */
   browserAuxExtractionEnabled: boolean;
   /**
+   * WS9 tool-schema economy: when true (default), spawned CLI sessions get a
+   * deferred browser-gateway tool surface — a small always-loaded core set
+   * plus `browser.tool_search`/`browser.tool_describe` that load the remaining
+   * tool schemas on demand — instead of paying the full ~39-schema context tax
+   * upfront. Applies at the next session spawn.
+   */
+  browserMcpToolDeferral: boolean;
+  /**
+   * Runtime-reconciler spec item 5: maintain a per-instance rolling handoff
+   * document as turns complete and prefer it over the swap-time replay
+   * preamble for provider swaps and history-restore fallbacks. Default OFF
+   * (behavior preservation) until provider-swap live testing motivates it.
+   */
+  sessionHandoffStateEnabled: boolean;
+  /**
+   * WS14 — Claude `--fallback-model`: when set, Claude sessions automatically
+   * retry with this model when the primary is overloaded. Empty = off.
+   */
+  claudeFallbackModel: string;
+  /**
+   * WS14 — `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` on Claude spawns. Default OFF:
+   * the scrub could strip the ORCHESTRATOR_* vars AIO's PreToolUse hook and
+   * RTK read from subprocess env. Flip only with livetest evidence.
+   */
+  claudeSubprocessEnvScrub: boolean;
+  /**
+   * WS16 — block agent-derived memories from system-prompt-tier assembly
+   * (they may only appear in labelled advisory blocks). Default ON.
+   */
+  memoryInstructionGate: boolean;
+  /**
+   * WS7 Phase B — ordered fallback providers a regular session may fail over to
+   * when its recovery ladder exhausts on a provider-fault category. Empty = off.
+   * Configuring this is explicit consent to send conversation context to those
+   * providers. Seeded onto each new instance's `failoverProviders` at create.
+   */
+  sessionFailoverProviders: string[];
+  /** WS7 Phase B — max automatic provider failovers per session. Default 1. */
+  sessionFailoverMaxSwitches: number;
+  /**
+   * WS7 Phase B — when a provider-limit park's resume is further away than
+   * this, offer a provider switch (notification + composer button emphasis).
+   */
+  sessionFailoverOfferAfterMinutes: number;
+  /**
+   * WS12 instruction trust gate for PROJECT-sourced instruction files
+   * (CLAUDE.md/AGENTS.md/… discovered in repos). 'warn' (default, measurement
+   * release): load + surface unapproved/changed files. 'enforce': unapproved,
+   * changed, or critically-flagged files are SKIPPED (not warned). 'off':
+   * pre-WS12 behavior. User-global files are exempt by design.
+   */
+  instructionTrustGate: 'off' | 'warn' | 'enforce';
+  /**
    * When true, browser.fill_credential and the credential steps of
    * browser.execute_fill_plan may run on the user's SHARED existing Chrome tabs
    * (not just agent-owned managed profiles) — but ONLY when a live standing

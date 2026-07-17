@@ -12,6 +12,8 @@ export interface NewSessionDraftState {
   reasoningEffort: ReasoningEffort | null;
   nodeId: string | null;
   yoloMode: boolean | null;
+  /** WS13 — run the CLI inside the macOS Seatbelt jail. null = off. */
+  hardened: boolean | null;
   launchMode: InstanceLaunchMode | null;
   agentId: string;
   pendingFolders: string[];
@@ -33,6 +35,7 @@ export interface PersistedNewSessionDraft {
   reasoningEffort?: ReasoningEffort | null;
   nodeId?: string | null;
   yoloMode?: boolean | null;
+  hardened?: boolean | null;
   launchMode?: InstanceLaunchMode | null;
   agentId?: string;
   pendingFolders: string[];

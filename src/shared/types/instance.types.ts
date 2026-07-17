@@ -241,12 +241,22 @@ export interface CommunicationToken {
 export type InstanceRecoveryMethod = 'native' | 'replay' | 'fresh' | 'failed';
 
 /**
+ * WS9 per-instance browser-tool surface: `eager` injects every browser
+ * tool schema upfront, `deferred` injects the core set plus
+ * `browser.tool_search`/`browser.tool_describe`, `off` skips the
+ * browser-gateway MCP server entirely for this instance. Undefined defers to
+ * the global `browserMcpToolDeferral` setting.
+ */
+export type BrowserToolsMode = 'eager' | 'deferred' | 'off';
+
+/**
  * Desired runtime attachment for an instance — the RuntimeReconciler's input.
  * The conversation is the durable entity; a provider/model is a replaceable
  * runtime attachment described by this shape. `model` undefined lets the
  * target provider's remembered/default model win; `reasoningEffort` undefined
  * preserves the current effort, null clears to the provider default.
  * `fastMode` is carried but not yet a change trigger (reconciler follow-up).
+ * `yoloMode` undefined preserves the current permission posture.
  */
 export interface DesiredRuntime {
   provider: InstanceProvider;
@@ -254,6 +264,7 @@ export interface DesiredRuntime {
   reasoningEffort?: ReasoningEffort | null;
   fastMode?: boolean;
   modelRuntimeTarget?: ModelRuntimeTarget;
+  yoloMode?: boolean;
 }
 
 /**
@@ -411,20 +422,24 @@ export interface Instance {
   autoRespawnSuppressedUntil?: number;
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
+  browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
+  hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
   /**
-   * Desired YOLO mode queued while the instance was busy. YOLO is a spawn-time
-   * CLI flag (`--dangerously-skip-permissions`) applied by respawning, which is
-   * refused mid-turn. A toggle requested while busy is parked here and applied
-   * automatically on the next transition to a settled (idle/ready) state.
-   * Cleared once applied or cancelled. Undefined means no change is queued.
+   * WS7 Phase B — ordered fallback providers this session may fail over to when
+   * its recovery ladder exhausts on a provider-fault category. Empty/undefined
+   * = failover off. Seeded from the global `sessionFailoverProviders` at create.
    */
-  pendingYoloMode?: boolean;
+  failoverProviders?: string[];
+  /** WS7 Phase B — provider failovers already performed this session (budget). */
+  failoverSwitches?: number;
+  /** WS7 Phase B — the provider this session was failed over FROM (last switch). */
+  failedOverFrom?: string;
   /**
    * Desired runtime queued while the instance was busy. Runtime changes
-   * (model/provider) respawn the session, which is refused mid-turn; a change
-   * requested while busy is parked here and applied by the RuntimeReconciler
-   * on the next transition to an input-waiting status. Cleared once applied
-   * or cancelled. Undefined means no change is queued.
+   * (model/provider/reasoning/yoloMode) respawn the session, which is refused
+   * mid-turn; a change requested while busy is parked here and applied by the
+   * RuntimeReconciler on the next transition to an input-waiting status.
+   * Cleared once applied or cancelled. Undefined means no change is queued.
    */
   desiredRuntime?: DesiredRuntime;
   launchMode: InstanceLaunchMode; // Orchestrated agent loop or human-driven interactive terminal
@@ -540,6 +555,10 @@ export interface InstanceCreateConfig {
   provider?: InstanceProvider; // CLI provider to use (defaults to settings.defaultCli)
   modelRuntimeTarget?: ModelRuntimeTarget;
   runtimeSummary?: InstanceRuntimeSummary;
+  browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
+  hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
+  /** WS7 Phase B — ordered fallback providers; undefined = seed from global `sessionFailoverProviders`. */
+  failoverProviders?: string[];
 
   // Phase 2: Hierarchical instance options
   terminationPolicy?: TerminationPolicy; // What happens to children when this instance terminates

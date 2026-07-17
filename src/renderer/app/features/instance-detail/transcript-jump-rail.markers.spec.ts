@@ -6,10 +6,13 @@
  *   2. Reply pairing uses the LAST assistant text before the next user message,
  *      including responses nested inside work-cycle children.
  *   3. A trailing user message with no reply yet gets replyExcerpt ''.
- *   4. excerptText strips markdown noise and truncates with an ellipsis.
- *   5. computeMarkerLayout maps ratios proportionally, enforces minimum
- *      separation, and clamps to the rail bounds.
- *   6. activeMarkerIndex finds the last anchor above the reference line and
+ *   4. Edited-file collection: mutating tool_use messages contribute deduped
+ *      basenames (input nested or flat, MultiEdit edits, work-cycle nesting);
+ *      read-only tools and other turns' edits do not.
+ *   5. excerptText strips markdown noise and truncates with an ellipsis.
+ *   6. computeMarkerLayout bunches ticks into a fixed-spacing cluster centred
+ *      in the rail, compressing and clamping when they cannot fit.
+ *   7. activeMarkerIndex finds the last anchor above the reference line and
  *      handles empty/edge cases.
  */
 
@@ -45,9 +48,20 @@ function thoughtGroup(response: string): DisplayItem {
   return { id: `item-${responseMsg.id}`, type: 'thought-group', response: responseMsg };
 }
 
-function toolGroup(): DisplayItem {
+function toolGroup(toolMessages: OutputMessage[] = []): DisplayItem {
   nextId++;
-  return { id: `item-tool-${nextId}`, type: 'tool-group', toolMessages: [] };
+  return { id: `item-tool-${nextId}`, type: 'tool-group', toolMessages };
+}
+
+function toolUse(name: string, metadata: Record<string, unknown>): OutputMessage {
+  nextId++;
+  return {
+    id: `msg-${nextId}`,
+    timestamp: nextId,
+    type: 'tool_use',
+    content: '',
+    metadata: { name, ...metadata },
+  };
 }
 
 function workCycle(children: DisplayItem[]): DisplayItem {
@@ -116,6 +130,55 @@ describe('collectJumpTargets', () => {
     const items = [userItem('question'), thoughtGroup('real answer'), thoughtGroup('   '), userItem('next')];
     expect(collectJumpTargets(items)[0].replyExcerpt).toBe('real answer');
   });
+
+  // ── Edited-file collection ─────────────────────────────────────────────────
+
+  it('collects deduped basenames from mutating tool calls, per turn', () => {
+    const items = [
+      userItem('question'),
+      toolGroup([
+        toolUse('Edit', { input: { file_path: '/repo/src/coin-manager.ts' } }),
+        toolUse('Write', { input: { file_path: '/repo/docs/plan.md' } }),
+        toolUse('Edit', { input: { file_path: '/repo/src/coin-manager.ts' } }),
+      ]),
+      userItem('next'),
+      toolGroup([toolUse('Edit', { input: { file_path: '/repo/other.ts' } })]),
+    ];
+    const targets = collectJumpTargets(items);
+
+    expect(targets[0].files).toEqual(['coin-manager.ts', 'plan.md']);
+    expect(targets[1].files).toEqual(['other.ts']);
+  });
+
+  it('reads flat metadata, MultiEdit edits arrays, and work-cycle nesting', () => {
+    const items = [
+      userItem('question'),
+      workCycle([
+        toolGroup([toolUse('write_file', { path: 'src/nested.ts' })]),
+        toolGroup([
+          toolUse('MultiEdit', {
+            input: { edits: [{ file_path: '/repo/a.ts' }, { file_path: '/repo/b.ts' }] },
+          }),
+        ]),
+      ]),
+    ];
+    expect(collectJumpTargets(items)[0].files).toEqual(['nested.ts', 'a.ts', 'b.ts']);
+  });
+
+  it('ignores read-only tools and tool_results', () => {
+    const readResult: OutputMessage = {
+      id: 'msg-result',
+      timestamp: 1,
+      type: 'tool_result',
+      content: '',
+      metadata: { name: 'Edit', file_path: '/repo/result-side.ts' },
+    };
+    const items = [
+      userItem('question'),
+      toolGroup([toolUse('Read', { input: { file_path: '/repo/read-only.ts' } }), readResult]),
+    ];
+    expect(collectJumpTargets(items)[0].files).toEqual([]);
+  });
 });
 
 describe('excerptText', () => {
@@ -145,31 +208,32 @@ describe('excerptText', () => {
 });
 
 describe('computeMarkerLayout', () => {
-  it('maps ratios proportionally onto the rail', () => {
-    expect(computeMarkerLayout([0, 0.5, 1], 200)).toEqual([0, 100, 200]);
+  it('bunches ticks at the vertical centre with fixed spacing', () => {
+    // 3 ticks, 12px spacing → 24px cluster centred in 400px: 188/200/212
+    expect(computeMarkerLayout(3, 400)).toEqual([188, 200, 212]);
   });
 
-  it('enforces minimum separation on dense clusters', () => {
-    const tops = computeMarkerLayout([0.5, 0.5, 0.5], 200, 6);
-    expect(tops[1] - tops[0]).toBeGreaterThanOrEqual(6);
-    expect(tops[2] - tops[1]).toBeGreaterThanOrEqual(6);
+  it('centres a single tick', () => {
+    expect(computeMarkerLayout(1, 400)).toEqual([200]);
   });
 
-  it('pulls a cluster at the rail end back inside the bounds', () => {
-    const tops = computeMarkerLayout([1, 1, 1], 200, 6);
-    expect(tops[2]).toBeLessThanOrEqual(200);
-    expect(tops[0]).toBe(188);
-    expect(tops[1]).toBe(194);
-  });
-
-  it('clamps out-of-range ratios and never goes negative', () => {
-    const tops = computeMarkerLayout([-0.5, 2], 100);
+  it('compresses spacing when the cluster would overflow the rail', () => {
+    // 41 ticks in 200px: gap = 200/40 = 5, cluster fills the rail exactly
+    const tops = computeMarkerLayout(41, 200);
     expect(tops[0]).toBe(0);
-    expect(tops[1]).toBe(100);
+    expect(tops[40]).toBe(200);
+    expect(tops[1] - tops[0]).toBe(5);
   });
 
-  it('returns an empty layout for no ratios', () => {
-    expect(computeMarkerLayout([], 200)).toEqual([]);
+  it('floors the spacing and clamps to the rail bounds under extreme density', () => {
+    const tops = computeMarkerLayout(101, 200);
+    expect(tops[1] - tops[0]).toBe(4);
+    expect(tops.every((top) => top >= 0 && top <= 200)).toBe(true);
+    expect(tops[100]).toBe(200);
+  });
+
+  it('returns an empty layout for zero ticks', () => {
+    expect(computeMarkerLayout(0, 200)).toEqual([]);
   });
 });
 

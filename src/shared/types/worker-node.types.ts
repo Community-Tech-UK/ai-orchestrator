@@ -149,6 +149,10 @@ export interface WorkerNodeCapabilities {
   androidAutomation?: WorkerNodeAndroidAutomationSummary;
   hasDocker: boolean;
   maxConcurrentInstances: number;
+  /** WS15 — durable-stream protocol version (1 = seq/ack/replay). Absent = legacy worker. */
+  streamDurability?: number;
+  /** WS15 — worker process epoch; a change means seq counters restarted (cursors invalid). */
+  streamEpoch?: number;
   workingDirectories: string[];
   browsableRoots: string[];
   fileTransfer?: WorkerNodeFileTransferSummary;

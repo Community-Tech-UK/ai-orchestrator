@@ -143,7 +143,8 @@ export type InstructionDiagnosticCode =
   | 'multiple-path-specific-instructions'
   | 'broad-root-scan'
   | 'unreadable-source'
-  | 'resolution-failed';
+  | 'resolution-failed'
+  | 'instruction-trust';
 
 export interface InstructionDiagnostic {
   code: InstructionDiagnosticCode;
@@ -153,6 +154,11 @@ export interface InstructionDiagnostic {
   sourceKind?: string;
   sourceScope?: string;
   candidates?: string[];
+  /** WS12 instruction-trust rows: verdict + current hash (the approval anchor). */
+  trust?: 'approved' | 'changed' | 'unknown';
+  sha256?: string;
+  /** WS12: highest scanner severity for the file, when scanned. */
+  scanSeverity?: 'info' | 'warn' | 'critical';
 }
 
 export type LoopRecipeDiagnosticKind =

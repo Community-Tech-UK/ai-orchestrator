@@ -1,0 +1,68 @@
+(version 1)
+
+; AIO hardened-run-mode base policy (Fable WS13, Phase A — macOS Seatbelt).
+; Adapted from Codex's seatbelt_base_policy.sbpl (codex-rs/sandboxing/src),
+; itself inspired by Chrome's sandbox policy. Attribution retained per plan.
+;
+; Composition contract (see src/main/sandbox/seatbelt.ts):
+;  - this base is deny-by-default with the process/pty/sysctl carve-outs below;
+;  - READ access is granted broadly in Phase A (CLIs need configs, keychains
+;    are protected by TCC anyway); WRITE access is granted ONLY via generated
+;    (param "WRITABLE_ROOT_n") clauses appended by the builder — the paths
+;    themselves always arrive via `-D` parameters, never interpolated into
+;    policy text (injection-safe, codex lesson);
+;  - network stays OPEN in Phase A (provider APIs); a blockNetwork sub-option
+;    is an explicit non-goal for now, recorded in the plan.
+
+(deny default)
+
+; child processes inherit the policy of their parent
+(allow process-exec)
+(allow process-fork)
+(allow signal (target same-sandbox))
+(allow process-info* (target same-sandbox))
+
+; Phase A: broad read; write is param-gated (appended by the builder).
+(allow file-read*)
+
+(allow file-write-data
+  (require-all
+    (path "/dev/null")
+    (vnode-type CHARACTER-DEVICE)))
+
+; Phase A: network open — provider APIs, MCP sockets, telemetry.
+(allow network*)
+(allow system-socket)
+
+; sysctls commonly read by node/python/jvm runtimes (codex set).
+(allow sysctl-read)
+(allow sysctl-write (sysctl-name "kern.grade_cputype"))
+
+; IOKit + user lookup + power management (codex carve-outs).
+(allow iokit-open (iokit-registry-entry-class "RootDomainUserClient"))
+(allow mach-lookup
+  (global-name "com.apple.system.opendirectoryd.libinfo")
+  (global-name "com.apple.PowerManagement.control")
+  (global-name "com.apple.cfprefsd.daemon")
+  (global-name "com.apple.cfprefsd.agent")
+  (local-name "com.apple.cfprefsd.agent"))
+
+; python multiprocessing / OpenMP runtimes.
+(allow ipc-posix-sem)
+(allow ipc-posix-shm-read-data
+  ipc-posix-shm-write-create
+  ipc-posix-shm-write-unlink
+  (ipc-posix-name-regex #"^/__KMP_REGISTERED_LIB_[0-9]+$"))
+(allow ipc-posix-shm-read* (ipc-posix-name-prefix "apple.cfprefs."))
+
+; PTYs for interactive shells.
+(allow pseudo-tty)
+(allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))
+(allow file-read* file-write*
+  (require-all
+    (regex #"^/dev/ttys[0-9]+")
+    (extension "com.apple.sandbox.pty")))
+(allow file-ioctl (regex #"^/dev/ttys[0-9]+"))
+
+; readonly user preferences
+(allow user-preference-read)

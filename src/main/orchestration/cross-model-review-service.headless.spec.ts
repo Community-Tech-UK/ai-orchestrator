@@ -120,6 +120,7 @@ describe('CrossModelReviewService headless review', () => {
       expect.stringContaining('Review the local diff.'),
       REPO_CWD,
       expect.any(AbortSignal),
+      expect.objectContaining({ jsonSchema: expect.any(String) }),
     );
     expect(result.reviewers).toEqual([
       { provider: 'antigravity', status: 'used' },
@@ -156,6 +157,7 @@ describe('CrossModelReviewService headless review', () => {
       expect.any(String),
       REPO_CWD,
       expect.any(AbortSignal),
+      expect.objectContaining({ jsonSchema: expect.any(String) }),
     );
     expect(result.reviewers).toEqual([
       { provider: 'antigravity', status: 'used' },
@@ -183,6 +185,7 @@ describe('CrossModelReviewService headless review', () => {
     expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(1);
     expect(dispatchReviewerPrompt).toHaveBeenCalledWith(
       'codex', expect.any(String), REPO_CWD, expect.any(AbortSignal),
+      expect.objectContaining({ jsonSchema: expect.any(String) }),
     );
     expect(result.reviewers).toEqual([{ provider: 'codex', status: 'used' }]);
   });
@@ -340,6 +343,7 @@ describe('CrossModelReviewService headless review', () => {
       expect.any(String),
       process.cwd(),
       expect.any(AbortSignal),
+      expect.objectContaining({ jsonSchema: expect.any(String) }),
     );
     expect(result.cwd).toBe(process.cwd());
     expect(result.reviewers).toEqual([{ provider: 'antigravity', status: 'used' }]);

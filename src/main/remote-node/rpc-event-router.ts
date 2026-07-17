@@ -12,6 +12,8 @@ import {
   getRemoteBrowserExtensionBridge,
   type RemoteBrowserExtensionBridge,
 } from '../browser-gateway/remote-extension-bridge';
+import { StreamDurabilityCoordinator } from './stream-durability-coordinator';
+import { COORDINATOR_TO_NODE } from './worker-node-rpc';
 
 const logger = getLogger('RpcEventRouter');
 
@@ -49,6 +51,9 @@ export class RpcEventRouter {
    */
   private readonly lastSeenSeq = new Map<string, number>();
 
+  /** WS15 — durable-stream cursors/acks/resume for workers that support it. */
+  private readonly streamDurability: StreamDurabilityCoordinator;
+
   constructor(
     connection: WorkerNodeConnectionServer,
     registry: WorkerNodeRegistry,
@@ -58,6 +63,18 @@ export class RpcEventRouter {
     this.registry = registry;
     this.browserExtensionBridge = browserExtensionBridge;
 
+    this.streamDurability = new StreamDurabilityCoordinator({
+      sendAck: (nodeId, cursors) =>
+        this.connection.sendNotification(nodeId, COORDINATOR_TO_NODE.STREAM_ACK, { cursors }),
+      sendResume: (nodeId, cursors) =>
+        this.connection.sendRpc(nodeId, COORDINATOR_TO_NODE.STREAM_RESUME, { cursors }, 15_000),
+      emitGapMarker: (nodeId, instanceId, gapThroughSeq) =>
+        this.registry.emit('remote:instance-output', {
+          nodeId,
+          instanceId,
+          message: StreamDurabilityCoordinator.buildGapMarkerMessage(gapThroughSeq),
+        }),
+    });
     this.onWsConnected = this.handleWsConnected.bind(this);
     this.onWsDisconnected = this.handleWsDisconnected.bind(this);
     this.onRpcRequest = (nodeId, request) => {
@@ -74,6 +91,7 @@ export class RpcEventRouter {
   }
 
   stop(): void {
+    this.streamDurability.dispose();
     this.connection.off('node:ws-connected', this.onWsConnected);
     this.connection.off('node:ws-disconnected', this.onWsDisconnected);
     this.connection.off('rpc:request', this.onRpcRequest);
@@ -311,6 +329,11 @@ export class RpcEventRouter {
 
     getWorkerNodeHealth().startMonitoring(nodeId);
 
+    // WS15: epoch change invalidates cursors; then ask a durable worker to
+    // replay everything we missed while the link was down.
+    this.streamDurability.noteNodeEpoch(nodeId, capabilities?.streamEpoch);
+    this.streamDurability.resumeNode(nodeId, capabilities?.streamDurability);
+
     logger.info('Node registered via RPC', {
       node: name,
       nodeId,
@@ -350,6 +373,9 @@ export class RpcEventRouter {
       return;
     }
     const params = notification.params as Record<string, unknown> | undefined;
+    if (!this.streamDurability.accept(nodeId, params?.['instanceId'], params?.['durableSeq'])) {
+      return;
+    }
     this.registry.emit('remote:instance-output', {
       nodeId,
       instanceId: params?.['instanceId'],
@@ -370,6 +396,9 @@ export class RpcEventRouter {
     }
     for (const item of items) {
       const entry = item as Record<string, unknown>;
+      if (!this.streamDurability.accept(nodeId, entry['instanceId'], entry['durableSeq'])) {
+        continue;
+      }
       this.registry.emit('remote:instance-output', {
         nodeId,
         instanceId: entry['instanceId'],
@@ -396,6 +425,9 @@ export class RpcEventRouter {
       return;
     }
     const params = notification.params as Record<string, unknown> | undefined;
+    if (!this.streamDurability.accept(nodeId, params?.['instanceId'], params?.['durableSeq'])) {
+      return;
+    }
     this.registry.emit('remote:instance-complete', {
       nodeId,
       instanceId: params?.['instanceId'],
@@ -409,6 +441,9 @@ export class RpcEventRouter {
       return;
     }
     const params = notification.params as Record<string, unknown> | undefined;
+    if (!this.streamDurability.accept(nodeId, params?.['instanceId'], params?.['durableSeq'])) {
+      return;
+    }
     this.registry.emit('remote:instance-context', {
       nodeId,
       instanceId: params?.['instanceId'],

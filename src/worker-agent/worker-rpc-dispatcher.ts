@@ -33,6 +33,8 @@ import {
   LocalModelSessionIdParamsSchema,
   LocalModelSessionSendInputParamsSchema,
   LocalModelSessionStartParamsSchema,
+  StreamAckParamsSchema,
+  StreamResumeParamsSchema,
 } from '../main/remote-node/rpc-schemas';
 import type { LocalModelSessionManager } from './local-model-session-manager';
 import type {
@@ -96,6 +98,10 @@ interface WorkerRpcDispatcherDeps {
   getCdpTunnel: () => WorkerCdpTunnel;
   stopManagedBrowser: () => Promise<void>;
   sendResult: (id: string | number, result: unknown) => void;
+  /** WS15 — durable-stream replay/ack (absent only in stripped-down tests). */
+  replayDurableEvents?: (cursors: Array<{ instanceId: string; afterSeq: number }>) =>
+    Array<{ instanceId: string; replayed: number; gapThroughSeq?: number }>;
+  ackDurableEvents?: (cursors: Array<{ instanceId: string; seq: number }>) => void;
   sendError: (id: string | number, code: number, message: string) => void;
 }
 
@@ -121,6 +127,11 @@ export class WorkerRpcDispatcher {
           this.deps.getCdpTunnel().close(validated.sessionId);
           break;
         }
+        case COORDINATOR_TO_NODE.STREAM_ACK: {
+          const cursors = StreamAckParamsSchema.parse(params).cursors;
+          this.deps.ackDurableEvents?.(cursors);
+          break;
+        }
         default:
           break;
       }
@@ -135,6 +146,11 @@ export class WorkerRpcDispatcher {
     try {
       let result: unknown;
       switch (msg.method) {
+        case COORDINATOR_TO_NODE.STREAM_RESUME: {
+          const cursors = StreamResumeParamsSchema.parse(params).cursors;
+          result = { cursors: this.deps.replayDurableEvents?.(cursors) ?? [] };
+          break;
+        }
         case COORDINATOR_TO_NODE.INSTANCE_SPAWN:
           await this.deps.instanceManager.spawn(params as unknown as SpawnParams);
           result = { instanceId: params['instanceId'] };

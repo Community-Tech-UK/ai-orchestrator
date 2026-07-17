@@ -25,6 +25,10 @@ export interface CreateInstanceConfig {
   bareMode?: boolean;
   fastMode?: boolean;
   forceNodeId?: string;
+  /** WS9 per-instance browser tool surface; omitted = global setting decides. */
+  browserToolsMode?: 'eager' | 'deferred' | 'off';
+  /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
+  hardened?: boolean;
 }
 
 export interface CreateInstanceWithMessageConfig {
@@ -40,6 +44,8 @@ export interface CreateInstanceWithMessageConfig {
   bareMode?: boolean;
   fastMode?: boolean;
   forceNodeId?: string;
+  /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
+  hardened?: boolean;
 }
 
 export interface PersistedQueuedMessage {
@@ -154,6 +160,18 @@ export class InstanceIpcService {
   async providerLimitCancel(instanceId: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.providerLimitCancel({ instanceId });
+  }
+
+  /** WS7 Phase B — switch a parked session to its next fallback provider now. */
+  async instanceFailoverNow(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.instanceFailoverNow({ instanceId });
+  }
+
+  /** WS13 slice 3 — grant a Seatbelt writable root and restart into the rebuilt jail. */
+  async hardenedAllowPath(instanceId: string, path: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hardenedAllowPath({ instanceId, path });
   }
 
   /**

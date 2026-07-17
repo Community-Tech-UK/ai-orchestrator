@@ -10,6 +10,8 @@ import { planSessionRecovery } from '../instance/lifecycle/session-recovery';
 import { getLogger } from '../logging/logger';
 import { getOutputStorageManager } from '../memory/output-storage';
 import { buildReplayContinuityMessage } from '../session/replay-continuity';
+import { buildHandoffDocumentFromMessages } from '../session/handoff-state-service';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager, type HistoryManager } from './history-manager';
 import {
   getMessagesForRestoreTranscript,
@@ -61,6 +63,34 @@ export interface HistoryRestoreCoordinatorResult {
   restoreMode: HistoryRestoreMode;
   sessionId: string;
   historyThreadId: string;
+}
+
+/**
+ * Restore-side hydration-ladder bottom rung (spec item 5): prefer the
+ * handoff-document render of the archived transcript when the feature is ON;
+ * fall through to the replay preamble otherwise (OFF ⇒ byte-identical).
+ */
+function buildRestoreContinuityPreamble(
+  messages: OutputMessage[],
+  reason: string,
+  meta: { workingDir?: string; restoreProvider?: Instance['provider']; restoreModel?: string },
+): string | null {
+  try {
+    if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
+      const handoff = buildHandoffDocumentFromMessages(messages, {
+        reason,
+        workingDirectory: meta.workingDir,
+        provider: meta.restoreProvider,
+        model: meta.restoreModel,
+      });
+      if (handoff) return handoff;
+    }
+  } catch (error) {
+    logger.warn('Handoff render failed during restore; using replay preamble', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return buildReplayContinuityMessage(messages, { reason });
 }
 
 export class HistoryRestoreError extends Error {
@@ -122,6 +152,8 @@ export class HistoryRestoreCoordinator {
     const restoreProvider = inferConversationHistoryProvider(data.entry);
     const restoreModel = data.entry.currentModel?.trim() || undefined;
     const restoreRuntimeSummary = data.entry.runtimeSummary;
+    const restoreBrowserToolsMode = data.entry.browserToolsMode;
+    const restoreHardened = data.entry.hardened;
     const nativeResumeSessionId = opts.forkAs || opts.forceFallback
       ? undefined
       : getNativeResumeSessionId(data.entry);
@@ -168,6 +200,8 @@ export class HistoryRestoreCoordinator {
         restoreProvider,
         restoreModel,
         restoreRuntimeSummary,
+        restoreBrowserToolsMode,
+        restoreHardened,
         restoreNodeId,
       });
       if (native) {
@@ -196,6 +230,8 @@ export class HistoryRestoreCoordinator {
       restoreProvider,
       restoreModel,
       restoreRuntimeSummary,
+      restoreBrowserToolsMode,
+      restoreHardened,
       restoreNodeId,
       remoteNodeAvailable,
       canAttemptNativeResume,
@@ -216,6 +252,8 @@ export class HistoryRestoreCoordinator {
     restoreProvider: Instance['provider'];
     restoreModel?: string;
     restoreRuntimeSummary?: Instance['runtimeSummary'];
+    restoreBrowserToolsMode?: Instance['browserToolsMode'];
+    restoreHardened?: boolean;
     restoreNodeId?: string;
   }): Promise<HistoryRestoreCoordinatorResult | null> {
     let resumeInstanceId: string | undefined;
@@ -234,6 +272,8 @@ export class HistoryRestoreCoordinator {
         provider: params.restoreProvider,
         modelOverride: params.restoreModel,
         runtimeSummary: params.restoreRuntimeSummary,
+        browserToolsMode: params.restoreBrowserToolsMode,
+        hardened: params.restoreHardened,
         forceNodeId: params.restoreNodeId,
       });
       resumeInstanceId = instance.id;
@@ -263,9 +303,10 @@ export class HistoryRestoreCoordinator {
           };
         }
 
-        const preamble = buildReplayContinuityMessage(
+        const preamble = buildRestoreContinuityPreamble(
           params.restoreTranscriptMessages,
-          { reason: 'resume-unconfirmed' },
+          'resume-unconfirmed',
+          params,
         );
         if (preamble) {
           params.instanceManager.queueContinuityPreamble(instance.id, preamble);
@@ -379,6 +420,8 @@ export class HistoryRestoreCoordinator {
     restoreProvider: Instance['provider'];
     restoreModel?: string;
     restoreRuntimeSummary?: Instance['runtimeSummary'];
+    restoreBrowserToolsMode?: Instance['browserToolsMode'];
+    restoreHardened?: boolean;
     restoreNodeId?: string;
     remoteNodeAvailable: boolean;
     canAttemptNativeResume: boolean;
@@ -404,6 +447,8 @@ export class HistoryRestoreCoordinator {
       provider: params.restoreProvider,
       modelOverride: params.restoreModel,
       runtimeSummary: params.restoreRuntimeSummary,
+      browserToolsMode: params.restoreBrowserToolsMode,
+      hardened: params.restoreHardened,
       forceNodeId: fallbackNodeId,
     });
 
@@ -424,9 +469,11 @@ export class HistoryRestoreCoordinator {
       }
     }
 
-    const replayContinuity = buildReplayContinuityMessage(params.restoreTranscriptMessages, {
-      reason: params.canAttemptNativeResume ? 'history-restore-fallback' : 'history-restore-replay',
-    });
+    const replayContinuity = buildRestoreContinuityPreamble(
+      params.restoreTranscriptMessages,
+      params.canAttemptNativeResume ? 'history-restore-fallback' : 'history-restore-replay',
+      params,
+    );
     if (replayContinuity) {
       params.instanceManager.queueContinuityPreamble(instance.id, replayContinuity);
     }

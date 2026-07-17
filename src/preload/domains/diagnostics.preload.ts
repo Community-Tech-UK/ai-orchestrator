@@ -29,6 +29,12 @@ export function createDiagnosticsDomain(ipcRenderer: IpcRenderer, ch: typeof IPC
     diagnosticsRevealBundle: (payload: { bundlePath: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.DIAGNOSTICS_REVEAL_BUNDLE, payload),
 
+    contextAttributionGet: (payload: { instanceId: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CONTEXT_ATTRIBUTION_GET, payload),
+
+    cacheAnalyticsGet: (payload: { instanceId: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CACHE_ANALYTICS_GET, payload),
+
     cliUpdatePillGetState: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CLI_UPDATE_PILL_GET_STATE, {}),
 

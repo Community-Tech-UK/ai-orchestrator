@@ -8,11 +8,12 @@ import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
 import { ContextUsage, InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ContextEvidencePanelComponent } from '../../shared/components/context-evidence-panel/context-evidence-panel.component';
+import { ContextAttributionPanelComponent } from './context-attribution-panel.component';
 
 @Component({
   selector: 'app-context-bar',
   standalone: true,
-  imports: [DecimalPipe, ContextEvidencePanelComponent],
+  imports: [DecimalPipe, ContextEvidencePanelComponent, ContextAttributionPanelComponent],
   template: `
     <div class="context-bar" [class.compact]="compact()">
       <div class="bar-track">
@@ -44,6 +45,15 @@ import { ContextEvidencePanelComponent } from '../../shared/components/context-e
       @if (instanceId()) {
         <button
           type="button"
+          class="usage-toggle"
+          aria-label="Toggle context usage attribution panel"
+          [attr.aria-expanded]="attributionPanelOpen()"
+          (click)="toggleAttributionPanel()"
+        >
+          Usage
+        </button>
+        <button
+          type="button"
           class="evidence-toggle"
           aria-label="Toggle context evidence panel"
           [attr.aria-expanded]="evidencePanelOpen()"
@@ -53,6 +63,12 @@ import { ContextEvidencePanelComponent } from '../../shared/components/context-e
         </button>
       }
     </div>
+
+    @if (attributionPanelOpen()) {
+      @if (instanceId(); as id) {
+        <app-context-attribution-panel [instanceId]="id" />
+      }
+    }
 
     @if (evidencePanelOpen()) {
       @if (evidenceScope(); as scope) {
@@ -171,7 +187,8 @@ import { ContextEvidencePanelComponent } from '../../shared/components/context-e
       }
     }
 
-    .evidence-toggle {
+    .evidence-toggle,
+    .usage-toggle {
       flex-shrink: 0;
       font-size: 10px;
       padding: 2px 8px;
@@ -229,6 +246,9 @@ export class ContextBarComponent {
   private readonly evidencePanelOpenState = signal(false);
   readonly evidencePanelOpen = this.evidencePanelOpenState.asReadonly();
 
+  private readonly attributionPanelOpenState = signal(false);
+  readonly attributionPanelOpen = this.attributionPanelOpenState.asReadonly();
+
   /**
    * Derived strictly from real instance ownership state
    * (`instance.contextEvidence.conversationId`, populated by the main
@@ -244,5 +264,9 @@ export class ContextBarComponent {
 
   toggleEvidencePanel(): void {
     this.evidencePanelOpenState.update((open) => !open);
+  }
+
+  toggleAttributionPanel(): void {
+    this.attributionPanelOpenState.update((open) => !open);
   }
 }

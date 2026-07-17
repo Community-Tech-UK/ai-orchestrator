@@ -47,6 +47,7 @@ export class NewSessionDraftService {
   readonly reasoningEffort = computed(() => this.activeDraft().reasoningEffort);
   readonly pendingFolders = computed(() => this.activeDraft().pendingFolders);
   readonly yoloMode = computed(() => this.activeDraft().yoloMode);
+  readonly hardened = computed(() => this.activeDraft().hardened);
   readonly launchMode = computed(() => this.activeDraft().launchMode);
   readonly agentId = computed(() => this.activeDraft().agentId);
   readonly nodeId = computed(() => this.activeDraft().nodeId);
@@ -114,6 +115,7 @@ export class NewSessionDraftService {
           reasoningEffort: currentDraft.reasoningEffort,
           nodeId: currentDraft.nodeId,
           yoloMode: currentDraft.yoloMode,
+          hardened: currentDraft.hardened,
           launchMode: currentDraft.launchMode,
           agentId: currentDraft.agentId,
           pendingFolders: [...currentDraft.pendingFolders],
@@ -128,6 +130,7 @@ export class NewSessionDraftService {
           reasoningEffort: null,
           nodeId: null,
           yoloMode: null,
+          hardened: null,
           launchMode: null,
           agentId: getDefaultAgent().id,
           pendingFolders: [],
@@ -310,6 +313,14 @@ export class NewSessionDraftService {
     this.updateActiveDraft((draft) => ({
       ...draft,
       yoloMode,
+      updatedAt: Date.now(),
+    }));
+  }
+
+  setHardened(hardened: boolean | null): void {
+    this.updateActiveDraft((draft) => ({
+      ...draft,
+      hardened,
       updatedAt: Date.now(),
     }));
   }
@@ -563,6 +574,7 @@ export class NewSessionDraftService {
         ? modelRuntimeTarget.nodeId ?? null
         : hadPersistedLocalModelTarget ? null : persistedNodeId,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
+      hardened: typeof draft?.hardened === 'boolean' ? draft.hardened : null,
       launchMode: this.resolveDraftLaunchMode(provider, draft?.launchMode),
       agentId: isKnownAgent ? persistedAgentId : getDefaultAgent().id,
       pendingFolders: Array.isArray(draft?.pendingFolders)
@@ -652,6 +664,7 @@ export class NewSessionDraftService {
       reasoningEffort: null,
       nodeId: null,
       yoloMode: null,
+      hardened: null,
       launchMode: null,
       agentId: getDefaultAgent().id,
       pendingFolders: [],

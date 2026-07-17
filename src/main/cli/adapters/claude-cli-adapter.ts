@@ -24,6 +24,7 @@ import {
   type TurnInterruptCompletion,
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
+import { applyClaudeHygieneEnv, resolveClaudeFallbackModel } from './claude-env-pack';
 import { parseNdjsonLine } from '../json-parse';
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
@@ -151,6 +152,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // script reads ORCHESTRATOR_RTK_ENABLED and ORCHESTRATOR_RTK_PATH from env,
     // so they need to be present in the CLI's environment, not the orchestrator's.
     const env: Record<string, string> = { ...(options.env ?? {}) };
+    applyClaudeHygieneEnv(env, options.sessionId);
     if (options.rtk?.enabled && options.rtk.binaryPath) {
       env['ORCHESTRATOR_RTK_ENABLED'] = '1';
       env['ORCHESTRATOR_RTK_PATH'] = options.rtk.binaryPath;
@@ -168,7 +170,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     };
     super(config);
 
-    this.spawnOptions = options;
+    // WS14: settings-backed fallback model unless the caller pinned one.
+    const fallbackModel = resolveClaudeFallbackModel(options.fallbackModel);
+    this.spawnOptions = fallbackModel ? { ...options, fallbackModel } : options;
     this.sessionId = options.sessionId || generateId();
     const knownWindow = getProviderModelContextWindow('claude-cli', options.model);
     this.lastKnownContextWindow = knownWindow;
@@ -1096,6 +1100,17 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     if (this.spawnOptions.model) {
       args.push('--model', this.spawnOptions.model);
+    }
+
+    // WS14: automatic overload fallback. Never pass a fallback equal to the
+    // primary — the CLI rejects that pairing.
+    if (this.spawnOptions.fallbackModel && this.spawnOptions.fallbackModel !== this.spawnOptions.model) {
+      args.push('--fallback-model', this.spawnOptions.fallbackModel);
+    }
+
+    // WS14: structured output for one-shot utility calls (review verdicts).
+    if (this.spawnOptions.jsonSchema) {
+      args.push('--json-schema', this.materializeInlineJsonArg(this.spawnOptions.jsonSchema));
     }
 
     const mappedReasoningEffort = this.mapReasoningEffort(this.spawnOptions.reasoningEffort);

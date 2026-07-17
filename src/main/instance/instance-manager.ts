@@ -23,6 +23,10 @@ import { getActionCircuitBreaker } from '../security/action-circuit-breaker';
 import { forgetLspFeedbackInstance } from '../codemem/lsp-feedback-registration';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
+import { removeInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping'; import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
+import { getHandoffStateService } from '../session/handoff-state-service';
+import { getNotificationService } from '../notifications/notification-service';
+import { buildParkFailoverOfferNotification } from './instance-failover';
 import { applySubagentPermissions } from '../orchestration/derive-subagent-permission';
 import type { RoutingDecision } from '../routing';
 import type { SpawnChildCommand } from '../orchestration/orchestration-protocol';
@@ -431,6 +435,15 @@ export class InstanceManager extends EventEmitter {
         }
       },
       providerLimitLedger: getProviderLimitLedgerPort(),
+      // WS7 Phase B offered switch: notify when a long park has fallbacks available.
+      onParked: ({ instanceId, provider, resumeAt }) => {
+        const offer = buildParkFailoverOfferNotification({
+          instance: this.state.getInstance(instanceId), provider, resumeAt,
+          offerAfterMinutes: this.settings.get('sessionFailoverOfferAfterMinutes'),
+        });
+        if (!offer) return;
+        try { getNotificationService().notify({ ...offer, urgency: 'normal' }); } catch { /* best-effort */ }
+      },
       getWorkspaceCwd: (id) => this.state.getInstance(id)?.workingDirectory,
       getProviderModel: (id) => {
         const inst = this.state.getInstance(id);
@@ -607,6 +620,7 @@ export class InstanceManager extends EventEmitter {
       const instance = this.state.getInstance(instanceId);
       this.providerEventBus.removeInstance(instanceId);
       this.settledTracker.clear(instanceId);
+      removeInstanceBrowserToolsMode(instanceId); removeInstanceHardened(instanceId); getHandoffStateService().removeInstance(instanceId);
       this.emit('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
       this.emit('instance:removed', instanceId);
     });
@@ -1383,6 +1397,11 @@ export class InstanceManager extends EventEmitter {
    */
   async requestYoloModeToggle(instanceId: string): Promise<Instance> {
     return this.lifecycle.requestYoloModeToggle(instanceId);
+  }
+
+  /** WS7 Phase B — user-initiated provider switch (quota-park banner action). */
+  async failoverNow(instanceId: string): Promise<{ switched: boolean; to?: string; note: string }> {
+    return this.lifecycle.failoverNow(instanceId);
   }
 
   async setYoloMode(instanceId: string, desiredYoloMode: boolean): Promise<Instance> {

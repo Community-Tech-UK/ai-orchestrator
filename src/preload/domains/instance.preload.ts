@@ -28,6 +28,8 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       bareMode?: boolean;
       fastMode?: boolean;
       forceNodeId?: string;
+      browserToolsMode?: 'eager' | 'deferred' | 'off';
+      hardened?: boolean;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_CREATE, payload);
     },
@@ -48,6 +50,8 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       bareMode?: boolean;
       fastMode?: boolean;
       forceNodeId?: string;
+      browserToolsMode?: 'eager' | 'deferred' | 'off';
+      hardened?: boolean;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(
         ch.INSTANCE_CREATE_WITH_MESSAGE,
@@ -127,6 +131,22 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
      */
     providerLimitCancel: (payload: { instanceId: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_PROVIDER_LIMIT_CANCEL, payload);
+    },
+
+    /**
+     * WS7 Phase B — switch a session to the next eligible fallback provider now
+     * (quota-park banner action).
+     */
+    instanceFailoverNow: (payload: { instanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_FAILOVER_NOW, payload);
+    },
+
+    /**
+     * WS13 slice 3 — grant a session-scoped Seatbelt writable root and restart
+     * the hardened instance into the rebuilt jail (allow-and-retry).
+     */
+    hardenedAllowPath: (payload: { instanceId: string; path: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_HARDENED_ALLOW_PATH, payload);
     },
 
     /**

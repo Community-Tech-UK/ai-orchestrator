@@ -72,22 +72,46 @@ export class McpServer extends EventEmitter {
     return [...this.tools.values()];
   }
 
+  /**
+   * Unhide previously registered hidden tools (WS9 deferred loading). Emits
+   * `tools-list-changed` when at least one tool actually became visible so the
+   * transport can push a `notifications/tools/list_changed` to the client.
+   */
+  revealTools(names: string[]): void {
+    let changed = false;
+    for (const name of names) {
+      const tool = this.tools.get(name);
+      if (tool?.hidden) {
+        tool.hidden = false;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.emit('tools-list-changed');
+    }
+  }
+
   async handleRequest(request: { method: string; params?: unknown; id?: number }): Promise<unknown> {
     switch (request.method) {
       case 'initialize':
         return {
           protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
+          // listChanged: revealTools() can grow the visible tool list at
+          // runtime (WS9 deferred loading); clients that honor the capability
+          // re-fetch tools/list on the notification.
+          capabilities: { tools: { listChanged: true } },
           serverInfo: { name: 'ai-orchestrator', version: '1.0.0' },
         };
 
       case 'tools/list':
         return {
-          tools: [...this.tools.values()].map(t => ({
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema,
-          })),
+          tools: [...this.tools.values()]
+            .filter(t => !t.hidden)
+            .map(t => ({
+              name: t.name,
+              description: t.description,
+              inputSchema: t.inputSchema,
+            })),
         };
 
       case 'tools/call': {

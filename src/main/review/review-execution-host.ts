@@ -37,7 +37,7 @@ export interface ReviewExecutionHost {
     prompt: string,
     cwd: string,
     signal: AbortSignal,
-    options?: { modelOverride?: string },
+    options?: { modelOverride?: string; jsonSchema?: string },
   ): Promise<string>;
 }
 
@@ -121,7 +121,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
     prompt: string,
     cwd: string,
     signal: AbortSignal,
-    options?: { modelOverride?: string },
+    options?: { modelOverride?: string; jsonSchema?: string },
   ): Promise<string> {
     if (signal.aborted) {
       throw new Error('Review cancelled');
@@ -145,6 +145,9 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
         // When no override is configured, leave `model` unset so the reviewer
         // CLI uses its own default/auto routing.
         ...(reviewerModel ? { model: reviewerModel } : {}),
+        // WS14: Claude one-shots take the verdict schema natively; other CLIs
+        // keep prompt-steered JSON (their flags differ; parser stays strict).
+        ...(resolvedCli === 'claude' && options?.jsonSchema ? { jsonSchema: options.jsonSchema } : {}),
       },
     });
 

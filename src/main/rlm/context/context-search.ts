@@ -19,6 +19,7 @@ import type {
 import { cosineSimilarity } from './context.utils';
 import { bloomMightContain } from './context-cache';
 import { getLogger } from '../../logging/logger';
+import { getRecallTraceStore } from '../../memory/retrieval-eval/recall-trace-store';
 
 const logger = getLogger('ContextSearch');
 
@@ -249,6 +250,17 @@ export async function executeSemanticSearch(
             );
           }
         }
+
+        // WS16: recall trace for the RLM surface — scored section hits.
+        try {
+          getRecallTraceStore().record({
+            surface: 'rlm',
+            query,
+            returned: searchResults
+              .filter((r) => store.sections.some((s) => s.id === r.entry.sectionId))
+              .map((r) => ({ id: r.entry.sectionId, score: r.similarity })),
+          });
+        } catch { /* tracing is best-effort observability */ }
 
         return {
           result: matches.join('\n\n---\n\n') || 'No matches found.',

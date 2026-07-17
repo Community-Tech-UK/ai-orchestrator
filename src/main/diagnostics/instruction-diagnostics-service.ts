@@ -46,6 +46,7 @@ export class InstructionDiagnosticsService {
       });
       const diagnostics: InstructionDiagnostic[] = [
         ...this.mapResolverWarnings(resolution),
+        ...this.collectTrustDiagnostics(resolution),
         ...this.collectConflictDiagnostics(resolution),
         ...await this.collectBroadRootDiagnostics(
           resolution,
@@ -67,22 +68,63 @@ export class InstructionDiagnosticsService {
     }
   }
 
+  /**
+   * WS12: one structured row per gated instruction file that is not cleanly
+   * approved — carries the verdict + current sha256 so the Doctor UI can
+   * offer one-click (and batch) approval pinning exactly what was scanned.
+   */
+  private collectTrustDiagnostics(resolution: InstructionResolution): InstructionDiagnostic[] {
+    const diagnostics: InstructionDiagnostic[] = [];
+    for (const source of resolution.sources) {
+      if (!source.loaded || source.trust === undefined || source.sha256 === undefined) continue;
+      const scanSeverity = source.scanFindings?.some((f) => f.severity === 'critical')
+        ? 'critical' as const
+        : source.scanFindings?.some((f) => f.severity === 'warn')
+          ? 'warn' as const
+          : source.scanFindings && source.scanFindings.length > 0
+            ? 'info' as const
+            : undefined;
+      if (source.trust === 'approved' && scanSeverity !== 'critical') continue;
+      const state = source.trust === 'changed'
+        ? 'changed since approval'
+        : source.trust === 'unknown'
+          ? 'not yet approved'
+          : 'approved';
+      diagnostics.push({
+        code: 'instruction-trust',
+        severity: scanSeverity === 'critical' || source.trust === 'changed' ? 'error' : 'warning',
+        message: `${source.label}: ${state}${scanSeverity ? ` (scanner: ${scanSeverity})` : ''}${source.applied ? '' : ' — skipped by the trust gate'}`,
+        filePath: source.path,
+        sourceKind: source.kind,
+        sourceScope: source.scope,
+        trust: source.trust,
+        sha256: source.sha256,
+        ...(scanSeverity ? { scanSeverity } : {}),
+      });
+    }
+    return diagnostics;
+  }
+
   private mapResolverWarnings(resolution: InstructionResolution): InstructionDiagnostic[] {
-    return resolution.warnings.map((warning) => {
-      if (warning.includes('Multiple path-specific')) {
+    return resolution.warnings
+      // WS12: structured trust rows (collectTrustDiagnostics) carry the
+      // actionable detail; the free-text warnings would duplicate them.
+      .filter((warning) => !warning.startsWith('Instruction trust:'))
+      .map((warning): InstructionDiagnostic => {
+        if (warning.includes('Multiple path-specific')) {
+          return {
+            code: 'multiple-path-specific-instructions',
+            severity: 'warning',
+            message: warning,
+          };
+        }
+
         return {
-          code: 'multiple-path-specific-instructions',
+          code: 'conflicting-instruction-sources',
           severity: 'warning',
           message: warning,
         };
-      }
-
-      return {
-        code: 'conflicting-instruction-sources',
-        severity: 'warning',
-        message: warning,
-      };
-    });
+      });
   }
 
   private collectConflictDiagnostics(resolution: InstructionResolution): InstructionDiagnostic[] {

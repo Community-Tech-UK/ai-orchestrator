@@ -4,6 +4,7 @@ import { getRemoteNodeConfig } from '../remote-node/remote-node-config';
 import { getBrowserAutomationHealthService } from '../browser-automation/browser-automation-health';
 import { getProviderDoctor } from '../providers/provider-doctor';
 import { getRLMDatabase } from '../persistence/rlm-database';
+import { probeSeatbelt } from '../sandbox/seatbelt';
 import type {
   StartupCapabilityCheck,
   StartupCapabilityReport,
@@ -47,6 +48,7 @@ export class CapabilityProbe {
     checks.push(...await this.probeProviders());
     checks.push(await this.probeRemoteNodes());
     checks.push(await this.probeBrowserAutomation());
+    checks.push(await this.probeSandbox());
 
     const report: StartupCapabilityReport = {
       status: summarizeStatus(checks),
@@ -67,6 +69,36 @@ export class CapabilityProbe {
 
   getLastReport(): StartupCapabilityReport | null {
     return this.lastReport;
+  }
+
+  /**
+   * WS13 hardened run mode readiness. Runs a real no-op under sandbox-exec
+   * (binary existing is not enough). Never critical — hardened mode is opt-in
+   * and fails closed at spawn time regardless.
+   */
+  private async probeSandbox(): Promise<StartupCapabilityCheck> {
+    const base = {
+      id: 'subsystem.sandbox',
+      label: 'Hardened mode (Seatbelt)',
+      category: 'subsystem' as const,
+      critical: false,
+    };
+    if (process.platform !== 'darwin') {
+      return {
+        ...base,
+        status: 'disabled',
+        summary: 'Hardened run mode is macOS-only (Phase A).',
+      };
+    }
+    const probe = await probeSeatbelt();
+    return probe.supported
+      ? { ...base, status: 'ready', summary: 'sandbox-exec verified with a live no-op probe.' }
+      : {
+          ...base,
+          status: 'unavailable',
+          summary: 'sandbox-exec probe failed — hardened instances will refuse to spawn.',
+          details: { reason: probe.reason ?? 'unknown' },
+        };
   }
 
   private async probeNativeDatabase(): Promise<StartupCapabilityCheck> {

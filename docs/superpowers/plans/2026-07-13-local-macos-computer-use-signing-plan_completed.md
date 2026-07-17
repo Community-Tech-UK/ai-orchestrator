@@ -26,11 +26,11 @@
 - Modify: `scripts/localbuild.js`
 - Modify: `scripts/__tests__/localbuild.spec.ts`
 
-- [ ] Write failing tests for identity parsing/priority, missing-identity failure, custom signer forwarding, and localbuild arguments.
-- [ ] Run the two targeted specs and confirm failure is caused by the absent signer and old `identity=null` argument.
-- [ ] Implement the local signer using injected seams for unit tests and `@electron/osx-sign` in production.
-- [ ] Point local macOS builds at the custom signer and disable notarization without disabling signing.
-- [ ] Re-run the targeted specs.
+- [x] Write failing tests for identity parsing/priority, missing-identity failure, custom signer forwarding, and localbuild arguments.
+- [x] Run the two targeted specs and confirm failure is caused by the absent signer and old `identity=null` argument.
+- [x] Implement the local signer using injected seams for unit tests and `@electron/osx-sign` in production.
+- [x] Point local macOS builds at the custom signer and disable notarization without disabling signing.
+- [x] Re-run the targeted specs.
 
 ### Task 2: Verify the helper ownership boundary
 
@@ -41,16 +41,17 @@
 - Modify: `.github/workflows/release.yml`
 - Modify: `docs/packaging-native-modules.md`
 
-- [ ] Write failing verifier tests for matching teams, missing Team IDs, mismatch, and missing helper.
-- [ ] Implement codesign metadata parsing and app/helper Team ID comparison.
-- [ ] Invoke verification after the local custom signing operation and in the signed release workflow.
-- [ ] Document signed localbuild behavior and the unsigned diagnostic limitation.
-- [ ] Run targeted script and release-workflow specs.
+- [x] Write failing verifier tests for matching teams, missing Team IDs, mismatch, and missing helper.
+- [x] Implement codesign metadata parsing and app/helper Team ID comparison.
+- [x] Invoke verification after the local custom signing operation and in the signed release workflow.
+- [x] Document signed localbuild behavior and the unsigned diagnostic limitation.
+- [x] Run targeted script and release-workflow specs.
 
 ### Task 3: Package and verify
 
-- [ ] Run the custom signer specs, localbuild specs, helper build specs, and release workflow specs.
-- [ ] Produce a signed arm64 directory build using the local signer.
-- [ ] Verify Harness and `desktop-helper` share a non-empty Team ID and `codesign --deep --strict` passes.
-- [ ] Run `npx tsc --noEmit`, spec typecheck, lint, LOC ratchet, and the full quiet suite.
-- [ ] Record any remaining clean-TCC/relaunch-only validation in the existing Computer Use livetest document; rename this plan `_completed.md` only after all agent-runnable checks pass.
+- [x] Run the custom signer specs, localbuild specs, helper build specs, and release workflow specs.
+- [x] Produce a signed arm64 directory build using the local signer.
+- [x] Verify Harness and `desktop-helper` share a non-empty Team ID and `codesign --deep --strict` passes.
+- [x] Run `npx tsc --noEmit`, spec typecheck, lint, and the LOC ratchet.
+- [x] Run the full quiet suite. Re-run 2026-07-17: `npm run test:quiet` → 1431 files, 14190 tests passed, 0 failures (the earlier 5-failure note was concurrent drift in unrelated files, already resolved on this tree).
+- [ ] Exercise the newly signed installed app against the existing TCC grant — deferred live check, see [`2026-07-13-local-macos-computer-use-signing-plan_livetest.md`](2026-07-13-local-macos-computer-use-signing-plan_livetest.md).

@@ -250,6 +250,28 @@ export const SETTINGS_TOOL_POLICY = {
   browserVaultAutoUnlock: readOnly(),
   // WS11.2: routes page text through the aux model; operator decides.
   browserAuxExtractionEnabled: readOnly(),
+  // WS9: global tool-surface economy; an agent must not re-inflate every
+  // future session's schema tax (or shrink another session's surface) via a
+  // tool call — the operator decides.
+  browserMcpToolDeferral: readOnly(),
+  // Spec item 5: changes what context reaches providers on swap/restore.
+  sessionHandoffStateEnabled: open(z.boolean()),
+  // WS16: provenance gate for instruction-tier memory (readOnly — safety default).
+  memoryInstructionGate: readOnly(),
+  // WS14: overload fallback model for Claude sessions (empty = off).
+  claudeFallbackModel: open(z.string().max(100)),
+  // WS14: env scrub can break hook/RTK env passthrough — operator-only.
+  claudeSubprocessEnvScrub: readOnly(),
+  // WS7 Phase B: the operator's fallback-provider list is the failover consent
+  // surface. Open so it is configurable, bounded to the known loop providers.
+  sessionFailoverProviders: open(
+    z.array(z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'])).max(7),
+  ),
+  sessionFailoverMaxSwitches: open(numberSettingSchema('sessionFailoverMaxSwitches')),
+  sessionFailoverOfferAfterMinutes: open(numberSettingSchema('sessionFailoverOfferAfterMinutes')),
+  // WS12: a prompt-injected agent must never soften the instruction trust
+  // gate; only the operator changes the mode.
+  instructionTrustGate: readOnly(),
   // Security-sensitive: authorizes autonomous credential fills on the user's
   // real shared browser. An autonomous agent must never flip this via the safe
   // settings tool — only the local operator (UI / privileged aio-mcp CLI /

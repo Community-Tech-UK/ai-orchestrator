@@ -4,7 +4,8 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
-import { getLogger } from '../../logging/logger';
+import * as path from 'path';
+import { getLogger } from '../../logging/logger'; import { addInstanceWritableRoot } from '../../instance/lifecycle/hardened-mode-scoping';
 import { getIdempotencyStore, IdempotencyStore } from '../../transport/idempotency-store';
 import { registerInstanceProviderLimitHandlers } from './instance-provider-limit-ipc';
 import { IPC_CHANNELS } from '@contracts/channels';
@@ -22,6 +23,7 @@ import {
   InstanceLoadOlderMessagesPayloadSchema,
   InstanceRenamePayloadSchema,
   InstanceRestartFreshPayloadSchema,
+  InstanceHardenedAllowPathPayloadSchema,
   InstanceRestartPayloadSchema,
   InstanceSendInputPayloadSchema,
   InstanceSteerInputPayloadSchema,
@@ -87,6 +89,8 @@ export function registerInstanceHandlers(deps: {
           fastModeOverride: validatedPayload.fastMode,
           forceNodeId: validatedPayload.forceNodeId,
           nodePlacement: validatedPayload.nodePlacement,
+          browserToolsMode: validatedPayload.browserToolsMode,
+          hardened: validatedPayload.hardened,
         });
 
         return {
@@ -138,6 +142,8 @@ export function registerInstanceHandlers(deps: {
           fastModeOverride: validated.fastMode,
           forceNodeId: validated.forceNodeId,
           nodePlacement: validated.nodePlacement,
+          browserToolsMode: validated.browserToolsMode,
+          hardened: validated.hardened,
         });
 
         return {
@@ -319,8 +325,8 @@ export function registerInstanceHandlers(deps: {
     }
   );
 
-  // Provider-limit park: resume-now / cancel (extracted to keep this file lean)
-  registerInstanceProviderLimitHandlers();
+  // Provider-limit park: resume-now / cancel / failover-now (extracted to keep this file lean)
+  registerInstanceProviderLimitHandlers({ instanceManager });
 
   // Restart instance
   ipcMain.handle(
@@ -339,6 +345,45 @@ export function registerInstanceHandlers(deps: {
           success: false,
           error: {
             code: 'RESTART_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // WS13 slice 3 allow-and-retry: grant a session-scoped Seatbelt writable root, then restart
+  // into the rebuilt jail. Rejects non-hardened instances and relative paths; never disables the sandbox.
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_HARDENED_ALLOW_PATH,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          InstanceHardenedAllowPathPayloadSchema,
+          payload,
+          'INSTANCE_HARDENED_ALLOW_PATH'
+        );
+        if (!path.isAbsolute(validated.path)) {
+          throw new Error('Writable-root grants must be absolute paths');
+        }
+        if (!addInstanceWritableRoot(validated.instanceId, validated.path)) {
+          throw new Error('Instance is not running in hardened mode');
+        }
+        logger.info('Hardened-mode writable root granted; restarting into rebuilt jail', {
+          instanceId: validated.instanceId,
+          grantedPath: validated.path,
+        });
+        await instanceManager.restartInstance(validated.instanceId);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'HARDENED_ALLOW_PATH_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

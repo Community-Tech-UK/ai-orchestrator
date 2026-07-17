@@ -24,7 +24,7 @@
 
       /* Make room for the jump rail's ticks when it is showing */
       :host:has(app-transcript-jump-rail.rail-visible) .output-stream {
-        padding-left: 22px;
+        padding-left: 26px;
       }
 
       /* Push content to bottom when conversation is short */

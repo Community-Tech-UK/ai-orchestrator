@@ -1,10 +1,13 @@
 /**
  * Transcript Jump Rail — Codex-style left-edge message navigator.
  *
- * Renders one tick per user message, positioned proportionally to where the
- * message sits in the transcript's scroll content, plus a viewport indicator.
- * Hovering a tick shows a prompt/reply preview card; clicking smooth-scrolls
- * the transcript to that message and flashes it (`jump-flash`, styled by the
+ * Renders one thin tick line per user message as a tight, evenly spaced
+ * cluster bunched at the vertical centre of the rail (Codex-style — not spread
+ * across the full pane height). The tick for the turn currently in view is
+ * longer and brighter (Codex's "you are here" mark).
+ * Hovering a tick shows a preview card — prompt excerpt, reply excerpt, and
+ * chips for files edited during that turn; clicking smooth-scrolls the
+ * transcript to that message and flashes it (`jump-flash`, styled by the
  * parent). Hidden until the session has MIN_JUMP_TARGETS user messages and
  * actually overflows.
  *
@@ -53,7 +56,8 @@ const EMPTY_GEOMETRY: RailGeometry = {
 
 const HOVER_SHOW_DELAY_MS = 120;
 const JUMP_SCROLL_MARGIN = 12;
-const PREVIEW_APPROX_HEIGHT = 96;
+const PREVIEW_APPROX_HEIGHT = 132;
+const MAX_PREVIEW_FILE_CHIPS = 2;
 
 @Component({
   selector: 'app-transcript-jump-rail',
@@ -71,11 +75,6 @@ const PREVIEW_APPROX_HEIGHT = 96;
             aria-label="Load earlier messages"
           >⋯</button>
         }
-        <div
-          class="viewport-indicator"
-          [style.top.px]="indicator().top"
-          [style.height.px]="indicator().height"
-        ></div>
         @for (marker of markers(); track marker.target.itemId; let i = $index) {
           <button
             class="tick"
@@ -92,6 +91,22 @@ const PREVIEW_APPROX_HEIGHT = 96;
             @if (preview.target.replyExcerpt) {
               <div class="preview-reply">{{ preview.target.replyExcerpt }}</div>
             }
+            @if (preview.chips.length > 0) {
+              <div class="preview-files">
+                @for (file of preview.chips; track file) {
+                  <span class="file-chip">
+                    <svg class="chip-icon" viewBox="0 0 12 12" aria-hidden="true">
+                      <path d="M3 1h4l3 3v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                      <path d="M7 1v3h3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                    </svg>
+                    <span class="chip-name">{{ file }}</span>
+                  </span>
+                }
+                @if (preview.moreCount > 0) {
+                  <span class="file-chip more">+{{ preview.moreCount }}</span>
+                }
+              </div>
+            }
           </div>
         }
       </div>
@@ -103,7 +118,7 @@ const PREVIEW_APPROX_HEIGHT = 96;
       top: 12px;
       bottom: 12px;
       left: 0;
-      width: 16px;
+      width: 20px;
       display: block;
       z-index: 5;
       pointer-events: none;
@@ -116,43 +131,51 @@ const PREVIEW_APPROX_HEIGHT = 96;
       pointer-events: auto;
     }
 
-    .viewport-indicator {
-      position: absolute;
-      left: 6px;
-      width: 3px;
-      border-radius: 2px;
-      background: rgba(var(--primary-rgb), 0.12);
-    }
-
+    /* Codex-style tick: the button is an enlarged hit target; the visible
+       line is drawn by ::after so ticks stay thin without being unclickable. */
     .tick {
       position: absolute;
-      left: 3px;
-      width: 9px;
-      height: 3px;
-      border-radius: 2px;
+      left: 0;
+      width: 20px;
+      height: 7px;
+      margin-top: -3.5px;
       border: none;
       padding: 0;
-      margin-top: -1px;
-      background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+      background: transparent;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+    }
+
+    .tick::after {
+      content: '';
+      display: block;
+      width: 10px;
+      height: 2px;
+      border-radius: 1px;
+      background: color-mix(in srgb, var(--text-muted) 40%, transparent);
       transition: background var(--transition-fast, 0.15s ease), width var(--transition-fast, 0.15s ease);
     }
 
-    .rail:hover .tick {
-      width: 12px;
-      background: color-mix(in srgb, var(--text-muted) 70%, transparent);
+    .rail:hover .tick::after {
+      background: color-mix(in srgb, var(--text-muted) 65%, transparent);
     }
 
-    .tick:hover,
-    .tick.active {
-      background: var(--primary-color);
+    .tick.active::after {
+      width: 18px;
+      background: var(--text-primary);
+    }
+
+    .tick:hover::after {
+      width: 18px;
+      background: var(--text-primary);
     }
 
     .older-cap {
       position: absolute;
       top: -6px;
       left: 0;
-      width: 16px;
+      width: 20px;
       height: 14px;
       border: none;
       padding: 0;
@@ -169,13 +192,13 @@ const PREVIEW_APPROX_HEIGHT = 96;
 
     .preview {
       position: absolute;
-      left: 20px;
-      width: 240px;
-      padding: 8px 10px;
-      border-radius: var(--radius-sm, 8px);
-      background: color-mix(in srgb, var(--surface-color, #1a1d24) 92%, transparent);
-      border: 1px solid rgba(var(--primary-rgb), 0.18);
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+      left: 24px;
+      width: 280px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--surface-color, #1a1d24) 94%, transparent);
+      border: 1px solid color-mix(in srgb, var(--text-muted) 22%, transparent);
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
       backdrop-filter: blur(8px);
       pointer-events: none;
       z-index: 6;
@@ -184,14 +207,61 @@ const PREVIEW_APPROX_HEIGHT = 96;
     .preview-prompt {
       color: var(--text-primary);
       font-size: 11px;
+      font-weight: 600;
       line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
 
     .preview-reply {
-      margin-top: 4px;
+      margin-top: 5px;
       color: var(--text-muted);
       font-size: 11px;
       line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .preview-files {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+
+    .file-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+      color: var(--text-muted);
+      font-size: 10px;
+      line-height: 1.5;
+      white-space: nowrap;
+    }
+
+    .file-chip.more {
+      flex-shrink: 0;
+    }
+
+    .chip-icon {
+      width: 10px;
+      height: 10px;
+      flex-shrink: 0;
+    }
+
+    .chip-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 110px;
     }
   `,
 })
@@ -216,11 +286,10 @@ export class TranscriptJumpRailComponent {
   protected markers = computed(() => {
     const g = this.geometry();
     const targets = this.targets();
-    // A stale measurement (targets changed since the last measure pass) is
-    // index-misaligned; render nothing until the scheduled re-measure lands.
-    if (g.scrollHeight <= 0 || g.anchorTops.length !== targets.length) return [];
-    const ratios = g.anchorTops.map((top) => Math.max(0, top) / g.scrollHeight);
-    const tops = computeMarkerLayout(ratios, g.railHeight);
+    // Codex-style: ticks form a fixed-spacing cluster centred in the rail, so
+    // positions depend only on the target count — no anchor alignment needed.
+    if (g.railHeight <= 0) return [];
+    const tops = computeMarkerLayout(targets.length, g.railHeight);
     return targets.map((target, i) => ({ target, top: tops[i] }));
   });
 
@@ -230,23 +299,19 @@ export class TranscriptJumpRailComponent {
     return activeMarkerIndex(g.anchorTops, g.scrollTop, g.clientHeight);
   });
 
-  protected indicator = computed(() => {
-    const g = this.geometry();
-    if (g.scrollHeight <= 0 || g.railHeight <= 0) return { top: 0, height: 0 };
-    const height = Math.max(12, (g.clientHeight / g.scrollHeight) * g.railHeight);
-    const maxTop = Math.max(0, g.railHeight - height);
-    const scrollable = g.scrollHeight - g.clientHeight;
-    const top = scrollable > 0 ? (g.scrollTop / scrollable) * maxTop : 0;
-    return { top: Math.max(0, Math.min(maxTop, top)), height };
-  });
-
   protected hoverPreview = computed(() => {
     const index = this.hoveredIndex();
     const marker = this.markers()[index];
     if (index < 0 || !marker) return null;
     const railHeight = this.geometry().railHeight;
     const cardTop = Math.max(0, Math.min(marker.top - 12, railHeight - PREVIEW_APPROX_HEIGHT));
-    return { target: marker.target, cardTop };
+    const files = marker.target.files;
+    return {
+      target: marker.target,
+      cardTop,
+      chips: files.slice(0, MAX_PREVIEW_FILE_CHIPS),
+      moreCount: Math.max(0, files.length - MAX_PREVIEW_FILE_CHIPS),
+    };
   });
 
   private measureScheduled = false;
@@ -270,7 +335,7 @@ export class TranscriptJumpRailComponent {
       this.scheduleMeasure();
     });
 
-    // Viewport listeners: scroll drives the indicator/active tick (and cheaply
+    // Viewport listeners: scroll drives the active tick (and cheaply
     // refreshes anchor offsets); ResizeObserver catches panel/window resizes.
     effect((onCleanup) => {
       const vp = this.viewport();

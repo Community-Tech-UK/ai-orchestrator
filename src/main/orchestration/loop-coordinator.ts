@@ -211,6 +211,7 @@ import { CodeRetrievalService } from '../codemem/code-retrieval-service';
 import { getLessonStore } from '../memory/lesson-store';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { captureReviewLessonForVerdict } from './loop-review-lesson-capture-wiring';
+import { creditSurfacedLessonUse } from './loop-lesson-use-credit';
 import {
   computeObjectiveEvidenceKey,
   isLedgerConvergenceStalled,
@@ -1028,6 +1029,7 @@ export class LoopCoordinator extends EventEmitter {
     // (codemem hits for the goal + surfaced lessons). Best-effort and
     // settings-gated (both default ON); failures degrade to no block.
     let planStageContext: string | undefined;
+    const surfacedLessonsForRun: { id: string; text: string }[] = [];
     try {
       const appSettings = getSettingsManager().getAll() as {
         codememEnabled?: boolean;
@@ -1053,8 +1055,11 @@ export class LoopCoordinator extends EventEmitter {
         },
         surfaceLearnings: async (workspaceCwd, limit) => {
           const learnings = await this.loopMemoryStore.surfaceLearnings(workspaceCwd, limit);
-          const lessons = getLessonStore().active().slice(0, limit).map((lesson) => lesson.text);
-          return [...learnings, ...lessons].slice(0, limit);
+          // WS16: digest() honours reinforcement-on-use ranking; remember the
+          // surfaced lessons so a later echo can reinforce them on use.
+          const surfaced = getLessonStore().digest(limit);
+          surfacedLessonsForRun.push(...surfaced.map((l) => ({ id: l.id, text: l.text })));
+          return [...learnings, ...surfaced.map((l) => l.text)].slice(0, limit);
         },
       });
       if (block) planStageContext = block;
@@ -1066,7 +1071,12 @@ export class LoopCoordinator extends EventEmitter {
     }
     const existingSessionContext = runtimeContext?.existingSessionContext?.trim() || undefined;
     if (existingSessionContext || priorObservations || planStageContext) {
-      this.runtimeContexts.set(id, { existingSessionContext, priorObservations, planStageContext });
+      this.runtimeContexts.set(id, {
+        existingSessionContext,
+        priorObservations,
+        planStageContext,
+        ...(surfacedLessonsForRun.length > 0 ? { surfacedLessons: surfacedLessonsForRun } : {}),
+      });
     }
 
     wireLoopCompletionWatcher(watcher, state, (eventName, payload) => this.emit(eventName, payload));
@@ -3753,6 +3763,12 @@ export class LoopCoordinator extends EventEmitter {
       note: this.convergenceNotes.get(state.id),
       store: this.loopMemoryStore,
     });
+    // WS16: reinforce-on-use — lessons surfaced this run that the convergence
+    // note / terminal outcome actually echoed get a use bump (fail-soft).
+    creditSurfacedLessonUse(
+      this.runtimeContexts.get(state.id)?.surfacedLessons,
+      this.convergenceNotes.get(state.id),
+    );
     const watcher = this.watchers.get(state.id);
     this.watchers.delete(state.id);
     this.runtimeContexts.delete(state.id);

@@ -109,7 +109,7 @@ describe('computeRuntimeDiff', () => {
 
 describe('planContinuity', () => {
   const caps = { supportsResume: true, supportsForkSession: true };
-  const noDiff = { providerChanged: false, modelChanged: true, reasoningChanged: false, runtimeTargetChanged: false, hasChanges: true };
+  const noDiff = { providerChanged: false, modelChanged: true, reasoningChanged: false, runtimeTargetChanged: false, yoloModeChanged: false, hasChanges: true };
 
   it('forces replay for cross-provider changes', () => {
     expect(planContinuity({

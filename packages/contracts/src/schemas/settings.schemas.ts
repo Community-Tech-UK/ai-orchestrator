@@ -144,6 +144,17 @@ export const ConfigFindProjectPayloadSchema = z.object({
   startDir: WorkingDirectorySchema,
 });
 
+export const InstructionTrustApprovePayloadSchema = z.object({
+  files: z.array(z.object({
+    path: z.string().min(1).max(4000),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  })).min(1).max(50),
+});
+
+export const InstructionTrustRevokePayloadSchema = z.object({
+  path: z.string().min(1).max(4000),
+});
+
 export const InstructionsResolvePayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
   contextPaths: z.array(FilePathSchema).max(500).optional(),

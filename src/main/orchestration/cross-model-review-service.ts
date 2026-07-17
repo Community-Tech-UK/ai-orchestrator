@@ -21,6 +21,7 @@ import {
   truncateForReview,
 } from './review-prompts';
 import { combineAbortSignals } from '../util/abort-signals';
+import { serializeReviewResultJsonSchema } from '../../shared/validation/cross-model-review-schemas';
 import type {
   AggregatedReview,
   ReviewOutputType,
@@ -524,6 +525,10 @@ export class CrossModelReviewService extends EventEmitter {
               // When no override is configured, leave `model` unset so the
               // reviewer CLI uses its own default/auto routing.
               ...(reviewerModel ? { model: reviewerModel } : {}),
+              // WS14: Claude one-shots take the verdict schema natively.
+              ...(resolvedCli === 'claude'
+                ? { jsonSchema: serializeReviewResultJsonSchema(effectiveDepth) }
+                : {}),
             },
           });
 

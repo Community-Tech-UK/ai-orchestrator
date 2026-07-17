@@ -33,7 +33,7 @@ src/main/
 ├── learning/         # ML systems (GRPO, A/B testing)
 ├── logging/          # Structured logging with subsystem context
 ├── mcp/              # Model Context Protocol integration
-├── memory/           # Memory system (episodic, procedural, semantic)
+├── memory/           # Memory system (episodic, procedural, semantic; retrieval-eval/ = WS16 quality harness)
 ├── observation/      # Observation/telemetry pipeline
 ├── orchestration/    # Multi-agent coordination (see below)
 ├── persistence/      # Data persistence (RLM database)
@@ -57,6 +57,14 @@ src/main/
 ├── workflows/        # Workflow automation
 └── workspace/        # Worktree management
 ```
+
+## Memory Retrieval Quality And Governance (WS16)
+
+- **Retrieval eval harness** (`src/main/memory/retrieval-eval/`): pure metrics (Recall@k/NDCG@10), a versioned labeled dataset with a deterministic dev/held-out split, and a synthetic suite that scores the real codemem BM25 + lesson-digest engines against a committed baseline. Driven by `npm run bench:retrieval`. The harness never mutates real stores.
+- **Query sanitizer**: over-long agent queries (>300 chars) are reduced to their search intent (last question → tail line → truncate) before FTS/embedding; the raw query is kept in the recall trace for offline comparison. Wired at `CodeRetrievalService.search`.
+- **Recall traces** (`recall-trace-store.ts`): a bounded in-memory ring of what each surface (`rlm`/`codemem`/`lessons`) returned and which items were later USED (`markUsed`). Query text is hashed by default; raw/sanitized retained locally only.
+- **Reinforcement-on-use**: `LessonStore.reinforceOnUse` bumps a lesson's `uses` (and reinforcements) when a later loop iteration echoes it (`lesson-use-detector.ts` — content-token coverage / id echo). `digest()` ranking honors it, and the loop coordinator credits surfaced lessons at termination (`loop-lesson-use-credit.ts`).
+- **Provenance gate**: lessons carry `provenance` (`user-authored`|`agent-derived`|`imported`; default agent-derived). `memory-instruction-gate.ts` + the `memoryInstructionGate` setting (default ON) keep agent-derived memories out of system-prompt-tier assembly — they may only appear in labelled advisory blocks (e.g. the loop's untrusted prior-context).
 
 ## Multi-Agent Coordination Systems
 
@@ -161,6 +169,7 @@ All wired into `index.ts` at startup and cleaned up on shutdown.
 - **OperatorArtifactExporter** writes local zip bundles with centralized redaction in `src/main/diagnostics/redaction.ts`.
 - **CLI update pill** state is polled in the main process and bridged to the renderer through diagnostics IPC.
 - **Runbooks** live in `docs/runbooks/` and are opened from Doctor with `app:open-docs`.
+- **Context attribution + cache analytics** (`src/main/context/context-attribution-service.ts`, `src/main/context/cache-analytics-service.ts`): the instance-detail context bar's "Usage" panel shows an on-demand per-source occupancy estimate (instruction files, injected MCP tool schemas honouring browser deferral, conversation, tool traffic, attachments, `other` remainder) using the same `shared/utils/token-estimate` family the compactor uses, plus a per-turn prompt-cache hit-ratio series fed from the turn-completion usage seam. A cache *break* (ratio collapse >50% vs the trailing median without the prompt shrinking) is annotated with the most recent correlated config event (model/provider change, permission-mode respawn, MCP-affecting settings change — wired via the `Context analytics` initialization step). Read-only observability over `diagnostics:context-attribution-get` / `diagnostics:cache-analytics-get`; it never alters what is sent to a provider, and never fabricates a total when the provider did not report one. Complementary to the provider-reported `promptWeightBreakdown` (API-key Anthropic provider only), which the provider-diagnostics panel renders separately.
 
 ## IPC And Contracts
 

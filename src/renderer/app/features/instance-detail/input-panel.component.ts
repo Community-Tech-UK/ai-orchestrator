@@ -24,6 +24,8 @@ import { DraftService } from '../../core/services/draft.service';
 import { KeybindingService, type KeybindingEvent } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
+import { InstanceStore } from '../../core/state/instance.store';
 import {
   VoiceConversationSessionContext,
   VoiceConversationStore,
@@ -78,6 +80,7 @@ import type {
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import type { InstanceWaitReason, DesiredRuntime } from '../../../../shared/types/instance.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
+import { ComposerBannersComponent } from './composer-banners.component';
 import {
   tryStartLoopFromPanel,
   type LoopStartRequestPayload,
@@ -90,7 +93,6 @@ import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.typ
 import {
   commandSuggestionText,
   defaultWakeupLocal,
-  formatQuotaParkCountdown,
   formatWaitReasonLabel,
   formatFileSize,
   formatVoiceStatusLabel,
@@ -112,6 +114,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     AgentSelectorComponent,
     CompactModelPickerComponent,
     ComposerAutocompleteComponent,
+    ComposerBannersComponent,
     ComposerToolbarComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
@@ -133,6 +136,8 @@ export class InputPanelComponent implements OnDestroy {
   private keybindingService = inject(KeybindingService);
   private orchestrationIpc = inject(OrchestrationIpcService);
   private instanceIpc = inject(InstanceIpcService);
+  private electronIpc = inject(ElectronIpcService);
+  private instanceStoreRef = inject(InstanceStore);
   private promptHistoryStore = inject(PromptHistoryStore);
   private loopPanelOpener = inject(LoopPanelOpenerService);
   protected voice = inject(VoiceConversationStore);
@@ -174,34 +179,7 @@ export class InputPanelComponent implements OnDestroy {
 
   readonly holdReasonLabel = computed<string | null>(() => formatWaitReasonLabel(this.waitReason()));
 
-  /** Quota-park banner state (moved here from the header — it gates the composer, so it lives with it). */
-  readonly quotaPark = computed(() => {
-    const wr = this.waitReason();
-    return wr?.kind === 'quota-park' ? wr : null;
-  });
-  private readonly quotaParkNow = signal(Date.now());
-  private readonly quotaParkTicker = effect((onCleanup) => {
-    if (!this.quotaPark()) return;
-    const timer = setInterval(() => this.quotaParkNow.set(Date.now()), 1000);
-    onCleanup(() => clearInterval(timer));
-  });
-  readonly quotaParkLabel = computed(() => {
-    const park = this.quotaPark();
-    return park ? `Provider limit — ${formatQuotaParkCountdown(park.resumeAt, this.quotaParkNow())}` : null;
-  });
-  readonly quotaParkDetail = computed(() => {
-    const park = this.quotaPark();
-    if (!park) return '';
-    return `Parked on a ${park.provider} limit. Re-checks the live quota every few minutes and resumes as soon as the limit lifts; resumes at ${new Date(park.resumeAt).toLocaleTimeString()} at the latest.`;
-  });
-
-  onResumeFromProviderLimit(): void {
-    void this.instanceIpc.providerLimitResumeNow(this.instanceId());
-  }
-
-  onCancelProviderLimitPark(): void {
-    void this.instanceIpc.providerLimitCancel(this.instanceId());
-  }
+  // Quota-park + hardened-denial banners live in ComposerBannersComponent.
 
   // Computed preview data for pending files
   pendingFilePreviews = computed(() => {
@@ -1597,6 +1575,17 @@ export class InputPanelComponent implements OnDestroy {
 
   onToggleYoloMode(): void {
     this.newSessionDraft.setYoloMode(!this.effectiveYoloMode());
+  }
+
+  /** WS13 — hardened (Seatbelt) create toggle; macOS-only, default OFF (Decision 4). */
+  readonly showHardenedToggle = computed(
+    () => this.isDraftComposer() && this.electronIpc.platform === 'darwin',
+  );
+  readonly draftHardened = computed(() => this.newSessionDraft.hardened() ?? false);
+
+  onToggleHardened(): void {
+    // null (not false) keeps the draft's "no override" semantics when turning off.
+    this.newSessionDraft.setHardened(this.draftHardened() ? null : true);
   }
 
   private persistComposerText(value: string): void {

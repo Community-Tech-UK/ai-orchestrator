@@ -56,6 +56,11 @@
       "from": "resources/browser-extension",
       "to": "browser-extension",
       "filter": ["**/*"]
+    },
+    {
+      "from": "resources/sandbox",
+      "to": "sandbox",
+      "filter": ["*.sbpl"]
     }
   ],
   "mac": {
