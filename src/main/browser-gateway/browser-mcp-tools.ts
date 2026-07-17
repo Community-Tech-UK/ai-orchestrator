@@ -27,6 +27,8 @@ const TOOL_NAMES = [
   'browser.revoke_grant',
   'browser.snapshot',
   'browser.accessibility_snapshot',
+  'browser.assert_persisted',
+  'browser.write_journal',
   'browser.evaluate',
   'browser.screenshot',
   'browser.console_messages',
@@ -475,6 +477,45 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         + 'browserAuxExtractionEnabled, the page text is distilled by a local auxiliary model around '
         + 'this goal and the extract is returned instead of the raw dump (never-worse guarded; the '
         + 'full capture stays reachable via the spillover file reference). Ignored when the setting is off.',
+    },
+  }, ['profileId', 'targetId']),
+  'browser.assert_persisted': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    expectations: {
+      type: 'array',
+      description:
+        'Optional controls to read back and compare. Use after mutations in a long '
+        + 'flow — especially after any channel blip — to confirm what the app actually '
+        + 'persisted. The check also scans the page for the app\'s own failure signals '
+        + '("failed to save", "you got disconnected", session-expired banners); '
+        + 'persisted=false means treat the writes as NOT saved.',
+      items: objectSchema({
+        selector: {
+          ...selectorProp,
+          description: 'CSS selector of the control to read back.',
+        },
+        value: {
+          ...stringProp,
+          description: 'Expected input/textarea/select value.',
+        },
+        selectedLabel: {
+          ...stringProp,
+          description: 'Expected visible selected option label.',
+        },
+        checked: {
+          ...booleanProp,
+          description: 'Expected checkbox/radio/switch state.',
+        },
+      }, ['selector']),
+    },
+  }, ['profileId', 'targetId']),
+  'browser.write_journal': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    limit: {
+      ...numberProp,
+      description: 'Max journal entries to return (default 50, newest last).',
     },
   }, ['profileId', 'targetId']),
   'browser.accessibility_snapshot': objectSchema({

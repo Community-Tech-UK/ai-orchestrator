@@ -194,6 +194,41 @@ describe('parseResetHintFromText', () => {
     expect(parseResetHintFromText(text, now)).toBe(now + 45 * 60_000);
   });
 
+  it('parses the live codex weekly-limit string with an absolute month date', () => {
+    const now = new Date(2026, 6, 15, 17, 37, 31).getTime();
+    const text = "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Jul 21st, 2026 9:37 PM. - [codex_error_info: usageLimitExceeded]";
+    expect(parseResetHintFromText(text, now)).toBe(new Date(2026, 6, 21, 21, 37).getTime());
+  });
+
+  it('parses a full month name without an ordinal suffix', () => {
+    const now = new Date(2026, 6, 15, 10, 0).getTime();
+    expect(parseResetHintFromText('resets at July 21, 2026 9:37 AM', now)).toBe(
+      new Date(2026, 6, 21, 9, 37).getTime(),
+    );
+  });
+
+  it('parses a yearless month date as the upcoming occurrence', () => {
+    const now = new Date(2026, 6, 21, 22, 0).getTime();
+    expect(parseResetHintFromText('try again at Jul 22nd 9:37 PM', now)).toBe(
+      new Date(2026, 6, 22, 21, 37).getTime(),
+    );
+  });
+
+  it('returns null for a passed yearless month date (next-year roll exceeds the 8-day cap)', () => {
+    const now = new Date(2026, 6, 25, 10, 0).getTime();
+    expect(parseResetHintFromText('try again at Jul 21st 9:37 PM', now)).toBeNull();
+  });
+
+  it('rejects a month-date reset more than 8 days out', () => {
+    const now = new Date(2026, 6, 1, 10, 0).getTime();
+    expect(parseResetHintFromText('try again at Jul 21st, 2026 9:37 PM', now)).toBeNull();
+  });
+
+  it('does not misread a bare month-date with no time as a reset hint', () => {
+    const now = new Date(2026, 6, 15, 10, 0).getTime();
+    expect(parseResetHintFromText('try again at Jul 21st, 2026.', now)).toBeNull();
+  });
+
   it('parses an ISO reset timestamp', () => {
     const now = Date.UTC(2026, 6, 11, 15, 42);
     expect(parseResetHintFromText('resets at 2026-07-11T17:01:00Z', now)).toBe(

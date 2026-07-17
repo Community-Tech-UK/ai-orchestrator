@@ -23,6 +23,10 @@ import {
   type BrowserExtensionContactSnapshot,
   type BrowserExtensionContactState,
 } from './browser-extension-contact-state';
+import {
+  getBrowserReliabilityEvents,
+  type BrowserReliabilityEvents,
+} from './browser-reliability-events';
 
 type BrowserExtAttachTabParams = z.infer<typeof BrowserExtAttachTabParamsSchema>;
 type BrowserExtPollCommandParams = z.infer<typeof BrowserExtPollCommandParamsSchema>;
@@ -45,7 +49,8 @@ interface RemoteExtensionCommandStore {
 }
 
 interface RemoteExtensionTabStore {
-  expireNode(nodeId: string): void;
+  suspendNode(nodeId: string): number;
+  restoreNode(nodeId: string): number;
 }
 
 export interface RemoteBrowserExtensionBridgeOptions {
@@ -54,6 +59,7 @@ export interface RemoteBrowserExtensionBridgeOptions {
   tabStore?: RemoteExtensionTabStore;
   registry?: Pick<WorkerNodeRegistry, 'getNode'>;
   contactState?: BrowserExtensionContactState;
+  reliabilityEvents?: Pick<BrowserReliabilityEvents, 'record'>;
   logger?: Pick<Console, 'info' | 'warn'>;
   now?: () => number;
   maxRequestsPerWindow?: number;
@@ -74,6 +80,7 @@ export class RemoteBrowserExtensionBridge {
   private readonly tabStore: RemoteExtensionTabStore;
   private readonly registry: Pick<WorkerNodeRegistry, 'getNode'>;
   private readonly contactState: BrowserExtensionContactState;
+  private readonly reliabilityEvents: Pick<BrowserReliabilityEvents, 'record'>;
   private readonly logger: Pick<Console, 'info' | 'warn'>;
   private readonly now: () => number;
   private readonly maxRequestsPerWindow: number;
@@ -87,6 +94,7 @@ export class RemoteBrowserExtensionBridge {
     this.tabStore = options.tabStore ?? getBrowserExtensionTabStore();
     this.registry = options.registry ?? getWorkerNodeRegistry();
     this.contactState = options.contactState ?? getBrowserExtensionContactState();
+    this.reliabilityEvents = options.reliabilityEvents ?? getBrowserReliabilityEvents();
     this.logger = options.logger ?? console;
     this.now = options.now ?? Date.now;
     this.maxRequestsPerWindow = options.maxRequestsPerWindow ?? 120;
@@ -183,7 +191,16 @@ export class RemoteBrowserExtensionBridge {
     this.rateBuckets.delete(nodeId);
     this.contactTransitions.delete(nodeId);
     this.contactState.forgetNode(nodeId);
-    this.tabStore.expireNode(nodeId);
+    // forgetNode wiped the disconnect record — re-record it so post-reconnect
+    // writes trigger the persistence sentinel's pre-write session check.
+    this.contactState.markExtensionDisconnect(nodeId, 'node_ws_disconnected');
+    // Suspend (don't delete) attachments: nodeId is stable, so the same ids
+    // come back when the node reconnects within the grace window.
+    const suspended = this.tabStore.suspendNode(nodeId);
+    this.reliabilityEvents.record('node_disconnect', {
+      nodeId,
+      detail: { suspendedAttachments: suspended },
+    });
     this.commandStore.rejectQueue(
       browserExtensionQueueKeyForNode(nodeId),
       `Remote browser extension node disconnected: ${nodeId}`,
@@ -220,11 +237,22 @@ export class RemoteBrowserExtensionBridge {
     this.observeExtensionContact(nodeId, contactedAt);
     const previousState = this.contactTransitions.get(nodeId) ?? 'never';
     this.contactState.markExtensionContact(nodeId, contactedAt);
-    if (previousState === 'lost') {
-      this.logger.info('Remote browser extension poll resumed', {
-        nodeId,
-        lastContactAt: contactedAt,
-      });
+    if (previousState !== 'active') {
+      // 'lost' → the poll resumed; 'never' → first contact after a node
+      // (re)registration. Either way the channel is live again: lift any
+      // suspension so callers' pre-blip handles keep working.
+      const restored = this.tabStore.restoreNode(nodeId);
+      if (previousState === 'lost' || restored > 0) {
+        this.reliabilityEvents.record('node_reconnect', {
+          nodeId,
+          detail: { restoredAttachments: restored },
+        });
+        this.logger.info('Remote browser extension poll resumed', {
+          nodeId,
+          lastContactAt: contactedAt,
+          restoredAttachments: restored,
+        });
+      }
     }
     this.contactTransitions.set(nodeId, 'active');
   }

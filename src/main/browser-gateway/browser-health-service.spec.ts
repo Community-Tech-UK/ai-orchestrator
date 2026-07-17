@@ -615,4 +615,90 @@ describe('BrowserHealthService', () => {
     node.capabilities.extensionRelay!.extensionReloadedAt = 9_500;
     expect((await service.diagnose()).remoteExtensions.nodes[0].serviceWorkerRestarts).toBe(1);
   });
+
+  it('reports the RPC contract, per-session tool parity, and reliability events', async () => {
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => [] },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing',
+          checkedAt: 1,
+          runtimeAvailable: false,
+          nodeAvailable: true,
+          inAppConfigured: false,
+          inAppConnected: false,
+          inAppToolCount: 0,
+          configDetected: false,
+          configSources: [],
+          browserToolNames: [],
+          warnings: [],
+          suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      workerNodeRegistry: { getAllNodes: () => [] },
+      mcpBridgeAvailable: () => true,
+      chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+      expectedToolSurface: () => ({
+        names: ['browser.click', 'browser.evaluate'],
+        surfaceHash: 'expected-hash',
+      }),
+      toolRevealStore: {
+        listSurfaces: () => [
+          {
+            instanceId: 'instance-1',
+            surface: {
+              names: ['browser.click', 'browser.evaluate'],
+              revealedNames: ['browser.evaluate'],
+              protocolVersion: 1,
+              surfaceHash: 'expected-hash',
+              reportedAt: 5,
+            },
+          },
+          {
+            instanceId: 'instance-2',
+            surface: {
+              names: ['browser.click'],
+              revealedNames: [],
+              protocolVersion: 1,
+              surfaceHash: 'stale-hash',
+              reportedAt: 6,
+            },
+          },
+        ],
+      },
+      reliabilityEvents: {
+        recent: () => [{ at: 7, kind: 'node_disconnect', nodeId: 'node-1' }],
+      },
+      now: () => 10_000,
+    });
+
+    const report = await service.diagnose();
+
+    expect(report.contract).toMatchObject({
+      expectedToolCount: 2,
+      expectedSurfaceHash: 'expected-hash',
+    });
+    expect(report.mcpSessions).toEqual([
+      expect.objectContaining({
+        instanceId: 'instance-1',
+        schemaMatch: true,
+        toolParity: { reportedCount: 2, expectedCount: 2, missing: [] },
+      }),
+      expect.objectContaining({
+        instanceId: 'instance-2',
+        schemaMatch: false,
+        toolParity: {
+          reportedCount: 1,
+          expectedCount: 2,
+          missing: ['browser.evaluate'],
+        },
+      }),
+    ]);
+    expect(report.recentReliabilityEvents).toEqual([
+      { at: 7, kind: 'node_disconnect', nodeId: 'node-1' },
+    ]);
+    expect(report.warnings.some((warning) => warning.includes('instance-2'))).toBe(true);
+    expect(report.warnings.some((warning) => warning.includes('instance-1'))).toBe(false);
+  });
 });

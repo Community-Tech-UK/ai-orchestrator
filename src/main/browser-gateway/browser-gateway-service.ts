@@ -17,8 +17,10 @@ import type {
   BrowserElementCandidate,
   BrowserEvaluateRequest,
   BrowserEvaluateResult,
+  BrowserAssertPersistedRequest,
   BrowserFillFormRequest,
   BrowserGatewayResult,
+  BrowserWriteJournalRequest,
   BrowserListApprovalRequestsRequest,
   BrowserListGrantsRequest,
   BrowserManualStepRequest,
@@ -35,6 +37,15 @@ import type {
 } from '@contracts/types/browser';
 import { BrowserAuditStore, getBrowserAuditStore } from './browser-audit-store';
 import { getBrowserCampaignRuntime } from './browser-campaign-runtime';
+import { getBrowserReliabilityEvents } from './browser-reliability-events';
+import { getBrowserTargetPersistenceSentinel } from './browser-target-persistence-sentinel';
+import { getBrowserWriteJournal, type BrowserWriteJournalEntry } from './browser-write-journal';
+import type { BrowserAssertPersistedData } from './browser-assert-persisted-operation';
+import {
+  assertPersistedOperation,
+  writeJournalListOperation,
+  type BrowserReliabilityOperationDeps,
+} from './browser-reliability-operations';
 import { getBrowserEscalationService } from './browser-unattended-services';
 import {
   BrowserApprovalStore,
@@ -252,6 +263,9 @@ export class BrowserGatewayService {
   private stageUploadFileOnNode: NonNullable<BrowserGatewayServiceOptions['stageUploadFileOnNode']>;
   private readonly actionGuard: BrowserGatewayActionGuard;
   private readonly resultRecorder: BrowserGatewayResultRecorder;
+  private readonly persistenceSentinel: BrowserGatewayServiceOptions['persistenceSentinel'];
+  private readonly writeJournal: BrowserGatewayServiceOptions['writeJournal'];
+  private readonly reliabilityEvents: NonNullable<BrowserGatewayServiceOptions['reliabilityEvents']>;
   private readonly existingTabOperations: BrowserExistingTabOperations;
   private readonly targetDiscoveryOperations: BrowserTargetDiscoveryOperations;
   private readonly approvalOperations: BrowserGatewayApprovalOperations;
@@ -279,6 +293,14 @@ export class BrowserGatewayService {
     this.resolvePreferredDebugPort = options.resolvePreferredDebugPort;
     this.stageUploadFileOnNode = options.stageUploadFileOnNode ?? stageBrowserUploadOnNode;
     this.resultRecorder = new BrowserGatewayResultRecorder(this.auditStore);
+    // Reliability hardening: `null` disables (test fakes); undefined = singletons.
+    this.persistenceSentinel = options.persistenceSentinel === undefined
+      ? getBrowserTargetPersistenceSentinel()
+      : options.persistenceSentinel;
+    this.writeJournal = options.writeJournal === undefined
+      ? getBrowserWriteJournal()
+      : options.writeJournal;
+    this.reliabilityEvents = options.reliabilityEvents ?? getBrowserReliabilityEvents();
     this.existingTabOperations = new BrowserExistingTabOperations({
       extensionCommandStore: this.extensionCommandStore,
       extensionTabStore: this.extensionTabStore,
@@ -290,6 +312,11 @@ export class BrowserGatewayService {
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
       autoApproveApproval: (approval) => this.autoApproveApproval(approval),
       onNavigateSucceeded: (request) => getBrowserCampaignRuntime()?.recordNavigation(request),
+      ...(this.persistenceSentinel ? { persistenceSentinel: this.persistenceSentinel } : {}),
+      ...(this.writeJournal ? { writeJournal: this.writeJournal } : {}),
+      getLastChannelDisconnectAt: (nodeId) =>
+        this.extensionContactState.getLastDisconnect?.(nodeId ?? 'local')?.at,
+      reliabilityEvents: this.reliabilityEvents,
     });
     this.targetDiscoveryOperations = new BrowserTargetDiscoveryOperations({
       targetRegistry: this.targetRegistry,
@@ -1154,6 +1181,30 @@ export class BrowserGatewayService {
         limit,
       ),
     );
+  }
+
+  async assertPersisted(
+    request: BrowserGatewayContext & BrowserAssertPersistedRequest,
+  ): Promise<BrowserGatewayResult<BrowserAssertPersistedData | null>> {
+    return assertPersistedOperation(this.reliabilityOperationDeps(), request);
+  }
+
+  async writeJournalList(
+    request: BrowserGatewayContext & BrowserWriteJournalRequest,
+  ): Promise<BrowserGatewayResult<BrowserWriteJournalEntry[] | null>> {
+    return writeJournalListOperation(this.reliabilityOperationDeps(), request);
+  }
+
+  private reliabilityOperationDeps(): BrowserReliabilityOperationDeps {
+    return {
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+      getTab: (profileId, targetId) => this.extensionTabStore.getTab(profileId, targetId),
+      persistenceSentinel: this.persistenceSentinel,
+      writeJournal: this.writeJournal,
+      sendExtensionCommand: (request) => this.extensionCommandStore.sendCommand(request),
+      readControlForTarget: (profileId, targetId, selector) =>
+        this.readControlForTarget(profileId, targetId, selector),
+    };
   }
 
   async accessibilitySnapshot(

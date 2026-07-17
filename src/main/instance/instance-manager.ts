@@ -492,6 +492,7 @@ export class InstanceManager extends EventEmitter {
         this.context.buildMcpRuntimeToolContextSelection(snapshot, query, maxTools),
       registerOrchestration: (id, wd, pid) => this.orchestrationMgr.registerInstance(id, wd, pid),
       unregisterOrchestration: (id) => this.orchestrationMgr.unregisterInstance(id),
+      reconcileOrchestrationChildren: (id) => this.orchestrationMgr.reconcileChildrenAfterRestart(id),
       markInterrupted: (id) => this.communication.markInterrupted(id),
       clearInterrupted: (id) => this.communication.clearInterrupted(id),
       addToOutputBuffer: (inst, msg) => this.communication.addToOutputBuffer(inst, msg),

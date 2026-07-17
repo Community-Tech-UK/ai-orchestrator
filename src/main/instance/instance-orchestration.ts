@@ -146,6 +146,44 @@ export class InstanceOrchestrationManager {
   }
 
   /**
+   * Reconcile a parent's orchestration children after a replay-fallback
+   * restart: drop dead children (keeping them queryable as completed), keep
+   * live ones, and mirror the result onto the parent Instance so spawn-limit
+   * checks and get-children stay consistent. Returns live child refs and the
+   * dropped ids for the degradation preamble, or null when the instance has
+   * no orchestration context.
+   */
+  reconcileChildrenAfterRestart(
+    parentId: string,
+  ): { activeChildren: { id: string; name?: string; status?: string }[]; droppedChildIds: string[] } | null {
+    const result = this.orchestration.reconcileChildrenAfterRestart(parentId, (childId) => {
+      const child = this.deps.getInstance(childId);
+      return !!child
+        && child.status !== 'terminated'
+        && child.status !== 'failed'
+        && child.status !== 'error';
+    });
+    if (!result) return null;
+
+    const parent = this.deps.getInstance(parentId);
+    if (parent && result.dropped.length > 0) {
+      parent.childrenIds = parent.childrenIds.filter((id) => !result.dropped.includes(id));
+    }
+
+    return {
+      activeChildren: result.kept.map((childId) => {
+        const child = this.deps.getInstance(childId);
+        return {
+          id: childId,
+          name: child?.displayName,
+          status: child?.status,
+        };
+      }),
+      droppedChildIds: result.dropped,
+    };
+  }
+
+  /**
    * Process orchestration output
    */
   processOrchestrationOutput(instanceId: string, content: string): void {

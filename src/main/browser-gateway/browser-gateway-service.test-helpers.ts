@@ -95,6 +95,8 @@ export function makeService(overrides: {
   };
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionContactState?: BrowserGatewayServiceOptions['extensionContactState'];
+  persistenceSentinel?: BrowserGatewayServiceOptions['persistenceSentinel'];
+  writeJournal?: BrowserGatewayServiceOptions['writeJournal'];
   credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
   credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
   emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
@@ -298,6 +300,10 @@ export function makeService(overrides: {
     driver,
     extensionTabStore,
     extensionCommandStore: overrides.extensionCommandStore,
+    // Reliability hardening is exercised by its own dedicated specs; existing
+    // service specs keep their exact command sequences (no sentinel scans).
+    persistenceSentinel: overrides.persistenceSentinel ?? null,
+    writeJournal: overrides.writeJournal ?? null,
     extensionContactState: overrides.extensionContactState ?? {
       getLastExtensionContactAt: () => Date.now(),
       isExtensionContactFresh: () => true,

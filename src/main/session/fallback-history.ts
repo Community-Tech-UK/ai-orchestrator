@@ -118,6 +118,56 @@ export function renderRecoveryPacket(packet: RecoveryPacket): string {
   ].join('\n');
 }
 
+/** A live orchestration child listed in the fresh-fallback degradation notice. */
+export interface FreshFallbackChildRef {
+  id: string;
+  name?: string;
+  status?: string;
+}
+
+export interface FreshFallbackDegradationInfo {
+  /** Orchestration children still alive and attached to this conversation. */
+  activeChildren?: FreshFallbackChildRef[];
+  /** Orchestration children found dead and dropped during restart reconciliation. */
+  droppedChildIds?: string[];
+}
+
+/**
+ * Honest degradation preamble for a genuine fresh fallback: the replay
+ * transcript restores conversation text only — anything that lived inside the
+ * old provider process (in-process subagents, running tools, queued work) is
+ * gone and the model must not assume it completed. Appended by
+ * RestartPolicyHelpers.buildFallbackHistory on every fresh-fallback path.
+ */
+export function buildFreshFallbackDegradationNotice(
+  reason: string,
+  info: FreshFallbackDegradationInfo = {},
+): string {
+  const lines = [
+    '[SESSION DEGRADATION NOTICE]',
+    `A brand-new provider session was started because the previous one could not be resumed (${reason}).`,
+    'Background and in-flight work from the prior session — subagents, running tools, pending tasks — was NOT carried over and no longer exists.',
+    'Re-establish the current state (re-check files, task status, and outputs) before continuing; do not assume prior background work finished.',
+  ];
+
+  const active = info.activeChildren ?? [];
+  if (active.length > 0) {
+    lines.push('Orchestration child instances still alive and attached to you:');
+    for (const child of active) {
+      const detail = [child.name, child.status].filter(Boolean).join(', ');
+      lines.push(`- ${child.id}${detail ? ` (${detail})` : ''}`);
+    }
+  }
+
+  const dropped = info.droppedChildIds ?? [];
+  if (dropped.length > 0) {
+    lines.push(`Orchestration child instances lost in the restart (no longer running): ${dropped.join(', ')}`);
+  }
+
+  lines.push('[END SESSION DEGRADATION NOTICE]');
+  return lines.join('\n');
+}
+
 function buildMetadataHeader(messages: OutputMessage[], totalTurns: number): string {
   const firstUser = messages.find(m => m.type === 'user');
   const toolNames = new Set<string>();

@@ -434,6 +434,37 @@ export const BrowserNavigateRequestSchema = BrowserTargetRequestSchema.extend({
 }).strict();
 export type BrowserNavigateRequest = z.infer<typeof BrowserNavigateRequestSchema>;
 
+export const BrowserSnapshotRequestSchema = BrowserTargetRequestSchema.extend({
+  // WS11.2 aux extraction goal. Optional and additive: older gateways strip
+  // unknown optional fields instead of rejecting them (forward-compat contract).
+  extractionHint: z.string().min(1).max(2000).optional(),
+}).strict();
+export type BrowserSnapshotRequest = z.infer<typeof BrowserSnapshotRequestSchema>;
+
+export const BrowserAssertPersistedExpectationSchema = z
+  .object({
+    selector: z.string().min(1).max(2000),
+    value: z.string().max(4000).optional(),
+    selectedLabel: z.string().max(500).optional(),
+    checked: z.boolean().optional(),
+  })
+  .strict();
+export type BrowserAssertPersistedExpectation = z.infer<
+  typeof BrowserAssertPersistedExpectationSchema
+>;
+
+export const BrowserAssertPersistedRequestSchema = BrowserTargetRequestSchema.extend({
+  expectations: z.array(BrowserAssertPersistedExpectationSchema).max(50).optional(),
+}).strict();
+export type BrowserAssertPersistedRequest = z.infer<
+  typeof BrowserAssertPersistedRequestSchema
+>;
+
+export const BrowserWriteJournalRequestSchema = BrowserTargetRequestSchema.extend({
+  limit: z.number().int().min(1).max(200).optional(),
+}).strict();
+export type BrowserWriteJournalRequest = z.infer<typeof BrowserWriteJournalRequestSchema>;
+
 export const BrowserScreenshotRequestSchema = BrowserTargetRequestSchema.extend({
   maxWidth: z.number().int().min(100).max(4096).optional(),
   maxHeight: z.number().int().min(100).max(4096).optional(),

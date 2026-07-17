@@ -394,6 +394,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         setDiffTracker: deps.setDiffTracker
           ? (id, workDir) => deps.setDiffTracker!(id, new SessionDiffTracker(workDir))
           : undefined,
+        reconcileOrchestrationChildren: deps.reconcileOrchestrationChildren,
       },
       { getActiveMessages: (input) => this.getActiveMessages(input) },
     );

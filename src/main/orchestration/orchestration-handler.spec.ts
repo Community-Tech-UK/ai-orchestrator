@@ -287,3 +287,54 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
     });
   });
 });
+
+describe('OrchestrationHandler.reconcileChildrenAfterRestart', () => {
+  it('returns null when the parent has no orchestration context', () => {
+    const orchestration = new OrchestrationHandler();
+
+    expect(orchestration.reconcileChildrenAfterRestart('missing', () => true)).toBeNull();
+  });
+
+  it('drops dead children, keeps live ones, and preserves dropped ids as completed', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('parent-1', '/tmp', null);
+    orchestration.addChild('parent-1', 'child-live');
+    orchestration.addChild('parent-1', 'child-dead');
+
+    const result = orchestration.reconcileChildrenAfterRestart(
+      'parent-1',
+      (childId) => childId === 'child-live',
+    );
+
+    expect(result).toEqual({ kept: ['child-live'], dropped: ['child-dead'] });
+    // Live child still owned; dead child moved to the completed set so
+    // post-hoc summary queries keep resolving.
+    expect(orchestration.isChildOfParent('parent-1', 'child-live')).toBe(true);
+    expect(orchestration.isChildOfParent('parent-1', 'child-dead')).toBe(true);
+    expect(orchestration.getCompletedChildIds('parent-1')).toEqual(['child-dead']);
+    expect(orchestration.hasActiveWork('parent-1')).toBe(true);
+  });
+
+  it('is a no-op when every child is alive', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('parent-2', '/tmp', null);
+    orchestration.addChild('parent-2', 'child-a');
+    orchestration.addChild('parent-2', 'child-b');
+
+    const result = orchestration.reconcileChildrenAfterRestart('parent-2', () => true);
+
+    expect(result).toEqual({ kept: ['child-a', 'child-b'], dropped: [] });
+    expect(orchestration.getCompletedChildIds('parent-2')).toEqual([]);
+  });
+
+  it('clears active work when all children are dead', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('parent-3', '/tmp', null);
+    orchestration.addChild('parent-3', 'child-x');
+
+    const result = orchestration.reconcileChildrenAfterRestart('parent-3', () => false);
+
+    expect(result).toEqual({ kept: [], dropped: ['child-x'] });
+    expect(orchestration.hasActiveWork('parent-3')).toBe(false);
+  });
+});

@@ -23,7 +23,11 @@ function makeBridge() {
     markReceived: vi.fn(),
   };
   const tabStore = {
-    expireNode: vi.fn(),
+    suspendNode: vi.fn(() => 2),
+    restoreNode: vi.fn(() => 0),
+  };
+  const reliabilityEvents = {
+    record: vi.fn(),
   };
   const registry = {
     getNode: vi.fn(() => ({ id: 'node-1', name: 'Windows PC' }) as unknown as WorkerNodeInfo),
@@ -33,6 +37,7 @@ function makeBridge() {
     commandStore,
     tabStore,
     registry,
+    reliabilityEvents,
     logger,
     now: () => now,
     maxRequestsPerWindow: 10,
@@ -43,6 +48,7 @@ function makeBridge() {
     commandStore,
     tabStore,
     registry,
+    reliabilityEvents,
     logger,
     setNow: (value: number) => {
       now = value;
@@ -151,15 +157,42 @@ describe('RemoteBrowserExtensionBridge', () => {
     );
   });
 
-  it('expires node tabs and rejects pending node commands on disconnect', () => {
-    const { bridge, commandStore, tabStore } = makeBridge();
+  it('suspends node tabs and rejects pending node commands on disconnect', () => {
+    const { bridge, commandStore, tabStore, reliabilityEvents } = makeBridge();
 
     bridge.expireNode('node-1');
 
-    expect(tabStore.expireNode).toHaveBeenCalledWith('node-1');
+    expect(tabStore.suspendNode).toHaveBeenCalledWith('node-1');
     expect(commandStore.rejectQueue).toHaveBeenCalledWith(
       'node:node-1',
       'Remote browser extension node disconnected: node-1',
+    );
+    expect(reliabilityEvents.record).toHaveBeenCalledWith(
+      'node_disconnect',
+      expect.objectContaining({
+        nodeId: 'node-1',
+        detail: { suspendedAttachments: 2 },
+      }),
+    );
+  });
+
+  it('restores suspended tabs and records a reconnect when the poll resumes', async () => {
+    const { bridge, tabStore, reliabilityEvents, setNow } = makeBridge();
+    tabStore.restoreNode.mockReturnValue(2);
+
+    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    setNow(91_001);
+    expect(bridge.isExtensionContactFresh('node-1')).toBe(false);
+    setNow(92_000);
+    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+
+    expect(tabStore.restoreNode).toHaveBeenCalledWith('node-1');
+    expect(reliabilityEvents.record).toHaveBeenCalledWith(
+      'node_reconnect',
+      expect.objectContaining({
+        nodeId: 'node-1',
+        detail: { restoredAttachments: 2 },
+      }),
     );
   });
 

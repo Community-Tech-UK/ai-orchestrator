@@ -91,6 +91,15 @@ const EIGHT_DAYS_MS = 8 * 24 * 60 * 60 * 1000;
 
 const ISO_RESET_RE = /\breset(?:s)?\s+at\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s.,;]+)/i;
 
+// Codex weekly-limit errors state an absolute date: "try again at Jul 21st,
+// 2026 9:37 PM." Month name + day (optional ordinal/comma/year) + clock time.
+const MONTH_DATE_RESET_RE = /\b(?:try\s+again|resets?)\b(?:\s+at)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?(?:\s+(\d{4}))?,?\s+(\d{1,2})(?::(\d{2}))?(?:\s*([ap])\.?\s?m\.?|(?=[\s.,;]|$))/i;
+
+const MONTH_INDEX: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
 // Requires an explicit am/pm marker; bare "HH:MM" falls through to the 24h regex below.
 const CLOCK_12H_RE = /\b(?:try\s+again|resets?)\b(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s?m\.?/i;
 
@@ -113,6 +122,9 @@ export function parseResetHintFromText(text: string, now: number): number | null
   const iso = parseIsoResetTimestamp(text);
   if (iso !== null) return clampReasonable(iso, now);
 
+  const monthDate = parseMonthDateResetTimestamp(text, now);
+  if (monthDate !== null) return clampReasonable(monthDate, now);
+
   const relativeMs = parseRelativeDuration(text);
   if (relativeMs !== null) return clampReasonable(now + relativeMs, now);
 
@@ -127,6 +139,37 @@ function parseIsoResetTimestamp(text: string): number | null {
   if (!match?.[1]) return null;
   const parsed = Date.parse(match[1]);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+// "try again at Jul 21st, 2026 9:37 PM" → local epoch-ms. A missing year means
+// the nearest upcoming occurrence of that date (year rolls forward when the
+// date already passed). A 12-hour time requires its am/pm marker to disambiguate.
+function parseMonthDateResetTimestamp(text: string, now: number): number | null {
+  const match = MONTH_DATE_RESET_RE.exec(text);
+  if (!match) return null;
+
+  const month = MONTH_INDEX[match[1].toLowerCase()];
+  const day = Number(match[2]);
+  const explicitYear = match[3] ? Number(match[3]) : null;
+  let hour = Number(match[4]);
+  const minute = match[5] ? Number(match[5]) : 0;
+  const meridiem = match[6]?.toLowerCase();
+  if (day < 1 || day > 31 || minute > 59) return null;
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    hour = hour % 12;
+    if (meridiem === 'p') hour += 12;
+  } else if (hour > 23) {
+    return null;
+  }
+
+  const year = explicitYear ?? new Date(now).getFullYear();
+  const candidate = new Date(year, month, day, hour, minute, 0, 0).getTime();
+  if (!Number.isFinite(candidate)) return null;
+  if (explicitYear === null && candidate <= now) {
+    return new Date(year + 1, month, day, hour, minute, 0, 0).getTime();
+  }
+  return candidate;
 }
 
 // Tries every "in " anchor in the text, not just the first — a spurious

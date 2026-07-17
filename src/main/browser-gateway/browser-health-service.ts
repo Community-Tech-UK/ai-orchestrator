@@ -28,6 +28,17 @@ import {
   type BrowserExtensionCommandStore,
   type BrowserExtensionQueueSnapshot,
 } from './browser-extension-command-store';
+import {
+  getBrowserReliabilityEvents,
+  type BrowserReliabilityEvent,
+  type BrowserReliabilityEvents,
+} from './browser-reliability-events';
+import { BROWSER_GATEWAY_RPC_PROTOCOL_VERSION } from './browser-rpc-contract';
+import { expectedBrowserToolSurface } from './browser-rpc-server-support';
+import {
+  getBrowserToolRevealStore,
+  type BrowserToolRevealStore,
+} from './browser-tool-reveal-store';
 
 export type BrowserGatewayHealthStatus = 'ready' | 'partial' | 'missing';
 
@@ -107,6 +118,30 @@ export interface BrowserGatewayHealthReport {
   providerCapabilities: BrowserGatewayProviderCapabilities;
   providerCapabilityDetails: BrowserGatewayProviderCapabilityDetails;
   rawLegacyAutomation: BrowserAutomationHealthReport;
+  /** Reliability hardening: the RPC/tool-surface contract of THIS build. */
+  contract?: {
+    protocolVersion: number;
+    expectedToolCount: number;
+    expectedSurfaceHash: string;
+  };
+  /**
+   * Per-instance MCP forwarder sessions that reported their tool surface.
+   * `schemaMatch` false or a non-empty `missing` list means the bridge binary
+   * is skewed against this build — rebuild before starting a long flow.
+   */
+  mcpSessions?: Array<{
+    instanceId: string;
+    protocolVersion: number;
+    reportedAt: number;
+    schemaMatch: boolean;
+    toolParity: {
+      reportedCount: number;
+      expectedCount: number;
+      missing: string[];
+    };
+  }>;
+  /** Recent disconnect/skew/rejected-write telemetry (newest last). */
+  recentReliabilityEvents?: BrowserReliabilityEvent[];
   warnings: string[];
 }
 
@@ -116,6 +151,9 @@ export interface BrowserHealthServiceOptions {
   workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   extensionContactState?: BrowserExtensionContactStateReader;
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'describeQueue'>;
+  toolRevealStore?: Pick<BrowserToolRevealStore, 'listSurfaces'>;
+  reliabilityEvents?: Pick<BrowserReliabilityEvents, 'recent'>;
+  expectedToolSurface?: () => { names: string[]; surfaceHash: string };
   mcpBridgeAvailable?: () => boolean;
   chromeRuntimeDetector?: () => Promise<BrowserChromeRuntimeHealth>;
   now?: () => number;
@@ -185,6 +223,9 @@ export class BrowserHealthService {
   private readonly workerNodeRegistry: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   private readonly extensionContactState: BrowserExtensionContactStateReader;
   private readonly extensionCommandStore: Pick<BrowserExtensionCommandStore, 'describeQueue'>;
+  private readonly toolRevealStore: Pick<BrowserToolRevealStore, 'listSurfaces'>;
+  private readonly reliabilityEvents: Pick<BrowserReliabilityEvents, 'recent'>;
+  private readonly expectedToolSurface: () => { names: string[]; surfaceHash: string };
   private readonly mcpBridgeAvailable: () => boolean;
   private readonly chromeRuntimeDetector: () => Promise<BrowserChromeRuntimeHealth>;
   private readonly now: () => number;
@@ -198,6 +239,9 @@ export class BrowserHealthService {
     this.workerNodeRegistry = options.workerNodeRegistry ?? getWorkerNodeRegistry();
     this.extensionContactState = options.extensionContactState ?? getBrowserExtensionContactState();
     this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
+    this.toolRevealStore = options.toolRevealStore ?? getBrowserToolRevealStore();
+    this.reliabilityEvents = options.reliabilityEvents ?? getBrowserReliabilityEvents();
+    this.expectedToolSurface = options.expectedToolSurface ?? expectedBrowserToolSurface;
     this.mcpBridgeAvailable =
       options.mcpBridgeAvailable ?? (() => defaultMcpBridgeAvailableProvider());
     this.chromeRuntimeDetector = options.chromeRuntimeDetector ?? detectChromeRuntime;
@@ -226,7 +270,33 @@ export class BrowserHealthService {
     const errors = profiles.filter((profile) => profile.status === 'error').length;
     const bridgeAvailable = this.mcpBridgeAvailable();
     const remoteExtensions = this.getRemoteExtensionHealth();
+    const expectedSurface = this.expectedToolSurface();
+    const mcpSessions = this.toolRevealStore.listSurfaces().map(({ instanceId, surface }) => {
+      const reportedNames = new Set(surface.names);
+      return {
+        instanceId,
+        protocolVersion: surface.protocolVersion,
+        reportedAt: surface.reportedAt,
+        schemaMatch:
+          surface.protocolVersion === BROWSER_GATEWAY_RPC_PROTOCOL_VERSION
+          && surface.surfaceHash === expectedSurface.surfaceHash,
+        toolParity: {
+          reportedCount: surface.names.length,
+          expectedCount: expectedSurface.names.length,
+          missing: expectedSurface.names.filter((name) => !reportedNames.has(name)),
+        },
+      };
+    });
     const warnings: string[] = [];
+    for (const session of mcpSessions) {
+      if (!session.schemaMatch || session.toolParity.missing.length > 0) {
+        warnings.push(
+          `Browser Gateway MCP bridge for instance ${session.instanceId} is contract-skewed `
+          + `(schemaMatch=${session.schemaMatch}, missing tools: ${session.toolParity.missing.length}); `
+          + 'rebuild aio-mcp before starting a long browser flow.',
+        );
+      }
+    }
 
     if (!chromeRuntime.available) {
       warnings.push('Google Chrome was not detected for managed Browser Gateway profiles.');
@@ -306,6 +376,13 @@ export class BrowserHealthService {
         },
       },
       rawLegacyAutomation,
+      contract: {
+        protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
+        expectedToolCount: expectedSurface.names.length,
+        expectedSurfaceHash: expectedSurface.surfaceHash,
+      },
+      mcpSessions,
+      recentReliabilityEvents: this.reliabilityEvents.recent(30),
       warnings,
     };
   }

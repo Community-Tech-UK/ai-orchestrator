@@ -25,6 +25,8 @@ const ALLOWED_TOOLS = [
   'browser.revoke_grant',
   'browser.snapshot',
   'browser.accessibility_snapshot',
+  'browser.assert_persisted',
+  'browser.write_journal',
   'browser.evaluate',
   'browser.screenshot',
   'browser.console_messages',

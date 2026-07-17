@@ -11,8 +11,75 @@ import {
   createDeferredBrowserMcpTools,
 } from './browser-mcp-deferral';
 import { createBrowserMcpTools } from './browser-mcp-tools';
+import {
+  BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
+  computeBrowserToolSurfaceHash,
+} from './browser-rpc-contract';
 
 const logger = getLogger('BrowserMcpStdioServer');
+
+const REVEAL_RESTORE_TIMEOUT_MS = 1_500;
+
+/**
+ * Ask the parent for the tool names this instance had already revealed before
+ * a forwarder restart (reliability hardening: the MCP tool surface must be
+ * identical across a reconnect). Degrades to [] fast — never blocks startup.
+ */
+export async function fetchPreviouslyRevealedToolNames(
+  client: BrowserGatewayRpcClientLike,
+): Promise<string[]> {
+  const timeout = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), REVEAL_RESTORE_TIMEOUT_MS).unref?.();
+  });
+  try {
+    const result = await Promise.race([
+      client.call('browser.tool_reveal_get', {}),
+      timeout,
+    ]);
+    if (result && typeof result === 'object' && !Array.isArray(result)) {
+      const names = (result as Record<string, unknown>)['revealedNames'];
+      if (Array.isArray(names)) {
+        return names.filter((name): name is string => typeof name === 'string');
+      }
+    }
+  } catch {
+    // Fall through — parity is restored on the next reveal instead.
+  }
+  return [];
+}
+
+/**
+ * Report this forwarder's full tool surface + contract version to the parent
+ * so `browser.health` can verify schema-match and tool parity. Fire-and-forget.
+ */
+export function reportToolSurface(
+  client: BrowserGatewayRpcClientLike,
+  revealedNames: readonly string[],
+): void {
+  const tools = createBrowserMcpTools(client);
+  void client
+    .call('browser.report_tool_surface', {
+      names: tools.map((tool) => tool.name),
+      revealedNames: [...revealedNames],
+      protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
+      surfaceHash: computeBrowserToolSurfaceHash(tools),
+    })
+    .then((result) => {
+      const parity = result && typeof result === 'object'
+        ? (result as Record<string, unknown>)['parity']
+        : undefined;
+      if (parity && typeof parity === 'object') {
+        const record = parity as Record<string, unknown>;
+        if (record['surfaceHashMatch'] === false || record['protocolVersionMatch'] === false) {
+          logger.warn('Browser Gateway tool-surface contract mismatch with parent', {
+            surfaceHashMatch: record['surfaceHashMatch'],
+            protocolVersionMatch: record['protocolVersionMatch'],
+          });
+        }
+      }
+    })
+    .catch(() => undefined);
+}
 
 interface JsonRpcRequest {
   jsonrpc?: '2.0';
@@ -32,23 +99,46 @@ export async function runBrowserMcpForwarder(
 
   const server = McpServer.getInstance();
   const toolDeferral = process.env[BROWSER_TOOL_DEFERRAL_ENV] === '1';
+  const revealedNames = new Set<string>();
   if (toolDeferral) {
     // WS9 deferral: list only the core set + search/describe; all tools stay
     // dispatchable. Reveals push a list_changed so the client re-lists.
+    server.registerTools(
+      createDeferredBrowserMcpTools(client, {
+        onReveal: (names) => {
+          server.revealTools(names);
+          for (const name of names) {
+            revealedNames.add(name);
+          }
+          // Persist reveal state in the parent so a forwarder restart (MCP
+          // reconnect) restores the identical tool surface. Fire-and-forget.
+          void client.call('browser.tool_reveal_record', { names }).catch(() => undefined);
+        },
+      }),
+    );
+    // Restore the pre-restart surface BEFORE attaching the list_changed
+    // notifier (no pre-initialize notification) and before the first
+    // tools/list, so the client sees the same tool set as before the blip.
+    const restored = await fetchPreviouslyRevealedToolNames(client);
+    if (restored.length > 0) {
+      server.revealTools(restored);
+      for (const name of restored) {
+        revealedNames.add(name);
+      }
+      logger.info('Restored previously revealed browser tools', {
+        count: restored.length,
+      });
+    }
     server.on('tools-list-changed', () => {
       stdout.write(
         `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })}\n`,
       );
     });
-    server.registerTools(
-      createDeferredBrowserMcpTools(client, {
-        onReveal: (names) => server.revealTools(names),
-      }),
-    );
   } else {
     server.registerTools(createBrowserMcpTools(client));
   }
   server.start();
+  reportToolSurface(client, [...revealedNames]);
 
   const shutdown = (): void => {
     server.stop();

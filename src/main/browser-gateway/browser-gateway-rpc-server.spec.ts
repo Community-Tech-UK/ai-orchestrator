@@ -2,10 +2,17 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserGatewayRpcServer } from './browser-gateway-rpc-server';
 import type { BrowserGatewayNavigateRequest } from './browser-gateway-service-types';
 import type { BrowserGatewayResult } from '@contracts/types/browser';
+import { createBrowserMcpTools } from './browser-mcp-tools';
+import { BrowserReliabilityEvents, getBrowserReliabilityEvents } from './browser-reliability-events';
+import {
+  BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
+  computeBrowserToolSurfaceHash,
+} from './browser-rpc-contract';
+import { BrowserToolRevealStore } from './browser-tool-reveal-store';
 
 describe('BrowserGatewayRpcServer', () => {
   it('rejects unknown instance ids before reaching the gateway', async () => {
@@ -785,6 +792,238 @@ describe('BrowserGatewayRpcServer', () => {
     } finally {
       await server.stop();
     }
+  });
+});
+
+describe('BrowserGatewayRpcServer forward-compatible validation', () => {
+  beforeEach(() => {
+    BrowserReliabilityEvents._resetForTesting();
+  });
+
+  function makeServer(service: Record<string, unknown>): BrowserGatewayRpcServer {
+    return new BrowserGatewayRpcServer({
+      service,
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+    });
+  }
+
+  it('accepts the advertised optional extractionHint on browser.snapshot', async () => {
+    const snapshot = vi.fn().mockResolvedValue({ decision: 'allowed' });
+    const server = makeServer({ snapshot });
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.snapshot',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          profileId: 'profile-1',
+          targetId: 'target-1',
+          extractionHint: 'campaign budget field state',
+        },
+      },
+    });
+
+    expect(snapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ extractionHint: 'campaign budget field state' }),
+    );
+  });
+
+  it('strips unknown additive optional fields instead of hard-failing, and records the skew', async () => {
+    const snapshot = vi.fn().mockResolvedValue({ decision: 'allowed' });
+    const server = makeServer({ snapshot });
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.snapshot',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          profileId: 'profile-1',
+          targetId: 'target-1',
+          futureOptionalField: 'from a newer bridge',
+        },
+      },
+    });
+
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(snapshot.mock.calls[0][0]).not.toHaveProperty('futureOptionalField');
+    const events = getBrowserReliabilityEvents().recent();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: 'schema_skew_stripped',
+      detail: { method: 'browser.snapshot', droppedKeys: ['futureOptionalField'] },
+    });
+  });
+
+  it('still rejects type errors on known fields', async () => {
+    const snapshot = vi.fn();
+    const server = makeServer({ snapshot });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.snapshot',
+      params: {
+        instanceId: 'instance-1',
+        payload: { profileId: 'profile-1', targetId: 42 },
+      },
+    })).rejects.toThrow('Invalid browser gateway RPC payload');
+    expect(snapshot).not.toHaveBeenCalled();
+  });
+
+  it('never strips unknown keys from security-critical methods', async () => {
+    const requestGrant = vi.fn();
+    const server = makeServer({ requestGrant });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.request_grant',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          profileId: 'profile-1',
+          targetId: 'target-1',
+          proposedGrant: {
+            mode: 'per_action',
+            allowedOrigins: [],
+            allowedActionClasses: ['read'],
+            allowExternalNavigation: false,
+            autonomous: false,
+          },
+          restrictToSafeOrigins: true,
+        },
+      },
+    })).rejects.toThrow('Invalid browser gateway RPC payload');
+    expect(requestGrant).not.toHaveBeenCalled();
+    expect(getBrowserReliabilityEvents().recent()).toHaveLength(0);
+  });
+
+  it('tolerates an advisory contract field in the params envelope', async () => {
+    const snapshot = vi.fn().mockResolvedValue({ decision: 'allowed' });
+    const server = makeServer({ snapshot });
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.snapshot',
+      params: {
+        instanceId: 'instance-1',
+        contract: { protocolVersion: 99 },
+        payload: { profileId: 'profile-1', targetId: 'target-1' },
+      } as never,
+    });
+
+    expect(snapshot).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('BrowserGatewayRpcServer tool-surface continuity', () => {
+  beforeEach(() => {
+    BrowserReliabilityEvents._resetForTesting();
+    BrowserToolRevealStore._resetForTesting();
+  });
+
+  function makeServer(): BrowserGatewayRpcServer {
+    return new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+    });
+  }
+
+  it('round-trips revealed tool names per instance', async () => {
+    const server = makeServer();
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.tool_reveal_record',
+      params: {
+        instanceId: 'instance-1',
+        payload: { names: ['browser.evaluate', 'browser.wait_for'] },
+      },
+    });
+
+    const mine = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'browser.tool_reveal_get',
+      params: { instanceId: 'instance-1', payload: {} },
+    });
+    const other = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'browser.tool_reveal_get',
+      params: { instanceId: 'instance-2', payload: {} },
+    });
+
+    expect(mine).toEqual({
+      revealedNames: ['browser.evaluate', 'browser.wait_for'],
+    });
+    expect(other).toEqual({ revealedNames: [] });
+  });
+
+  it('reports full parity when the forwarder surface matches this build', async () => {
+    const server = makeServer();
+    const tools = createBrowserMcpTools({ call: async () => null });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.report_tool_surface',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          names: tools.map((tool) => tool.name),
+          revealedNames: [],
+          protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
+          surfaceHash: computeBrowserToolSurfaceHash(tools),
+        },
+      },
+    }) as { parity: Record<string, unknown> };
+
+    expect(result.parity).toMatchObject({
+      missing: [],
+      extra: [],
+      surfaceHashMatch: true,
+      protocolVersionMatch: true,
+    });
+    expect(getBrowserReliabilityEvents().recent()).toHaveLength(0);
+  });
+
+  it('flags missing tools and contract skew with reliability events', async () => {
+    const server = makeServer();
+    const tools = createBrowserMcpTools({ call: async () => null });
+    const names = tools
+      .map((tool) => tool.name)
+      .filter((name) => name !== 'browser.evaluate');
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.report_tool_surface',
+      params: {
+        instanceId: 'instance-1',
+        payload: {
+          names,
+          revealedNames: [],
+          protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION + 1,
+          surfaceHash: 'stale-bridge-hash',
+        },
+      },
+    }) as { parity: { missing: string[]; surfaceHashMatch: boolean } };
+
+    expect(result.parity.missing).toEqual(['browser.evaluate']);
+    expect(result.parity.surfaceHashMatch).toBe(false);
+    const kinds = getBrowserReliabilityEvents().recent().map((event) => event.kind);
+    expect(kinds).toContain('contract_mismatch');
+    expect(kinds).toContain('tool_surface_diff');
   });
 });
 

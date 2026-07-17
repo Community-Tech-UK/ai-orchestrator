@@ -22,6 +22,9 @@ import type { CredentialVault, CredentialFieldKind, GenericSecretKind } from './
 import type { CredentialAuthorizationService } from './browser-credential-authorization-store';
 import type { BrowserEmailCodeReader } from './browser-email-code-reader';
 import type { BrowserRemoteUploadStagingResult } from './browser-remote-upload-staging';
+import type { BrowserReliabilityEvents } from './browser-reliability-events';
+import type { BrowserTargetPersistenceSentinel } from './browser-target-persistence-sentinel';
+import type { BrowserWriteJournal } from './browser-write-journal';
 
 export interface BrowserGatewayContext {
   instanceId?: string;
@@ -194,6 +197,20 @@ export interface BrowserGatewayServiceOptions {
   >;
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionContactState?: BrowserExtensionContactStateReader;
+  /**
+   * Reliability hardening: app-signal persistence sentinel around shared-tab
+   * mutations. `null` disables it (test fakes); undefined uses the singleton.
+   */
+  persistenceSentinel?: Pick<
+    BrowserTargetPersistenceSentinel,
+    'scan' | 'needsPreWriteCheck' | 'forgetTarget'
+  > | null;
+  /** Durable shared-tab write journal. `null` disables (test fakes). */
+  writeJournal?: Pick<
+    BrowserWriteJournal,
+    'recordIntent' | 'recordOutcome' | 'list'
+  > | null;
+  reliabilityEvents?: Pick<BrowserReliabilityEvents, 'record'>;
   auditStore?: Pick<BrowserAuditStore, 'record' | 'list'>;
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;

@@ -154,6 +154,48 @@ export class OrchestrationHandler extends EventEmitter {
   }
 
   /**
+   * Reconcile a parent's tracked children after a replay-fallback restart
+   * (gap C): a restart never runs the termination path, so children that died
+   * while the parent was down stay in `childrenIds` as zombies. Drops children
+   * the caller reports dead (moving them to the completed set so post-hoc
+   * summary queries keep working) and keeps live ones.
+   *
+   * @returns kept/dropped child ids, or null when the parent has no
+   * orchestration context.
+   */
+  reconcileChildrenAfterRestart(
+    parentId: string,
+    isChildAlive: (childId: string) => boolean,
+  ): { kept: string[]; dropped: string[] } | null {
+    const ctx = this.contexts.get(parentId);
+    if (!ctx) return null;
+
+    const kept: string[] = [];
+    const dropped: string[] = [];
+    for (const childId of ctx.childrenIds) {
+      (isChildAlive(childId) ? kept : dropped).push(childId);
+    }
+
+    if (dropped.length > 0) {
+      ctx.childrenIds = kept;
+      if (!this.completedChildrenIds.has(parentId)) {
+        this.completedChildrenIds.set(parentId, new Set());
+      }
+      const completed = this.completedChildrenIds.get(parentId)!;
+      for (const childId of dropped) {
+        completed.add(childId);
+      }
+      logger.info('Reconciled orchestration children after restart', {
+        parentId,
+        kept,
+        dropped,
+      });
+    }
+
+    return { kept, dropped };
+  }
+
+  /**
    * Check if a child belongs to a parent (active OR completed)
    */
   isChildOfParent(parentId: string, childId: string): boolean {

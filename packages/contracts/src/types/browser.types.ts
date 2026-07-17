@@ -104,6 +104,12 @@ export interface BrowserTarget {
   lastSeenAt: number;
   lastConfirmedAt?: number;
   stale?: boolean;
+  /**
+   * Reliability hardening: set when this target is the same logical tab as a
+   * previously attached target that died in a node drop — callers holding the
+   * old ids should remap to these ids instead of hunting for the tab.
+   */
+  reboundFromTargetId?: string;
 }
 
 export interface BrowserPermissionGrant {
@@ -300,6 +306,21 @@ export interface BrowserWaitForRequest extends BrowserTargetRequest {
 
 export interface BrowserQueryElementsRequest extends BrowserTargetRequest {
   query?: string;
+  limit?: number;
+}
+
+export interface BrowserAssertPersistedExpectation {
+  selector: string;
+  value?: string;
+  selectedLabel?: string;
+  checked?: boolean;
+}
+
+export interface BrowserAssertPersistedRequest extends BrowserTargetRequest {
+  expectations?: BrowserAssertPersistedExpectation[];
+}
+
+export interface BrowserWriteJournalRequest extends BrowserTargetRequest {
   limit?: number;
 }
 

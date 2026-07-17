@@ -1,5 +1,6 @@
 import * as net from 'node:net';
 import { isHeavyDomBrowserMethod, isMutatingBrowserMethod } from './browser-mutation-safety';
+import { BROWSER_GATEWAY_RPC_PROTOCOL_VERSION } from './browser-rpc-contract';
 
 export interface BrowserGatewayRpcClientOptions {
   env?: Record<string, string | undefined>;
@@ -148,6 +149,9 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
         params: {
           instanceId,
           ...(provider ? { provider } : {}),
+          // Advisory contract version. Servers that predate it ignore unknown
+          // params fields; newer servers use it for skew telemetry.
+          contract: { protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION },
           payload,
         },
       }, this.resolveTimeoutMs(method, payload));

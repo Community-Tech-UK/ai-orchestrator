@@ -36,6 +36,13 @@ import { providerFromContext } from './browser-gateway-action-guard';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { boundBrowserText } from './browser-redaction';
 import { postTimeoutMutationProbe } from './browser-existing-tab-timeout-probe';
+import type { BrowserReliabilityEvents } from './browser-reliability-events';
+import { guardAppStateMutation } from './browser-app-write-guard';
+import {
+  isAppStateMutatingCommand,
+  type BrowserTargetPersistenceSentinel,
+} from './browser-target-persistence-sentinel';
+import type { BrowserWriteJournal } from './browser-write-journal';
 
 const EXTENSION_COMMAND_RESULT_GRACE_MS = 5_000;
 const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
@@ -50,6 +57,16 @@ interface BrowserExistingTabOperationsDeps {
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
   autoApproveApproval: (approval: BrowserApprovalRequest) => BrowserPermissionGrant | null;
   onNavigateSucceeded?: (request: BrowserGatewayNavigateRequest) => void;
+  /** Reliability hardening: app-signal scan around app-state mutations. */
+  persistenceSentinel?: Pick<
+    BrowserTargetPersistenceSentinel,
+    'scan' | 'needsPreWriteCheck'
+  >;
+  /** Reliability hardening: durable per-target mutation journal. */
+  writeJournal?: Pick<BrowserWriteJournal, 'recordIntent' | 'recordOutcome'>;
+  /** Last channel disconnect for this attachment's node ('local' when none). */
+  getLastChannelDisconnectAt?: (nodeId: string | undefined) => number | undefined;
+  reliabilityEvents?: Pick<BrowserReliabilityEvents, 'record'>;
 }
 
 export class BrowserExistingTabOperations {
@@ -212,16 +229,60 @@ export class BrowserExistingTabOperations {
     }
   }
 
-  sendCommand(
+  async sendCommand(
     attachment: BrowserExistingTabAttachment,
     command: BrowserExtensionCommandName,
     payload?: Record<string, unknown>,
     timeoutMs = 30_000,
   ): Promise<unknown> {
+    const sentinel = this.deps.persistenceSentinel;
+    if (!sentinel || !isAppStateMutatingCommand(command)) {
+      return this.dispatchCommand(attachment, command, payload, timeoutMs);
+    }
+    // Channel first: an unreachable node fails fast with the channel error —
+    // scanning a dead channel would only add a slow, misleading timeout.
+    this.ensureChannelReachable(attachment);
+    return guardAppStateMutation(
+      {
+        sentinel,
+        rawSendCommand: this.rawSendCommand,
+        ...(this.deps.writeJournal ? { writeJournal: this.deps.writeJournal } : {}),
+        ...(this.deps.getLastChannelDisconnectAt
+          ? { getLastChannelDisconnectAt: this.deps.getLastChannelDisconnectAt }
+          : {}),
+        ...(this.deps.reliabilityEvents
+          ? { reliabilityEvents: this.deps.reliabilityEvents }
+          : {}),
+      },
+      attachment,
+      command,
+      payload,
+      () => this.dispatchCommand(attachment, command, payload, timeoutMs),
+    );
+  }
+
+  private readonly rawSendCommand = (
+    request: Parameters<BrowserExtensionCommandStore['sendCommand']>[0],
+  ): Promise<unknown> => this.deps.extensionCommandStore.sendCommand(request);
+
+  private ensureChannelReachable(attachment: BrowserExistingTabAttachment): void {
     if (attachment.nodeId && !this.deps.isRemoteExtensionContactFresh(attachment.nodeId)) {
-      return Promise.reject(new Error(
+      throw new Error(
         `browser_extension_unreachable (${this.describeChannel(attachment.nodeId)})`,
-      ));
+      );
+    }
+  }
+
+  private dispatchCommand(
+    attachment: BrowserExistingTabAttachment,
+    command: BrowserExtensionCommandName,
+    payload?: Record<string, unknown>,
+    timeoutMs = 30_000,
+  ): Promise<unknown> {
+    try {
+      this.ensureChannelReachable(attachment);
+    } catch (error) {
+      return Promise.reject(error);
     }
     // Short caller timeouts are deliberate cache-freshness probes (e.g. the 1s
     // snapshot probe backed by a cached copy) — they must stay fast. Everything

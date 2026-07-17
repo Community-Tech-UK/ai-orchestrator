@@ -4,37 +4,9 @@ import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  BrowserAccessibilitySnapshotRequestSchema,
-  BrowserApprovalStatusRequestSchema,
   BrowserAttachExistingTabRequestSchema,
-  BrowserClickRequestSchema,
-  BrowserEvaluateRequestSchema,
-  BrowserCreateProfileRequestSchema,
-  BrowserDownloadFileRequestSchema,
-  BrowserFindOrOpenRequestSchema,
-  BrowserFillFormRequestSchema,
-  BrowserListAuditLogRequestSchema,
-  BrowserListGrantsRequestSchema,
-  BrowserListTargetsRequestSchema,
-  BrowserManualStepRequestSchema,
-  BrowserNavigateRequestSchema,
-  BrowserProfileRequestSchema,
-  BrowserQueryElementsRequestSchema,
-  BrowserRequestGrantRequestSchema,
-  BrowserRequestUserLoginRequestSchema,
-  BrowserRevokeGrantRequestSchema,
-  BrowserScreenshotRequestSchema,
-  BrowserSelectRequestSchema,
   BrowserWorkflowCheckpointResumeRequestSchema,
   BrowserWorkflowCheckpointSaveRequestSchema,
-  BrowserExecuteFillPlanRequestSchema,
-  BrowserFillCredentialRequestSchema,
-  BrowserFillSecretRequestSchema,
-  BrowserCreateAgentCredentialRequestSchema,
-  BrowserTargetRequestSchema,
-  BrowserTypeRequestSchema,
-  BrowserUploadFileRequestSchema,
-  BrowserWaitForRequestSchema,
 } from '@contracts/schemas/browser';
 import { app } from 'electron';
 import { registerCleanup as registerGlobalCleanup } from '../util/cleanup-registry';
@@ -58,6 +30,15 @@ import {
   BrowserWorkflowCheckpointStore,
   getBrowserWorkflowCheckpointStore,
 } from './browser-workflow-checkpoint-store';
+import {
+  handleReportToolSurface,
+  parseBoundedNameList,
+  validateBrowserRpcPayload,
+} from './browser-rpc-server-support';
+import {
+  getBrowserToolRevealStore,
+  type BrowserToolRevealStore,
+} from './browser-tool-reveal-store';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -85,6 +66,7 @@ export interface BrowserGatewayRpcServerOptions {
     'pollCommand' | 'resolveCommand' | 'markReceived'
   >;
   checkpointStore?: Pick<BrowserWorkflowCheckpointStore, 'saveStep' | 'get'>;
+  toolRevealStore?: BrowserToolRevealStore;
   resolveCheckpointOwner?: (instanceId: string) => string;
   onExtensionDisconnected?: (reason: string) => void;
   userDataPath?: string;
@@ -115,6 +97,7 @@ export class BrowserGatewayRpcServer {
     'pollCommand' | 'resolveCommand' | 'markReceived'
   >;
   private readonly checkpointStore?: Pick<BrowserWorkflowCheckpointStore, 'saveStep' | 'get'>;
+  private readonly toolRevealStore?: BrowserToolRevealStore;
   private readonly resolveCheckpointOwner: (instanceId: string) => string;
   private readonly onExtensionDisconnected: (reason: string) => void;
   private readonly userDataPath: string;
@@ -132,6 +115,7 @@ export class BrowserGatewayRpcServer {
     this.extensionCommandStore =
       options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.checkpointStore = options.checkpointStore;
+    this.toolRevealStore = options.toolRevealStore;
     this.resolveCheckpointOwner = options.resolveCheckpointOwner ?? ((instanceId) => instanceId);
     this.onExtensionDisconnected = options.onExtensionDisconnected
       ?? ((reason: string) =>
@@ -226,6 +210,29 @@ export class BrowserGatewayRpcServer {
       });
     }
 
+    // Forwarder tool-surface continuity (reliability hardening): lets a
+    // restarted MCP forwarder restore its pre-reconnect revealed tool set and
+    // report its contract version + surface hash for parity/health checks.
+    if (request.method === 'browser.tool_reveal_get') {
+      return {
+        revealedNames: this.getToolRevealStore().getRevealed(params.instanceId),
+      };
+    }
+    if (request.method === 'browser.tool_reveal_record') {
+      this.getToolRevealStore().recordRevealed(
+        params.instanceId,
+        parseBoundedNameList(params.payload['names']),
+      );
+      return { ok: true };
+    }
+    if (request.method === 'browser.report_tool_surface') {
+      return handleReportToolSurface(
+        this.getToolRevealStore(),
+        params.instanceId,
+        params.payload,
+      );
+    }
+
     const payload = this.validatePayload(request.method, params.payload);
     const withContext = {
       ...payload,
@@ -298,6 +305,10 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('waitFor')(withContext);
       case 'browser.query_elements':
         return this.requireMethod('queryElements')(withContext);
+      case 'browser.assert_persisted':
+        return this.requireMethod('assertPersisted')(withContext);
+      case 'browser.write_journal':
+        return this.requireMethod('writeJournalList')(withContext);
       case 'browser.health':
         return this.requireMethod('getHealth')(withContext);
       case 'browser.get_audit_log':
@@ -329,6 +340,10 @@ export class BrowserGatewayRpcServer {
 
   private getCheckpointStore(): Pick<BrowserWorkflowCheckpointStore, 'saveStep' | 'get'> {
     return this.checkpointStore ?? getBrowserWorkflowCheckpointStore();
+  }
+
+  private getToolRevealStore(): BrowserToolRevealStore {
+    return this.toolRevealStore ?? getBrowserToolRevealStore();
   }
 
   private handleExtensionAttachTab(request: BrowserGatewayRpcRequest): unknown {
@@ -536,84 +551,7 @@ export class BrowserGatewayRpcServer {
   }
 
   private validatePayload(method: string, payload: Record<string, unknown>): Record<string, unknown> {
-    const schema = (() => {
-      switch (method) {
-        case 'browser.create_profile':
-          return BrowserCreateProfileRequestSchema;
-        case 'browser.find_or_open':
-          return BrowserFindOrOpenRequestSchema;
-        case 'browser.navigate':
-          return BrowserNavigateRequestSchema;
-        case 'browser.click':
-          return BrowserClickRequestSchema;
-        case 'browser.type':
-          return BrowserTypeRequestSchema;
-        case 'browser.fill_form':
-          return BrowserFillFormRequestSchema;
-        case 'browser.select':
-          return BrowserSelectRequestSchema;
-        case 'browser.execute_fill_plan':
-          return BrowserExecuteFillPlanRequestSchema;
-        case 'browser.fill_credential':
-          return BrowserFillCredentialRequestSchema;
-        case 'browser.fill_secret':
-          return BrowserFillSecretRequestSchema;
-        case 'browser.create_agent_credential':
-          return BrowserCreateAgentCredentialRequestSchema;
-        case 'browser.upload_file':
-          return BrowserUploadFileRequestSchema;
-        case 'browser.download_file':
-          return BrowserDownloadFileRequestSchema;
-        case 'browser.request_user_login':
-          return BrowserRequestUserLoginRequestSchema;
-        case 'browser.pause_for_manual_step':
-          return BrowserManualStepRequestSchema;
-        case 'browser.request_grant':
-          return BrowserRequestGrantRequestSchema;
-        case 'browser.get_approval_status':
-          return BrowserApprovalStatusRequestSchema;
-        case 'browser.list_grants':
-          return BrowserListGrantsRequestSchema.optional().default({});
-        case 'browser.revoke_grant':
-          return BrowserRevokeGrantRequestSchema;
-        case 'browser.screenshot':
-          return BrowserScreenshotRequestSchema;
-        case 'browser.open_profile':
-        case 'browser.close_profile':
-          return BrowserProfileRequestSchema;
-        case 'browser.list_targets':
-          return BrowserListTargetsRequestSchema;
-        case 'browser.select_target':
-        case 'browser.snapshot':
-        case 'browser.console_messages':
-        case 'browser.network_requests':
-          return BrowserTargetRequestSchema;
-        case 'browser.accessibility_snapshot':
-          return BrowserAccessibilitySnapshotRequestSchema;
-        case 'browser.evaluate':
-          return BrowserEvaluateRequestSchema;
-        case 'browser.wait_for':
-          return BrowserWaitForRequestSchema;
-        case 'browser.query_elements':
-          return BrowserQueryElementsRequestSchema;
-        case 'browser.get_audit_log':
-          return BrowserListAuditLogRequestSchema;
-        case 'browser.checkpoint_save':
-          return BrowserWorkflowCheckpointSaveRequestSchema;
-        case 'browser.checkpoint_resume':
-          return BrowserWorkflowCheckpointResumeRequestSchema;
-        default:
-          return null;
-      }
-    })();
-    if (!schema) {
-      return payload;
-    }
-    const result = schema.safeParse(payload);
-    if (!result.success) {
-      throw new Error('Invalid browser gateway RPC payload');
-    }
-    return result.data as Record<string, unknown>;
+    return validateBrowserRpcPayload(method, payload);
   }
 
   private validateExtensionPollPayload(

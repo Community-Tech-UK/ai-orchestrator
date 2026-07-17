@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildFallbackHistoryMessage, buildRecoveryPacket } from './fallback-history';
+import {
+  buildFallbackHistoryMessage,
+  buildFreshFallbackDegradationNotice,
+  buildRecoveryPacket,
+} from './fallback-history';
 import type { OutputMessage } from '../../shared/types/instance.types';
 
 function msg(type: OutputMessage['type'], content: string, overrides: Partial<OutputMessage> = {}): OutputMessage {
@@ -92,5 +96,46 @@ describe('buildFallbackHistoryMessage', () => {
     const result = buildFallbackHistoryMessage(messages, 'test', 500)!;
     expect(result).not.toBeNull();
     expect(result).toContain('[USER]');
+  });
+});
+
+describe('buildFreshFallbackDegradationNotice', () => {
+  it('states that a new session started and background work was lost', () => {
+    const notice = buildFreshFallbackDegradationNotice('resume-failed-fallback');
+
+    expect(notice).toContain('[SESSION DEGRADATION NOTICE]');
+    expect(notice).toContain('resume-failed-fallback');
+    expect(notice).toContain('NOT carried over');
+    expect(notice).toContain('Re-establish the current state');
+    expect(notice).toContain('[END SESSION DEGRADATION NOTICE]');
+  });
+
+  it('omits child sections when no orchestration children are tracked', () => {
+    const notice = buildFreshFallbackDegradationNotice('resume-failed-fallback');
+
+    expect(notice).not.toContain('child instances still alive');
+    expect(notice).not.toContain('lost in the restart');
+  });
+
+  it('lists live orchestration children by id, name, and status', () => {
+    const notice = buildFreshFallbackDegradationNotice('resume-failed-fallback', {
+      activeChildren: [
+        { id: 'child-1', name: 'researcher', status: 'busy' },
+        { id: 'child-2' },
+      ],
+    });
+
+    expect(notice).toContain('still alive and attached to you');
+    expect(notice).toContain('- child-1 (researcher, busy)');
+    expect(notice).toContain('- child-2');
+    expect(notice).not.toContain('child-2 (');
+  });
+
+  it('lists dropped children lost in the restart', () => {
+    const notice = buildFreshFallbackDegradationNotice('resume-failed-fallback', {
+      droppedChildIds: ['dead-1', 'dead-2'],
+    });
+
+    expect(notice).toContain('lost in the restart (no longer running): dead-1, dead-2');
   });
 });

@@ -474,6 +474,7 @@ export class AutomationRunner {
 
   private emitAutomationState(automationId: string): void {
     this.store.get(automationId).then((automation) => {
+      if (!automation) return; // deleted concurrently — a 'deleted' event already covers it
       this.events.emitChanged({ automation, automationId, type: 'updated' });
     }).catch((error) => {
       logger.warn('Failed to publish automation state after run terminalized', {
@@ -601,6 +602,28 @@ export class AutomationRunner {
       if (!hasRetryPending) {
         this.events.emitScheduleDeactivated({ automationId: run.automationId });
       }
+    }
+    // Auto-created provider-limit resume automations are single-purpose: once
+    // the resume ran successfully, the deactivated one-time record is pure
+    // clutter on the Automations page — delete it. Failed runs keep the record
+    // so the retry/auto-disable machinery applies and the operator can inspect.
+    const systemActionType = run.configSnapshot?.action.systemAction?.type;
+    if (
+      run.status === 'succeeded'
+      && this.isOneTimeRun(run)
+      && (systemActionType === 'instanceProviderLimitResume' || systemActionType === 'loopProviderLimitResume')
+    ) {
+      this.store.delete(run.automationId)
+        .then(({ runningInstanceIds }) => {
+          this.untrackInstances(runningInstanceIds);
+          this.events.emitChanged({ automation: null, automationId: run.automationId, type: 'deleted' });
+        })
+        .catch((deleteError) => {
+          logger.warn('Failed to delete fired provider-limit resume automation', {
+            automationId: run.automationId,
+            error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+          });
+        });
     }
     deliverRunSummaryToChannel(run).catch((deliveryError) => {
       logger.warn('Failed to deliver automation run summary to channel', {

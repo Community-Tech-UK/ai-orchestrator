@@ -8,6 +8,20 @@ import {
   getBrowserTargetRegistry,
 } from './browser-target-registry';
 import { isOriginAllowed } from './browser-origin-policy';
+import {
+  getBrowserReliabilityEvents,
+  type BrowserReliabilityEvents,
+} from './browser-reliability-events';
+
+/**
+ * How long a node's attachments survive a channel drop (reliability
+ * hardening). `nodeId` is stable (persisted worker config) and Chrome usually
+ * outlives a worker blip, so the SAME deterministic profileId/targetId comes
+ * back on reconnect — deleting the attachments was the only reason callers'
+ * handles (and their per-profile grants) died. Suspended attachments are
+ * deleted for real once the grace expires.
+ */
+export const SUSPENDED_ATTACHMENT_GRACE_MS = 15 * 60_000;
 
 export interface BrowserExistingTabAttachment {
   profileId: string;
@@ -26,10 +40,15 @@ export interface BrowserExistingTabAttachment {
   capturedAt?: number;
   attachedAt: number;
   updatedAt: number;
+  /** Set while the attachment's node channel is down (grace window). */
+  suspendedAt?: number;
+  /** Previous targetId when this tab re-appeared under new ids after a drop. */
+  reboundFromTargetId?: string;
 }
 
 export interface BrowserExtensionTabStoreOptions {
   targetRegistry?: BrowserTargetRegistry;
+  reliabilityEvents?: Pick<BrowserReliabilityEvents, 'record'>;
   now?: () => number;
 }
 
@@ -41,11 +60,13 @@ export interface BrowserExtensionTabAttachOptions {
 export class BrowserExtensionTabStore {
   private static instance: BrowserExtensionTabStore | null = null;
   private readonly targetRegistry: BrowserTargetRegistry;
+  private readonly reliabilityEvents: Pick<BrowserReliabilityEvents, 'record'>;
   private readonly now: () => number;
   private readonly attachments = new Map<string, BrowserExistingTabAttachment>();
 
   constructor(options: BrowserExtensionTabStoreOptions = {}) {
     this.targetRegistry = options.targetRegistry ?? getBrowserTargetRegistry();
+    this.reliabilityEvents = options.reliabilityEvents ?? getBrowserReliabilityEvents();
     this.now = options.now ?? Date.now;
   }
 
@@ -71,9 +92,15 @@ export class BrowserExtensionTabStore {
       throw new Error(`existing_tab_origin_not_allowed:${originDecision.reason}`);
     }
 
+    this.sweepExpiredSuspensions();
     const profileId = makeExistingTabProfileId(options.nodeId, input.windowId, input.tabId);
     const targetId = this.targetIdFor(profileId);
     const current = this.attachments.get(targetId);
+    const reboundFromTargetId = current ? undefined : this.findReboundSource(
+      options.nodeId,
+      input.url,
+      targetId,
+    );
     const now = this.now();
     const attachment: BrowserExistingTabAttachment = {
       profileId,
@@ -92,13 +119,22 @@ export class BrowserExtensionTabStore {
       capturedAt: input.capturedAt,
       attachedAt: current?.attachedAt ?? now,
       updatedAt: now,
+      // A fresh attach means the tab is live again: never inherit suspension.
+      ...(reboundFromTargetId ? { reboundFromTargetId } : {}),
     };
+    if (current?.suspendedAt !== undefined) {
+      this.reliabilityEvents.record('attachment_restored', {
+        ...(attachment.nodeId ? { nodeId: attachment.nodeId } : {}),
+        detail: { targetId, via: 'reattach' },
+      });
+    }
     this.attachments.set(targetId, attachment);
     this.targetRegistry.upsertTarget(this.toTarget(attachment));
     return attachment;
   }
 
   getTab(profileId: string, targetId: string): BrowserExistingTabAttachment | null {
+    this.sweepExpiredSuspensions();
     const attachment = this.attachments.get(targetId);
     return attachment?.profileId === profileId ? attachment : null;
   }
@@ -114,16 +150,103 @@ export class BrowserExtensionTabStore {
   }
 
   listTabs(): BrowserExistingTabAttachment[] {
+    this.sweepExpiredSuspensions();
     return Array.from(this.attachments.values());
   }
 
-  expireNode(nodeId: string): void {
+  /**
+   * The node's channel dropped. Attachments are SUSPENDED (kept, marked stale
+   * in the target registry) instead of deleted: on reconnect the same
+   * deterministic ids re-derive, so callers' handles and per-profile grants
+   * survive the blip. Deleted for real after the grace window.
+   */
+  suspendNode(nodeId: string): number {
+    this.sweepExpiredSuspensions();
+    const now = this.now();
+    let suspended = 0;
     for (const [targetId, attachment] of this.attachments.entries()) {
-      if (attachment.nodeId === nodeId) {
+      if (attachment.nodeId !== nodeId || attachment.suspendedAt !== undefined) {
+        continue;
+      }
+      const next = { ...attachment, suspendedAt: now, updatedAt: now };
+      this.attachments.set(targetId, next);
+      this.targetRegistry.upsertTarget({ ...this.toTarget(next), stale: true });
+      suspended += 1;
+    }
+    if (suspended > 0) {
+      this.reliabilityEvents.record('attachment_suspended', {
+        nodeId,
+        detail: { count: suspended, graceMs: SUSPENDED_ATTACHMENT_GRACE_MS },
+      });
+    }
+    return suspended;
+  }
+
+  /** The node's channel is back: lift suspension on its attachments. */
+  restoreNode(nodeId: string): number {
+    this.sweepExpiredSuspensions();
+    const now = this.now();
+    let restored = 0;
+    for (const [targetId, attachment] of this.attachments.entries()) {
+      if (attachment.nodeId !== nodeId || attachment.suspendedAt === undefined) {
+        continue;
+      }
+      const { suspendedAt: _suspendedAt, ...rest } = attachment;
+      const next = { ...rest, updatedAt: now };
+      this.attachments.set(targetId, next);
+      this.targetRegistry.upsertTarget(this.toTarget(next));
+      restored += 1;
+    }
+    if (restored > 0) {
+      this.reliabilityEvents.record('attachment_restored', {
+        nodeId,
+        detail: { count: restored, via: 'channel_recovered' },
+      });
+    }
+    return restored;
+  }
+
+  private sweepExpiredSuspensions(): void {
+    const now = this.now();
+    for (const [targetId, attachment] of this.attachments.entries()) {
+      if (
+        attachment.suspendedAt !== undefined
+        && now - attachment.suspendedAt > SUSPENDED_ATTACHMENT_GRACE_MS
+      ) {
         this.attachments.delete(targetId);
+        this.targetRegistry.markClosed(targetId);
       }
     }
-    this.targetRegistry.removeByNodeId(nodeId);
+  }
+
+  /**
+   * A tab attaching under NEW ids that matches a suspended attachment on the
+   * same node + URL is almost certainly the same logical tab re-created after
+   * a drop (Chrome restarted → new tabId). Report the remap to callers via
+   * `reboundFromTargetId` instead of leaving them to hunt for the tab.
+   */
+  private findReboundSource(
+    nodeId: string | undefined,
+    url: string,
+    newTargetId: string,
+  ): string | undefined {
+    for (const [targetId, attachment] of this.attachments.entries()) {
+      if (
+        targetId !== newTargetId
+        && attachment.suspendedAt !== undefined
+        && attachment.nodeId === nodeId
+        && attachment.url === url
+      ) {
+        this.attachments.delete(targetId);
+        this.targetRegistry.markClosed(targetId);
+        this.reliabilityEvents.record('attachment_rebound', {
+          ...(nodeId ? { nodeId } : {}),
+          detail: { fromTargetId: targetId, toTargetId: newTargetId },
+        });
+        return targetId;
+      }
+    }
+    return undefined;
   }
 
   private toTarget(attachment: BrowserExistingTabAttachment): BrowserTarget {
@@ -142,6 +265,9 @@ export class BrowserExtensionTabStore {
       status: 'selected',
       lastSeenAt: attachment.updatedAt,
       lastConfirmedAt: attachment.updatedAt,
+      ...(attachment.reboundFromTargetId
+        ? { reboundFromTargetId: attachment.reboundFromTargetId }
+        : {}),
     };
   }
 

@@ -32,6 +32,16 @@ vi.mock('../orchestration/loop-coordinator', () => ({
   })),
 }));
 
+const instanceLimitHandlerMocks = vi.hoisted(() => ({
+  resumeFromAutomation: vi.fn(),
+}));
+
+vi.mock('../instance/instance-provider-limit-handler', () => ({
+  getInstanceProviderLimitHandler: vi.fn(() => ({
+    resumeFromAutomation: instanceLimitHandlerMocks.resumeFromAutomation,
+  })),
+}));
+
 function makeAutomation(overrides: Partial<Automation> = {}): Automation {
   return {
     id: 'automation-1',
@@ -352,5 +362,117 @@ describe('AutomationRunner thread wakeups', () => {
       provider: 'claude',
       modelOverride: 'opus[1m]',
     }));
+  });
+});
+
+describe('AutomationRunner one-time provider-limit resume cleanup', () => {
+  const store = {
+    get: vi.fn(),
+    decideAndInsertRun: vi.fn(),
+    claimNextPending: vi.fn(() => null),
+    failRunningRuns: vi.fn(() => []),
+    listRunningLoopLinkedRuns: vi.fn(() => []),
+    recordRunOutcome: vi.fn(() => ({ automation: null, autoDisabled: false })),
+    terminalizeRun: vi.fn(),
+    delete: vi.fn(),
+  } as unknown as AutomationStore;
+  const events = {
+    emitChanged: vi.fn(),
+    emitRunChanged: vi.fn(),
+    emitRunTerminal: vi.fn(),
+    emitScheduleDeactivated: vi.fn(),
+    emitOrphanedFire: vi.fn(),
+  };
+  const manager = Object.assign(new EventEmitter(), {
+    createInstance: vi.fn(),
+  }) as unknown as InstanceManager;
+
+  function makeResumeRun(systemAction: NonNullable<Automation['action']['systemAction']>): AutomationRun {
+    const run = makeRun();
+    run.configSnapshot = {
+      ...run.configSnapshot!,
+      schedule: { type: 'oneTime', runAt: 5_000 },
+      destination: { kind: 'newInstance' },
+      action: {
+        prompt: 'Continue the previous task.',
+        workingDirectory: '/repo/current',
+        provider: 'codex',
+        systemAction,
+      },
+    };
+    return run;
+  }
+
+  function makeRunner(run: AutomationRun): AutomationRunner {
+    vi.mocked(store.get).mockResolvedValue(null);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    vi.mocked(store.terminalizeRun).mockImplementation((runId, status, error, outputSummary) => ({
+      ...run,
+      id: runId,
+      status,
+      error: error ?? null,
+      outputSummary: outputSummary ?? null,
+      finishedAt: 3_000,
+    }));
+    vi.mocked(store.delete).mockResolvedValue({ runningInstanceIds: [] });
+    const runner = new AutomationRunner(
+      store,
+      events as unknown as ReturnType<typeof import('./automation-events').getAutomationEvents>,
+      () => 2_000,
+      vi.fn(),
+    );
+    runner.initialize(manager);
+    return runner;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('deletes the automation after a successful one-time instance resume run', async () => {
+    instanceLimitHandlerMocks.resumeFromAutomation.mockReturnValue('resent');
+    const run = makeResumeRun({ type: 'instanceProviderLimitResume', instanceId: 'inst-1' });
+    const runner = makeRunner(run);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    await vi.waitFor(() => {
+      expect(store.delete).toHaveBeenCalledWith('automation-1');
+      expect(events.emitChanged).toHaveBeenCalledWith({
+        automation: null,
+        automationId: 'automation-1',
+        type: 'deleted',
+      });
+    });
+  });
+
+  it('deletes the automation after a successful one-time loop resume run', async () => {
+    loopCoordinatorMocks.resumeLoop.mockReturnValue(true);
+    const run = makeResumeRun({ type: 'loopProviderLimitResume', loopRunId: 'loop-1' });
+    const runner = makeRunner(run);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    await vi.waitFor(() => {
+      expect(store.delete).toHaveBeenCalledWith('automation-1');
+    });
+  });
+
+  it('keeps the automation when the resume run fails', async () => {
+    loopCoordinatorMocks.resumeLoop.mockReturnValue(false);
+    const run = makeResumeRun({ type: 'loopProviderLimitResume', loopRunId: 'loop-1' });
+    const runner = makeRunner(run);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(store.terminalizeRun).toHaveBeenCalledWith(
+      'run-1',
+      'failed',
+      expect.any(String),
+      expect.any(String),
+      2_000,
+    );
+    expect(store.delete).not.toHaveBeenCalled();
   });
 });

@@ -75,6 +75,15 @@ export interface LifecycleDependencies {
   ) => Promise<McpRuntimeToolContextSelection | null>;
   registerOrchestration: (instanceId: string, workingDirectory: string, parentId: string | null) => void;
   unregisterOrchestration: (instanceId: string) => void;
+  /**
+   * Optional: reconcile the instance's orchestration children on a
+   * replay-fallback restart (drop dead, keep live) and return them for the
+   * degradation preamble. Null when the instance has no orchestration context.
+   */
+  reconcileOrchestrationChildren?: (instanceId: string) => {
+    activeChildren: { id: string; name?: string; status?: string }[];
+    droppedChildIds: string[];
+  } | null;
   markInterrupted: (instanceId: string) => void;
   clearInterrupted: (instanceId: string) => void;
   addToOutputBuffer: (instance: Instance, message: OutputMessage) => void;

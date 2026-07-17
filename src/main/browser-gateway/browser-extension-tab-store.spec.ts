@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BrowserTargetRegistry } from './browser-target-registry';
-import { BrowserExtensionTabStore } from './browser-extension-tab-store';
+import {
+  BrowserExtensionTabStore,
+  SUSPENDED_ATTACHMENT_GRACE_MS,
+} from './browser-extension-tab-store';
 
 describe('BrowserExtensionTabStore', () => {
   it('registers a selected Chrome tab as an existing-tab browser target', () => {
@@ -87,9 +90,15 @@ describe('BrowserExtensionTabStore', () => {
     ]);
   });
 
-  it('expires all attachments for a disconnected remote node', () => {
+  it('suspends attachments for a disconnected node and restores them on reconnect', () => {
     const targetRegistry = new BrowserTargetRegistry();
-    const store = new BrowserExtensionTabStore({ targetRegistry });
+    const events = { record: vi.fn() };
+    let now = 1_000;
+    const store = new BrowserExtensionTabStore({
+      targetRegistry,
+      reliabilityEvents: events,
+      now: () => now,
+    });
     store.attachTab({
       tabId: 42,
       windowId: 7,
@@ -103,11 +112,95 @@ describe('BrowserExtensionTabStore', () => {
       title: 'Local',
     });
 
-    store.expireNode('node-1');
+    expect(store.suspendNode('node-1')).toBe(1);
 
-    expect(store.listTabs().map((tab) => tab.profileId)).toEqual(['existing-tab:7:43']);
-    expect(targetRegistry.listTargets()).toEqual([
-      expect.objectContaining({ id: 'existing-tab:7:43:target' }),
+    // The attachment SURVIVES the drop (same ids stay valid on reconnect)…
+    const suspended = store.getTab(
+      'existing-tab:n.node-1:7:42',
+      'existing-tab:n.node-1:7:42:target',
+    );
+    expect(suspended?.suspendedAt).toBe(1_000);
+    // …and its registry target is marked stale, not removed.
+    expect(targetRegistry.listTargets('existing-tab:n.node-1:7:42')).toEqual([
+      expect.objectContaining({ id: 'existing-tab:n.node-1:7:42:target', stale: true }),
     ]);
+    expect(events.record).toHaveBeenCalledWith(
+      'attachment_suspended',
+      expect.objectContaining({ nodeId: 'node-1' }),
+    );
+
+    now = 2_000;
+    expect(store.restoreNode('node-1')).toBe(1);
+    const restored = store.getTab(
+      'existing-tab:n.node-1:7:42',
+      'existing-tab:n.node-1:7:42:target',
+    );
+    expect(restored?.suspendedAt).toBeUndefined();
+    expect(targetRegistry.listTargets('existing-tab:n.node-1:7:42')[0].stale).toBeUndefined();
+  });
+
+  it('deletes suspended attachments for real after the grace window', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    let now = 1_000;
+    const store = new BrowserExtensionTabStore({
+      targetRegistry,
+      reliabilityEvents: { record: vi.fn() },
+      now: () => now,
+    });
+    store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Remote',
+    }, { nodeId: 'node-1' });
+
+    store.suspendNode('node-1');
+    now = 1_000 + SUSPENDED_ATTACHMENT_GRACE_MS + 1;
+
+    expect(store.listTabs()).toEqual([]);
+    expect(targetRegistry.listTargets()[0]).toMatchObject({ status: 'closed' });
+  });
+
+  it('reports a rebind when the same tab re-attaches under new ids after a drop', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    const events = { record: vi.fn() };
+    const store = new BrowserExtensionTabStore({
+      targetRegistry,
+      reliabilityEvents: events,
+      now: () => 1_000,
+    });
+    store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Remote',
+    }, { nodeId: 'node-1' });
+    store.suspendNode('node-1');
+
+    // Chrome restarted on the node: same URL, new tabId → new ids.
+    const rebound = store.attachTab({
+      tabId: 99,
+      windowId: 8,
+      url: 'https://play.google.com/console',
+      title: 'Remote',
+    }, { nodeId: 'node-1' });
+
+    expect(rebound.reboundFromTargetId).toBe('existing-tab:n.node-1:7:42:target');
+    expect(store.listTabs().map((tab) => tab.targetId)).toEqual([
+      'existing-tab:n.node-1:8:99:target',
+    ]);
+    expect(targetRegistry.listTargets('existing-tab:n.node-1:8:99')[0]).toMatchObject({
+      reboundFromTargetId: 'existing-tab:n.node-1:7:42:target',
+    });
+    expect(events.record).toHaveBeenCalledWith(
+      'attachment_rebound',
+      expect.objectContaining({
+        nodeId: 'node-1',
+        detail: {
+          fromTargetId: 'existing-tab:n.node-1:7:42:target',
+          toTargetId: 'existing-tab:n.node-1:8:99:target',
+        },
+      }),
+    );
   });
 });
