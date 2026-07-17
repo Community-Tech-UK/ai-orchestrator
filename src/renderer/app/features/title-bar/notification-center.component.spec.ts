@@ -23,11 +23,15 @@ describe('NotificationCenterComponent', () => {
     records: records.asReadonly(),
     count: () => records().length,
     init: vi.fn(),
+    dismiss: vi.fn(),
+    clearAll: vi.fn(),
   };
 
   beforeEach(() => {
     records.set([RECORD]);
     store.init.mockClear();
+    store.dismiss.mockClear();
+    store.clearAll.mockClear();
     TestBed.configureTestingModule({
       imports: [NotificationCenterComponent],
       providers: [{ provide: NotificationCenterStore, useValue: store }],
@@ -46,5 +50,30 @@ describe('NotificationCenterComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.notification-center-panel')?.textContent)
       .toContain('Codex has completed its task');
+  });
+
+  it('dismisses a single record and clears the whole center from the panel', () => {
+    const trigger = fixture.nativeElement.querySelector('.notification-center-trigger') as HTMLButtonElement;
+    trigger.click();
+    fixture.detectChanges();
+
+    const dismiss = fixture.nativeElement.querySelector('.notification-center-dismiss') as HTMLButtonElement;
+    dismiss.click();
+    expect(store.dismiss).toHaveBeenCalledWith(RECORD.id);
+
+    const clear = fixture.nativeElement.querySelector('.notification-center-clear') as HTMLButtonElement;
+    clear.click();
+    expect(store.clearAll).toHaveBeenCalledOnce();
+  });
+
+  it('hides the clear-all control when the center is empty', () => {
+    records.set([]);
+    const trigger = fixture.nativeElement.querySelector('.notification-center-trigger') as HTMLButtonElement;
+    trigger.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.notification-center-clear')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.notification-center-panel')?.textContent)
+      .toContain('No notifications yet.');
   });
 });

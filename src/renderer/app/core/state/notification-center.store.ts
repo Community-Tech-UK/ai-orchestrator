@@ -51,6 +51,36 @@ export class NotificationCenterStore {
     }
   }
 
+  /** Removes one record locally and asks the main process to drop it. */
+  async dismiss(id: string): Promise<void> {
+    const previous = this._records();
+    this._records.set(previous.filter((record) => record.id !== id));
+    const api = this.ipc.getApi();
+    if (!api?.notificationDismiss) return;
+    try {
+      const response = await api.notificationDismiss(id);
+      if (!response.success) throw new Error(response.error?.message ?? 'Failed to dismiss notification');
+    } catch (error) {
+      this._records.set(previous);
+      this._error.set(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** Clears every retained record locally and in the main process. */
+  async clearAll(): Promise<void> {
+    const previous = this._records();
+    this._records.set([]);
+    const api = this.ipc.getApi();
+    if (!api?.notificationClear) return;
+    try {
+      const response = await api.notificationClear();
+      if (!response.success) throw new Error(response.error?.message ?? 'Failed to clear notifications');
+    } catch (error) {
+      this._records.set(previous);
+      this._error.set(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private mergeRecords(...batches: (readonly NotificationRecord[])[]): readonly NotificationRecord[] {
     const byId = new Map<string, NotificationRecord>();
     for (const batch of batches) {

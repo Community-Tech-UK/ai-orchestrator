@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1091,
+    "channelCount": 1093,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5420,44 +5420,54 @@
         "line": 1398
       },
       {
+        "name": "NOTIFICATION_DISMISS",
+        "value": "notification:dismiss",
+        "line": 1399
+      },
+      {
+        "name": "NOTIFICATION_CLEAR",
+        "value": "notification:clear",
+        "line": 1400
+      },
+      {
         "name": "CONTEXT_EVIDENCE_LIST",
         "value": "context-evidence:list",
-        "line": 1400
+        "line": 1402
       },
       {
         "name": "CONTEXT_EVIDENCE_GET_CARD",
         "value": "context-evidence:get-card",
-        "line": 1401
+        "line": 1403
       },
       {
         "name": "CONTEXT_EVIDENCE_SEARCH",
         "value": "context-evidence:search",
-        "line": 1402
+        "line": 1404
       },
       {
         "name": "CONTEXT_EVIDENCE_READ",
         "value": "context-evidence:read",
-        "line": 1403
+        "line": 1405
       },
       {
         "name": "CONTEXT_EVIDENCE_COMPARE",
         "value": "context-evidence:compare",
-        "line": 1404
+        "line": 1406
       },
       {
         "name": "CONTEXT_EVIDENCE_VERIFY",
         "value": "context-evidence:verify",
-        "line": 1405
+        "line": 1407
       },
       {
         "name": "CONTEXT_EVIDENCE_GET_METRICS",
         "value": "context-evidence:get-metrics",
-        "line": 1406
+        "line": 1408
       },
       {
         "name": "CONTEXT_EVIDENCE_STATE_CHANGED",
         "value": "context-evidence:state-changed",
-        "line": 1407
+        "line": 1409
       }
     ]
   },

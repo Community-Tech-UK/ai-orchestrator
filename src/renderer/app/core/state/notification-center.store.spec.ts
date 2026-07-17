@@ -27,6 +27,8 @@ describe('NotificationCenterStore', () => {
   let deltaCallback: ((record: NotificationRecord) => void) | null;
   const api = {
     notificationList: vi.fn(),
+    notificationDismiss: vi.fn(),
+    notificationClear: vi.fn(),
     onNotificationDelta: vi.fn((callback: (record: NotificationRecord) => void) => {
       deltaCallback = callback;
       return () => {
@@ -39,6 +41,8 @@ describe('NotificationCenterStore', () => {
     deltaCallback = null;
     vi.clearAllMocks();
     api.notificationList.mockResolvedValue({ success: true, data: [FIRST] });
+    api.notificationDismiss.mockResolvedValue({ success: true, data: { dismissed: true } });
+    api.notificationClear.mockResolvedValue({ success: true, data: { cleared: 0 } });
     TestBed.configureTestingModule({
       providers: [
         NotificationCenterStore,
@@ -68,5 +72,44 @@ describe('NotificationCenterStore', () => {
     await store.load();
 
     expect(store.records()).toEqual([LATEST, FIRST]);
+  });
+
+  it('removes a dismissed record and forwards the id to the main process', async () => {
+    api.notificationList.mockResolvedValue({ success: true, data: [] });
+    const store = TestBed.inject(NotificationCenterStore);
+    store.init();
+    deltaCallback?.(FIRST);
+    deltaCallback?.(LATEST);
+
+    await store.dismiss(FIRST.id);
+
+    expect(api.notificationDismiss).toHaveBeenCalledWith(FIRST.id);
+    expect(store.records()).toEqual([LATEST]);
+  });
+
+  it('restores the prior records when a dismiss fails', async () => {
+    api.notificationList.mockResolvedValue({ success: true, data: [] });
+    api.notificationDismiss.mockResolvedValue({ success: false, error: { message: 'nope' } });
+    const store = TestBed.inject(NotificationCenterStore);
+    store.init();
+    deltaCallback?.(FIRST);
+
+    await store.dismiss(FIRST.id);
+
+    expect(store.records()).toEqual([FIRST]);
+    expect(store.error()).toBe('nope');
+  });
+
+  it('clears every record and asks the main process to clear', async () => {
+    api.notificationList.mockResolvedValue({ success: true, data: [] });
+    const store = TestBed.inject(NotificationCenterStore);
+    store.init();
+    deltaCallback?.(FIRST);
+    deltaCallback?.(LATEST);
+
+    await store.clearAll();
+
+    expect(api.notificationClear).toHaveBeenCalledOnce();
+    expect(store.records()).toEqual([]);
   });
 });

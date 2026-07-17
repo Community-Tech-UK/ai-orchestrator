@@ -175,6 +175,21 @@ export class NotificationService {
     return this.records;
   }
 
+  /** Removes a single retained record. Returns whether a record was removed. */
+  dismiss(id: string): boolean {
+    const index = this.records.findIndex((record) => record.id === id);
+    if (index === -1) return false;
+    this.records.splice(index, 1);
+    return true;
+  }
+
+  /** Clears every retained record. Returns how many were removed. */
+  clear(): number {
+    const removed = this.records.length;
+    this.records.length = 0;
+    return removed;
+  }
+
   subscribe(listener: (record: NotificationRecord) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

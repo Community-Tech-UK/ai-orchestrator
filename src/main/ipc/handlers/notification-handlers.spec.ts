@@ -38,6 +38,8 @@ describe('registerNotificationHandlers', () => {
   }];
   const service = {
     list: vi.fn(() => records),
+    dismiss: vi.fn(() => true),
+    clear: vi.fn(() => 3),
     subscribe: vi.fn((listener: (record: unknown) => void) => {
       emit = listener;
       return () => {
@@ -70,7 +72,33 @@ describe('registerNotificationHandlers', () => {
     expect(windowManager.sendToRenderer).toHaveBeenCalledWith('notification:delta', records[0]);
   });
 
-  it('stops forwarding deltas during cleanup', () => {
+  it('dismisses a validated record id and clears the whole center', async () => {
+    registerNotificationHandlers({
+      notificationService: service as never,
+      windowManager: windowManager as never,
+    });
+
+    await expect(invoke('notification:dismiss', { id: 'notification-1' }))
+      .resolves.toEqual({ success: true, data: { dismissed: true } });
+    expect(service.dismiss).toHaveBeenCalledWith('notification-1');
+
+    await expect(invoke('notification:clear'))
+      .resolves.toEqual({ success: true, data: { cleared: 3 } });
+    expect(service.clear).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a dismiss payload that omits a valid id', async () => {
+    registerNotificationHandlers({
+      notificationService: service as never,
+      windowManager: windowManager as never,
+    });
+
+    const response = await invoke('notification:dismiss', { id: '' }) as { success: boolean };
+    expect(response.success).toBe(false);
+    expect(service.dismiss).not.toHaveBeenCalled();
+  });
+
+  it('stops forwarding deltas and removes every handler during cleanup', () => {
     registerNotificationHandlers({
       notificationService: service as never,
       windowManager: windowManager as never,
@@ -81,11 +109,13 @@ describe('registerNotificationHandlers', () => {
 
     expect(windowManager.sendToRenderer).not.toHaveBeenCalled();
     expect(mocks.removeHandler).toHaveBeenCalledWith('notification:list');
+    expect(mocks.removeHandler).toHaveBeenCalledWith('notification:dismiss');
+    expect(mocks.removeHandler).toHaveBeenCalledWith('notification:clear');
   });
 });
 
-function invoke(channel: string): Promise<unknown> {
+function invoke(channel: string, payload?: unknown): Promise<unknown> {
   const handler = mocks.handlers.get(channel);
   if (!handler) throw new Error(`Missing handler for ${channel}`);
-  return handler();
+  return (handler as (event: unknown, payload: unknown) => Promise<unknown>)(undefined, payload);
 }

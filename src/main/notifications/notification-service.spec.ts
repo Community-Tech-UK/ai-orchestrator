@@ -163,6 +163,27 @@ describe('NotificationService', () => {
     expect(received).toHaveBeenCalledWith(record);
   });
 
+  it('dismisses a single retained record by id and reports whether it existed', () => {
+    const { service } = createHarness();
+    const first = service.notify({ kind: 'agent-finished', instanceId: 'one', title: 'Finished', body: 'One' });
+    const second = service.notify({ kind: 'agent-finished', instanceId: 'two', title: 'Finished', body: 'Two' });
+
+    expect(service.dismiss(first.id)).toBe(true);
+    expect(service.list()).toEqual([second]);
+    expect(service.dismiss('missing')).toBe(false);
+    expect(service.list()).toEqual([second]);
+  });
+
+  it('clears every retained record and reports how many were removed', () => {
+    const { service } = createHarness();
+    service.notify({ kind: 'agent-finished', instanceId: 'one', title: 'Finished', body: 'One' });
+    service.notify({ kind: 'agent-finished', instanceId: 'two', title: 'Finished', body: 'Two' });
+
+    expect(service.clear()).toBe(2);
+    expect(service.list()).toEqual([]);
+    expect(service.clear()).toBe(0);
+  });
+
   it('bounds retained fingerprint state for long-running app sessions', () => {
     const { service } = createHarness();
     for (let index = 0; index < 2_001; index++) {
