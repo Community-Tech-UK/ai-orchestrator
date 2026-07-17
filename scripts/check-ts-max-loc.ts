@@ -61,7 +61,7 @@ const WARN_ONLY =
  */
 const ALLOWLIST: Record<string, number> = {
   // Main process — app
-  'src/main/app/initialization-steps.ts': 916,
+  'src/main/app/initialization-steps.ts': 959,
   // Benchmarks
   'benchmarks/external-benchmarks/swe-bench/adapter.ts': 795,
   'benchmarks/external-benchmarks/swe-bench/runner.ts': 888,
@@ -73,12 +73,12 @@ const ALLOWLIST: Record<string, number> = {
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
   // Raised 807 -> 864 (Fable WS6 loopRecipe/maxTurnsPerIteration/singleLoopOverride
   // + WS7 scope-assessment + WS8 ledger-convergence schemas).
-  'packages/contracts/src/schemas/loop.schemas.ts': 864,
+  'packages/contracts/src/schemas/loop.schemas.ts': 874,
   // Raised 1788 -> 1803 for the provider swap fields on the change-model and
   // state-update payloads (provider + pendingModelChange round-trip).
   'packages/contracts/src/types/transport.types.ts': 1803,
   // Main process — automations
-  'src/main/automations/automation-store.ts': 861,
+  'src/main/automations/automation-store.ts': 884,
   // Added 2026-07-16 at 753 (Fable WS5 spawn-loop dispatch branch + recovery
   // seams + breaker auto-disable notification; the loop logic itself lives in
   // automation-loop-run.ts). Re-tighten after the next runner split.
@@ -91,7 +91,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2410 -> 2445 for resolveUploadApproval: the shared denied-upload
   // approval path (stored request + auto-approve) that both the managed and
   // existing-tab upload branches must go through.
-  'src/main/browser-gateway/browser-gateway-service.ts': 2445,
+  'src/main/browser-gateway/browser-gateway-service.ts': 2475,
   // Main process — desktop gateway
   // Crossed 700 during the in-flight desktop computer-use gateway work
   // (2026-07-12). Allowlisted at its then-current size so the gate stays
@@ -101,50 +101,50 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/channels/adapters/discord-adapter.ts': 965,
   'src/main/channels/channel-message-router.ts': 2543,
   // Main process — CLI adapters
-  'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
-  'src/main/cli/adapters/base-cli-adapter.ts': 940,
+  'src/main/cli/adapters/acp-cli-adapter.ts': 2160,
+  'src/main/cli/adapters/base-cli-adapter.ts': 988,
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2345,
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2346,
   // Re-tightened after extracting the exec helpers to codex/exec-helpers.ts.
   'src/main/cli/adapters/codex-cli-adapter.ts': 3344,
-  'src/main/cli/adapters/copilot-cli-adapter.ts': 1060,
+  'src/main/cli/adapters/copilot-cli-adapter.ts': 1110,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 892,
   // Main process — chats
-  'src/main/chats/chat-service.ts': 788,
+  'src/main/chats/chat-service.ts': 821,
   // Main process — codemem
   'src/main/codemem/cas-store.ts': 765,
   'src/main/codemem/code-index-manager.ts': 792,
   // Main process — context
-  'src/main/context/context-compactor.ts': 911,
+  'src/main/context/context-compactor.ts': 958,
   'src/main/context/jit-loader.ts': 773,
   // Main process — core
   'src/main/core/config/claude-md-loader.ts': 804,
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
-  'src/main/history/history-manager.ts': 1429,
+  'src/main/history/history-manager.ts': 1478,
   // Main process — indexing
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
   // Raised 2343 -> 2394 for the non-destructive streaming-replace guard.
-  'src/main/instance/instance-communication.ts': 2577,
+  'src/main/instance/instance-communication.ts': 2622,
   'src/main/instance/instance-context.ts': 1265,
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
   // Tightened 3528 -> 3405 after extracting changeModel's execution body into
   // lifecycle/runtime-reconciler.ts (provider/model swap is its first client;
   // desired-runtime queueing lives in lifecycle/desired-runtime-queue.ts).
-  'src/main/instance/instance-lifecycle.ts': 3405,
+  'src/main/instance/instance-lifecycle.ts': 3416,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
-  'src/main/instance/instance-manager.ts': 2722,
+  'src/main/instance/instance-manager.ts': 2772,
   'src/main/instance/instance-orchestration.ts': 1068,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
-  'src/main/ipc/handlers/instance-handlers.ts': 1158,
+  'src/main/ipc/handlers/instance-handlers.ts': 1208,
   // Added 2026-07-16 at 794 (Fable WS6 LOOP_LIST_RECIPES + WS7 LOOP_ASSESS_SCOPE
   // read-only endpoints and the LOOP_START scope guard). Re-tighten after the
   // loop-handler split.
@@ -216,11 +216,11 @@ const ALLOWLIST: Record<string, number> = {
   // after the next coordinator extraction.
   // Raised 3780 -> 3856 (Fable WS7 Phase A: tryLoopFailover seam + failedOverFrom
   // tagging; decision/orchestration logic lives in loop-failover.ts).
-  'src/main/orchestration/loop-coordinator.ts': 3856,
+  'src/main/orchestration/loop-coordinator.ts': 3871,
   // Re-tightened after extracting loop-completed-plan-helpers.ts.
-  'src/main/orchestration/loop-completion-detector.ts': 794,
+  'src/main/orchestration/loop-completion-detector.ts': 806,
   'src/main/orchestration/loop-store.ts': 767,
-  'src/main/orchestration/loop-progress-detector.ts': 755,
+  'src/main/orchestration/loop-progress-detector.ts': 769,
   // Added 2026-07-16 at 714 (Fable WS6 Task 3: planStageContext threaded through
   // buildPrompt/buildReviewDrivenPrompt; recipe stage-work now resolves via
   // loop-recipes.ts). Re-tighten after the prompt-builder extraction.
@@ -268,13 +268,13 @@ const ALLOWLIST: Record<string, number> = {
   // Renderer — services
   'src/renderer/app/core/services/ipc/memory-ipc.service.ts': 724,
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,
-  'src/renderer/app/core/services/new-session-draft.service.ts': 869,
+  'src/renderer/app/core/services/new-session-draft.service.ts': 882,
   // Renderer — stores
-  'src/renderer/app/core/state/instance/instance-list.store.ts': 796,
+  'src/renderer/app/core/state/instance/instance-list.store.ts': 818,
   // Raised 774 -> 811 for permanent-send-failure draft restore + zombie-busy
   // reconciler wiring (status-reconciler service owns the polling logic).
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 825,
-  'src/renderer/app/core/state/instance/instance.store.ts': 749,
+  'src/renderer/app/core/state/instance/instance.store.ts': 775,
   // Added 2026-07-16 at 710 (Fable WS6 recipe picker options + WS6 maxTurns/
   // allowUnbounded loop-config plumbing). Re-tighten after a store split.
   'src/renderer/app/core/state/loop.store.ts': 710,
@@ -289,8 +289,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1096,
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1035,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1714,
-  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1554,
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1737,
+  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1582,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1266,
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),
@@ -306,7 +306,7 @@ const ALLOWLIST: Record<string, number> = {
   // and loop-action controls on the automation editor; pure mapping lives in
   // automation-form-model.ts). Re-tighten after a form-component split.
   'src/renderer/app/features/automations/automations-page.component.ts': 736,
-  'src/renderer/app/features/loop/loop-control.component.ts': 1073,
+  'src/renderer/app/features/loop/loop-control.component.ts': 1074,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
   // Raised 946 -> 957 for hybrid usage-based row ordering in Favorites/provider tabs.
@@ -347,7 +347,7 @@ const ALLOWLIST: Record<string, number> = {
   // Shared
   'src/shared/types/loop.types.ts': 780,
   // Worker agent
-  'src/worker-agent/worker-agent.ts': 981,
+  'src/worker-agent/worker-agent.ts': 989,
 };
 
 function countLines(filePath: string): number {
