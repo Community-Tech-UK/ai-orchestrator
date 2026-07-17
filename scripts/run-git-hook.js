@@ -37,14 +37,16 @@ const HOOK_COMMANDS = {
     // CI runs `npm run check:ts-max-loc` without --warn, so it stays the enforcing gate.
     { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
     { command: 'npm', args: ['run', 'verify:architecture'] },
-    // Run the default (fast) suite before code leaves the machine for CI. This
-    // is the CI-mirror gate that blocks pushing red tests — the exact failure
-    // that prompted this hook. It lives on pre-push, not pre-commit, because
-    // the suite is still multi-minute and the live app's loop agents auto-commit
-    // on shutdown; a blocking pre-commit suite would stall those commits.
-    // Slow-tier e2e/soak runs in CI (`test:slow`), not on every local push.
-    // Bypass in an emergency with `git push --no-verify`.
-    { command: 'npm', args: ['run', 'test'] },
+    // The full `npm run test` suite is deliberately NOT run here. git opens the
+    // SSH connection to the remote to read refs before running this hook, then
+    // sends the pack over that same connection afterwards. A multi-minute suite
+    // left that connection idle long enough for the remote's sshd to drop it
+    // ("Connection to github.com closed by remote host"), so the pack send then
+    // failed on a dead socket — a push that looked broken but was only stalled.
+    // The full suite is a CI-mirror gate, and CI already runs it (plus the
+    // slow-tier `test:slow`), so it lives in CI, not on every local push. The
+    // fast structural checks above stay here as a cheap pre-push guard. Bypass
+    // any of them in an emergency with `git push --no-verify`.
   ],
 };
 

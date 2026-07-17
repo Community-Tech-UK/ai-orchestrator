@@ -32,13 +32,12 @@ describe('run-git-hook', () => {
     ]);
   });
 
-  it('pre-push verifies generated artifacts and runs the full test suite', () => {
+  it('pre-push runs fast structural checks only (full suite is a CI gate)', () => {
     expect(getHookCommands('pre-push')).toEqual([
       { command: 'npm', args: ['run', 'verify:ipc'] },
       { command: 'npm', args: ['run', 'check:contracts'] },
       { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
       { command: 'npm', args: ['run', 'verify:architecture'] },
-      { command: 'npm', args: ['run', 'test'] },
     ]);
   });
 
