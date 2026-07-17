@@ -33,7 +33,6 @@ interface SkillWithStatus {
       <!-- Header -->
       <div class="skills-header">
         <div class="header-left">
-          <span class="skills-icon">🧩</span>
           <span class="skills-title">Skills</span>
           <span class="skill-count">
             {{ installedCount() }} installed
@@ -80,7 +79,7 @@ interface SkillWithStatus {
           >
             <!-- Card Header -->
             <div class="card-header">
-              <span class="skill-icon">{{ skill.bundle.metadata.icon || '📦' }}</span>
+              <span class="skill-icon">{{ skill.bundle.metadata.icon }}</span>
               <div class="skill-info">
                 <span class="skill-name">{{ skill.bundle.metadata.name }}</span>
                 <span class="skill-version">v{{ skill.bundle.metadata.version }}</span>
@@ -116,17 +115,17 @@ interface SkillWithStatus {
               <div class="size-info">
                 @if (skill.bundle.metadata.coreSize) {
                   <span class="size-item">
-                    📄 Core: {{ formatSize(skill.bundle.metadata.coreSize) }}
+                    Core: {{ formatSize(skill.bundle.metadata.coreSize) }}
                   </span>
                 }
                 @if (skill.bundle.referencePaths.length > 0) {
                   <span class="size-item">
-                    📚 {{ skill.bundle.referencePaths.length }} references
+                    {{ skill.bundle.referencePaths.length }} references
                   </span>
                 }
                 @if (skill.bundle.examplePaths.length > 0) {
                   <span class="size-item">
-                    💡 {{ skill.bundle.examplePaths.length }} examples
+                    {{ skill.bundle.examplePaths.length }} examples
                   </span>
                 }
               </div>
@@ -134,7 +133,6 @@ interface SkillWithStatus {
 
             <!-- Progressive Loading Hint -->
             <div class="loading-hint">
-              <span class="hint-icon">💡</span>
               <span class="hint-text">
                 Loads progressively: core first, then references on demand
               </span>
@@ -179,10 +177,8 @@ interface SkillWithStatus {
         @if (filteredSkills().length === 0) {
           <div class="empty-state">
             @if (skills().length === 0) {
-              <span class="empty-icon">📦</span>
               <span class="empty-text">No skills available</span>
             } @else {
-              <span class="empty-icon">🔍</span>
               <span class="empty-text">No skills match your search</span>
             }
           </div>
@@ -194,7 +190,7 @@ interface SkillWithStatus {
         <div class="modal-overlay" (click)="closeDetails()" (keydown.enter)="closeDetails()" (keydown.space)="closeDetails()" tabindex="0" role="button">
           <div class="modal-content" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()" tabindex="0" role="dialog">
             <div class="modal-header">
-              <span class="skill-icon large">{{ skill.bundle.metadata.icon || '📦' }}</span>
+              <span class="skill-icon large">{{ skill.bundle.metadata.icon }}</span>
               <div class="modal-title">
                 <span class="skill-name">{{ skill.bundle.metadata.name }}</span>
                 <span class="skill-version">v{{ skill.bundle.metadata.version }}</span>
@@ -282,10 +278,6 @@ interface SkillWithStatus {
       display: flex;
       align-items: center;
       gap: var(--spacing-sm);
-    }
-
-    .skills-icon {
-      font-size: 18px;
     }
 
     .skills-title {
@@ -438,8 +430,6 @@ interface SkillWithStatus {
       font-size: 10px;
       font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
 
     .triggers-list {
@@ -490,11 +480,6 @@ interface SkillWithStatus {
       padding: var(--spacing-xs);
       background: var(--bg-secondary);
       border-radius: var(--radius-sm);
-    }
-
-    .hint-icon {
-      font-size: 12px;
-      flex-shrink: 0;
     }
 
     .hint-text {
@@ -570,11 +555,6 @@ interface SkillWithStatus {
       gap: var(--spacing-sm);
       padding: var(--spacing-xl);
       color: var(--text-muted);
-    }
-
-    .empty-icon {
-      font-size: 32px;
-      opacity: 0.5;
     }
 
     .empty-text {

@@ -241,8 +241,7 @@ const RESULT_CAP = 50;
       color: var(--text-muted);
       font-family: var(--font-mono);
       font-size: 9px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      font-weight: 600;
     }
 
     .result-kind.live {

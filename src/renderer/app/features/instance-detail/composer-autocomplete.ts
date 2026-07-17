@@ -76,7 +76,6 @@ const SEARCH_LIMIT = 24;
       border-radius: 18px;
       background: rgba(11, 16, 15, 0.96);
       box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.22);
-      backdrop-filter: blur(18px);
     }
 
     .composer-completion-item {

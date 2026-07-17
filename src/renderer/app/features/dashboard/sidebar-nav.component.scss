@@ -24,8 +24,6 @@
   cursor: pointer;
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   opacity: 0.7;
   transition: all 0.15s ease;
 
@@ -77,8 +75,6 @@
   padding: 6px 8px 2px;
   font-size: 9px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   color: var(--text-muted, #9a9aa0);
   opacity: 0.7;
 }

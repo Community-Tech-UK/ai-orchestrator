@@ -271,8 +271,6 @@ interface AgentConfig {
       font-weight: 600;
       color: var(--text-secondary);
       margin: 0 0 16px 0;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     .agent-config-card {

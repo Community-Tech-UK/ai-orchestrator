@@ -255,7 +255,6 @@ input[type='number'] {
 }
 
 :host(.settings-list-item) .setting-row[data-tone='risk'] {
-  box-shadow: inset 3px 0 0 var(--warning-color);
   background:
     linear-gradient(
       90deg,

@@ -234,9 +234,7 @@
   background: color-mix(in srgb, var(--settings-nav-bg-active) 82%, var(--primary-color));
   border-color: color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
   color: var(--settings-nav-fg-active);
-  box-shadow:
-    inset 2px 0 0 var(--settings-nav-accent),
-    var(--shadow-sm);
+  box-shadow: var(--shadow-sm);
 }
 
 .nav-item.active .nav-item-icon {
@@ -248,7 +246,6 @@
   padding: var(--spacing-lg) var(--spacing-sm) var(--spacing-xs);
   font-size: var(--text-2xs);
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0;
   color: var(--settings-group-fg);
 }

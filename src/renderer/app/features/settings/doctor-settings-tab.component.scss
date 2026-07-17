@@ -91,15 +91,15 @@
 }
 
 .section-nav-item[data-severity="warning"] {
-  border-left: 3px solid var(--warning-color);
+  border-color: var(--warning-border);
 }
 
 .section-nav-item[data-severity="error"] {
-  border-left: 3px solid var(--error-color);
+  border-color: var(--error-border);
 }
 
 .section-nav-item[data-severity="info"] {
-  border-left: 3px solid var(--info-color);
+  border-color: var(--info-border);
 }
 
 .section-nav-label {
@@ -246,16 +246,16 @@
 }
 
 .repair-action {
-  border-left: 3px solid var(--info-color);
+  border: 1px solid var(--info-border);
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius-sm);
   background: var(--glass-light);
 
   &[data-severity='warning'] {
-    border-left-color: var(--warning-color);
+    border-color: var(--warning-border);
   }
   &[data-severity='critical'] {
-    border-left-color: var(--error-color);
+    border-color: var(--error-border);
   }
 }
 

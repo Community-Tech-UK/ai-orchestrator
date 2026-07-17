@@ -25,7 +25,7 @@
             <div class="section-header">
               <h2>Detected CLI Tools</h2>
               <button class="btn-secondary" (click)="rescanClis()" [disabled]="isScanning()">
-                {{ isScanning() ? 'Scanning...' : '🔄 Rescan' }}
+                {{ isScanning() ? 'Scanning...' : 'Rescan' }}
               </button>
             </div>
 
@@ -142,7 +142,7 @@
                       <p>The {{ cli.name }} CLI was not found on your system.</p>
                       <div class="not-found-actions">
                         <button class="btn-link" (click)="openInstallGuide(cli.command)">
-                          📖 Installation Guide
+                          Installation Guide
                         </button>
                         <button class="btn-link" (click)="useApiFallback(cli.command)">
                           Use API Fallback Instead

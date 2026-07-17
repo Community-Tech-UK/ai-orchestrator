@@ -36,7 +36,6 @@
   margin: 0;
   font-size: var(--text-sm);
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0;
   color: var(--text-muted);
 }
@@ -226,8 +225,7 @@
 
 .hook-event {
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-weight: 600;
   color: var(--text-muted);
 }
 

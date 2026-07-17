@@ -8,9 +8,9 @@ import type { ECharts, EChartsOption } from 'echarts';
 
 // Register Mission Control theme once
 const MISSION_CONTROL_THEME = {
-  color: ['#f59e0b', '#06b6d4', '#22c55e', '#ef4444', '#3b82f6', '#a855f7', '#ec4899', '#14b8a6'],
+  color: ['#d9a13d', '#4fa3a5', '#4aa06f', '#d05f4e', '#5b8dbf', '#b89a66', '#8ca594', '#b8865f'],
   backgroundColor: 'transparent',
-  textStyle: { color: '#c4c4c9', fontFamily: 'Plus Jakarta Sans, sans-serif' },
+  textStyle: { color: '#c4c4c9', fontFamily: 'IBM Plex Sans, sans-serif' },
   title: { textStyle: { color: '#fafaf9' }, subtextStyle: { color: '#9a9aa0' } },
   legend: { textStyle: { color: '#c4c4c9' } },
   tooltip: {

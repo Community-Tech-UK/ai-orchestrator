@@ -59,7 +59,6 @@
 
   &:hover:not(:disabled) {
     background: var(--primary-hover);
-    box-shadow: var(--shadow-glow);
   }
 
   &:active:not(:disabled) {
@@ -125,10 +124,8 @@
   gap: var(--spacing-xs);
   padding: var(--spacing-2xs) var(--spacing-sm);
   font-size: var(--text-xs);
-  font-weight: 500;
+  font-weight: 600;
   border-radius: var(--radius-full);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .badge-success {

@@ -13,7 +13,6 @@ import { LoopStore } from '../../core/state/loop.store';
       [class.running]="isActive()"
       [title]="title()"
     >
-      <span class="lt-icon" aria-hidden="true">{{ isActive() ? '⏵' : '🔁' }}</span>
       <span class="lt-label">{{ isActive() ? 'Loop running' : (panelOpen() ? 'Loop armed' : 'Loop') }}</span>
       <span class="lt-switch" [class.armed]="panelOpen() && !isActive()" [class.running]="isActive()">
         <input
@@ -51,8 +50,7 @@ import { LoopStore } from '../../core/state/loop.store';
       opacity: 0.55;
       cursor: not-allowed;
     }
-    .lt-icon { font-size: 12px; line-height: 1; }
-    .lt-label { letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
+    .lt-label { font-weight: 600; font-size: 10px; }
 
     .lt-switch {
       position: relative;

@@ -148,7 +148,7 @@ import type {
       .page { display: grid; grid-template-columns: 280px 1fr; gap: 16px; height: 100%; padding: 16px; box-sizing: border-box; }
       .list { display: flex; flex-direction: column; gap: 8px; overflow: auto; }
       .list h2 { font-size: 18px; margin: 0 0 8px; }
-      .list h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 12px 0 4px; }
+      .list h3 { font-size: 12px; color: var(--text-muted); margin: 12px 0 4px; }
       .review-item {
         display: flex; flex-direction: column; gap: 4px; text-align: left;
         border: 1px solid var(--border-color); border-radius: var(--radius-md);

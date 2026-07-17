@@ -311,8 +311,6 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
         font-size: 12px;
         font-weight: 700;
         color: var(--text-muted);
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
       }
 
       .approval-list {
@@ -348,8 +346,7 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
 
       .approval-state {
         font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        font-weight: 600;
         color: var(--warning-color);
       }
 

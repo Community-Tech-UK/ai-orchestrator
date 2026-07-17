@@ -131,6 +131,7 @@ function makeAdapter(overrides: Partial<CliAdapter> = {}): CliAdapter {
   return {
     getName: vi.fn(() => 'claude-cli'),
     interrupt: vi.fn(() => ({ status: 'accepted' } as InterruptResult)),
+    isRunning: vi.fn(() => false),
     terminate: vi.fn().mockResolvedValue(undefined),
     sendInput: vi.fn().mockResolvedValue(undefined),
     removeAllListeners: vi.fn(),
@@ -601,6 +602,47 @@ describe('InterruptRespawnHandler recovery replay', () => {
     expect(replacementAdapter.sendInput).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledOnce();
     expect(instance.status).toBe('idle');
+  });
+
+  it('terminates a still-running previous CLI process before spawning the replacement', async () => {
+    // The self-permission-grant restart invokes respawnAfterUnexpectedExit on a
+    // LIVE instance. The old process must be torn down (listeners off, waited
+    // exit) before a new process resumes the same session id, or two writers
+    // race on one session transcript.
+    const release = vi.fn();
+    mockSessionMutex.acquire.mockImplementation(async () => {
+      mockSessionMutex.getLockInfo.mockReturnValue({
+        source: 'respawn-unexpected', acquiredAt: Date.now(), durationMs: 0,
+      });
+      return release;
+    });
+    const previousAdapter = makeAdapter({
+      isRunning: vi.fn(() => true),
+    });
+    const replacementAdapter = makeAdapter({
+      spawn: vi.fn().mockResolvedValue(85),
+    });
+    mockCreateAdapter.mockReturnValue(replacementAdapter);
+    const instance = makeInstance({
+      status: 'respawning',
+      executionLocation: { type: 'local' },
+      sessionId: 'live-session',
+      outputBuffer: [],
+    });
+    const state: FakeDepsState = {
+      instance,
+      adapter: previousAdapter,
+      queueUpdateCalls: [],
+      outputMessages: [],
+      transitions: [],
+    };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    await handler.respawnAfterUnexpectedExit('inst-1');
+
+    expect(previousAdapter.removeAllListeners).toHaveBeenCalled();
+    expect(previousAdapter.terminate).toHaveBeenCalledWith(true);
+    expect(release).toHaveBeenCalledOnce();
   });
 
   it('queues transcript fallback after native resume fails instead of replaying it under the session lock', async () => {

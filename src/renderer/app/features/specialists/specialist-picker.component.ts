@@ -28,7 +28,6 @@ import type {
     <div class="specialist-container">
       <!-- Header -->
       <div class="specialist-header">
-        <span class="header-icon">👥</span>
         <span class="header-title">Specialists</span>
         <span class="header-subtitle">
           Create an agent with specialized capabilities
@@ -158,7 +157,6 @@ import type {
       <!-- Empty State -->
       @if (specialists().length === 0) {
         <div class="empty-state">
-          <span class="empty-icon">👥</span>
           <span class="empty-text">No specialists available</span>
         </div>
       }
@@ -179,10 +177,6 @@ import type {
       gap: 4px;
       padding: var(--spacing-md);
       border-bottom: 1px solid var(--border-color);
-    }
-
-    .header-icon {
-      font-size: 24px;
     }
 
     .header-title {
@@ -317,9 +311,8 @@ import type {
 
     .specialist-category {
       font-size: 11px;
+      font-weight: 600;
       color: var(--accent-color, var(--text-muted));
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
 
     .specialist-description {
@@ -420,8 +413,6 @@ import type {
       font-size: 11px;
       font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       margin-bottom: var(--spacing-xs);
     }
 
@@ -507,11 +498,6 @@ import type {
       gap: var(--spacing-sm);
       padding: var(--spacing-xl);
       color: var(--text-muted);
-    }
-
-    .empty-icon {
-      font-size: 32px;
-      opacity: 0.5;
     }
 
     .empty-text {

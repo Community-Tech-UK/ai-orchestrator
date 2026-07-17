@@ -435,12 +435,11 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
 
     .obs-type-badge {
       padding: 0.125rem 0.4rem;
-      background: rgba(99, 102, 241, 0.15);
-      color: #818cf8;
+      background: rgba(var(--info-rgb), 0.15);
+      color: var(--info-color);
       border-radius: 3px;
       font-size: 0.6875rem;
       font-weight: 600;
-      text-transform: uppercase;
     }
 
     .obs-time {
@@ -538,8 +537,6 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
       display: block;
       font-size: 0.6875rem;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       color: var(--text-muted);
       margin-bottom: 0.25rem;
     }
@@ -617,8 +614,7 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
     .pattern-type {
       font-size: 0.75rem;
       font-weight: 600;
-      text-transform: uppercase;
-      color: #818cf8;
+      color: var(--info-color);
       margin-bottom: 0.375rem;
     }
 
@@ -642,7 +638,7 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
 
     .stat-label {
       font-size: 0.625rem;
-      text-transform: uppercase;
+      font-weight: 600;
       color: var(--text-muted);
     }
 

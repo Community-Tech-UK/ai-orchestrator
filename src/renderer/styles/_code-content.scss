@@ -29,10 +29,8 @@
 .code-language {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
 }
 
 .copy-button {
@@ -42,15 +40,13 @@
   padding: var(--spacing-xs) var(--spacing-sm);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  font-weight: 500;
+  font-weight: 600;
   background: transparent;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
   transition: all var(--transition-fast);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 
   &:hover {
     background: var(--bg-tertiary);
@@ -115,9 +111,7 @@
     background: var(--bg-secondary);
     font-weight: 600;
     color: var(--text-primary);
-    text-transform: uppercase;
     font-size: var(--text-xs);
-    letter-spacing: 0.05em;
   }
 
   td {
@@ -150,7 +144,7 @@
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-literal {
-  color: #f472b6;
+  color: #d05f4e;
 }
 
 .hljs-string,
@@ -182,12 +176,12 @@
 
 .hljs-variable,
 .hljs-params {
-  color: #f9a8d4;
+  color: #b8865f;
 }
 
 .hljs-attr,
 .hljs-selector-class {
-  color: #a5b4fc;
+  color: #5b8dbf;
 }
 
 .hljs-deletion {
@@ -220,7 +214,7 @@
     .hljs-keyword,
     .hljs-selector-tag,
     .hljs-literal {
-      color: #be185d;
+      color: #d05f4e;
     }
 
     .hljs-string,
@@ -244,7 +238,7 @@
     .hljs-variable,
     .hljs-params,
     .hljs-attr {
-      color: #4338ca;
+      color: #5b8dbf;
     }
 
     .hljs-name,
@@ -263,7 +257,7 @@
   .hljs-keyword,
   .hljs-selector-tag,
   .hljs-literal {
-    color: #be185d;
+    color: #d05f4e;
   }
 
   .hljs-string,
@@ -287,7 +281,7 @@
   .hljs-variable,
   .hljs-params,
   .hljs-attr {
-    color: #4338ca;
+    color: #5b8dbf;
   }
 
   .hljs-name,

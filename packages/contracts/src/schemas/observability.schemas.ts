@@ -49,6 +49,22 @@ export const DebugAllPayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
 });
 
+// ============ Renderer Telemetry ============
+
+/** Renderer→main log forwarding (RendererErrorHandler and friends). */
+export const RendererLogMessagePayloadSchema = z.object({
+  level: z.enum(['debug', 'info', 'warn', 'error']),
+  message: z.string().max(10_000),
+  context: z.string().max(200).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+/** Renderer main-thread heartbeat; beats stop exactly when the UI thread blocks. */
+export const RendererHeartbeatPayloadSchema = z.object({
+  seq: z.number().int().nonnegative(),
+  sentAt: z.number().int().nonnegative(),
+});
+
 // ============ Search Payloads ============
 
 export const SearchSemanticPayloadSchema = z.object({

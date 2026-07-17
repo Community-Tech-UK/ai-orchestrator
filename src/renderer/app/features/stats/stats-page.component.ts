@@ -400,8 +400,6 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
     .metric-label {
       font-size: 11px;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       color: var(--text-muted);
     }
 
@@ -434,8 +432,6 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
     /* ── Table ───────────────────────────────────────── */
@@ -454,8 +450,6 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
     .table-scroll {
@@ -543,8 +537,6 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
     }
 
     .storage-list,

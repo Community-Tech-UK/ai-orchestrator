@@ -33,7 +33,6 @@ import type {
       <!-- Header -->
       <div class="debate-header">
         <div class="header-left">
-          <span class="debate-icon">🗣️</span>
           <span class="debate-title">Debate Consensus</span>
           @if (activeDebate(); as debate) {
             <span class="status-badge" [class]="'status-' + debate.status">
@@ -142,7 +141,7 @@ import type {
                   <div class="contribution-card">
                     <div class="contribution-header">
                       <span class="agent-badge">
-                        {{ getAgentIcon(contribution.agentId) }} {{ contribution.agentId }}
+                        {{ contribution.agentId }}
                       </span>
                       <span class="confidence-badge">
                         {{ (contribution.confidence * 100).toFixed(0) }}% confident
@@ -254,26 +253,21 @@ import type {
       } @else {
         <!-- No Debate State -->
         <div class="no-debate">
-          <span class="no-debate-icon">🗣️</span>
           <span class="no-debate-title">No Active Debate</span>
           <span class="no-debate-text">
             Start a debate to use multi-round consensus building for complex decisions.
           </span>
           <div class="debate-info">
             <div class="info-item">
-              <span class="info-icon">1️⃣</span>
               <span class="info-text">Initial: Independent responses from multiple agents</span>
             </div>
             <div class="info-item">
-              <span class="info-icon">2️⃣</span>
               <span class="info-text">Critique: Each agent critiques others' responses</span>
             </div>
             <div class="info-item">
-              <span class="info-icon">3️⃣</span>
               <span class="info-text">Defense: Agents defend or revise their positions</span>
             </div>
             <div class="info-item">
-              <span class="info-icon">4️⃣</span>
               <span class="info-text">Synthesis: Moderator extracts best elements</span>
             </div>
           </div>
@@ -329,10 +323,6 @@ import type {
       display: flex;
       align-items: center;
       gap: var(--spacing-sm);
-    }
-
-    .debate-icon {
-      font-size: 20px;
     }
 
     .debate-title {
@@ -393,8 +383,6 @@ import type {
       font-size: 10px;
       font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       margin-bottom: var(--spacing-xs);
     }
 
@@ -449,7 +437,7 @@ import type {
       &.current {
         background: var(--primary-color);
         color: white;
-        box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.3);
+        box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.3);
         animation: pulse 1.5s infinite;
       }
 
@@ -651,20 +639,21 @@ import type {
       border-radius: var(--radius-sm);
       margin-bottom: 4px;
       font-size: 11px;
+      border: 1px solid transparent;
 
       &.severity-major {
-        background: rgba(239, 68, 68, 0.1);
-        border-left: 2px solid #ef4444;
+        background: var(--error-bg);
+        border-color: var(--error-border);
       }
 
       &.severity-minor {
-        background: rgba(245, 158, 11, 0.1);
-        border-left: 2px solid #f59e0b;
+        background: var(--warning-bg);
+        border-color: var(--warning-border);
       }
 
       &.severity-suggestion {
-        background: rgba(59, 130, 246, 0.1);
-        border-left: 2px solid #3b82f6;
+        background: var(--info-bg);
+        border-color: var(--info-border);
       }
     }
 
@@ -679,7 +668,6 @@ import type {
       border-radius: 2px;
       font-size: 9px;
       font-weight: 600;
-      text-transform: uppercase;
       margin-right: var(--spacing-xs);
     }
 
@@ -698,8 +686,8 @@ import type {
 
     .defense-item {
       padding: var(--spacing-xs);
-      background: rgba(16, 185, 129, 0.1);
-      border-left: 2px solid #10b981;
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
       border-radius: var(--radius-sm);
       margin-bottom: 4px;
       font-size: 11px;
@@ -771,8 +759,6 @@ import type {
       font-size: 10px;
       font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       margin-bottom: var(--spacing-xs);
     }
 
@@ -828,11 +814,6 @@ import type {
       padding: var(--spacing-xl);
     }
 
-    .no-debate-icon {
-      font-size: 48px;
-      opacity: 0.5;
-    }
-
     .no-debate-title {
       font-size: 16px;
       font-weight: 600;
@@ -860,10 +841,6 @@ import type {
       padding: var(--spacing-sm);
       background: var(--bg-tertiary);
       border-radius: var(--radius-sm);
-    }
-
-    .info-icon {
-      font-size: 16px;
     }
 
     .info-text {
@@ -954,12 +931,6 @@ export class DebateVisualizationComponent {
       case 'synthesis': return 'Synthesis';
       default: return type;
     }
-  }
-
-  getAgentIcon(agentId: string): string {
-    const icons = ['🤖', '🧠', '🔬', '📊', '💡', '🎯'];
-    const hash = agentId.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-    return icons[hash % icons.length];
   }
 
   formatStatus(status: DebateStatus): string {

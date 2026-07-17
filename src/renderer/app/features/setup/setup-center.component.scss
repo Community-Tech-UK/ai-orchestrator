@@ -70,27 +70,25 @@
   padding: var(--spacing-xl);
   margin-bottom: var(--spacing-xl);
   border: 1px solid var(--card-border);
-  border-left: 3px solid var(--border-strong);
   border-radius: var(--card-radius);
   background: var(--card-bg);
 }
 
 .setup-hero[data-status='ready'] {
-  border-left-color: var(--success-color);
+  border-color: var(--success-border);
 }
 .setup-hero[data-status='degraded'] {
-  border-left-color: var(--warning-color);
+  border-color: var(--warning-border);
 }
 .setup-hero[data-status='failed'] {
-  border-left-color: var(--error-color);
+  border-color: var(--error-border);
 }
 
 .hero-eyebrow {
   margin: 0;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
@@ -164,8 +162,6 @@
 .progress-label {
   font-size: var(--text-sm);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--text-muted);
 }
 
@@ -236,8 +232,6 @@
   color: var(--pill-neutral-fg);
   font-size: var(--text-2xs);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   text-align: center;
 }
 
@@ -280,8 +274,6 @@
   color: var(--pill-accent-fg);
   font-size: var(--text-2xs);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .check-summary {

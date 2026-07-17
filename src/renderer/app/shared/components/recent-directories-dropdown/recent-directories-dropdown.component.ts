@@ -43,7 +43,9 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
         (click)="toggleDropdown()"
         (keydown.arrowdown)="onTriggerArrowDown($any($event))"
       >
-        <span class="folder-icon">📁</span>
+        <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
         <span class="path-text">{{ displayPath() }}</span>
         <span class="dropdown-caret">▼</span>
       </button>
@@ -78,7 +80,9 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
                   (contextmenu)="onContextMenu($event, dir)"
                   (mouseenter)="focusedIndex.set(i)"
                 >
-                  <span class="pin-icon">📌</span>
+                  <svg class="pin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                    <path d="M9 4h6l-1 6 3 3v2h-5.5V21l-.5 1-.5-1v-6H5v-2l3-3-1-6Z" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
                   <span class="dir-name">{{ dir.displayName }}</span>
                   @if (dir.path === currentPath()) {
                     <span class="check">✓</span>
@@ -106,7 +110,9 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
                   (contextmenu)="onContextMenu($event, dir)"
                   (mouseenter)="focusedIndex.set(filteredPinnedDirectories().length + i)"
                 >
-                  <span class="folder-icon">📁</span>
+                  <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
                   <span class="dir-name">{{ dir.displayName }}</span>
                   @if (dir.path === currentPath()) {
                     <span class="check">✓</span>
@@ -139,7 +145,6 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
               class="menu-item action-item"
               (click)="browseForFolder()"
             >
-              <span class="action-icon">🔍</span>
               <span>Browse for folder...</span>
             </button>
             @if (pinnedDirectories().length > 0 || recentDirectories().length > 0) {
@@ -147,7 +152,6 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
                 class="menu-item action-item danger"
                 (click)="clearRecent()"
               >
-                <span class="action-icon">🗑️</span>
                 <span>Clear recent</span>
               </button>
             }
@@ -163,15 +167,15 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
           >
             @if (!contextMenuDir()!.isPinned) {
               <button class="context-item" (click)="pinDirectory(contextMenuDir()!)">
-                📌 Pin to top
+                Pin to top
               </button>
             } @else {
               <button class="context-item" (click)="unpinDirectory(contextMenuDir()!)">
-                📌 Unpin
+                Unpin
               </button>
             }
             <button class="context-item danger" (click)="removeDirectory(contextMenuDir()!)">
-              🗑️ Remove from list
+              Remove from list
             </button>
           </div>
         }
@@ -299,8 +303,6 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
       padding: 6px 12px 4px;
       font-size: 10px;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
       color: var(--text-muted);
     }
 
@@ -331,9 +333,16 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
       color: var(--primary-color);
     }
 
+    .trigger-btn .folder-icon {
+      width: 13px;
+      height: 13px;
+      flex-shrink: 0;
+    }
+
     .menu-item .folder-icon,
     .menu-item .pin-icon {
-      font-size: 14px;
+      width: 14px;
+      height: 14px;
       flex-shrink: 0;
     }
 
@@ -353,10 +362,6 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
     /* Action Items */
     .action-item {
       color: var(--text-secondary);
-    }
-
-    .action-item .action-icon {
-      font-size: 14px;
     }
 
     .action-item.danger:hover {

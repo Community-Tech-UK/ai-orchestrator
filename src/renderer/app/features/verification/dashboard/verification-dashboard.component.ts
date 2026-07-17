@@ -82,7 +82,6 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
       isImage: file.type.startsWith('image/'),
       previewUrl: this.getOrCreatePreviewUrl(file),
       size: this.formatFileSize(file.size),
-      icon: this.getFileIcon(file),
     }));
   });
 
@@ -397,14 +396,6 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
       this.filePreviewUrls.delete(file);
     }
     this.pendingFiles.update(current => current.filter(f => f !== file));
-  }
-
-  getFileIcon(file: File): string {
-    if (file.type.startsWith('image/')) return '🖼️';
-    if (file.type.includes('pdf')) return '📄';
-    if (file.type.includes('text')) return '📝';
-    if (file.type.includes('json') || file.type.includes('javascript')) return '📋';
-    return '📎';
   }
 
   private async refreshPreflight(): Promise<void> {

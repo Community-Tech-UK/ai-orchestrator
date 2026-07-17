@@ -26,7 +26,7 @@ import type { HybridSearchOptions } from '../../../../shared/types/codebase.type
     <div class="search-container">
       <!-- Search Input -->
       <div class="search-input-wrapper">
-        <label for="codebase-search-input" class="search-icon">🔍</label>
+        <label for="codebase-search-input" class="visually-hidden">Search</label>
         <input
           type="text"
           id="codebase-search-input"
@@ -119,11 +119,6 @@ import type { HybridSearchOptions } from '../../../../shared/types/codebase.type
       &:focus-within {
         border-color: var(--primary-color);
       }
-    }
-
-    .search-icon {
-      font-size: 14px;
-      opacity: 0.6;
     }
 
     .search-input {

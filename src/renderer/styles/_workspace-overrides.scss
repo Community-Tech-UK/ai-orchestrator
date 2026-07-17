@@ -44,8 +44,7 @@ app-instance-detail .inspector-toggle {
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 600;
   transition: all var(--transition-fast);
 }
 

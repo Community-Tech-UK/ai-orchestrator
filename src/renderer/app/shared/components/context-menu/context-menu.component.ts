@@ -87,7 +87,6 @@ export interface ContextMenuItem {
       box-shadow:
         0 18px 42px rgba(0, 0, 0, 0.46),
         inset 0 1px 0 rgba(255, 255, 255, 0.08);
-      backdrop-filter: blur(14px);
       animation: context-menu-pop 90ms ease-out;
       transform-origin: top left;
     }

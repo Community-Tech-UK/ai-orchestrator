@@ -237,8 +237,6 @@ const SYMBOL_KIND_ICONS: Record<string, string> = {
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
       flex-shrink: 0;
     }
 
@@ -328,8 +326,8 @@ const SYMBOL_KIND_ICONS: Record<string, string> = {
       }
 
       &[data-kind="interface"] {
-        background: color-mix(in srgb, #8b5cf6 20%, transparent);
-        color: #8b5cf6;
+        background: color-mix(in srgb, var(--status-waiting) 20%, transparent);
+        color: var(--status-waiting);
       }
 
       &[data-kind="variable"],

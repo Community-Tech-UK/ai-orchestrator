@@ -382,9 +382,8 @@ interface ArchiveEntry {
 
       .metric-label {
         font-size: 11px;
+        font-weight: 600;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
       }
 
       /* ---- Filter bar ---- */
@@ -699,8 +698,6 @@ interface ArchiveEntry {
       .detail-label {
         font-size: 10px;
         font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
         color: var(--text-muted);
       }
 

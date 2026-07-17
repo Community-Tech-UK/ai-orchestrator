@@ -178,7 +178,7 @@ export function deriveReattemptSeed(
       font-size: 11px;
     }
     .pr-status {
-      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+      font-size: 10px; font-weight: 600;
       padding: 1px 6px; border-radius: 3px;
       background: rgba(255,255,255,0.08);
     }
@@ -228,8 +228,7 @@ export function deriveReattemptSeed(
     .pr-prompt-label {
       margin-top: 6px;
       font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      font-weight: 600;
       opacity: 0.55;
     }
     .pr-prompt-empty {

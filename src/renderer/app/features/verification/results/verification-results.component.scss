@@ -38,26 +38,29 @@
         gap: 12px;
         padding: 14px 16px;
         border: 1px solid var(--border-color);
-        border-left-width: 4px;
         border-radius: 8px;
         background: var(--bg-secondary);
       }
 
       .verdict-banner.pass {
-        border-left-color: #22c55e;
+        border-color: rgba(34, 197, 94, 0.35);
+        background: rgba(34, 197, 94, 0.06);
       }
 
       .verdict-banner.pass-with-notes {
-        border-left-color: #3b82f6;
+        border-color: rgba(59, 130, 246, 0.35);
+        background: rgba(59, 130, 246, 0.06);
       }
 
       .verdict-banner.needs-changes {
-        border-left-color: #f59e0b;
+        border-color: rgba(245, 158, 11, 0.35);
+        background: rgba(245, 158, 11, 0.06);
       }
 
       .verdict-banner.blocked,
       .verdict-banner.inconclusive {
-        border-left-color: #ef4444;
+        border-color: rgba(239, 68, 68, 0.35);
+        background: rgba(239, 68, 68, 0.06);
       }
 
       .verdict-summary {
@@ -95,7 +98,6 @@
         color: var(--text-secondary);
         font-size: 11px;
         font-weight: 700;
-        text-transform: uppercase;
       }
 
       .verdict-block ul {
@@ -113,7 +115,6 @@
         color: var(--text-secondary);
         font-size: 11px;
         font-weight: 700;
-        text-transform: uppercase;
       }
 
       .action-btn {

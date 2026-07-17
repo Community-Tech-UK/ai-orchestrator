@@ -56,7 +56,7 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
                 (input)="discordPairCode.set($any($event.target).value.toUpperCase().trim())"
                 placeholder="e.g. 4553FD"
                 maxlength="6"
-                style="text-transform: uppercase; font-family: var(--font-family-mono, monospace); letter-spacing: 0.1em;"
+                style="font-family: var(--font-family-mono, monospace);"
               />
               <button
                 class="btn btn-primary"

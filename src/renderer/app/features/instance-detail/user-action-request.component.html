@@ -3,9 +3,6 @@
     @for (request of pendingRequests(); track request.id) {
       <div class="request-card" [class]="'request-' + request.requestType">
         <div class="request-header">
-          <span class="request-icon">{{
-            isAskUserQuestion(request) ? '💬' : getRequestIcon(request.requestType)
-          }}</span>
           <span class="request-title">{{ request.title }}</span>
         </div>
         <p class="request-message">{{ request.message }}</p>
@@ -223,7 +220,7 @@
                   [disabled]="isResponding()"
                   title="Enable YOLO mode to auto-approve all permissions for this session"
                 >
-                  ⚡ YOLO
+                  YOLO
                 </button>
               }
             }

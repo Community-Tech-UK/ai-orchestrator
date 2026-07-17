@@ -40,10 +40,10 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; opacit
 .cp-runs h2 { margin: 4px 0 10px; font-size: 15px; }
 .cp-list { display: flex; flex-direction: column; gap: 12px; }
 .cp-card { padding: 12px 16px; }
-.cp-card[data-status="running"] { border-left: 3px solid #38a169; }
-.cp-card[data-status="paused"] { border-left: 3px solid #d69e2e; }
-.cp-card[data-status="failed"] { border-left: 3px solid #e53e3e; }
-.cp-card[data-status="completed"] { border-left: 3px solid #48bb78; opacity: 0.86; }
+.cp-card[data-status="running"] { border-color: rgba(56, 161, 105, 0.35); }
+.cp-card[data-status="paused"] { border-color: rgba(214, 158, 46, 0.35); }
+.cp-card[data-status="failed"] { border-color: rgba(229, 62, 62, 0.35); }
+.cp-card[data-status="completed"] { border-color: rgba(72, 187, 120, 0.35); opacity: 0.86; }
 .cp-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .cp-title { font-weight: 650; font-size: 14px; flex: 1; min-width: 180px; }
 .cp-status-pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.1); }

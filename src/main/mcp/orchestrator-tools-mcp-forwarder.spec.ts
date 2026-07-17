@@ -33,6 +33,8 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'delete_automation',
       'update_automation',
       'postpone_automation',
+      'request_doc_review',
+      'get_doc_review_result',
       'build_release_operational_readiness_report',
       'build_ios_release_plan',
       'build_android_release_plan',
@@ -316,6 +318,35 @@ describe('createOrchestratorToolsForwarderTools', () => {
     expect(call).toHaveBeenCalledWith('orchestrator_tools.postpone_automation', {
       id: 'auto-1',
       delayMinutes: 60,
+    });
+  });
+
+  it('forwards request_doc_review invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ reviewId: 'rev-1' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'request_doc_review',
+    );
+
+    await tool!.handler({ artifact_path: '.aio-review/plan.html', title: 'Plan review' });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.request_doc_review', {
+      artifact_path: '.aio-review/plan.html',
+      title: 'Plan review',
+    });
+  });
+
+  it('forwards get_doc_review_result invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ found: true, reviewId: 'rev-1', status: 'pending' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'get_doc_review_result',
+    );
+
+    await tool!.handler({ review_id: 'rev-1' });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.get_doc_review_result', {
+      review_id: 'rev-1',
     });
   });
 

@@ -95,9 +95,11 @@ import type { StreamingTextOptions } from '../../../../../shared/types/verificat
     }
 
     .streaming-text.markdown .content :deep(blockquote) {
-      border-left: 3px solid var(--accent-color, #3b82f6);
-      padding-left: 1em;
-      margin-left: 0;
+      border: 1px solid var(--border-color, #374151);
+      border-radius: 6px;
+      padding: 0.5em 1em;
+      margin: 0.5em 0;
+      background: var(--bg-tertiary, #1e1e1e);
       color: var(--text-secondary);
     }
 

@@ -137,8 +137,7 @@ import type { MenuItem, MenuModel } from './menu.types';
     .nested-menu__section-label {
       padding: 6px 12px 2px;
       font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      font-weight: 600;
       color: var(--text-tertiary, rgba(255,255,255,0.5));
     }
     .nested-menu__divider {

@@ -1,7 +1,11 @@
 import { EventEmitter } from 'events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../../../cli/adapters/adapter-factory';
 import type { Instance, OutputMessage } from '../../../../shared/types/instance.types';
+import {
+  _resetInstanceProviderLimitHandlerForTesting,
+  getInstanceProviderLimitHandler,
+} from '../../instance-provider-limit-handler';
 import { InstanceTerminationCoordinator, type InstanceTerminationDeps } from '../instance-termination';
 
 function makeAdapter(): CliAdapter {
@@ -269,6 +273,60 @@ describe('InstanceTerminationCoordinator', () => {
     expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
     expect(deps.importTranscript).not.toHaveBeenCalled();
     expect(deps.deleteInstance).toHaveBeenCalledWith(instance.id);
+  });
+
+  describe('provider-limit park release', () => {
+    afterEach(() => {
+      _resetInstanceProviderLimitHandlerForTesting();
+    });
+
+    function parkInstance(instanceId: string): { cancels: () => number } {
+      let cancels = 0;
+      const handler = getInstanceProviderLimitHandler();
+      handler.configure({
+        isEnabled: () => true,
+        setWaitReason: vi.fn(),
+        resendInput: vi.fn(),
+        getQuotaSnapshot: () => null,
+        getWorkspaceCwd: () => '/tmp/project',
+        scheduleResume: () => () => { cancels++; },
+      });
+      expect(handler.maybePark({
+        instanceId,
+        provider: 'claude',
+        resetAtHint: Date.now() + 60_000,
+        reason: 'limit',
+        resumePrompt: 'resend me',
+      })).toBe('parked');
+      return { cancels: () => cancels };
+    }
+
+    it('releases a quota park (and its scheduled resume) on single-instance terminate', async () => {
+      const instance = makeInstance();
+      instances.set(instance.id, instance);
+      const park = parkInstance(instance.id);
+      const coordinator = new InstanceTerminationCoordinator(deps);
+
+      await coordinator.terminateInstance(instance.id, false);
+
+      expect(getInstanceProviderLimitHandler().isParked(instance.id)).toBe(false);
+      expect(park.cancels()).toBe(1);
+    });
+
+    it('keeps the durable resume standing on bulk-shutdown terminate', async () => {
+      const instance = makeInstance();
+      instances.set(instance.id, instance);
+      const park = parkInstance(instance.id);
+      const coordinator = new InstanceTerminationCoordinator(deps);
+
+      await coordinator.terminateInstance(instance.id, false, {
+        skipTranscriptMining: true,
+        preserveDurableProviderResume: true,
+      });
+
+      expect(getInstanceProviderLimitHandler().isParked(instance.id)).toBe(false);
+      expect(park.cancels()).toBe(0);
+    });
   });
 
   it('drains evidence before transcript archiving, mining, and instance deletion', async () => {

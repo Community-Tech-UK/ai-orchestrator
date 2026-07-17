@@ -27,7 +27,6 @@
 .resize-handle:hover,
 .resize-handle.dragging {
   background: var(--secondary-color);
-  box-shadow: 0 0 12px rgba(var(--secondary-rgb), 0.5);
 }
 
 .side-chat {
@@ -64,8 +63,6 @@
   font-family: var(--font-display);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   color: var(--text-secondary);
   white-space: nowrap;
   flex: 1;

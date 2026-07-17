@@ -125,7 +125,7 @@ export function buildOutstandingQuery(
       @if (store.outstandingIsLoading() && items().length === 0) {
         <div class="o-empty">Loading…</div>
       } @else if (items().length === 0) {
-        <div class="o-empty">No outstanding items. 🎉</div>
+        <div class="o-empty">No outstanding items.</div>
       } @else {
         @if (needsHuman().length > 0) {
           <div class="o-section-label">Needs human</div>
@@ -143,7 +143,7 @@ export function buildOutstandingQuery(
                   </div>
                   @if (item.status === 'open') {
                     @if (isShowingRecommendation(item)) {
-                      <div class="o-suggested" title="The loop drafted this; edit if needed, then Save or Resolve to record it">✨ Suggested — review, then Save or Resolve to use</div>
+                      <div class="o-suggested" title="The loop drafted this; edit if needed, then Save or Resolve to record it">Suggested — review, then Save or Resolve to use</div>
                     }
                     <textarea
                       class="o-answer-input"
@@ -185,7 +185,7 @@ export function buildOutstandingQuery(
                   </div>
                   @if (item.status === 'open') {
                     @if (isShowingRecommendation(item)) {
-                      <div class="o-suggested" title="The loop drafted this; edit if needed, then Save or Resolve to record it">✨ Suggested — review, then Save or Resolve to use</div>
+                      <div class="o-suggested" title="The loop drafted this; edit if needed, then Save or Resolve to record it">Suggested — review, then Save or Resolve to use</div>
                     }
                     <textarea
                       class="o-answer-input"
@@ -226,7 +226,7 @@ export function buildOutstandingQuery(
     .o-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .o-title { font-weight: 600; }
     .o-count {
-      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+      font-size: 10px; font-weight: 600;
       padding: 1px 6px; border-radius: 3px;
       background: rgba(255,255,255,0.08); opacity: 0.7;
     }
@@ -252,8 +252,8 @@ export function buildOutstandingQuery(
     .o-filter:disabled, .o-export:disabled, .o-resolve-all:disabled, .o-resume:disabled { opacity: 0.4; cursor: not-allowed; }
     .o-empty { padding: 10px 4px; opacity: 0.6; font-style: italic; }
     .o-section-label {
-      margin: 8px 0 4px; font-size: 10px; text-transform: uppercase;
-      letter-spacing: 0.04em; opacity: 0.55;
+      margin: 8px 0 4px; font-size: 10px; font-weight: 600;
+      opacity: 0.55;
     }
     .o-list { display: flex; flex-direction: column; gap: 6px; }
     .o-row {
@@ -267,14 +267,14 @@ export function buildOutstandingQuery(
     .o-text { line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
     .o-meta { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
     .o-loop-status {
-      font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
+      font-size: 9px; font-weight: 600;
       padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.08); opacity: 0.7;
     }
     .o-loop-status[data-status="completed-needs-review"] { color: #f7c07a; background: rgba(247,192,122,0.12); }
     .o-loop-status[data-status="completed"] { color: #8edc8e; background: rgba(142,220,142,0.12); }
     .o-time { opacity: 0.55; font-family: var(--font-mono, monospace); font-size: 10px; }
     .o-resolved {
-      font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
+      font-size: 9px; font-weight: 600;
       padding: 1px 5px; border-radius: 3px; color: #8edc8e; background: rgba(142,220,142,0.1);
     }
     .o-suggested {
@@ -296,12 +296,12 @@ export function buildOutstandingQuery(
     .o-answer {
       margin-top: 6px; padding: 5px 7px; line-height: 1.45;
       white-space: pre-wrap; word-break: break-word;
-      background: rgba(142,220,142,0.06); border-left: 2px solid rgba(142,220,142,0.5);
-      border-radius: 0 4px 4px 0;
+      background: rgba(142,220,142,0.06); border: 1px solid rgba(142,220,142,0.35);
+      border-radius: 4px;
     }
     .o-answer-label {
       display: inline-block; margin-right: 6px; font-size: 9px;
-      text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.55;
+      font-weight: 600; opacity: 0.55;
     }
     .o-actions { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
     .o-act {

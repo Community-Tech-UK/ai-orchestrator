@@ -27,7 +27,6 @@
 .resize-handle:hover,
 .resize-handle.dragging {
   background: var(--secondary-color);
-  box-shadow: 0 0 12px rgba(var(--secondary-rgb), 0.5);
 }
 
 .source-control {
@@ -64,8 +63,6 @@
   font-family: var(--font-display);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   color: var(--text-secondary);
   white-space: nowrap;
   flex: 1;
@@ -259,11 +256,6 @@
   color: var(--secondary-color);
 }
 
-.repo-icon {
-  font-size: 13px;
-  flex-shrink: 0;
-}
-
 .repo-name {
   flex: 1;
   font-family: var(--font-mono);
@@ -353,8 +345,7 @@
   padding: 4px 16px 4px 28px;
   font-family: var(--font-mono);
   font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
@@ -453,8 +444,8 @@
 .status-modified  { background: rgba(225, 180, 0, 0.18);  color: #e1b400; }
 .status-added     { background: rgba(40, 200, 80, 0.18);  color: #28c850; }
 .status-deleted   { background: rgba(232, 80, 80, 0.18);  color: #e85050; }
-.status-renamed   { background: rgba(120, 140, 220, 0.18); color: #8a9be8; }
-.status-copied    { background: rgba(120, 140, 220, 0.18); color: #8a9be8; }
+.status-renamed   { background: rgba(91, 141, 191, 0.18); color: #5b8dbf; }
+.status-copied    { background: rgba(91, 141, 191, 0.18); color: #5b8dbf; }
 .status-untracked { background: rgba(160, 160, 160, 0.18); color: #a0a0a0; }
 .status-ignored   { background: rgba(120, 120, 120, 0.12); color: #888; }
 

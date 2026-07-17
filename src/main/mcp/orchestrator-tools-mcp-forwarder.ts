@@ -574,6 +574,59 @@ export function createOrchestratorToolsForwarderTools(
         return client.call('orchestrator_tools.postpone_automation', args as Record<string, unknown>);
       },
     },
+    {
+      name: 'request_doc_review',
+      description:
+        'Ask James to review a plan, spec, audit, or decision doc. First write a self-contained HTML review artifact into the workspace\'s .aio-review/ directory (use the doc-review-artifact skill), then call this with its path. James reviews it in-app and his decisions arrive back here as a user message — the canonical "Document review feedback" block. Apply agreed changes to the Markdown source and re-render.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          artifact_path: {
+            type: 'string',
+            description:
+              'Path to the review artifact HTML, inside the workspace .aio-review/ directory. Absolute or workspace-relative.',
+          },
+          title: {
+            type: 'string',
+            description: 'Short human title for the review (shown in the review pane).',
+          },
+          source_path: {
+            type: 'string',
+            description: 'Optional repo-relative path of the Markdown source the artifact renders.',
+          },
+        },
+        required: ['artifact_path', 'title'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('request_doc_review args must be an object');
+        }
+        return client.call('orchestrator_tools.request_doc_review', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'get_doc_review_result',
+      description:
+        'Poll the status of a review created with request_doc_review. Returns pending until James decides, then the overall verdict, per-item decisions, and durable delivery outcome. A delivered result also arrives as a user message; queued, failed, or interrupted delivery remains visible here.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          review_id: {
+            type: 'string',
+            description: 'The reviewId returned by request_doc_review.',
+          },
+        },
+        required: ['review_id'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('get_doc_review_result args must be an object');
+        }
+        return client.call('orchestrator_tools.get_doc_review_result', args as Record<string, unknown>);
+      },
+    },
     ...RELEASE_TOOL_NAMES.map((name): McpServerToolDefinition => ({
       name,
       description: RELEASE_TOOL_SPECS[name].description,

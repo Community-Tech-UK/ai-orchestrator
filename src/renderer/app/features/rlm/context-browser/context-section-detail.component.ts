@@ -19,7 +19,7 @@ import type { ContextSection, QueryType } from '../../../../../shared/types/rlm.
     <div class="section-detail">
       <div class="detail-header">
         <span class="detail-type" [class]="'type-' + section().type">
-          {{ getSectionTypeIcon(section().type) }} {{ section().type }}
+          {{ section().type }}
         </span>
         <button class="close-btn" (click)="closePanel.emit()">✕</button>
       </div>
@@ -136,13 +136,13 @@ import type { ContextSection, QueryType } from '../../../../../shared/types/rlm.
         }
 
         &.type-external {
-          background: rgba(139, 92, 246, 0.2);
-          color: #8b5cf6;
+          background: rgba(var(--primary-rgb), 0.2);
+          color: var(--primary-color);
         }
 
         &.type-summary {
-          background: rgba(236, 72, 153, 0.2);
-          color: #ec4899;
+          background: rgba(var(--secondary-rgb), 0.2);
+          color: var(--secondary-hover);
         }
       }
 
@@ -175,8 +175,6 @@ import type { ContextSection, QueryType } from '../../../../../shared/types/rlm.
         font-size: 10px;
         font-weight: 600;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         margin-bottom: var(--spacing-xs);
       }
 
@@ -289,22 +287,5 @@ export class ContextSectionDetailComponent {
 
   isSectionInQuery(): boolean {
     return this.sectionInQuery();
-  }
-
-  getSectionTypeIcon(type: ContextSection['type']): string {
-    switch (type) {
-      case 'file':
-        return '📁';
-      case 'conversation':
-        return '💬';
-      case 'tool_output':
-        return '🔧';
-      case 'external':
-        return '🌐';
-      case 'summary':
-        return '📋';
-      default:
-        return '📄';
-    }
   }
 }

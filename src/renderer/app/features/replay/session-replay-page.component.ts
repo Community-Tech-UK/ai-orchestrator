@@ -317,9 +317,7 @@ interface ReplayTimelineEntry {
     :host {
       display: block;
       min-height: 100%;
-      background:
-        radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 30rem),
-        linear-gradient(180deg, #08131d 0%, #0c1723 100%);
+      background: linear-gradient(180deg, #08131d 0%, #0c1723 100%);
       color: #e6eef5;
     }
 
@@ -375,9 +373,8 @@ interface ReplayTimelineEntry {
 
     .eyebrow,
     .label {
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
       font-size: 0.72rem;
+      font-weight: 600;
       color: #9bd3b1;
     }
 
@@ -394,7 +391,6 @@ interface ReplayTimelineEntry {
       border: 1px solid rgba(148, 163, 184, 0.16);
       border-radius: 1rem;
       background: rgba(8, 19, 29, 0.86);
-      backdrop-filter: blur(10px);
       box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.18);
     }
 
@@ -500,20 +496,20 @@ interface ReplayTimelineEntry {
     }
 
     .message.user {
-      border-left: 3px solid #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
     }
 
     .message.assistant {
-      border-left: 3px solid #22c55e;
+      border: 1px solid rgba(34, 197, 94, 0.3);
     }
 
     .message.tool_result,
     .message.tool_use {
-      border-left: 3px solid #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.3);
     }
 
     .message.error {
-      border-left: 3px solid #f87171;
+      border: 1px solid rgba(248, 113, 113, 0.3);
     }
 
     .badge,
@@ -526,8 +522,6 @@ interface ReplayTimelineEntry {
       background: rgba(148, 163, 184, 0.16);
       font-size: 0.72rem;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
     }
 
     .severity {

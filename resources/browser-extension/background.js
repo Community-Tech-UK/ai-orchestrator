@@ -1135,7 +1135,12 @@ async function executeBrowserCommand(command) {
       await startControlledTab(tab.id);
       try {
         await waitForTabComplete(tab.id);
+        // Re-instrument the freshly-loaded document: the full load replaced the
+        // MAIN world, wiping the capture buffer installed by startControlledTab
+        // above. Without this, a console_messages/network_requests read right
+        // after open_tab would find no buffer at all.
         await installControlGlow(tab.id);
+        await installConsoleNetworkCapture(tab.id);
         return buildTabPayload(await chrome.tabs.get(tab.id), {
           includeText: true,
           includeScreenshot: true,
@@ -1151,7 +1156,11 @@ async function executeBrowserCommand(command) {
       try {
         const tab = await chrome.tabs.update(tabId, { url, active: true });
         await waitForTabComplete(tabId);
+        // Re-instrument after the full document load (see open_tab note): the
+        // new document has a fresh MAIN world, so the capture buffer must be
+        // reinstalled here or a post-navigate read comes back empty.
         await installControlGlow(tabId);
+        await installConsoleNetworkCapture(tabId);
         return buildTabPayload(tab || await chrome.tabs.get(tabId), {
           includeText: true,
           includeScreenshot: true,
@@ -1261,6 +1270,10 @@ async function executeBrowserCommand(command) {
         typeof command.payload?.query === 'string' ? command.payload.query : undefined,
         typeof command.payload?.limit === 'number' ? command.payload.limit : undefined,
       ]);
+    case 'console_messages':
+      return readCapturedEntries(command, 'console');
+    case 'network_requests':
+      return readCapturedEntries(command, 'network');
     case 'read_control':
       return runInTargetTab(command, 'read_control', [
         requirePayloadString(command, 'selector'),
@@ -2222,6 +2235,7 @@ async function startControlledTab(tabId) {
     preventTabDiscard(tabId),
     markControlledTabGroup(tabId),
     installControlGlow(tabId),
+    installConsoleNetworkCapture(tabId),
   ]);
 }
 
@@ -2308,6 +2322,363 @@ async function findControlGroupId(windowId, noGroupId) {
     }
   }
   return canonicalId;
+}
+
+// Console/network capture for shared, extension-driven tabs.
+//
+// The gateway's snapshot/click/etc. attach the CDP debugger transiently
+// (attach → run → detach), so there is no persistent CDP session to hang a
+// Runtime/Network/Log listener on, and in MV3 the service worker is killed on
+// idle — a persistent chrome.debugger attach would drop its buffer and re-flash
+// the "started debugging this browser" banner on every wake. Instead we install
+// a lightweight buffer in the page's own MAIN world that wraps console.error/
+// warn, window error / unhandledrejection, and fetch/XMLHttpRequest. It lives on
+// the page's window, so it survives in-page (SPA history) navigations — an
+// Angular route change does NOT wipe it (console-read prompt, req #2) — and only
+// resets on a full document load, at which point the next controlled-tab command
+// re-installs it. Install is idempotent and cheap, so running it on every
+// startControlledTab is safe.
+async function installConsoleNetworkCapture(tabId) {
+  assertGatewayEnabled();
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: installCaptureScript,
+  }).catch(() => undefined);
+}
+
+// Read the MAIN-world capture buffer for a controlled tab. startControlledTab
+// (re)installs the buffer first, so this is lazy — it never requires the user to
+// re-share the tab (req #5). Returns { kind, installed, entries }.
+async function readCapturedEntries(command, kind) {
+  const tabId = requireTargetTabId(command);
+  await startControlledTab(tabId);
+  try {
+    const sinceSeq = typeof command.payload?.sinceSeq === 'number' ? command.payload.sinceSeq : null;
+    const level = typeof command.payload?.level === 'string' ? command.payload.level : null;
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: readCaptureScript,
+      args: [kind, sinceSeq, level],
+    }).catch(() => []);
+    const value = (results && results[0] && results[0].result) || null;
+    const installed = Boolean(value && value.installed);
+    const entries = value && Array.isArray(value.entries) ? value.entries : [];
+    return { kind, installed, entries };
+  } finally {
+    await stopControlledTab(tabId);
+  }
+}
+
+// Injected into the page MAIN world. Self-contained (no closure over extension
+// scope). Idempotent: re-invocation on an already-instrumented document is a
+// no-op. Buffers are bounded and text is clipped in-page; the gateway redacts
+// again on the way out.
+function installCaptureScript() {
+  const KEY = '__harnessBrowserCapture';
+  if (window[KEY] && window[KEY].installed) {
+    return { installed: true, already: true };
+  }
+  const MAX_ENTRIES = 300;
+  const MAX_TEXT = 4000;
+  const state = {
+    installed: true,
+    seq: 0,
+    console: [],
+    network: [],
+  };
+  window[KEY] = state;
+
+  const clip = (value) => {
+    let text;
+    try {
+      if (typeof value === 'string') {
+        text = value;
+      } else if (value && typeof value === 'object') {
+        try {
+          text = JSON.stringify(value);
+        } catch (_e) {
+          text = String(value);
+        }
+      } else {
+        text = String(value);
+      }
+    } catch (_e) {
+      text = '[unserializable]';
+    }
+    if (typeof text !== 'string') {
+      text = String(text);
+    }
+    return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + '…[truncated]' : text;
+  };
+  const formatArgs = (args) => {
+    try {
+      return Array.prototype.map.call(args, (arg) => {
+        if (typeof arg === 'string') {
+          return arg;
+        }
+        if (arg instanceof Error) {
+          return arg.stack || (arg.name + ': ' + arg.message);
+        }
+        return clip(arg);
+      }).join(' ');
+    } catch (_e) {
+      return '[uncapturable console arguments]';
+    }
+  };
+  const push = (bucket, entry) => {
+    entry.seq = state.seq++;
+    entry.timestamp = Date.now();
+    bucket.push(entry);
+    if (bucket.length > MAX_ENTRIES) {
+      bucket.splice(0, bucket.length - MAX_ENTRIES);
+    }
+  };
+
+  // Console: capture error + warning only (bounds noise; matches req #2).
+  ['error', 'warn'].forEach((level) => {
+    const original = console[level];
+    if (typeof original !== 'function') {
+      return;
+    }
+    console[level] = function () {
+      try {
+        push(state.console, { type: level, text: clip(formatArgs(arguments)) });
+      } catch (_e) {
+        // Never let capture break the page's own logging.
+      }
+      return original.apply(this, arguments);
+    };
+  });
+
+  // Uncaught errors — includes resource load failures (img/script/link), which
+  // arrive with a DOM element target and no message.
+  window.addEventListener('error', (event) => {
+    try {
+      const target = event && event.target;
+      if (target && target !== window && target.tagName) {
+        const url = target.src || target.href || '';
+        push(state.network, {
+          method: 'GET',
+          url: clip(url),
+          resourceType: String(target.tagName || '').toLowerCase(),
+          status: 0,
+          failureText: 'resource failed to load',
+        });
+        return;
+      }
+      push(state.console, {
+        type: 'error',
+        text: clip((event && event.message) || 'Uncaught error'),
+        location: {
+          url: (event && event.filename) || undefined,
+          lineNumber: event && typeof event.lineno === 'number' ? event.lineno : undefined,
+          columnNumber: event && typeof event.colno === 'number' ? event.colno : undefined,
+        },
+        stack: event && event.error && event.error.stack ? clip(event.error.stack) : undefined,
+      });
+    } catch (_e) {
+      // ignore
+    }
+  }, true);
+
+  window.addEventListener('unhandledrejection', (event) => {
+    try {
+      const reason = event && event.reason;
+      const message = reason && reason.message ? reason.message : reason;
+      push(state.console, {
+        type: 'error',
+        text: clip('Unhandled promise rejection: ' + clip(message)),
+        stack: reason && reason.stack ? clip(reason.stack) : undefined,
+      });
+    } catch (_e) {
+      // ignore
+    }
+  });
+
+  // fetch — records method, url, status, ok, failure text, duration.
+  const originalFetch = window.fetch;
+  if (typeof originalFetch === 'function') {
+    window.fetch = function (input, init) {
+      let url = '';
+      let method = 'GET';
+      try {
+        if (typeof input === 'string') {
+          url = input;
+        } else if (input && typeof input === 'object') {
+          url = input.url || '';
+          method = input.method || method;
+        }
+        if (init && init.method) {
+          method = init.method;
+        }
+      } catch (_e) {
+        // ignore
+      }
+      const started = Date.now();
+      let promise;
+      try {
+        promise = originalFetch.apply(this, arguments);
+      } catch (syncError) {
+        push(state.network, {
+          method: String(method).toUpperCase(),
+          url: clip(url),
+          resourceType: 'fetch',
+          status: 0,
+          failureText: clip(syncError && syncError.message ? syncError.message : String(syncError)),
+          durationMs: Date.now() - started,
+        });
+        throw syncError;
+      }
+      return promise.then((response) => {
+        try {
+          push(state.network, {
+            method: String(method).toUpperCase(),
+            url: clip(url),
+            resourceType: 'fetch',
+            status: typeof response.status === 'number' ? response.status : undefined,
+            statusText: response.statusText || undefined,
+            ok: response.ok === true,
+            durationMs: Date.now() - started,
+          });
+        } catch (_e) {
+          // ignore
+        }
+        return response;
+      }, (error) => {
+        try {
+          push(state.network, {
+            method: String(method).toUpperCase(),
+            url: clip(url),
+            resourceType: 'fetch',
+            status: 0,
+            failureText: clip(error && error.message ? error.message : String(error)),
+            durationMs: Date.now() - started,
+          });
+        } catch (_e) {
+          // ignore
+        }
+        throw error;
+      });
+    };
+  }
+
+  // XMLHttpRequest — capture status/failure on loadend.
+  const XHR = window.XMLHttpRequest;
+  if (XHR && XHR.prototype && typeof XHR.prototype.open === 'function') {
+    const originalOpen = XHR.prototype.open;
+    const originalSend = XHR.prototype.send;
+    XHR.prototype.open = function (method, url) {
+      try {
+        this.__harnessMethod = method;
+        this.__harnessUrl = url;
+        this.__harnessStarted = Date.now();
+      } catch (_e) {
+        // ignore
+      }
+      return originalOpen.apply(this, arguments);
+    };
+    XHR.prototype.send = function () {
+      try {
+        const xhr = this;
+        xhr.addEventListener('loadend', () => {
+          try {
+            const status = typeof xhr.status === 'number' ? xhr.status : 0;
+            const failed = status === 0;
+            push(state.network, {
+              method: String(xhr.__harnessMethod || 'GET').toUpperCase(),
+              url: clip(xhr.__harnessUrl || (typeof xhr.responseURL === 'string' ? xhr.responseURL : '')),
+              resourceType: 'xhr',
+              status,
+              statusText: xhr.statusText || undefined,
+              ok: status >= 200 && status < 400,
+              failureText: failed ? 'request failed or was aborted' : undefined,
+              durationMs: typeof xhr.__harnessStarted === 'number' ? Date.now() - xhr.__harnessStarted : undefined,
+            });
+          } catch (_e) {
+            // ignore
+          }
+        });
+      } catch (_e) {
+        // ignore
+      }
+      return originalSend.apply(this, arguments);
+    };
+  }
+
+  // PerformanceObserver — status codes for EVERY resource type (img, script,
+  // css, link, media, …), which the fetch/XHR wrappers alone miss. `buffered:
+  // true` also backfills resources that loaded before this hook installed, so a
+  // read right after a fresh load still sees them. fetch/xmlhttprequest are left
+  // to the wrappers above (richer: request method + failure text), so we skip
+  // those initiator types here to avoid double-counting. `responseStatus`
+  // (Chrome 109+) is 0 for cross-origin resources without Timing-Allow-Origin —
+  // recorded as unknown, not a failure.
+  if (typeof PerformanceObserver === 'function') {
+    try {
+      const seenResource = new Set();
+      const observer = new PerformanceObserver((list) => {
+        try {
+          list.getEntries().forEach((entry) => {
+            try {
+              const initiator = String(entry.initiatorType || 'other');
+              if (initiator === 'fetch' || initiator === 'xmlhttprequest') {
+                return;
+              }
+              // Dedupe: buffered flush + live callbacks can repeat an entry.
+              const key = initiator + ' ' + String(entry.name || '') + ' ' + String(entry.startTime || 0);
+              if (seenResource.has(key)) {
+                return;
+              }
+              seenResource.add(key);
+              const hasStatus = typeof entry.responseStatus === 'number' && entry.responseStatus > 0;
+              push(state.network, {
+                method: 'GET',
+                url: clip(entry.name || ''),
+                resourceType: initiator,
+                status: hasStatus ? entry.responseStatus : undefined,
+                ok: hasStatus ? entry.responseStatus >= 200 && entry.responseStatus < 400 : undefined,
+                failureText: hasStatus && entry.responseStatus >= 400
+                  ? 'resource returned an error status'
+                  : undefined,
+                durationMs: typeof entry.duration === 'number' ? Math.round(entry.duration) : undefined,
+              });
+            } catch (_e) {
+              // ignore a single malformed entry
+            }
+          });
+        } catch (_e) {
+          // ignore
+        }
+      });
+      observer.observe({ type: 'resource', buffered: true });
+    } catch (_e) {
+      // PerformanceObserver('resource') unsupported — fetch/XHR wrappers + the
+      // resource-error listener still cover the common cases.
+    }
+  }
+
+  return { installed: true, already: false };
+}
+
+// Injected into the page MAIN world to read the buffer. Optional sinceSeq
+// returns only entries newer than a previously-seen sequence; optional level
+// filters console entries by type.
+function readCaptureScript(kind, sinceSeq, level) {
+  const state = window['__harnessBrowserCapture'];
+  if (!state || !state.installed) {
+    return { installed: false, entries: [] };
+  }
+  const source = kind === 'network' ? state.network : state.console;
+  let entries = Array.isArray(source) ? source.slice() : [];
+  if (typeof sinceSeq === 'number') {
+    entries = entries.filter((entry) => typeof entry.seq === 'number' && entry.seq > sinceSeq);
+  }
+  if (kind !== 'network' && typeof level === 'string' && level) {
+    entries = entries.filter((entry) => entry.type === level);
+  }
+  return { installed: true, entries: entries.slice(-200) };
 }
 
 async function installControlGlow(tabId) {

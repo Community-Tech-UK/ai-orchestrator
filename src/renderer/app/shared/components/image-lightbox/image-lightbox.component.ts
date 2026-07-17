@@ -34,8 +34,6 @@ export interface LightboxItem {
   src: string;
   /** Whether the item should render as an image. */
   isImage: boolean;
-  /** Emoji/icon shown in the non-image fallback. */
-  icon?: string;
   /** Human-readable size string shown in the non-image fallback. */
   size?: string;
 }
@@ -87,7 +85,6 @@ export interface LightboxItem {
               />
             } @else {
               <div class="lightbox-unsupported">
-                <div class="lightbox-icon">{{ fallbackIcon(item) }}</div>
                 <p class="lightbox-message">{{ fallbackMessage(item) }}</p>
                 <p class="lightbox-detail">{{ item.name }}</p>
                 @if (item.size) {
@@ -248,11 +245,6 @@ export interface LightboxItem {
       max-width: 360px;
     }
 
-    .lightbox-icon {
-      font-size: 64px;
-      margin-bottom: 16px;
-    }
-
     .lightbox-message {
       font-size: 14px;
       color: var(--text-primary);
@@ -373,13 +365,6 @@ export class ImageLightboxComponent {
   /** True when the item is an image we can actually render (has a src and hasn't failed). */
   canShowImage(item: LightboxItem): boolean {
     return item.isImage && !!item.src && !this.failedSrcs().has(item.src);
-  }
-
-  fallbackIcon(item: LightboxItem): string {
-    if (item.isImage) {
-      return '🖼️';
-    }
-    return item.icon || '📎';
   }
 
   fallbackMessage(item: LightboxItem): string {

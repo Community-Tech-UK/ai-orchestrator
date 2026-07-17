@@ -43,7 +43,6 @@ interface PhaseWithStatus extends WorkflowPhase {
         <!-- Header -->
         <div class="workflow-header">
           <div class="header-left">
-            <span class="workflow-icon">🔄</span>
             <span class="workflow-name">{{ template()?.name || exec.templateId }}</span>
           </div>
           <div class="header-right">
@@ -210,7 +209,11 @@ interface PhaseWithStatus extends WorkflowPhase {
       </div>
     } @else {
       <div class="empty-state">
-        <span class="empty-icon">📋</span>
+        <svg class="empty-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="6" y="3" width="12" height="18" rx="2"></rect>
+          <path d="M9 3h6v3H9z"></path>
+          <path d="M9 11h6M9 15h6"></path>
+        </svg>
         <span class="empty-text">No active workflow</span>
       </div>
     }
@@ -238,10 +241,6 @@ interface PhaseWithStatus extends WorkflowPhase {
       gap: var(--spacing-sm);
     }
 
-    .workflow-icon {
-      font-size: 18px;
-    }
-
     .workflow-name {
       font-size: 14px;
       font-weight: 600;
@@ -253,7 +252,6 @@ interface PhaseWithStatus extends WorkflowPhase {
       border-radius: var(--radius-sm);
       font-size: 11px;
       font-weight: 600;
-      text-transform: uppercase;
 
       &.status-running {
         background: var(--primary-color);
@@ -437,8 +435,6 @@ interface PhaseWithStatus extends WorkflowPhase {
       font-size: 11px;
       font-weight: 600;
       color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
 
     .gate-item {
@@ -532,7 +528,6 @@ interface PhaseWithStatus extends WorkflowPhase {
       font-size: 11px;
       font-weight: 600;
       color: var(--text-secondary);
-      text-transform: uppercase;
 
       &.error {
         color: var(--error-color);

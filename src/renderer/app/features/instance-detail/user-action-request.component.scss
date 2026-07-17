@@ -13,7 +13,6 @@
   animation:
     slideIn 0.3s ease-out,
     pulse-border 2s ease-in-out infinite;
-  box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.2);
 }
 
 @keyframes slideIn {
@@ -31,32 +30,26 @@
   0%,
   100% {
     border-color: var(--primary-color);
-    box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.2);
   }
   50% {
     border-color: var(--primary-hover);
-    box-shadow: 0 4px 24px rgba(var(--primary-rgb), 0.35);
   }
 }
 
 .request-switch_mode {
-  border-color: #6366f1;
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.2);
+  border-color: #5b8dbf;
 }
 
 .request-approve_action {
   border-color: #f59e0b;
-  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.2);
 }
 
 .request-input_required {
   border-color: #ef4444;
-  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.2);
 }
 
 .request-ask_questions {
-  border-color: #8b5cf6;
-  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.2);
+  border-color: #4fa3a5;
 }
 
 .request-header {
@@ -64,10 +57,6 @@
   align-items: center;
   gap: var(--spacing-sm);
   margin-bottom: var(--spacing-sm);
-}
-
-.request-icon {
-  font-size: 20px;
 }
 
 .request-title {
@@ -183,11 +172,9 @@
   );
   border: none;
   color: #000;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
 
   &:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.5);
   }
 }
 
@@ -199,11 +186,9 @@
   );
   border: none;
   color: var(--bg-primary);
-  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
 
   &:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.4);
   }
 }
 
@@ -260,8 +245,8 @@
   margin: 0;
   padding: 6px 8px;
   background: rgba(var(--warning-rgb, 245, 158, 11), 0.07);
-  border-left: 3px solid var(--warning-color, #f59e0b);
-  border-radius: 0 var(--radius-sm, 3px) var(--radius-sm, 3px) 0;
+  border: 1px solid var(--warning-border, rgba(217, 161, 61, 0.3));
+  border-radius: var(--radius-sm, 3px);
 }
 
 .modify-textarea {
@@ -276,8 +261,8 @@
   margin: 0;
   padding: 4px 8px;
   background: rgba(var(--error-rgb), 0.08);
-  border-left: 3px solid var(--error-color);
-  border-radius: 0 var(--radius-sm, 3px) var(--radius-sm, 3px) 0;
+  border: 1px solid var(--error-border, rgba(208, 95, 78, 0.3));
+  border-radius: var(--radius-sm, 3px);
 }
 
 .modify-actions {

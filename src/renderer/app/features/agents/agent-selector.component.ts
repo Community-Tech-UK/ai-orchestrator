@@ -39,10 +39,21 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
               <span class="icon-symbol">&#9874;</span>
             }
             @case ('map') {
-              <span class="icon-symbol">&#128506;</span>
+              <span class="icon-symbol">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
+                  <line x1="8" y1="2" x2="8" y2="18"></line>
+                  <line x1="16" y1="6" x2="16" y2="22"></line>
+                </svg>
+              </span>
             }
             @case ('eye') {
-              <span class="icon-symbol">&#128065;</span>
+              <span class="icon-symbol">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </span>
             }
             @default {
               <span class="icon-symbol">&#9679;</span>
@@ -73,7 +84,7 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
               type="button"
               class="agent-option"
               [class.selected]="agent.id === selectedAgent().id"
-              [style.border-left-color]="agent.color"
+              [style.--agent-color]="agent.color"
               (click)="selectAgent(agent)"
             >
               <span class="agent-icon" [style.color]="agent.color">
@@ -175,8 +186,7 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
         width: 100%;
         padding: 10px 12px;
         background: transparent;
-        border: none;
-        border-left: 3px solid transparent;
+        border: 1px solid color-mix(in srgb, var(--agent-color, transparent) 30%, transparent);
         color: var(--text-primary);
         cursor: pointer;
         text-align: left;

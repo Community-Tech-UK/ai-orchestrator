@@ -47,7 +47,7 @@ function getProviderColor(provider: string): string {
     case 'ollama':
       return '#888888';
     case 'copilot':
-      return '#A855F7';
+      return '#B89A66';
     case 'cursor':
       return '#E5E7EB';
     default:

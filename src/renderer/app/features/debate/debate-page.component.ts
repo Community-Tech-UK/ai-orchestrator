@@ -259,9 +259,7 @@ const DEFAULT_DEBATE_MAX_ROUNDS = 2;
     .active-title {
       font-size: 11px;
       font-weight: 700;
-      text-transform: uppercase;
       color: var(--text-muted);
-      letter-spacing: 0.04em;
     }
 
     .active-items {

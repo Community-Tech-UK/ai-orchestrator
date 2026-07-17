@@ -306,8 +306,6 @@ interface InstanceOption {
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
     }
 
     .recommendation-list,
@@ -359,8 +357,6 @@ interface InstanceOption {
     .status {
       font-size: 10px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
     .status-active { color: var(--success-color); }
@@ -394,7 +390,6 @@ interface InstanceOption {
     .severity {
       font-size: 10px;
       font-weight: 700;
-      text-transform: uppercase;
     }
 
     .sev-critical,

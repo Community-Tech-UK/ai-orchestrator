@@ -110,6 +110,7 @@ import {
 import {
   BrowserExtensionCommandStore,
   getBrowserExtensionCommandStore,
+  type BrowserExtensionCommandName,
 } from './browser-extension-command-store';
 import {
   getBrowserExtensionContactState,
@@ -144,6 +145,10 @@ import {
   BrowserExistingTabOperations,
   normalizeDownloadFileResult,
 } from './browser-existing-tab-operations';
+import {
+  readExistingTabConsoleMessages,
+  readExistingTabNetworkRequests,
+} from './browser-existing-tab-capture';
 import { BrowserGatewayApprovalOperations } from './browser-gateway-approval-operations';
 import { normalizeElementCandidates } from './browser-element-candidates';
 import {
@@ -1003,6 +1008,14 @@ export class BrowserGatewayService {
   async consoleMessages(
     request: BrowserGatewayTargetRequest,
   ): Promise<BrowserGatewayResult<unknown[] | null>> {
+    // Target-resolution parity with snapshot/click: an extension-driven (shared
+    // Chrome) tab is resolved through the extension tab store, NOT the
+    // managed-profile store — otherwise every read here fell through to
+    // profile_target_or_url_not_found (console-read prompt, req #1).
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      return readExistingTabConsoleMessages(this.existingTabCaptureDeps(), request, existingTab);
+    }
     return this.readTargetData(
       request,
       'console_messages',
@@ -1012,9 +1025,29 @@ export class BrowserGatewayService {
     );
   }
 
+  /**
+   * Collaborators for the extension-driven capture read: the shared result
+   * builder and the existing-tab command bridge (public `sendCommand`).
+   */
+  private existingTabCaptureDeps() {
+    return {
+      result: <T>(input: BrowserGatewayResultInput<T>) => this.result(input),
+      sendCommand: (
+        attachment: BrowserExistingTabAttachment,
+        command: BrowserExtensionCommandName,
+        payload: Record<string, unknown> | undefined,
+        timeoutMs: number,
+      ) => this.existingTabOperations.sendCommand(attachment, command, payload, timeoutMs),
+    };
+  }
+
   async networkRequests(
     request: BrowserGatewayTargetRequest,
   ): Promise<BrowserGatewayResult<unknown[] | null>> {
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      return readExistingTabNetworkRequests(this.existingTabCaptureDeps(), request, existingTab);
+    }
     return this.readTargetData(
       request,
       'network_requests',

@@ -188,7 +188,8 @@ import type { SessionShareBundle } from '../../../../shared/types/session-share.
       }
 
       &.error {
-        border-left: 3px solid var(--error-color);
+        border-color: var(--error-border);
+        background: var(--error-bg);
       }
 
       &.expanded {
@@ -430,32 +431,32 @@ import type { SessionShareBundle } from '../../../../shared/types/session-share.
     .message {
       padding: var(--spacing-sm) var(--spacing-md);
       border-radius: var(--radius-sm);
-      border-left: 3px solid transparent;
+      border: 1px solid transparent;
 
       &.user {
-        background: rgba(59, 130, 246, 0.1);
-        border-left-color: #3b82f6;
+        background: var(--info-bg);
+        border-color: var(--info-border);
       }
 
       &.assistant {
-        background: rgba(139, 92, 246, 0.1);
-        border-left-color: #8b5cf6;
+        background: rgba(79, 163, 165, 0.1);
+        border-color: rgba(79, 163, 165, 0.3);
       }
 
       &.system {
         background: rgba(156, 163, 175, 0.1);
-        border-left-color: #9ca3af;
+        border-color: rgba(156, 163, 175, 0.3);
       }
 
       &.tool_use,
       &.tool_result {
-        background: rgba(16, 185, 129, 0.1);
-        border-left-color: #10b981;
+        background: var(--success-bg);
+        border-color: var(--success-border);
       }
 
       &.error {
-        background: rgba(239, 68, 68, 0.1);
-        border-left-color: var(--error-color);
+        background: var(--error-bg);
+        border-color: var(--error-border);
       }
     }
 
@@ -469,8 +470,6 @@ import type { SessionShareBundle } from '../../../../shared/types/session-share.
     .role-label {
       font-size: 11px;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
       color: var(--text-muted);
     }
 

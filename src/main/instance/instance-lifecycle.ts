@@ -1000,13 +1000,14 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   /**
    * Three-way native-resume verdict. Wraps the readiness coordinator's probe
-   * with this layer's resume-attempt-result classification: an
-   * attempted-but-unconfirmed resume (a definite non-`none` source that did not
-   * confirm) is a real failure and reported `unrecoverable`, exactly as the
-   * boolean probe used to fall back. A genuinely `inconclusive` probe (alive,
-   * no conclusive attempt result — typically slow under host load) is left
-   * `inconclusive` so the recovery path can keep the session instead of
-   * destroying it.
+   * with this layer's resume-attempt-result classification: a `fresh-fallback`
+   * attempt (the adapter never passed --resume — no transcript for the id) is
+   * a definite non-resume and reported `unrecoverable` so callers replay. A
+   * native attempt that has not yet echoed its session id after the probe
+   * window is `inconclusive` — the process is alive and the confirming system
+   * message may simply not have arrived yet (Claude emits it ~1-2s after
+   * spawn, later under load); destroying the session over missing early
+   * confirmation is what used to turn every auto-respawn into "resume failed".
    */
   private async evaluateResumeHealth(
     instanceId: string,
@@ -1041,29 +1042,45 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       if (!resumeResult.confirmed) {
-        // Distinguish the EXPECTED case (the adapter never attempted native
-        // resume because no transcript exists for this session under the cwd —
-        // e.g. a first turn that was blocked on a permission prompt and never
-        // flushed) from a genuine anomaly (resume WAS attempted but the CLI
-        // didn't echo back the requested session id). Both fall back to
-        // fresh+replay, but only the latter is worth a warning. Logging the
-        // expected case as a warn made routine degradation look like a constant
-        // failure.
+        // EXPECTED case: the adapter never attempted native resume because no
+        // transcript exists for this session under the cwd (e.g. a first turn
+        // that never flushed). Definite non-resume — fall back to fresh+replay.
         if (resumeResult.source === 'fresh-fallback') {
           logger.info('Native resume unavailable (no transcript for session under cwd); starting fresh with replay', {
             instanceId,
             requestedSessionId: resumeResult.requestedSessionId,
           });
-        } else {
-          logger.warn('Adapter did not confirm native resume after readiness probe', {
+          return 'unrecoverable';
+        }
+
+        // A confirmed WRONG session (id echoed back differs from requested) is
+        // a real failure — the CLI silently started a different conversation.
+        if (
+          resumeResult.actualSessionId
+          && resumeResult.requestedSessionId
+          && resumeResult.actualSessionId !== resumeResult.requestedSessionId
+        ) {
+          logger.warn('Native resume landed on a different session id', {
             instanceId,
             source: resumeResult.source,
             requestedSessionId: resumeResult.requestedSessionId,
             actualSessionId: resumeResult.actualSessionId,
             reason: resumeResult.reason,
           });
+          return 'unrecoverable';
         }
-        return 'unrecoverable';
+
+        // Attempted native resume, alive, but the confirming session-id echo
+        // hasn't arrived within the window. Unproven is not dead: report
+        // `inconclusive` so recovery keeps the (very likely healthy) session
+        // instead of destroying its context.
+        logger.info('Native resume attempted but unconfirmed within probe window; treating as inconclusive', {
+          instanceId,
+          source: resumeResult.source,
+          requestedSessionId: resumeResult.requestedSessionId,
+          reason: resumeResult.reason,
+        });
+        return 'inconclusive';
       }
 
       return verdict;
@@ -2020,7 +2037,12 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.deps.forEachInstance((_, id) => instanceIds.push(id));
 
     const promises = instanceIds.map((id) =>
-      this.terminator.terminateInstance(id, false, { skipTranscriptMining: true })
+      this.terminator.terminateInstance(id, false, {
+        skipTranscriptMining: true,
+        // Shutdown must leave the durable quota-resume automation standing —
+        // it is the only path that revives a parked session after restart.
+        preserveDurableProviderResume: true,
+      })
     );
     await Promise.all(promises);
   }

@@ -60,7 +60,6 @@ interface PersonalityPreset {
                 (change)="defaultStrategy.set(strategy.id)"
               />
               <div class="strategy-content">
-                <span class="strategy-icon">{{ strategy.icon }}</span>
                 <span class="strategy-name">{{ strategy.name }}</span>
                 <span class="strategy-desc">{{ strategy.description }}</span>
               </div>
@@ -394,11 +393,6 @@ interface PersonalityPreset {
       flex-direction: column;
     }
 
-    .strategy-icon {
-      font-size: 20px;
-      margin-bottom: 4px;
-    }
-
     .strategy-name {
       font-size: 14px;
       font-weight: 500;
@@ -698,10 +692,10 @@ export class VerificationPreferencesComponent implements OnInit {
 
   // Strategies
   strategies = [
-    { id: 'consensus', name: 'Consensus', icon: '🤝', description: 'Find common ground between agents' },
-    { id: 'debate', name: 'Debate', icon: '⚔️', description: 'Agents critique and defend positions' },
-    { id: 'best-of', name: 'Best-of', icon: '🏆', description: 'Select highest quality response' },
-    { id: 'merge', name: 'Merge', icon: '🔀', description: 'Combine insights from all agents' },
+    { id: 'consensus', name: 'Consensus', description: 'Find common ground between agents' },
+    { id: 'debate', name: 'Debate', description: 'Agents critique and defend positions' },
+    { id: 'best-of', name: 'Best-of', description: 'Select highest quality response' },
+    { id: 'merge', name: 'Merge', description: 'Combine insights from all agents' },
   ];
 
   // Available agents

@@ -234,8 +234,6 @@ interface QueryResult {
       .side-title {
         font-size: 12px;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
         font-weight: 700;
       }
 
@@ -285,7 +283,7 @@ interface QueryResult {
       .pattern-type {
         font-size: 10px;
         color: var(--text-muted);
-        text-transform: uppercase;
+        font-weight: 600;
       }
 
       .pattern-score {

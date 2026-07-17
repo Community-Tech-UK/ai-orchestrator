@@ -285,32 +285,53 @@
                   </div>
                 }
               </dl>
+              <details
+                class="autonomous-controls"
+                [attr.open]="requiresAutonomousConfirmation(approval) ? '' : null"
+              >
+                <summary>Unattended options</summary>
+                <p>Add publishing or deleting only if this browser task genuinely needs it.</p>
+                <label class="inline-toggle">
+                  <input
+                    type="checkbox"
+                    [checked]="autonomousSubmitIsEnabled(approval)"
+                    (change)="toggleAutonomousSubmit(approval)"
+                  />
+                  <span>Publish, send, or submit</span>
+                </label>
+                <label class="inline-toggle">
+                  <input
+                    type="checkbox"
+                    [checked]="autonomousDestructiveIsEnabled(approval)"
+                    (change)="toggleAutonomousDestructive(approval)"
+                  />
+                  <span>Delete or make destructive changes</span>
+                </label>
+                @if (requiresAutonomousConfirmation(approval)) {
+                  <label class="autonomous-confirmation">
+                    <span>
+                      Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow these actions without another prompt.
+                    </span>
+                    <input
+                      type="text"
+                      [attr.data-testid]="'autonomous-confirmation-' + approval.requestId"
+                      [placeholder]="confirmationPhrase(approval)"
+                      [value]="autonomousConfirmation(approval)"
+                      (input)="onAutonomousConfirmationInput(approval, $event)"
+                    />
+                  </label>
+                }
+              </details>
               <div class="row-actions wrap">
-                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Once</button>
-                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">Session</button>
-                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'autonomous')">Autonomous</button>
+                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Allow once</button>
+                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">Allow for session</button>
+                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'autonomous')">Allow unattended</button>
                 <button class="btn small danger" type="button" [disabled]="working()" (click)="denyApprovalRequest(approval.requestId)">Deny</button>
               </div>
             </article>
           } @empty {
             <div class="empty">No pending browser approvals.</div>
           }
-        </div>
-        <div class="autonomous-controls">
-          <label class="inline-toggle">
-            <input type="checkbox" [checked]="autonomousSubmitEnabled()" (change)="autonomousSubmitEnabled.set(!autonomousSubmitEnabled())" />
-            <span>Submit/publish</span>
-          </label>
-          <label class="inline-toggle">
-            <input type="checkbox" [checked]="autonomousDestructiveEnabled()" (change)="autonomousDestructiveEnabled.set(!autonomousDestructiveEnabled())" />
-            <span>Delete/destructive</span>
-          </label>
-          <input
-            type="text"
-            placeholder="AUTONOMOUS"
-            [value]="autonomousConfirmation()"
-            (input)="onAutonomousConfirmationInput($event)"
-          />
         </div>
       </section>
       <section>

@@ -34,6 +34,9 @@ export class OperatorDatabase {
     this.db = driverFactory(dbPath);
     if (config.enableWAL !== false && dbPath !== ':memory:') {
       this.db.pragma('journal_mode = WAL');
+      // Wait out a concurrent writer instead of failing fast with SQLITE_BUSY,
+      // matching every other database in the app (rlm, ledger, codemem).
+      this.db.pragma('busy_timeout = 5000');
     }
     createOperatorTables(this.db);
   }

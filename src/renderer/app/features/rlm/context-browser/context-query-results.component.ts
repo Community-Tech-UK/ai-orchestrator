@@ -48,7 +48,7 @@ export interface QueryResult {
           >
             <div class="result-header">
               <span class="result-type"
-                >{{ getQueryTypeIcon(result.type) }} {{ result.type }}</span
+                >{{ result.type }}</span
               >
               <span class="result-time">{{
                 formatRelativeTime(result.timestamp)
@@ -76,14 +76,13 @@ export interface QueryResult {
       <div class="result-detail-panel">
         <div class="detail-header">
           <span class="detail-title">
-            {{ getQueryTypeIcon(result.type) }} {{ result.type }} Result
+            {{ result.type }} Result
           </span>
           <button class="close-btn" (click)="closeDetail.emit()">✕</button>
         </div>
         <div class="detail-content">
           @if (result.error) {
             <div class="error-display">
-              <span class="error-icon-large">⚠️</span>
               <span class="error-message">{{ result.error }}</span>
             </div>
           } @else {
@@ -102,12 +101,12 @@ export interface QueryResult {
                 class="action-btn"
                 (click)="copyToClipboard.emit(result.content)"
               >
-                📋 Copy
+                Copy
               </button>
             }
             @if (result.sections.length > 0) {
               <button class="action-btn" (click)="showSections.emit(result)">
-                📄 View Sections
+                View Sections
               </button>
             }
           </div>
@@ -177,7 +176,7 @@ export interface QueryResult {
 
         &.active {
           background: var(--bg-secondary);
-          border-left: 3px solid var(--primary-color);
+          border: 1px solid rgba(var(--primary-rgb), 0.3);
         }
 
         &.error {
@@ -280,10 +279,6 @@ export interface QueryResult {
         border-radius: var(--radius-sm);
       }
 
-      .error-icon-large {
-        font-size: 24px;
-      }
-
       .error-message {
         color: #ef4444;
         font-size: 12px;
@@ -342,25 +337,6 @@ export class ContextQueryResultsComponent {
   closeDetail = output<void>();
   copyToClipboard = output<string>();
   showSections = output<QueryResult>();
-
-  getQueryTypeIcon(type: QueryType): string {
-    switch (type) {
-      case 'grep':
-        return '🔍';
-      case 'slice':
-        return '✂️';
-      case 'sub_query':
-        return '🔄';
-      case 'summarize':
-        return '📝';
-      case 'get_section':
-        return '📄';
-      case 'semantic_search':
-        return '🎯';
-      default:
-        return '❓';
-    }
-  }
 
   formatRelativeTime(timestamp: number): string {
     const diff = Date.now() - timestamp;

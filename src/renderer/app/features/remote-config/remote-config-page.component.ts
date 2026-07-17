@@ -359,8 +359,6 @@ let eventLogIdCounter = 0;
         font-size: 12px;
         font-weight: 700;
         color: var(--text-muted);
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
       }
 
       .panel-header-row {
@@ -381,8 +379,6 @@ let eventLogIdCounter = 0;
       .status-badge {
         font-size: 11px;
         font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
         padding: 2px 8px;
         border-radius: var(--radius-sm);
       }

@@ -2,12 +2,12 @@
  * Global Styles - Claude Orchestrator
  * Design System: Operator Workspace + Control Plane
  *
- * Typography: JetBrains Mono (technical) + Plus Jakarta Sans (refined)
+ * Typography: JetBrains Mono (technical) + IBM Plex Sans (workhorse grotesque)
  * Palette: Graphite, moss, parchment, and restrained bronze accents
  * Character: Calm, editorial, premium
  */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
 :root {
   // ============================================
@@ -51,33 +51,34 @@
   --secondary-muted: #566c61;
   --secondary-rgb: 120, 148, 130;
 
-  // Status colors - Refined, not harsh
-  --success-color: #22c55e;
-  --success-rgb: 34, 197, 94;
-  --success-bg: rgba(34, 197, 94, 0.1);
-  --success-border: rgba(34, 197, 94, 0.2);
+  // Status colors - warmed and desaturated to sit inside the graphite/moss
+  // palette (deliberately not the stock framework hues)
+  --success-color: #4aa06f;
+  --success-rgb: 74, 160, 111;
+  --success-bg: rgba(74, 160, 111, 0.12);
+  --success-border: rgba(74, 160, 111, 0.24);
 
-  --warning-color: #eab308;
-  --warning-rgb: 234, 179, 8;
-  --warning-bg: rgba(234, 179, 8, 0.1);
-  --warning-border: rgba(234, 179, 8, 0.2);
+  --warning-color: #d9a13d;
+  --warning-rgb: 217, 161, 61;
+  --warning-bg: rgba(217, 161, 61, 0.1);
+  --warning-border: rgba(217, 161, 61, 0.22);
 
-  --error-color: #ef4444;
-  --error-rgb: 239, 68, 68;
-  --error-bg: rgba(239, 68, 68, 0.08);
-  --error-border: rgba(239, 68, 68, 0.2);
+  --error-color: #d05f4e;
+  --error-rgb: 208, 95, 78;
+  --error-bg: rgba(208, 95, 78, 0.1);
+  --error-border: rgba(208, 95, 78, 0.24);
 
-  --info-color: #3b82f6;
-  --info-rgb: 59, 130, 246;
-  --info-bg: rgba(59, 130, 246, 0.1);
-  --info-border: rgba(59, 130, 246, 0.2);
+  --info-color: #5b8dbf;
+  --info-rgb: 91, 141, 191;
+  --info-bg: rgba(91, 141, 191, 0.1);
+  --info-border: rgba(91, 141, 191, 0.22);
 
   // Instance status colors - distinct but cohesive
-  --status-idle: #22c55e;
-  --status-busy: #f59e0b;
-  --status-waiting: #06b6d4;
-  --status-error: #ef4444;
-  --status-initializing: #a855f7;
+  --status-idle: #4aa06f;
+  --status-busy: #d9a13d;
+  --status-waiting: #4fa3a5;
+  --status-error: #d05f4e;
+  --status-initializing: #8ca594;
 
   // ============================================
   // SEMANTIC STATUS TOKENS
@@ -116,23 +117,23 @@
   --status-idle-border: rgba(var(--success-rgb), 0.2);
 
   // Memory type indicators
-  --memory-episodic: #3b82f6;
-  --memory-procedural: #10b981;
-  --memory-semantic: #f59e0b;
-  --memory-short-term: #8b5cf6;
-  --memory-long-term: #ec4899;
+  --memory-episodic: #5b8dbf;
+  --memory-procedural: #4aa06f;
+  --memory-semantic: #d9a13d;
+  --memory-short-term: #3aa393;
+  --memory-long-term: #b8865f;
   --memory-unknown: #6b7280;
-  --memory-episodic-alpha: rgba(59, 130, 246, 0.15);
-  --memory-procedural-alpha: rgba(16, 185, 129, 0.15);
-  --memory-semantic-alpha: rgba(245, 158, 11, 0.15);
-  --memory-short-term-alpha: rgba(139, 92, 246, 0.15);
-  --memory-long-term-alpha: rgba(236, 72, 153, 0.15);
+  --memory-episodic-alpha: rgba(91, 141, 191, 0.15);
+  --memory-procedural-alpha: rgba(74, 160, 111, 0.15);
+  --memory-semantic-alpha: rgba(217, 161, 61, 0.15);
+  --memory-short-term-alpha: rgba(58, 163, 147, 0.15);
+  --memory-long-term-alpha: rgba(184, 134, 95, 0.15);
   --memory-unknown-alpha: rgba(107, 114, 128, 0.15);
 
   // Operation status colors
-  --operation-add: #10b981;
-  --operation-update: #3b82f6;
-  --operation-delete: #ef4444;
+  --operation-add: #4aa06f;
+  --operation-update: #5b8dbf;
+  --operation-delete: #d05f4e;
   --operation-noop: #6b7280;
 
   // Overlay variants
@@ -160,9 +161,6 @@
   --shell-sidebar-bg: var(--bg-secondary);
   --shell-header-bg: var(--bg-secondary);
   --shell-workspace-bg: var(--bg-primary);
-  --shell-workspace-glow-secondary: rgba(var(--secondary-rgb), 0.1);
-  --shell-workspace-glow-primary: rgba(var(--primary-rgb), 0.08);
-  --shell-workspace-sheen: var(--glass-subtle);
   --shell-sidebar-shadow: 24px 0 60px rgba(0, 0, 0, 0.22);
   --shell-resize-handle-bg: rgba(var(--primary-rgb), 0.45);
 
@@ -269,8 +267,8 @@
   // ============================================
   // TYPOGRAPHY
   // ============================================
-  --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
-  --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
   --font-family-mono: var(--font-mono);
 
@@ -309,7 +307,6 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
   --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 20px var(--primary-glow);
   --shadow-inner: inset 0 1px 2px rgba(0, 0, 0, 0.3);
 
   // ============================================
@@ -385,23 +382,23 @@
   --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16);
 
   // Memory type indicators
-  --memory-episodic: #3b82f6;
-  --memory-procedural: #10b981;
-  --memory-semantic: #f59e0b;
-  --memory-short-term: #8b5cf6;
-  --memory-long-term: #ec4899;
+  --memory-episodic: #4a7dad;
+  --memory-procedural: #3d8a5d;
+  --memory-semantic: #b07f24;
+  --memory-short-term: #2e8c7e;
+  --memory-long-term: #9c6b42;
   --memory-unknown: #6b7280;
-  --memory-episodic-alpha: rgba(59, 130, 246, 0.12);
-  --memory-procedural-alpha: rgba(16, 185, 129, 0.12);
-  --memory-semantic-alpha: rgba(245, 158, 11, 0.12);
-  --memory-short-term-alpha: rgba(139, 92, 246, 0.12);
-  --memory-long-term-alpha: rgba(236, 72, 153, 0.12);
+  --memory-episodic-alpha: rgba(74, 125, 173, 0.12);
+  --memory-procedural-alpha: rgba(61, 138, 93, 0.12);
+  --memory-semantic-alpha: rgba(176, 127, 36, 0.12);
+  --memory-short-term-alpha: rgba(46, 140, 126, 0.12);
+  --memory-long-term-alpha: rgba(156, 107, 66, 0.12);
   --memory-unknown-alpha: rgba(107, 114, 128, 0.12);
 
   // Operation status colors
-  --operation-add: #16a34a;
-  --operation-update: #2563eb;
-  --operation-delete: #dc2626;
+  --operation-add: #3d8a5d;
+  --operation-update: #4a7dad;
+  --operation-delete: #bd4b3b;
   --operation-noop: #6b7280;
 
   // Overlay variants
@@ -448,23 +445,23 @@
     --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
 
     // Memory type indicators
-    --memory-episodic: #3b82f6;
-    --memory-procedural: #10b981;
-    --memory-semantic: #f59e0b;
-    --memory-short-term: #8b5cf6;
-    --memory-long-term: #ec4899;
+    --memory-episodic: #4a7dad;
+    --memory-procedural: #3d8a5d;
+    --memory-semantic: #b07f24;
+    --memory-short-term: #2e8c7e;
+    --memory-long-term: #9c6b42;
     --memory-unknown: #6b7280;
-    --memory-episodic-alpha: rgba(59, 130, 246, 0.12);
-    --memory-procedural-alpha: rgba(16, 185, 129, 0.12);
-    --memory-semantic-alpha: rgba(245, 158, 11, 0.12);
-    --memory-short-term-alpha: rgba(139, 92, 246, 0.12);
-    --memory-long-term-alpha: rgba(236, 72, 153, 0.12);
+    --memory-episodic-alpha: rgba(74, 125, 173, 0.12);
+    --memory-procedural-alpha: rgba(61, 138, 93, 0.12);
+    --memory-semantic-alpha: rgba(176, 127, 36, 0.12);
+    --memory-short-term-alpha: rgba(46, 140, 126, 0.12);
+    --memory-long-term-alpha: rgba(156, 107, 66, 0.12);
     --memory-unknown-alpha: rgba(107, 114, 128, 0.12);
 
     // Operation status colors
-    --operation-add: #16a34a;
-    --operation-update: #2563eb;
-    --operation-delete: #dc2626;
+    --operation-add: #3d8a5d;
+    --operation-update: #4a7dad;
+    --operation-delete: #bd4b3b;
     --operation-noop: #6b7280;
 
     // Overlay variants
@@ -556,7 +553,7 @@
   --status-busy: #ffab40;
   --status-waiting: #40c4ff;
   --status-error: #ff1744;
-  --status-initializing: #ea80fc;
+  --status-initializing: #eeeeee;
 
   // Semantic status tokens — re-point to the high-contrast base colors above
   --status-success: var(--success-color);
@@ -602,14 +599,14 @@
   --memory-episodic: #40c4ff;
   --memory-procedural: #00e676;
   --memory-semantic: #ffab40;
-  --memory-short-term: #ea80fc;
-  --memory-long-term: #ff80ab;
+  --memory-short-term: #64ffda;
+  --memory-long-term: #ff8a65;
   --memory-unknown: #9e9e9e;
   --memory-episodic-alpha: rgba(64, 196, 255, 0.2);
   --memory-procedural-alpha: rgba(0, 230, 118, 0.2);
   --memory-semantic-alpha: rgba(255, 171, 64, 0.2);
-  --memory-short-term-alpha: rgba(234, 128, 252, 0.2);
-  --memory-long-term-alpha: rgba(255, 128, 171, 0.2);
+  --memory-short-term-alpha: rgba(100, 255, 218, 0.2);
+  --memory-long-term-alpha: rgba(255, 138, 101, 0.2);
   --memory-unknown-alpha: rgba(158, 158, 158, 0.2);
 
   // Operation status colors — vivid variants

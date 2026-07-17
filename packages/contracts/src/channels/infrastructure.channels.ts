@@ -130,6 +130,10 @@ export const INFRASTRUCTURE_CHANNELS = {
   DEBUG_GET_MEMORY_HISTORY: 'debug:get-memory-history',
   DEBUG_CLEAR_MEMORY_HISTORY: 'debug:clear-memory-history',
 
+  // Renderer telemetry — high-frequency send (not invoke); the main-process
+  // monitor turns missing beats into freeze diagnostics.
+  RENDERER_HEARTBEAT: 'renderer:heartbeat',
+
   // Structured Logging
   LOG_MESSAGE: 'log:message',
   LOG_GET_LOGS: 'log:get-logs',

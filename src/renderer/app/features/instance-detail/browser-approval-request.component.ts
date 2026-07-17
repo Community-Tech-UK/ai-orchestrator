@@ -35,12 +35,14 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
   readonly workingRequestId = signal<string | null>(null);
   readonly errorMessage = signal<string | null>(null);
   private readonly grantModes = signal<Record<string, BrowserGrantMode>>({});
+  private readonly autonomousConfirmations = signal<Record<string, string>>({});
 
   constructor() {
     effect(() => {
       const instanceId = this.instanceId();
       this.errorMessage.set(null);
       this.grantModes.set({});
+      this.autonomousConfirmations.set({});
       if (!instanceId) {
         this.pendingRequests.set([]);
         return;
@@ -104,8 +106,26 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
     }));
   }
 
+  onAutonomousConfirmationInput(approval: BrowserApprovalRequest, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.autonomousConfirmations.update((current) => ({
+      ...current,
+      [approval.requestId]: value,
+    }));
+  }
+
   async approveRequest(approval: BrowserApprovalRequest): Promise<void> {
     if (this.workingRequestId()) {
+      return;
+    }
+    const confirmationPhrase = this.confirmationPhrase(approval);
+    if (
+      this.requiresAutonomousConfirmation(approval) &&
+      this.autonomousConfirmation(approval).trim() !== confirmationPhrase
+    ) {
+      this.errorMessage.set(
+        `Type ${confirmationPhrase} to allow publishing or deleting without another prompt.`,
+      );
       return;
     }
 
@@ -184,6 +204,28 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
     return new Date(expiresAt).toLocaleString();
   }
 
+  requiresAutonomousConfirmation(approval: BrowserApprovalRequest): boolean {
+    return approval.proposedGrant.allowedActionClasses.some(
+      (actionClass) => actionClass === 'submit' || actionClass === 'destructive',
+    );
+  }
+
+  confirmationPhrase(approval: BrowserApprovalRequest): string {
+    const location = approval.origin ?? approval.url;
+    if (location) {
+      try {
+        return new URL(location).host;
+      } catch {
+        return location;
+      }
+    }
+    return approval.profileId;
+  }
+
+  autonomousConfirmation(approval: BrowserApprovalRequest): string {
+    return this.autonomousConfirmations()[approval.requestId] ?? '';
+  }
+
   private grantProposalForApproval(
     approval: BrowserApprovalRequest,
     mode: BrowserGrantMode,
@@ -199,5 +241,10 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
     this.pendingRequests.update((requests) =>
       requests.filter((request) => request.requestId !== requestId),
     );
+    this.autonomousConfirmations.update((current) => {
+      const next = { ...current };
+      delete next[requestId];
+      return next;
+    });
   }
 }

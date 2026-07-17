@@ -50,7 +50,7 @@ export interface AttachmentDisplay {
               role="button"
               title="Click to preview image"
             >
-              <div class="file-icon">🖼️</div>
+              <div class="file-icon" [innerHTML]="getFileIconSvg(attachment)"></div>
               <div class="file-info">
                 <span class="file-name">{{ attachment.name }}</span>
                 <span class="file-size">{{ formatSize(attachment.size) }}</span>
@@ -66,7 +66,7 @@ export interface AttachmentDisplay {
               role="button"
               title="Click to open file"
             >
-              <div class="file-icon">{{ getFileIcon(attachment) }}</div>
+              <div class="file-icon" [innerHTML]="getFileIconSvg(attachment)"></div>
               <div class="file-info">
                 <span class="file-name">{{ attachment.name }}</span>
                 <span class="file-size">{{ formatSize(attachment.size) }}</span>
@@ -103,7 +103,7 @@ export interface AttachmentDisplay {
                   (click)="copyImageToClipboard()"
                   title="Copy image to clipboard"
                 >
-                  📋 Copy
+                  Copy
                 </button>
               }
               <button class="preview-close" (click)="closePreview()" title="Close preview">×</button>
@@ -121,7 +121,7 @@ export interface AttachmentDisplay {
               <pre class="preview-text">{{ decodeTextContent(previewAttachment()!.data) }}</pre>
             } @else {
               <div class="preview-unsupported">
-                <div class="preview-icon">{{ getFileIcon(previewAttachment()!) }}</div>
+                <div class="preview-icon" [innerHTML]="getFileIconSvg(previewAttachment()!)"></div>
                 <p>Preview not available for this file type</p>
                 <p class="preview-size">{{ formatSize(previewAttachment()!.size) }}</p>
               </div>
@@ -198,8 +198,15 @@ export interface AttachmentDisplay {
     }
 
     .file-icon {
-      font-size: 24px;
+      width: 24px;
+      height: 24px;
       flex-shrink: 0;
+      color: var(--text-secondary);
+
+      svg {
+        width: 100%;
+        height: 100%;
+      }
     }
 
     .file-info {
@@ -365,8 +372,15 @@ export interface AttachmentDisplay {
     }
 
     .preview-icon {
-      font-size: 64px;
-      margin-bottom: 16px;
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 16px;
+      color: var(--text-secondary);
+
+      svg {
+        width: 100%;
+        height: 100%;
+      }
     }
 
     .preview-size {
@@ -397,18 +411,44 @@ export class MessageAttachmentsComponent {
            type.includes('markdown');
   }
 
-  getFileIcon(attachment: AttachmentDisplay): string {
+  /**
+   * Returns a trusted, hand-authored inline SVG icon for the attachment's
+   * file type. Bound via [innerHTML] — never feed attacker-controlled markup
+   * through this method.
+   */
+  getFileIconSvg(attachment: AttachmentDisplay): string {
     const type = attachment.type.toLowerCase();
-    if (type.startsWith('image/')) return '🖼️';
-    if (type.includes('pdf')) return '📄';
-    if (type.includes('text')) return '📝';
-    if (type.includes('json') || type.includes('javascript') || type.includes('typescript')) return '📋';
-    if (type.includes('zip') || type.includes('archive') || type.includes('tar') || type.includes('gz')) return '📦';
-    if (type.includes('video')) return '🎬';
-    if (type.includes('audio')) return '🎵';
-    if (type.includes('spreadsheet') || type.includes('excel') || type.includes('csv')) return '📊';
-    if (type.includes('word') || type.includes('document')) return '📃';
-    return '📎';
+    const svg = (inner: string) =>
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+
+    if (type.startsWith('image/')) {
+      return svg('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>');
+    }
+    if (type.includes('pdf')) {
+      return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>');
+    }
+    if (type.includes('text')) {
+      return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/>');
+    }
+    if (type.includes('json') || type.includes('javascript') || type.includes('typescript')) {
+      return svg('<path d="M8 4a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2"/><path d="M16 4a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2"/>');
+    }
+    if (type.includes('zip') || type.includes('archive') || type.includes('tar') || type.includes('gz')) {
+      return svg('<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>');
+    }
+    if (type.includes('video')) {
+      return svg('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/>');
+    }
+    if (type.includes('audio')) {
+      return svg('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>');
+    }
+    if (type.includes('spreadsheet') || type.includes('excel') || type.includes('csv')) {
+      return svg('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>');
+    }
+    if (type.includes('word') || type.includes('document')) {
+      return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/>');
+    }
+    return svg('<path d="M21 12.5l-8.5 8.5a4 4 0 0 1-5.66-5.66l9-9a2.5 2.5 0 0 1 3.54 3.54l-9 9a1 1 0 0 1-1.42-1.42l8-8"/>');
   }
 
   formatSize(bytes: number): string {

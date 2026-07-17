@@ -145,8 +145,7 @@ import type {
 
       .instruction-eyebrow {
         font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-weight: 600;
         color: var(--text-muted);
       }
 
@@ -202,8 +201,7 @@ import type {
 
       .instruction-subtitle {
         font-size: 12px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-weight: 600;
         color: var(--text-muted);
       }
 
@@ -240,8 +238,7 @@ import type {
         background: rgba(245, 158, 11, 0.15);
         color: #fbbf24;
         font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
+        font-weight: 600;
       }
 
       .instruction-source-state.applied {

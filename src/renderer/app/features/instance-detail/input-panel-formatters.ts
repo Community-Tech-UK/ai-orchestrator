@@ -15,14 +15,6 @@ export function commandSuggestionText(command: ExtendedCommand): string {
   ].filter(Boolean).join(' ');
 }
 
-export function getFileIcon(file: File): string {
-  if (file.type.startsWith('image/')) return '🖼️';
-  if (file.type.includes('pdf')) return '📄';
-  if (file.type.includes('text')) return '📝';
-  if (file.type.includes('json') || file.type.includes('javascript')) return '📋';
-  return '📎';
-}
-
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

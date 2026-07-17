@@ -32,11 +32,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
       width: 100%;
       height: 100%;
       padding: 32px;
-      background:
-        radial-gradient(circle at 18% 18%, rgba(var(--secondary-rgb), 0.12), transparent 28%),
-        radial-gradient(circle at 82% 82%, rgba(var(--primary-rgb), 0.12), transparent 24%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 26%),
-        var(--bg-primary);
+      background: var(--bg-primary);
     }
 
     .browser-preview-card {
@@ -44,8 +40,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
       padding: 28px;
       border-radius: 24px;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(10, 15, 14, 0.86);
-      backdrop-filter: blur(20px);
+      background: var(--bg-elevated);
       box-shadow: 0 28px 80px rgba(0, 0, 0, 0.32);
     }
 
@@ -53,8 +48,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
       margin: 0 0 10px;
       font-family: var(--font-mono);
       font-size: 10px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
+      font-weight: 600;
       color: var(--text-muted);
     }
 
@@ -91,8 +85,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
       text-decoration: none;
       font-family: var(--font-mono);
       font-size: 11px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      font-weight: 600;
     }
 
     .preview-hint {

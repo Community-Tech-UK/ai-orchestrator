@@ -261,8 +261,7 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
       .strip-title {
         font-size: 11px;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        font-weight: 600;
       }
 
       .agent-list {
@@ -294,8 +293,6 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
 
       .status-pill {
         font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
         font-weight: 700;
         border-radius: 999px;
         padding: 2px 8px;

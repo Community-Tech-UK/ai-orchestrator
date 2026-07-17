@@ -45,7 +45,6 @@ interface HookFormData {
       <!-- Header -->
       <div class="hooks-header">
         <div class="header-left">
-          <span class="hooks-icon">🪝</span>
           <span class="hooks-title">Hooks</span>
           <span class="hook-count">{{ hooks().length }} rules</span>
         </div>
@@ -204,14 +203,14 @@ interface HookFormData {
                     [class.active]="formData().action === 'warn'"
                     (click)="updateForm('action', 'warn')"
                   >
-                    ⚠️ Warn
+                    Warn
                   </button>
                   <button
                     class="action-option"
                     [class.active]="formData().action === 'block'"
                     (click)="updateForm('action', 'block')"
                   >
-                    🛑 Block
+                    Block
                   </button>
                 </div>
               </div>
@@ -357,10 +356,6 @@ interface HookFormData {
       gap: var(--spacing-sm);
     }
 
-    .hooks-icon {
-      font-size: 18px;
-    }
-
     .hooks-title {
       font-size: 14px;
       font-weight: 600;
@@ -411,8 +406,6 @@ interface HookFormData {
       font-size: 12px;
       font-weight: 600;
       color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
 
     .section-count {

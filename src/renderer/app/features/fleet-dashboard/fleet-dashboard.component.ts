@@ -254,8 +254,7 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
     .fleet-eyebrow {
       font-family: var(--font-mono, monospace);
       font-size: 9px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
+      font-weight: 600;
       color: var(--text-muted, #9a9aa0);
     }
 
@@ -342,12 +341,10 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
 
     .dot-urgent {
       background: var(--error-color, #ef4444);
-      box-shadow: 0 0 6px var(--error-color, #ef4444);
     }
 
     .dot-working {
       background: var(--warning-color, #f59e0b);
-      box-shadow: 0 0 6px var(--warning-color, #f59e0b);
       animation: pulse-glow 1.8s ease-in-out infinite;
     }
 
@@ -441,15 +438,14 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
     }
 
     .card-urgent {
-      border-left: 3px solid var(--error-color, #ef4444);
+      border-color: color-mix(in srgb, var(--error-color, #ef4444) 45%, transparent);
     }
 
     .card-working {
-      border-left: 3px solid var(--warning-color, #f59e0b);
+      border-color: color-mix(in srgb, var(--warning-color, #f59e0b) 45%, transparent);
     }
 
     .card-idle {
-      border-left: 3px solid transparent;
       opacity: 0.8;
     }
 
@@ -483,8 +479,6 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
       font-family: var(--font-mono, monospace);
       font-size: 9px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
       padding: 2px 6px;
       border-radius: 4px;
       flex-shrink: 0;
@@ -493,8 +487,8 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
     .badge-claude   { background: rgba(204, 102, 51, 0.2);  color: #e0784a; }
     .badge-gemini   { background: rgba(66, 133, 244, 0.2);  color: #6fa8f5; }
     .badge-codex    { background: rgba(16, 185, 129, 0.2);  color: #34d399; }
-    .badge-copilot  { background: rgba(99, 102, 241, 0.2);  color: #a5b4fc; }
-    .badge-cursor   { background: rgba(139, 92, 246, 0.2);  color: #c4b5fd; }
+    .badge-copilot  { background: rgba(184, 134, 95, 0.2);  color: #cba883; }
+    .badge-cursor   { background: rgba(140, 165, 148, 0.2); color: #b3c9ba; }
     .badge-ollama   { background: rgba(156, 163, 175, 0.2); color: #d1d5db; }
 
     /* ---- Status pill ---- */
@@ -502,8 +496,6 @@ const PROVIDER_BADGE_CLASS: Record<string, string> = {
       font-family: var(--font-mono, monospace);
       font-size: 9px;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       padding: 2px 7px;
       border-radius: 999px;
       flex-shrink: 0;

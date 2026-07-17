@@ -39,8 +39,6 @@
 .browser-approval-status {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .browser-approval-kicker {
@@ -92,6 +90,36 @@
   margin: 0;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
+}
+
+.browser-approval-confirmation {
+  display: grid;
+  gap: 6px;
+  padding: var(--spacing-sm);
+  border: 1px solid color-mix(in srgb, var(--warning-color, #f59e0b) 38%, var(--border-color));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--warning-color, #f59e0b) 7%, var(--bg-primary));
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.browser-approval-confirmation strong {
+  color: var(--warning-color, #f59e0b);
+}
+
+.browser-approval-confirmation input {
+  min-height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 0 9px;
+}
+
+.browser-approval-confirmation input:focus-visible {
+  outline: 2px solid var(--warning-color, #f59e0b);
+  outline-offset: 2px;
 }
 
 .browser-approval-actions {

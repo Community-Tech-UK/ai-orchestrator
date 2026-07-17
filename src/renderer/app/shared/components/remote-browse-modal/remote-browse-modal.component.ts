@@ -81,7 +81,9 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
                       (click)="onEntryClick(entry)"
                       (dblclick)="onEntryDoubleClick(entry)"
                     >
-                      <span class="entry-icon">📁</span>
+                      <svg class="entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
                       <span class="entry-name">{{ entry.name }}</span>
                       <span class="entry-path">{{ entry.path | nodePath:platform() }}</span>
                     </button>
@@ -315,7 +317,8 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
     }
 
     .entry-icon {
-      font-size: 14px;
+      width: 14px;
+      height: 14px;
       flex-shrink: 0;
     }
 

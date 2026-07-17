@@ -249,7 +249,7 @@ export class HistoryRailService {
       case 'gemini':
         return { icon: 'google', color: '#4285F4', label: 'Gemini' };
       case 'copilot':
-        return { icon: 'github', color: '#6e40c9', label: 'Copilot' };
+        return { icon: 'github', color: '#B89A66', label: 'Copilot' };
       case 'cursor':
         // Cursor's brand mark is monochrome (black on light / white on dark).
         // Use a light neutral so it stays visible on the app's dark surfaces

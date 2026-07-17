@@ -11,15 +11,15 @@ const STATUS_COLORS: Record<InstanceStatus, string> = {
   idle: '#10b981',         // Green
   busy: '#3b82f6',         // Blue
   processing: '#3b82f6',   // Blue - alive but no output yet (remote heartbeat)
-  thinking_deeply: '#8b5cf6', // Purple - extended thinking (90s+ no stdout)
+  thinking_deeply: '#4fa3a5', // Teal - extended thinking (90s+ no stdout)
   waiting_for_input: '#f59e0b', // Amber
   waiting_for_permission: '#f59e0b', // Amber - needs approval
-  interrupting: '#a855f7', // Purple - interrupt requested
-  cancelling: '#a855f7',   // Purple - cancellation finalizing
+  interrupting: '#b89a66', // Bronze - interrupt requested
+  cancelling: '#b89a66',   // Bronze - cancellation finalizing
   'interrupt-escalating': '#ef4444', // Red - forced escalation
   cancelled: '#6b7280',    // Gray - cancelled, recoverable
   superseded: '#6b7280',   // Gray - replaced by edit/fork
-  respawning: '#8b5cf6',   // Purple - recovering from interrupt
+  respawning: '#4fa3a5',   // Teal - recovering from interrupt
   hibernating: '#6b7280',  // Gray - transitioning
   hibernated: '#4b5563',   // Darker gray - resting
   waking: '#f59e0b',       // Amber - waking up

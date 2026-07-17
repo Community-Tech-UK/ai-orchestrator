@@ -113,8 +113,6 @@
   font-weight: 600;
   color: var(--text-muted);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .status-muted {
@@ -191,8 +189,6 @@
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   flex-shrink: 0;
 }
 
@@ -316,8 +312,6 @@
 .detail-kind-badge {
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--primary-color) 20%, transparent);
@@ -351,8 +345,6 @@
 .section-label {
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
 }
 
@@ -515,8 +507,6 @@
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-color);
   position: sticky;
@@ -546,8 +536,6 @@
   border-radius: var(--radius-sm);
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .sev-error {

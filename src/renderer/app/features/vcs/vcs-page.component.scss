@@ -276,8 +276,6 @@
 .panel-header-label {
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
   padding: var(--spacing-sm) var(--spacing-md);
   border-bottom: 1px solid var(--border-color);
@@ -291,8 +289,6 @@
 .file-section-label {
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--text-muted);
   padding: var(--spacing-xs) var(--spacing-md);
   padding-top: var(--spacing-sm);
@@ -418,8 +414,6 @@
 .diff-type-badge {
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   padding: 1px 6px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
@@ -448,11 +442,6 @@
   gap: var(--spacing-sm);
   color: var(--text-muted);
   font-size: 13px;
-}
-
-.diff-empty-icon {
-  font-size: 28px;
-  opacity: 0.4;
 }
 
 /* ----------------------------------------------------------------
@@ -528,8 +517,6 @@
 .commit-detail-title {
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
 }
 
@@ -591,8 +578,6 @@
 .drawer-toggle-label {
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
 }
 

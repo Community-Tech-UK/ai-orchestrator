@@ -179,29 +179,6 @@ export class GrpoDashboardComponent {
     return result.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
   });
 
-  getPatternTypeIcon(type: PatternType): string {
-    switch (type) {
-      case 'tool_sequence': return '🔧';
-      case 'agent_task_pairing': return '🤖';
-      case 'model_task_pairing': return '🧠';
-      case 'prompt_structure': return '📝';
-      case 'error_recovery': return '🔄';
-      case 'context_selection': return '📋';
-      case 'workflow_shortcut': return '⚡';
-      default: return '❓';
-    }
-  }
-
-  getInsightTypeIcon(type: LearningInsight['type']): string {
-    switch (type) {
-      case 'pattern': return '✅';
-      case 'anti-pattern': return '⚠️';
-      case 'optimization': return '🚀';
-      case 'recommendation': return '💡';
-      default: return '❓';
-    }
-  }
-
   formatPatternType(type: PatternType): string {
     return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }

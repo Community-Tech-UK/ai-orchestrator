@@ -317,8 +317,6 @@ interface MemoryEntryView extends MemoryEntry {
         font-size: 12px;
         font-weight: 700;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
       }
 
       .stat-row {

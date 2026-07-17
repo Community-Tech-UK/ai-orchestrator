@@ -72,7 +72,6 @@
                 role="button"
               >
                 <span class="repo-chevron">{{ store.isRepoExpanded(repo.absolutePath) ? '▾' : '▸' }}</span>
-                <span class="repo-icon" aria-hidden="true">📦</span>
                 <span class="repo-name" [title]="repo.absolutePath">{{ repo.name }}</span>
                 @if (repo.status) {
                   <span class="repo-branch" [title]="branchTooltip(repo.status)">

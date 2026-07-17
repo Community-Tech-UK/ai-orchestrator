@@ -176,9 +176,7 @@ const DEFAULT_THRESHOLDS: ConfidenceThresholds = {
 
     .level-label {
       font-size: 12px;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      font-weight: 600;
     }
 
     .confidence-meter.small .level-label {

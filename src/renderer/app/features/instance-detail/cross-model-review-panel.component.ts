@@ -167,10 +167,10 @@ import {
       padding: 0 12px 12px;
     }
     .reviewer-section {
-      border-left: 3px solid var(--border-accent, #4a90e2);
+      border: 1px solid rgba(74, 144, 226, 0.3);
       background: var(--bg-hover, rgba(255,255,255,0.03));
     }
-    .local-reviewer-section { border-left-color: #74c0fc; }
+    .local-reviewer-section { border-color: rgba(116, 192, 252, 0.3); }
     .local-review-status {
       color: #74c0fc;
       font-size: 11px;

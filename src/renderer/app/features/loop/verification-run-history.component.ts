@@ -72,7 +72,7 @@ export function verificationRunResultLabel(exitCode: number | null): string {
     .vr-list { display: grid; gap: 6px; margin-top: 8px; }
     .vr-row { padding: 7px 8px; border: 1px solid rgba(255,255,255,.08); border-radius: 4px; background: rgba(0,0,0,.16); }
     .vr-row-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; font-size: 11px; }
-    .vr-result, .vr-freshness { padding: 1px 5px; border-radius: 3px; text-transform: uppercase; font-size: 10px; letter-spacing: .03em; }
+    .vr-result, .vr-freshness { padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 10px; }
     .vr-result[data-result="passed"] { color: #8edc8e; background: rgba(142,220,142,.12); }
     .vr-result[data-result="failed"] { color: #f78c7c; background: rgba(247,140,124,.12); }
     .vr-freshness[data-freshness="fresh"] { color: #8ecae6; background: rgba(142,202,230,.12); }

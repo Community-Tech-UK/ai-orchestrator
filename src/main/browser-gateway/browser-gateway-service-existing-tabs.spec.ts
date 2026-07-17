@@ -2037,4 +2037,191 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     const passwordCandidate = (result.data as unknown as Record<string, unknown>[])[2];
     expect(passwordCandidate['value']).toBeUndefined();
   });
+
+  describe('console/network capture on shared extension tabs', () => {
+    const spaTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Prod App',
+      url: 'https://app.example.com/dashboard',
+      origin: 'https://app.example.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'app.example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+
+    it('resolves console_messages through the same extension bridge that snapshot/click use', async () => {
+      // Regression: this is the exact gap the console-read prompt fixes. These
+      // ids drive snapshot/click fine, so console_messages must resolve them too
+      // — never fall through to profile_target_or_url_not_found.
+      const sendCommand = vi.fn(async (request) => {
+        expect(request.command).toBe('console_messages');
+        return {
+          kind: 'console',
+          installed: true,
+          entries: [
+            {
+              type: 'error',
+              text: 'TypeError: cannot read properties of undefined',
+              location: { url: 'https://app.example.com/main.js', lineNumber: 12, columnNumber: 5 },
+              stack: 'TypeError\n  at render (main.js:12:5)',
+              seq: 1,
+              timestamp: 100,
+            },
+          ],
+        };
+      });
+      const { service } = makeService({
+        existingTab: spaTab,
+        extensionCommandStore: { sendCommand },
+      });
+
+      const result = await service.consoleMessages({
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: spaTab.profileId,
+        targetId: spaTab.targetId,
+      });
+
+      expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+      expect(result.reason).not.toBe('profile_target_or_url_not_found');
+      const entries = result.data as Array<Record<string, unknown>>;
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        type: 'error',
+        text: 'TypeError: cannot read properties of undefined',
+        location: { url: 'https://app.example.com/main.js', lineNumber: 12, columnNumber: 5 },
+      });
+    });
+
+    it('returns failing network requests with method, url, and status', async () => {
+      const sendCommand = vi.fn(async (request) => {
+        expect(request.command).toBe('network_requests');
+        return {
+          kind: 'network',
+          installed: true,
+          entries: [
+            {
+              method: 'GET',
+              url: 'https://api.example.com/orders',
+              resourceType: 'fetch',
+              status: 404,
+              statusText: 'Not Found',
+              ok: false,
+              seq: 2,
+              timestamp: 200,
+            },
+            {
+              method: 'POST',
+              url: 'https://api.example.com/auth',
+              resourceType: 'xhr',
+              status: 401,
+              ok: false,
+              seq: 3,
+              timestamp: 210,
+            },
+          ],
+        };
+      });
+      const { service } = makeService({
+        existingTab: spaTab,
+        extensionCommandStore: { sendCommand },
+      });
+
+      const result = await service.networkRequests({
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: spaTab.profileId,
+        targetId: spaTab.targetId,
+      });
+
+      expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+      const entries = result.data as Array<Record<string, unknown>>;
+      expect(entries.map((entry) => entry['status'])).toEqual([404, 401]);
+      expect(entries[0]).toMatchObject({ method: 'GET', resourceType: 'fetch', ok: false });
+    });
+
+    it('returns a distinct capability error (not profile_target_or_url_not_found) for an old extension', async () => {
+      // An extension too old to know the command must not read as "wrong ids".
+      const sendCommand = vi.fn(async () => {
+        throw new Error('Unsupported browser command: console_messages');
+      });
+      const { service } = makeService({
+        existingTab: spaTab,
+        extensionCommandStore: { sendCommand },
+      });
+
+      const result = await service.consoleMessages({
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: spaTab.profileId,
+        targetId: spaTab.targetId,
+      });
+
+      expect(result).toMatchObject({
+        decision: 'allowed',
+        outcome: 'failed',
+        reason: 'console_capture_unsupported_for_driver',
+      });
+      expect(result.reason).not.toBe('profile_target_or_url_not_found');
+    });
+
+    it('redacts secrets from captured console text before returning them', async () => {
+      const sendCommand = vi.fn(async () => ({
+        kind: 'console',
+        installed: true,
+        entries: [
+          {
+            type: 'warn',
+            text: 'authorization: Bearer sk-should-not-leak',
+            timestamp: 1,
+          },
+        ],
+      }));
+      const { service } = makeService({
+        existingTab: spaTab,
+        extensionCommandStore: { sendCommand },
+      });
+
+      const result = await service.consoleMessages({
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: spaTab.profileId,
+        targetId: spaTab.targetId,
+      });
+
+      const entries = result.data as Array<Record<string, unknown>>;
+      expect(entries[0]['text']).toContain('[REDACTED]');
+      expect(entries[0]['text']).not.toContain('sk-should-not-leak');
+    });
+
+    it('denies capture reads when the tab origin is outside policy', async () => {
+      const offPolicyTab = {
+        ...spaTab,
+        url: 'https://evil.example.net/x',
+        origin: 'https://evil.example.net',
+      };
+      const sendCommand = vi.fn(async () => ({ kind: 'console', installed: true, entries: [] }));
+      const { service } = makeService({
+        existingTab: offPolicyTab,
+        extensionCommandStore: { sendCommand },
+      });
+
+      const result = await service.consoleMessages({
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: offPolicyTab.profileId,
+        targetId: offPolicyTab.targetId,
+      });
+
+      expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
+      expect(sendCommand).not.toHaveBeenCalled();
+    });
+  });
 });

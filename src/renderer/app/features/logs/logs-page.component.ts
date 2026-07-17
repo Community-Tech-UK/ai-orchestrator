@@ -468,8 +468,7 @@ interface DebugCommand {
       color: var(--text-muted);
       cursor: pointer;
       font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      font-weight: 600;
       transition: background 0.12s, color 0.12s, border-color 0.12s;
     }
 
@@ -531,8 +530,6 @@ interface DebugCommand {
       border-radius: 9999px;
       font-size: 10px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       flex-shrink: 0;
     }
 
@@ -613,8 +610,6 @@ interface DebugCommand {
       font-size: 11px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       flex-shrink: 0;
     }
 

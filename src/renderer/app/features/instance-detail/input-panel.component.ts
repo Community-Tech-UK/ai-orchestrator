@@ -97,7 +97,6 @@ import {
   formatFileSize,
   formatVoiceStatusLabel,
   getFolderDisplayName,
-  getFileIcon,
   parseWakeupLocal,
   startsWithLikelyPath,
   toLoopPickerProvider,
@@ -189,7 +188,6 @@ export class InputPanelComponent implements OnDestroy {
       isImage: file.type.startsWith('image/'),
       previewUrl: this.getOrCreatePreviewUrl(file),
       size: formatFileSize(file.size),
-      icon: getFileIcon(file),
     }));
   });
 
@@ -207,7 +205,6 @@ export class InputPanelComponent implements OnDestroy {
       name: preview.file.name,
       src: preview.previewUrl,
       isImage: preview.isImage,
-      icon: preview.icon,
       size: preview.size,
     })),
   );

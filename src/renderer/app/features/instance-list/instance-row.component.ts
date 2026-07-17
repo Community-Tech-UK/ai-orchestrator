@@ -110,7 +110,7 @@ export class InstanceRowComponent {
       case 'antigravity':
         return { icon: 'google', color: '#00B8D4', label: 'Antigravity' } as const;
       case 'copilot':
-        return { icon: 'github', color: '#6e40c9', label: 'Copilot' } as const;
+        return { icon: 'github', color: '#B89A66', label: 'Copilot' } as const;
       case 'ollama':
         return { icon: 'ollama', color: '#7dd3fc', label: 'Ollama' } as const;
       case 'cursor':

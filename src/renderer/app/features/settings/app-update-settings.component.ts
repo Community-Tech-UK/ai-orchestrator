@@ -80,8 +80,6 @@ import { SettingsCardComponent } from './ui/settings-card.component';
       color: var(--text-muted);
       font-size: var(--text-xs);
       font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
     }
     .version-lockup strong { color: var(--text-primary); font-size: var(--text-lg); }
     .state-copy { color: var(--text-secondary); font-size: var(--text-sm); }

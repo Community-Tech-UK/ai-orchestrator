@@ -329,8 +329,6 @@ interface CommBridge {
         font-size: 11px;
         font-weight: 600;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
       }
 
       .metric-value {
@@ -374,8 +372,6 @@ interface CommBridge {
         font-size: 12px;
         font-weight: 700;
         color: var(--text-muted);
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
       }
 
       .empty-state {
@@ -420,8 +416,6 @@ interface CommBridge {
       .type-badge {
         font-size: 10px;
         font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
         border: 1px solid var(--border-color);
         border-radius: 999px;
         padding: 1px 6px;
@@ -476,8 +470,7 @@ interface CommBridge {
 
       .bridge-status {
         font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        font-weight: 600;
         color: var(--text-muted);
         flex-shrink: 0;
       }

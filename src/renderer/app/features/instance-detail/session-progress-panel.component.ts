@@ -227,7 +227,6 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
         linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
         rgba(24, 27, 26, 0.92);
       box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(18px);
     }
 
     .progress-panel {
@@ -505,7 +504,6 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
       color: var(--text-muted);
       font-size: 10px;
       line-height: 1.25;
-      text-transform: uppercase;
     }
 
     .more-row {

@@ -218,8 +218,6 @@ interface SupervisionHealthData {
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
       margin-bottom: 2px;
     }
 
@@ -258,9 +256,7 @@ interface SupervisionHealthData {
 
     .breaker-state {
       font-size: 10px;
-      text-transform: uppercase;
       font-weight: 700;
-      letter-spacing: 0.04em;
     }
 
     .state-open { color: var(--error-color); }

@@ -195,8 +195,7 @@ interface ReviewSessionData {
         border-radius: 999px;
         border: 1px solid var(--border-subtle);
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
+        font-weight: 600;
       }
 
       .badge.running {
@@ -259,8 +258,7 @@ interface ReviewSessionData {
         font-size: 12px;
         color: var(--text-muted);
         margin-bottom: 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
+        font-weight: 600;
       }
 
       .agent-list {

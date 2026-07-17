@@ -120,7 +120,6 @@ import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-
       justify-content: center;
       padding-top: 12vh;
       background: rgba(0, 0, 0, 0.52);
-      backdrop-filter: blur(5px);
     }
 
     .overlay-panel {
@@ -176,8 +175,6 @@ import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-
       padding: 10px 8px 6px;
       color: var(--text-muted);
       font: 700 10px var(--font-mono);
-      letter-spacing: 0;
-      text-transform: uppercase;
     }
 
     .overlay-row {

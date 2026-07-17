@@ -27,7 +27,7 @@
   background: var(--color-bg-elevated, #1e1e1e);
   border: 1px solid var(--color-border, #333);
 }
-.summary-label { font-size: 11px; color: var(--color-text-secondary, #888); text-transform: uppercase; letter-spacing: 0.04em; }
+.summary-label { font-size: 11px; color: var(--color-text-secondary, #888); font-weight: 600; }
 .summary-value { font-size: 18px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .rtk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .rtk-table th, .rtk-table td { padding: 6px 10px; border-bottom: 1px solid var(--color-border, #333); text-align: left; }

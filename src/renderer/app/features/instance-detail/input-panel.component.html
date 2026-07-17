@@ -12,7 +12,11 @@
       <!-- Folder chips -->
       @for (folder of pendingFolders(); track folder) {
         <div class="file-chip folder-chip">
-          <span class="file-icon">📁</span>
+          <span class="file-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+            </svg>
+          </span>
           <span class="file-name" [title]="folder">{{ getFolderDisplayName(folder) }}</span>
           <button
             class="file-remove"
@@ -59,7 +63,12 @@
             role="button"
             title="Click to preview"
           >
-            <span class="file-icon">{{ preview.icon }}</span>
+            <span class="file-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
+                <path d="M14 2v6h6"/>
+              </svg>
+            </span>
             <span class="file-name">{{ preview.file.name }}</span>
             <button
               class="file-remove"
@@ -130,7 +139,6 @@
             (click)="onToggleYoloMode()"
             [title]="effectiveYoloMode() ? 'YOLO mode ON — auto-approve all actions' : 'YOLO mode OFF — will prompt for approvals'"
           >
-            <span class="yolo-icon">{{ effectiveYoloMode() ? '⚡' : '🛡️' }}</span>
             <span class="yolo-label">YOLO {{ effectiveYoloMode() ? 'ON' : 'OFF' }}</span>
           </button>
           @if (showHardenedToggle()) {
@@ -140,7 +148,6 @@
               (click)="onToggleHardened()"
               [title]="draftHardened() ? 'Hardened ON — CLI runs inside the macOS Seatbelt sandbox (writes confined to the workspace)' : 'Hardened OFF — CLI runs unsandboxed'"
             >
-              <span class="yolo-icon">{{ draftHardened() ? '🔒' : '🔓' }}</span>
               <span class="yolo-label">Hardened {{ draftHardened() ? 'ON' : 'OFF' }}</span>
             </button>
           }
@@ -464,7 +471,7 @@
             (click)="onSend()"
             [title]="loopStarting() ? 'Starting loop...' : (loopArmed() ? 'Start loop (Enter)' : (isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)'))"
           >
-            <span class="send-icon">{{ loopArmed() ? '🔁' : '↑' }}</span>
+            <span class="send-icon">{{ loopArmed() ? '↻' : '↑' }}</span>
           </button>
         }
       </div>
@@ -533,7 +540,7 @@
             }
             @if (queuedMsg.files && queuedMsg.files.length > 0) {
               <span class="queued-file-count" title="Attached files">
-                📎{{ queuedMsg.files.length }}
+                {{ queuedMsg.files.length }} attached
               </span>
             }
             @if (queuedMsg.hadAttachmentsDropped) {

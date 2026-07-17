@@ -92,7 +92,6 @@ import { MAX_MODEL_ID_LENGTH } from '../../../../shared/types/provider.types';
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
       letter-spacing: 0;
     }
 

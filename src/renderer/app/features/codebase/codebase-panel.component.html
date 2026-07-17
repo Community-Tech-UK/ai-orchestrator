@@ -1,7 +1,6 @@
 <div class="codebase-container">
   <div class="codebase-header">
     <div class="header-left">
-      <span class="codebase-icon">📚</span>
       <span class="codebase-title">Codebase Index</span>
       @if (autoStatusBadge(); as badge) {
         <span
@@ -106,7 +105,6 @@
 
   @if (!canSearch() && !isIndexing()) {
     <div class="no-index">
-      <span class="no-index-icon">📂</span>
       <span class="no-index-title">No Index Available</span>
       <span class="no-index-text">
         Select a directory and click "Index Codebase" to enable semantic search

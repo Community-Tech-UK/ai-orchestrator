@@ -4,7 +4,7 @@
     .toolbar-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
     h1 { margin: 0; font-size: 26px; font-weight: 600; }
     h2 { margin: 0; font-size: 18px; }
-    h3 { margin: 16px 0 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    h3 { margin: 16px 0 0; font-size: 13px; font-weight: 600; color: var(--text-muted); }
     .muted { color: var(--text-muted); font-size: 12px; }
     .icon-btn { border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px 8px; border-radius: 6px; }
     .icon-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }

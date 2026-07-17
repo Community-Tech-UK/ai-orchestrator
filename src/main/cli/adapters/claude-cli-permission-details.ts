@@ -19,7 +19,21 @@ export interface ClaudePermissionDetails {
  * several known patterns rather than a single literal string.
  */
 export function isPermissionDenialContent(content: string): boolean {
-  const lower = content.toLowerCase();
+  // A Bash tool_result that opens with "Exit code N" means the command actually
+  // EXECUTED — a permission-denied tool call never runs. Any denial-sounding
+  // text after that prefix is the command's own output (`grep: /x: Permission
+  // denied`, `ssh: Permission denied (publickey)`, a 403 body, ...), not the CLI.
+  if (/^\s*exit code\s+\d+/i.test(content)) {
+    return false;
+  }
+
+  // Mask Unix-style "<prefix>: Permission denied" occurrences before pattern
+  // matching. That shape is always tool/command output (grep, sed, bash, ssh
+  // "root@host: Permission denied (publickey)"); CLI denial messages never put
+  // a colon-prefixed subject in front of the phrase.
+  const lower = content
+    .toLowerCase()
+    .replace(/\S+:\s*permission denied(?:\s*\(publickey[^)]*\))?/g, ' ');
   const patterns = [
     "haven't granted it yet",
     "hasn't been granted",

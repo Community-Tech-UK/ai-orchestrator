@@ -59,7 +59,6 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
       <!-- Current File -->
       @if (progress()?.currentFile && isActive()) {
         <div class="current-file" title="{{ progress()!.currentFile }}">
-          <span class="file-icon">📄</span>
           <span class="file-path">{{ truncatePath(progress()!.currentFile!) }}</span>
         </div>
       }
@@ -105,7 +104,6 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
       border-radius: var(--radius-sm);
       font-size: 11px;
       font-weight: 600;
-      text-transform: uppercase;
     }
 
     .status-badge.idle {
@@ -119,8 +117,8 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
     }
 
     .status-badge.chunking {
-      background: rgba(168, 85, 247, 0.2);
-      color: #a855f7;
+      background: var(--warning-bg);
+      color: var(--warning-color);
     }
 
     .status-badge.complete {
@@ -169,7 +167,7 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
 
     .progress-bar {
       height: 100%;
-      background: linear-gradient(90deg, var(--primary-color), #60a5fa);
+      background: linear-gradient(90deg, var(--primary-color), var(--primary-hover));
       border-radius: 3px;
       transition: width 0.3s ease;
     }
@@ -192,10 +190,6 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
       background: var(--bg-tertiary);
       border-radius: var(--radius-sm);
       overflow: hidden;
-    }
-
-    .file-icon {
-      flex-shrink: 0;
     }
 
     .file-path {

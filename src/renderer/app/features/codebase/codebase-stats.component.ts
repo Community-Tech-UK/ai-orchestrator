@@ -86,8 +86,7 @@ import type { IndexStats, WatcherStatus } from '../../../../shared/types/codebas
     .stat-label {
       font-size: 11px;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      font-weight: 600;
     }
 
     .stats-meta {
@@ -125,7 +124,6 @@ import type { IndexStats, WatcherStatus } from '../../../../shared/types/codebas
 
     .watcher-status.active .watcher-dot {
       background: #10b981;
-      box-shadow: 0 0 4px #10b981;
     }
 
     .pending-badge {

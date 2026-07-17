@@ -37,7 +37,7 @@ export interface SavedQueryTemplate {
               (click)="selectQueryType(type)"
               [disabled]="!hasSession()"
             >
-              {{ getQueryTypeIcon(type) }} {{ type }}
+              {{ type }}
             </button>
           }
         </div>
@@ -179,7 +179,7 @@ export interface SavedQueryTemplate {
               (click)="openSaveTemplateDialog()"
               title="Save as template"
             >
-              💾
+              Save
             </button>
           }
         </div>
@@ -189,7 +189,7 @@ export interface SavedQueryTemplate {
       @if (savedTemplates().length > 0) {
         <div class="saved-templates">
           <div class="templates-header">
-            <span class="templates-title">📑 Saved Templates</span>
+            <span class="templates-title">Saved Templates</span>
             <button
               class="collapse-btn"
               (click)="templatesExpanded.set(!templatesExpanded())"
@@ -202,9 +202,7 @@ export interface SavedQueryTemplate {
               @for (template of savedTemplates(); track template.id) {
                 <div class="template-item">
                   <div class="template-info" (click)="loadTemplate(template)" (keydown.enter)="loadTemplate(template)" (keydown.space)="loadTemplate(template)" tabindex="0" role="button">
-                    <span class="template-type">{{
-                      getQueryTypeIcon(template.type)
-                    }}</span>
+                    <span class="template-type">{{ template.type }}</span>
                     <span class="template-name">{{ template.name }}</span>
                   </div>
                   <button
@@ -242,8 +240,7 @@ export interface SavedQueryTemplate {
             <div class="template-preview">
               <span class="preview-label">Query Type:</span>
               <span class="preview-value"
-                >{{ getQueryTypeIcon(selectedQueryType()) }}
-                {{ selectedQueryType() }}</span
+                >{{ selectedQueryType() }}</span
               >
             </div>
           </div>
@@ -265,7 +262,6 @@ export interface SavedQueryTemplate {
       <!-- Error Banner -->
       @if (queryError()) {
         <div class="error-banner">
-          <span class="error-icon">⚠️</span>
           <span class="error-text">{{ queryError() }}</span>
           <button class="close-error-btn" (click)="clearError.emit()">✕</button>
         </div>
@@ -794,25 +790,6 @@ export class ContextQueryPanelComponent {
     };
 
     this.executeQueryRequest.emit(query);
-  }
-
-  getQueryTypeIcon(type: QueryType): string {
-    switch (type) {
-      case 'grep':
-        return '🔍';
-      case 'slice':
-        return '✂️';
-      case 'sub_query':
-        return '🔄';
-      case 'summarize':
-        return '📝';
-      case 'get_section':
-        return '📄';
-      case 'semantic_search':
-        return '🎯';
-      default:
-        return '❓';
-    }
   }
 
   openSaveTemplateDialog(): void {

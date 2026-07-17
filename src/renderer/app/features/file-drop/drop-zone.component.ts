@@ -24,7 +24,6 @@ import {
       @if (isDragOver()) {
         <div class="drop-overlay">
           <div class="drop-content">
-            <span class="drop-icon">📎</span>
             <span class="drop-text">Drop files here</span>
           </div>
         </div>
@@ -57,7 +56,6 @@ import {
       align-items: center;
       justify-content: center;
       z-index: 10;
-      backdrop-filter: blur(2px);
     }
 
     .drop-content {
@@ -65,10 +63,6 @@ import {
       flex-direction: column;
       align-items: center;
       gap: var(--spacing-sm);
-    }
-
-    .drop-icon {
-      font-size: 32px;
     }
 
     .drop-text {

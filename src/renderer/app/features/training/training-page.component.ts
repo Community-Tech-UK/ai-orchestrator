@@ -313,8 +313,6 @@ interface RewardTrend {
         font-size: 12px;
         font-weight: 700;
         color: var(--text-muted);
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
       }
 
       .field {

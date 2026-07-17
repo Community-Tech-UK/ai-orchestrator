@@ -133,17 +133,16 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
 
     .block-header {
       font-size: 10px;
+      font-weight: 600;
       color: var(--text-muted);
       margin-bottom: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     .format-structured .block-header { color: var(--primary-color, #3b82f6); }
     .format-sdk .block-header { color: #10b981; }
     .format-xml .block-header { color: #f59e0b; }
-    .format-header .block-header { color: #8b5cf6; }
-    .format-bracket .block-header { color: #ec4899; }
+    .format-header .block-header { color: #4fa3a5; }
+    .format-bracket .block-header { color: #d05f4e; }
 
     .thought-item {
       padding: 6px 0;

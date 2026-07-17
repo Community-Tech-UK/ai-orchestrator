@@ -224,7 +224,7 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
 
       const host = fixture.nativeElement as HTMLElement;
-      expect(host.querySelector('[data-testid="quota-pacing-claude"]')?.textContent).toContain('⚡');
+      expect(host.querySelector('[data-testid="quota-pacing-claude"]')).toBeTruthy();
     });
 
     it('clears a stale pacing badge when a refreshed quota window has reset below its warning threshold', () => {

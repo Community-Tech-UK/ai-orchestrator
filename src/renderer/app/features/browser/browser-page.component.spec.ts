@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ɵresolveComponentResources as resolveComponentResources, signal } from '@angular/core';
-import type { BrowserAuditEntry } from '@contracts/types/browser';
+import type { BrowserApprovalRequest, BrowserAuditEntry } from '@contracts/types/browser';
 import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -532,18 +532,36 @@ describe('BrowserPageComponent', () => {
     expect(text).toContain('/workspace/dist');
   });
 
-  it('requires typed confirmation before approving an autonomous request', async () => {
+  it('approves ordinary unattended input without typed confirmation', async () => {
     const component = fixture.componentInstance;
     const approval = component.approvalRequests()[0]!;
 
-    component.autonomousSubmitEnabled.set(true);
-    component.autonomousDestructiveEnabled.set(true);
+    await component.approveApprovalRequest(approval, 'autonomous');
+
+    expect(service.approveRequest).toHaveBeenCalledWith({
+      requestId: 'request-1',
+      grant: expect.objectContaining({
+        mode: 'autonomous',
+        autonomous: true,
+        allowedActionClasses: ['input'],
+      }),
+      reason: 'Approved from Browser Gateway page',
+    });
+  });
+
+  it('scopes typed confirmation to unattended submit or destructive access', async () => {
+    const component = fixture.componentInstance;
+    const approval = component.approvalRequests()[0]!;
+    service.approveRequest.mockClear();
+
+    component.toggleAutonomousSubmit(approval);
+    component.toggleAutonomousDestructive(approval);
     await component.approveApprovalRequest(approval, 'autonomous');
 
     expect(service.approveRequest).not.toHaveBeenCalled();
-    expect(component.errorMessage()).toContain('Type AUTONOMOUS');
+    expect(component.errorMessage()).toContain('Type Local App');
 
-    component.onAutonomousConfirmationInput(inputEvent('AUTONOMOUS'));
+    component.onAutonomousConfirmationInput(approval, inputEvent('Local App'));
     await component.approveApprovalRequest(approval, 'autonomous');
 
     expect(service.approveRequest).toHaveBeenCalledWith({
@@ -555,6 +573,31 @@ describe('BrowserPageComponent', () => {
       }),
       reason: 'Approved from Browser Gateway page',
     });
+  });
+
+  it('does not bypass confirmation by choosing a narrower label for a submit proposal', async () => {
+    const component = fixture.componentInstance;
+    const baseApproval = component.approvalRequests()[0]!;
+    const approval: BrowserApprovalRequest = {
+      ...baseApproval,
+      proposedGrant: {
+        ...baseApproval.proposedGrant,
+        allowedActionClasses: ['input', 'submit'],
+      },
+    };
+    service.approveRequest.mockClear();
+
+    await component.approveApprovalRequest(approval, 'session');
+
+    expect(service.approveRequest).not.toHaveBeenCalled();
+    expect(component.errorMessage()).toContain('Type Local App');
+  });
+
+  it('does not render a generic AUTONOMOUS confirmation field', () => {
+    expect(fixture.nativeElement.textContent).not.toContain('Type AUTONOMOUS');
+    expect(
+      fixture.nativeElement.querySelector('input[placeholder="AUTONOMOUS"]'),
+    ).toBeNull();
   });
 
   it('revokes grants from the Browser page', async () => {

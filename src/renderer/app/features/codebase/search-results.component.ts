@@ -52,7 +52,6 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
               <!-- Result Header -->
               <div class="result-header">
                 <div class="file-info">
-                  <span class="file-icon">{{ getFileIcon(result.filePath) }}</span>
                   <span class="file-path" title="{{ result.filePath }}">
                     {{ truncatePath(result.filePath) }}
                   </span>
@@ -91,14 +90,14 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
                     (click)="copyContent(result); $event.stopPropagation()"
                     title="Copy to clipboard"
                   >
-                    📋
+                    Copy
                   </button>
                   <button
                     class="action-btn"
                     (click)="openFile.emit(result); $event.stopPropagation()"
                     title="Open file"
                   >
-                    📂
+                    Open
                   </button>
                 </div>
               </div>
@@ -114,7 +113,6 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
         </div>
       } @else {
         <div class="no-results">
-          <span class="no-results-icon">🔍</span>
           <span class="no-results-text">No results found</span>
           <span class="no-results-hint">Try different search terms or adjust filters</span>
         </div>
@@ -195,11 +193,6 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
       overflow: hidden;
     }
 
-    .file-icon {
-      flex-shrink: 0;
-      font-size: 14px;
-    }
-
     .file-path {
       font-size: 12px;
       font-weight: 500;
@@ -226,8 +219,7 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
       padding: 1px 6px;
       border-radius: var(--radius-sm);
       font-size: 10px;
-      font-weight: 500;
-      text-transform: uppercase;
+      font-weight: 600;
 
       &.bm25 {
         background: rgba(59, 130, 246, 0.2);
@@ -235,8 +227,8 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
       }
 
       &.vector {
-        background: rgba(168, 85, 247, 0.2);
-        color: #a855f7;
+        background: color-mix(in srgb, var(--status-waiting) 20%, transparent);
+        color: var(--status-waiting);
       }
 
       &.hybrid {
@@ -337,11 +329,6 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
       padding: var(--spacing-xl);
     }
 
-    .no-results-icon {
-      font-size: 32px;
-      opacity: 0.5;
-    }
-
     .no-results-text {
       font-size: 14px;
       font-weight: 500;
@@ -420,31 +407,6 @@ export class SearchResultsComponent {
     const fileName = parts[parts.length - 1];
     const parentDir = parts[parts.length - 2];
     return `.../${parentDir}/${fileName}`;
-  }
-
-  getFileIcon(filePath: string): string {
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    const iconMap: Record<string, string> = {
-      ts: '📘',
-      tsx: '📘',
-      js: '📒',
-      jsx: '📒',
-      py: '🐍',
-      rs: '🦀',
-      go: '🔵',
-      java: '☕',
-      rb: '💎',
-      php: '🐘',
-      css: '🎨',
-      scss: '🎨',
-      html: '🌐',
-      json: '📋',
-      md: '📝',
-      yaml: '⚙️',
-      yml: '⚙️',
-      sql: '🗃️',
-    };
-    return iconMap[ext || ''] || '📄';
   }
 
   getLanguageClass(language?: string): string {

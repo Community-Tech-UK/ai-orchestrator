@@ -337,15 +337,13 @@ interface InstanceOption {
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
       margin-bottom: 2px;
     }
 
     .section-label {
       font-size: 11px;
+      font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
       margin-top: var(--spacing-xs);
     }
 
@@ -368,7 +366,6 @@ interface InstanceOption {
     }
 
     .severity {
-      text-transform: uppercase;
       font-size: 10px;
       font-weight: 700;
       margin-right: 6px;

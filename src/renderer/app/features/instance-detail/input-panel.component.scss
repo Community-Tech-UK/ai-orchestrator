@@ -22,7 +22,6 @@
   box-shadow:
     0 22px 54px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(22px);
 }
 
 .loop-panel-host {
@@ -48,8 +47,7 @@
 .loop-start-error .lse-label {
   font-family: var(--font-mono, monospace);
   font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 600;
   opacity: 0.85;
   color: #ff6b6b;
 }
@@ -73,8 +71,7 @@
 .loop-start-status .lss-label {
   font-family: var(--font-mono, monospace);
   font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 600;
   opacity: 0.85;
   color: var(--primary-color);
 }
@@ -123,10 +120,8 @@
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.06em;
   cursor: pointer;
   transition: all var(--transition-fast);
-  text-transform: uppercase;
 
   &:hover {
     border-color: rgba(255, 255, 255, 0.15);
@@ -161,8 +156,6 @@
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   cursor: pointer;
   transition: all var(--transition-fast);
 
@@ -176,11 +169,6 @@
     background: rgba(var(--primary-rgb), 0.18);
     box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.28);
   }
-}
-
-.yolo-icon {
-  font-size: 12px;
-  line-height: 1;
 }
 
 .yolo-label {
@@ -220,7 +208,7 @@
 
 .nl-workflow-kicker {
   color: var(--primary-color);
-  text-transform: uppercase;
+  font-weight: 600;
 }
 
 .nl-workflow-title {
@@ -632,8 +620,7 @@
 .wakeup-title {
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
@@ -920,7 +907,7 @@
 }
 
 .hint-respawning {
-  color: #8b5cf6; /* Purple - same as status indicator */
+  color: #4fa3a5; /* Teal - same as status indicator */
   font-weight: 600;
   animation: pulse 2s ease-in-out infinite;
 }
@@ -962,12 +949,10 @@
   flex-shrink: 0;
   border-radius: 50%;
   background: rgb(74, 222, 128);
-  box-shadow: 0 0 12px rgba(74, 222, 128, 0.35);
 }
 
 .voice-status-row.error .voice-status-dot {
   background: var(--error-color);
-  box-shadow: 0 0 12px rgba(var(--error-rgb), 0.35);
 }
 
 .voice-status-text {
@@ -986,8 +971,7 @@
   border: 1px solid rgba(245, 158, 11, 0.22);
   color: rgba(253, 230, 138, 0.9);
   font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1272,7 +1256,6 @@
   box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.22);
   z-index: 301;
   animation: fadeInUp 0.15s ease-out;
-  backdrop-filter: blur(18px);
 }
 
 .command-suggestions::-webkit-scrollbar {

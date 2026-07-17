@@ -63,6 +63,8 @@ export default defineConfig({
             'src/preload/**/*.test.ts',
             'src/worker-agent/**/*.spec.ts',
             'src/worker-agent/**/*.test.ts',
+            'src/tests/**/*.spec.ts',
+            'src/tests/**/*.test.ts',
             'packages/**/*.spec.ts',
             'packages/**/*.test.ts',
             'scripts/**/*.spec.ts',

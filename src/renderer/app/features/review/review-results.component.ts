@@ -31,7 +31,6 @@ import type {
       <!-- Header with Score -->
       <div class="review-header">
         <div class="header-left">
-          <span class="review-icon">🔍</span>
           <span class="review-title">Code Review</span>
           @if (score(); as s) {
             <span class="score-badge" [class]="getScoreClass(s.overallScore ?? 0)">
@@ -144,8 +143,8 @@ import type {
                     [class.acknowledged]="acknowledgedIssues().has(issue.id)"
                   >
                     <div class="issue-header">
-                      <span class="severity-icon">
-                        {{ getSeverityIcon(issue.severity) }}
+                      <span class="severity-icon" [class]="'severity-' + issue.severity">
+                        {{ issue.severity }}
                       </span>
                       <span class="issue-message">{{ issue.title }}</span>
                       @if (issue.confidence !== undefined) {
@@ -212,10 +211,8 @@ import type {
         @if (filteredIssues().length === 0) {
           <div class="empty-state">
             @if (issues().length === 0) {
-              <span class="empty-icon">✨</span>
               <span class="empty-text">No issues found</span>
             } @else {
-              <span class="empty-icon">🔍</span>
               <span class="empty-text">No issues match current filters</span>
             }
           </div>
@@ -246,10 +243,6 @@ import type {
       display: flex;
       align-items: center;
       gap: var(--spacing-sm);
-    }
-
-    .review-icon {
-      font-size: 18px;
     }
 
     .review-title {
@@ -319,8 +312,6 @@ import type {
       font-size: 11px;
       font-weight: 600;
       color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
 
     .confidence-slider {
@@ -496,13 +487,13 @@ import type {
       margin-bottom: var(--spacing-xs);
       background: var(--bg-primary);
       border-radius: var(--radius-sm);
-      border-left: 3px solid transparent;
+      border: 1px solid transparent;
 
-      &.severity-critical { border-left-color: #dc2626; }
-      &.severity-high { border-left-color: #ea580c; }
-      &.severity-medium { border-left-color: #ca8a04; }
-      &.severity-low { border-left-color: #65a30d; }
-      &.severity-info { border-left-color: #0284c7; }
+      &.severity-critical { border-color: rgba(220, 38, 38, 0.3); background: rgba(220, 38, 38, 0.06); }
+      &.severity-high { border-color: rgba(234, 88, 12, 0.3); background: rgba(234, 88, 12, 0.06); }
+      &.severity-medium { border-color: rgba(202, 138, 4, 0.3); background: rgba(202, 138, 4, 0.06); }
+      &.severity-low { border-color: rgba(101, 163, 13, 0.3); background: rgba(101, 163, 13, 0.06); }
+      &.severity-info { border-color: rgba(2, 132, 199, 0.3); background: rgba(2, 132, 199, 0.06); }
 
       &.acknowledged {
         opacity: 0.6;
@@ -516,8 +507,19 @@ import type {
     }
 
     .severity-icon {
-      font-size: 14px;
+      font-size: 10px;
+      font-weight: 600;
       flex-shrink: 0;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+
+      &.severity-critical { color: #dc2626; }
+      &.severity-high { color: #ea580c; }
+      &.severity-medium { color: #ca8a04; }
+      &.severity-low { color: #65a30d; }
+      &.severity-info { color: #0284c7; }
     }
 
     .issue-message {
@@ -639,11 +641,6 @@ import type {
       color: var(--text-muted);
     }
 
-    .empty-icon {
-      font-size: 32px;
-      opacity: 0.5;
-    }
-
     .empty-text {
       font-size: 13px;
     }
@@ -749,23 +746,6 @@ export class ReviewResultsComponent {
     if (score >= 80) return 'score-good';
     if (score >= 60) return 'score-warning';
     return 'score-bad';
-  }
-
-  getSeverityIcon(severity: SeverityLevel): string {
-    switch (severity) {
-      case 'critical':
-        return '🔴';
-      case 'high':
-        return '🟠';
-      case 'medium':
-        return '🟡';
-      case 'low':
-        return '🟢';
-      case 'info':
-        return '🔵';
-      default:
-        return '⚪';
-    }
   }
 
   onConfidenceChange(event: Event): void {

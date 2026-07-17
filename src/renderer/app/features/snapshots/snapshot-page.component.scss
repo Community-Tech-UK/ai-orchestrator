@@ -101,9 +101,8 @@
 
 .stat-label {
   font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .stat-value {
@@ -212,15 +211,11 @@
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   flex-shrink: 0;
 }
 
 .panel-header-sub {
   font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
   color: var(--text-secondary);
 }
 
@@ -259,8 +254,7 @@
 
 .item-row.selected {
   background: color-mix(in srgb, var(--primary-color) 12%, transparent);
-  border-left: 3px solid var(--primary-color);
-  padding-left: calc(var(--spacing-md) - 3px);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
 }
 
 .item-main {
@@ -318,8 +312,7 @@
 
 .action-label {
   font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-weight: 600;
 }
 
 /* ---- Empty State ---- */

@@ -13,6 +13,7 @@ import type { Instance, InstanceStatus, InstanceWaitReason } from '../../../shar
 import { emitPluginHook } from '../../plugins/hook-emitter';
 import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
 import { deleteTurnSupervisor } from '../../session/session-turn-supervisor';
+import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 import { deleteCircuitBreaker } from './respawn-circuit-breaker';
 import { mergeSessionBranchToMain } from './session-branch-merge';
 
@@ -32,6 +33,13 @@ export interface TranscriptImportOptions {
 
 export interface TerminateInstanceOptions {
   skipTranscriptMining?: boolean;
+  /**
+   * App-shutdown bulk terminate: keep the durable provider-limit resume
+   * automation so a quota-parked session can still revive after restart. A
+   * normal single-instance terminate cancels it — a deliberately closed
+   * session must not be resurrected by its quota automation.
+   */
+  preserveDurableProviderResume?: boolean;
 }
 
 export interface InstanceTerminationDeps {
@@ -85,6 +93,12 @@ export class InstanceTerminationCoordinator {
     this.deps.deleteStateMachine?.(instanceId);
     this.deps.removeActivityDetector(instanceId);
     this.deps.clearRecoveryHistory(instanceId);
+    // A quota-parked instance holds an early-resume probe interval, a resume
+    // timer, and Map entries keyed by this id — release them or they outlive
+    // the instance (runs before the `!instance` early-return on purpose).
+    getInstanceProviderLimitHandler().release(instanceId, {
+      preserveDurableResume: options.preserveDurableProviderResume,
+    });
 
     if (adapter) {
       // §4.G/E1: a graceful terminate can sit in a SIGTERM→SIGKILL wait for up

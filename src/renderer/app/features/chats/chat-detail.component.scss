@@ -61,8 +61,7 @@
   font-family: var(--font-mono);
   font-size: 10px;
   line-height: 1.2;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
 }
 
 .chat-eyebrow,
@@ -280,7 +279,7 @@
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 10px;
-  text-transform: uppercase;
+  font-weight: 600;
 }
 
 .chat-run-list,
@@ -325,7 +324,7 @@
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 10px;
-  text-transform: uppercase;
+  font-weight: 600;
 }
 
 .chat-run-event-count {

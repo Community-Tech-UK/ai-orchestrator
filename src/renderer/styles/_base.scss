@@ -21,11 +21,7 @@ body {
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   color: var(--text-primary);
-  background:
-    radial-gradient(circle at 14% 8%, rgba(var(--secondary-rgb), 0.14), transparent 24%),
-    radial-gradient(circle at 84% 100%, rgba(var(--primary-rgb), 0.1), transparent 26%),
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.035), transparent 22%),
-    linear-gradient(135deg, #050907 0%, var(--bg-primary) 42%, #091411 100%);
+  background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -44,10 +40,8 @@ body::after {
 }
 
 body::before {
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.025), transparent 26%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
-  background-size: auto, 140px 140px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+  background-size: 140px 140px;
   opacity: 0.22;
 }
 
@@ -260,11 +254,6 @@ select {
 
 .mono {
   font-family: var(--font-mono);
-}
-
-.uppercase {
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 // ============================================

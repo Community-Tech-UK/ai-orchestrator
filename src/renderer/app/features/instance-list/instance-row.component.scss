@@ -17,18 +17,14 @@
 }
 
 .instance-row.selected {
-  background:
-    linear-gradient(90deg, rgba(var(--primary-rgb), 0.12), rgba(255, 255, 255, 0.03)),
-    rgba(255, 255, 255, 0.03);
+  background: rgba(var(--primary-rgb), 0.1);
   box-shadow:
     inset 0 0 0 1px rgba(var(--primary-rgb), 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .instance-row.selected:hover {
-  background:
-    linear-gradient(90deg, rgba(var(--primary-rgb), 0.14), rgba(255, 255, 255, 0.035)),
-    rgba(255, 255, 255, 0.04);
+  background: rgba(var(--primary-rgb), 0.12);
 }
 
 .instance-row.error {
@@ -36,9 +32,7 @@
 }
 
 .instance-row.selected.error {
-  background:
-    linear-gradient(90deg, rgba(var(--error-rgb), 0.14), rgba(var(--error-rgb), 0.06)),
-    rgba(var(--error-rgb), 0.08);
+  background: rgba(var(--error-rgb), 0.11);
   box-shadow:
     inset 0 0 0 1px rgba(var(--error-rgb), 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -102,7 +96,7 @@
    to be idle between iterations.
 
    Visual differentiators vs. .provider-busy:
-   - Fixed loop colour (cyan-violet) regardless of provider, so you can
+   - Fixed loop colour (sage) regardless of provider, so you can
      spot loops at a glance across the rail.
    - Two opposing arc segments (top + bottom) instead of the busy ring's
      single quarter, signalling "running on a cycle".
@@ -126,7 +120,7 @@
 }
 
 .provider-badge.provider-looping {
-  --loop-spinner-color: #a78bfa; /* violet — distinct from provider hues */
+  --loop-spinner-color: #8ca594; /* sage — distinct from provider hues */
   position: relative;
 }
 
@@ -154,7 +148,6 @@
 
 .attention-overlay-dot {
   background: #f59e0b;
-  box-shadow: 0 0 4px rgba(245, 158, 11, 0.7);
   animation: attention-pulse 2s ease-in-out infinite;
 }
 
@@ -176,9 +169,7 @@
 }
 
 .instance-row.selected.needs-attention {
-  background:
-    linear-gradient(90deg, rgba(245, 158, 11, 0.14), rgba(245, 158, 11, 0.06)),
-    rgba(245, 158, 11, 0.06);
+  background: rgba(245, 158, 11, 0.11);
   box-shadow:
     inset 0 0 0 1px rgba(245, 158, 11, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -187,11 +178,9 @@
 @keyframes attention-pulse {
   0%, 100% {
     opacity: 1;
-    box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
   }
   50% {
     opacity: 0.6;
-    box-shadow: 0 0 12px rgba(245, 158, 11, 0.9);
   }
 }
 
@@ -265,7 +254,6 @@
   height: 8px;
   border-radius: 50%;
   background: #60A5FA;
-  box-shadow: 0 0 6px rgba(96, 165, 250, 0.5);
   flex-shrink: 0;
   animation: unread-fade-in 200ms ease-out;
 }
@@ -439,7 +427,6 @@
     background: var(--error-color);
     border-color: var(--error-color);
     color: white;
-    box-shadow: 0 0 12px rgba(var(--error-rgb), 0.4);
   }
 }
 

@@ -115,9 +115,7 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
     :host {
       display: block;
       min-height: 100%;
-      background:
-        radial-gradient(circle at top right, rgba(56, 189, 248, 0.12), transparent 28rem),
-        linear-gradient(180deg, #07111c 0%, #091521 100%);
+      background: linear-gradient(180deg, #07111c 0%, #091521 100%);
       color: #e5eef6;
     }
 
@@ -179,9 +177,8 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
     .eyebrow,
     .stat-label,
     .field span {
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
       font-size: 0.72rem;
+      font-weight: 600;
       color: #8dc5ff;
     }
 
@@ -196,7 +193,6 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
     .banner {
       border: 1px solid rgba(148, 163, 184, 0.18);
       background: rgba(7, 18, 30, 0.86);
-      backdrop-filter: blur(10px);
       border-radius: 1rem;
       box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.18);
     }

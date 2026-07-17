@@ -48,8 +48,6 @@ h1 {
 
 h2 {
   font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
 }
 
@@ -228,8 +226,6 @@ textarea {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .binding-summary strong {
@@ -327,9 +323,8 @@ pre {
 
 .audit-state {
   font-size: 11px;
+  font-weight: 600;
   color: var(--success-color);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .audit-heading {
@@ -427,8 +422,6 @@ pre {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .row-actions.wrap {
@@ -443,6 +436,34 @@ pre {
 .autonomous-controls {
   display: grid;
   gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid color-mix(in srgb, var(--warning-color) 28%, var(--border-color));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning-color) 6%, var(--bg-primary));
+}
+
+.autonomous-controls summary {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.autonomous-controls p,
+.autonomous-confirmation span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.autonomous-confirmation strong {
+  color: var(--warning-color);
+}
+
+.autonomous-controls summary:focus-visible,
+.autonomous-controls input:focus-visible {
+  outline: 2px solid var(--warning-color);
+  outline-offset: 2px;
 }
 
 .provider-health-list {
@@ -469,8 +490,6 @@ pre {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .bridge-list code,

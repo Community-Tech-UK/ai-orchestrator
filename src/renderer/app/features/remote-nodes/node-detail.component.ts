@@ -152,8 +152,7 @@ import { NodeServicePanelComponent } from './node-service-panel/node-service-pan
     .label {
       color: var(--color-text-secondary);
       font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      font-weight: 600;
     }
 
     .detail-section + .detail-section {

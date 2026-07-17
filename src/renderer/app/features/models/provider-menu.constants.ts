@@ -33,7 +33,7 @@ export const PROVIDER_MENU_COLORS: Record<PickerProvider, string> = {
   codex: '#10a37f',
   gemini: '#4285f4',
   antigravity: '#00b8d4',
-  copilot: '#a855f7',
+  copilot: '#b8865f',
   // Cursor's mark is monochrome; the theme foreground token stays legible on
   // both dark and light themes when consumed via `[style.color]`.
   cursor: 'var(--text-primary)',

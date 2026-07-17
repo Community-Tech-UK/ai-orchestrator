@@ -36,8 +36,8 @@ button {
 
 /* LF-8 status pill — the always-on "what state is this loop in" badge. */
 .ls-pill {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-  padding: 2px 7px; border-radius: 3px; text-transform: uppercase;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 3px;
   background: rgba(255,255,255,0.08); white-space: nowrap;
 }
 .ls-pill[data-pill="running"]         { color: #8fb8ff; background: rgba(95,142,224,0.18); }
@@ -71,7 +71,7 @@ button {
   position: relative;
   padding: 1px 8px; border-radius: 999px;
   font-family: var(--font-mono, monospace);
-  text-transform: uppercase; letter-spacing: 0.04em;
+  font-weight: 600;
   border: 1px solid rgba(255,255,255,0.12);
 }
 .lg-step:not(:last-child)::after {
@@ -99,7 +99,7 @@ button {
 .lau-chip {
   padding: 1px 8px; border-radius: 999px;
   font-family: var(--font-mono, monospace);
-  text-transform: uppercase; letter-spacing: 0.04em;
+  font-weight: 600;
   border: 1px solid rgba(255,255,255,0.12);
 }
 .lau-chip[data-state="passed"] { color: #8edc8e; border-color: rgba(142,220,142,0.4); background: rgba(142,220,142,0.10); }
@@ -123,7 +123,7 @@ button {
 .lrc-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; line-height: 1.4; }
 .lrc-label {
   font-family: var(--font-mono, monospace); font-size: 10px;
-  letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.55;
+  font-weight: 600; opacity: 0.55;
 }
 .lrc-value { overflow-wrap: anywhere; opacity: 0.92; }
 
@@ -164,8 +164,8 @@ button {
 .la-time, .la-kind {
   font-family: var(--font-mono, monospace);
   font-size: 10px;
+  font-weight: 600;
   opacity: 0.7;
-  text-transform: uppercase;
 }
 .la-message {
   min-width: 0;
@@ -215,9 +215,8 @@ button {
   margin: 8px 0 4px;
   font-family: var(--font-mono, monospace);
   font-size: 10px;
-  letter-spacing: 0.06em;
+  font-weight: 600;
   opacity: 0.62;
-  text-transform: uppercase;
 }
 .li-current {
   margin-bottom: 6px;
@@ -238,8 +237,7 @@ button {
 .li-current-line { line-height: 1.4; overflow-wrap: anywhere; }
 .li-current-label {
   font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-weight: 600;
   opacity: 0.55;
   margin-right: 2px;
 }
@@ -410,7 +408,7 @@ button {
 .lsum-title { display: flex; justify-content: space-between; align-items: center; font-weight: 600; gap: 8px; }
 .lsum-title-text { display: inline-flex; align-items: center; gap: 6px; }
 .lsum-status-pill {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 10px;
   padding: 1px 6px; border-radius: 3px;
   background: rgba(255,255,255,0.08);
   font-weight: 700;
@@ -438,7 +436,7 @@ button {
 }
 .lsum-stat { display: inline-flex; align-items: baseline; gap: 4px; }
 .lsum-stat-label {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 10px; font-weight: 600;
   opacity: 0.55;
 }
 .lsum-stat-value { font-weight: 600; opacity: 0.95; }
@@ -479,7 +477,7 @@ button {
   gap: 8px;
 }
 .lsum-recap-label {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 10px; font-weight: 600;
   opacity: 0.55;
 }
 .lsum-recap-copy {
@@ -528,8 +526,7 @@ button {
 }
 .lsum-prompt-label {
   font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-weight: 600;
   opacity: 0.6;
   margin-bottom: 2px;
 }
@@ -568,8 +565,8 @@ code { font-size: 11px; padding: 1px 4px; background: rgba(255,255,255,0.08); bo
   letter-spacing: 0.5px;
   padding: 1px 6px;
   border-radius: 4px;
-  color: #c9a6ff;
-  background: rgba(160, 120, 255, 0.18);
+  color: var(--info-color);
+  background: rgba(var(--info-rgb), 0.18);
 }
 .lp-text { opacity: 0.85; }
 .lp-actions { display: flex; gap: 4px; margin-left: auto; }
@@ -577,9 +574,9 @@ code { font-size: 11px; padding: 1px 4px; background: rgba(255,255,255,0.08); bo
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
-  border: 1px solid rgba(160, 120, 255, 0.4);
-  background: rgba(160, 120, 255, 0.08);
+  border: 1px solid rgba(var(--info-rgb), 0.4);
+  background: rgba(var(--info-rgb), 0.08);
   color: inherit;
   cursor: pointer;
 }
-.lp-actions button:hover { background: rgba(160, 120, 255, 0.18); }
+.lp-actions button:hover { background: rgba(var(--info-rgb), 0.18); }

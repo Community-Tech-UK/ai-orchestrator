@@ -27,7 +27,11 @@ import type { TodoStatus } from '../../../../shared/types/todo.types';
             <span class="toggle-icon">{{ collapsed() ? '▸' : '▾' }}</span>
             <span class="header-title">Tasks</span>
             @if (store.isWorking()) {
-              <span class="working-indicator" title="Working...">⚡</span>
+              <span class="working-indicator" title="Working...">
+                <svg viewBox="0 0 24 24" width="8" height="8" fill="currentColor">
+                  <circle cx="12" cy="12" r="10" />
+                </svg>
+              </span>
             }
           </div>
           <div class="header-stats">
@@ -117,11 +121,12 @@ import type { TodoStatus } from '../../../../shared/types/todo.types';
         font-size: 12px;
         font-weight: 600;
         color: var(--text-primary);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
       }
 
       .working-indicator {
+        display: inline-flex;
+        align-items: center;
+        color: var(--success-color);
         animation: pulse 1.5s ease-in-out infinite;
       }
 

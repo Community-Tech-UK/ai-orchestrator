@@ -12,6 +12,8 @@ export type BrowserExtensionCommandName =
   | 'snapshot'
   | 'accessibility_snapshot'
   | 'screenshot'
+  | 'console_messages'
+  | 'network_requests'
   | 'wait_for'
   | 'query_elements'
   | 'read_control'

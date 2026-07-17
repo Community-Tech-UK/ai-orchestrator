@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import net from 'net';
+import os from 'os';
+import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as appServerClientModule from './app-server-client';
 import { CodexContextPressureCollector, type CodexContextDiagnosticRecord } from './context-pressure-diagnostics';
@@ -59,6 +62,102 @@ describe('app-server transport liveness', () => {
 
     expect(client.isRunning()).toBe(false);
   });
+});
+
+describe('socket broker transport lifecycle', () => {
+  /**
+   * Minimal broker stub on a real Unix socket: answers `initialize` so
+   * connectToAppServer()'s handshake succeeds, then hands the live connection
+   * to the test.
+   */
+  function startBrokerStub(): Promise<{
+    endpoint: string;
+    connection: () => net.Socket;
+    close: () => Promise<void>;
+  }> {
+    const socketPath = path.join(
+      os.tmpdir(),
+      `aio-broker-spec-${process.pid}-${Math.random().toString(36).slice(2)}.sock`,
+    );
+    let conn: net.Socket | null = null;
+    const server = net.createServer((socket) => {
+      conn = socket;
+      let buffer = '';
+      socket.on('data', (data) => {
+        buffer += data.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const message = JSON.parse(line) as { id?: number; method?: string };
+          if (message.id !== undefined && message.method === 'initialize') {
+            socket.write(JSON.stringify({ id: message.id, result: { capabilities: {} } }) + '\n');
+          }
+        }
+      });
+    });
+    return new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, () => resolve({
+        endpoint: `unix:${socketPath}`,
+        connection: () => {
+          if (!conn) throw new Error('broker stub never received a connection');
+          return conn;
+        },
+        close: () => new Promise<void>((res) => server.close(() => res())),
+      }));
+    });
+  }
+
+  it.skipIf(process.platform === 'win32')(
+    'close() resolves once the broker FINs back and drops all socket listeners',
+    async () => {
+      const broker = await startBrokerStub();
+      try {
+        const client = await appServerClientModule.connectToAppServer('/tmp/project', {
+          brokerEndpoint: broker.endpoint,
+        });
+        expect(client.transport).toBe('broker');
+        expect(client.isRunning()).toBe(true);
+
+        await client.close();
+
+        expect(client.isRunning()).toBe(false);
+        // exitPromise resolved and listeners were released — nothing left to leak.
+        await client.exitPromise;
+      } finally {
+        await broker.close();
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'a broker disconnect rejects in-flight requests and resolves the exit promise',
+    async () => {
+      const broker = await startBrokerStub();
+      try {
+        const client = await appServerClientModule.connectToAppServer('/tmp/project', {
+          brokerEndpoint: broker.endpoint,
+        });
+
+        const inFlight = client.request(
+          'thread/start' as never,
+          {} as never,
+          60_000,
+        );
+        // Attach the rejection expectation BEFORE the disconnect so the
+        // rejection is never unhandled.
+        const rejection = expect(inFlight).rejects.toThrow(/closed|Connection/i);
+        broker.connection().destroy();
+
+        await rejection;
+        await client.exitPromise;
+        expect(client.isRunning()).toBe(false);
+      } finally {
+        await broker.close();
+      }
+    },
+  );
 });
 
 describe('app-server JSON-RPC routing', () => {

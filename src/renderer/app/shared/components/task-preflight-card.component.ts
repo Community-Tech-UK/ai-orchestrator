@@ -197,8 +197,7 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
 
     .summary-label,
     .section-label {
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      font-weight: 600;
       font-size: 0.72rem;
       color: #82a2bf;
     }
@@ -229,8 +228,6 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
       padding: 0.36rem 0.72rem;
       font-size: 0.74rem;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
 
     .status-pill {

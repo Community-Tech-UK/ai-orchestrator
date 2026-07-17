@@ -2,7 +2,6 @@
   <!-- Header -->
   <div class="dashboard-header">
     <div class="header-left">
-      <span class="dashboard-icon">🎯</span>
       <span class="dashboard-title">GRPO Training Dashboard</span>
       <span class="training-badge" [class.active]="isTrainingActive()">
         {{ isTrainingActive() ? 'Learning Active' : 'Inactive' }}
@@ -10,10 +9,10 @@
     </div>
     <div class="header-actions">
       <button class="action-btn" (click)="refreshData.emit()">
-        🔄 Refresh
+        Refresh
       </button>
       <button class="action-btn" (click)="exportData.emit()">
-        📥 Export
+        Export
       </button>
     </div>
   </div>
@@ -22,35 +21,30 @@
   @if (stats(); as statsData) {
     <div class="stats-overview">
       <div class="stat-card">
-        <span class="stat-icon">📊</span>
         <div class="stat-content">
           <span class="stat-value">{{ statsData.totalOutcomes }}</span>
           <span class="stat-label">Total Outcomes</span>
         </div>
       </div>
       <div class="stat-card">
-        <span class="stat-icon">✅</span>
         <div class="stat-content">
           <span class="stat-value">{{ (statsData.successRate * 100).toFixed(1) }}%</span>
           <span class="stat-label">Success Rate</span>
         </div>
       </div>
       <div class="stat-card">
-        <span class="stat-icon">🧬</span>
         <div class="stat-content">
           <span class="stat-value">{{ statsData.patternCount }}</span>
           <span class="stat-label">Patterns</span>
         </div>
       </div>
       <div class="stat-card">
-        <span class="stat-icon">💡</span>
         <div class="stat-content">
           <span class="stat-value">{{ statsData.insightCount }}</span>
           <span class="stat-label">Insights</span>
         </div>
       </div>
       <div class="stat-card">
-        <span class="stat-icon">📚</span>
         <div class="stat-content">
           <span class="stat-value">{{ statsData.experienceCount }}</span>
           <span class="stat-label">Experiences</span>
@@ -83,7 +77,7 @@
             <div class="pattern-card">
               <div class="pattern-header">
                 <span class="pattern-type-badge" [class]="'type-' + pattern.type">
-                  {{ getPatternTypeIcon(pattern.type) }} {{ formatPatternType(pattern.type) }}
+                  {{ formatPatternType(pattern.type) }}
                 </span>
                 <span class="pattern-effectiveness" [class.high]="pattern.effectiveness >= 0.7" [class.low]="pattern.effectiveness < 0.3">
                   {{ (pattern.effectiveness * 100).toFixed(0) }}%
@@ -108,7 +102,6 @@
 
           @if (filteredPatterns().length === 0) {
             <div class="empty-state">
-              <span class="empty-icon">🧬</span>
               <span class="empty-text">No patterns discovered yet</span>
             </div>
           }
@@ -145,7 +138,7 @@
             >
               <div class="insight-header">
                 <span class="insight-type-badge" [class]="'type-' + insight.type">
-                  {{ getInsightTypeIcon(insight.type) }} {{ insight.type }}
+                  {{ insight.type }}
                 </span>
                 <span class="insight-confidence">
                   {{ (insight.confidence * 100).toFixed(0) }}% confidence
@@ -161,7 +154,6 @@
 
           @if (filteredInsights().length === 0) {
             <div class="empty-state">
-              <span class="empty-icon">💡</span>
               <span class="empty-text">No insights generated yet</span>
             </div>
           }
@@ -226,7 +218,7 @@
             >
               <div class="outcome-header">
                 <span class="outcome-status">
-                  {{ outcome.success ? '✅' : '❌' }}
+                  {{ outcome.success ? 'Success' : 'Failed' }}
                 </span>
                 <span class="outcome-type">{{ outcome.taskType }}</span>
                 <span class="outcome-time">{{ formatTimeAgo(outcome.timestamp) }}</span>
@@ -235,16 +227,15 @@
                 {{ truncate(outcome.taskDescription, 80) }}
               </div>
               <div class="outcome-meta">
-                <span class="meta-item">🤖 {{ outcome.agentUsed }}</span>
-                <span class="meta-item">🧠 {{ outcome.modelUsed }}</span>
-                <span class="meta-item">🔢 {{ outcome.tokensUsed }} tokens</span>
+                <span class="meta-item">{{ outcome.agentUsed }}</span>
+                <span class="meta-item">{{ outcome.modelUsed }}</span>
+                <span class="meta-item">{{ outcome.tokensUsed }} tokens</span>
               </div>
             </div>
           }
 
           @if (filteredOutcomes().length === 0) {
             <div class="empty-state">
-              <span class="empty-icon">📊</span>
               <span class="empty-text">No outcomes recorded yet</span>
             </div>
           }
@@ -333,7 +324,7 @@
                 <div class="patterns-mini-list">
                   @for (pattern of outcome.patterns; track pattern.value) {
                     <div class="pattern-mini">
-                      <span class="pattern-mini-type">{{ getPatternTypeIcon(pattern.type) }}</span>
+                      <span class="pattern-mini-type">{{ formatPatternType(pattern.type) }}</span>
                       <span class="pattern-mini-value">{{ pattern.value }}</span>
                     </div>
                   }

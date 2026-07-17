@@ -302,25 +302,6 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     void this.onSelectOption(selectRequest, option.id);
   }
 
-  getRequestIcon(requestType: string): string {
-    switch (requestType) {
-      case 'switch_mode':
-        return '🔄';
-      case 'approve_action':
-        return '✋';
-      case 'confirm':
-        return '❓';
-      case 'select_option':
-        return '📋';
-      case 'input_required':
-        return '🔐';
-      case 'ask_questions':
-        return '💬';
-      default:
-        return '📢';
-    }
-  }
-
   getApproveLabel(request: UserActionRequest): string {
     switch (request.requestType) {
       case 'switch_mode':
@@ -534,11 +515,6 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       });
     }
     return entries.length > 0 ? entries : undefined;
-  }
-
-  /** True when the request should render clickable AskUserQuestion options. */
-  isAskUserQuestion(request: UserActionRequest): boolean {
-    return !!request.askQuestions && request.askQuestions.length > 0;
   }
 
   isAskOptionSelected(requestId: string, questionIndex: number, label: string): boolean {

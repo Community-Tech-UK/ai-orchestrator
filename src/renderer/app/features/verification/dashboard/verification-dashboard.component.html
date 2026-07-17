@@ -2,7 +2,6 @@
       <!-- Header -->
       <div class="verification-header">
         <div class="header-left">
-          <span class="verification-icon">🔍</span>
           <h1 class="verification-title">Multi-Agent Verification</h1>
         </div>
         <div class="header-actions">
@@ -80,7 +79,6 @@
                         </div>
                       } @else {
                         <div class="file-chip">
-                          <span class="file-icon">{{ preview.icon }}</span>
                           <span class="file-name">{{ preview.file.name }}</span>
                           <button class="file-remove" type="button" (click)="removeFile(preview.file)" [attr.aria-label]="'Remove ' + preview.file.name">×</button>
                         </div>
@@ -99,7 +97,6 @@
                       (click)="selectWorkingDirectory()"
                       [title]="workingDirectory() || 'Select a folder for agents to scan'"
                     >
-                      <span class="directory-icon">📁</span>
                       <span class="directory-path">
                         {{ workingDirectory() || 'Select folder to scan...' }}
                       </span>
@@ -296,7 +293,6 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
                       role="button"
                     >
                       <div class="session-info">
-                        <span class="session-icon">📋</span>
                         <span class="session-prompt">{{ truncatePrompt(session.prompt) }}</span>
                       </div>
                       <div class="session-meta">

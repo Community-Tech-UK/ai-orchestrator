@@ -85,7 +85,6 @@ select {
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-full);
   font-weight: 600;
-  text-transform: uppercase;
 }
 
 .health-badge[data-healthy='true'] {
@@ -177,7 +176,6 @@ select {
   font-weight: 600;
   color: var(--text-muted);
   font-size: 0.75rem;
-  text-transform: uppercase;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -207,8 +205,6 @@ select {
   border-radius: var(--radius-sm);
   font-size: 0.6875rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
   color: var(--text-muted);
   background: var(--glass-light);
   border: 1px solid var(--border-color);

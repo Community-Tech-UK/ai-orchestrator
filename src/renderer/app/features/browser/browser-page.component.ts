@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import type {
+  BrowserActionClass,
   BrowserAllowedOrigin,
   BrowserApprovalRequest,
   BrowserAuditEntry,
@@ -63,9 +64,9 @@ export class BrowserPageComponent implements OnInit {
   readonly loading = signal(false);
   readonly working = signal(false);
   readonly errorMessage = signal<string | null>(null);
-  readonly autonomousSubmitEnabled = signal(false);
-  readonly autonomousDestructiveEnabled = signal(false);
-  readonly autonomousConfirmation = signal('');
+  readonly autonomousSubmitEnabled = signal<Record<string, boolean>>({});
+  readonly autonomousDestructiveEnabled = signal<Record<string, boolean>>({});
+  readonly autonomousConfirmations = signal<Record<string, string>>({});
   readonly showAuditHistory = signal(false);
   readonly showUnattendedSection = signal(false);
 
@@ -216,8 +217,26 @@ export class BrowserPageComponent implements OnInit {
     this.navigateUrl.set((event.target as HTMLInputElement).value);
   }
 
-  onAutonomousConfirmationInput(event: Event): void {
-    this.autonomousConfirmation.set((event.target as HTMLInputElement).value);
+  onAutonomousConfirmationInput(approval: BrowserApprovalRequest, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.autonomousConfirmations.update((current) => ({
+      ...current,
+      [approval.requestId]: value,
+    }));
+  }
+
+  toggleAutonomousSubmit(approval: BrowserApprovalRequest): void {
+    this.autonomousSubmitEnabled.update((current) => ({
+      ...current,
+      [approval.requestId]: !current[approval.requestId],
+    }));
+  }
+
+  toggleAutonomousDestructive(approval: BrowserApprovalRequest): void {
+    this.autonomousDestructiveEnabled.update((current) => ({
+      ...current,
+      [approval.requestId]: !current[approval.requestId],
+    }));
   }
 
   async createProfile(): Promise<void> {
@@ -406,18 +425,26 @@ export class BrowserPageComponent implements OnInit {
     approval: BrowserApprovalRequest,
     mode: BrowserGrantMode,
   ): Promise<void> {
-    if (mode === 'autonomous' && this.autonomousConfirmation().trim() !== 'AUTONOMOUS') {
-      this.errorMessage.set('Type AUTONOMOUS before approving autonomous browser control.');
+    const phrase = this.confirmationPhrase(approval);
+    const grant = this.grantProposalForApproval(approval, mode);
+    if (
+      this.grantRequiresAutonomousConfirmation(grant) &&
+      this.autonomousConfirmation(approval).trim() !== phrase
+    ) {
+      this.errorMessage.set(
+        `Type ${phrase} to allow publishing or deleting without another prompt.`,
+      );
       return;
     }
     const response = await this.runGatewayAction(() =>
       this.ipc.approveRequest({
         requestId: approval.requestId,
-        grant: this.grantProposalForApproval(approval, mode),
+        grant,
         reason: 'Approved from Browser Gateway page',
       }),
     );
     if (response) {
+      this.clearAutonomousDraft(approval.requestId);
       await Promise.all([this.refreshApprovals(), this.refreshGrants()]);
     }
   }
@@ -472,11 +499,37 @@ export class BrowserPageComponent implements OnInit {
       element.nearbyText,
     ].filter(Boolean).join(' · ');
   }
-
   formatUploadRoots(approval: BrowserApprovalRequest): string {
     return approval.proposedGrant.uploadRoots?.join(', ') ?? '';
   }
-
+  autonomousSubmitIsEnabled(approval: BrowserApprovalRequest): boolean {
+    return Boolean(this.autonomousSubmitEnabled()[approval.requestId]);
+  }
+  autonomousDestructiveIsEnabled(approval: BrowserApprovalRequest): boolean {
+    return Boolean(this.autonomousDestructiveEnabled()[approval.requestId]);
+  }
+  autonomousConfirmation(approval: BrowserApprovalRequest): string {
+    return this.autonomousConfirmations()[approval.requestId] ?? '';
+  }
+  requiresAutonomousConfirmation(approval: BrowserApprovalRequest): boolean {
+    const grant = this.grantProposalForApproval(approval, 'autonomous');
+    return this.grantRequiresAutonomousConfirmation(grant);
+  }
+  confirmationPhrase(approval: BrowserApprovalRequest): string {
+    const profileLabel = this.profiles().find((profile) => profile.id === approval.profileId)?.label;
+    if (profileLabel) {
+      return profileLabel;
+    }
+    const location = approval.origin ?? approval.url;
+    if (location) {
+      try {
+        return new URL(location).host;
+      } catch {
+        return location;
+      }
+    }
+    return approval.profileId;
+  }
   profileExecutionLocationLabel(profile: BrowserProfile): string {
     const nodeId = profile.executionNodeId;
     if (!nodeId) {
@@ -612,20 +665,36 @@ export class BrowserPageComponent implements OnInit {
     approval: BrowserApprovalRequest,
     mode: BrowserGrantMode,
   ): BrowserGrantProposal {
-    const allowedActionClasses = new Set(approval.proposedGrant.allowedActionClasses);
-    if (mode === 'autonomous') {
-      if (this.autonomousSubmitEnabled()) {
-        allowedActionClasses.add('submit');
-      }
-      if (this.autonomousDestructiveEnabled()) {
-        allowedActionClasses.add('destructive');
-      }
-    }
+    const allowedActionClasses = mode === 'autonomous'
+      ? this.autonomousActionClasses(approval)
+      : new Set(approval.proposedGrant.allowedActionClasses);
     return {
       ...approval.proposedGrant,
       mode,
       allowedActionClasses: Array.from(allowedActionClasses),
       autonomous: mode === 'autonomous',
     };
+  }
+  private autonomousActionClasses(approval: BrowserApprovalRequest): Set<BrowserActionClass> {
+    const allowedActionClasses = new Set(approval.proposedGrant.allowedActionClasses);
+    if (this.autonomousSubmitIsEnabled(approval)) {
+      allowedActionClasses.add('submit');
+    }
+    if (this.autonomousDestructiveIsEnabled(approval)) {
+      allowedActionClasses.add('destructive');
+    }
+    return allowedActionClasses;
+  }
+  private grantRequiresAutonomousConfirmation(grant: BrowserGrantProposal): boolean {
+    return grant.allowedActionClasses.some((actionClass) =>
+      actionClass === 'submit' || actionClass === 'destructive');
+  }
+  private clearAutonomousDraft(requestId: string): void {
+    this.autonomousSubmitEnabled.update((current) => this.withoutKey(current, requestId));
+    this.autonomousDestructiveEnabled.update((current) => this.withoutKey(current, requestId));
+    this.autonomousConfirmations.update((current) => this.withoutKey(current, requestId));
+  }
+  private withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+    return Object.fromEntries(Object.entries(record).filter(([entryKey]) => entryKey !== key));
   }
 }

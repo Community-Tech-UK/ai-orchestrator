@@ -7,10 +7,9 @@
  * requests for other instances routinely expired unseen after 30 minutes and
  * the agent stalled on a decision nobody knew was wanted.
  *
- * Quick Approve/Deny acts on the oldest pending request with its proposed
- * grant. Requests proposing autonomous mode or credential/payment classes are
- * never one-click approvable here — those route to the /browser page, which
- * carries the explicit confirmation flow.
+ * Low-risk proposals can be narrowed to one action or the current session here.
+ * Credential, payment, unknown, submit, and destructive scopes require review.
+ * Deny stays available for every pending request.
  */
 
 import {
@@ -23,10 +22,23 @@ import {
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import type { BrowserApprovalRequest } from '@contracts/types/browser';
+import type {
+  BrowserActionClass,
+  BrowserApprovalRequest,
+  BrowserGrantProposal,
+} from '@contracts/types/browser';
 import { BrowserGatewayIpcService } from '../services/ipc/browser-gateway-ipc.service';
 
 const REFRESH_INTERVAL_MS = 5_000;
+const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
+  'credential',
+  'financial_identity',
+  'sensitive_identity',
+  'payment',
+  'submit',
+  'destructive',
+  'unknown',
+]);
 
 @Component({
   selector: 'app-browser-approvals-banner',
@@ -40,8 +52,8 @@ const REFRESH_INTERVAL_MS = 5_000;
           <div class="banner-copy">
             <strong>
               {{ pendingRequests().length === 1
-                ? 'A browser action is waiting for your approval'
-                : pendingRequests().length + ' browser actions are waiting for your approval' }}
+                ? 'Browser permission requested'
+                : pendingRequests().length + ' browser permissions requested' }}
             </strong>
             <span>{{ describe(approval) }}</span>
             @if (errorMessage(); as err) {
@@ -55,23 +67,29 @@ const REFRESH_INTERVAL_MS = 5_000;
               type="button"
               class="banner-btn primary"
               [disabled]="working() !== null"
-              aria-label="Approve the oldest pending browser request"
-              (click)="approve(approval)"
-            >{{ working() === approval.requestId ? 'Approving…' : 'Approve' }}</button>
+              (click)="approve(approval, 'per_action')"
+            >{{ working() === approval.requestId ? 'Allowing…' : 'Allow once' }}</button>
             <button
               type="button"
               class="banner-btn"
               [disabled]="working() !== null"
-              aria-label="Deny the oldest pending browser request"
-              (click)="deny(approval)"
-            >Deny</button>
+              (click)="approve(approval, 'session')"
+            >Allow for session</button>
           }
           <button
             type="button"
+            class="banner-btn danger"
+            [disabled]="working() !== null"
+            aria-label="Deny the oldest pending browser request"
+            (click)="deny(approval)"
+          >Deny</button>
+          <button
+            type="button"
             class="banner-btn"
+            [disabled]="working() !== null"
             aria-label="Review pending browser requests"
             (click)="review()"
-          >Review</button>
+          >More options</button>
         </div>
       </section>
     }
@@ -84,9 +102,9 @@ const REFRESH_INTERVAL_MS = 5_000;
       gap: 1rem;
       min-height: 44px;
       padding: 0.6rem 1rem;
-      border-top: 1px solid rgba(91, 140, 255, 0.32);
-      border-bottom: 1px solid rgba(91, 140, 255, 0.32);
-      background: rgba(91, 140, 255, 0.13);
+      border-top: 1px solid color-mix(in srgb, var(--warning-color, #f59e0b) 38%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--warning-color, #f59e0b) 38%, transparent);
+      background: color-mix(in srgb, var(--warning-color, #f59e0b) 10%, var(--bg-primary, #0f172a));
       color: var(--text-primary, #e5e5e5);
       z-index: 1002;
     }
@@ -103,8 +121,8 @@ const REFRESH_INTERVAL_MS = 5_000;
       height: 9px;
       flex: 0 0 auto;
       border-radius: 999px;
-      background: #5b8cff;
-      box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.16);
+      background: var(--warning-color, #f59e0b);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-color, #f59e0b) 18%, transparent);
     }
 
     .banner-copy {
@@ -155,6 +173,23 @@ const REFRESH_INTERVAL_MS = 5_000;
     .banner-btn.primary {
       border-color: rgba(89, 201, 138, 0.42);
       background: rgba(89, 201, 138, 0.14);
+    }
+
+    .banner-btn.danger {
+      color: var(--error-color, #f87171);
+      border-color: color-mix(in srgb, var(--error-color, #f87171) 42%, transparent);
+    }
+
+    .banner-btn:focus-visible {
+      outline: 2px solid var(--warning-color, #f59e0b);
+      outline-offset: 2px;
+    }
+
+    @media (max-width: 860px) {
+      .approvals-banner,
+      .banner-actions {
+        flex-wrap: wrap;
+      }
     }
   `],
 })
@@ -209,23 +244,26 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   }
 
   describe(approval: BrowserApprovalRequest): string {
-    const action = approval.toolName.replace(/^browser\./, '');
-    const where = approval.origin ?? approval.url ?? approval.profileId;
+    const action = approval.toolName.replace(/^browser\./, '').replaceAll('_', ' ');
+    const where = this.displayHost(approval.origin ?? approval.url ?? approval.profileId);
     const file = approval.filePath ? ` · ${approval.filePath}` : '';
     return `${action} on ${where}${file} · session ${approval.instanceId}`;
   }
 
   canQuickApprove(approval: BrowserApprovalRequest): boolean {
-    return (
-      approval.proposedGrant.mode !== 'autonomous' &&
-      !approval.proposedGrant.allowedActionClasses.some(
-        (actionClass) => actionClass === 'credential' || actionClass === 'payment',
-      )
-    );
+    return this.quickGrant(approval, 'session') !== null;
   }
 
-  async approve(approval: BrowserApprovalRequest): Promise<void> {
+  async approve(
+    approval: BrowserApprovalRequest,
+    mode: 'per_action' | 'session',
+  ): Promise<void> {
     if (this.working()) {
+      return;
+    }
+    const grant = this.quickGrant(approval, mode);
+    if (!grant) {
+      this.errorMessage.set('This request needs review before it can be allowed.');
       return;
     }
     this.working.set(approval.requestId);
@@ -233,8 +271,10 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
     try {
       const response = await this.browserGateway.approveRequest({
         requestId: approval.requestId,
-        grant: approval.proposedGrant,
-        reason: 'Approved from approvals banner',
+        grant,
+        reason: mode === 'per_action'
+          ? 'Allowed once from browser permission bar'
+          : 'Allowed for session from browser permission bar',
       });
       if (!response.success) {
         this.errorMessage.set(response.error?.message ?? 'Failed to approve browser request.');
@@ -277,5 +317,35 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
     this.pendingRequests.update((requests) =>
       requests.filter((request) => request.requestId !== requestId),
     );
+  }
+
+  private quickGrant(
+    approval: BrowserApprovalRequest,
+    mode: 'per_action' | 'session',
+  ): BrowserGrantProposal | null {
+    const proposedClasses = approval.proposedGrant.allowedActionClasses;
+    if (
+      QUICK_APPROVAL_BLOCKED_CLASSES.has(approval.actionClass) ||
+      !proposedClasses.includes(approval.actionClass) ||
+      proposedClasses.some((actionClass) => QUICK_APPROVAL_BLOCKED_CLASSES.has(actionClass))
+    ) {
+      return null;
+    }
+    return {
+      ...approval.proposedGrant,
+      mode,
+      allowedActionClasses: mode === 'per_action'
+        ? [approval.actionClass]
+        : [...new Set(proposedClasses)],
+      autonomous: false,
+    };
+  }
+
+  private displayHost(value: string): string {
+    try {
+      return new URL(value).host;
+    } catch {
+      return value;
+    }
   }
 }

@@ -525,8 +525,6 @@ interface IndexStats {
       font-size: 11px;
       font-weight: 700;
       color: var(--text-muted);
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
     }
 
     /* Stats grid */
@@ -553,8 +551,7 @@ interface IndexStats {
     .stat-label {
       font-size: 10px;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      font-weight: 600;
     }
 
     .stat-value {

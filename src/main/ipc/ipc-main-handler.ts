@@ -72,6 +72,7 @@ import {
   registerDiagnosticsHandlers,
   bridgeCliUpdatePillDeltaToWindow,
   registerAppHandlers,
+  registerRendererTelemetryHandlers,
   registerFileHandlers,
   registerCodebaseHandlers,
   registerWorkspaceHintHandlers,
@@ -216,6 +217,9 @@ export class IpcMainHandler {
       windowManager: this.windowManager,
       getIpcAuthToken: () => this.ipcAuthToken
     });
+
+    // Renderer telemetry: log forwarding + freeze-detection heartbeat
+    registerRendererTelemetryHandlers();
     registerStateResyncHandler({
       instanceManager: this.instanceManager,
       ensureAuthorized: this.ensureAuthorized.bind(this),

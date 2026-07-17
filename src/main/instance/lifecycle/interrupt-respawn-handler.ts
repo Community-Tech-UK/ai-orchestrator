@@ -1054,6 +1054,23 @@ export class InterruptRespawnHandler {
       const previousAdapter = this.deps.getAdapter(instanceId);
       const capabilities = this.deps.getAdapterRuntimeCapabilities(previousAdapter);
 
+      // This path normally runs after the CLI process already exited, but some
+      // callers (e.g. the self-permission-grant restart) invoke it on a LIVE
+      // instance. Leaving the old process running while a new one resumes the
+      // SAME session id puts two writers on one session transcript, and the
+      // stale process keeps streaming into a replaced adapter. Tear it down
+      // and wait for its exit before spawning the replacement. Listeners come
+      // off first so this deliberate kill is not reported as another
+      // unexpected exit.
+      if (previousAdapter?.isRunning()) {
+        logger.info('Previous CLI process still running at auto-respawn; terminating it first', {
+          instanceId,
+          pid: previousAdapter.getPid?.() ?? null,
+        });
+        previousAdapter.removeAllListeners();
+        await previousAdapter.terminate(true).catch(() => undefined);
+      }
+
       // Now clean up the previous adapter
       this.deps.deleteAdapter(instanceId);
 

@@ -43,6 +43,7 @@ describe('BrowserApprovalRequestComponent', () => {
   };
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     currentInstanceId = signal<string | null>('inst-1');
     fakeBrowserGateway.listApprovalRequests.mockResolvedValue({
       success: true,
@@ -114,6 +115,37 @@ describe('BrowserApprovalRequestComponent', () => {
       reason: 'Approved from session page',
     });
   });
+
+  it('requires request-scoped confirmation for submit access', async () => {
+    const approval = makeBrowserApprovalRequest({
+      proposedGrant: {
+        ...makeBrowserApprovalRequest().proposedGrant,
+        allowedActionClasses: ['read', 'navigate', 'input', 'submit'],
+      },
+    });
+    fakeBrowserGateway.listApprovalRequests.mockResolvedValue({
+      success: true,
+      data: {
+        decision: 'allowed',
+        outcome: 'succeeded',
+        auditId: 'audit-1',
+        data: [approval],
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    await fixture.componentInstance.approveRequest(approval);
+    expect(fakeBrowserGateway.approveRequest).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.errorMessage()).toContain('Type localhost:4567');
+
+    fixture.componentInstance.onAutonomousConfirmationInput(
+      approval,
+      { target: { value: 'localhost:4567' } } as unknown as Event,
+    );
+    await fixture.componentInstance.approveRequest(approval);
+    expect(fakeBrowserGateway.approveRequest).toHaveBeenCalledTimes(1);
+  });
 });
 
 function overrideInputs(
@@ -131,7 +163,9 @@ async function settle(fixture: ComponentFixture<BrowserApprovalRequestComponent>
   }
 }
 
-function makeBrowserApprovalRequest(): BrowserApprovalRequest {
+function makeBrowserApprovalRequest(
+  overrides: Partial<BrowserApprovalRequest> = {},
+): BrowserApprovalRequest {
   return {
     id: 'browser-request-1',
     requestId: 'browser-request-1',
@@ -161,5 +195,6 @@ function makeBrowserApprovalRequest(): BrowserApprovalRequest {
     status: 'pending',
     createdAt: 1_900_000_000_000,
     expiresAt: 1_900_000_600_000,
+    ...overrides,
   };
 }

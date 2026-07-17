@@ -88,7 +88,7 @@ import { ChannelStore } from '../../../../core/state/channel.store';
       border: 1px solid var(--border-color, #333); border-radius: 6px;
       padding: 0.75rem; background: var(--bg-secondary, #1e1e1e);
     }
-    .message-item.outbound { border-left: 3px solid var(--primary-color, #3b82f6); }
+    .message-item.outbound { border-color: color-mix(in srgb, var(--primary-color, #3b82f6) 40%, transparent); }
     .message-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.375rem; font-size: 0.8125rem; }
     .platform-badge { font-size: 0.75rem; color: var(--text-muted, #888); font-weight: 600; }
     .sender-name { font-weight: 500; }

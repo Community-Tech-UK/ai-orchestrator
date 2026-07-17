@@ -130,7 +130,13 @@ export class RuntimeReadinessCoordinator {
           return;
         }
 
-        if (this.hasQuietResumeReadiness(adapter)) {
+        // A quiet-but-writable stream is only positive proof when no native
+        // resume attempt is awaiting its session-id echo. Claude emits the
+        // confirming system message ~1-2s after spawn; ending the probe on the
+        // first writable poll (~200ms) would report "healthy but unconfirmed",
+        // which callers must treat as unproven — and historically turned every
+        // Claude auto-respawn into a fresh-session fallback.
+        if (this.hasQuietResumeReadiness(adapter) && !this.hasPendingNativeResumeProof(adapter)) {
           finish('healthy');
         }
       }, pollIntervalMs);
@@ -147,8 +153,13 @@ export class RuntimeReadinessCoordinator {
         }
         // A live process with no definitive proof after the (scaled) window is
         // inconclusive, not dead — never destroy a possibly-healthy session on
-        // a mere timeout.
-        finish(this.hasQuietResumeReadiness(adapter) ? 'healthy' : 'inconclusive');
+        // a mere timeout. With a native attempt still unconfirmed, quiet
+        // writability is not proof either.
+        finish(
+          this.hasQuietResumeReadiness(adapter) && !this.hasPendingNativeResumeProof(adapter)
+            ? 'healthy'
+            : 'inconclusive',
+        );
       }, scaledTimeoutMs);
 
       stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {
@@ -299,16 +310,30 @@ export class RuntimeReadinessCoordinator {
    * a wrong-session resume — caller should treat as a health failure.
    */
   private getResumeProof(adapter: CliAdapter): boolean | null {
-    const a = adapter as unknown as {
-      getRuntimeSnapshot?: () => { resumeProof?: ResumeAttemptResult | null };
-      getResumeAttemptResult?: () => ResumeAttemptResult | null | undefined;
-    };
-    const result = a.getRuntimeSnapshot?.().resumeProof ?? a.getResumeAttemptResult?.();
+    const result = this.getResumeAttempt(adapter);
     if (!result || result.source === 'none') return null;
     if (result.source === 'fresh-fallback') return false;
     if (result.actualSessionId && result.requestedSessionId
         && result.actualSessionId !== result.requestedSessionId) return false;
     if (result.confirmed) return true;
     return null;
+  }
+
+  /**
+   * True while an attempted native resume has neither confirmed nor disproved
+   * itself yet — the window in which quiet writability must not be mistaken
+   * for resume proof.
+   */
+  private hasPendingNativeResumeProof(adapter: CliAdapter): boolean {
+    return this.getResumeAttempt(adapter)?.source === 'native'
+      && this.getResumeProof(adapter) === null;
+  }
+
+  private getResumeAttempt(adapter: CliAdapter): ResumeAttemptResult | null {
+    const a = adapter as unknown as {
+      getRuntimeSnapshot?: () => { resumeProof?: ResumeAttemptResult | null };
+      getResumeAttemptResult?: () => ResumeAttemptResult | null | undefined;
+    };
+    return a.getRuntimeSnapshot?.().resumeProof ?? a.getResumeAttemptResult?.() ?? null;
   }
 }

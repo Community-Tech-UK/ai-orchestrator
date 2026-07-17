@@ -35,7 +35,7 @@ import type { ContextSection } from '../../../../../shared/types/rlm.types';
               [class.active]="sectionTypeFilter() === type"
               (click)="setSectionTypeFilter(type)"
             >
-              {{ getSectionTypeIcon(type) }} {{ type }}
+              {{ type }}
             </button>
           }
         </div>
@@ -55,7 +55,7 @@ import type { ContextSection } from '../../../../../shared/types/rlm.types';
           >
             <div class="section-header">
               <span class="section-type" [class]="'type-' + section.type">
-                {{ getSectionTypeIcon(section.type) }} {{ section.type }}
+                {{ section.type }}
               </span>
               <span class="section-tokens">{{ section.tokens }} tokens</span>
             </div>
@@ -66,7 +66,7 @@ import type { ContextSection } from '../../../../../shared/types/rlm.types';
             <div class="section-meta">
               @if (section.filePath) {
                 <span class="meta-item"
-                  >📁 {{ section.filePath | slice: -30 }}</span
+                  >{{ section.filePath | slice: -30 }}</span
                 >
               }
               @if (section.depth > 0) {
@@ -74,7 +74,7 @@ import type { ContextSection } from '../../../../../shared/types/rlm.types';
               }
               @if (section.summarizes && section.summarizes.length > 0) {
                 <span class="meta-item"
-                  >📚 Summarizes {{ section.summarizes.length }} sections</span
+                  >Summarizes {{ section.summarizes.length }} sections</span
                 >
               }
             </div>
@@ -83,7 +83,6 @@ import type { ContextSection } from '../../../../../shared/types/rlm.types';
 
         @if (filteredSections().length === 0) {
           <div class="empty-state">
-            <span class="empty-icon">🧩</span>
             <span class="empty-text">No sections in context store</span>
           </div>
         }
@@ -165,7 +164,8 @@ import type { ContextSection } from '../../../../../shared/types/rlm.types';
         }
 
         &.summary {
-          border-left: 3px solid #f59e0b;
+          border-color: var(--warning-border);
+          background: var(--warning-bg);
         }
       }
 
@@ -198,13 +198,13 @@ import type { ContextSection } from '../../../../../shared/types/rlm.types';
         }
 
         &.type-external {
-          background: rgba(139, 92, 246, 0.2);
-          color: #8b5cf6;
+          background: rgba(var(--primary-rgb), 0.2);
+          color: var(--primary-color);
         }
 
         &.type-summary {
-          background: rgba(236, 72, 153, 0.2);
-          color: #ec4899;
+          background: rgba(var(--secondary-rgb), 0.2);
+          color: var(--secondary-hover);
         }
       }
 
@@ -250,11 +250,6 @@ import type { ContextSection } from '../../../../../shared/types/rlm.types';
         color: var(--text-muted);
       }
 
-      .empty-icon {
-        font-size: 32px;
-        opacity: 0.5;
-      }
-
       .empty-text {
         font-size: 13px;
       }
@@ -291,23 +286,6 @@ export class ContextSectionsPanelComponent {
 
   setSectionTypeFilter(type: ContextSection['type'] | ''): void {
     this.sectionTypeFilter.set(type);
-  }
-
-  getSectionTypeIcon(type: ContextSection['type']): string {
-    switch (type) {
-      case 'file':
-        return '📁';
-      case 'conversation':
-        return '💬';
-      case 'tool_output':
-        return '🔧';
-      case 'external':
-        return '🌐';
-      case 'summary':
-        return '📋';
-      default:
-        return '📄';
-    }
   }
 
   truncateContent(content: string): string {

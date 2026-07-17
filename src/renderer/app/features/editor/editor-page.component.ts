@@ -416,8 +416,6 @@ function editorIcon(id: string): string {
       font-size: 11px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
     /* ========== Current Editor Card ========== */
@@ -546,8 +544,6 @@ function editorIcon(id: string): string {
     .section-label {
       font-size: 10px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
       color: var(--text-muted);
     }
 
@@ -721,8 +717,6 @@ function editorIcon(id: string): string {
       font-size: 10px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
       white-space: nowrap;
     }
 

@@ -345,6 +345,12 @@ export function createInfrastructureDomain(
         metadata
       });
     },
+
+    // Fire-and-forget on purpose: a heartbeat must never queue an invoke
+    // round-trip behind a blocked main process.
+    rendererHeartbeat: (payload: { seq: number; sentAt: number }): void => {
+      ipcRenderer.send(ch.RENDERER_HEARTBEAT, payload);
+    },
     logGetLogs: (options?: {
       level?: 'debug' | 'info' | 'warn' | 'error';
       context?: string;

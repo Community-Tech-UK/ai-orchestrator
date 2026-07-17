@@ -124,8 +124,7 @@ import { summarizeCopilotPlanUpdate } from './copilot-plan-update';
       font-family: var(--font-mono);
       font-size: 10px;
       line-height: 1.2;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      font-weight: 600;
     }
 
     .plan-card__eyebrow {

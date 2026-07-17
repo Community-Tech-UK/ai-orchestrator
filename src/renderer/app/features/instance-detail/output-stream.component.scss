@@ -212,9 +212,7 @@
       }
 
       .message-type {
-        text-transform: uppercase;
         font-weight: 600;
-        letter-spacing: 0.14em;
         opacity: 0.36;
         font-family: var(--font-mono);
         font-size: 8px;
@@ -502,7 +500,7 @@
           border-color: rgba(var(--primary-rgb), 0.92);
           color: var(--bg-primary);
           transform: scale(1.05);
-          box-shadow: 0 10px 20px rgba(var(--primary-rgb), 0.24);
+          box-shadow: var(--shadow-md);
         }
 
         svg {
@@ -666,10 +664,9 @@
       .boundary-label {
         font-size: 11px;
         font-family: var(--font-mono);
+        font-weight: 600;
         color: var(--text-muted);
         white-space: nowrap;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
       }
 
       .load-more-skeleton {

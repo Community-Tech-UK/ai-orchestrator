@@ -1635,7 +1635,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               });
             }
 
+            // YOLO runs with --dangerously-skip-permissions: the CLI cannot ask
+            // for a permission grant, so denial-looking text here is either the
+            // command's own output or an explicit settings deny rule — and the
+            // "add allow rule + restart" recovery can fix neither. Restarting a
+            // healthy YOLO session over it destroys context for nothing.
             if (
+              !this.spawnOptions.yoloMode &&
               block.type === 'tool_result' &&
               block.is_error === true &&
               typeof block.content === 'string' &&

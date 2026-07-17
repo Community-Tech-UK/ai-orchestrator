@@ -300,8 +300,6 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
     .button-row {

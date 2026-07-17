@@ -27,8 +27,6 @@ h3 {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: .04em;
 }
 
 .muted {

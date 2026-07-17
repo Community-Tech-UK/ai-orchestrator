@@ -49,8 +49,7 @@
         font-family: var(--font-mono);
         font-size: 10px;
         line-height: 1.2;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-weight: 600;
       }
 
       .history-preview-eyebrow {
@@ -153,8 +152,6 @@
       .recovery-banner-title {
         font-weight: 600;
         font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
       }
 
       .recovery-banner-desc {
@@ -276,8 +273,7 @@
         color: var(--text-muted);
         font-family: var(--font-mono);
         font-size: 9px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-weight: 600;
         cursor: pointer;
         transition: all var(--transition-fast);
 
@@ -313,9 +309,8 @@
         flex-shrink: 0;
         border: 1px solid rgba(255, 255, 255, 0.05);
         border-radius: 18px;
-        background: rgba(255, 255, 255, 0.02);
+        background: var(--bg-elevated, rgba(255, 255, 255, 0.02));
         padding: 8px;
-        backdrop-filter: blur(12px);
       }
 
       /* Entrance animation for the toggle bar */
@@ -388,18 +383,6 @@
         position: relative;
       }
 
-      .creating-view::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: radial-gradient(
-          ellipse 60% 40% at 50% 40%,
-          rgba(var(--primary-rgb), 0.1),
-          transparent
-        );
-        pointer-events: none;
-      }
-
       .creating-content {
         text-align: center;
         position: relative;
@@ -414,7 +397,6 @@
         border-radius: 50%;
         margin: 0 auto var(--spacing-lg);
         animation: spin 0.8s linear infinite;
-        box-shadow: 0 0 24px rgba(var(--primary-rgb), 0.3);
       }
 
       @keyframes spin {
@@ -426,8 +408,7 @@
       .creating-text {
         font-family: var(--font-mono);
         font-size: 13px;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
+        font-weight: 600;
         color: var(--text-muted);
         margin: 0;
         animation: pulse 2s ease-in-out infinite;

@@ -143,14 +143,14 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
     .rlm-storage-warning span, .progress span, .result span { color:var(--text-secondary, #aeb3bd); font-size:.82rem; }
     .warning-actions, footer { display:flex; gap:.5rem; align-items:center; }
     button { border:1px solid var(--border-color, #3a3f49); border-radius:6px; background:var(--surface-raised, #252831); color:var(--text-primary, #f2f3f5); padding:.45rem .7rem; cursor:pointer; }
-    button.primary { background:var(--accent-color, #6f7bf7); border-color:transparent; color:white; }
+    button.primary { background:var(--accent-color, #b89a66); border-color:transparent; color:white; }
     button:disabled { cursor:not-allowed; opacity:.5; }
-    button:focus-visible { outline:2px solid var(--accent-color, #8791ff); outline-offset:2px; }
+    button:focus-visible { outline:2px solid var(--accent-color, #b89a66); outline-offset:2px; }
     .modal-backdrop { position:fixed; inset:0; z-index:1200; display:grid; place-items:center; padding:1rem; background:rgba(4,5,8,.72); }
     .maintenance-modal { width:min(620px, 100%); max-height:min(760px, calc(100vh - 2rem)); overflow:auto; padding:1.2rem; border:1px solid var(--border-color, #363b45); border-radius:12px; background:var(--surface, #181a1f); box-shadow:0 24px 70px rgba(0,0,0,.42); color:var(--text-primary, #f2f3f5); }
     header { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; }
     h2 { margin:.15rem 0 .6rem; font-size:1.25rem; }
-    .eyebrow { color:var(--accent-color, #8791ff); font-size:.72rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase; }
+    .eyebrow { color:var(--accent-color, #b89a66); font-size:.72rem; font-weight:700; }
     .icon-button { padding:.2rem .55rem; font-size:1.25rem; }
     p { color:var(--text-secondary, #aeb3bd); line-height:1.5; }
     .metrics { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:.6rem; margin:1rem 0; }
@@ -159,9 +159,9 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
     .backup-note code, .result code { overflow-wrap:anywhere; }
     .progress, .result { display:flex; gap:.7rem; margin:1rem 0; padding:.8rem; border-radius:8px; background:var(--surface-raised, #252831); }
     .progress { flex-direction:row; align-items:center; }
-    .spinner { width:1rem; height:1rem; flex:none; border:2px solid var(--border-color, #515764); border-top-color:var(--accent-color, #8791ff); border-radius:50%; animation:spin .8s linear infinite; }
-    .success { border-left:3px solid var(--success, #48b77a); }
-    .failure { border-left:3px solid var(--danger, #e05252); }
+    .spinner { width:1rem; height:1rem; flex:none; border:2px solid var(--border-color, #515764); border-top-color:var(--accent-color, #b89a66); border-radius:50%; animation:spin .8s linear infinite; }
+    .success { border: 1px solid color-mix(in srgb, var(--success, #48b77a) 45%, transparent); }
+    .failure { border: 1px solid color-mix(in srgb, var(--danger, #e05252) 45%, transparent); }
     .cleanup-warning { color:var(--warning, #e1a53a) !important; }
     footer { justify-content:flex-end; margin-top:1rem; }
     @keyframes spin { to { transform:rotate(360deg); } }

@@ -87,11 +87,15 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                 <span class="provider-code">{{ entry.code }}</span>
                 <span class="provider-value">{{ entry.value }}</span>
                 @if (pacingProvider() === entry.provider) {
-                  <span
+                  <svg
                     class="pacing-badge"
                     [attr.data-testid]="'quota-pacing-' + entry.provider"
-                    title="Quota is being consumed ahead of this window's time budget"
-                  >⚡</span>
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round"
+                  >
+                    <title>Quota is being consumed ahead of this window's time budget</title>
+                    <path d="M13 3 4 14h6l-1 7 9-11h-6l1-7Z"/>
+                  </svg>
                 }
               </span>
             }
@@ -166,7 +170,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
     .provider-code { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
-    .pacing-badge { color: #f6c453; font-size: 0.72rem; line-height: 1; }
+    .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
     .text { text-transform: none; }
     .aux { opacity: 0.75; font-weight: 500; }
     .popover {

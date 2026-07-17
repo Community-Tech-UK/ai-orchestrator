@@ -359,6 +359,36 @@ export class InstanceProviderLimitHandler {
   }
 
   /**
+   * Instance-teardown hook. Drops all in-memory park state for the instance
+   * (early-resume probe interval, parked entry, resume-dedupe marker) so a
+   * terminated instance never leaves zombie timers or Map entries behind.
+   *
+   * By default also cancels the scheduled resume (in-process timer + durable
+   * automation) — a deliberately terminated session must not be revived later
+   * by its quota-reset automation. Pass `preserveDurableResume` on app-shutdown
+   * bulk termination: the durable automation is the only thing that resumes a
+   * parked session after a restart, so shutdown must leave it standing.
+   *
+   * Unlike {@link cancel}, never touches the waitReason (the instance is being
+   * deleted) and never clears the ledger's known-limit gate (the provider is
+   * still limited for every other instance).
+   */
+  release(instanceId: string, opts?: { preserveDurableResume?: boolean }): void {
+    const entry = this.parked.get(instanceId);
+    this.parked.delete(instanceId);
+    this.lastResumeAt.delete(instanceId);
+    if (!entry) return;
+    entry.stopEarlyResumeProbe();
+    if (!opts?.preserveDurableResume) {
+      entry.cancel();
+    }
+    logger.info('Released provider-limit park state on instance termination', {
+      instanceId,
+      durableResumePreserved: !!opts?.preserveDurableResume,
+    });
+  }
+
+  /**
    * User-override of the durable known-limit gate for this instance's
    * provider/model. A recorded resumeAt can go stale mid-window (the user
    * applies a reset credit or buys more quota), and the ledger has no way to

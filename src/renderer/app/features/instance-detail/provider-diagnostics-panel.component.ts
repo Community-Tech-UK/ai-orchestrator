@@ -95,7 +95,7 @@ interface ProviderDiagnosticItem {
 
     .diagnostic-label {
       color: var(--text-muted);
-      text-transform: uppercase;
+      font-weight: 600;
     }
 
     .diagnostic-value {

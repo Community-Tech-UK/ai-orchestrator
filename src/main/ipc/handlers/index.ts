@@ -74,3 +74,4 @@ export { registerCampaignHandlers } from './campaign-handlers';
 export { registerRlmMaintenanceHandlers } from './rlm-maintenance-handlers';
 export { registerNotificationHandlers } from './notification-handlers';
 export { registerContextEvidenceHandlers } from './context-evidence.handlers';
+export { registerRendererTelemetryHandlers } from './renderer-telemetry-handlers';

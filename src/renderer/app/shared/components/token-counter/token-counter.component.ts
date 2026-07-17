@@ -25,7 +25,9 @@ import { CommonModule } from '@angular/common';
     <div class="token-counter" [class.compact]="compact()">
       <!-- Main counter -->
       <div class="counter-main">
-        <span class="token-icon">{{ icon() }}</span>
+        @if (icon()) {
+          <span class="token-icon">{{ icon() }}</span>
+        }
         <span class="token-value">{{ formattedTotal() }}</span>
         <span class="token-label">tokens</span>
       </div>
@@ -205,7 +207,7 @@ export class TokenCounterComponent {
   showBreakdown = input<boolean>(true);
   showCost = input<boolean>(true);
   compact = input<boolean>(false);
-  icon = input<string>('🔤');
+  icon = input<string>('');
 
   // Computed
   formattedTotal = computed(() => this.formatNumber(this.totalTokens()));

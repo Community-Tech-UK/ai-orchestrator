@@ -317,6 +317,80 @@ describe('InstanceProviderLimitHandler.cancel', () => {
   });
 });
 
+describe('InstanceProviderLimitHandler.release', () => {
+  it('drops the park and cancels the scheduled resume on a normal terminate', () => {
+    const h = makeHarness();
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'resend me' });
+
+    h.handler.release('i1');
+
+    expect(h.handler.isParked('i1')).toBe(false);
+    expect(h.cancels).toBe(1);
+    // Termination is not a user override: waitReason untouched (instance is
+    // being deleted), and the resume-dedupe marker is gone with the instance.
+    expect(h.waitReasons.get('i1')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt: expect.any(Number) });
+  });
+
+  it('preserves the durable resume on shutdown-style release', () => {
+    const h = makeHarness();
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'resend me' });
+
+    h.handler.release('i1', { preserveDurableResume: true });
+
+    expect(h.handler.isParked('i1')).toBe(false);
+    expect(h.cancels).toBe(0); // durable automation left standing for post-restart resume
+  });
+
+  it('does not clear the ledger known-limit gate (provider is still limited for others)', () => {
+    const ledger = { record: vi.fn(), getActive: vi.fn(() => null), clearActive: vi.fn(() => 1) };
+    const h = makeHarness({
+      providerLimitLedger: ledger,
+      getProviderModel: () => ({ provider: CLAUDE, model: 'claude-sonnet-4-5' }),
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, model: 'claude-sonnet-4-5', resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: null });
+
+    h.handler.release('i1');
+
+    expect(ledger.clearActive).not.toHaveBeenCalled();
+  });
+
+  it('clears the resume-dedupe marker so the id can park fresh later, and is a no-op for unknown ids', () => {
+    const h = makeHarness();
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'turn' });
+    h.handler.cancel('i1'); // sets the dedupe marker
+    h.handler.release('i1');
+
+    // A fresh park + resume on a recycled id must not be swallowed by the
+    // dedupe marker of the terminated predecessor.
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'turn 2' });
+    expect(h.handler.resumeNow('i1')).toBe(true);
+    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'turn 2' }]);
+
+    expect(() => h.handler.release('never-parked')).not.toThrow();
+  });
+
+  it('stops the early-resume probe on release', async () => {
+    vi.useFakeTimers();
+    try {
+      const probe = vi.fn(async () => null);
+      const h = makeHarness({ probeQuotaSnapshot: probe });
+      h.handler.maybePark({
+        instanceId: 'i1',
+        provider: CLAUDE,
+        resetAtHint: Date.now() + 24 * 60 * 60 * 1000,
+        reason: 'limit',
+        resumePrompt: 'resend me',
+      });
+
+      h.handler.release('i1');
+      await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS * 2 + 5);
+      expect(probe).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('InstanceProviderLimitHandler known-limit gate override', () => {
   function makeOverrideHarness() {
     const calls: string[] = [];

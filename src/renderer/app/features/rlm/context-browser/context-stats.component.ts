@@ -50,8 +50,7 @@ import type { ContextStore } from '../../../../../shared/types/rlm.types';
       .stat-label {
         font-size: 10px;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        font-weight: 600;
       }
 
       .stat-value {

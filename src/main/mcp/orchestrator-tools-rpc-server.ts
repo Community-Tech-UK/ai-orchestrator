@@ -441,6 +441,12 @@ export class OrchestratorToolsRpcServer {
         }
         return tool.handler(validated);
       }
+      case 'orchestrator_tools.request_doc_review':
+      case 'orchestrator_tools.get_doc_review_result':
+        // Both tools validate their own payload via zod schemas inside
+        // doc-review-tools.ts, so the generic same-name dispatch (used for
+        // the release tools below) is sufficient here.
+        return this.dispatchSameNameTool(request.method, params);
       case 'orchestrator_tools.build_release_operational_readiness_report':
       case 'orchestrator_tools.build_ios_release_plan':
       case 'orchestrator_tools.build_android_release_plan':

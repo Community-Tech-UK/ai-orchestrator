@@ -298,9 +298,8 @@ export interface DiffAction {
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-color);
       font-size: 0.75em;
+      font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
 
     .diff-table {

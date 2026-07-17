@@ -60,8 +60,7 @@
     gap: var(--spacing-md);
     padding: var(--spacing-sm) var(--spacing-md);
     background: color-mix(in srgb, var(--surface-sunken-bg) 52%, transparent);
-    border: 1px solid color-mix(in srgb, var(--border-color) 64%, transparent);
-    border-left: 3px solid var(--primary-color);
+    border: 1px solid color-mix(in srgb, var(--primary-color) 40%, transparent);
     border-radius: var(--radius-md);
     transition:
       background var(--transition-fast),
@@ -72,7 +71,7 @@
     }
 
     &.is-fallback {
-      border-left-color: color-mix(in srgb, var(--border-strong) 70%, transparent);
+      border-color: color-mix(in srgb, var(--border-strong) 70%, transparent);
       opacity: 0.86;
     }
   }
@@ -117,8 +116,6 @@
     border-radius: var(--radius-full);
     font-size: var(--text-2xs);
     font-weight: 700;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
     color: var(--text-secondary);
     background: color-mix(in srgb, var(--surface-raised-bg, var(--bg-elevated)) 60%, transparent);
     border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
@@ -136,8 +133,6 @@
     border-radius: var(--radius-full);
     font-size: var(--text-2xs);
     font-weight: 700;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
     cursor: help;
     // Default = "unavailable" (danger). Rate-limited is a softer warning.
     color: var(--danger-color, #ff6b6b);

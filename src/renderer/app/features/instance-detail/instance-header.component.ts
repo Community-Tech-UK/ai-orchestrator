@@ -389,10 +389,6 @@ export class InstanceHeaderComponent implements OnInit {
     return color + '26'; // 15% opacity hex
   });
 
-  agentModeIcon = computed(() => {
-    return this.getAgentModeIcon(this.instance().agentId);
-  });
-
   agentModeName = computed(() => {
     return this.getAgentModeName(this.instance().agentId);
   });
@@ -448,7 +444,7 @@ export class InstanceHeaderComponent implements OnInit {
       case 'ollama':
         return '#888888';
       case 'copilot':
-        return '#A855F7';
+        return '#B89A66';
       case 'cursor':
         // Cursor's mark is monochrome; use a light neutral so it stays visible
         // on dark surfaces rather than rendering black-on-black.
@@ -457,17 +453,6 @@ export class InstanceHeaderComponent implements OnInit {
         return '#1DA1F2';
       default:
         return '#888888';
-    }
-  }
-
-  getAgentModeIcon(agentId?: string): string {
-    switch (agentId) {
-      case 'plan':
-        return '🗺️';
-      case 'review':
-        return '👁️';
-      default:
-        return '🔨';
     }
   }
 

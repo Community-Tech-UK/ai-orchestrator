@@ -124,9 +124,8 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
     .node-platform {
       margin-left: auto;
       font-size: 11px;
+      font-weight: 600;
       color: var(--color-text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     .node-metrics {
@@ -144,9 +143,8 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
 
     .metric-label {
       font-size: 10px;
+      font-weight: 600;
       color: var(--color-text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     .metric-value {

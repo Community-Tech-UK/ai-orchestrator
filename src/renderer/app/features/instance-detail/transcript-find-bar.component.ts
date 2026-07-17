@@ -96,7 +96,6 @@ import {
       background: rgba(12, 18, 17, 0.96);
       box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
       color: var(--text-secondary);
-      backdrop-filter: blur(10px);
     }
 
     .find-icon {

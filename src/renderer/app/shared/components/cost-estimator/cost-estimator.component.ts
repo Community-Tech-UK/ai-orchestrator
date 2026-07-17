@@ -123,9 +123,8 @@ import type { CostBreakdown, SessionCostSummary } from '../../../../../shared/ty
 
     .total-label {
       font-size: 12px;
+      font-weight: 600;
       color: var(--text-muted, #6b7280);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     .total-value {

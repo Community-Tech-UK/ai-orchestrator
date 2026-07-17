@@ -190,8 +190,6 @@ interface WelcomeProjectContext {
         justify-content: center;
         padding: 28px 32px;
         background:
-          radial-gradient(circle at 18% 18%, rgba(var(--secondary-rgb), 0.12), transparent 26%),
-          radial-gradient(circle at 82% 82%, rgba(var(--primary-rgb), 0.09), transparent 24%),
           linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 22%),
           var(--bg-primary);
         position: relative;
@@ -249,15 +247,13 @@ interface WelcomeProjectContext {
         border: 1px solid rgba(255, 255, 255, 0.07);
         background:
           linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
-          rgba(255, 255, 255, 0.03);
-        backdrop-filter: blur(18px);
+          var(--bg-elevated, rgba(255, 255, 255, 0.03));
       }
 
       .folder-label {
         font-family: var(--font-mono);
         font-size: 10px;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
+        font-weight: 600;
         color: var(--text-muted);
       }
 
@@ -291,8 +287,7 @@ interface WelcomeProjectContext {
         color: var(--text-secondary);
         font-family: var(--font-mono);
         font-size: 10px;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
+        font-weight: 600;
         cursor: pointer;
         transition: all var(--transition-fast);
       }
@@ -326,8 +321,7 @@ interface WelcomeProjectContext {
       .project-context-loading {
         font-family: var(--font-mono);
         font-size: 10px;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
+        font-weight: 600;
         color: var(--text-muted);
       }
 
@@ -342,8 +336,7 @@ interface WelcomeProjectContext {
         color: var(--text-secondary);
         font-family: var(--font-mono);
         font-size: 10px;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
+        font-weight: 600;
       }
 
       .context-pill-draft {
@@ -388,8 +381,7 @@ interface WelcomeProjectContext {
       .welcome-composer-label {
         font-family: var(--font-mono);
         font-size: 10px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
+        font-weight: 600;
         color: var(--text-muted);
       }
 
@@ -402,8 +394,7 @@ interface WelcomeProjectContext {
         color: var(--text-secondary);
         font-family: var(--font-mono);
         font-size: 10px;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
+        font-weight: 600;
         cursor: pointer;
         transition: all var(--transition-fast);
       }

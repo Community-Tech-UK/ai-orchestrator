@@ -49,7 +49,6 @@ interface MemoryStats {
     <div class="stats-container">
       <!-- Header -->
       <div class="stats-header">
-        <span class="stats-icon">📊</span>
         <span class="stats-title">Memory Statistics</span>
       </div>
 
@@ -57,7 +56,6 @@ interface MemoryStats {
         <!-- Overview Cards -->
         <div class="overview-cards">
           <div class="stat-card">
-            <span class="card-icon">🧠</span>
             <div class="card-content">
               <span class="card-value">{{ s.totalEntries }}</span>
               <span class="card-label">Total Entries</span>
@@ -65,7 +63,6 @@ interface MemoryStats {
           </div>
 
           <div class="stat-card">
-            <span class="card-icon">📝</span>
             <div class="card-content">
               <span class="card-value">{{ formatTokens(s.tokenUsage.total) }}</span>
               <span class="card-label">Tokens Used</span>
@@ -73,7 +70,6 @@ interface MemoryStats {
           </div>
 
           <div class="stat-card">
-            <span class="card-icon">🔄</span>
             <div class="card-content">
               <span class="card-value">{{ totalOperations() }}</span>
               <span class="card-label">Operations</span>
@@ -81,7 +77,6 @@ interface MemoryStats {
           </div>
 
           <div class="stat-card">
-            <span class="card-icon">♻️</span>
             <div class="card-content">
               <span class="card-value">{{ s.evictions.total }}</span>
               <span class="card-label">Evictions</span>
@@ -129,7 +124,6 @@ interface MemoryStats {
           <div class="type-breakdown">
             @for (type of entryTypes; track type) {
               <div class="type-row">
-                <span class="type-icon">{{ getTypeIcon(type) }}</span>
                 <span class="type-name">{{ type }}</span>
                 <div class="type-bar-container">
                   <div
@@ -149,22 +143,18 @@ interface MemoryStats {
           <span class="section-title">Operations</span>
           <div class="operations-grid">
             <div class="op-item add">
-              <span class="op-icon">➕</span>
               <span class="op-count">{{ s.operations.adds }}</span>
               <span class="op-label">Adds</span>
             </div>
             <div class="op-item update">
-              <span class="op-icon">✏️</span>
               <span class="op-count">{{ s.operations.updates }}</span>
               <span class="op-label">Updates</span>
             </div>
             <div class="op-item delete">
-              <span class="op-icon">🗑️</span>
               <span class="op-count">{{ s.operations.deletes }}</span>
               <span class="op-label">Deletes</span>
             </div>
             <div class="op-item noop">
-              <span class="op-icon">⏭️</span>
               <span class="op-count">{{ s.operations.noops }}</span>
               <span class="op-label">No-ops</span>
             </div>
@@ -234,7 +224,6 @@ interface MemoryStats {
         </div>
       } @else {
         <div class="empty-state">
-          <span class="empty-icon">📊</span>
           <span class="empty-text">No statistics available</span>
         </div>
       }
@@ -255,10 +244,6 @@ interface MemoryStats {
       gap: var(--spacing-sm);
       padding: var(--spacing-md);
       border-bottom: 1px solid var(--border-color);
-    }
-
-    .stats-icon {
-      font-size: 18px;
     }
 
     .stats-title {
@@ -282,10 +267,6 @@ interface MemoryStats {
       padding: var(--spacing-sm);
       background: var(--bg-tertiary);
       border-radius: var(--radius-sm);
-    }
-
-    .card-icon {
-      font-size: 24px;
     }
 
     .card-content {
@@ -318,8 +299,6 @@ interface MemoryStats {
       font-size: 11px;
       font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       margin-bottom: var(--spacing-sm);
     }
 
@@ -403,10 +382,6 @@ interface MemoryStats {
       gap: var(--spacing-sm);
     }
 
-    .type-icon {
-      font-size: 14px;
-    }
-
     .type-name {
       width: 70px;
       font-size: 12px;
@@ -454,11 +429,6 @@ interface MemoryStats {
       padding: var(--spacing-sm);
       background: var(--bg-tertiary);
       border-radius: var(--radius-sm);
-    }
-
-    .op-icon {
-      font-size: 16px;
-      margin-bottom: 4px;
     }
 
     .op-count {
@@ -592,11 +562,6 @@ interface MemoryStats {
       color: var(--text-muted);
     }
 
-    .empty-icon {
-      font-size: 32px;
-      opacity: 0.5;
-    }
-
     .empty-text {
       font-size: 13px;
     }
@@ -616,23 +581,6 @@ export class MemoryStatsComponent {
     if (!s) return 0;
     return s.operations.adds + s.operations.updates + s.operations.deletes + s.operations.noops;
   });
-
-  getTypeIcon(type: string): string {
-    switch (type) {
-      case 'episodic':
-        return '📅';
-      case 'procedural':
-        return '⚙️';
-      case 'semantic':
-        return '💡';
-      case 'short_term':
-        return '💭';
-      case 'long_term':
-        return '🗄️';
-      default:
-        return '📝';
-    }
-  }
 
   formatTokens(tokens: number): string {
     if (tokens >= 1000000) {

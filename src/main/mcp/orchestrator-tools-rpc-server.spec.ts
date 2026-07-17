@@ -279,6 +279,68 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(postponeHandler).not.toHaveBeenCalled();
   });
 
+  it('dispatches request_doc_review to the matching tool by name', async () => {
+    const requestHandler = vi.fn(async (args: unknown) => ({ reviewId: 'rev-1', echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'request_doc_review',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: requestHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 40,
+      method: 'orchestrator_tools.request_doc_review',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { artifact_path: '.aio-review/plan.html', title: 'Plan review' },
+      },
+    });
+
+    expect(requestHandler).toHaveBeenCalledOnce();
+    expect(requestHandler.mock.calls[0]?.[0]).toEqual({
+      artifact_path: '.aio-review/plan.html',
+      title: 'Plan review',
+    });
+    expect(result).toEqual({
+      reviewId: 'rev-1',
+      echoed: { artifact_path: '.aio-review/plan.html', title: 'Plan review' },
+    });
+  });
+
+  it('dispatches get_doc_review_result to the matching tool by name', async () => {
+    const getResultHandler = vi.fn(async (args: unknown) => ({ found: true, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'get_doc_review_result',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: getResultHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 41,
+      method: 'orchestrator_tools.get_doc_review_result',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { review_id: 'rev-1' },
+      },
+    });
+
+    expect(getResultHandler).toHaveBeenCalledOnce();
+    expect(getResultHandler.mock.calls[0]?.[0]).toEqual({ review_id: 'rev-1' });
+    expect(result).toEqual({ found: true, echoed: { review_id: 'rev-1' } });
+  });
+
   it('dispatches run_on_node to the matching tool with validated payload', async () => {
     const runHandler = vi.fn(async (args: unknown) => ({ instanceId: 'inst-1', echoed: args }));
     const { server } = makeServer({

@@ -60,8 +60,7 @@ h2 {
 
 h3 {
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
@@ -79,7 +78,6 @@ h3 {
   color: var(--primary-color);
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .icon-btn,

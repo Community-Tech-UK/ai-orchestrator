@@ -258,6 +258,59 @@ describe('RuntimeReadinessCoordinator.evaluateResumeHealth', () => {
     await expect(verdict).resolves.toBe('healthy');
   });
 
+  it('does not settle on quiet writability while a native resume attempt is unconfirmed', async () => {
+    // Regression: Claude echoes the resumed session id ~1-2s after spawn. The
+    // probe used to end 'healthy' on the first writable poll (~200ms) with the
+    // attempt still unconfirmed, which the lifecycle layer then had to treat as
+    // unproven — every auto-respawn degraded to a fresh session.
+    const adapter = makeAdapter('claude-cli');
+    adapter.formatter = { isWritable: vi.fn(() => true) };
+    let attempt: Record<string, unknown> = {
+      source: 'native',
+      confirmed: false,
+      requestedSessionId: 'session-1',
+    };
+    adapter.getResumeAttemptResult = vi.fn(() => attempt);
+    const coord = new RuntimeReadinessCoordinator(
+      makeDeps(adapter as unknown as CliAdapter, 1, 'busy', 1),
+    );
+
+    let settled: string | undefined;
+    void coord.evaluateResumeHealth('inst-1', 1000, 50).then((v) => {
+      settled = v;
+    });
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(settled).toBeUndefined(); // writable alone must not prove the resume
+
+    attempt = {
+      source: 'native',
+      confirmed: true,
+      requestedSessionId: 'session-1',
+      actualSessionId: 'session-1',
+    };
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe('healthy');
+  });
+
+  it('reports inconclusive at timeout when a native attempt is still unconfirmed despite writability', async () => {
+    const adapter = makeAdapter('claude-cli');
+    adapter.formatter = { isWritable: vi.fn(() => true) };
+    adapter.getResumeAttemptResult = vi.fn(() => ({
+      source: 'native',
+      confirmed: false,
+      requestedSessionId: 'session-1',
+    }));
+    const coord = new RuntimeReadinessCoordinator(
+      makeDeps(adapter as unknown as CliAdapter, 1, 'busy', 1),
+    );
+
+    const verdict = coord.evaluateResumeHealth('inst-1', 100, 50);
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(verdict).resolves.toBe('inconclusive');
+  });
+
   it('stretches the health window by the load multiplier before giving up', async () => {
     // With base 100ms × multiplier 3 = 300ms window, a probe must still be
     // pending at 150ms and only settle once the scaled window elapses.

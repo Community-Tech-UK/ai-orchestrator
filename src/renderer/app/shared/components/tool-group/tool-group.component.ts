@@ -141,9 +141,7 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
     }
 
     .tool-item-type {
-      text-transform: uppercase;
       font-weight: 600;
-      letter-spacing: 0.05em;
       opacity: 0.6;
     }
 

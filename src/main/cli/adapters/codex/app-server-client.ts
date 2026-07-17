@@ -9,7 +9,7 @@
  * Derived from the codex-plugin-cc reference implementation (app-server.mjs).
  */
 
-import { ChildProcess, spawn, spawnSync } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import { createHash } from 'node:crypto';
 import net from 'net';
 import readline from 'readline';
@@ -19,6 +19,11 @@ import { getClampedLoadWatchdogMultiplier } from '../../../runtime/system-load-m
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import { buildCliSpawnOptions } from '../../cli-environment';
 import { parseNdjsonLine } from '../../json-parse';
+import {
+  checkAppServerAvailability,
+  parseBrokerEndpoint,
+  terminateProcessTree,
+} from './app-server-process-utils';
 import type {
   AppServerMethod,
   AppServerNotification,
@@ -456,8 +461,14 @@ class SocketAppServerClient extends AppServerClientBase {
     }
 
     this.socket = await new Promise<net.Socket>((resolve, reject) => {
-      const sock = net.createConnection(socketPath, () => resolve(sock));
-      sock.on('error', reject);
+      const sock = net.createConnection(socketPath, () => {
+        // Hand error ownership to the permanent handler below — leaving this
+        // listener attached would fire the settled promise's reject on every
+        // later socket error alongside the real handler.
+        sock.off('error', reject);
+        resolve(sock);
+      });
+      sock.once('error', reject);
     });
 
     this.socket.on('data', (data) => this.handleChunk(data.toString()));
@@ -483,10 +494,19 @@ class SocketAppServerClient extends AppServerClientBase {
     if (this.closed) return;
     this.closed = true;
 
-    if (this.socket) {
-      this.socket.end();
-      this.socket = null;
-    }
+    const socket = this.socket;
+    this.socket = null;
+    if (!socket) return;
+
+    // Graceful half-close; if the broker never FINs back, force-drop the
+    // connection so pending requests reject and the fd + listeners release
+    // instead of lingering until process exit.
+    socket.end();
+    const destroyTimer = setTimeout(() => socket.destroy(), GRACEFUL_SHUTDOWN_MS);
+    destroyTimer.unref();
+    await this.exitPromise;
+    clearTimeout(destroyTimer);
+    socket.removeAllListeners();
   }
 
   protected sendMessage(message: Record<string, unknown>): void {
@@ -584,117 +604,8 @@ export async function withAppServer<T>(
   }
 }
 
-// ─── Utilities ──────────────────────────────────────────────────────────────
-
-/**
- * Parses a broker endpoint string into a socket path.
- * Formats: `unix:/path/to/broker.sock` or `pipe:\\.\pipe\name`
- */
-function parseBrokerEndpoint(endpoint: string): string | null {
-  if (endpoint.startsWith('unix:')) {
-    return endpoint.slice(5);
-  }
-  if (endpoint.startsWith('pipe:')) {
-    return endpoint.slice(5);
-  }
-  // Bare path — treat as Unix socket
-  if (endpoint.startsWith('/') || endpoint.startsWith('\\\\.\\pipe\\')) {
-    return endpoint;
-  }
-  return null;
-}
-
-/**
- * Cross-platform process tree termination.
- *
- * - Windows: `taskkill /PID /T /F` to kill the entire process tree
- * - Unix: `process.kill(-pid, 'SIGTERM')` to kill the process group,
- *   with fallback to single-process kill
- */
-export function terminateProcessTree(pid: number | undefined): void {
-  if (pid === undefined) return;
-
-  const isWindows = process.platform === 'win32';
-
-  if (isWindows) {
-    try {
-      const result = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
-        timeout: 5000,
-      });
-      if (result.error && (result.error as NodeJS.ErrnoException).code === 'ENOENT') {
-        // taskkill not available, fall back to single process kill
-        try { process.kill(pid); } catch { /* already dead */ }
-      }
-    } catch {
-      try { process.kill(pid); } catch { /* already dead */ }
-    }
-    return;
-  }
-
-  // Unix: kill process group (negative PID)
-  try {
-    process.kill(-pid, 'SIGTERM');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
-      // Process group kill failed for non-ESRCH reason — try single kill
-      try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
-    }
-    // ESRCH = no such process, already dead — that's fine
-  }
-}
-
-/**
- * Returns the sanitized environment used for Codex launch preflights.
- * PATH expansion and Windows shell handling are layered in by
- * `buildCliSpawnOptions()` so this stays aligned with the real launch path.
- */
-function buildCheckEnv(): Record<string, string> {
-  return getSafeEnvForTrustedProcess() as Record<string, string>;
-}
-
-/**
- * Checks whether `codex app-server` is available by running `codex app-server --help`.
- * Returns true if the subcommand exists, false otherwise.
- *
- * When this returns false the adapter silently falls back to exec mode, which
- * has its own downsides (cold-start cost per turn, no native resume). Logging
- * the failure reason is critical — otherwise "why is exec mode being used?"
- * becomes unanswerable without reattaching a debugger.
- */
-export function checkAppServerAvailability(): boolean {
-  try {
-    const spawnOptions = buildCliSpawnOptions(buildCheckEnv());
-    const result = spawnSync('codex', ['app-server', '--help'], {
-      timeout: 5000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      ...spawnOptions,
-    });
-
-    const stdout = result.stdout?.toString() ?? '';
-    const stderr = result.stderr?.toString() ?? '';
-    const available = result.status === 0 || stdout.includes('app-server');
-
-    if (!available) {
-      logger.warn('codex app-server subcommand not available — falling back to exec mode', {
-        status: result.status,
-        signal: result.signal,
-        timedOut: result.signal === 'SIGTERM' || (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT',
-        errorCode: (result.error as NodeJS.ErrnoException | undefined)?.code,
-        errorMessage: result.error?.message,
-        stdoutPreview: stdout.slice(0, 200),
-        stderrPreview: stderr.slice(0, 200),
-      });
-    }
-
-    return available;
-  } catch (err) {
-    logger.warn('codex app-server check threw — falling back to exec mode', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
-}
-
-// Re-export types and constants for convenience
+// Re-export types, constants, and process utilities for convenience — existing
+// importers (and vi.mock overrides) reach everything through this module.
+export { checkAppServerAvailability, terminateProcessTree };
 export { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV, SERVICE_NAME };
 export type { AppServerClient as CodexAppServerClientInstance };

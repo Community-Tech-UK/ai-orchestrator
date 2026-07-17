@@ -86,10 +86,10 @@ import type { DiffLoader } from './diff-loader';
       padding: 4px 18px;
       font-family: var(--font-mono);
       font-size: 11px;
-      background: rgba(120, 140, 220, 0.1);
-      color: #8a9be8;
-      border-top: 1px solid rgba(120, 140, 220, 0.15);
-      border-bottom: 1px solid rgba(120, 140, 220, 0.15);
+      background: rgba(91, 141, 191, 0.1);
+      color: #5b8dbf;
+      border-top: 1px solid rgba(91, 141, 191, 0.15);
+      border-bottom: 1px solid rgba(91, 141, 191, 0.15);
       user-select: none;
     }
 

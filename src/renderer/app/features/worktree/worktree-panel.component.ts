@@ -52,7 +52,6 @@ interface WorktreeAction {
       <!-- Header -->
       <div class="worktree-header">
         <div class="header-left">
-          <span class="worktree-icon">🌳</span>
           <span class="worktree-title">Worktrees</span>
           <span class="worktree-count">{{ sessions().length }} active</span>
         </div>
@@ -96,7 +95,7 @@ interface WorktreeAction {
                 </div>
                 <div class="worktree-meta">
                   <span class="meta-item">
-                    📁 {{ session.worktreePath | truncatePath }}
+                    {{ session.worktreePath | truncatePath }}
                   </span>
                   @if (session.filesChanged && session.filesChanged.length > 0) {
                     <span class="meta-item changes">
@@ -126,7 +125,10 @@ interface WorktreeAction {
                     title="View Changes"
                     (click)="onAction(session.id, 'view'); $event.stopPropagation()"
                   >
-                    👁
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
                   </button>
                 }
                 @if (session.status === 'active') {
@@ -193,7 +195,6 @@ interface WorktreeAction {
                 <div class="files-list">
                   @for (file of session.filesChanged.slice(0, 10); track file) {
                     <div class="file-item">
-                      <span class="file-icon">📄</span>
                       <span class="file-name">{{ file }}</span>
                     </div>
                   }
@@ -234,7 +235,12 @@ interface WorktreeAction {
         }
       } @else {
         <div class="empty-state">
-          <span class="empty-icon">🌳</span>
+          <svg class="empty-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <line x1="6" y1="3" x2="6" y2="15"></line>
+            <circle cx="18" cy="6" r="3"></circle>
+            <circle cx="6" cy="18" r="3"></circle>
+            <path d="M18 9a9 9 0 0 1-9 9"></path>
+          </svg>
           <span class="empty-text">No active worktrees</span>
           <span class="empty-hint">
             Worktrees are created when agents work on parallel tasks
@@ -264,10 +270,6 @@ interface WorktreeAction {
       display: flex;
       align-items: center;
       gap: var(--spacing-sm);
-    }
-
-    .worktree-icon {
-      font-size: 18px;
     }
 
     .worktree-title {
@@ -483,7 +485,6 @@ interface WorktreeAction {
       border-radius: var(--radius-sm);
       font-size: 10px;
       font-weight: 600;
-      text-transform: uppercase;
 
       &.status-active {
         background: var(--primary-color);
@@ -521,8 +522,6 @@ interface WorktreeAction {
       font-size: 10px;
       font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       margin-bottom: 4px;
     }
 
@@ -555,10 +554,6 @@ interface WorktreeAction {
       align-items: center;
       gap: var(--spacing-xs);
       font-size: 11px;
-    }
-
-    .file-icon {
-      font-size: 12px;
     }
 
     .file-name {
@@ -673,15 +668,15 @@ export class WorktreePanelComponent {
   getStatusIcon(status: WorktreeStatus): string {
     switch (status) {
       case 'active':
-        return '🔄';
+        return '↻';
       case 'completed':
-        return '✅';
-      case 'merged':
         return '✓';
+      case 'merged':
+        return '✔';
       case 'conflict':
-        return '⚠️';
+        return '⚠';
       case 'abandoned':
-        return '❌';
+        return '✕';
       default:
         return '○';
     }

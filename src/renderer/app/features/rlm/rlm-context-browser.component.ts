@@ -65,7 +65,6 @@ interface ToastNotification {
       <!-- Header -->
       <div class="rlm-header">
         <div class="header-left">
-          <span class="rlm-icon">🧩</span>
           <span class="rlm-title">RLM Context Manager</span>
           @if (store()) {
             <span class="section-count"
@@ -180,7 +179,6 @@ interface ToastNotification {
       } @else {
         <!-- No Store State -->
         <div class="no-store">
-          <span class="no-store-icon">🧩</span>
           <span class="no-store-title">No Context Store</span>
           <span class="no-store-text">
             Create a context store to start managing RLM context
@@ -218,10 +216,6 @@ interface ToastNotification {
         display: flex;
         align-items: center;
         gap: var(--spacing-sm);
-      }
-
-      .rlm-icon {
-        font-size: 18px;
       }
 
       .rlm-title {
@@ -287,11 +281,6 @@ interface ToastNotification {
         align-items: center;
         gap: var(--spacing-md);
         padding: var(--spacing-xl) var(--spacing-lg);
-      }
-
-      .no-store-icon {
-        font-size: 48px;
-        opacity: 0.5;
       }
 
       .no-store-title {

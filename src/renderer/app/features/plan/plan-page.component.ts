@@ -269,7 +269,6 @@ interface PlanState {
 
       @if (!planState()) {
         <div class="empty-state">
-          <div class="empty-icon">&#128196;</div>
           <div class="empty-title">No instance loaded</div>
           <div class="empty-desc">Enter an instance ID above and click "Load State" to begin.</div>
         </div>
@@ -407,8 +406,6 @@ interface PlanState {
     .state-label {
       font-size: 11px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
       color: var(--text-muted);
     }
 
@@ -419,8 +416,6 @@ interface PlanState {
       border-radius: 999px;
       font-size: 12px;
       font-weight: 600;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
     }
 
     .state-badge.badge-idle {
@@ -496,8 +491,6 @@ interface PlanState {
     .panel-title {
       font-size: 11px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
       color: var(--text-muted);
       flex-shrink: 0;
     }
@@ -651,8 +644,7 @@ interface PlanState {
 
     .history-action {
       font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      font-weight: 600;
       padding: 1px 6px;
       border-radius: 999px;
     }
@@ -696,11 +688,6 @@ interface PlanState {
       justify-content: center;
       gap: var(--spacing-sm);
       color: var(--text-muted);
-    }
-
-    .empty-icon {
-      font-size: 40px;
-      line-height: 1;
     }
 
     .empty-title {

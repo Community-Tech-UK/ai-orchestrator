@@ -110,8 +110,6 @@ export interface McpPreset {
       font-size: 11px;
       font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
     .panel-subtitle {

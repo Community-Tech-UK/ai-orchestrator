@@ -59,6 +59,21 @@
           }
         </dl>
 
+        @if (requiresAutonomousConfirmation(approval)) {
+          <label class="browser-approval-confirmation">
+            <span>
+              Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow publishing or deleting without another prompt.
+            </span>
+            <input
+              type="text"
+              [placeholder]="confirmationPhrase(approval)"
+              [value]="autonomousConfirmation(approval)"
+              [disabled]="workingRequestId() !== null"
+              (input)="onAutonomousConfirmationInput(approval, $event)"
+            />
+          </label>
+        }
+
         <div class="browser-approval-actions">
           <select
             class="browser-approval-mode"

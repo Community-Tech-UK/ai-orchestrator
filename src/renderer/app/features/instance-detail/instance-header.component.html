@@ -180,7 +180,7 @@
                 [title]="'Will switch to ' + pendingLabel + ' when the current turn finishes. Click to cancel.'"
                 (click)="cancelDesiredRuntime.emit()"
               >
-                ⏳ {{ pendingLabel }} <span aria-hidden="true">✕</span>
+                {{ pendingLabel }} <span aria-hidden="true">✕</span>
               </button>
             }
           }
@@ -196,7 +196,6 @@
             "
             (click)="cycleAgentMode.emit()"
           >
-            {{ agentModeIcon() }}
             {{ agentModeName() }}
           </button>
           <app-recent-directories-dropdown
@@ -221,8 +220,8 @@
             "
             (click)="toggleYolo.emit()"
           >
-            ⚡ YOLO {{ instance().yoloMode ? 'ON' : 'OFF'
-            }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON ⏳' : ' → OFF ⏳') : '' }}
+            YOLO {{ instance().yoloMode ? 'ON' : 'OFF'
+            }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON' : ' → OFF') : '' }}
           </button>
           @if (supportsFastMode()) {
             <button
@@ -238,17 +237,17 @@
               "
               (click)="toggleFastMode.emit()"
             >
-              🚀 FAST {{ instance().fastMode ? 'ON' : 'OFF' }}
+              FAST {{ instance().fastMode ? 'ON' : 'OFF' }}
             </button>
           }
           @if (activeSkillCount() > 0) {
             <span class="skills-badge" [title]="activeSkillsTooltip()">
-              🧩 {{ activeSkillCount() }} skill{{ activeSkillCount() > 1 ? 's' : '' }}
+              {{ activeSkillCount() }} skill{{ activeSkillCount() > 1 ? 's' : '' }}
             </span>
           }
           @if (enabledHookCount() > 0) {
             <span class="hooks-badge" [title]="enabledHooksTooltip()">
-              🪝 {{ enabledHookCount() }} hook{{ enabledHookCount() > 1 ? 's' : '' }}
+              {{ enabledHookCount() }} hook{{ enabledHookCount() > 1 ? 's' : '' }}
             </span>
           }
           <app-cross-model-review-indicator

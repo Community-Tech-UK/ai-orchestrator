@@ -35,7 +35,6 @@ interface MemoryEntryWithType extends MemoryEntry {
       <!-- Header -->
       <div class="memory-header">
         <div class="header-left">
-          <span class="memory-icon">🧠</span>
           <span class="memory-title">Memory Store</span>
           <span class="memory-count">{{ entries().length }} entries</span>
         </div>
@@ -121,11 +120,11 @@ interface MemoryEntryWithType extends MemoryEntry {
             <div class="entry-header">
               @if (entry.type) {
                 <span class="entry-type" [class]="'type-' + entry.type">
-                  {{ getTypeIcon(entry.type) }} {{ entry.type }}
+                  {{ entry.type }}
                 </span>
               } @else {
                 <span class="entry-type type-unknown">
-                  📝 memory
+                  memory
                 </span>
               }
               <div class="entry-scores">
@@ -141,7 +140,7 @@ interface MemoryEntryWithType extends MemoryEntry {
                 }
                 @if (entry.accessCount) {
                   <span class="score access" title="Access count">
-                    👁 {{ entry.accessCount }}
+                    A: {{ entry.accessCount }}
                   </span>
                 }
               </div>
@@ -168,7 +167,7 @@ interface MemoryEntryWithType extends MemoryEntry {
               </span>
               @if (entry.linkedEntries && entry.linkedEntries.length > 0) {
                 <span class="meta-item links">
-                  🔗 {{ entry.linkedEntries.length }} links
+                  {{ entry.linkedEntries.length }} links
                 </span>
               }
             </div>
@@ -178,10 +177,8 @@ interface MemoryEntryWithType extends MemoryEntry {
         @if (filteredEntries().length === 0) {
           <div class="empty-state">
             @if (entries().length === 0) {
-              <span class="empty-icon">🧠</span>
               <span class="empty-text">No memories stored yet</span>
             } @else {
-              <span class="empty-icon">🔍</span>
               <span class="empty-text">No memories match your filters</span>
             }
           </div>
@@ -194,11 +191,11 @@ interface MemoryEntryWithType extends MemoryEntry {
           <div class="details-header">
             @if (entry.type) {
               <span class="details-type" [class]="'type-' + entry.type">
-                {{ getTypeIcon(entry.type) }} {{ entry.type }}
+                {{ entry.type }}
               </span>
             } @else {
               <span class="details-type type-unknown">
-                📝 memory
+                memory
               </span>
             }
             <button class="close-btn" (click)="clearSelection()">✕</button>
@@ -264,7 +261,7 @@ interface MemoryEntryWithType extends MemoryEntry {
                       class="link-item"
                       (click)="navigateToLink(linkId)"
                     >
-                      🔗 {{ linkId | slice:0:8 }}...
+                      {{ linkId | slice:0:8 }}...
                     </button>
                   }
                 </div>
@@ -326,10 +323,6 @@ interface MemoryEntryWithType extends MemoryEntry {
       display: flex;
       align-items: center;
       gap: var(--spacing-sm);
-    }
-
-    .memory-icon {
-      font-size: 18px;
     }
 
     .memory-title {
@@ -510,12 +503,12 @@ interface MemoryEntryWithType extends MemoryEntry {
       }
 
       &.type-short_term {
-        background: rgba(139, 92, 246, 0.2);
+        background: var(--memory-short-term-alpha);
         color: var(--memory-short-term);
       }
 
       &.type-long_term {
-        background: rgba(236, 72, 153, 0.2);
+        background: var(--memory-long-term-alpha);
         color: var(--memory-long-term);
       }
 
@@ -627,8 +620,6 @@ interface MemoryEntryWithType extends MemoryEntry {
       font-size: 10px;
       font-weight: 600;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       margin-bottom: var(--spacing-xs);
     }
 
@@ -784,11 +775,6 @@ interface MemoryEntryWithType extends MemoryEntry {
       color: var(--text-muted);
     }
 
-    .empty-icon {
-      font-size: 32px;
-      opacity: 0.5;
-    }
-
     .empty-text {
       font-size: 13px;
     }
@@ -869,23 +855,6 @@ export class MemoryBrowserComponent {
 
     return filtered;
   });
-
-  getTypeIcon(type: MemoryType): string {
-    switch (type) {
-      case 'episodic':
-        return '📅';
-      case 'procedural':
-        return '⚙️';
-      case 'semantic':
-        return '💡';
-      case 'short_term':
-        return '💭';
-      case 'long_term':
-        return '🗄️';
-      default:
-        return '📝';
-    }
-  }
 
   truncateContent(content: string): string {
     if (content.length <= 150) return content;

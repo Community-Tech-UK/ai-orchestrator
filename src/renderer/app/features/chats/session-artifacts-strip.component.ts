@@ -29,7 +29,6 @@ import {
 } from '@angular/core';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { Instance } from '../../core/state/instance/instance.types';
-import { type ArtifactCategory } from '../../../../shared/utils/artifact-extensions';
 import {
   applyStatusFilter,
   buildArtifactEntries,
@@ -56,17 +55,9 @@ const AUTO_COLLAPSE_THRESHOLD = 8;
 const IMAGE_PREVIEW_MAX_BYTES = 256 * 1024;
 
 const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
-  added: '✨',
+  added: '+',
   modified: '~',
   deleted: '−',
-};
-
-const CATEGORY_ICON: Record<ArtifactCategory, string> = {
-  doc: '📝',
-  office: '📘',
-  data: '📊',
-  image: '🖼️',
-  notebook: '📓',
 };
 
 @Component({
@@ -175,7 +166,6 @@ const CATEGORY_ICON: Record<ArtifactCategory, string> = {
                   <span class="chip-status" [attr.data-status]="entry.status" aria-hidden="true">
                     {{ statusSymbol(entry.status) }}
                   </span>
-                  <span class="chip-icon" aria-hidden="true">{{ categoryIcon(entry.category) }}</span>
                 }
                 <span class="chip-name">{{ entry.basename }}</span>
                 @if (entry.outsideCwd) {
@@ -271,8 +261,7 @@ const CATEGORY_ICON: Record<ArtifactCategory, string> = {
     .header-title {
       font-family: var(--font-mono);
       font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      font-weight: 600;
       color: var(--text-secondary);
     }
 
@@ -403,8 +392,6 @@ const CATEGORY_ICON: Record<ArtifactCategory, string> = {
     .chip-status[data-status='added']    { color: rgba(95, 215, 138, 0.94); }
     .chip-status[data-status='modified'] { color: rgba(245, 200, 75, 0.94); }
     .chip-status[data-status='deleted']  { color: rgba(255, 125, 114, 0.94); }
-
-    .chip-icon { font-size: 12px; }
 
     .chip-name {
       overflow: hidden;
@@ -618,10 +605,6 @@ export class SessionArtifactsStripComponent {
 
   statusSymbol(status: ArtifactStatus): string {
     return STATUS_SYMBOL[status];
-  }
-
-  categoryIcon(category: ArtifactCategory): string {
-    return CATEGORY_ICON[category];
   }
 
   chipTooltip(entry: ArtifactEntry): string {

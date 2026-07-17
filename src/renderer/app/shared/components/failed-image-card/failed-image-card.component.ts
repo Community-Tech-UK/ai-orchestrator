@@ -31,8 +31,6 @@ import type { FailedImageRef } from '../../../../../shared/types/instance.types'
       align-items: center;
       margin-bottom: 6px;
       font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
     }
 
     .failed-image-badge {

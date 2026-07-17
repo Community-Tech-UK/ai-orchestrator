@@ -44,7 +44,6 @@ type UnifiedNode = SupervisorNode | WorkerNode;
       <!-- Header -->
       <div class="tree-header">
         <div class="header-left">
-          <span class="tree-icon">🌲</span>
           <span class="tree-title">Supervision Tree</span>
           @if (tree(); as t) {
             <span class="strategy-badge" [class]="'strategy-' + getStrategy(t)">
@@ -87,7 +86,6 @@ type UnifiedNode = SupervisorNode | WorkerNode;
         </div>
       } @else {
         <div class="empty-state">
-          <span class="empty-icon">🌲</span>
           <span class="empty-text">No supervision tree active</span>
         </div>
       }
@@ -230,10 +228,6 @@ type UnifiedNode = SupervisorNode | WorkerNode;
       gap: var(--spacing-sm);
     }
 
-    .tree-icon {
-      font-size: 18px;
-    }
-
     .tree-title {
       font-size: 14px;
       font-weight: 600;
@@ -245,7 +239,6 @@ type UnifiedNode = SupervisorNode | WorkerNode;
       border-radius: var(--radius-sm);
       font-size: 10px;
       font-weight: 600;
-      text-transform: uppercase;
 
       &.strategy-one-for-one {
         background: var(--primary-color);
@@ -516,11 +509,6 @@ type UnifiedNode = SupervisorNode | WorkerNode;
       color: var(--text-muted);
     }
 
-    .empty-icon {
-      font-size: 32px;
-      opacity: 0.5;
-    }
-
     .empty-text {
       font-size: 13px;
     }
@@ -584,17 +572,17 @@ export class SupervisionTreeViewComponent {
   getStatusIcon(status: NodeStatus | WorkerStatus): string {
     switch (status) {
       case 'running':
-        return '🟢';
+        return '●';
       case 'completed':
-        return '✅';
+        return '✓';
       case 'failed':
-        return '🔴';
+        return '✕';
       case 'restarting':
-        return '🔄';
+        return '↻';
       case 'stopped':
         return '⏹';
       case 'degraded':
-        return '⚠️';
+        return '⚠';
       default:
         return '○';
     }

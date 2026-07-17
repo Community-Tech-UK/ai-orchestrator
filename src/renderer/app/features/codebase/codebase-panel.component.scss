@@ -23,10 +23,6 @@
   gap: var(--spacing-sm);
 }
 
-.codebase-icon {
-  font-size: 18px;
-}
-
 .codebase-title {
   font-size: 14px;
   font-weight: 600;
@@ -187,11 +183,6 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xl);
-}
-
-.no-index-icon {
-  font-size: 48px;
-  opacity: 0.5;
 }
 
 .no-index-title {

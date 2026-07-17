@@ -132,10 +132,9 @@
 
 .metric-label {
   font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
   margin-top: var(--spacing-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .metric-sub {
@@ -163,8 +162,6 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   margin-bottom: var(--spacing-sm);
 }
 
@@ -183,8 +180,6 @@
   font-size: 12px;
   font-weight: 700;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* ── Tables ─────────────────────────────────────── */
@@ -208,8 +203,6 @@
 .data-table th {
   font-weight: 600;
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
 }
 

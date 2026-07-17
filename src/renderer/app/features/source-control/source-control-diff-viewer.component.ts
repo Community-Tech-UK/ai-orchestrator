@@ -95,7 +95,6 @@ import { resolveRelativePath } from '../../../../shared/utils/cross-platform-pat
       position: fixed;
       inset: 0;
       background: rgba(0, 0, 0, 0.55);
-      backdrop-filter: blur(2px);
       z-index: 1000;
       display: flex;
       align-items: center;
@@ -138,8 +137,7 @@ import { resolveRelativePath } from '../../../../shared/utils/cross-platform-pat
     .diff-eyebrow {
       font-family: var(--font-mono);
       font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      font-weight: 600;
       color: var(--text-muted);
       margin-bottom: 4px;
     }

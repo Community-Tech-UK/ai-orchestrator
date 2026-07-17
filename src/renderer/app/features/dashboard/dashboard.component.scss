@@ -105,8 +105,7 @@
   margin-top: 4px;
   font-family: var(--font-mono);
   font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
@@ -125,12 +124,7 @@
   min-height: 100%;
   height: 100%;
   width: 100%;
-  background:
-    radial-gradient(circle at 10% 6%, var(--shell-workspace-glow-secondary), transparent 26%),
-    radial-gradient(circle at 84% 100%, var(--shell-workspace-glow-primary), transparent 24%),
-    linear-gradient(180deg, var(--glass-subtle), transparent 18%),
-    linear-gradient(135deg, var(--shell-workspace-sheen), transparent 34%),
-    var(--bg-primary);
+  background: var(--bg-primary);
   position: relative;
 
   &.resizing {
@@ -161,7 +155,6 @@
   background:
     linear-gradient(180deg, var(--glass-subtle), transparent 20%),
     var(--bg-primary);
-  backdrop-filter: blur(24px);
   border-right: 1px solid var(--glass-border);
   box-shadow:
     inset -1px 0 0 var(--glass-subtle),
@@ -242,7 +235,6 @@
   background:
     linear-gradient(180deg, var(--glass-subtle), transparent),
     var(--bg-elevated);
-  backdrop-filter: blur(26px);
   box-shadow: var(--shadow-xl);
   overflow: hidden;
   z-index: 30;
@@ -276,8 +268,7 @@
 .control-plane-eyebrow {
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--text-muted);
   margin-bottom: 8px;
 }
@@ -350,8 +341,7 @@
 .control-plane-section-label {
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
@@ -400,7 +390,6 @@ app-side-chat-panel {
   overflow: hidden;
   border-left: 1px solid var(--glass-border);
   background: var(--bg-primary);
-  backdrop-filter: blur(18px);
 }
 
 .sidebar-toggle-btn {

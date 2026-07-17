@@ -44,7 +44,9 @@ interface TreeNode extends FileEntry {
       <div class="file-explorer" [style.width.px]="isCollapsed() ? 36 : explorerWidth()">
         <!-- Header with toggle -->
         <div class="explorer-header" (click)="toggleCollapse()" (keydown.enter)="toggleCollapse()" (keydown.space)="toggleCollapse()" tabindex="0" role="button">
-        <span class="collapse-icon">{{ isCollapsed() ? '📁' : '📂' }}</span>
+        <svg class="collapse-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+        </svg>
         <span class="header-title" [class.hidden]="isCollapsed()">Files</span>
         @if (!isCollapsed()) {
           <span class="close-arrow" title="Close panel">›</span>
@@ -55,7 +57,7 @@ interface TreeNode extends FileEntry {
         <!-- Root folder selector -->
         <div class="root-selector">
           <button class="select-root-btn" (click)="onSelectRoot()" title="Select folder">
-            📁 {{ rootName() || 'Select folder...' }}
+            {{ rootName() || 'Select folder...' }}
           </button>
           @if (rootPath()) {
             <button class="refresh-btn" (click)="refresh()" title="Refresh">↻</button>
@@ -109,10 +111,11 @@ interface TreeNode extends FileEntry {
                       {{ node.isExpanded ? '▼' : '▶' }}
                     }
                   </span>
-                  <span class="node-icon">📁</span>
+                  <svg class="node-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+                  </svg>
                 } @else {
                   <span class="expand-icon"></span>
-                  <span class="node-icon">{{ getFileIcon(node) }}</span>
                 }
                 <span class="node-name" [title]="node.path">{{ node.name }}</span>
               </div>
@@ -163,7 +166,6 @@ interface TreeNode extends FileEntry {
     .resize-handle:hover,
     .resize-handle.dragging {
       background: var(--secondary-color);
-      box-shadow: 0 0 12px rgba(var(--secondary-rgb), 0.5);
     }
 
     /* File Explorer - Sidebar panel */
@@ -213,8 +215,6 @@ interface TreeNode extends FileEntry {
       font-family: var(--font-display);
       font-size: 12px;
       font-weight: 600;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
       color: var(--text-secondary);
       white-space: nowrap;
     }
@@ -791,7 +791,7 @@ export class FileExplorerComponent implements OnDestroy {
     // Custom drag image with count badge for multi-file
     if (paths.length > 1) {
       const dragEl = document.createElement('div');
-      dragEl.style.cssText = 'position:absolute;top:-1000px;left:-1000px;padding:6px 12px;background:#1a1a2e;color:#e0e0e0;border:1px solid rgba(100,100,255,0.3);border-radius:6px;font-family:monospace;font-size:12px;white-space:nowrap;';
+      dragEl.style.cssText = 'position:absolute;top:-1000px;left:-1000px;padding:6px 12px;background:#1a1a2e;color:#e0e0e0;border:1px solid rgba(91,141,191,0.3);border-radius:6px;font-family:monospace;font-size:12px;white-space:nowrap;';
       dragEl.textContent = `${paths.length} files`;
       document.body.appendChild(dragEl);
       event.dataTransfer.setDragImage(dragEl, 0, 0);
@@ -807,106 +807,6 @@ export class FileExplorerComponent implements OnDestroy {
     });
     if (paths.length > 0) {
       this.filesDragged.emit({ paths, names });
-    }
-  }
-
-  getFileIcon(node: TreeNode): string {
-    if (node.isDirectory) return '📁';
-
-    const ext = node.extension?.toLowerCase();
-    switch (ext) {
-      // Code files
-      case 'ts':
-      case 'tsx':
-        return '🔷';
-      case 'js':
-      case 'jsx':
-        return '🟨';
-      case 'py':
-        return '🐍';
-      case 'rs':
-        return '🦀';
-      case 'go':
-        return '🔵';
-      case 'java':
-        return '☕';
-      case 'rb':
-        return '💎';
-      case 'php':
-        return '🐘';
-      case 'swift':
-        return '🧡';
-      case 'kt':
-        return '🟣';
-      case 'c':
-      case 'cpp':
-      case 'h':
-      case 'hpp':
-        return '⚙️';
-
-      // Web files
-      case 'html':
-      case 'htm':
-        return '🌐';
-      case 'css':
-      case 'scss':
-      case 'sass':
-      case 'less':
-        return '🎨';
-
-      // Config files
-      case 'json':
-        return '📋';
-      case 'yaml':
-      case 'yml':
-        return '📝';
-      case 'toml':
-        return '⚙️';
-      case 'xml':
-        return '📄';
-
-      // Documents
-      case 'md':
-      case 'mdx':
-        return '📝';
-      case 'txt':
-        return '📄';
-      case 'pdf':
-        return '📕';
-      case 'doc':
-      case 'docx':
-        return '📘';
-
-      // Images
-      case 'png':
-      case 'jpg':
-      case 'jpeg':
-      case 'gif':
-      case 'svg':
-      case 'webp':
-        return '🖼️';
-
-      // Data
-      case 'csv':
-        return '📊';
-      case 'sql':
-        return '🗃️';
-
-      // Shell
-      case 'sh':
-      case 'bash':
-      case 'zsh':
-        return '💻';
-
-      // Archives
-      case 'zip':
-      case 'tar':
-      case 'gz':
-      case '7z':
-        return '📦';
-
-      default:
-        return '📄';
     }
   }
 

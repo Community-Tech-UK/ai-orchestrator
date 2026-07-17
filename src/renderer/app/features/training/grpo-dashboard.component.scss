@@ -22,10 +22,6 @@
   gap: var(--spacing-sm);
 }
 
-.dashboard-icon {
-  font-size: 20px;
-}
-
 .dashboard-title {
   font-size: 15px;
   font-weight: 600;
@@ -84,10 +80,6 @@
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
-}
-
-.stat-icon {
-  font-size: 20px;
 }
 
 .stat-content {
@@ -220,9 +212,9 @@
   &.type-tool_sequence { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
   &.type-agent_task_pairing { background: rgba(16, 185, 129, 0.2); color: #10b981; }
   &.type-model_task_pairing { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
-  &.type-prompt_structure { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; }
+  &.type-prompt_structure { background: rgba(var(--primary-rgb), 0.2); color: var(--primary-color); }
   &.type-error_recovery { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-  &.type-context_selection { background: rgba(236, 72, 153, 0.2); color: #ec4899; }
+  &.type-context_selection { background: rgba(var(--secondary-rgb), 0.2); color: var(--secondary-hover); }
   &.type-workflow_shortcut { background: rgba(20, 184, 166, 0.2); color: #14b8a6; }
 }
 
@@ -270,10 +262,10 @@
 /* Insights List */
 .insight-card {
   background: var(--bg-secondary);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   padding: var(--spacing-sm);
   cursor: pointer;
-  border-left: 3px solid transparent;
   transition: all var(--transition-fast);
 
   &:hover {
@@ -281,13 +273,13 @@
   }
 
   &.selected {
-    border-left-color: var(--primary-color);
+    border-color: var(--primary-color);
   }
 
-  &.insight-pattern { border-left-color: #10b981; }
-  &.insight-anti-pattern { border-left-color: #ef4444; }
-  &.insight-optimization { border-left-color: #3b82f6; }
-  &.insight-recommendation { border-left-color: #f59e0b; }
+  &.insight-pattern { border-color: var(--success-border); background: var(--success-bg); }
+  &.insight-anti-pattern { border-color: var(--error-border); background: var(--error-bg); }
+  &.insight-optimization { border-color: var(--info-border); background: var(--info-bg); }
+  &.insight-recommendation { border-color: var(--warning-border); background: var(--warning-bg); }
 }
 
 .insight-header {
@@ -329,10 +321,10 @@
 /* Outcomes List */
 .outcome-card {
   background: var(--bg-secondary);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   padding: var(--spacing-sm);
   cursor: pointer;
-  border-left: 3px solid transparent;
   transition: all var(--transition-fast);
 
   &:hover {
@@ -340,15 +332,17 @@
   }
 
   &.selected {
-    border-left-color: var(--primary-color);
+    border-color: var(--primary-color);
   }
 
   &.success {
-    border-left-color: #10b981;
+    border-color: var(--success-border);
+    background: var(--success-bg);
   }
 
   &.failure {
-    border-left-color: var(--error-color);
+    border-color: var(--error-border);
+    background: var(--error-bg);
   }
 }
 
@@ -440,8 +434,6 @@
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: var(--spacing-xs);
 }
 
@@ -518,9 +510,9 @@
 
 .error-info {
   padding: var(--spacing-sm);
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--error-bg);
   border-radius: var(--radius-sm);
-  border-left: 3px solid var(--error-color);
+  border: 1px solid var(--error-border);
 }
 
 .error-type {
@@ -587,11 +579,6 @@
   gap: var(--spacing-sm);
   padding: var(--spacing-xl);
   color: var(--text-muted);
-}
-
-.empty-icon {
-  font-size: 28px;
-  opacity: 0.5;
 }
 
 .empty-text {

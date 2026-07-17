@@ -95,7 +95,7 @@ describe('BrowserApprovalsBannerComponent', () => {
     const element: HTMLElement = fixture.nativeElement;
     const banner = element.querySelector('.approvals-banner');
     expect(banner?.getAttribute('role')).toBe('status');
-    expect(banner?.textContent).toContain('2 browser actions are waiting');
+    expect(banner?.textContent).toContain('2 browser permissions requested');
     // Oldest first: the request that has been blocking its agent longest.
     expect(banner?.textContent).toContain('session instance-1');
     // The global poll must not be scoped to one instance.
@@ -124,13 +124,104 @@ describe('BrowserApprovalsBannerComponent', () => {
     }));
   });
 
-  it('withholds one-click approve for autonomous or credential-class proposals', async () => {
+  it('offers narrow in-place choices for a low-risk autonomous proposal', async () => {
     const fixture = setup([
       makeApproval({
+        toolName: 'browser.type',
+        action: 'type',
+        actionClass: 'input',
+        proposedGrant: {
+          mode: 'autonomous',
+          allowedOrigins: [
+            { scheme: 'https', hostPattern: 'instagram.com', includeSubdomains: false },
+          ],
+          allowedActionClasses: ['read', 'navigate', 'input'],
+          allowExternalNavigation: false,
+          autonomous: true,
+        },
+      }),
+    ]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.textContent).toContain('type on instagram.com');
+    const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('.banner-btn'));
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+      'Allow once',
+      'Allow for session',
+      'Deny',
+      'More options',
+    ]);
+
+    buttons.find((button) => button.textContent?.trim() === 'Allow for session')?.click();
+    await fixture.whenStable();
+    expect(gateway.approveRequest).toHaveBeenCalledWith({
+      requestId: 'request-1',
+      grant: {
+        mode: 'session',
+        allowedOrigins: [
+          { scheme: 'https', hostPattern: 'instagram.com', includeSubdomains: false },
+        ],
+        allowedActionClasses: ['read', 'navigate', 'input'],
+        allowExternalNavigation: false,
+        autonomous: false,
+      },
+      reason: 'Allowed for session from browser permission bar',
+    });
+  });
+
+  it('narrows Allow once to the current classified action', async () => {
+    const fixture = setup([
+      makeApproval({
+        toolName: 'browser.type',
+        action: 'type',
+        actionClass: 'input',
         proposedGrant: {
           mode: 'autonomous',
           allowedOrigins: [],
-          allowedActionClasses: ['credential'],
+          allowedActionClasses: ['read', 'navigate', 'input'],
+          allowExternalNavigation: false,
+          autonomous: true,
+        },
+      }),
+    ]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const button = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.banner-btn'),
+    ).find((candidate) => candidate.textContent?.trim() === 'Allow once');
+    button?.click();
+    await fixture.whenStable();
+
+    expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
+      grant: expect.objectContaining({
+        mode: 'per_action',
+        allowedActionClasses: ['input'],
+        autonomous: false,
+      }),
+    }));
+  });
+
+  it.each([
+    'credential',
+    'financial_identity',
+    'sensitive_identity',
+    'payment',
+    'submit',
+    'destructive',
+    'unknown',
+  ] as const)(
+    'keeps Deny available while withholding quick approval for %s proposals',
+    async (actionClass) => {
+    const fixture = setup([
+      makeApproval({
+        actionClass,
+        proposedGrant: {
+          mode: 'autonomous',
+          allowedOrigins: [],
+          allowedActionClasses: [actionClass],
           allowExternalNavigation: false,
           autonomous: true,
         },
@@ -141,11 +232,13 @@ describe('BrowserApprovalsBannerComponent', () => {
 
     const element: HTMLElement = fixture.nativeElement;
     expect(element.querySelector('.banner-btn.primary')).toBeNull();
-    const review = Array.from(element.querySelectorAll<HTMLButtonElement>('.banner-btn'))
-      .find((btn) => btn.textContent?.trim() === 'Review');
+    const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('.banner-btn'));
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Deny', 'More options']);
+    const review = buttons.find((btn) => btn.textContent?.trim() === 'More options');
     expect(review).toBeDefined();
 
     review?.click();
     expect(router.navigateByUrl).toHaveBeenCalledWith('/browser');
-  });
+    },
+  );
 });

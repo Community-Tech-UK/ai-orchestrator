@@ -62,7 +62,6 @@ interface ProviderInfo {
 
       <!-- Security Notice -->
       <div class="security-notice">
-        <span class="notice-icon">🔒</span>
         <div class="notice-content">
           <strong>Security Note:</strong> API keys are stored securely in your system's keychain.
           They are never sent to external servers except to their respective providers.
@@ -102,7 +101,7 @@ interface ProviderInfo {
                 [placeholder]="getSelectedProvider()?.placeholder || 'Enter API key...'"
               />
               <button class="btn-icon" (click)="showNewKey.set(!showNewKey())">
-                {{ showNewKey() ? '👁️' : '👁️‍🗨️' }}
+                {{ showNewKey() ? 'Hide' : 'Show' }}
               </button>
             </div>
           </div>
@@ -110,7 +109,7 @@ interface ProviderInfo {
           @if (getSelectedProvider()?.helpUrl) {
             <div class="form-hint">
               <a [href]="getSelectedProvider()?.helpUrl" target="_blank" rel="noopener">
-                📖 How to get your {{ getSelectedProvider()?.name }} API key
+                How to get your {{ getSelectedProvider()?.name }} API key
               </a>
             </div>
           }
@@ -158,7 +157,6 @@ interface ProviderInfo {
           <div class="key-card" [class.invalid]="key.isValid === false">
             <div class="key-header">
               <div class="key-provider">
-                <span class="provider-icon">{{ getProviderIcon(key.provider) }}</span>
                 <div class="provider-info">
                   <span class="provider-name">{{ key.name }}</span>
                   <span class="provider-type">{{ getProviderName(key.provider) }}</span>
@@ -189,14 +187,14 @@ interface ProviderInfo {
                   (click)="toggleKeyReveal(key.id)"
                   [title]="key.isRevealed ? 'Hide' : 'Reveal'"
                 >
-                  {{ key.isRevealed ? '🙈' : '👁️' }}
+                  {{ key.isRevealed ? 'Hide' : 'Show' }}
                 </button>
                 <button
                   class="btn-icon"
                   (click)="copyKey(key.id)"
                   title="Copy to clipboard"
                 >
-                  📋
+                  Copy
                 </button>
               </div>
             </div>
@@ -279,10 +277,6 @@ interface ProviderInfo {
       border: 1px solid rgba(34, 197, 94, 0.3);
       border-radius: 8px;
       margin-bottom: 20px;
-    }
-
-    .notice-icon {
-      font-size: 20px;
     }
 
     .notice-content {
@@ -425,10 +419,6 @@ interface ProviderInfo {
       display: flex;
       align-items: center;
       gap: 12px;
-    }
-
-    .provider-icon {
-      font-size: 24px;
     }
 
     .provider-info {
@@ -704,17 +694,6 @@ export class ApiKeyManagerComponent {
     if (provider && !this.newKeyName) {
       this.newKeyName = `${provider.name} API Key`;
     }
-  }
-
-  getProviderIcon(providerId: string): string {
-    const icons: Record<string, string> = {
-      anthropic: '🤖',
-      openai: '💚',
-      google: '🔵',
-      mistral: '🌀',
-      cohere: '🔶',
-    };
-    return icons[providerId] || '🔑';
   }
 
   getProviderName(providerId: string): string {
