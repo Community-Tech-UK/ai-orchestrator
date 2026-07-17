@@ -19,6 +19,7 @@ import {
   InstanceChangeModelPayloadSchema,
   InstanceCreatePayloadSchema,
   InstanceCreateWithMessagePayloadSchema,
+  InstanceGetPromptIndexPayloadSchema,
   InstanceInterruptPayloadSchema,
   InstanceLoadOlderMessagesPayloadSchema,
   InstanceRenamePayloadSchema,
@@ -763,6 +764,48 @@ export function registerInstanceHandlers(deps: {
           success: false,
           error: {
             code: 'LOAD_OLDER_MESSAGES_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Full user-prompt index for a session: the persisted tally of prompts
+  // stored to disk plus prompts still in the main-process buffer. Keeps the
+  // transcript jump rail correct when the renderer holds a bounded window.
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_GET_PROMPT_INDEX,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          InstanceGetPromptIndexPayloadSchema,
+          payload,
+          'INSTANCE_GET_PROMPT_INDEX'
+        );
+
+        const { getOutputStorageManager, toPromptRefs } = await import('../../memory/output-storage');
+        const stored = await getOutputStorageManager().getUserPrompts(validated.instanceId);
+        const buffered = toPromptRefs(
+          instanceManager.getInstance(validated.instanceId)?.outputBuffer ?? []
+        );
+
+        const byId = new Map(stored.map((prompt) => [prompt.id, prompt]));
+        for (const prompt of buffered) {
+          byId.set(prompt.id, prompt);
+        }
+        const prompts = [...byId.values()].sort((a, b) => a.timestamp - b.timestamp);
+
+        return { success: true, data: { prompts } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'GET_PROMPT_INDEX_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

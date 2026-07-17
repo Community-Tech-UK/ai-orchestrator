@@ -148,6 +148,7 @@ export class WorkerAgent extends EventEmitter {
     this.notifier = new WorkerInstanceNotifier({
       getSocket: () => this.ws,
       getToken: () => this.config.nodeToken ?? this.config.authToken,
+      getRegistered: () => this.registrationAccepted,
       durability: this.streamDurability,
     });
     this.rpcDispatcher = new WorkerRpcDispatcher({

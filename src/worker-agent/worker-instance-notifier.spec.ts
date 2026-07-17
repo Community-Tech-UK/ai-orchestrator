@@ -87,6 +87,65 @@ describe('WorkerInstanceNotifier oversized-frame protection', () => {
   });
 });
 
+describe('WorkerInstanceNotifier registration ordering', () => {
+  // Reproduces the reconnect wedge: a worker with an in-flight instance queues
+  // `instance.stateChange` frames while the socket is down. On reconnect the
+  // registration frame must be FIRST — a queued state-change jumping ahead gets
+  // the socket closed with 1008 "Registration required", looping forever.
+  function makeGatedNotifier(registered: () => boolean) {
+    const socket = new FakeSocket();
+    const notifier = new WorkerInstanceNotifier({
+      getSocket: () => socket as never,
+      getToken: () => 'tok',
+      getRegistered: registered,
+    });
+    return { socket, notifier };
+  }
+
+  it('does not send critical state-changes before registration is accepted', () => {
+    const { socket, notifier } = makeGatedNotifier(() => false);
+    notifier.sendStateChange('inst-1', 'processing');
+    notifier.sendExit('inst-2', { code: 0 });
+    expect(socket.send).not.toHaveBeenCalled();
+  });
+
+  it('sends the registration frame first even with queued state-changes', () => {
+    let registered = false;
+    const { socket, notifier } = makeGatedNotifier(() => registered);
+
+    // Instances change state while disconnected/unregistered → queued.
+    notifier.sendStateChange('inst-1', 'processing');
+    notifier.sendStateChange('inst-1', 'processing');
+    expect(socket.send).not.toHaveBeenCalled();
+
+    // Registration goes out via send(); its opportunistic flush must NOT drain
+    // the critical queue ahead of the registration frame.
+    notifier.send({ jsonrpc: '2.0', id: 'reg-1', method: 'node.register', params: {} });
+    expect(socket.sent).toHaveLength(1);
+    expect(JSON.parse(socket.sent[0]).method).toBe('node.register');
+
+    // Coordinator accepts → the worker flushes the critical queue.
+    registered = true;
+    notifier.flushCriticalQueue();
+    expect(socket.sent).toHaveLength(2);
+    const drained = JSON.parse(socket.sent[1]);
+    expect(drained.method).toBe('instance.stateChange');
+    expect(drained.params.instanceId).toBe('inst-1');
+  });
+
+  it('flushCriticalQueue is a no-op until registered', () => {
+    let registered = false;
+    const { socket, notifier } = makeGatedNotifier(() => registered);
+    notifier.sendStateChange('inst-1', 'processing');
+    notifier.flushCriticalQueue();
+    expect(socket.send).not.toHaveBeenCalled();
+
+    registered = true;
+    notifier.flushCriticalQueue();
+    expect(socket.send).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('WorkerInstanceNotifier durable-stream integration (WS15)', () => {
   function makeDurableNotifier() {
     const socket = new FakeSocket();

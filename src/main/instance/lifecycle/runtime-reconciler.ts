@@ -475,6 +475,39 @@ export class RuntimeReconciler {
    * session flags and `recoveryMethod` are set here; all interrupt-phase and
    * renderer bookkeeping stays with the orchestrator.
    */
+  /**
+   * Recovery resume-health policy. Keep a healthy session; destroy only a
+   * proven-unrecoverable one (process dead / session-not-found / wrong session).
+   * An `inconclusive` verdict — alive but unproven after the load-scaled window —
+   * is retried once and then accepted, so a session that was merely slow under
+   * host load is never torn down. Tearing it down is exactly what previously lost
+   * the live thread and in-flight background agents on "resume failed".
+   *
+   * @returns true to keep the resumed session, false to fall back to a fresh one.
+   */
+  private async resolveRecoveryResumeHealth(instanceId: string): Promise<boolean> {
+    const first = await this.deps.evaluateResumeHealth(instanceId);
+    if (first === 'healthy') {
+      return true;
+    }
+    if (first === 'unrecoverable') {
+      return false;
+    }
+    // inconclusive — give a slow host one more window before deciding.
+    const second = await this.deps.evaluateResumeHealth(instanceId);
+    if (second === 'unrecoverable') {
+      return false;
+    }
+    if (second === 'inconclusive') {
+      logger.warn(
+        'Recovery resume health inconclusive after retry; keeping the live session '
+        + 'rather than destroying it (host may be overloaded)',
+        { instanceId },
+      );
+    }
+    return true;
+  }
+
   async applyRecoveryRespawn(
     instanceId: string,
     request: RecoveryRespawnRequest,
@@ -509,7 +542,7 @@ export class RuntimeReconciler {
     try {
       pid = await adapter.spawn();
       instance.processId = pid;
-      if (request.shouldResume && !(await this.deps.waitForResumeHealth(instanceId))) {
+      if (request.shouldResume && !(await this.resolveRecoveryResumeHealth(instanceId))) {
         throw new Error('Native resume did not stabilize during recovery respawn');
       }
       instance.providerSessionId = request.postSpawnProviderSessionId;

@@ -33,10 +33,14 @@ function makeDeps(
   adapter: CliAdapter | undefined,
   processId: number | null = 1,
   status: InstanceStatus = 'busy',
+  loadMultiplier = 1,
 ): RuntimeReadinessDeps {
   return {
     getInstance: (_id) => ({ processId, status }),
     getAdapter: (_id) => adapter,
+    // Pin the resume-health window scaling so timer-driven tests are
+    // deterministic regardless of the host's real load.
+    getResumeHealthLoadMultiplier: () => loadMultiplier,
   };
 }
 
@@ -155,6 +159,7 @@ describe('RuntimeReadinessCoordinator.waitForResumeHealth', () => {
     const deps: RuntimeReadinessDeps = {
       getInstance: (id) => (id === 'inst-1' ? { processId: 1, status: 'busy' as InstanceStatus } : undefined),
       getAdapter: (_id) => adapter,
+      getResumeHealthLoadMultiplier: () => 1,
     };
     const coord = new RuntimeReadinessCoordinator(deps);
 
@@ -180,6 +185,95 @@ describe('RuntimeReadinessCoordinator.waitForResumeHealth', () => {
 
     const result = await healthPromise;
     expect(result).toBe(true);
+  });
+});
+
+describe('RuntimeReadinessCoordinator.evaluateResumeHealth', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it('reports unrecoverable when the adapter is gone', async () => {
+    const coord = new RuntimeReadinessCoordinator(makeDeps(undefined));
+    await expect(coord.evaluateResumeHealth('inst-1')).resolves.toBe('unrecoverable');
+  });
+
+  it('reports unrecoverable on a session-not-found error event', async () => {
+    const adapter = makeAdapter();
+    const coord = new RuntimeReadinessCoordinator(makeDeps(adapter as unknown as CliAdapter));
+
+    const verdict = coord.evaluateResumeHealth('inst-1', 5000, 200);
+    adapter.emit('error', new Error('session not found'));
+
+    await expect(verdict).resolves.toBe('unrecoverable');
+  });
+
+  it('reports unrecoverable when the adapter confirms a wrong session id', async () => {
+    const adapter = makeAdapter('codex-cli');
+    adapter.getResumeAttemptResult = vi.fn(() => ({
+      source: 'native',
+      confirmed: true,
+      requestedSessionId: 'thread-1',
+      actualSessionId: 'thread-other',
+    }));
+    const coord = new RuntimeReadinessCoordinator(makeDeps(adapter as unknown as CliAdapter));
+    await expect(coord.evaluateResumeHealth('inst-1')).resolves.toBe('unrecoverable');
+  });
+
+  it('reports healthy on definitive native-resume proof', async () => {
+    const adapter = makeAdapter('codex-cli');
+    adapter.getResumeAttemptResult = vi.fn(() => ({
+      source: 'native',
+      confirmed: true,
+      requestedSessionId: 'thread-1',
+      actualSessionId: 'thread-1',
+    }));
+    const coord = new RuntimeReadinessCoordinator(makeDeps(adapter as unknown as CliAdapter));
+    await expect(coord.evaluateResumeHealth('inst-1')).resolves.toBe('healthy');
+  });
+
+  it('reports inconclusive — NOT unrecoverable — when a live process is unproven at timeout', async () => {
+    // The core resilience change: a slow-but-alive resume must not be classified
+    // as dead. This is what stops the destructive fresh-fallback that lost
+    // in-flight background work.
+    const adapter = makeAdapter() as unknown as CliAdapter; // claude-cli, formatter null (not writable)
+    const coord = new RuntimeReadinessCoordinator(makeDeps(adapter, 1, 'busy', 1));
+
+    const verdict = coord.evaluateResumeHealth('inst-1', 100, 50);
+    vi.advanceTimersByTime(200);
+
+    await expect(verdict).resolves.toBe('inconclusive');
+  });
+
+  it('reports healthy at timeout when a quiet Claude stream is writable', async () => {
+    const adapter = makeAdapter('claude-cli');
+    adapter.formatter = { isWritable: vi.fn(() => true) };
+    const coord = new RuntimeReadinessCoordinator(
+      makeDeps(adapter as unknown as CliAdapter, 1, 'busy', 1),
+    );
+
+    const verdict = coord.evaluateResumeHealth('inst-1', 100, 50);
+    vi.advanceTimersByTime(200);
+
+    await expect(verdict).resolves.toBe('healthy');
+  });
+
+  it('stretches the health window by the load multiplier before giving up', async () => {
+    // With base 100ms × multiplier 3 = 300ms window, a probe must still be
+    // pending at 150ms and only settle once the scaled window elapses.
+    const adapter = makeAdapter() as unknown as CliAdapter; // not writable, no proof
+    const coord = new RuntimeReadinessCoordinator(makeDeps(adapter, 1, 'busy', 3));
+
+    let settled: string | undefined;
+    void coord.evaluateResumeHealth('inst-1', 100, 50).then((v) => {
+      settled = v;
+    });
+
+    await vi.advanceTimersByTimeAsync(150);
+    expect(settled).toBeUndefined(); // would have fired at 100ms without scaling
+
+    await vi.advanceTimersByTimeAsync(200); // now past 300ms scaled window
+    expect(settled).toBe('inconclusive');
   });
 });
 

@@ -13,8 +13,19 @@ import { getLogger } from '../../logging/logger';
 import { observeAdapterRuntimeEvents } from '../../providers/adapter-runtime-event-bridge';
 import type { Instance } from '../../../shared/types/instance.types';
 import { isSessionNotFoundText } from '../../cli/adapters/resume-error-classifier';
+import { getSystemLoadMonitor } from '../../runtime/system-load-monitor';
 
 const logger = getLogger('RuntimeReadiness');
+
+/**
+ * Outcome of a native-resume health probe.
+ * - `healthy`: the resumed session proved (or is quietly writable) — keep it.
+ * - `unrecoverable`: definitively dead (process exit, session-not-found, or a
+ *   confirmed wrong/fresh session) — the caller may destroy and fresh-spawn.
+ * - `inconclusive`: still alive but unproven after the (load-scaled) window —
+ *   NOT a reason to destroy the session; the caller should retry then proceed.
+ */
+export type ResumeHealthVerdict = 'healthy' | 'unrecoverable' | 'inconclusive';
 
 const DEFAULT_RUNTIME_CAPABILITIES: AdapterRuntimeCapabilities = {
   supportsResume: false,
@@ -28,6 +39,12 @@ const DEFAULT_RUNTIME_CAPABILITIES: AdapterRuntimeCapabilities = {
 export interface RuntimeReadinessDeps {
   getInstance: (instanceId: string) => Pick<Instance, 'processId' | 'status'> | undefined;
   getAdapter: (instanceId: string) => CliAdapter | undefined;
+  /**
+   * Watchdog load multiplier (>= 1) used to stretch the resume-health window
+   * while the host is oversubscribed. Injectable for tests; defaults to the
+   * shared SystemLoadMonitor.
+   */
+  getResumeHealthLoadMultiplier?: () => number;
 }
 
 export class RuntimeReadinessCoordinator {
@@ -45,35 +62,49 @@ export class RuntimeReadinessCoordinator {
     return { ...DEFAULT_RUNTIME_CAPABILITIES };
   }
 
+  private getResumeHealthLoadMultiplier(): number {
+    const raw = this.deps.getResumeHealthLoadMultiplier?.()
+      ?? getSystemLoadMonitor().getWatchdogMultiplier();
+    return Number.isFinite(raw) && raw > 1 ? raw : 1;
+  }
+
   /**
-   * Wait until the just-spawned CLI proves it accepted native resume.
+   * Probe whether a just-spawned CLI accepted native resume, returning a
+   * three-way verdict instead of a lossy boolean.
    *
-   * Positive signal: definitive provider resume proof, any normalized output
-   * event from the adapter, or a writable quiet Claude stream. Both Codex
-   * app-server and Claude can accept resume without emitting output until the
-   * next user message.
-   * Negative signal: process liveness failure or a session-not-found error.
+   * Positive (`healthy`): definitive provider resume proof, any normalized
+   * output event, or a writable quiet Claude stream. Both Codex app-server and
+   * Claude can accept resume without emitting output until the next message.
+   * Negative (`unrecoverable`): process liveness failure, a session-not-found
+   * error, or a confirmed wrong/fresh session.
+   * `inconclusive`: alive but unproven after the load-scaled window — the host
+   * may simply be slow; the caller must not destroy the session over this.
+   *
+   * The window is stretched by the watchdog load multiplier so a
+   * starved-but-healthy resume is not misread as a failure.
    */
-  async waitForResumeHealth(
+  async evaluateResumeHealth(
     instanceId: string,
     timeoutMs = 5000,
     pollIntervalMs = 200,
-  ): Promise<boolean> {
+  ): Promise<ResumeHealthVerdict> {
     const adapter = this.deps.getAdapter(instanceId);
     if (!this.isLive(instanceId, adapter)) {
-      return false;
+      return 'unrecoverable';
     }
+
+    const scaledTimeoutMs = Math.round(timeoutMs * this.getResumeHealthLoadMultiplier());
 
     const initialProof = this.getResumeProof(adapter);
     if (initialProof !== null) {
-      return initialProof;
+      return initialProof ? 'healthy' : 'unrecoverable';
     }
 
-    return new Promise<boolean>((resolve) => {
+    return new Promise<ResumeHealthVerdict>((resolve) => {
       let settled = false;
       let stopObserving: () => void = () => undefined;
 
-      const finish = (value: boolean): void => {
+      const finish = (value: ResumeHealthVerdict): void => {
         if (settled) {
           return;
         }
@@ -84,31 +115,41 @@ export class RuntimeReadinessCoordinator {
         stopObserving();
         resolve(value);
       };
+      const finishProven = (healthy: boolean): void =>
+        finish(healthy ? 'healthy' : 'unrecoverable');
 
       const poll = setInterval(() => {
         if (!this.isLive(instanceId, adapter)) {
-          finish(false);
+          finish('unrecoverable');
           return;
         }
 
         const proof = this.getResumeProof(adapter);
         if (proof !== null) {
-          finish(proof);
+          finishProven(proof);
           return;
         }
 
         if (this.hasQuietResumeReadiness(adapter)) {
-          finish(true);
+          finish('healthy');
         }
       }, pollIntervalMs);
 
       const timer = setTimeout(() => {
+        if (!this.isLive(instanceId, adapter)) {
+          finish('unrecoverable');
+          return;
+        }
         const proof = this.getResumeProof(adapter);
-        finish(
-          this.isLive(instanceId, adapter)
-          && (proof ?? this.hasQuietResumeReadiness(adapter)),
-        );
-      }, timeoutMs);
+        if (proof !== null) {
+          finishProven(proof);
+          return;
+        }
+        // A live process with no definitive proof after the (scaled) window is
+        // inconclusive, not dead — never destroy a possibly-healthy session on
+        // a mere timeout.
+        finish(this.hasQuietResumeReadiness(adapter) ? 'healthy' : 'inconclusive');
+      }, scaledTimeoutMs);
 
       stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {
         switch (event.kind) {
@@ -117,17 +158,17 @@ export class RuntimeReadinessCoordinator {
               event.messageType === 'error'
               && this.isSessionNotFoundMessage(event.content)
             ) {
-              finish(false);
+              finish('unrecoverable');
               break;
             }
             // When an adapter supplies proof (e.g. Claude init event precedes the
             // first output), prefer the proof signal over the raw "got output" heuristic.
             // This closes B1: a wrong-session resume is now detected and rejected.
-            finish(this.getResumeProof(adapter) ?? true);
+            finishProven(this.getResumeProof(adapter) ?? true);
             break;
           case 'error':
             if (this.isSessionNotFoundMessage(event.message)) {
-              finish(false);
+              finish('unrecoverable');
             }
             break;
           default:
@@ -135,6 +176,21 @@ export class RuntimeReadinessCoordinator {
         }
       });
     });
+  }
+
+  /**
+   * Boolean wrapper kept for callers that only need "did native resume take?".
+   * `inconclusive` maps to `false`, preserving pre-existing behavior for every
+   * caller except the recovery reconciler, which consumes the richer verdict.
+   */
+  async waitForResumeHealth(
+    instanceId: string,
+    timeoutMs = 5000,
+    pollIntervalMs = 200,
+  ): Promise<boolean> {
+    return (
+      (await this.evaluateResumeHealth(instanceId, timeoutMs, pollIntervalMs)) === 'healthy'
+    );
   }
 
   /**

@@ -108,7 +108,7 @@ import {
 } from './lifecycle/session-recovery';
 import { IdleMonitor } from './lifecycle/idle-monitor';
 import { InterruptRespawnHandler } from './lifecycle/interrupt-respawn-handler';
-import { RuntimeReadinessCoordinator } from './lifecycle/runtime-readiness';
+import { RuntimeReadinessCoordinator, type ResumeHealthVerdict } from './lifecycle/runtime-readiness';
 import { shouldPreWarmReplacement } from './lifecycle/warm-start-policy';
 import { InstanceTerminationCoordinator } from './lifecycle/instance-termination';
 import { SpawnConfigBuilder } from './lifecycle/spawn-config-builder';
@@ -997,11 +997,21 @@ export class InstanceLifecycleManager extends EventEmitter {
     return blocks.length > 0 ? blocks.join('\n\n') : undefined;
   }
 
-  private async waitForResumeHealth(
+  /**
+   * Three-way native-resume verdict. Wraps the readiness coordinator's probe
+   * with this layer's resume-attempt-result classification: an
+   * attempted-but-unconfirmed resume (a definite non-`none` source that did not
+   * confirm) is a real failure and reported `unrecoverable`, exactly as the
+   * boolean probe used to fall back. A genuinely `inconclusive` probe (alive,
+   * no conclusive attempt result — typically slow under host load) is left
+   * `inconclusive` so the recovery path can keep the session instead of
+   * destroying it.
+   */
+  private async evaluateResumeHealth(
     instanceId: string,
     timeoutMs = 5000,
     pollIntervalMs = 200,
-  ): Promise<boolean> {
+  ): Promise<ResumeHealthVerdict> {
     // §4.G/B-series: proving a native resume can take seconds. Surface a
     // `resume-proof` waitReason for the duration so the user sees why the
     // session is "thinking" before it accepts input — but only when there is a
@@ -1019,14 +1029,14 @@ export class InstanceLifecycleManager extends EventEmitter {
       });
     }
     try {
-      const healthy = await this.runtimeReadiness.waitForResumeHealth(instanceId, timeoutMs, pollIntervalMs);
-      if (!healthy) {
-        return false;
+      const verdict = await this.runtimeReadiness.evaluateResumeHealth(instanceId, timeoutMs, pollIntervalMs);
+      if (verdict === 'unrecoverable') {
+        return 'unrecoverable';
       }
 
       const resumeResult = this.getAdapterResumeAttemptResult(instanceId);
       if (!resumeResult || resumeResult.source === 'none') {
-        return true;
+        return verdict;
       }
 
       if (!resumeResult.confirmed) {
@@ -1052,10 +1062,10 @@ export class InstanceLifecycleManager extends EventEmitter {
             reason: resumeResult.reason,
           });
         }
-        return false;
+        return 'unrecoverable';
       }
 
-      return true;
+      return verdict;
     } finally {
       if (surfaceProof) {
         // Clear the resume-proof reason; the caller (respawn) sets its own next
@@ -1066,6 +1076,20 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       }
     }
+  }
+
+  /**
+   * Boolean resume-health probe kept for callers that only need "did native
+   * resume take?". `inconclusive` maps to `false`, preserving the historical
+   * behavior for every caller except the recovery reconciler, which consumes
+   * {@link evaluateResumeHealth} directly.
+   */
+  private async waitForResumeHealth(
+    instanceId: string,
+    timeoutMs = 5000,
+    pollIntervalMs = 200,
+  ): Promise<boolean> {
+    return (await this.evaluateResumeHealth(instanceId, timeoutMs, pollIntervalMs)) === 'healthy';
   }
 
   private getAdapterResumeAttemptResult(instanceId: string): ResumeAttemptResult | null {
@@ -3210,6 +3234,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       createRuntimeAdapter: (cliType, options, executionLocation) =>
         this.createRuntimeAdapter(cliType, options, executionLocation),
       waitForResumeHealth: (id) => this.waitForResumeHealth(id),
+      evaluateResumeHealth: (id) => this.evaluateResumeHealth(id),
       waitForInputReadinessBoundary: (id, adapter) => this.waitForInputReadinessBoundary(id, adapter),
       prepareStatusForAdapterInput: (instance) => this.prepareStatusForAdapterInput(instance),
       buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),

@@ -17,6 +17,7 @@ import type { AppSettings } from '../../../shared/types/settings.types';
 import type { ReasoningEffort } from '../../../shared/types/provider.types';
 import type { LifecycleDependencies } from '../instance-lifecycle.types';
 import type { ModelSelectionDegradation } from './model-selection-degradation';
+import type { ResumeHealthVerdict } from './runtime-readiness';
 import type { SpawnConfigBuilder } from './spawn-config-builder';
 
 export type { DesiredRuntime };
@@ -131,6 +132,12 @@ export interface RuntimeReconcilerDeps {
     executionLocation?: ExecutionLocation,
   ): CliAdapter;
   waitForResumeHealth(instanceId: string): Promise<boolean>;
+  /**
+   * Three-way native-resume verdict used by the recovery path to keep a
+   * possibly-healthy session alive on an inconclusive (slow-under-load) probe
+   * instead of destroying it.
+   */
+  evaluateResumeHealth(instanceId: string): Promise<ResumeHealthVerdict>;
   waitForInputReadinessBoundary(instanceId: string, adapter: CliAdapter): Promise<void>;
   prepareStatusForAdapterInput(instance: Instance): void;
   buildReplayContinuityMessage(instance: Instance, reason: string): string;

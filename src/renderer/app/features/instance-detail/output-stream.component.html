@@ -331,6 +331,7 @@
       [items]="visibleItems()"
       [viewport]="container()?.nativeElement ?? null"
       [hasOlderMessages]="hasOlderMessages()"
+      [sessionPrompts]="sessionPrompts()"
       (loadOlder)="loadOlderMessages()"
     />
 

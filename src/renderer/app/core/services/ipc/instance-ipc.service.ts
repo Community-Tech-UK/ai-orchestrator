@@ -388,6 +388,14 @@ export class InstanceIpcService {
     return this.api.loadOlderMessages({ instanceId, ...options });
   }
 
+  /**
+   * Full user-prompt index for a session (stored tally + main-process buffer).
+   */
+  async getPromptIndex(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.getPromptIndex({ instanceId });
+  }
+
   // ============================================
   // Context Compaction
   // ============================================

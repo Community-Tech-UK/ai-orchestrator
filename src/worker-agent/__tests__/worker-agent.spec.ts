@@ -213,6 +213,16 @@ describe('WorkerAgent', () => {
     };
   });
 
+  /**
+   * Mark the injected socket as past registration. Critical frames
+   * (stateChange/exit/permission) are held in the notifier's queue until the
+   * coordinator accepts `node.register`; a live worker emitting instance events
+   * is always in this state.
+   */
+  function markRegistered(): void {
+    (agent as unknown as { registrationAccepted: boolean }).registrationAccepted = true;
+  }
+
   afterEach(async () => {
     await agent.disconnect();
     vi.useRealTimers();
@@ -1127,6 +1137,7 @@ describe('WorkerAgent', () => {
   });
 
   it('forwards permission requests from the local instance manager', () => {
+    markRegistered();
     mockInstanceManager.emit('instance:permissionRequest', 'inst-1', {
       id: 'perm-1',
       prompt: 'Allow command?',
@@ -1194,6 +1205,7 @@ describe('WorkerAgent', () => {
   });
 
   it('sends instance.stateChange as RPC request (with id field)', () => {
+    markRegistered();
     mockInstanceManager.emit('instance:stateChange', 'inst-1', 'processing');
 
     expect(wsSend).toHaveBeenCalled();

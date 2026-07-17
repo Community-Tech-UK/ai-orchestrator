@@ -78,6 +78,7 @@ interface Harness {
     setAdapter: ReturnType<typeof vi.fn>;
     setupAdapterEvents: ReturnType<typeof vi.fn>;
     waitForResumeHealth: ReturnType<typeof vi.fn>;
+    evaluateResumeHealth: ReturnType<typeof vi.fn>;
     buildFallbackHistory: ReturnType<typeof vi.fn>;
     buildReplayContinuityMessage: ReturnType<typeof vi.fn>;
   };
@@ -90,6 +91,7 @@ function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
     setAdapter: vi.fn(),
     setupAdapterEvents: vi.fn(),
     waitForResumeHealth: vi.fn().mockResolvedValue(true),
+    evaluateResumeHealth: vi.fn().mockResolvedValue('healthy'),
     buildFallbackHistory: vi.fn().mockResolvedValue('fallback history'),
     buildReplayContinuityMessage: vi.fn(() => 'replay preamble'),
   };
@@ -104,6 +106,7 @@ function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
       return adapter;
     },
     waitForResumeHealth: deps.waitForResumeHealth,
+    evaluateResumeHealth: deps.evaluateResumeHealth,
     buildFallbackHistory: deps.buildFallbackHistory,
     buildReplayContinuityMessage: deps.buildReplayContinuityMessage,
   } as unknown as RuntimeReconcilerDeps);
@@ -181,6 +184,67 @@ describe('RuntimeReconciler.applyRecoveryRespawn', () => {
     // Resume succeeded → blacklist cleared, session proven on disk.
     expect(instance.sessionResumeBlacklisted).toBe(false);
     expect(instance.providerSessionPersisted).toBe(true);
+  });
+
+  it('inconclusive resume health KEEPS the live session (retries, never destroys) instead of fresh-falling-back', async () => {
+    // The resilience fix: a slow-but-alive resume under host load must not be
+    // torn down — that is what previously lost the live thread + background work.
+    const adapter = makeAdapter(81);
+    const { reconciler, instance, createCalls, deps } = makeHarness(
+      makeInstance(),
+      [adapter],
+    );
+    deps.evaluateResumeHealth.mockResolvedValue('inconclusive');
+
+    const outcome = await reconciler.applyRecoveryRespawn(
+      'inst-1',
+      makeRequest({ postSpawnProviderSessionId: 'forked-id' }),
+      makeHooks(),
+    );
+
+    // Kept the resumed session: reported resumed, only one adapter ever created.
+    expect(outcome).toMatchObject({ status: 'ok', pid: 81, actuallyResumed: true });
+    expect(instance.providerSessionId).toBe('forked-id');
+    expect(createCalls).toHaveLength(1); // no fresh-fallback adapter
+    // Inconclusive is retried exactly once before being accepted.
+    expect(deps.evaluateResumeHealth).toHaveBeenCalledTimes(2);
+  });
+
+  it('unrecoverable resume health falls back to a fresh session (proven-dead only)', async () => {
+    const resumeAdapter = makeAdapter(81);
+    const fallbackAdapter = makeAdapter(82);
+    const { reconciler, createCalls, deps } = makeHarness(
+      makeInstance(),
+      [resumeAdapter, fallbackAdapter],
+    );
+    deps.evaluateResumeHealth.mockResolvedValue('unrecoverable');
+    const hooks = makeHooks();
+
+    const outcome = await reconciler.applyRecoveryRespawn('inst-1', makeRequest(), hooks);
+
+    expect(outcome).toMatchObject({ status: 'ok', pid: 82, actuallyResumed: false, sessionId: 'fresh-id' });
+    expect(createCalls).toHaveLength(2); // fresh-fallback adapter created
+    expect(hooks.delivered).toEqual(['fallback history']);
+    // Proven-dead is decided on the first probe — no wasted retry.
+    expect(deps.evaluateResumeHealth).toHaveBeenCalledTimes(1);
+  });
+
+  it('inconclusive then unrecoverable on retry falls back to a fresh session', async () => {
+    const resumeAdapter = makeAdapter(81);
+    const fallbackAdapter = makeAdapter(82);
+    const { reconciler, createCalls, deps } = makeHarness(
+      makeInstance(),
+      [resumeAdapter, fallbackAdapter],
+    );
+    deps.evaluateResumeHealth
+      .mockResolvedValueOnce('inconclusive')
+      .mockResolvedValueOnce('unrecoverable');
+
+    const outcome = await reconciler.applyRecoveryRespawn('inst-1', makeRequest(), makeHooks());
+
+    expect(outcome).toMatchObject({ status: 'ok', actuallyResumed: false });
+    expect(createCalls).toHaveLength(2);
+    expect(deps.evaluateResumeHealth).toHaveBeenCalledTimes(2);
   });
 
   it('resume failure: strips listeners BEFORE terminate, persists the fresh identity, delivers fallback history', async () => {

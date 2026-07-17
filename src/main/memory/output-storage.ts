@@ -11,12 +11,15 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import { promisify } from 'util';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import type { UserPromptRef } from '../../shared/types/prompt-index.types';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('OutputStorage');
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
+
+const PROMPT_EXCERPT_MAX_LENGTH = 200;
 
 interface StorageMetadata {
   instanceId: string;
@@ -33,6 +36,30 @@ interface StorageIndex {
   totalMessages: number;
   totalSizeBytes: number;
   lastUpdated: number;
+  /**
+   * Running tally of user prompts stored to disk, in storage order. Absent on
+   * indices written before this field existed — getUserPrompts() backfills by
+   * scanning the chunks once and persisting the result.
+   */
+  userPrompts?: UserPromptRef[];
+}
+
+/** Squash a prompt to a bounded single line for the index. */
+function promptExcerpt(content: string): string {
+  const text = content.replace(/\s+/g, ' ').trim();
+  if (text.length <= PROMPT_EXCERPT_MAX_LENGTH) return text;
+  return `${text.slice(0, PROMPT_EXCERPT_MAX_LENGTH - 1).trimEnd()}…`;
+}
+
+/** Map user messages to prompt refs — shared with the prompt-index IPC handler. */
+export function toPromptRefs(messages: OutputMessage[]): UserPromptRef[] {
+  return messages
+    .filter((message) => message.type === 'user')
+    .map((message) => ({
+      id: message.id,
+      timestamp: message.timestamp,
+      excerpt: promptExcerpt(message.content),
+    }));
 }
 
 export class OutputStorageManager {
@@ -89,6 +116,13 @@ export class OutputStorageManager {
     index.totalMessages += messages.length;
     index.totalSizeBytes += compressed.length;
     index.lastUpdated = Date.now();
+    // Only append when the tally exists: a legacy index (written before the
+    // field existed) stays undefined so getUserPrompts() backfills the FULL
+    // history by chunk scan — appending here first would look complete and
+    // silently drop every pre-existing prompt.
+    if (index.userPrompts) {
+      index.userPrompts.push(...toPromptRefs(messages));
+    }
 
     await this.saveIndex(instanceId, index);
 
@@ -136,6 +170,28 @@ export class OutputStorageManager {
     }
 
     return limit ? allMessages.slice(0, limit) : allMessages;
+  }
+
+  /**
+   * All user prompts stored to disk for an instance, in storage order.
+   *
+   * Indices written before the userPrompts field existed are backfilled by
+   * scanning every chunk once; the result is persisted so the scan never
+   * repeats. Returns [] for unknown instances.
+   */
+  async getUserPrompts(instanceId: string): Promise<UserPromptRef[]> {
+    const index = this.indices.get(instanceId);
+    if (!index) return [];
+    if (index.userPrompts) return index.userPrompts;
+
+    const messages = await this.loadMessages(instanceId);
+    index.userPrompts = toPromptRefs(messages);
+    try {
+      await this.saveIndex(instanceId, index);
+    } catch (error) {
+      logger.warn('Failed to persist backfilled prompt index', { instanceId, error: String(error) });
+    }
+    return index.userPrompts;
   }
 
   /**
@@ -275,6 +331,7 @@ export class OutputStorageManager {
         totalMessages: 0,
         totalSizeBytes: 0,
         lastUpdated: Date.now(),
+        userPrompts: [],
       };
       this.indices.set(instanceId, index);
 
@@ -346,6 +403,15 @@ export class OutputStorageManager {
         index.totalSizeBytes -= oldestChunk.sizeBytes;
         index.totalMessages -= oldestChunk.messageCount;
         index.chunks.shift();
+
+        // Drop tallied prompts that lived in the evicted chunk — their
+        // messages are gone, so the jump rail could no longer load them.
+        // Timestamp-bounded (chunk ranges are contiguous), not id-exact.
+        if (index.userPrompts && index.userPrompts.length > 0) {
+          index.userPrompts = index.userPrompts.filter(
+            (prompt) => prompt.timestamp > oldestChunk.endTimestamp,
+          );
+        }
 
         // If instance has no more chunks, delete it entirely
         if (index.chunks.length === 0) {

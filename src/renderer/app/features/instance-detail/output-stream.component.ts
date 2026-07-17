@@ -23,6 +23,7 @@ import {
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
 import type { FailedImageRef, FileAttachment } from '../../../../shared/types/instance.types';
+import type { UserPromptRef } from '../../../../shared/types/prompt-index.types';
 import { MarkdownService } from '../../core/services/markdown.service';
 import { IpcFacadeService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceOutputStore } from '../../core/state/instance/instance-output.store';
@@ -62,6 +63,7 @@ import {
 import { TranscriptFindBarComponent } from './transcript-find-bar.component';
 import { TranscriptFindController } from './transcript-find-controller';
 import { TranscriptJumpRailComponent } from './transcript-jump-rail.component';
+import { excerptText } from './transcript-jump-rail.markers';
 
 interface OlderMessagesLoadResult {
   prependedCount: number;
@@ -185,6 +187,17 @@ export class OutputStreamComponent {
   protected hasOlderMessages = signal(false); // Hidden until backend confirms stored transcript exists
   private olderMessagesHiddenCount = signal(0);
   private oldestChunkLoaded = new Map<string, number>(); // instanceId -> oldest chunk index
+
+  /**
+   * Running tally of every user prompt in the session, keyed by message id:
+   * seeded from the backend prompt index (disk + main buffer) on instance
+   * switch, then folded forward from messages() so it never loses prompts to
+   * buffer trimming. Feeds the jump rail's full tick list.
+   */
+  private sessionPromptMap = signal<Map<string, UserPromptRef>>(new Map<string, UserPromptRef>());
+  protected sessionPrompts = computed(() =>
+    [...this.sessionPromptMap().values()].sort((a, b) => a.timestamp - b.timestamp),
+  );
 
   private markdownService = inject(MarkdownService);
   private ipc = inject(IpcFacadeService);
@@ -383,6 +396,32 @@ export class OutputStreamComponent {
 
       // Probe backend to check if stored transcript exists for this instance
       this.probeForOlderMessages(currentInstanceId);
+
+      // Fetch the session's full user-prompt tally for the jump rail.
+      this.sessionPromptMap.set(new Map<string, UserPromptRef>());
+      this.fetchPromptIndex(currentInstanceId);
+    });
+
+    // Running prompt tally: fold every user message the window has ever shown
+    // into the session map, so prompts survive buffer trimming. New prompts
+    // always enter through messages(), so the tally stays correct between
+    // backend fetches.
+    effect(() => {
+      const prompts = this.messages().filter((message) => message.type === 'user');
+      if (prompts.length === 0) return;
+      const map = this.sessionPromptMap();
+      if (prompts.every((message) => map.has(message.id))) return;
+      const next = new Map<string, UserPromptRef>(map);
+      for (const message of prompts) {
+        if (!next.has(message.id)) {
+          next.set(message.id, {
+            id: message.id,
+            timestamp: message.timestamp,
+            excerpt: excerptText(message.content),
+          });
+        }
+      }
+      this.sessionPromptMap.set(next);
     });
 
     // Deferred-restore watcher.
@@ -626,6 +665,28 @@ export class OutputStreamComponent {
       console.error('[OutputStream] Failed to load older messages:', error);
     } finally {
       this.isLoadingOlder.set(false);
+    }
+  }
+
+  /**
+   * Seed the session prompt tally from the backend index (stored chunks plus
+   * the main-process buffer). Merges INTO the map rather than replacing it so
+   * prompts harvested from messages() while the fetch was in flight survive.
+   */
+  private async fetchPromptIndex(instanceId: string): Promise<void> {
+    try {
+      const result = await this.instanceIpc.getPromptIndex(instanceId);
+      if (this.instanceId() !== instanceId) return; // switched away mid-fetch
+      if (!result.success || !result.data) return;
+      const { prompts } = result.data as { prompts: UserPromptRef[] };
+      if (prompts.length === 0) return;
+      const next = new Map<string, UserPromptRef>(this.sessionPromptMap());
+      for (const prompt of prompts) {
+        if (!next.has(prompt.id)) next.set(prompt.id, prompt);
+      }
+      this.sessionPromptMap.set(next);
+    } catch {
+      // Non-fatal: the rail falls back to the loaded window's prompts.
     }
   }
 

@@ -1,15 +1,18 @@
 /**
  * Transcript Jump Rail — Codex-style left-edge message navigator.
  *
- * Renders one thin tick line per user message as a tight, evenly spaced
- * cluster bunched at the vertical centre of the rail (Codex-style — not spread
- * across the full pane height). The tick for the turn currently in view is
- * longer and brighter (Codex's "you are here" mark).
+ * Renders one thin tick line per user prompt in the SESSION (the
+ * sessionPrompts tally — not just the loaded window) as a tight, evenly
+ * spaced cluster bunched at the vertical centre of the rail (Codex-style —
+ * not spread across the full pane height). The tick for the turn currently
+ * in view is longer and brighter (Codex's "you are here" mark).
  * Hovering a tick shows a preview card — prompt excerpt, reply excerpt, and
  * chips for files edited during that turn; clicking smooth-scrolls the
  * transcript to that message and flashes it (`jump-flash`, styled by the
- * parent). Hidden until the session has MIN_JUMP_TARGETS user messages and
- * actually overflows.
+ * parent). Clicking a tick whose message is outside the rendered window
+ * keeps loading older pages until it arrives, then jumps. Hidden until the
+ * transcript overflows (or has older messages) and the session has
+ * MIN_JUMP_TARGETS prompts — or one, when older messages exist.
  *
  * The component only ever writes scrollTop via an explicit user click, using
  * the same programmatic-scroll shape as the scroll-to-top/bottom buttons, so
@@ -30,15 +33,18 @@ import {
   signal,
 } from '@angular/core';
 import type { DisplayItem } from './display-item.types';
+import type { UserPromptRef } from '../../../../shared/types/prompt-index.types';
 import {
   MIN_JUMP_TARGETS,
   activeMarkerIndex,
   collectJumpTargets,
   computeMarkerLayout,
+  mergeSessionTicks,
+  type JumpTarget,
 } from './transcript-jump-rail.markers';
 
 interface RailGeometry {
-  /** offsetTop of each target's row, index-aligned with the targets. */
+  /** offsetTop of each tick's row, index-aligned with ticks; NaN when unloaded. */
   anchorTops: number[];
   scrollHeight: number;
   scrollTop: number;
@@ -58,6 +64,8 @@ const HOVER_SHOW_DELAY_MS = 120;
 const JUMP_SCROLL_MARGIN = 12;
 const PREVIEW_APPROX_HEIGHT = 132;
 const MAX_PREVIEW_FILE_CHIPS = 2;
+/** Older-load rounds a stub-tick jump may request before giving up. */
+const MAX_PENDING_JUMP_LOADS = 40;
 
 @Component({
   selector: 'app-transcript-jump-rail',
@@ -75,21 +83,24 @@ const MAX_PREVIEW_FILE_CHIPS = 2;
             aria-label="Load earlier messages"
           >⋯</button>
         }
-        @for (marker of markers(); track marker.target.itemId; let i = $index) {
+        @for (marker of markers(); track marker.tick.messageId; let i = $index) {
           <button
             class="tick"
             [class.active]="i === activeIndex()"
             [style.top.px]="marker.top"
             (mouseenter)="onTickEnter(i)"
             (click)="jumpTo(i)"
-            [attr.aria-label]="'Jump to: ' + marker.target.promptExcerpt"
+            [attr.aria-label]="'Jump to: ' + marker.tick.promptExcerpt"
           ></button>
         }
         @if (hoverPreview(); as preview) {
           <div class="preview" [style.top.px]="preview.cardTop">
-            <div class="preview-prompt">{{ preview.target.promptExcerpt }}</div>
-            @if (preview.target.replyExcerpt) {
-              <div class="preview-reply">{{ preview.target.replyExcerpt }}</div>
+            <div class="preview-prompt">{{ preview.tick.promptExcerpt }}</div>
+            @if (preview.tick.target?.replyExcerpt) {
+              <div class="preview-reply">{{ preview.tick.target?.replyExcerpt }}</div>
+            }
+            @if (!preview.tick.target) {
+              <div class="preview-hint">Click to load this message</div>
             }
             @if (preview.chips.length > 0) {
               <div class="preview-files">
@@ -226,6 +237,13 @@ const MAX_PREVIEW_FILE_CHIPS = 2;
       overflow: hidden;
     }
 
+    .preview-hint {
+      margin-top: 5px;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-style: italic;
+    }
+
     .preview-files {
       display: flex;
       align-items: center;
@@ -269,33 +287,46 @@ export class TranscriptJumpRailComponent {
   items = input.required<readonly DisplayItem[]>();
   viewport = input<HTMLElement | null>(null);
   hasOlderMessages = input(false);
+  /** Full session prompt tally (see UserPromptRef) — may exceed the loaded window. */
+  sessionPrompts = input<readonly UserPromptRef[]>([]);
   loadOlder = output<void>();
 
   private host = inject(ElementRef<HTMLElement>);
   private destroyRef = inject(DestroyRef);
 
   protected targets = computed(() => collectJumpTargets(this.items()));
+  /** One tick per session prompt; carries the loaded target when in-window. */
+  protected ticks = computed(() => mergeSessionTicks(this.sessionPrompts(), this.targets()));
   private geometry = signal<RailGeometry>(EMPTY_GEOMETRY);
   protected hoveredIndex = signal(-1);
+  /** Stub-tick click in flight: keep loading older until this prompt arrives. */
+  private pendingJumpMessageId = signal<string | null>(null);
+  private pendingJumpLoads = 0;
 
   protected visible = computed(() => {
     const g = this.geometry();
-    return this.targets().length >= MIN_JUMP_TARGETS && g.scrollHeight > g.clientHeight + 1;
+    const hasOlder = this.hasOlderMessages();
+    if (g.scrollHeight <= g.clientHeight + 1 && !hasOlder) return false;
+    const count = this.ticks().length;
+    // A bounded message window can hold few prompts even in a long session;
+    // when older messages exist there is more transcript to navigate to, so
+    // one visible prompt is enough to warrant the rail.
+    return count >= MIN_JUMP_TARGETS || (count >= 1 && hasOlder);
   });
 
   protected markers = computed(() => {
     const g = this.geometry();
-    const targets = this.targets();
+    const ticks = this.ticks();
     // Codex-style: ticks form a fixed-spacing cluster centred in the rail, so
-    // positions depend only on the target count — no anchor alignment needed.
+    // positions depend only on the tick count — no anchor alignment needed.
     if (g.railHeight <= 0) return [];
-    const tops = computeMarkerLayout(targets.length, g.railHeight);
-    return targets.map((target, i) => ({ target, top: tops[i] }));
+    const tops = computeMarkerLayout(ticks.length, g.railHeight);
+    return ticks.map((tick, i) => ({ tick, top: tops[i] }));
   });
 
   protected activeIndex = computed(() => {
     const g = this.geometry();
-    if (g.anchorTops.length !== this.targets().length) return -1;
+    if (g.anchorTops.length !== this.ticks().length) return -1;
     return activeMarkerIndex(g.anchorTops, g.scrollTop, g.clientHeight);
   });
 
@@ -305,9 +336,9 @@ export class TranscriptJumpRailComponent {
     if (index < 0 || !marker) return null;
     const railHeight = this.geometry().railHeight;
     const cardTop = Math.max(0, Math.min(marker.top - 12, railHeight - PREVIEW_APPROX_HEIGHT));
-    const files = marker.target.files;
+    const files = marker.tick.target?.files ?? [];
     return {
-      target: marker.target,
+      tick: marker.tick,
       cardTop,
       chips: files.slice(0, MAX_PREVIEW_FILE_CHIPS),
       moreCount: Math.max(0, files.length - MAX_PREVIEW_FILE_CHIPS),
@@ -325,6 +356,7 @@ export class TranscriptJumpRailComponent {
     effect(() => {
       this.items();
       this.viewport();
+      this.sessionPrompts();
       this.scheduleMeasure();
     });
 
@@ -353,13 +385,45 @@ export class TranscriptJumpRailComponent {
       });
     });
 
+    // Stub-tick jump driver: each time the loaded targets change (an older
+    // page arrived), either jump to the now-loaded prompt or request another
+    // page while the transcript still has older messages to give.
+    effect(() => {
+      const pendingId = this.pendingJumpMessageId();
+      if (!pendingId) return;
+      const target = this.targets().find((t) => t.messageId === pendingId);
+      if (target) {
+        this.pendingJumpMessageId.set(null);
+        this.jumpToTarget(target);
+        return;
+      }
+      if (!this.hasOlderMessages() || this.pendingJumpLoads >= MAX_PENDING_JUMP_LOADS) {
+        this.pendingJumpMessageId.set(null);
+        return;
+      }
+      this.pendingJumpLoads++;
+      this.loadOlder.emit();
+    });
+
     this.destroyRef.onDestroy(() => this.clearHoverTimer());
   }
 
   protected jumpTo(index: number): void {
+    const tick = this.ticks()[index];
+    if (!tick) return;
+    if (tick.target) {
+      this.pendingJumpMessageId.set(null);
+      this.jumpToTarget(tick.target);
+      return;
+    }
+    // Message not in the rendered window — load older pages until it arrives.
+    this.pendingJumpLoads = 0;
+    this.pendingJumpMessageId.set(tick.messageId);
+  }
+
+  private jumpToTarget(target: JumpTarget): void {
     const vp = this.viewport();
-    const target = this.targets()[index];
-    if (!vp || !target) return;
+    if (!vp) return;
     const row = this.findRow(vp, target.itemId);
     if (!row) return;
 
@@ -399,8 +463,9 @@ export class TranscriptJumpRailComponent {
 
   /**
    * Read all rail geometry in one pass: anchor offsets (offsetTop is relative
-   * to the scroll container, its nearest positioned ancestor), scroll metrics,
-   * and the rail's own height. O(user messages) layout reads, no writes.
+   * to the scroll container, its nearest positioned ancestor; NaN for ticks
+   * whose messages are not in the rendered window), scroll metrics, and the
+   * rail's own height. O(user messages) layout reads, no writes.
    */
   private measure(): void {
     const vp = this.viewport();
@@ -408,8 +473,8 @@ export class TranscriptJumpRailComponent {
       this.geometry.set(EMPTY_GEOMETRY);
       return;
     }
-    const anchorTops = this.targets().map(
-      (target) => this.findRow(vp, target.itemId)?.offsetTop ?? 0,
+    const anchorTops = this.ticks().map((tick) =>
+      tick.target ? this.findRow(vp, tick.target.itemId)?.offsetTop ?? 0 : Number.NaN,
     );
     this.geometry.set({
       anchorTops,

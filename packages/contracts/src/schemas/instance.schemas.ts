@@ -226,6 +226,12 @@ export const InstanceLoadOlderMessagesPayloadSchema = z.object({
 
 export type InstanceLoadOlderMessagesPayload = z.infer<typeof InstanceLoadOlderMessagesPayloadSchema>;
 
+export const InstanceGetPromptIndexPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+export type InstanceGetPromptIndexPayload = z.infer<typeof InstanceGetPromptIndexPayloadSchema>;
+
 // ============ Instance Operations ============
 
 export const InstanceTerminatePayloadSchema = z.object({

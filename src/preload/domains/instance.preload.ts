@@ -170,6 +170,14 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       return ipcRenderer.invoke(ch.INSTANCE_LOAD_OLDER_MESSAGES, payload);
     },
 
+    /**
+     * Full user-prompt index for a session (stored tally + main buffer),
+     * for the transcript jump rail's always-correct tick list.
+     */
+    getPromptIndex: (payload: { instanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_GET_PROMPT_INDEX, payload);
+    },
+
     compactInstance: (payload: { instanceId: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_COMPACT, payload);
     },

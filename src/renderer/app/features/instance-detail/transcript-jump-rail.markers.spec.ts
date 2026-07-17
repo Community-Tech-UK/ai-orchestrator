@@ -9,21 +9,25 @@
  *   4. Edited-file collection: mutating tool_use messages contribute deduped
  *      basenames (input nested or flat, MultiEdit edits, work-cycle nesting);
  *      read-only tools and other turns' edits do not.
- *   5. excerptText strips markdown noise and truncates with an ellipsis.
- *   6. computeMarkerLayout bunches ticks into a fixed-spacing cluster centred
+ *   5. mergeSessionTicks unions the session tally with loaded targets (loaded
+ *      wins), ordered by timestamp, markdown-stripping stored excerpts.
+ *   6. excerptText strips markdown noise and truncates with an ellipsis.
+ *   7. computeMarkerLayout bunches ticks into a fixed-spacing cluster centred
  *      in the rail, compressing and clamping when they cannot fit.
- *   7. activeMarkerIndex finds the last anchor above the reference line and
- *      handles empty/edge cases.
+ *   8. activeMarkerIndex finds the last loaded anchor above the reference
+ *      line, skipping NaN (unloaded) anchors, and handles empty/edge cases.
  */
 
 import { describe, expect, it } from 'vitest';
 import type { DisplayItem } from './display-item.types';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
+import type { UserPromptRef } from '../../../../shared/types/prompt-index.types';
 import {
   activeMarkerIndex,
   collectJumpTargets,
   computeMarkerLayout,
   excerptText,
+  mergeSessionTicks,
 } from './transcript-jump-rail.markers';
 
 let nextId = 0;
@@ -181,6 +185,42 @@ describe('collectJumpTargets', () => {
   });
 });
 
+describe('mergeSessionTicks', () => {
+  function prompt(id: string, timestamp: number, excerpt: string): UserPromptRef {
+    return { id, timestamp, excerpt };
+  }
+
+  it('unions session prompts with loaded targets, loaded winning by message id', () => {
+    const loadedItem = userItem('loaded question');
+    const [target] = collectJumpTargets([loadedItem]);
+    const ticks = mergeSessionTicks(
+      [
+        prompt('older-1', 1, 'unloaded prompt'),
+        prompt(loadedItem.message!.id, loadedItem.message!.timestamp, 'stale stored excerpt'),
+      ],
+      [target],
+    );
+
+    expect(ticks.map((t) => t.messageId)).toEqual(['older-1', loadedItem.message!.id]);
+    expect(ticks[0].target).toBeUndefined();
+    expect(ticks[0].promptExcerpt).toBe('unloaded prompt');
+    expect(ticks[1].target).toBe(target);
+    expect(ticks[1].promptExcerpt).toBe('loaded question');
+  });
+
+  it('orders ticks by timestamp across both sources', () => {
+    const late = userItem('late question'); // timestamp = high nextId
+    const [target] = collectJumpTargets([late]);
+    const ticks = mergeSessionTicks([prompt('early', 0.5, 'early prompt')], [target]);
+    expect(ticks.map((t) => t.messageId)).toEqual(['early', late.message!.id]);
+  });
+
+  it('strips markdown from stored excerpts', () => {
+    const [tick] = mergeSessionTicks([prompt('p1', 1, '**bold** `code`')], []);
+    expect(tick.promptExcerpt).toBe('bold code');
+  });
+});
+
 describe('excerptText', () => {
   it('collapses whitespace and strips markdown syntax', () => {
     expect(excerptText('## Heading\n\n- a **bold** point\n- a [link](https://x.dev)')).toBe(
@@ -244,6 +284,15 @@ describe('activeMarkerIndex', () => {
 
   it('returns 0 when scrolled above the first anchor', () => {
     expect(activeMarkerIndex([1000, 2000], 0, 500)).toBe(0);
+  });
+
+  it('skips unloaded (NaN) anchors and falls back to the first loaded one', () => {
+    expect(activeMarkerIndex([Number.NaN, 1000, Number.NaN, 2000], 0, 500)).toBe(1);
+    expect(activeMarkerIndex([Number.NaN, 1000, Number.NaN, 2000], 1800, 500)).toBe(3);
+  });
+
+  it('returns -1 when no anchors are loaded', () => {
+    expect(activeMarkerIndex([Number.NaN, Number.NaN], 0, 500)).toBe(-1);
   });
 
   it('returns the last anchor above the mid-viewport reference line', () => {

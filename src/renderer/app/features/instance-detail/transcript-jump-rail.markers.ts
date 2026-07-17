@@ -1,5 +1,6 @@
 import type { DisplayItem } from './display-item.types';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
+import type { UserPromptRef } from '../../../../shared/types/prompt-index.types';
 
 /** A user message the jump rail can navigate to. */
 export interface JumpTarget {
@@ -7,6 +8,8 @@ export interface JumpTarget {
   itemId: string;
   /** Underlying OutputMessage id. */
   messageId: string;
+  /** Message timestamp — orders loaded targets among session prompts. */
+  timestamp: number;
   /** Plain-text excerpt of the user prompt, for the tick's hover preview. */
   promptExcerpt: string;
   /** Plain-text excerpt of the assistant's final reply to that prompt ('' while pending). */
@@ -15,8 +18,26 @@ export interface JumpTarget {
   files: string[];
 }
 
-/** Below this many user messages the rail hides — nothing worth navigating. */
-export const MIN_JUMP_TARGETS = 3;
+/**
+ * One tick on the rail: a user prompt from the session tally, carrying the
+ * loaded JumpTarget when its message is in the rendered window. Ticks without
+ * a target are still clickable — the rail loads older messages until the
+ * prompt arrives, then jumps.
+ */
+export interface RailTick {
+  messageId: string;
+  timestamp: number;
+  promptExcerpt: string;
+  target?: JumpTarget;
+}
+
+/**
+ * Below this many user messages the rail hides — nothing worth navigating.
+ * Long sessions render a BOUNDED message window, so the loaded window can
+ * under-count a session's real prompts; the rail also shows with fewer
+ * targets when older messages exist (see visible() in the component).
+ */
+export const MIN_JUMP_TARGETS = 2;
 
 const EXCERPT_MAX_LENGTH = 160;
 
@@ -52,6 +73,7 @@ export function collectJumpTargets(items: readonly DisplayItem[]): JumpTarget[] 
     targets.push({
       itemId: items[i].id,
       messageId: message.id,
+      timestamp: message.timestamp,
       promptExcerpt: excerptText(message.content),
       replyExcerpt: excerptText(reply),
       files: fileDisplayNames(filePaths),
@@ -59,6 +81,37 @@ export function collectJumpTargets(items: readonly DisplayItem[]): JumpTarget[] 
   }
 
   return targets;
+}
+
+/**
+ * Union the session's full prompt tally with the targets currently loaded in
+ * the transcript, keyed by message id (loaded targets win — they carry the
+ * jump anchor, reply excerpt, and file chips). Ordered by timestamp so ticks
+ * appear in conversation order regardless of which source supplied them.
+ */
+export function mergeSessionTicks(
+  sessionPrompts: readonly UserPromptRef[],
+  targets: readonly JumpTarget[],
+): RailTick[] {
+  const byId = new Map<string, RailTick>();
+  for (const prompt of sessionPrompts) {
+    byId.set(prompt.id, {
+      messageId: prompt.id,
+      timestamp: prompt.timestamp,
+      promptExcerpt: excerptText(prompt.excerpt),
+    });
+  }
+  for (const target of targets) {
+    byId.set(target.messageId, {
+      messageId: target.messageId,
+      timestamp: target.timestamp,
+      promptExcerpt: target.promptExcerpt,
+      target,
+    });
+  }
+  return [...byId.values()].sort(
+    (a, b) => a.timestamp - b.timestamp || a.messageId.localeCompare(b.messageId),
+  );
 }
 
 /**
@@ -205,20 +258,24 @@ export function computeMarkerLayout(
 
 /**
  * Which marker the viewport is currently "at": the last anchor at or above a
- * reference line half a viewport below the scroll top. -1 when there are no
- * anchors; 0 when the viewport sits above the first anchor.
+ * reference line half a viewport below the scroll top. Non-finite anchors
+ * (ticks whose messages are not loaded) are skipped. Falls back to the first
+ * loaded anchor when the viewport sits above all of them; -1 when nothing is
+ * loaded.
  */
 export function activeMarkerIndex(
   anchorTops: readonly number[],
   scrollTop: number,
   viewportHeight: number,
 ): number {
-  if (anchorTops.length === 0) return -1;
-
   const referenceLine = scrollTop + viewportHeight * 0.5;
-  let active = 0;
+  let active = -1;
+  let firstLoaded = -1;
   for (let i = 0; i < anchorTops.length; i++) {
-    if (anchorTops[i] <= referenceLine) active = i;
+    const top = anchorTops[i];
+    if (!Number.isFinite(top)) continue;
+    if (firstLoaded === -1) firstLoaded = i;
+    if (top <= referenceLine) active = i;
   }
-  return active;
+  return active !== -1 ? active : firstLoaded;
 }

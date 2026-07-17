@@ -33,6 +33,7 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_REMOVED: 'instance:removed',
   INSTANCE_LIST: 'instance:list',
   INSTANCE_LOAD_OLDER_MESSAGES: 'instance:load-older-messages',
+  INSTANCE_GET_PROMPT_INDEX: 'instance:get-prompt-index',
 
   // Hibernation lifecycle
   INSTANCE_HIBERNATE: 'instance:hibernate',

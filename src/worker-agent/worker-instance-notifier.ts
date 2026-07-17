@@ -9,6 +9,16 @@ import type { WorkerStreamDurability } from './worker-stream-durability';
 interface WorkerInstanceNotifierOptions {
   getSocket: () => WebSocket | null;
   getToken: () => string | undefined;
+  /**
+   * Whether the coordinator has accepted this socket's `node.register`. Until it
+   * has, the critical queue MUST NOT be drained: the coordinator rejects the
+   * first frame on a socket unless it is `node.register` (worker-node-connection
+   * `handleRegistration`), so a queued `instance.stateChange` jumping ahead of
+   * the registration frame gets the whole socket closed with 1008 "Registration
+   * required" — a permanent reconnect wedge for any worker with an in-flight
+   * instance. Defaults to "always registered" when omitted (tests/legacy).
+   */
+  getRegistered?: () => boolean;
   /** WS15 — durable ring for output/context/complete (seq/ack/replay). */
   durability?: WorkerStreamDurability;
 }
@@ -45,6 +55,15 @@ export class WorkerInstanceNotifier {
   private static readonly MAX_INSTANCE_OUTPUT_BYTES = 8 * 1024 * 1024;
 
   constructor(private readonly options: WorkerInstanceNotifierOptions) {}
+
+  /**
+   * True once the coordinator has accepted registration on the current socket.
+   * When no `getRegistered` gate is supplied we assume registered so tests and
+   * any non-worker caller keep their previous behaviour.
+   */
+  private isRegistered(): boolean {
+    return this.options.getRegistered ? this.options.getRegistered() : true;
+  }
 
   /**
    * Serialize an outbound frame, guarding the two ways serialization can take
@@ -164,7 +183,10 @@ export class WorkerInstanceNotifier {
       return;
     }
     const ws = this.options.getSocket();
-    if (ws?.readyState === WebSocket.OPEN) {
+    // Hold critical frames until the socket is open AND registration is
+    // accepted. Sending one before registration would put a non-`node.register`
+    // frame first on the socket and the coordinator would close it with 1008.
+    if (ws?.readyState === WebSocket.OPEN && this.isRegistered()) {
       this.flushCriticalQueue();
       ws.send(serialized, (err) => {
         if (err) {
@@ -375,6 +397,11 @@ export class WorkerInstanceNotifier {
     const ws = this.options.getSocket();
     if (this.criticalMessageQueue.length === 0) return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // Never drain ahead of an accepted registration. `send()` (used for the
+    // `node.register` frame itself) calls this opportunistically; without this
+    // gate the registration send would flush queued `instance.stateChange`
+    // frames onto the wire first and the coordinator would reject the socket.
+    if (!this.isRegistered()) return;
 
     const queued = this.criticalMessageQueue;
     this.criticalMessageQueue = [];
