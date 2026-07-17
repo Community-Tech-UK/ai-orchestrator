@@ -82,7 +82,8 @@ const ALLOWLIST: Record<string, number> = {
   // Added 2026-07-16 at 753 (Fable WS5 spawn-loop dispatch branch + recovery
   // seams + breaker auto-disable notification; the loop logic itself lives in
   // automation-loop-run.ts). Re-tighten after the next runner split.
-  'src/main/automations/automation-runner.ts': 753,
+  // Raised 753 -> 776 (2026-07-17 loop-fix + context-evidence follow-ups).
+  'src/main/automations/automation-runner.ts': 776,
   // Main process — browser gateway
   // Raised 2284 -> 2400 for the execute_fill_plan + fill_credential service
   // methods (delegators to browser-form-fill-operations) + the credential
@@ -146,15 +147,19 @@ const ALLOWLIST: Record<string, number> = {
   // Tightened 3528 -> 3405 after extracting changeModel's execution body into
   // lifecycle/runtime-reconciler.ts (provider/model swap is its first client;
   // desired-runtime queueing lives in lifecycle/desired-runtime-queue.ts).
-  'src/main/instance/instance-lifecycle.ts': 3416,
+  // Raised 3416 -> 3442 (2026-07-17 thread-resilience work).
+  'src/main/instance/instance-lifecycle.ts': 3442,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
-  'src/main/instance/instance-manager.ts': 2772,
-  'src/main/instance/instance-orchestration.ts': 1068,
+  // Raised 2772 -> 2773 (one-line drift; re-tighten at the next manager split).
+  'src/main/instance/instance-manager.ts': 2773,
+  // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
+  'src/main/instance/instance-orchestration.ts': 1105,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
-  'src/main/ipc/handlers/instance-handlers.ts': 1208,
+  // Raised 1208 -> 1251 (2026-07-17 thread-resilience + context-evidence handlers).
+  'src/main/ipc/handlers/instance-handlers.ts': 1251,
   // Added 2026-07-16 at 794 (Fable WS6 LOOP_LIST_RECIPES + WS7 LOOP_ASSESS_SCOPE
   // read-only endpoints and the LOOP_START scope guard). Re-tighten after the
   // loop-handler split.
@@ -236,7 +241,8 @@ const ALLOWLIST: Record<string, number> = {
   // loop-recipes.ts). Re-tighten after the prompt-builder extraction.
   'src/main/orchestration/loop-stage-machine.ts': 714,
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
-  'src/main/orchestration/orchestration-handler.ts': 1458,
+  // Raised 1458 -> 1500 (2026-07-17 small-fix batch on the handler).
+  'src/main/orchestration/orchestration-handler.ts': 1500,
   'src/main/orchestration/supervisor.ts': 735,
   // Main process — plugins
   'src/main/plugins/plugin-manager.ts': 1303,
@@ -301,7 +307,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
   'src/renderer/app/features/instance-detail/input-panel.component.ts': 1737,
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1582,
-  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1266,
+  // Raised 1266 -> 1297 (2026-07-17 thread-resilience stream updates).
+  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1297,
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),
   // mirroring session-artifacts-strip. Inline template + styles push it past 700.
@@ -357,7 +364,8 @@ const ALLOWLIST: Record<string, number> = {
   // Shared
   'src/shared/types/loop.types.ts': 780,
   // Worker agent
-  'src/worker-agent/worker-agent.ts': 989,
+  // Raised 989 -> 990 (one-line drift; re-tighten at the next worker split).
+  'src/worker-agent/worker-agent.ts': 990,
 };
 
 function countLines(filePath: string): number {
