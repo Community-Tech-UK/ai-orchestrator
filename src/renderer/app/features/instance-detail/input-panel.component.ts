@@ -70,6 +70,10 @@ import {
   type ComposerEditingAction,
 } from './composer-editing';
 import { ComposerAutocompleteComponent } from './composer-autocomplete';
+import {
+  ComposerQueueComponent,
+  type ComposerQueuedMessage,
+} from './composer-queue.component';
 import type {
   ContextUsage,
   InstanceLaunchMode,
@@ -100,7 +104,6 @@ import {
   parseWakeupLocal,
   startsWithLikelyPath,
   toLoopPickerProvider,
-  truncateQueuedMessage,
 } from './input-panel-formatters';
 import { fuzzyRank } from '../../shared/utils/fuzzy';
 
@@ -114,6 +117,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     CompactModelPickerComponent,
     ComposerAutocompleteComponent,
     ComposerBannersComponent,
+    ComposerQueueComponent,
     ComposerToolbarComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
@@ -151,12 +155,7 @@ export class InputPanelComponent implements OnDestroy {
   pendingFiles = input<File[]>([]);
   pendingFolders = input<string[]>([]);
   queuedCount = input<number>(0);
-  queuedMessages = input<{
-    message: string;
-    files?: File[];
-    kind?: 'queue' | 'steer';
-    hadAttachmentsDropped?: boolean;
-  }[]>([]);
+  queuedMessages = input<ComposerQueuedMessage[]>([]);
   isBusy = input<boolean>(false);
   isRespawning = input<boolean>(false);
   outputMessages = input<OutputMessage[]>([]);
@@ -1552,10 +1551,6 @@ export class InputPanelComponent implements OnDestroy {
 
   onRemoveFolder(folder: string): void {
     this.removeFolder.emit(folder);
-  }
-
-  truncateMessage(message: string): string {
-    return truncateQueuedMessage(message);
   }
 
   onCancelQueuedMessage(index: number): void {

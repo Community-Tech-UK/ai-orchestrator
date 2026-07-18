@@ -76,4 +76,22 @@ describe('NotificationCenterComponent', () => {
     expect(fixture.nativeElement.querySelector('.notification-center-panel')?.textContent)
       .toContain('No notifications yet.');
   });
+
+  it('keeps the panel open for inside clicks and closes it for outside clicks', () => {
+    const host = fixture.nativeElement as HTMLElement;
+    const trigger = host.querySelector('.notification-center-trigger') as HTMLButtonElement;
+    trigger.click();
+    fixture.detectChanges();
+
+    const panel = host.querySelector('.notification-center-panel') as HTMLElement;
+    panel.click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.notification-center-panel')).not.toBeNull();
+
+    document.body.click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.notification-center-panel')).toBeNull();
+  });
 });

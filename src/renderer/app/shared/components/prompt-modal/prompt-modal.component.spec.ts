@@ -2,15 +2,6 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PromptModalComponent } from './prompt-modal.component';
 
-/**
- * Note on scope: this project's vitest Angular transform does not register
- * signal `input()` declarations for template binding (NG0303) — which is why
- * the loop-control spec relies on NO_ERRORS_SCHEMA and overrides input
- * functions directly. We therefore exercise the modal's behaviour through its
- * instance (draft / guard / emit logic). The DOM rendering and input bindings
- * are validated by the real app, which has no such schema, and by the
- * loop-control routing test.
- */
 interface ModalInternals {
   draft: { set(value: string): void };
   canConfirm: () => boolean;
@@ -84,9 +75,8 @@ describe('PromptModalComponent', () => {
   });
 
   it('restores focus when the open modal closes', async () => {
-    let open = true;
-    (fixture.componentInstance as unknown as { isOpen: () => boolean }).isOpen = () => open;
     opener.focus();
+    fixture.componentRef.setInput('isOpen', true);
     fixture.detectChanges();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -95,18 +85,17 @@ describe('PromptModalComponent', () => {
     field!.focus();
     expect(document.activeElement).toBe(field);
 
-    open = false;
+    fixture.componentRef.setInput('isOpen', false);
     fixture.detectChanges();
 
     expect(document.activeElement).toBe(opener);
   });
 
   it('restores focus after Escape requests modal close', async () => {
-    let open = true;
     let cancelledCount = 0;
-    (fixture.componentInstance as unknown as { isOpen: () => boolean }).isOpen = () => open;
     ci.cancelled.subscribe(() => (cancelledCount += 1));
     opener.focus();
+    fixture.componentRef.setInput('isOpen', true);
     fixture.detectChanges();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -119,7 +108,7 @@ describe('PromptModalComponent', () => {
     overlay!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     expect(cancelledCount).toBe(1);
 
-    open = false;
+    fixture.componentRef.setInput('isOpen', false);
     fixture.detectChanges();
 
     expect(document.activeElement).toBe(opener);

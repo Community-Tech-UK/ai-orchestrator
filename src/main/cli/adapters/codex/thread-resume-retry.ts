@@ -18,8 +18,8 @@
  */
 
 import { getLogger } from '../../../logging/logger';
-import { retryWithBackoff } from '../../../util/backoff';
 import { ErrorCategory } from '../../../../shared/types/error-recovery.types';
+import { CliRetryCoordinator } from '../cli-retry-coordinator';
 import { isTransientRpcTimeoutError } from './thread-start-retry';
 import type { AppServerRequestParams, AppServerResponseResult } from './app-server-types';
 
@@ -59,16 +59,17 @@ export async function resumeThreadWithRetry(
     excludeTurns: true,
   };
 
-  return retryWithBackoff(
+  const retryCoordinator = new CliRetryCoordinator({
+    classify: (error) => (
+      isTransientRpcTimeoutError(error) ? ErrorCategory.TRANSIENT : ErrorCategory.PERMANENT
+    ),
+  });
+
+  return retryCoordinator.run(
     () => client.request('thread/resume', metadataOnlyParams),
     {
       attempts: maxAttempts,
-      classify: (error) => (
-        isTransientRpcTimeoutError(error) ? ErrorCategory.TRANSIENT : ErrorCategory.PERMANENT
-      ),
-      delayForAttempt: (attempt) => (
-        retryDelaysMs[Math.min(attempt, retryDelaysMs.length - 1)] ?? 5_000
-      ),
+      retryDelaysMs,
       onRetry: ({ attempt, delayMs, error }) => {
         logger.warn('thread/resume timed out — retrying with backoff (host may be overloaded)', {
           attempt,

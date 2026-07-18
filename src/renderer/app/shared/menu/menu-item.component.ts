@@ -2,12 +2,11 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  EventEmitter,
-  Input,
-  Output,
   ViewChild,
   inject,
   NgZone,
+  input,
+  output
 } from '@angular/core';
 import type { MenuItem } from './menu.types';
 
@@ -38,29 +37,29 @@ import type { MenuItem } from './menu.types';
         type="button"
         class="menu-item-row__body"
         role="menuitem"
-        [attr.tabindex]="focused ? 0 : -1"
-        [attr.aria-checked]="item.selected ? 'true' : null"
-        [attr.aria-haspopup]="item.submenu ? 'menu' : null"
-        [attr.aria-disabled]="item.disabledReason ? 'true' : null"
-        [attr.aria-expanded]="item.submenu ? (submenuOpen ? 'true' : 'false') : null"
-        [attr.title]="item.disabledReason ?? null"
+        [attr.tabindex]="focused() ? 0 : -1"
+        [attr.aria-checked]="item().selected ? 'true' : null"
+        [attr.aria-haspopup]="item().submenu ? 'menu' : null"
+        [attr.aria-disabled]="item().disabledReason ? 'true' : null"
+        [attr.aria-expanded]="item().submenu ? (submenuOpen() ? 'true' : 'false') : null"
+        [attr.title]="item().disabledReason ?? null"
         (click)="onRowClick($event)"
         (focus)="onRowFocus()"
       >
-        @if (item.selected) {
+        @if (item().selected) {
           <span class="menu-item-row__check" aria-hidden="true">✓</span>
         } @else {
           <span class="menu-item-row__check menu-item-row__check--placeholder" aria-hidden="true"></span>
         }
-        <span class="menu-item-row__label">{{ item.label }}</span>
+        <span class="menu-item-row__label">{{ item().label }}</span>
       </button>
-      @if (item.submenu) {
+      @if (item().submenu) {
         <button
           type="button"
           class="menu-item-row__chevron"
           tabindex="-1"
-          [attr.aria-label]="'Open ' + item.label + ' options'"
-          [attr.aria-disabled]="item.disabledReason ? 'true' : null"
+          [attr.aria-label]="'Open ' + item().label + ' options'"
+          [attr.aria-disabled]="item().disabledReason ? 'true' : null"
           (click)="onChevronClick($event)"
         >
           <span aria-hidden="true">›</span>
@@ -138,13 +137,13 @@ import type { MenuItem } from './menu.types';
   `],
 })
 export class MenuItemComponent<T = unknown> {
-  @Input({ required: true }) item!: MenuItem<T>;
-  @Input() focused = false;
-  @Input() submenuOpen = false;
+  readonly item = input.required<MenuItem<T>>();
+  readonly focused = input(false);
+  readonly submenuOpen = input(false);
 
-  @Output() itemSelect = new EventEmitter<MenuItem<T>>();
-  @Output() openSubmenu = new EventEmitter<MenuItem<T>>();
-  @Output() rowFocused = new EventEmitter<MenuItem<T>>();
+  readonly itemSelect = output<MenuItem<T>>();
+  readonly openSubmenu = output<MenuItem<T>>();
+  readonly rowFocused = output<MenuItem<T>>();
 
   @ViewChild('rowButton', { static: true }) rowButton!: ElementRef<HTMLButtonElement>;
 
@@ -159,27 +158,30 @@ export class MenuItemComponent<T = unknown> {
   onRowClick(event: MouseEvent): void {
     event.stopPropagation();
     this.cancelHoverTimer();
-    if (this.item.disabledReason) return;
-    this.itemSelect.emit(this.item);
+    const item = this.item();
+    if (item.disabledReason) return;
+    this.itemSelect.emit(item);
   }
 
   onChevronClick(event: MouseEvent): void {
     event.stopPropagation();
     this.cancelHoverTimer();
-    if (this.item.disabledReason || !this.item.submenu) return;
-    this.openSubmenu.emit(this.item);
+    const item = this.item();
+    if (item.disabledReason || !item.submenu) return;
+    this.openSubmenu.emit(item);
   }
 
   onRowFocus(): void {
-    this.rowFocused.emit(this.item);
+    this.rowFocused.emit(this.item());
   }
 
   onMouseEnter(): void {
-    if (this.item.disabledReason || !this.item.submenu) return;
+    const item = this.item();
+    if (item.disabledReason || !item.submenu) return;
     this.cancelHoverTimer();
     this.zone.runOutsideAngular(() => {
       this.hoverTimer = setTimeout(() => {
-        this.zone.run(() => this.openSubmenu.emit(this.item));
+        this.zone.run(() => this.openSubmenu.emit(this.item()));
       }, MenuItemComponent.HOVER_OPEN_DELAY_MS);
     });
   }

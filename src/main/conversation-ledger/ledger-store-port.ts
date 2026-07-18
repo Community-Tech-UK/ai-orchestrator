@@ -56,8 +56,6 @@ import type {
   EvidenceRangeAuthorization,
   EvidenceRangeAuthorizationInput,
   EvidenceStageInput,
-  LegacyMarkerCompareAndSwapInput,
-  LegacyOutputCacheMarkerRecord,
 } from './context-evidence-ledger.types';
 
 /** A message to append with its sequence assigned by the store, not the caller. */
@@ -143,8 +141,6 @@ export interface LedgerStorePort {
     errorCode: string,
     retryAt: number,
   ): Promise<boolean>;
-  compareAndSwapLegacyOutputMarker(input: LegacyMarkerCompareAndSwapInput): Promise<boolean>;
-  listLegacyOutputCacheMarkers(): Promise<LegacyOutputCacheMarkerRecord[]>;
   /** Release resources (close the DB / terminate the worker). */
   close(): Promise<void>;
 }
@@ -357,14 +353,6 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
     return this.store.contextEvidence.failEvidenceDeletion(id, claimToken, errorCode, retryAt);
   }
 
-  async compareAndSwapLegacyOutputMarker(input: LegacyMarkerCompareAndSwapInput): Promise<boolean> {
-    return this.store.contextEvidence.compareAndSwapLegacyOutputMarker(input);
-  }
-
-  async listLegacyOutputCacheMarkers(): Promise<LegacyOutputCacheMarkerRecord[]> {
-    return this.store.contextEvidence.listLegacyOutputCacheMarkers();
-  }
-
   async close(): Promise<void> {
     this.db?.close();
   }
@@ -408,6 +396,4 @@ export type LedgerStoreMethod =
   | 'softDeleteConversationWithEvidence'
   | 'claimEvidenceDeletions'
   | 'completeEvidenceDeletion'
-  | 'failEvidenceDeletion'
-  | 'compareAndSwapLegacyOutputMarker'
-  | 'listLegacyOutputCacheMarkers';
+  | 'failEvidenceDeletion';

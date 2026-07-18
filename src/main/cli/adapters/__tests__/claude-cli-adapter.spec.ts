@@ -161,6 +161,8 @@ vi.mock('../../cli-path-resolver', () => ({
 import { ClaudeCliAdapter, DEFER_MIN_VERSION } from '../claude-cli-adapter';
 import { InputFormatter } from '../../input-formatter';
 import { NdjsonParser } from '../../ndjson-parser';
+import { getErrorRecoveryManager } from '../../../core/error-recovery';
+import { ErrorCategory } from '../../../../shared/types/error-recovery.types';
 
 describe('ClaudeCliAdapter', () => {
   let adapter: ClaudeCliAdapter;
@@ -590,6 +592,32 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
   });
 
   describe('sendMessage', () => {
+    it('classifies stdin failures through ErrorRecoveryManager and emits only the error', async () => {
+      const recovery = getErrorRecoveryManager();
+      recovery.reset();
+      const adapter = new ClaudeCliAdapter({});
+      const onError = vi.fn();
+      adapter.on('error', onError);
+      const sendPromise = adapter.sendMessage({ role: 'user', content: 'hello' });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
+      const error = new Error('ECONNRESET while writing to Claude');
+      (proc.stdin as unknown as EventEmitter).emit('error', error);
+
+      expect(recovery.getErrorHistory()).toEqual([
+        expect.objectContaining({
+          original: error,
+          category: ErrorCategory.NETWORK,
+          source: 'claude-cli-adapter',
+        }),
+      ]);
+      expect(onError).toHaveBeenCalledWith(error);
+
+      proc.emit('close', 0);
+      await expect(sendPromise).resolves.toBeDefined();
+    });
+
     it('closes stdin after writing the one-shot stream-json prompt', async () => {
       const adapter = new ClaudeCliAdapter({});
       const sendPromise = adapter.sendMessage({ role: 'user', content: 'hello' });

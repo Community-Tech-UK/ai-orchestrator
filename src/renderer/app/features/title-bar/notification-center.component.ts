@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  OnInit,
+  inject,
+  signal,
+} from '@angular/core';
 import { NotificationCenterStore } from '../../core/state/notification-center.store';
 
 @Component({
@@ -150,6 +158,7 @@ import { NotificationCenterStore } from '../../core/state/notification-center.st
 })
 export class NotificationCenterComponent implements OnInit {
   protected readonly store = inject(NotificationCenterStore);
+  private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly open = signal(false);
 
   ngOnInit(): void {
@@ -158,6 +167,14 @@ export class NotificationCenterComponent implements OnInit {
 
   protected toggle(): void {
     this.open.update((open) => !open);
+  }
+
+  @HostListener('document:click', ['$event'])
+  protected onDocumentClick(event: MouseEvent): void {
+    if (!this.open()) return;
+    const target = event.target;
+    if (target instanceof Node && this.elementRef.nativeElement.contains(target)) return;
+    this.open.set(false);
   }
 
   protected dismiss(id: string): void {

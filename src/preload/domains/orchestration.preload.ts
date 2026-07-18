@@ -868,15 +868,6 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
       return ipcRenderer.invoke(ch.DEBATE_INTERVENE, payload);
     },
 
-    /**
-     * Listen for debate streaming events
-     */
-    onDebateEvent: (callback: (data: unknown) => void): (() => void) => {
-      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
-      ipcRenderer.on(ch.DEBATE_EVENT, handler);
-      return () => ipcRenderer.removeListener(ch.DEBATE_EVENT, handler);
-    },
-
     // ============================================
     // LLM Service
     // ============================================

@@ -3,6 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCodexAdapter, createCliAdapter } from '../adapter-factory';
+import { CodexBaseAdapter } from '../codex-base-adapter';
+import { CodexExecAdapter } from '../codex-exec-adapter';
+import { CodexAppServerAdapter } from '../codex-app-server-adapter';
 
 const codexTmpDirs: string[] = [];
 function writeStaticMcpConfig(contents: string): string {
@@ -20,6 +23,14 @@ afterEach(() => {
 });
 
 describe('adapter factory - codex', () => {
+  it('constructs the app-server adapter layered over the exec fallback and common base', () => {
+    const adapter = createCodexAdapter({ workingDirectory: '/tmp' });
+
+    expect(adapter).toBeInstanceOf(CodexAppServerAdapter);
+    expect(adapter).toBeInstanceOf(CodexExecAdapter);
+    expect(adapter).toBeInstanceOf(CodexBaseAdapter);
+  });
+
   it('maps yolo Codex instances to danger-full-access sandbox', () => {
     const adapter = createCodexAdapter({
       workingDirectory: '/tmp',

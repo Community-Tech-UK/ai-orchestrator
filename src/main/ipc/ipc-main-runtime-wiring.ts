@@ -4,10 +4,6 @@ import { MemoryLoadHistoryPayloadSchema } from '@contracts/schemas/instance';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { getLogger } from '../logging/logger';
 import { RLMContextManager } from '../rlm/context-manager';
-import { getDebateCoordinator } from '../orchestration/debate-coordinator';
-import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
-import { getTrainingLoop } from '../memory/training-loop';
-import { getHotModelSwitcher } from '../routing/hot-model-switcher';
 import { getChannelManager } from '../channels';
 import { getReactionEngine } from '../reactions';
 import { getKnowledgeGraphService } from '../memory/knowledge-graph-service';
@@ -85,10 +81,6 @@ export function registerMemoryStatsHandlers(instanceManager: InstanceManager): v
 export function setupIpcEventForwarding(deps: IpcRuntimeWiringDeps): void {
   setupMemoryEventForwarding(deps);
   setupRlmEventForwarding(deps.windowManager);
-  setupDebateEventForwarding(deps.windowManager);
-  setupVerificationEventForwarding(deps.windowManager);
-  setupTrainingEventForwarding(deps.windowManager);
-  setupHotSwitchEventForwarding(deps.windowManager);
   setupChannelEventForwarding(deps.windowManager);
   setupReactionEventForwarding(deps.windowManager);
   setupKnowledgeEventForwarding(deps.windowManager);
@@ -202,66 +194,6 @@ function setupRlmEventForwarding(windowManager: WindowManager): void {
         section: serializeContextSectionForIpc(section),
     });
   });
-}
-
-function setupDebateEventForwarding(windowManager: WindowManager): void {
-  try {
-    const debate = getDebateCoordinator();
-    const send = (channel: string, data: unknown) =>
-      windowManager.sendToRenderer(channel, data);
-
-    debate.on('debate:started', (data) => send(IPC_CHANNELS.DEBATE_EVENT_STARTED, data));
-    debate.on('debate:round-complete', (data) => send(IPC_CHANNELS.DEBATE_EVENT_ROUND_COMPLETE, data));
-    debate.on('debate:completed', (data) => send(IPC_CHANNELS.DEBATE_EVENT_COMPLETED, data));
-    debate.on('debate:error', (data) => send(IPC_CHANNELS.DEBATE_EVENT_ERROR, data));
-    debate.on('debate:paused', (data) => send(IPC_CHANNELS.DEBATE_EVENT_PAUSED, data));
-    debate.on('debate:resumed', (data) => send(IPC_CHANNELS.DEBATE_EVENT_RESUMED, data));
-  } catch {
-    logger.warn('DebateCoordinator not available for event forwarding');
-  }
-}
-
-function setupVerificationEventForwarding(windowManager: WindowManager): void {
-  try {
-    const verify = getMultiVerifyCoordinator();
-    const send = (channel: string, data: unknown) =>
-      windowManager.sendToRenderer(channel, data);
-
-    verify.on('verification:started', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_STARTED, data));
-    verify.on('verification:progress', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_PROGRESS, data));
-    verify.on('verification:completed', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_COMPLETED, data));
-    verify.on('verification:error', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_ERROR, data));
-  } catch {
-    logger.warn('MultiVerifyCoordinator not available for event forwarding');
-  }
-}
-
-function setupTrainingEventForwarding(windowManager: WindowManager): void {
-  try {
-    const training = getTrainingLoop();
-    const send = (channel: string, data: unknown) =>
-      windowManager.sendToRenderer(channel, data);
-
-    training.on('training:started', (data) => send(IPC_CHANNELS.TRAINING_EVENT_STARTED, data));
-    training.on('training:completed', (data) => send(IPC_CHANNELS.TRAINING_EVENT_COMPLETED, data));
-    training.on('training:error', (data) => send(IPC_CHANNELS.TRAINING_EVENT_ERROR, data));
-  } catch {
-    logger.warn('TrainingLoop not available for event forwarding');
-  }
-}
-
-function setupHotSwitchEventForwarding(windowManager: WindowManager): void {
-  try {
-    const switcher = getHotModelSwitcher();
-    const send = (channel: string, data: unknown) =>
-      windowManager.sendToRenderer(channel, data);
-
-    switcher.on('switch:started', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_STARTED, data));
-    switcher.on('switch:completed', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_COMPLETED, data));
-    switcher.on('switch:failed', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_FAILED, data));
-  } catch {
-    logger.warn('HotModelSwitcher not available for event forwarding');
-  }
 }
 
 function setupChannelEventForwarding(windowManager: WindowManager): void {

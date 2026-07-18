@@ -120,9 +120,17 @@ export class RestartPolicyHelpers {
     // Get context window for budget calculation
     const contextWindow = getProviderModelContextWindow(instance.provider, instance.currentModel);
 
-    const fallback = buildFallbackHistoryMessage(activeMessages, reason, contextWindow)
-      ?? this.buildReplayContinuityMessage(instance, reason);
-    return `${fallback}\n\n${buildFreshFallbackDegradationNotice(reason, this.reconcileChildren(instance.id))}`;
+    const degradationNotice = buildFreshFallbackDegradationNotice(
+      reason,
+      this.reconcileChildren(instance.id),
+    );
+    return buildFallbackHistoryMessage(
+      activeMessages,
+      reason,
+      contextWindow,
+      0.3,
+      degradationNotice,
+    ) ?? `${this.buildReplayContinuityMessage(instance, reason)}\n\n${degradationNotice}`;
   }
 
   /**

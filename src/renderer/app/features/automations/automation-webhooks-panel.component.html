@@ -44,7 +44,7 @@
         (ngModelChange)="patchForm({ automationId: $event })"
       >
         <option value="">Record only</option>
-        @for (automation of automations; track automation.id) {
+        @for (automation of automations(); track automation.id) {
           <option [value]="automation.id">{{ automation.name }}</option>
         }
       </select>

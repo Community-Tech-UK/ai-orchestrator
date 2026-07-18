@@ -1,15 +1,14 @@
 import * as path from 'path';
-import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { URL } from 'url';
+import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getLogger } from '../logging/logger';
+import { getWorkerNodeRegistry } from '../remote-node';
 import { getRepoJobService } from '../repo-jobs';
 import { getSessionShareService } from '../session/session-share-service';
-import { getRemoteObserverAuth } from './observer-auth';
 import { getLocalIpv4Addresses } from '../util/network-addresses';
-import { getWorkerNodeRegistry } from '../remote-node';
 import type {
   RemoteObserverEventEnvelope,
   RemoteObserverInstanceSummary,
@@ -17,6 +16,10 @@ import type {
   RemoteObserverSnapshot,
   RemoteObserverStatus,
 } from '../../shared/types/remote-observer.types';
+import { OBSERVER_CLIENT_SCRIPT } from './observer-client-script';
+import { getRemoteObserverAuth } from './observer-auth';
+import { buildObserverPageResponse } from './observer-page';
+import { OBSERVER_STYLES } from './observer-styles';
 
 const logger = getLogger('RemoteObserverServer');
 
@@ -219,7 +222,17 @@ export class RemoteObserverServer {
     }
 
     if (url.pathname === '/') {
-      this.sendHtml(res, renderObserverHtml());
+      this.sendObserverPage(res);
+      return;
+    }
+
+    if (url.pathname === '/observer-client.js') {
+      this.sendStaticAsset(res, 'application/javascript; charset=utf-8', OBSERVER_CLIENT_SCRIPT);
+      return;
+    }
+
+    if (url.pathname === '/observer.css') {
+      this.sendStaticAsset(res, 'text/css; charset=utf-8', OBSERVER_STYLES);
       return;
     }
 
@@ -309,7 +322,6 @@ export class RemoteObserverServer {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     });
     client.write(`event: snapshot\ndata: ${JSON.stringify(this.buildSnapshot())}\n\n`);
     this.clients.add(client);
@@ -341,16 +353,25 @@ export class RemoteObserverServer {
     res.writeHead(statusCode, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
     });
     res.end(JSON.stringify(payload));
   }
 
-  private sendHtml(res: ServerResponse, html: string): void {
+  private sendObserverPage(res: ServerResponse): void {
+    const response = buildObserverPageResponse();
+    res.writeHead(200, response.headers);
+    res.end(response.html);
+  }
+
+  private sendStaticAsset(res: ServerResponse, contentType: string, body: string): void {
     res.writeHead(200, {
-      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Type': contentType,
       'Cache-Control': 'no-store',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'X-Content-Type-Options': 'nosniff',
     });
-    res.end(html);
+    res.end(body);
   }
 }
 
@@ -378,486 +399,4 @@ function sanitizeMessagePayload(
 
 export function getRemoteObserverServer(): RemoteObserverServer {
   return RemoteObserverServer.getInstance();
-}
-
-function renderObserverHtml(): string {
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Orchestrator Observer</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #09111a;
-        --panel: rgba(14, 24, 36, 0.92);
-        --panel-alt: rgba(20, 32, 46, 0.9);
-        --border: rgba(148, 163, 184, 0.18);
-        --text: #e6edf5;
-        --muted: #9cb0c3;
-        --accent: #4ade80;
-        --warning: #fbbf24;
-        --error: #f87171;
-        --info: #38bdf8;
-        --shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
-      }
-
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: var(--text);
-        background:
-          radial-gradient(circle at top right, rgba(56, 189, 248, 0.15), transparent 32rem),
-          radial-gradient(circle at bottom left, rgba(74, 222, 128, 0.12), transparent 28rem),
-          var(--bg);
-      }
-
-      header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-end;
-        gap: 1rem;
-        padding: 1.5rem;
-      }
-
-      h1, h2, h3, p { margin: 0; }
-      h1 { font-size: clamp(2rem, 4vw, 2.8rem); line-height: 0.95; }
-      h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-      p, li, button, input, select { font: inherit; }
-
-      .subtitle {
-        margin-top: 0.5rem;
-        color: var(--muted);
-        max-width: 40rem;
-      }
-
-      .toolbar, .stats, .grid, .panel-list, .detail-list, .message-list {
-        display: grid;
-        gap: 1rem;
-      }
-
-      .toolbar, .stats, .grid {
-        padding: 0 1.5rem 1.5rem;
-      }
-
-      .toolbar {
-        grid-template-columns: minmax(0, 1fr) auto auto;
-        align-items: end;
-      }
-
-      .toolbar label {
-        display: grid;
-        gap: 0.35rem;
-        color: var(--muted);
-        font-size: 0.82rem;
-      }
-
-      .toolbar input, .toolbar select {
-        width: 100%;
-        padding: 0.8rem 0.95rem;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        background: rgba(8, 15, 24, 0.9);
-        color: var(--text);
-      }
-
-      .stats {
-        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-      }
-
-      .stat, .panel {
-        border: 1px solid var(--border);
-        background: var(--panel);
-        border-radius: 1rem;
-        box-shadow: var(--shadow);
-      }
-
-      .stat {
-        padding: 1rem 1.1rem;
-      }
-
-      .stat strong {
-        display: block;
-        margin-top: 0.35rem;
-        font-size: 1.5rem;
-      }
-
-      .grid {
-        grid-template-columns: minmax(18rem, 24rem) minmax(18rem, 24rem) minmax(0, 1fr);
-        align-items: start;
-      }
-
-      .panel {
-        padding: 1rem;
-      }
-
-      .panel-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 1rem;
-        padding-bottom: 0.75rem;
-        border-bottom: 1px solid var(--border);
-        margin-bottom: 0.9rem;
-      }
-
-      .panel-list, .detail-list, .message-list {
-        max-height: 62vh;
-        overflow: auto;
-      }
-
-      .card, .detail-card, .message {
-        border: 1px solid var(--border);
-        border-radius: 0.9rem;
-        padding: 0.85rem;
-        background: var(--panel-alt);
-      }
-
-      .card button, .toolbar button {
-        border: 0;
-        border-radius: 999px;
-        padding: 0.72rem 1rem;
-        font-weight: 600;
-        cursor: pointer;
-      }
-
-      .toolbar button, .card button {
-        background: rgba(56, 189, 248, 0.18);
-        color: var(--text);
-      }
-
-      .toolbar button.primary {
-        background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
-        color: #07111a;
-      }
-
-      .toolbar button.secondary {
-        background: rgba(148, 163, 184, 0.16);
-      }
-
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        border-radius: 999px;
-        padding: 0.3rem 0.6rem;
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        background: rgba(148, 163, 184, 0.14);
-        color: var(--muted);
-      }
-
-      .pill.running { color: var(--accent); background: rgba(74, 222, 128, 0.14); }
-      .pill.failed, .pill.error { color: var(--error); background: rgba(248, 113, 113, 0.14); }
-      .pill.waiting_for_input { color: var(--warning); background: rgba(251, 191, 36, 0.14); }
-      .pill.busy, .pill.running-job { color: var(--info); background: rgba(56, 189, 248, 0.14); }
-
-      .row {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        align-items: center;
-      }
-
-      .meta, .empty {
-        color: var(--muted);
-        font-size: 0.85rem;
-      }
-
-      .message pre {
-        margin: 0.5rem 0 0;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      .detail-card h3, .card h3 {
-        font-size: 0.95rem;
-        margin-bottom: 0.25rem;
-      }
-
-      .urls {
-        display: grid;
-        gap: 0.5rem;
-      }
-
-      .urls a {
-        color: #c7f9d6;
-        text-decoration: none;
-        word-break: break-all;
-      }
-
-      .urls a:hover {
-        text-decoration: underline;
-      }
-
-      @media (max-width: 1080px) {
-        .grid { grid-template-columns: 1fr; }
-        .toolbar { grid-template-columns: 1fr; }
-        .detail-list, .panel-list, .message-list { max-height: none; }
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <div>
-        <h2>Read-only Observer</h2>
-        <h1>Local Orchestrator</h1>
-        <p class="subtitle">Observe local instances, repo jobs, and prompts without write access. This page auto-refreshes through the observer event stream.</p>
-      </div>
-      <div class="urls" id="observer-urls"></div>
-    </header>
-
-    <section class="toolbar">
-      <label>
-        Selected Instance
-        <select id="instance-select"></select>
-      </label>
-      <button class="secondary" id="refresh-btn" type="button">Refresh Snapshot</button>
-      <button class="primary" id="open-replay-btn" type="button">Open Replay JSON</button>
-    </section>
-
-    <section class="stats" id="stats"></section>
-
-    <section class="grid">
-      <article class="panel">
-        <div class="panel-header">
-          <h3>Instances</h3>
-          <span class="meta" id="instance-count">0</span>
-        </div>
-        <div class="panel-list" id="instance-list"></div>
-      </article>
-
-      <article class="panel">
-        <div class="panel-header">
-          <h3>Repo Jobs</h3>
-          <span class="meta" id="job-count">0</span>
-        </div>
-        <div class="panel-list" id="job-list"></div>
-      </article>
-
-      <article class="panel">
-        <div class="panel-header">
-          <h3>Live Detail</h3>
-          <span class="meta" id="detail-title">Select an instance</span>
-        </div>
-        <div class="detail-list" id="detail-list"></div>
-        <div class="message-list" id="message-list"></div>
-      </article>
-    </section>
-
-    <script>
-      const token = new URLSearchParams(window.location.search).get('token') || '';
-      const authSuffix = token ? '?token=' + encodeURIComponent(token) : '';
-      const state = {
-        snapshot: null,
-        selectedInstanceId: '',
-        messageCache: new Map(),
-      };
-
-      const els = {
-        stats: document.getElementById('stats'),
-        instanceList: document.getElementById('instance-list'),
-        jobList: document.getElementById('job-list'),
-        detailList: document.getElementById('detail-list'),
-        messageList: document.getElementById('message-list'),
-        detailTitle: document.getElementById('detail-title'),
-        instanceCount: document.getElementById('instance-count'),
-        jobCount: document.getElementById('job-count'),
-        instanceSelect: document.getElementById('instance-select'),
-        refreshBtn: document.getElementById('refresh-btn'),
-        openReplayBtn: document.getElementById('open-replay-btn'),
-        observerUrls: document.getElementById('observer-urls'),
-      };
-
-      function formatDate(value) {
-        if (!value) return 'n/a';
-        try { return new Date(value).toLocaleString(); } catch { return String(value); }
-      }
-
-      function pill(label, className = '') {
-        return '<span class="pill ' + className + '">' + label + '</span>';
-      }
-
-      function renderStats(snapshot) {
-        const status = snapshot.status;
-        els.stats.innerHTML = [
-          ['Mode', status.mode],
-          ['Instances', String(status.instanceCount)],
-          ['Jobs', String(status.jobCount)],
-          ['Prompts', String(status.pendingPromptCount)],
-          ['Last Event', formatDate(status.lastEventAt)],
-        ].map(([label, value]) =>
-          '<article class="stat"><span class="meta">' + label + '</span><strong>' + value + '</strong></article>'
-        ).join('');
-
-        els.observerUrls.innerHTML = (status.observerUrls || [])
-          .map((url) => '<a href="' + url + '" target="_blank" rel="noreferrer">' + url + '</a>')
-          .join('');
-      }
-
-      function renderInstances(snapshot) {
-        const instances = snapshot.instances || [];
-        els.instanceCount.textContent = String(instances.length);
-        els.instanceSelect.innerHTML = '<option value="">Select instance</option>' + instances.map((instance) =>
-          '<option value="' + instance.id + '"' + (instance.id === state.selectedInstanceId ? ' selected' : '') + '>' +
-            instance.displayName + ' (' + instance.status + ')' +
-          '</option>'
-        ).join('');
-
-        els.instanceList.innerHTML = instances.length === 0
-          ? '<p class="empty">No instances are running.</p>'
-          : instances.map((instance) =>
-              '<div class="card">' +
-                '<div class="row"><h3>' + instance.displayName + '</h3>' + pill(instance.status, instance.status) + '</div>' +
-                '<p class="meta">' + (instance.provider || 'provider n/a') + ' · ' + (instance.model || 'model n/a') + '</p>' +
-                '<p class="meta">' + instance.workingDirectoryLabel + '</p>' +
-                '<p class="meta">Last activity ' + formatDate(instance.lastActivity) + '</p>' +
-                '<button type="button" data-instance-id="' + instance.id + '">Inspect</button>' +
-              '</div>'
-            ).join('');
-      }
-
-      function renderJobs(snapshot) {
-        const jobs = snapshot.jobs || [];
-        els.jobCount.textContent = String(jobs.length);
-        els.jobList.innerHTML = jobs.length === 0
-          ? '<p class="empty">No repo jobs have been recorded.</p>'
-          : jobs.map((job) =>
-              '<div class="card">' +
-                '<div class="row"><h3>' + job.name + '</h3>' + pill(job.status, job.status === 'running' ? 'running-job' : job.status) + '</div>' +
-                '<p class="meta">' + job.type + ' · ' + job.workingDirectory + '</p>' +
-                '<p class="meta">' + (job.progressMessage || 'Progress ' + job.progress + '%') + '</p>' +
-                (job.result && job.result.summary ? '<pre>' + escapeHtml(job.result.summary) + '</pre>' : '') +
-              '</div>'
-            ).join('');
-      }
-
-      function escapeHtml(value) {
-        return String(value)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-      }
-
-      async function loadMessages(instanceId) {
-        if (!instanceId) {
-          els.detailTitle.textContent = 'Select an instance';
-          els.detailList.innerHTML = '';
-          els.messageList.innerHTML = '<p class="empty">Messages will appear here.</p>';
-          return;
-        }
-
-        const response = await fetch('/api/instances/' + encodeURIComponent(instanceId) + '/messages' + authSuffix);
-        if (!response.ok) {
-          els.messageList.innerHTML = '<p class="empty">Failed to load messages.</p>';
-          return;
-        }
-        const messages = await response.json();
-        state.messageCache.set(instanceId, messages);
-        renderDetails(instanceId);
-      }
-
-      function renderDetails(instanceId) {
-        const snapshot = state.snapshot;
-        if (!snapshot || !instanceId) {
-          return;
-        }
-
-        const instance = (snapshot.instances || []).find((item) => item.id === instanceId);
-        els.detailTitle.textContent = instance ? instance.displayName : instanceId;
-        els.detailList.innerHTML = instance
-          ? [
-              '<div class="detail-card"><h3>Status</h3><p class="meta">' + instance.status + '</p></div>',
-              '<div class="detail-card"><h3>Provider</h3><p class="meta">' + (instance.provider || 'n/a') + '</p></div>',
-              '<div class="detail-card"><h3>Model</h3><p class="meta">' + (instance.model || 'n/a') + '</p></div>',
-              '<div class="detail-card"><h3>Workspace</h3><p class="meta">' + instance.workingDirectoryLabel + '</p></div>',
-            ].join('')
-          : '<p class="empty">Instance not found.</p>';
-
-        const prompts = (snapshot.pendingPrompts || []).filter((prompt) => prompt.instanceId === instanceId);
-        const promptCards = prompts.map((prompt) =>
-          '<div class="detail-card">' +
-            '<div class="row"><h3>' + prompt.title + '</h3>' + pill(prompt.promptType, prompt.promptType === 'input-required' ? 'waiting_for_input' : '') + '</div>' +
-            '<p class="meta">' + escapeHtml(prompt.message) + '</p>' +
-          '</div>'
-        );
-        const messages = state.messageCache.get(instanceId) || [];
-        els.messageList.innerHTML = promptCards.join('') + (messages.length === 0
-          ? '<p class="empty">No messages loaded for this instance.</p>'
-          : messages.slice(-120).map((message) =>
-              '<article class="message">' +
-                '<div class="row"><span>' + escapeHtml(message.type) + '</span><span class="meta">' + formatDate(message.timestamp) + '</span></div>' +
-                '<pre>' + escapeHtml(message.content || '') + '</pre>' +
-              '</article>'
-            ).join(''));
-      }
-
-      async function loadSnapshot() {
-        const response = await fetch('/api/snapshot' + authSuffix);
-        if (!response.ok) {
-          document.body.innerHTML = '<main style="padding:2rem;color:#fecaca;font-family:ui-sans-serif,system-ui">Observer authentication failed or the server is unavailable.</main>';
-          return;
-        }
-
-        state.snapshot = await response.json();
-        if (!state.selectedInstanceId && state.snapshot.instances && state.snapshot.instances[0]) {
-          state.selectedInstanceId = state.snapshot.instances[0].id;
-        }
-        render();
-        await loadMessages(state.selectedInstanceId);
-      }
-
-      function render() {
-        if (!state.snapshot) return;
-        renderStats(state.snapshot);
-        renderInstances(state.snapshot);
-        renderJobs(state.snapshot);
-        renderDetails(state.selectedInstanceId);
-      }
-
-      function connectEvents() {
-        const source = new EventSource('/api/events' + authSuffix);
-        source.onmessage = () => {};
-        ['status', 'repo-job', 'instance-state', 'instance-output', 'permission-prompt'].forEach((type) => {
-          source.addEventListener(type, async () => {
-            await loadSnapshot();
-          });
-        });
-        source.addEventListener('error', () => {
-          window.setTimeout(connectEvents, 2000);
-          source.close();
-        });
-      }
-
-      els.instanceSelect.addEventListener('change', async (event) => {
-        state.selectedInstanceId = event.target.value;
-        renderDetails(state.selectedInstanceId);
-        await loadMessages(state.selectedInstanceId);
-      });
-
-      els.refreshBtn.addEventListener('click', async () => {
-        await loadSnapshot();
-      });
-
-      els.openReplayBtn.addEventListener('click', () => {
-        if (!state.selectedInstanceId) return;
-        window.open('/api/instances/' + encodeURIComponent(state.selectedInstanceId) + '/replay' + authSuffix, '_blank', 'noopener');
-      });
-
-      document.addEventListener('click', async (event) => {
-        const target = event.target.closest('[data-instance-id]');
-        if (!target) return;
-        state.selectedInstanceId = target.getAttribute('data-instance-id') || '';
-        els.instanceSelect.value = state.selectedInstanceId;
-        await loadMessages(state.selectedInstanceId);
-      });
-
-      loadSnapshot().then(connectEvents);
-    </script>
-  </body>
-</html>`;
 }

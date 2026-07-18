@@ -20,6 +20,7 @@ import {
   relativeTime,
 } from './loop-formatters.util';
 import { LoopPanelOpenerService } from './loop-panel-opener.service';
+import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 
 /** Subset of `LoopRunSummaryPayload` that the reattempt-mapping logic
  *  depends on. Narrowed so the helper can be unit-tested with minimal
@@ -255,10 +256,11 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   private store = inject(LoopStore);
   private clipboard = inject(CLIPBOARD_SERVICE);
   private opener = inject(LoopPanelOpenerService);
+  private pollScheduler = inject(RendererPollSchedulerService);
 
   /** 1Hz tick to re-render relative timestamps without per-row timers. */
   private tick = signal(0);
-  private tickHandle: ReturnType<typeof setInterval> | null = null;
+  private stopTick: (() => void) | null = null;
 
   protected panelExpanded = signal(false);
   protected expandedRowIds = signal<ReadonlySet<string>>(new Set());
@@ -274,7 +276,7 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
 
   constructor() {
     this.store.ensureWired();
-    this.tickHandle = setInterval(() => this.tick.update((t) => t + 1), 1000);
+    this.stopTick = this.pollScheduler.register(() => this.tick.update((t) => t + 1), 1000);
 
     // Refresh history whenever the chat changes — also resets the
     // per-chat UI state (expanded rows, copy flash) so a different
@@ -307,7 +309,7 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.tickHandle) clearInterval(this.tickHandle);
+    this.stopTick?.();
     if (this.copiedClearHandle) clearTimeout(this.copiedClearHandle);
   }
 

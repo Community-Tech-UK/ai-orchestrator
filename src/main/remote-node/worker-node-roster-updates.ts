@@ -1,4 +1,6 @@
+import { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
+import { RemoteNodeRosterChangedEventSchema } from '@contracts/schemas/remote-node';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { getLogger } from '../logging/logger';
 import { getRemoteNodeRosterService } from './remote-node-roster-service';
@@ -29,11 +31,16 @@ export function bindWorkerNodeRosterUpdates(registry: WorkerNodeRegistry): () =>
 
 function broadcastNodesToRenderer(): void {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { BrowserWindow } = require('electron');
     const nodes = getRemoteNodeRosterService().list();
+    const parsed = RemoteNodeRosterChangedEventSchema.safeParse(nodes);
+    if (!parsed.success) {
+      logger.warn('Refusing to broadcast an invalid remote-node roster payload', {
+        issues: parsed.error.issues.length,
+      });
+      return;
+    }
     for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send(IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, nodes);
+      win.webContents.send(IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, parsed.data);
     }
   } catch {
     // Not in Electron context (e.g., tests).

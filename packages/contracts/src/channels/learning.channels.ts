@@ -37,11 +37,6 @@ export const LEARNING_CHANNELS = {
   TRAINING_DISMISS_INSIGHT: 'training:dismiss-insight',
   TRAINING_UPDATE_CONFIG: 'training:update-config',
 
-  // Training event forwarding (main -> renderer)
-  TRAINING_EVENT_STARTED: 'training:event:started',
-  TRAINING_EVENT_COMPLETED: 'training:event:completed',
-  TRAINING_EVENT_ERROR: 'training:event:error',
-
   // Specialist operations
   SPECIALIST_LIST: 'specialist:list',
   SPECIALIST_LIST_BUILTIN: 'specialist:list-builtin',

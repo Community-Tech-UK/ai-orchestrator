@@ -2,9 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  EventEmitter,
-  Input,
-  Output,
   QueryList,
   ViewChild,
   ViewChildren,
@@ -12,6 +9,8 @@ import {
   computed,
   AfterViewInit,
   OnDestroy,
+  input,
+  output
 } from '@angular/core';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { MenuItemComponent } from './menu-item.component';
@@ -54,10 +53,10 @@ import type { MenuItem, MenuModel } from './menu.types';
       tabindex="-1"
       (keydown)="onKeydown($event)"
     >
-      @if (totalItemCount() === 0 && model.emptyStateLabel) {
-        <div class="nested-menu__empty" role="presentation">{{ model.emptyStateLabel }}</div>
+      @if (totalItemCount() === 0 && model().emptyStateLabel) {
+        <div class="nested-menu__empty" role="presentation">{{ model().emptyStateLabel }}</div>
       } @else {
-        @for (section of model.sections; track section.id; let sectionIdx = $index) {
+        @for (section of model().sections; track section.id; let sectionIdx = $index) {
           @if (section.label) {
             <div class="nested-menu__section-label" role="presentation">{{ section.label }}</div>
           }
@@ -153,12 +152,12 @@ import type { MenuItem, MenuModel } from './menu.types';
   `],
 })
 export class NestedMenuComponent<T = unknown> implements AfterViewInit, OnDestroy {
-  @Input({ required: true }) model!: MenuModel<T>;
+  readonly model = input.required<MenuModel<T>>();
   /** When true, focuses the first focusable item on mount. */
-  @Input() autoFocus = false;
+  readonly autoFocus = input(false);
 
-  @Output() itemSelect = new EventEmitter<MenuItem<T>>();
-  @Output() dismiss = new EventEmitter<void>();
+  readonly itemSelect = output<MenuItem<T>>();
+  readonly dismiss = output<void>();
 
   @ViewChild('menuRoot', { static: true }) menuRoot!: ElementRef<HTMLDivElement>;
   @ViewChildren(MenuItemComponent) menuItems!: QueryList<MenuItemComponent<T>>;
@@ -181,20 +180,20 @@ export class NestedMenuComponent<T = unknown> implements AfterViewInit, OnDestro
   ];
 
   totalItemCount = computed(() =>
-    this.model.sections.reduce((sum, s) => sum + s.items.length, 0)
+    this.model().sections.reduce((sum, s) => sum + s.items.length, 0)
   );
 
   lastSectionIndex = computed(() => {
-    const lastWithItems = [...this.model.sections]
+    const lastWithItems = [...this.model().sections]
       .map((_, i) => i)
       .reverse()
-      .find((i) => this.model.sections[i].items.length > 0);
+      .find((i) => this.model().sections[i].items.length > 0);
     return lastWithItems ?? -1;
   });
 
   pendingSubmenuItems = computed(() => {
     const items: MenuItem<T>[] = [];
-    for (const section of this.model.sections) {
+    for (const section of this.model().sections) {
       for (const item of section.items) {
         if (item.submenu) items.push(item);
       }
@@ -207,7 +206,7 @@ export class NestedMenuComponent<T = unknown> implements AfterViewInit, OnDestro
   }
 
   ngAfterViewInit(): void {
-    if (this.autoFocus) {
+    if (this.autoFocus()) {
       // Defer to allow QueryList to populate.
       queueMicrotask(() => this.focusFirstItem());
     }
@@ -320,7 +319,7 @@ export class NestedMenuComponent<T = unknown> implements AfterViewInit, OnDestro
   }
 
   private currentItem(): MenuItem<T> | undefined {
-    return this.model.sections[this.focusedSectionIdx()]?.items[this.focusedItemIdx()];
+    return this.model().sections[this.focusedSectionIdx()]?.items[this.focusedItemIdx()];
   }
 
   private moveFocus(delta: 1 | -1): void {
@@ -385,7 +384,7 @@ export class NestedMenuComponent<T = unknown> implements AfterViewInit, OnDestro
 
   private flattenItems(): { sectionIdx: number; itemIdx: number; item: MenuItem<T> }[] {
     const flat: { sectionIdx: number; itemIdx: number; item: MenuItem<T> }[] = [];
-    this.model.sections.forEach((section, sectionIdx) => {
+    this.model().sections.forEach((section, sectionIdx) => {
       section.items.forEach((item, itemIdx) => {
         flat.push({ sectionIdx, itemIdx, item });
       });

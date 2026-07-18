@@ -3,8 +3,10 @@ import {
   buildFallbackHistoryMessage,
   buildFreshFallbackDegradationNotice,
   buildRecoveryPacket,
+  MAX_RECOVERY_MESSAGE_CHARS,
 } from './fallback-history';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { estimateTokens } from '../../shared/utils/token-estimate';
 
 function msg(type: OutputMessage['type'], content: string, overrides: Partial<OutputMessage> = {}): OutputMessage {
   return {
@@ -46,6 +48,11 @@ describe('buildFallbackHistoryMessage', () => {
       pendingToolCallIds: [],
     });
     expect(packet.recentMessages.map((message) => message.id)).toEqual(['user-1', 'tool-1', 'result-1']);
+    expect(packet.recentMessages[2]).toMatchObject({
+      content: 'File contents',
+      contentChars: 13,
+      contentTruncated: false,
+    });
   });
 
   it('includes all messages for short conversations within budget', () => {
@@ -61,7 +68,7 @@ describe('buildFallbackHistoryMessage', () => {
     expect(result).toContain('done');
   });
 
-  it('truncates tool outputs older than last 5 turns', () => {
+  it('always truncates tool outputs while preserving their original size', () => {
     const messages: OutputMessage[] = [];
     for (let i = 0; i < 12; i++) {
       messages.push(msg('user', `question ${i}`));
@@ -72,7 +79,58 @@ describe('buildFallbackHistoryMessage', () => {
     }
     const result = buildFallbackHistoryMessage(messages, 'test', 200_000)!;
     expect(result).toContain('output truncated');
-    expect(result).toContain('x'.repeat(500));
+    expect(result).not.toContain('x'.repeat(500));
+  });
+
+  it('summarizes short tool results in replay prose', () => {
+    const messages = [
+      msg('user', 'inspect the file'),
+      msg('tool_result', 'short but potentially stale output', {
+        metadata: { name: 'Read', tool_use_id: 'tool-1' },
+      }),
+      msg('assistant', 'inspection complete'),
+    ];
+
+    const result = buildFallbackHistoryMessage(messages, 'test', 200_000)!;
+    const history = result.split('--- Conversation History ---')[1];
+
+    expect(history).toContain('tool output omitted from replay');
+    expect(history).not.toContain('short but potentially stale output');
+  });
+
+  it('bounds a recent tool result larger than the Codex per-turn limit', () => {
+    const hugeToolResult = 'x'.repeat(1_100_000);
+    const messages = [
+      msg('user', 'recover this session', { id: 'user-1' }),
+      msg('tool_use', 'Running broad search', {
+        id: 'tool-1',
+        metadata: { id: 'call-1', name: 'Bash' },
+      }),
+      msg('tool_result', hugeToolResult, {
+        id: 'result-1',
+        metadata: { tool_use_id: 'call-1', name: 'Bash' },
+      }),
+      msg('assistant', 'I found the handoff', { id: 'assistant-1' }),
+    ];
+    const notice = buildFreshFallbackDegradationNotice('resume-failed-fallback');
+
+    const packet = buildRecoveryPacket(messages, 'resume-failed-fallback');
+    const result = buildFallbackHistoryMessage(
+      messages,
+      'resume-failed-fallback',
+      258_400,
+      0.3,
+      notice,
+    )!;
+
+    expect(packet.recentMessages[2]).toMatchObject({
+      contentChars: hugeToolResult.length,
+      contentTruncated: true,
+    });
+    expect(packet.recentMessages[2].content.length).toBeLessThan(200);
+    expect(result.length).toBeLessThanOrEqual(MAX_RECOVERY_MESSAGE_CHARS);
+    expect(result).not.toContain(hugeToolResult);
+    expect(result).toContain('[SESSION DEGRADATION NOTICE]');
   });
 
   it('shrinks to fit within budget', () => {
@@ -83,11 +141,11 @@ describe('buildFallbackHistoryMessage', () => {
     }
     const result = buildFallbackHistoryMessage(messages, 'test', 4_000)!;
     expect(result).not.toBeNull();
-    expect(result.length / 4).toBeLessThanOrEqual(4_000);
-    expect(result).toContain('exchanges');
+    expect(estimateTokens(result)).toBeLessThanOrEqual(1_200);
+    expect(result).toContain('replay was reduced to fit provider limits');
   });
 
-  it('preserves minimum of 3 turns even under tight budget', () => {
+  it('returns bounded minimal recovery context under a tight budget', () => {
     const messages: OutputMessage[] = [];
     for (let i = 0; i < 10; i++) {
       messages.push(msg('user', `q${i} ${'z'.repeat(100)}`));
@@ -95,6 +153,7 @@ describe('buildFallbackHistoryMessage', () => {
     }
     const result = buildFallbackHistoryMessage(messages, 'test', 500)!;
     expect(result).not.toBeNull();
+    expect(estimateTokens(result)).toBeLessThanOrEqual(150);
     expect(result).toContain('[USER]');
   });
 });

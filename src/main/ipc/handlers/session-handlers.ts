@@ -14,6 +14,7 @@ import {
   ArchiveGetMetaPayloadSchema,
   ArchiveListPayloadSchema,
   ArchiveRestorePayloadSchema,
+  ArchiveSearchPayloadSchema,
   ArchiveSessionPayloadSchema,
   ArchiveUpdateTagsPayloadSchema,
   HistoryDeletePayloadSchema,
@@ -21,15 +22,21 @@ import {
   HistoryLoadPayloadSchema,
   HistoryRestorePayloadSchema,
   SessionCopyToClipboardPayloadSchema,
+  SessionCreateSnapshotPayloadSchema,
   SessionExportPayloadSchema,
   SessionForkPayloadSchema,
+  SessionGetStatsPayloadSchema,
   SessionImportPayloadSchema,
+  SessionListResumablePayloadSchema,
+  SessionListSnapshotsPayloadSchema,
   SessionRevealFilePayloadSchema,
+  SessionResumePayloadSchema,
   SessionSaveToFilePayloadSchema,
   SessionShareLoadPayloadSchema,
   SessionSharePreviewPayloadSchema,
   SessionShareReplayPayloadSchema,
   SessionShareSavePayloadSchema,
+  SessionHandlerEmptyPayloadSchema,
 } from '@contracts/schemas/session';
 import type { ExportedSession } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
@@ -39,11 +46,9 @@ import { getSessionShareService } from '../../session/session-share-service';
 import { getSessionContinuityManager } from '../../session/session-continuity';
 import { SessionRevivalService } from '../../session/session-revival-service';
 import { HistoryRestoreCoordinator } from '../../history/history-restore-coordinator';
-import type { ResumeOptions } from '../../session/session-continuity';
-import { getLogger } from '../../logging/logger';
 import { isRemoteNodeReachable } from './remote-node-check';
+import { validatedHandler } from '../validated-handler';
 
-const logger = getLogger('SessionHandlers');
 export {
   getNativeResumeSessionId,
   getMessagesForRestoreTranscript,
@@ -75,6 +80,10 @@ function withHistoryRestoreLock<T>(fn: () => Promise<T>): Promise<T> {
 interface SessionHandlersDeps {
   instanceManager: InstanceManager;
   serializeInstance: (instance: unknown) => Record<string, unknown>;
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
 }
 
 /**
@@ -82,13 +91,23 @@ interface SessionHandlersDeps {
  */
 export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   const { instanceManager, serializeInstance } = deps;
+  const rawIpcHandle = ipcMain.handle.bind(ipcMain);
+  const registerTrustedIpcHandler = (
+    channel: string,
+    listener: Parameters<typeof ipcMain.handle>[1],
+  ): void => {
+    rawIpcHandle(channel, (event, ...args) => {
+      const trustError = deps.ensureTrustedSender?.(event, channel);
+      return trustError ?? listener(event, ...args);
+    });
+  };
 
   // ============================================
   // Session Handlers
   // ============================================
 
   // Fork session
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_FORK,
     async (
       event: IpcMainInvokeEvent,
@@ -129,7 +148,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Export session
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_EXPORT,
     async (
       event: IpcMainInvokeEvent,
@@ -166,7 +185,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Import session
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_IMPORT,
     async (
       event: IpcMainInvokeEvent,
@@ -213,7 +232,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Copy session to clipboard
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_COPY_TO_CLIPBOARD,
     async (
       event: IpcMainInvokeEvent,
@@ -248,7 +267,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Save session to file
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_SAVE_TO_FILE,
     async (
       event: IpcMainInvokeEvent,
@@ -314,7 +333,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Reveal file in system file manager
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_REVEAL_FILE,
     async (
       event: IpcMainInvokeEvent,
@@ -340,7 +359,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   const sessionShare = getSessionShareService();
 
   // Preview a redacted share bundle for an active or historical session
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_SHARE_PREVIEW,
     async (
       _event: IpcMainInvokeEvent,
@@ -375,7 +394,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Save a redacted share bundle to disk
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_SHARE_SAVE,
     async (
       _event: IpcMainInvokeEvent,
@@ -442,7 +461,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Load a saved share bundle from disk
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_SHARE_LOAD,
     async (
       _event: IpcMainInvokeEvent,
@@ -473,7 +492,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Replay a share bundle as a new local instance
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_SHARE_REPLAY,
     async (
       _event: IpcMainInvokeEvent,
@@ -516,7 +535,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   const archiveManager = getSessionArchiveManager();
 
   // Archive session - requires an Instance object
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_SESSION,
     async (
       event: IpcMainInvokeEvent,
@@ -545,7 +564,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // List archives
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_LIST,
     async (
       event: IpcMainInvokeEvent,
@@ -577,33 +596,26 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Search archives by query string.
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_SEARCH,
     async (
       _event: IpcMainInvokeEvent,
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const data = payload && typeof payload === 'object' && !Array.isArray(payload)
-          ? payload as Record<string, unknown>
-          : {};
-        const options = data['options'] && typeof data['options'] === 'object' && !Array.isArray(data['options'])
-          ? data['options'] as Record<string, unknown>
-          : {};
-        const query = typeof data['query'] === 'string' ? data['query'].trim() : '';
-        const tags = Array.isArray(options['tags'])
-          ? options['tags'].filter((tag): tag is string => typeof tag === 'string')
-          : undefined;
-        const limit = typeof options['limit'] === 'number' && Number.isFinite(options['limit'])
-          ? Math.max(1, Math.floor(options['limit']))
-          : undefined;
+        const validated = validateIpcPayload(
+          ArchiveSearchPayloadSchema,
+          payload,
+          'ARCHIVE_SEARCH',
+        );
+        const query = validated.query.trim();
 
         const archives = archiveManager
           .listArchivedSessions({
             searchTerm: query || undefined,
-            tags,
+            tags: validated.options?.tags,
           })
-          .slice(0, limit);
+          .slice(0, validated.options?.limit);
 
         return { success: true, data: archives };
       } catch (error) {
@@ -620,7 +632,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Restore archive
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_RESTORE,
     async (
       event: IpcMainInvokeEvent,
@@ -628,7 +640,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(ArchiveRestorePayloadSchema, payload, 'ARCHIVE_RESTORE');
-        const sessionData = archiveManager.restoreSession(validated.sessionId);
+        const sessionData = archiveManager.restoreSession(validated.archiveId);
         return { success: true, data: sessionData };
       } catch (error) {
         return {
@@ -644,7 +656,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Delete archive
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_DELETE,
     async (
       event: IpcMainInvokeEvent,
@@ -653,7 +665,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       try {
         const validated = validateIpcPayload(ArchiveDeletePayloadSchema, payload, 'ARCHIVE_DELETE');
         const success = archiveManager.deleteArchivedSession(
-          validated.sessionId
+          validated.archiveId
         );
         return { success: true, data: { deleted: success } };
       } catch (error) {
@@ -670,7 +682,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Get archive metadata
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_GET_META,
     async (
       event: IpcMainInvokeEvent,
@@ -678,7 +690,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(ArchiveGetMetaPayloadSchema, payload, 'ARCHIVE_GET_META');
-        const meta = archiveManager.getArchivedSessionMeta(validated.sessionId);
+        const meta = archiveManager.getArchivedSessionMeta(validated.archiveId);
         return { success: true, data: meta };
       } catch (error) {
         return {
@@ -694,7 +706,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Update tags
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_UPDATE_TAGS,
     async (
       event: IpcMainInvokeEvent,
@@ -703,7 +715,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       try {
         const validated = validateIpcPayload(ArchiveUpdateTagsPayloadSchema, payload, 'ARCHIVE_UPDATE_TAGS');
         const success = archiveManager.updateTags(
-          validated.sessionId,
+          validated.archiveId,
           validated.tags
         );
         return { success: true, data: { updated: success } };
@@ -721,10 +733,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Get archive stats
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_GET_STATS,
-    async (): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
+        validateIpcPayload(SessionHandlerEmptyPayloadSchema, payload, 'ARCHIVE_GET_STATS');
         const stats = archiveManager.getArchiveStats();
         return { success: true, data: stats };
       } catch (error) {
@@ -741,7 +754,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Cleanup old archives
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.ARCHIVE_CLEANUP,
     async (
       event: IpcMainInvokeEvent,
@@ -794,7 +807,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   }
 
   // List history entries
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.HISTORY_LIST,
     async (
       event: IpcMainInvokeEvent,
@@ -821,7 +834,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Load full conversation data
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.HISTORY_LOAD,
     async (
       event: IpcMainInvokeEvent,
@@ -858,7 +871,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Delete history entry
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.HISTORY_DELETE,
     async (
       event: IpcMainInvokeEvent,
@@ -891,7 +904,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Archive history entry
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.HISTORY_ARCHIVE,
     async (
       _event: IpcMainInvokeEvent,
@@ -926,7 +939,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   // Restore conversation as a live instance.
   // Each heavy restore path runs behind the same single-slot mutex as before;
   // the implementation now lives in SessionRevivalService/HistoryRestoreCoordinator.
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.HISTORY_RESTORE,
     async (
       event: IpcMainInvokeEvent,
@@ -977,10 +990,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Clear all history
-  ipcMain.handle(
+  registerTrustedIpcHandler(
     IPC_CHANNELS.HISTORY_CLEAR,
-    async (): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
+        validateIpcPayload(SessionHandlerEmptyPayloadSchema, payload, 'HISTORY_CLEAR');
         await history.clearAll();
         return { success: true };
       } catch (error) {
@@ -998,48 +1012,77 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
   // --- Session Continuity ---
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_LIST_RESUMABLE, async () => {
-    try {
-      return getSessionContinuityManager().getResumableSessions();
-    } catch (error) {
-      logger.error('Failed to list resumable sessions', error instanceof Error ? error : undefined);
-      return [];
-    }
+  const continuityHandlerOptions = (errorCode: string) => ({
+    errorCode,
   });
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_RESUME, async (_event: IpcMainInvokeEvent, payload: { instanceId: string; options?: ResumeOptions }) => {
-    try {
-      return await getSessionContinuityManager().resumeSession(payload.instanceId, payload.options);
-    } catch (error) {
-      logger.error('Failed to resume session', error instanceof Error ? error : undefined);
-      return null;
-    }
-  });
+  registerTrustedIpcHandler(
+    IPC_CHANNELS.SESSION_LIST_RESUMABLE,
+    validatedHandler(
+      IPC_CHANNELS.SESSION_LIST_RESUMABLE,
+      SessionListResumablePayloadSchema,
+      async () => ({
+        success: true,
+        data: await getSessionContinuityManager().getResumableSessions(),
+      }),
+      continuityHandlerOptions('SESSION_LIST_RESUMABLE_FAILED'),
+    ),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_LIST_SNAPSHOTS, async (_event: IpcMainInvokeEvent, payload?: { instanceId?: string }) => {
-    try {
-      return getSessionContinuityManager().listSnapshots(payload?.instanceId);
-    } catch (error) {
-      logger.error('Failed to list snapshots', error instanceof Error ? error : undefined);
-      return [];
-    }
-  });
+  registerTrustedIpcHandler(
+    IPC_CHANNELS.SESSION_RESUME,
+    validatedHandler(
+      IPC_CHANNELS.SESSION_RESUME,
+      SessionResumePayloadSchema,
+      async (payload) => ({
+        success: true,
+        data: await getSessionContinuityManager().resumeSession(payload.instanceId, payload.options),
+      }),
+      continuityHandlerOptions('SESSION_RESUME_FAILED'),
+    ),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_CREATE_SNAPSHOT, async (_event: IpcMainInvokeEvent, payload: { instanceId: string; name?: string; description?: string }) => {
-    try {
-      return getSessionContinuityManager().createSnapshot(payload.instanceId, payload.name, payload.description, 'manual');
-    } catch (error) {
-      logger.error('Failed to create snapshot', error instanceof Error ? error : undefined);
-      return null;
-    }
-  });
+  registerTrustedIpcHandler(
+    IPC_CHANNELS.SESSION_LIST_SNAPSHOTS,
+    validatedHandler(
+      IPC_CHANNELS.SESSION_LIST_SNAPSHOTS,
+      SessionListSnapshotsPayloadSchema,
+      async (payload) => ({
+        success: true,
+        data: getSessionContinuityManager().listSnapshots(payload?.instanceId),
+      }),
+      continuityHandlerOptions('SESSION_LIST_SNAPSHOTS_FAILED'),
+    ),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_GET_STATS, async () => {
-    try {
-      return getSessionContinuityManager().getStats();
-    } catch (error) {
-      logger.error('Failed to get session stats', error instanceof Error ? error : undefined);
-      return null;
-    }
-  });
+  registerTrustedIpcHandler(
+    IPC_CHANNELS.SESSION_CREATE_SNAPSHOT,
+    validatedHandler(
+      IPC_CHANNELS.SESSION_CREATE_SNAPSHOT,
+      SessionCreateSnapshotPayloadSchema,
+      async (payload) => ({
+        success: true,
+        data: await getSessionContinuityManager().createSnapshot(
+          payload.instanceId,
+          payload.name,
+          payload.description,
+          'manual',
+        ),
+      }),
+      continuityHandlerOptions('SESSION_CREATE_SNAPSHOT_FAILED'),
+    ),
+  );
+
+  registerTrustedIpcHandler(
+    IPC_CHANNELS.SESSION_GET_STATS,
+    validatedHandler(
+      IPC_CHANNELS.SESSION_GET_STATS,
+      SessionGetStatsPayloadSchema,
+      async () => ({
+        success: true,
+        data: await getSessionContinuityManager().getStats(),
+      }),
+      continuityHandlerOptions('SESSION_GET_STATS_FAILED'),
+    ),
+  );
 }

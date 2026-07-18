@@ -145,6 +145,22 @@ describe('CasStore', () => {
     expect(store.getChunk('a'.repeat(64))?.name).toBe('foo');
   });
 
+  it('hydrates multiple chunks with one bounded query', () => {
+    store.upsertChunk(sampleChunk({ contentHash: 'a'.repeat(64), name: 'alpha' }));
+    store.upsertChunk(sampleChunk({ contentHash: 'c'.repeat(64), name: 'charlie' }));
+
+    const chunks = store.getChunks([
+      'c'.repeat(64),
+      'missing',
+      'a'.repeat(64),
+      'c'.repeat(64),
+    ]);
+
+    expect([...chunks.keys()]).toEqual(['a'.repeat(64), 'c'.repeat(64)]);
+    expect(chunks.get('a'.repeat(64))?.name).toBe('alpha');
+    expect(chunks.get('c'.repeat(64))?.name).toBe('charlie');
+  });
+
   it('upsertManifestEntry replaces previous entry for same workspace/path', () => {
     store.upsertManifestEntry({
       workspaceHash: 'w1',

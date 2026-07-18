@@ -12,7 +12,7 @@
  *   all other tools      → 50 K chars
  *
  * Historical plaintext cache creation and age-based deletion are intentionally
- * absent. Legacy files are handled only by LegacyOutputCacheReconciler.
+ * absent. Large outputs are retained only through authenticated evidence.
  */
 
 import type {

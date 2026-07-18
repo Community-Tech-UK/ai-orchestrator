@@ -62,6 +62,13 @@ export const DebateStartPayloadSchema = z.object({
 
 export const DebateGetResultPayloadSchema = DebateIdSchema;
 export const DebateCancelPayloadSchema = DebateIdSchema;
+export const DebateSessionActionPayloadSchema = z.object({
+  sessionId: DebateIdSchema,
+}).strict();
+export const DebateIntervenePayloadSchema = z.object({
+  sessionId: DebateIdSchema,
+  message: z.string().min(1).max(100_000),
+}).strict();
 
 // ============ Supervision Payloads ============
 
@@ -598,3 +605,76 @@ export const ParallelWorktreeMergePayloadSchema = z.object({
   executionId: z.string().min(1).max(200),
   strategy: z.enum(['auto', 'squash', 'rebase', 'manual']).optional(),
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Renderer event payloads (main → renderer pushes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `verification:started` from the CLI verification coordinator. */
+export const VerificationStartedEventSchema = z.object({
+  requestId: z.string(),
+  agents: z.array(z.string()),
+}).strict();
+
+/** `verification:cancelled`; `agentsCancelled` is absent on the
+ *  cancelled-during-run path. */
+export const VerificationCancelledEventSchema = z.object({
+  sessionId: z.string(),
+  reason: z.string(),
+  agentsCancelled: z.number().int().optional(),
+}).strict();
+
+export const VerificationAgentCancelledEventSchema = z.object({
+  sessionId: z.string(),
+  agentId: z.string(),
+}).strict();
+
+/** `verification:warning`; `error` carries a caught unknown (often an Error). */
+export const VerificationWarningEventSchema = z.object({
+  message: z.string(),
+  available: z.array(z.string()).optional(),
+  error: z.unknown().optional(),
+}).strict();
+
+/** `reaction:event` / `reaction:escalated` — ReactionEvent from
+ *  src/main/reactions/reaction.types.ts. `type` stays a plain string so a new
+ *  ReactionEventType cannot silently block live events. */
+export const ReactionEventSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  priority: z.enum(['urgent', 'action', 'warning', 'info']),
+  instanceId: z.string(),
+  sessionId: z.string().optional(),
+  timestamp: z.number(),
+  data: z.record(z.string(), z.unknown()),
+  message: z.string().optional(),
+}).strict();
+
+/** `orchestration:activity` — OrchestrationActivityPayload. */
+export const OrchestrationActivityEventSchema = z.object({
+  instanceId: z.string(),
+  activity: z.string(),
+  category: z.enum(['orchestration', 'debate', 'verification', 'task']),
+  progress: z.object({
+    current: z.number(),
+    total: z.number(),
+  }).optional(),
+}).strict();
+
+/** `user-action:request` — UserActionRequest from the orchestration handler. */
+export const UserActionRequestEventSchema = z.object({
+  id: z.string(),
+  instanceId: z.string(),
+  requestType: z.enum(['switch_mode', 'approve_action', 'confirm', 'select_option', 'ask_questions']),
+  title: z.string(),
+  message: z.string(),
+  targetMode: z.enum(['build', 'plan', 'review']).optional(),
+  options: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    description: z.string().optional(),
+  })).optional(),
+  questions: z.array(z.string()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
+  createdAt: z.number(),
+}).strict();

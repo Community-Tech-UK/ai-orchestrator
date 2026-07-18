@@ -52,7 +52,9 @@ describe('recoverFromInputCap', () => {
   it('rung 3: throws a clear error when even a fresh thread overflows', async () => {
     const ops = makeOps({ send: vi.fn().mockRejectedValue(CAP_ERROR) });
 
-    await expect(recoverFromInputCap(ops)).rejects.toThrow(/your message exceeds/i);
+    await expect(recoverFromInputCap(ops)).rejects.toThrow(/assembled turn/i);
+    await expect(recoverFromInputCap(makeOps({ send: vi.fn().mockRejectedValue(CAP_ERROR) })))
+      .rejects.not.toThrow(/your message/i);
     expect(ops.reopenThread).toHaveBeenCalledTimes(1);
   });
 

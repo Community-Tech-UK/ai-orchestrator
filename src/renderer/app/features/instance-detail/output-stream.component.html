@@ -24,6 +24,10 @@
             <div class="skeleton-line medium"></div>
             <div class="skeleton-line narrow"></div>
           </div>
+        } @else if (hiddenRenderedCount() > 0) {
+          <button class="load-more-btn" (click)="expandRenderWindow()">
+            Show {{ hiddenRenderedCount() }} earlier item{{ hiddenRenderedCount() !== 1 ? 's' : '' }}
+          </button>
         } @else if (hasOlderMessages()) {
           <button class="load-more-btn" (click)="loadOlderMessages()">Load earlier messages</button>
         }
@@ -33,7 +37,7 @@
             {{ hiddenToolGroupCount() }} tool call{{ hiddenToolGroupCount() !== 1 ? ' groups' : ' group' }} hidden
           </button>
         }
-        @for (item of visibleItems(); track item.id; let i = $index) {
+        @for (item of windowedItems(); track item.id; let i = $index) {
           <div class="transcript-item" [attr.data-item-index]="i" [attr.data-item-id]="item.id" (contextmenu)="onContextMenu($event, item)">
             <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: item }" />
           </div>
@@ -328,11 +332,11 @@
     }
 
     <app-transcript-jump-rail
-      [items]="visibleItems()"
+      [items]="windowedItems()"
       [viewport]="container()?.nativeElement ?? null"
-      [hasOlderMessages]="hasOlderMessages()"
+      [hasOlderMessages]="hasOlderMessages() || hiddenRenderedCount() > 0"
       [sessionPrompts]="sessionPrompts()"
-      (loadOlder)="loadOlderMessages()"
+      (loadOlder)="revealOlderContent()"
     />
 
     <app-context-menu

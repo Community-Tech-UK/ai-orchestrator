@@ -3,14 +3,13 @@ import {
   Component,
   DestroyRef,
   ElementRef,
-  EventEmitter,
-  Input,
-  Output,
   ViewChild,
   computed,
   effect,
   inject,
+  input,
   signal,
+  output,
 } from '@angular/core';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { ModelPickerController } from './model-picker.controller';
@@ -203,46 +202,33 @@ export class CompactModelPickerComponent {
 
   protected readonly menuId = `compact-model-picker__menu-${idCounter++}`;
 
-  // Inputs (decorator-based; signal-input metadata is not picked up by the
-  // project's vitest setup.
-  private readonly _mode = signal<CompactPickerMode>('live-instance');
-  private readonly _chat = signal<ChatRecord | null>(null);
-  private readonly _hasMessages = signal(false);
-  private readonly _selection = signal<PendingSelection | null>(null);
-  private readonly _providers = signal<PickerProvider[] | null>(null);
-  private readonly _selectedLocalModelNodeId = signal<string | null>(null);
-  protected readonly _disabledReason = signal<string | null>(null);
+  readonly mode = input<CompactPickerMode>('live-instance');
+  readonly chat = input<ChatRecord | null | undefined>(null);
+  readonly hasMessages = input(false);
+  readonly selection = input<PendingSelection | null | undefined>(null);
+  readonly providers = input<PickerProvider[] | null | undefined>(null);
+  readonly selectedLocalModelNodeId = input<string | null | undefined>(null);
+  readonly disabledReason = input<string | null | undefined>(null);
 
-  @Input() set mode(value: CompactPickerMode) {
-    this._mode.set(value);
-    this.controller.setMode(value);
-  }
-  @Input() set chat(value: ChatRecord | null | undefined) {
-    this._chat.set(value ?? null);
-    if (value) this.controller.setChat(value, this._hasMessages());
-  }
-  @Input() set hasMessages(value: boolean) {
-    this._hasMessages.set(value);
-    const c = this._chat();
-    if (c) this.controller.setChat(c, value);
-  }
+  private readonly _mode = computed(() => this.mode());
+  private readonly _chat = computed(() => this.chat() ?? null);
+  private readonly _hasMessages = computed(() => this.hasMessages());
+  private readonly _selection = computed(() => this.selection() ?? null);
+  private readonly _providers = computed(() => {
+    const providers = this.providers();
+    return providers && providers.length > 0 ? providers : null;
+  });
+  private readonly _selectedLocalModelNodeId = computed(() => {
+    const value = this.selectedLocalModelNodeId()?.trim();
+    return value || null;
+  });
+  protected readonly _disabledReason = computed(() => this.disabledReason() ?? null);
   /**
    * Optional override of the provider list shown in the menu. Defaults to
    * `DEFAULT_CHAT_PROVIDERS` (4 providers, no cursor) so existing chat
    * surfaces don't need to opt in. The new-session/instance-draft surface
    * passes the wider list including `cursor`.
    */
-  @Input() set providers(value: PickerProvider[] | null | undefined) {
-    this._providers.set(value && value.length > 0 ? value : null);
-  }
-  @Input() set selection(value: PendingSelection | null | undefined) {
-    this._selection.set(value ?? null);
-    if (value) this.controller.setSelection(value);
-  }
-  @Input() set selectedLocalModelNodeId(value: string | null | undefined) {
-    const trimmed = value?.trim();
-    this._selectedLocalModelNodeId.set(trimmed ? trimmed : null);
-  }
   /**
    * When set, the picker trigger is disabled and the menu cannot be opened; the
    * string is shown as a tooltip explaining why (e.g. "Model changes are only
@@ -250,11 +236,7 @@ export class CompactModelPickerComponent {
    * the whole picker to match a backend rule rather than letting the user make a
    * change that would be silently rejected.
    */
-  @Input() set disabledReason(value: string | null | undefined) {
-    this._disabledReason.set(value ?? null);
-  }
-
-  @Output() selectionChange = new EventEmitter<PendingSelection>();
+  readonly selectionChange = output<PendingSelection>();
 
   @ViewChild('pickerTrigger', { static: true, read: ElementRef })
   protected readonly pickerTriggerRef!: ElementRef<HTMLElement>;
@@ -302,6 +284,22 @@ export class CompactModelPickerComponent {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+
+    effect(() => {
+      this.controller.setMode(this._mode());
+    });
+    effect(() => {
+      const chat = this._chat();
+      if (chat) {
+        this.controller.setChat(chat, this._hasMessages());
+      }
+    });
+    effect(() => {
+      const selection = this._selection();
+      if (selection) {
+        this.controller.setSelection(selection);
+      }
+    });
 
     // Forward pending-create commits as `selectionChange` events.
     this.controller.setSelectionChangeCallback((sel) => {

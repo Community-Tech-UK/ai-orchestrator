@@ -9,9 +9,8 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  Input,
-  Output,
+  input,
+  output
 } from '@angular/core';
 
 export type SaveState = 'saved' | 'saving' | 'dirty' | 'restart' | 'error';
@@ -21,9 +20,9 @@ export type SaveState = 'saved' | 'saving' | 'dirty' | 'restart' | 'error';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="save-banner" [attr.data-state]="state">
+    <div class="save-banner" [attr.data-state]="state()">
       <span class="save-status">
-        @switch (state) {
+        @switch (state()) {
           @case ('saving') {
             <span class="spinner" aria-hidden="true"></span>
             <span>Saving changes…</span>
@@ -38,7 +37,7 @@ export type SaveState = 'saved' | 'saving' | 'dirty' | 'restart' | 'error';
           }
           @case ('error') {
             <span class="dot" aria-hidden="true"></span>
-            <span>{{ errorText || 'Could not save changes' }}</span>
+            <span>{{ errorText() || 'Could not save changes' }}</span>
           }
           @default {
             <svg class="check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -49,7 +48,7 @@ export type SaveState = 'saved' | 'saving' | 'dirty' | 'restart' | 'error';
         }
       </span>
 
-      @if (state === 'dirty' || state === 'restart' || state === 'error') {
+      @if (state() === 'dirty' || state() === 'restart' || state() === 'error') {
         <span class="save-actions">
           <button type="button" class="banner-btn ghost" (click)="discard.emit()">
             Reset
@@ -65,11 +64,11 @@ export type SaveState = 'saved' | 'saving' | 'dirty' | 'restart' | 'error';
 })
 export class SaveStateBannerComponent {
   /** Current persistence state of the section. */
-  @Input() state: SaveState = 'saved';
+  readonly state = input<SaveState>('saved');
   /** Error detail shown when `state` is `error`. */
-  @Input() errorText: string | null = null;
+  readonly errorText = input<string | null>(null);
   /** Emitted when the user commits the pending draft. */
-  @Output() readonly apply = new EventEmitter<void>();
+  readonly apply = output<void>();
   /** Emitted when the user discards the pending draft. */
-  @Output() readonly discard = new EventEmitter<void>();
+  readonly discard = output<void>();
 }

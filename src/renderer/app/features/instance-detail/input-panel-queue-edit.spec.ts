@@ -37,6 +37,14 @@ const inputPanelStyles = readFileSync(
   resolve(specDirectory, './input-panel.component.scss'),
   'utf8',
 );
+const composerQueueTemplate = readFileSync(
+  resolve(specDirectory, './composer-queue.component.html'),
+  'utf8',
+);
+const composerQueueStyles = readFileSync(
+  resolve(specDirectory, './composer-queue.component.scss'),
+  'utf8',
+);
 const loopConfigPanelTemplate = readFileSync(
   resolve(specDirectory, '../loop/loop-config-panel.component.html'),
   'utf8',
@@ -53,6 +61,14 @@ await resolveComponentResources((url) => {
 
   if (url.endsWith('input-panel.component.scss')) {
     return Promise.resolve(inputPanelStyles);
+  }
+
+  if (url.endsWith('composer-queue.component.html')) {
+    return Promise.resolve(composerQueueTemplate);
+  }
+
+  if (url.endsWith('composer-queue.component.scss')) {
+    return Promise.resolve(composerQueueStyles);
   }
 
   if (url.endsWith('loop-config-panel.component.html')) {
@@ -121,6 +137,24 @@ class ComposerToolbarStubComponent {
 }
 
 @Component({
+  selector: 'app-composer-queue',
+  standalone: true,
+  template: `
+    @for (message of messages; track $index; let i = $index) {
+      <button class="queued-edit-btn" (click)="editMessage.emit(i)">Edit</button>
+    }
+  `,
+})
+class ComposerQueueStubComponent {
+  @Input() messages: { message: string }[] = [];
+  @Input() holdReasonLabel: string | null = null;
+  @Input() canSteer = false;
+  @Output() editMessage = new EventEmitter<number>();
+  @Output() steerMessage = new EventEmitter<number>();
+  @Output() cancelMessage = new EventEmitter<number>();
+}
+
+@Component({
   selector: 'app-composer-autocomplete',
   standalone: true,
   template: '',
@@ -158,6 +192,7 @@ describe('InputPanelComponent queued message editing', () => {
           LoopToggleStubComponent,
           LoopConfigPanelStubComponent,
           ComposerToolbarStubComponent,
+          ComposerQueueStubComponent,
           ComposerAutocompleteStubComponent,
           ImageLightboxStubComponent,
         ],

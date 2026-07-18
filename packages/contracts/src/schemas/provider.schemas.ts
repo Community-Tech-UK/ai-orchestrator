@@ -159,6 +159,47 @@ export const ProviderListModelsPayloadSchema = z.object({
   provider: z.string().min(1).max(100),
 });
 
+const ProviderModelConfigSchema = z.object({
+  type: z.string().trim().min(1).max(128),
+  apiKey: z.string().trim().min(1).max(10_000).optional(),
+  baseUrl: z.string().trim().min(1).max(2_000).optional(),
+  organizationId: z.string().trim().min(1).max(512).optional(),
+}).strict();
+
+export const ModelDiscoverPayloadSchema = ProviderModelConfigSchema.optional();
+
+export const ModelGetPayloadSchema = z.object({
+  config: ProviderModelConfigSchema.optional(),
+  modelId: RequiredModelIdSchema,
+}).strict();
+
+export const ModelSelectPayloadSchema = z.object({
+  config: ProviderModelConfigSchema.optional(),
+  criteria: z.object({
+    capabilities: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+  }).strict().optional(),
+}).strict().optional();
+
+export const ModelProviderStatusPayloadSchema = ProviderModelConfigSchema;
+
+export const ModelVerifyPayloadSchema = z.object({
+  config: ProviderModelConfigSchema.optional(),
+  modelId: RequiredModelIdSchema,
+}).strict();
+
+export const ModelEmptyPayloadSchema = z.undefined().optional();
+
+export const ModelSetOverridePayloadSchema = z.object({
+  provider: z.string().trim().min(1).max(128),
+  modelId: RequiredModelIdSchema,
+  config: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+export const ModelRemoveOverridePayloadSchema = z.object({
+  provider: z.string().trim().min(1).max(128).optional(),
+  modelId: RequiredModelIdSchema,
+}).strict();
+
 export const CliVerificationStartPayloadSchema = z.object({
   id: z.string().min(1).max(200),
   prompt: z.string().min(1).max(500000),
@@ -189,11 +230,62 @@ export const CliVerificationCancelPayloadSchema = z.object({
 
 export const TrainingGetStrategiesPayloadSchema = z.object({
   limit: z.number().int().min(1).max(1000).optional(),
-}).optional();
+}).strict().optional();
+
+export const TrainingEmptyPayloadSchema = z.undefined().optional();
+
+export const TrainingConfigPayloadSchema = z.object({
+  groupSize: z.number().int().min(1).max(1_000).optional(),
+  learningRate: z.number().positive().max(1).optional(),
+  clipEpsilon: z.number().min(0).max(1).optional(),
+  entropyCoef: z.number().min(0).max(1).optional(),
+  valueCoef: z.number().min(0).max(10).optional(),
+  minSamplesForTraining: z.number().int().min(1).max(1_000_000).optional(),
+  maxBatchHistory: z.number().int().min(1).max(1_000_000).optional(),
+}).strict();
 
 export const TrainingUpdateConfigPayloadSchema = z.object({
-  config: z.record(z.string(), z.unknown()),
-});
+  config: TrainingConfigPayloadSchema,
+}).strict();
+
+const TrainingOutcomeInputSchema = z.object({
+  taskId: z.string().min(1).max(500),
+  prompt: z.string().max(500_000),
+  response: z.string().max(5_000_000),
+  reward: z.number().min(0).max(1),
+  strategy: z.string().max(500).optional(),
+  context: z.string().max(1_000_000).optional(),
+}).strict();
+
+export const TrainingRecordOutcomePayloadSchema = TrainingOutcomeInputSchema;
+
+const StoredTrainingOutcomeSchema = TrainingOutcomeInputSchema.extend({
+  timestamp: z.number().int().nonnegative(),
+}).strict();
+
+const TrainingBatchSchema = z.object({
+  prompts: z.array(z.string().max(500_000)).max(100_000),
+  responses: z.array(z.string().max(5_000_000)).max(100_000),
+  rewards: z.array(z.number().finite()).max(100_000),
+  advantages: z.array(z.number().finite()).max(100_000),
+  taskIds: z.array(z.string().min(1).max(500)).max(100_000),
+  timestamp: z.number().int().nonnegative(),
+}).strict();
+
+export const TrainingImportDataPayloadSchema = z.object({
+  outcomes: z.array(StoredTrainingOutcomeSchema).max(1_000_000),
+  batches: z.array(TrainingBatchSchema).max(1_000_000),
+}).strict();
+
+export const TrainingTopStrategiesPayloadSchema = z.number().int().min(1).max(1_000).optional();
+
+export const TrainingDashboardListPayloadSchema = z.object({
+  limit: z.number().int().min(1).max(1_000).optional(),
+}).strict().optional();
+
+export const TrainingInsightIdPayloadSchema = z.object({
+  insightId: z.string().min(1).max(500),
+}).strict();
 
 // ============ Skill Payloads ============
 
@@ -250,6 +342,55 @@ export const ModelsCLIPushPayloadSchema = z.object({
 export const ModelsLocalReviewerQualifyPayloadSchema = z.object({
   selectorId: z.string().min(1).max(4_096).startsWith('lm://'),
   ipcAuthToken: z.string().optional(),
+}).strict();
+
+export const PluginLifecycleEventSchema = z.object({
+  pluginId: z.string().min(1).max(200),
+}).strict();
+
+export const PluginErrorEventSchema = PluginLifecycleEventSchema.extend({
+  error: z.string().min(1).max(10_000),
+}).strict();
+
+const CatalogSourceSchema = z.enum([
+  'cli-discovered',
+  'models-dev',
+  'user-custom',
+  'catalog-override',
+  'local-model',
+  'static',
+]);
+
+export const ModelsCatalogUpdatedEventSchema = z.object({
+  totalEntries: z.number().int().nonnegative(),
+  sources: z.array(CatalogSourceSchema).max(6),
+}).strict();
+
+const LocalModelInventoryEntrySchema = z.object({
+  selectorId: z.string().min(1).max(4_096).startsWith('lm://'),
+  source: z.enum(['this-device', 'worker-node']),
+  endpointProvider: z.enum(['ollama', 'openai-compatible']),
+  endpointId: z.string().min(1).max(500),
+  modelId: RequiredModelIdSchema,
+  displayName: z.string().min(1).max(1_000),
+  nodeId: z.string().min(1).max(500).optional(),
+  nodeName: z.string().min(1).max(500).optional(),
+  platform: z.string().min(1).max(100).optional(),
+  healthy: z.boolean(),
+  loaded: z.boolean(),
+  loadedContextLength: z.number().int().nonnegative().optional(),
+  advertisedContextLength: z.number().int().nonnegative().optional(),
+  capabilities: z.object({
+    streaming: z.boolean(),
+    multiTurn: z.boolean(),
+    toolUse: z.enum(['none', 'probable', 'verified']),
+    vision: z.enum(['unknown', 'no', 'yes']),
+  }).strict(),
+  discoveredAt: z.number().int().nonnegative(),
+}).strict();
+
+export const ModelsLocalInventoryUpdatedEventSchema = z.object({
+  models: z.array(LocalModelInventoryEntrySchema).max(10_000),
 }).strict();
 
 // ============ Ecosystem Payloads ============

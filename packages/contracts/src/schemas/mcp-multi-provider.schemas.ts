@@ -96,3 +96,55 @@ export const McpProviderUserDeletePayloadSchema = z.object({
 export const McpDriftQuerySchema = z.object({
   serverId: z.string().min(1).max(200),
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Renderer event payloads (main → renderer `mcp:*` pushes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** RedactedMcpServerDto — scope is a wider union than the upsert enums
+ *  (provider scopes included), so it stays a plain string here. */
+const RedactedMcpServerDtoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  scope: z.string(),
+  transport: transportEnum,
+  autoConnect: z.boolean(),
+  readOnly: z.boolean(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+}).passthrough();
+
+/** `mcp:multi-provider-state-changed` — McpMultiProviderStateDto. */
+export const McpMultiProviderStateChangedEventSchema = z.object({
+  orchestrator: z.array(z.object({
+    record: RedactedMcpServerDtoSchema,
+    injectInto: z.array(supportedProviderEnum),
+  }).passthrough()),
+  shared: z.array(z.object({
+    record: RedactedMcpServerDtoSchema,
+    targets: z.array(z.object({
+      provider: supportedProviderEnum,
+      state: driftStateEnum,
+    }).passthrough()),
+  }).passthrough()),
+  providers: z.array(z.object({
+    provider: supportedProviderEnum,
+    cliAvailable: z.boolean(),
+    servers: z.array(RedactedMcpServerDtoSchema),
+  }).passthrough()),
+  stateVersion: z.number(),
+}).strict();
+
+/** `mcp:server-status-changed`; the phase-lifecycle variant adds
+ *  phase/phaseState, and `error` carries a caught unknown. */
+export const McpServerStatusChangedEventSchema = z.object({
+  serverId: z.string(),
+  status: z.enum(['connected', 'disconnected', 'connecting', 'error']),
+  error: z.unknown().optional(),
+  phase: z.string().optional(),
+  phaseState: z.enum(['running', 'succeeded', 'failed']).optional(),
+}).strict();
+
+export const McpStateChangedEventSchema = z.object({
+  type: z.enum(['tools', 'resources', 'prompts']),
+}).strict();

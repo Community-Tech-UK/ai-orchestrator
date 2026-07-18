@@ -84,9 +84,6 @@ export const MEMORY_CHANNELS = {
   OBSERVATION_CLEANUP: 'observation:cleanup',
 
   // Token Stats operations
-  TOKEN_STATS_GET_SUMMARY: 'token-stats:get-summary',
-  TOKEN_STATS_GET_RECENT: 'token-stats:get-recent',
-  TOKEN_STATS_CLEANUP: 'token-stats:cleanup',
 
   // Knowledge Graph operations
   KG_ADD_FACT: 'kg:add-fact',

@@ -84,6 +84,7 @@ const EPISODIC_STORE_ID = 'episodic-unified-store';
 const EPISODIC_INSTANCE_ID = 'episodic-system';
 const SESSION_TYPE = 'episode';
 const PATTERN_TYPE = 'pattern';
+const MAX_EPISODIC_SECTION_SCAN = 10_000;
 
 export class EpisodicRLMStore extends EventEmitter {
   private static instance: EpisodicRLMStore | null = null;
@@ -148,7 +149,9 @@ export class EpisodicRLMStore extends EventEmitter {
 
   private loadFromPersistence(): void {
     try {
-      const sections = this.db.getSections(EPISODIC_STORE_ID);
+      const sections = this.db.getSections(EPISODIC_STORE_ID, {
+        limit: MAX_EPISODIC_SECTION_SCAN,
+      });
       let sessionsLoaded = 0;
       let patternsLoaded = 0;
 
@@ -236,7 +239,8 @@ export class EpisodicRLMStore extends EventEmitter {
 
   querySessions(query: SessionQuery): SessionMemory[] {
     const sections = this.db.getSections(EPISODIC_STORE_ID, {
-      type: SESSION_TYPE
+      type: SESSION_TYPE,
+      limit: MAX_EPISODIC_SECTION_SCAN,
     });
     let results: SessionMemory[] = [];
 
@@ -415,7 +419,8 @@ export class EpisodicRLMStore extends EventEmitter {
 
   queryPatterns(query: PatternQuery): LearnedPattern[] {
     const sections = this.db.getSections(EPISODIC_STORE_ID, {
-      type: PATTERN_TYPE
+      type: PATTERN_TYPE,
+      limit: MAX_EPISODIC_SECTION_SCAN,
     });
     let results: LearnedPattern[] = [];
 
@@ -608,7 +613,8 @@ export class EpisodicRLMStore extends EventEmitter {
 
     const retentionMs = this.config.sessionRetentionDays * 24 * 60 * 60 * 1000;
     const sections = this.db.getSections(EPISODIC_STORE_ID, {
-      type: SESSION_TYPE
+      type: SESSION_TYPE,
+      limit: MAX_EPISODIC_SECTION_SCAN,
     });
 
     for (const section of sections) {
@@ -743,7 +749,9 @@ export class EpisodicRLMStore extends EventEmitter {
   }
 
   async clear(): Promise<void> {
-    const sections = this.db.getSections(EPISODIC_STORE_ID);
+    const sections = this.db.getSections(EPISODIC_STORE_ID, {
+      limit: MAX_EPISODIC_SECTION_SCAN,
+    });
     for (const section of sections) {
       try {
         this.db.removeSection(section.id);

@@ -31,6 +31,16 @@ export const SettingsSetPayloadSchema = z.object({
   value: RequiredSettingsValueSchema,
 });
 
+export const SettingsChangedEventSchema = z.union([
+  z.object({
+    key: z.string().min(1).max(500),
+    value: z.unknown(),
+  }).strict(),
+  z.object({
+    settings: z.record(z.string(), z.unknown()),
+  }).strict(),
+]);
+
 // ============ Settings MCP Tools ============
 
 const SettingsToolKeySchema = z.string().min(1).max(100);
@@ -199,6 +209,12 @@ export const RemoteConfigDiscoverGitPayloadSchema = z.object({
 export const RemoteConfigInvalidatePayloadSchema = z.object({
   url: UrlSchema,
 });
+
+export const RemoteConfigUpdatedEventSchema = z.record(z.string(), z.unknown());
+
+export const RemoteConfigErrorEventSchema = z.object({
+  message: z.string().min(1).max(10_000),
+}).strict();
 
 export const RemoteObserverStartPayloadSchema = z.object({
   host: z.string().min(1).max(255).optional(),

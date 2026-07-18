@@ -24,6 +24,7 @@ import {
   FileWriteTextPayloadSchema,
 } from '@contracts/schemas/file-operations';
 import { getCapabilityProbe } from '../../bootstrap/capability-probe';
+import { sendValidatedRendererEvent } from '../../event-bus/renderer-event-validation';
 import { ensureScratchDirectory } from '../../util/scratch-directory';
 import { openTerminalAtDirectory } from './app-terminal';
 
@@ -114,7 +115,11 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
       getCapabilityProbe().getLastReport()
       ?? await getCapabilityProbe().run();
 
-    event.sender.send(IPC_CHANNELS.APP_STARTUP_CAPABILITIES, startupCapabilities);
+    sendValidatedRendererEvent(
+      event.sender,
+      IPC_CHANNELS.APP_STARTUP_CAPABILITIES,
+      startupCapabilities,
+    );
     return {
       success: true,
       data: {

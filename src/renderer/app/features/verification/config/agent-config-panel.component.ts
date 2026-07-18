@@ -561,7 +561,6 @@ export class AgentConfigPanelComponent implements OnInit {
     return this.personalityDescriptions[personality] || '';
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   updateAgentConfig(_agent?: unknown): void {
     // Update personality in store config
     const personalities = this.agentConfigs().map(a => a.personality);

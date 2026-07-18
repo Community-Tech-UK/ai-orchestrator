@@ -37,12 +37,12 @@ describe('ProviderDiagnosticsPanelComponent', () => {
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProviderDiagnosticsPanelComponent);
-    fixture.componentInstance.instanceId = 'inst-1';
-    fixture.componentInstance.contextUsage = {
+    fixture.componentRef.setInput('instanceId', 'inst-1');
+    fixture.componentRef.setInput('contextUsage', {
       used: 80,
       total: 100,
       percentage: 80,
-    };
+    });
     fixture.detectChanges();
   });
 
@@ -115,7 +115,7 @@ describe('ProviderDiagnosticsPanelComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('req_inst_1');
 
-    fixture.componentInstance.instanceId = 'inst-2';
+    fixture.componentRef.setInput('instanceId', 'inst-2');
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent as string;

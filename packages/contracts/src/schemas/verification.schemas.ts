@@ -55,7 +55,7 @@ const ExtractedKeyPointSchema = z.object({
   supportingEvidence: z.string().max(5000).optional(),
 });
 
-const AgentResponseSchema = z.object({
+export const AgentResponseSchema = z.object({
   agentId: z.string().min(1).max(500),
   agentIndex: z.number().int().min(0),
   model: RequiredModelIdSchema,
@@ -101,6 +101,54 @@ export const VerificationVerdictReadyPayloadSchema = z.object({
   verdict: VerificationVerdictSchema,
   diagnostic: VerdictDerivationDiagnosticSchema.optional(),
 });
+
+const VerificationEventIdSchema = z.string().min(1).max(500);
+
+export const VerificationAgentStartEventSchema = z.object({
+  sessionId: VerificationEventIdSchema,
+  agentId: VerificationEventIdSchema,
+  name: z.string().min(1).max(500),
+  type: z.string().min(1).max(100),
+  personality: PersonalityTypeSchema.optional(),
+}).strict();
+
+export const VerificationAgentStreamEventSchema = z.object({
+  sessionId: VerificationEventIdSchema,
+  agentId: VerificationEventIdSchema,
+  chunk: z.string(),
+}).strict();
+
+export const VerificationAgentCompleteEventSchema = z.object({
+  sessionId: VerificationEventIdSchema,
+  response: AgentResponseSchema,
+}).strict();
+
+export const VerificationAgentErrorEventSchema = z.object({
+  sessionId: VerificationEventIdSchema,
+  agentId: VerificationEventIdSchema,
+  error: z.string().min(1).max(10_000),
+}).strict();
+
+export const VerificationRoundProgressEventSchema = z.object({
+  sessionId: VerificationEventIdSchema,
+  round: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+}).strict();
+
+export const VerificationConsensusUpdateEventSchema = z.object({
+  sessionId: VerificationEventIdSchema,
+  score: z.number().finite(),
+}).strict();
+
+export const VerificationCompleteEventSchema = z.object({
+  sessionId: VerificationEventIdSchema,
+  result: z.object({ id: VerificationEventIdSchema }).passthrough(),
+}).strict();
+
+export const VerificationErrorEventSchema = z.object({
+  sessionId: VerificationEventIdSchema,
+  error: z.string().min(1).max(10_000),
+}).strict();
 
 export type VerificationVerdictPayload = z.infer<typeof VerificationVerdictSchema>;
 export type VerificationVerdictReadyPayload = z.infer<typeof VerificationVerdictReadyPayloadSchema>;

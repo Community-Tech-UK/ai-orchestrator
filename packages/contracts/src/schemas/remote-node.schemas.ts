@@ -86,10 +86,102 @@ export const RemoteNodeUpdateAndroidAutomationPayloadSchema = z.object({
   androidAutomation: RemoteNodeAndroidAutomationConfigSchema,
 });
 
+const WorkerNodeCapabilitiesEventSchema = z.object({
+  platform: z.enum(['darwin', 'win32', 'linux']),
+  arch: z.string().max(100),
+  cpuCores: z.number().int().nonnegative(),
+  totalMemoryMB: z.number().nonnegative(),
+  availableMemoryMB: z.number().nonnegative(),
+  supportedClis: z.array(z.string().min(1).max(100)).max(100),
+  hasBrowserRuntime: z.boolean(),
+  hasBrowserMcp: z.boolean(),
+  hasAndroidMcp: z.boolean(),
+  hasDocker: z.boolean(),
+  maxConcurrentInstances: z.number().int().nonnegative(),
+  workingDirectories: z.array(z.string().max(4_000)).max(10_000),
+  browsableRoots: z.array(z.string().max(4_000)).max(10_000),
+  discoveredProjects: z.array(z.unknown()).max(100_000),
+}).passthrough();
+
+/** Main-to-renderer payload for REMOTE_NODE_NODES_CHANGED. */
+export const RemoteNodeRosterChangedEventSchema = z.array(z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(500),
+  status: z.enum(['connecting', 'connected', 'degraded', 'disconnected']),
+  address: z.string().max(2_048),
+  connected: z.boolean(),
+  supportedClis: z.array(z.string().min(1).max(100)).max(100),
+  hasBrowserRuntime: z.boolean(),
+  hasBrowserMcp: z.boolean(),
+  hasAndroidMcp: z.boolean(),
+  hasDocker: z.boolean(),
+  activeInstances: z.number().int().nonnegative(),
+  maxConcurrentInstances: z.number().int().nonnegative(),
+  workingDirectories: z.array(z.string().max(4_000)).max(10_000),
+  capabilities: WorkerNodeCapabilitiesEventSchema,
+}).passthrough()).max(10_000);
+
+const WorkerNodeInfoEventSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(500),
+  address: z.string().max(2_048).optional(),
+  capabilities: WorkerNodeCapabilitiesEventSchema,
+  status: z.enum(['connecting', 'connected', 'degraded', 'disconnected']),
+  connectedAt: z.number().int().nonnegative().optional(),
+  lastHeartbeat: z.number().int().nonnegative().optional(),
+  activeInstances: z.number().int().nonnegative(),
+  latencyMs: z.number().nonnegative().finite().optional(),
+}).strict();
+
+export const RemoteNodeEventSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.enum(['connected', 'updated']),
+    node: WorkerNodeInfoEventSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('disconnected'),
+    nodeId: z.string().min(1).max(200),
+  }).strict(),
+  z.object({
+    type: z.literal('flap-storm'),
+    nodeId: z.string().min(1).max(200),
+    nodeName: z.string().min(1).max(500).optional(),
+    replacesInWindow: z.number().int().nonnegative().optional(),
+    windowMs: z.number().int().nonnegative().optional(),
+  }).strict(),
+]);
+
+export const RemoteFsEventSchema = z.object({
+  nodeId: z.string().min(1).max(200),
+  watchId: z.string().min(1).max(500),
+  events: z.array(z.object({
+    type: z.enum(['add', 'change', 'delete']),
+    path: z.string().min(1).max(10_000),
+    isDirectory: z.boolean(),
+  }).strict()).max(10_000),
+}).strict();
+
 export const RemoteNodeRunBrowserLoginPayloadSchema = z.object({
   nodeId: z.string().uuid(),
   url: z.string().trim().max(2048).optional(),
 });
+
+export const TerminalOutputEventSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  data: z.string(),
+}).strict();
+
+export const TerminalExitEventSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().nullable(),
+}).strict();
+
+export const TerminalSpawnedEventSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  pid: z.number().int().nonnegative(),
+  nodeId: z.string().min(1).max(200),
+}).strict();
 
 export const PairBothHelloSchema = z.object({
   protocolVersion: z.string().min(1).max(16),

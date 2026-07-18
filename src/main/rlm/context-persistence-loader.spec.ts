@@ -45,6 +45,26 @@ function sectionRow(overrides: Partial<ContextSectionRow> = {}): ContextSectionR
 }
 
 describe('loadPersistedContextState', () => {
+  it('caps section metadata loaded for a single persisted store', () => {
+    const rows = Array.from({ length: 5_001 }, (_, index) => sectionRow({
+      id: `sec-${index}`,
+      start_offset: index,
+    }));
+    const getSections = vi.fn(() => rows);
+    const db = {
+      listStores: () => [storeRow()],
+      getSections,
+      getSectionContent: vi.fn(() => 'content'),
+      listSessions: () => [],
+    } as unknown as RLMDatabase;
+
+    const state = loadPersistedContextState(db);
+
+    expect(getSections).toHaveBeenCalledWith('store-1', { limit: 5_001 });
+    expect(state.stores.get('store-1')?.sections).toHaveLength(5_000);
+    expect(state.loadedSections).toBe(5_000);
+  });
+
   it('loads codebase-auto stores as metadata without reading section content', () => {
     const getSectionContent = vi.fn(() => 'large content');
     const db = {

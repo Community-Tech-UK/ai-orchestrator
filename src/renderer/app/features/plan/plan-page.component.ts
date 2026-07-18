@@ -14,6 +14,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { PlanModeIpcService } from '../../core/services/ipc/plan-mode-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 
 interface PlanHistoryEntry {
   version: number;
@@ -772,6 +773,7 @@ interface PlanState {
 })
 export class PlanPageComponent implements OnDestroy {
   private readonly planModeIpc = inject(PlanModeIpcService);
+  private readonly pollScheduler = inject(RendererPollSchedulerService);
 
   readonly instanceIdInput = signal('');
   readonly planState = signal<PlanState | null>(null);
@@ -801,7 +803,7 @@ export class PlanPageComponent implements OnDestroy {
     return labels[mode];
   });
 
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private stopScheduledPoll: (() => void) | null = null;
   private refreshInFlight = false;
 
   ngOnDestroy(): void {
@@ -997,18 +999,16 @@ export class PlanPageComponent implements OnDestroy {
 
   private startPolling(): void {
     this.stopPolling();
-    this.pollTimer = setInterval(() => {
+    this.stopScheduledPoll = this.pollScheduler.register(() => {
       if (!this.planState()) {
         return;
       }
-      void this.refreshState();
+      return this.refreshState();
     }, 5000);
   }
 
   private stopPolling(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
+    this.stopScheduledPoll?.();
+    this.stopScheduledPoll = null;
   }
 }

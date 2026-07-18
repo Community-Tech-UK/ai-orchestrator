@@ -11,7 +11,8 @@
  * Results are collected in a bounded ring buffer for analysis.
  */
 
-import { Injectable, signal } from '@angular/core';
+import { Injectable, OnDestroy, inject, signal } from '@angular/core';
+import { LoggingIpcService } from './ipc/logging-ipc.service';
 
 export interface PerfEntry {
   name: string;
@@ -34,12 +35,16 @@ export interface PerfSummary {
 
 const MAX_ENTRIES = 500;
 const MARK_PREFIX = 'orch:';
+const LOG_EXPORT_DELAY_MS = 5_000;
 
 @Injectable({ providedIn: 'root' })
-export class PerfInstrumentationService {
+export class PerfInstrumentationService implements OnDestroy {
+  private readonly loggingIpc = inject(LoggingIpcService);
   private entries: PerfEntry[] = [];
   private activeMarks = new Map<string, number>();
   private syncScheduled = false;
+  private pendingLogEntries = 0;
+  private logExportTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Signal exposing the latest collected entries (read-only snapshot). */
   private _entries = signal<PerfEntry[]>([]);
@@ -59,6 +64,7 @@ export class PerfInstrumentationService {
 
   disable(): void {
     this._enabled.set(false);
+    this.flushLogExport();
   }
 
   toggle(): void {
@@ -127,6 +133,8 @@ export class PerfInstrumentationService {
     }
 
     this.scheduleSnapshotSync();
+    this.pendingLogEntries += 1;
+    this.scheduleLogExport();
   }
 
   // ============================================
@@ -278,7 +286,16 @@ export class PerfInstrumentationService {
     this.entries = [];
     this.activeMarks.clear();
     this.syncScheduled = false;
+    this.pendingLogEntries = 0;
+    if (this.logExportTimer !== null) {
+      clearTimeout(this.logExportTimer);
+      this.logExportTimer = null;
+    }
     this._entries.set([]);
+  }
+
+  ngOnDestroy(): void {
+    this.flushLogExport();
   }
 
   /**
@@ -319,5 +336,33 @@ export class PerfInstrumentationService {
       this.syncScheduled = false;
       this._entries.set([...this.entries]);
     });
+  }
+
+  private scheduleLogExport(): void {
+    if (this.logExportTimer !== null) return;
+    this.logExportTimer = setTimeout(() => {
+      this.logExportTimer = null;
+      this.flushLogExport();
+    }, LOG_EXPORT_DELAY_MS);
+  }
+
+  private flushLogExport(): void {
+    if (this.logExportTimer !== null) {
+      clearTimeout(this.logExportTimer);
+      this.logExportTimer = null;
+    }
+    if (this.pendingLogEntries === 0) return;
+    const entryCount = this.pendingLogEntries;
+    this.pendingLogEntries = 0;
+    void this.loggingIpc.logMessage(
+      'debug',
+      'Renderer performance metrics',
+      'PerfInstrumentation',
+      {
+        entryCount,
+        summaries: this.getAllSummaries(),
+        budgetViolations: this.checkBudgets(),
+      },
+    ).catch(() => undefined);
   }
 }

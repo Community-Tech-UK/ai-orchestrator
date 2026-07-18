@@ -65,6 +65,90 @@ export const RendererHeartbeatPayloadSchema = z.object({
   sentAt: z.number().int().nonnegative(),
 });
 
+export const MemoryStatsEventSchema = z.object({
+  heapUsedMB: z.number().nonnegative().finite(),
+  heapTotalMB: z.number().nonnegative().finite(),
+  externalMB: z.number().nonnegative().finite(),
+  rssMB: z.number().nonnegative().finite(),
+  percentUsed: z.number().nonnegative().finite(),
+}).strict();
+
+export const MemoryAlertEventSchema = MemoryStatsEventSchema.extend({
+  message: z.string().min(1).max(2_000),
+});
+
+export const StartupCapabilityReportEventSchema = z.object({
+  status: z.enum(['ready', 'degraded', 'failed']),
+  generatedAt: z.number().int().nonnegative(),
+  checks: z.array(z.object({
+    id: z.string().min(1).max(500),
+    label: z.string().min(1).max(500),
+    category: z.enum(['native', 'provider', 'subsystem']),
+    status: z.enum(['ready', 'degraded', 'unavailable', 'disabled']),
+    critical: z.boolean(),
+    summary: z.string().max(10_000),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }).strict()).max(1_000),
+}).strict();
+
+const CliUpdatePlanSummarySchema = z.object({
+  cli: z.string().min(1).max(200),
+  displayName: z.string().min(1).max(500),
+  supported: z.boolean(),
+  command: z.string().max(2_000).optional(),
+  args: z.array(z.string().max(2_000)).max(100).optional(),
+  displayCommand: z.string().max(10_000).optional(),
+  activePath: z.string().max(10_000).optional(),
+  currentVersion: z.string().max(500).optional(),
+  reason: z.string().max(10_000).optional(),
+  strategy: z.enum(['npm', 'bun', 'pnpm', 'self-update', 'gh-extension', 'homebrew', 'install-script']).optional(),
+}).strict();
+
+export const CliUpdatePillStateEventSchema = z.object({
+  generatedAt: z.number().int().nonnegative(),
+  count: z.number().int().nonnegative(),
+  entries: z.array(z.object({
+    cli: z.string().min(1).max(200),
+    displayName: z.string().min(1).max(500),
+    currentVersion: z.string().max(500).optional(),
+    latestVersion: z.string().max(500).optional(),
+    updateAvailable: z.boolean().optional(),
+    updatePlan: CliUpdatePlanSummarySchema,
+  }).strict()).max(1_000),
+  error: z.string().max(10_000).optional(),
+}).strict();
+
+export const UpdateStatusEventSchema = z.object({
+  state: z.enum(['idle', 'checking', 'available', 'not-available', 'downloading', 'downloaded', 'error']),
+  enabled: z.boolean(),
+  currentVersion: z.string().max(500).optional(),
+  availableVersion: z.string().max(500).optional(),
+  percent: z.number().min(0).max(100).optional(),
+  lastCheckedAt: z.string().max(100).optional(),
+  error: z.string().max(10_000).optional(),
+  errorContext: z.enum(['check', 'download', 'install']).optional(),
+}).strict();
+
+export const EmptyRendererEventSchema = z.undefined();
+
+export const NotificationDeltaEventSchema = z.object({
+  id: z.string().min(1).max(500),
+  kind: z.string().min(1).max(200),
+  instanceId: z.string().min(1).max(200).optional(),
+  title: z.string().min(1).max(1_000),
+  body: z.string().max(10_000),
+  urgency: z.enum(['normal', 'critical']),
+  fingerprint: z.string().min(1).max(2_000),
+  createdAt: z.number().int().nonnegative(),
+  delivery: z.enum([
+    'desktop',
+    'fingerprint-suppressed',
+    'cooldown-suppressed',
+    'quiet-hours',
+    'desktop-unavailable',
+  ]),
+}).strict();
+
 // ============ Search Payloads ============
 
 export const SearchSemanticPayloadSchema = z.object({

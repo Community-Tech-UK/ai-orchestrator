@@ -32,7 +32,6 @@ import { getHibernationManager } from '../process/hibernation-manager';
 import { getPoolManager } from '../process/pool-manager';
 import { getLoadBalancer } from '../process/load-balancer';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
-import { registerCrossModelReviewIpcHandlers } from '../ipc/cross-model-review-ipc';
 import {
   getChannelManager,
   ChannelMessageRouter,
@@ -96,8 +95,6 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
 import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autostart';
 import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
-import { createLegacyOutputCacheReconciliationStep } from './legacy-output-cache-initialization';
-export { createLegacyOutputCacheReconciliationStep } from './legacy-output-cache-initialization';
 
 const logger = getLogger('AppInitialization');
 const CODEMEM_MAINTENANCE_COOLDOWN_MS = 30 * 60 * 1000;
@@ -154,7 +151,6 @@ export function createInitializationSteps(
       },
     },
     createContextEvidenceInitializationStep(),
-    createLegacyOutputCacheReconciliationStep(),
     {
       name: 'Provider event capture',
       fn: () => {
@@ -621,7 +617,6 @@ export function createInitializationSteps(
           });
         }
         await crossModelReview.initialize();
-        registerCrossModelReviewIpcHandlers();
         // Ping-pong reviewer spawner shares the InstanceManager so it can spawn
         // fresh root-level reviewer instances for the agentic ping-pong gate.
         try {

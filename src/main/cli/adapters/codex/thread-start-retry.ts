@@ -15,8 +15,8 @@
  */
 
 import { getLogger } from '../../../logging/logger';
-import { retryWithBackoff } from '../../../util/backoff';
 import { ErrorCategory } from '../../../../shared/types/error-recovery.types';
+import { CliRetryCoordinator } from '../cli-retry-coordinator';
 import type { AppServerRequestParams, AppServerResponseResult } from './app-server-types';
 
 const logger = getLogger('CodexThreadStartRetry');
@@ -81,16 +81,17 @@ export async function startThreadWithRetry(
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
 
-  return retryWithBackoff(
+  const retryCoordinator = new CliRetryCoordinator({
+    classify: (error) => (
+      isTransientThreadStartError(error) ? ErrorCategory.TRANSIENT : ErrorCategory.PERMANENT
+    ),
+  });
+
+  return retryCoordinator.run(
     () => client.request('thread/start', params),
     {
       attempts: maxAttempts,
-      classify: (error) => (
-        isTransientThreadStartError(error) ? ErrorCategory.TRANSIENT : ErrorCategory.PERMANENT
-      ),
-      delayForAttempt: (attempt) => (
-        retryDelaysMs[Math.min(attempt, retryDelaysMs.length - 1)] ?? 5_000
-      ),
+      retryDelaysMs,
       onRetry: ({ attempt, delayMs, error }) => {
         logger.warn('thread/start timed out — retrying with backoff (host may be overloaded)', {
           attempt,

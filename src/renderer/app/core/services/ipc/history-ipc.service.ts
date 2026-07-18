@@ -251,7 +251,7 @@ export class HistoryIpcService {
   /**
    * Search archives
    */
-  async archiveSearch(query: string, options?: { limit?: number; fields?: string[] }): Promise<IpcResponse> {
+  async archiveSearch(query: string, options?: { limit?: number; tags?: string[] }): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.archiveSearch(query, options);
   }

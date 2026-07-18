@@ -135,4 +135,32 @@ describe('registerVoiceHandlers local STT chunks', () => {
     );
     expect(response).toEqual({ success: true, data: { accepted: false } });
   });
+
+  it('replaces an invalid service event with a validated renderer error event', async () => {
+    voiceMocks.pushLocalSttChunk.mockResolvedValueOnce({
+      kind: 'final',
+      text: 'missing service session id',
+      segmentId: 5,
+    } as Awaited<ReturnType<typeof voiceMocks.pushLocalSttChunk>>);
+    await loadHandlers();
+
+    const { response, event } = await invoke(IPC_CHANNELS.VOICE_LOCAL_STT_CHUNK, {
+      sessionId: 'local-session-1',
+      seq: 5,
+      wavBase64: 'UklGRg==',
+      last: true,
+      ipcAuthToken: 'auth-token',
+    });
+
+    expect(event.sender?.send).toHaveBeenCalledTimes(1);
+    expect(event.sender?.send).toHaveBeenCalledWith(
+      IPC_CHANNELS.VOICE_LOCAL_STT_EVENT,
+      {
+        sessionId: 'local-session-1',
+        kind: 'error',
+        error: 'Voice service returned an invalid transcript event.',
+      },
+    );
+    expect(response).toEqual({ success: true, data: { accepted: false } });
+  });
 });

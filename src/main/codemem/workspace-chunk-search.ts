@@ -50,9 +50,10 @@ export function searchHydratedChunks(
   }
 
   const hits = store.searchWorkspaceChunks(workspaceRoot.workspaceHash, query, limit * 2);
+  const chunksByHash = store.getChunks(hits.map((hit) => hit.contentHash));
   const results: CodeRetrievalResult[] = [];
   for (const hit of hits) {
-    const chunk = store.getChunk(hit.contentHash);
+    const chunk = chunksByHash.get(hit.contentHash);
     if (!chunk) continue;
     results.push({
       workspacePath,

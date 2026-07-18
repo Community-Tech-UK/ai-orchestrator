@@ -476,7 +476,6 @@ export class RlmPageComponent implements OnInit, OnDestroy {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async handleSectionSelected(_section?: unknown): Promise<void> {
     const store = this.store();
     if (!store) return;
@@ -489,7 +488,6 @@ export class RlmPageComponent implements OnInit, OnDestroy {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async handleQueryExecuted(_result?: unknown): Promise<void> {
     const session = this.session();
     if (!session) return;

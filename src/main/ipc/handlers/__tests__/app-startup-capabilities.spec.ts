@@ -93,4 +93,21 @@ describe('registerAppHandlers startup capabilities', () => {
       data: report,
     });
   });
+
+  it('does not push a malformed startup capability report', async () => {
+    capabilityProbe.getLastReport.mockReturnValue({
+      status: 'unknown',
+      generatedAt: Date.now(),
+      checks: [],
+    });
+    registerAppHandlers({
+      windowManager: {} as never,
+      getIpcAuthToken: () => 'ipc-auth-token',
+    });
+
+    const sender = { send: vi.fn() };
+    await getHandler(IPC_CHANNELS.APP_READY)({ sender });
+
+    expect(sender.send).not.toHaveBeenCalled();
+  });
 });

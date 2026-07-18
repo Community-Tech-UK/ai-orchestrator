@@ -61,8 +61,6 @@ import type {
   EvidenceRangeAuthorization,
   EvidenceRangeAuthorizationInput,
   EvidenceStageInput,
-  LegacyMarkerCompareAndSwapInput,
-  LegacyOutputCacheMarkerRecord,
 } from './context-evidence-ledger.types';
 import type {
   LedgerWorkerInboundMsg,
@@ -371,14 +369,6 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
     retryAt: number,
   ): Promise<boolean> {
     return (await this.call('failEvidenceDeletion', [id, claimToken, errorCode, retryAt])) as boolean;
-  }
-
-  async compareAndSwapLegacyOutputMarker(input: LegacyMarkerCompareAndSwapInput): Promise<boolean> {
-    return (await this.call('compareAndSwapLegacyOutputMarker', [input])) as boolean;
-  }
-
-  async listLegacyOutputCacheMarkers(): Promise<LegacyOutputCacheMarkerRecord[]> {
-    return (await this.call('listLegacyOutputCacheMarkers', [])) as LegacyOutputCacheMarkerRecord[];
   }
 
   async close(): Promise<void> {

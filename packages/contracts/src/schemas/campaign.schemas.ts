@@ -14,6 +14,26 @@ const LoopTerminalStatusSchema = z.enum([
   'operator-halted',
 ]);
 
+const CampaignStatusSchema = z.enum([
+  'pending',
+  'running',
+  'paused',
+  'completed',
+  'failed',
+  'halted',
+]);
+
+const CampaignNodeStatusSchema = z.enum([
+  'pending',
+  'running',
+  'skipped',
+  'completed',
+  'completed-needs-review',
+  'failed',
+  'provider-limit',
+  'operator-halted',
+]);
+
 const TerminalStatusPredicateSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('is'), status: LoopTerminalStatusSchema }),
   z.object({ type: z.literal('in'), statuses: z.array(LoopTerminalStatusSchema).min(1) }),
@@ -90,4 +110,95 @@ export const CampaignImportPlanPreviewPayloadSchema = z.object({
     maxCostCents: z.number().int().positive().max(1_000_000).optional(),
     maxTurnsPerIteration: z.number().int().positive().max(1000).optional(),
   }),
+});
+
+// -------------------------------------------------------------------------
+// Main-to-renderer event schemas
+// -------------------------------------------------------------------------
+
+const CampaignNodeRunDtoSchema = z.object({
+  nodeId: z.string().min(1).max(200),
+  campaignId: z.string().min(1).max(200),
+  status: CampaignNodeStatusSchema,
+  loopRunId: z.string().min(1).max(200).optional(),
+  startedAt: z.number().int().nonnegative().optional(),
+  endedAt: z.number().int().nonnegative().optional(),
+  skippedReason: z.string().max(10_000).optional(),
+}).strict();
+
+const CampaignRunDtoSchema = z.object({
+  id: z.string().min(1).max(200),
+  spec: CampaignSpecSchema,
+  status: CampaignStatusSchema,
+  nodeRuns: z.array(CampaignNodeRunDtoSchema),
+  startedAt: z.number().int().nonnegative(),
+  endedAt: z.number().int().nonnegative().optional(),
+  pausedReason: z.string().max(10_000).optional(),
+}).strict();
+
+const CampaignIdEventDataSchema = z.object({
+  campaignId: z.string().min(1).max(200),
+}).strict();
+
+const CampaignReasonEventDataSchema = CampaignIdEventDataSchema.extend({
+  reason: z.string().min(1).max(10_000),
+}).strict();
+
+const CampaignNodeStartedEventDataSchema = CampaignIdEventDataSchema.extend({
+  nodeId: z.string().min(1).max(200),
+  loopRunId: z.string().min(1).max(200),
+}).strict();
+
+const CampaignNodeTerminalEventDataSchema = CampaignIdEventDataSchema.extend({
+  nodeId: z.string().min(1).max(200),
+  status: LoopTerminalStatusSchema,
+}).strict();
+
+const CampaignNodeSkippedEventDataSchema = CampaignIdEventDataSchema.extend({
+  nodeId: z.string().min(1).max(200),
+  reason: z.string().min(1).max(10_000),
+}).strict();
+
+const CampaignStateEventDataSchema = CampaignIdEventDataSchema.extend({
+  nodeId: z.string().min(1).max(200),
+  nodeStatus: CampaignNodeStatusSchema,
+  campaignStatus: CampaignStatusSchema,
+}).strict();
+
+const campaignEvent = <TEvent extends string, TData extends z.ZodType>(
+  event: TEvent,
+  data: TData,
+) => z.object({
+  event: z.literal(event),
+  data,
+  campaignId: z.string().min(1).max(200),
+  campaign: CampaignRunDtoSchema.nullable(),
+}).strict();
+
+export const CampaignStateChangedEventSchema = z.discriminatedUnion('event', [
+  campaignEvent('campaign:started', CampaignIdEventDataSchema),
+  campaignEvent('campaign:paused', CampaignReasonEventDataSchema),
+  campaignEvent('campaign:resumed', CampaignIdEventDataSchema),
+  campaignEvent('campaign:completed', CampaignIdEventDataSchema),
+  campaignEvent('campaign:failed', CampaignIdEventDataSchema),
+  campaignEvent('campaign:halted', CampaignReasonEventDataSchema),
+  campaignEvent('campaign:node-started', CampaignNodeStartedEventDataSchema),
+  campaignEvent('campaign:node-terminal', CampaignNodeTerminalEventDataSchema),
+  campaignEvent('campaign:node-skipped', CampaignNodeSkippedEventDataSchema),
+  campaignEvent('campaign:state-changed', CampaignStateEventDataSchema),
+]).superRefine((payload, context) => {
+  if (payload.campaignId !== payload.data.campaignId) {
+    context.addIssue({
+      code: 'custom',
+      path: ['campaignId'],
+      message: 'campaignId must match data.campaignId',
+    });
+  }
+  if (payload.campaign && payload.campaign.id !== payload.campaignId) {
+    context.addIssue({
+      code: 'custom',
+      path: ['campaign', 'id'],
+      message: 'campaign.id must match campaignId',
+    });
+  }
 });

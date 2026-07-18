@@ -9,11 +9,16 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import type { HybridSearchResult } from '../../../../shared/types/codebase.types';
-import { CodebaseIpcService } from '../../core/services/ipc/codebase-ipc.service';
-import { fuzzyRank } from '../../shared/utils/fuzzy';
+import {
+  ComposerAutocompleteService,
+  type ComposerCompletionItem,
+  type ComposerCompletionKind,
+} from './composer-autocomplete.service';
 
-export type ComposerCompletionKind = 'slash-command' | 'file' | 'symbol';
+export type {
+  ComposerCompletionItem,
+  ComposerCompletionKind,
+} from './composer-autocomplete.service';
 
 export interface ComposerCompletionQuery {
   readonly kind: ComposerCompletionKind;
@@ -21,16 +26,6 @@ export interface ComposerCompletionQuery {
   readonly start: number;
   readonly end: number;
 }
-
-export interface ComposerCompletionItem {
-  readonly kind: ComposerCompletionKind;
-  readonly label: string;
-  readonly insertText: string;
-  readonly detail?: string;
-}
-
-const COMPLETION_LIMIT = 8;
-const SEARCH_LIMIT = 24;
 
 @Component({
   selector: 'app-composer-autocomplete',
@@ -123,10 +118,11 @@ const SEARCH_LIMIT = 24;
       white-space: nowrap;
     }
   `],
+  providers: [ComposerAutocompleteService],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComposerAutocompleteComponent implements OnChanges, OnDestroy {
-  private readonly codebaseIpc = inject(CodebaseIpcService);
+  private readonly autocomplete = inject(ComposerAutocompleteService);
   private searchGeneration = 0;
   private unbindTextarea: (() => void) | null = null;
 
@@ -149,6 +145,7 @@ export class ComposerAutocompleteComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.unbindTextarea?.();
+    this.autocomplete.cancelPending();
   }
 
   protected onItemMouseDown(event: MouseEvent): void {
@@ -234,12 +231,7 @@ export class ComposerAutocompleteComponent implements OnChanges, OnDestroy {
     }
 
     const generation = ++this.searchGeneration;
-    const response = await this.codebaseIpc.search({
-      query: query.query,
-      storeId: 'default',
-      workspacePath: this.workspaceCwd ?? undefined,
-      topK: SEARCH_LIMIT,
-    });
+    const items = await this.autocomplete.searchFiles(query.query, this.workspaceCwd);
 
     if (generation !== this.searchGeneration) return;
 
@@ -248,8 +240,7 @@ export class ComposerAutocompleteComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const results = response.success ? response.data ?? [] : [];
-    this.items.set(completionItemsFromSearchResults(results, query.query, this.workspaceCwd).slice(0, COMPLETION_LIMIT));
+    this.items.set(items);
   }
 
   private acceptCompletion(textarea: HTMLTextAreaElement, item: ComposerCompletionItem): void {
@@ -271,6 +262,7 @@ export class ComposerAutocompleteComponent implements OnChanges, OnDestroy {
 
   private closeItemsOnly(): void {
     this.searchGeneration++;
+    this.autocomplete.cancelPending();
     this.items.set([]);
     this.selectedIndex.set(0);
   }
@@ -318,27 +310,6 @@ export function applyComposerCompletion(
   };
 }
 
-function completionItemsFromSearchResults(
-  results: readonly HybridSearchResult[],
-  query: string,
-  workspaceCwd: string | null,
-): ComposerCompletionItem[] {
-  const seen = new Set<string>();
-  const items = results.flatMap((result): ComposerCompletionItem[] => {
-    const label = relativeFileLabel(result.filePath, workspaceCwd);
-    if (!label || seen.has(label)) return [];
-    seen.add(label);
-    return [{
-      kind: 'file',
-      label,
-      insertText: label,
-      detail: result.symbolName ?? result.language,
-    }];
-  });
-
-  return fuzzyRank(query, items, item => `${item.label} ${item.detail ?? ''}`).map(result => result.item);
-}
-
 function findTokenStart(text: string, cursor: number): number {
   let start = cursor;
   while (start > 0 && !/\s/.test(text[start - 1]!)) {
@@ -351,19 +322,6 @@ function markerForKind(kind: ComposerCompletionKind): string {
   if (kind === 'slash-command') return '/';
   if (kind === 'file') return '@';
   return '';
-}
-
-function relativeFileLabel(filePath: string, workspaceCwd: string | null): string {
-  const normalizedPath = normalizePath(filePath);
-  const normalizedWorkspace = normalizePath(workspaceCwd ?? '').replace(/\/$/, '');
-  if (normalizedWorkspace && normalizedPath.startsWith(`${normalizedWorkspace}/`)) {
-    return normalizedPath.slice(normalizedWorkspace.length + 1);
-  }
-  return normalizedPath;
-}
-
-function normalizePath(value: string): string {
-  return value.replace(/\\/g, '/');
 }
 
 function sameCompletionQuery(

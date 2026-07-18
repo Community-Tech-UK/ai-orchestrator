@@ -44,7 +44,7 @@ const mocks = vi.hoisted(() => {
     debate: {
       startDebate: vi.fn(),
       getResult: vi.fn(),
-      getActiveDebates: vi.fn(() => []),
+      getActiveDebates: vi.fn((): unknown[] => []),
       cancelDebate: vi.fn(),
       getStats: vi.fn(),
       pauseDebate: vi.fn(),
@@ -118,10 +118,10 @@ describe('registerMemoryHandlers', () => {
       query: 'recent context',
       taskId: 'memory-1',
     });
-    const stats = handlerFor(IPC_CHANNELS.MEMORY_R1_GET_STATS)(fakeEvent);
-    const patterns = handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_GET_PATTERNS)(fakeEvent, 0.5);
-    const sessions = handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_GET_SESSIONS)(fakeEvent, 20);
-    const workflows = handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_GET_WORKFLOWS)(fakeEvent);
+    const stats = await handlerFor(IPC_CHANNELS.MEMORY_R1_GET_STATS)(fakeEvent);
+    const patterns = await handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_GET_PATTERNS)(fakeEvent, 0.5);
+    const sessions = await handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_GET_SESSIONS)(fakeEvent, 20);
+    const workflows = await handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_GET_WORKFLOWS)(fakeEvent);
 
     expect(retrieve).toEqual({ success: true, data: [] });
     expect(stats).toEqual({ success: true, data: mocks.memoryStats });
@@ -132,5 +132,122 @@ describe('registerMemoryHandlers', () => {
     expect(mocks.memory.retrieve).toHaveBeenCalledWith('recent context', 'memory-1');
     expect(mocks.unified.getPatterns).toHaveBeenCalledWith(0.5);
     expect(mocks.unified.getSessionHistory).toHaveBeenCalledWith(20);
+  });
+
+  it('returns a structured validation error instead of rejecting invalid memory input', async () => {
+    await expect(handlerFor(IPC_CHANNELS.MEMORY_R1_RETRIEVE)(fakeEvent, {
+      query: '',
+      taskId: 'memory-1',
+    })).resolves.toMatchObject({
+      success: false,
+      error: expect.objectContaining({
+        code: 'VALIDATION_FAILED',
+        timestamp: expect.any(Number),
+      }),
+    });
+    expect(mocks.memory.retrieve).not.toHaveBeenCalled();
+  });
+
+  it('returns a stable structured error when a memory operation fails', async () => {
+    mocks.memory.retrieve.mockRejectedValue(new Error('memory index unavailable'));
+
+    await expect(handlerFor(IPC_CHANNELS.MEMORY_R1_RETRIEVE)(fakeEvent, {
+      query: 'recent context',
+      taskId: 'memory-1',
+    })).resolves.toMatchObject({
+      success: false,
+      error: {
+        code: 'MEMORY_R1_RETRIEVE_FAILED',
+        message: 'memory index unavailable',
+        timestamp: expect.any(Number),
+      },
+    });
+  });
+
+  it('rejects an untrusted sender before reading memory state', async () => {
+    vi.mocked(ipcMain.handle).mockClear();
+    const trustError = {
+      success: false,
+      error: {
+        code: 'IPC_TRUST_FAILED',
+        message: 'Untrusted sender',
+        timestamp: 123,
+      },
+    };
+    const ensureTrustedSender = vi.fn(() => trustError);
+    registerMemoryHandlers({ ensureTrustedSender });
+
+    const result = await handlerFor(IPC_CHANNELS.MEMORY_R1_GET_STATS)(fakeEvent);
+
+    expect(result).toEqual(trustError);
+    expect(ensureTrustedSender).toHaveBeenCalledWith(fakeEvent, IPC_CHANNELS.MEMORY_R1_GET_STATS);
+    expect(mocks.memory.getStats).not.toHaveBeenCalled();
+  });
+
+  it('returns IpcResponse envelopes for the Debate page startup and control calls', async () => {
+    mocks.debate.startDebate.mockResolvedValue('debate-1');
+    mocks.debate.getActiveDebates.mockReturnValue([{ id: 'debate-1' }]);
+    mocks.debate.getStats.mockReturnValue({ active: 1 });
+    mocks.debate.cancelDebate.mockResolvedValue(true);
+
+    const start = await handlerFor(IPC_CHANNELS.DEBATE_START)(fakeEvent, {
+      query: 'Which approach is safer?',
+    });
+    const active = await handlerFor(IPC_CHANNELS.DEBATE_GET_ACTIVE)(fakeEvent);
+    const stats = await handlerFor(IPC_CHANNELS.DEBATE_GET_STATS)(fakeEvent);
+    const cancel = await handlerFor(IPC_CHANNELS.DEBATE_CANCEL)(fakeEvent, 'debate-1');
+
+    expect(start).toEqual({ success: true, data: 'debate-1' });
+    expect(active).toEqual({ success: true, data: [{ id: 'debate-1' }] });
+    expect(stats).toEqual({ success: true, data: { active: 1 } });
+    expect(cancel).toEqual({ success: true, data: true });
+  });
+
+  it('returns a structured validation error instead of rejecting an invalid debate start', async () => {
+    await expect(handlerFor(IPC_CHANNELS.DEBATE_START)(fakeEvent, {
+      query: '',
+    })).resolves.toMatchObject({
+      success: false,
+      error: expect.objectContaining({
+        code: 'VALIDATION_FAILED',
+        timestamp: expect.any(Number),
+      }),
+    });
+    expect(mocks.debate.startDebate).not.toHaveBeenCalled();
+  });
+
+  it('rejects unexpected fields on debate control payloads', async () => {
+    const result = await handlerFor(IPC_CHANNELS.DEBATE_PAUSE)(fakeEvent, {
+      sessionId: 'debate-1',
+      unexpected: true,
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+    });
+    expect(mocks.debate.pauseDebate).not.toHaveBeenCalled();
+  });
+
+  it('rejects an untrusted sender before invoking the debate coordinator', async () => {
+    vi.mocked(ipcMain.handle).mockClear();
+    const trustError = {
+      success: false,
+      error: {
+        code: 'IPC_TRUST_FAILED',
+        message: 'Untrusted sender',
+        timestamp: 123,
+      },
+    };
+    const ensureTrustedSender = vi.fn(() => trustError);
+    registerMemoryHandlers({ ensureTrustedSender });
+
+    const result = await handlerFor(IPC_CHANNELS.DEBATE_START)(fakeEvent, {
+      query: 'Should never run',
+    });
+
+    expect(result).toEqual(trustError);
+    expect(ensureTrustedSender).toHaveBeenCalledWith(fakeEvent, IPC_CHANNELS.DEBATE_START);
+    expect(mocks.debate.startDebate).not.toHaveBeenCalled();
   });
 });

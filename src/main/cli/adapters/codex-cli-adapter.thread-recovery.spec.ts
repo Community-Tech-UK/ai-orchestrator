@@ -397,7 +397,7 @@ describe('CodexCliAdapter', () => {
       // body (history + tool outputs + file contents). The adapter escalates:
       //   1. compact + wait + retry (context-preserving),
       //   2. fresh thread + retry (survivable, context-lossy),
-      //   3. clear error only if the user's own message overflows.
+      //   3. neutral error if the assembled turn still overflows.
       const CAP_ERROR = 'Input exceeds the maximum length of 1048576 characters';
 
       it('rung 1: compacts, waits for it to land, and retries once (keeps thread)', async () => {
@@ -491,8 +491,8 @@ describe('CodexCliAdapter', () => {
           'reopenAppServerThread'
         ).mockResolvedValue(undefined);
 
-        await expect(adapter.sendInput('a message that is itself over 1 MiB'))
-          .rejects.toThrow(/your message exceeds/i);
+        await expect(adapter.sendInput('an assembled turn over the provider cap'))
+          .rejects.toThrow(/assembled turn/i);
 
         // initial + post-compaction + post-reopen = 3, then stop.
         expect(innerSpy).toHaveBeenCalledTimes(3);

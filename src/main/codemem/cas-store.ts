@@ -188,9 +188,24 @@ export class CasStore {
   getChunk(contentHash: string): Chunk | null {
     const row = this.db.prepare('SELECT * FROM chunks WHERE content_hash = ?')
       .get(contentHash) as ChunkRow | undefined;
-    if (!row) {
-      return null;
+    return row ? this.mapChunk(row) : null;
+  }
+
+  getChunks(contentHashes: readonly string[]): Map<string, Chunk> {
+    const uniqueHashes = [...new Set(contentHashes)];
+    if (uniqueHashes.length === 0) {
+      return new Map<string, Chunk>();
     }
+    const placeholders = uniqueHashes.map(() => '?').join(', ');
+    const rows = this.db.prepare(
+      `SELECT * FROM chunks WHERE content_hash IN (${placeholders}) ORDER BY content_hash ASC`,
+    ).all(...uniqueHashes) as ChunkRow[];
+    return new Map<string, Chunk>(
+      rows.map((row) => [row.content_hash, this.mapChunk(row)]),
+    );
+  }
+
+  private mapChunk(row: ChunkRow): Chunk {
     return {
       contentHash: row.content_hash,
       astNormalizedHash: row.ast_normalized_hash,

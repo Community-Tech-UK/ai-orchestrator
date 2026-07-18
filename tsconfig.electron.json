@@ -49,6 +49,7 @@
       "@contracts/schemas/mcp-multi-provider": ["./packages/contracts/src/schemas/mcp-multi-provider.schemas"],
       "@contracts/schemas/provider-runtime-events": ["./packages/contracts/src/schemas/provider-runtime-events.schemas"],
       "@contracts/schemas/loop":             ["./packages/contracts/src/schemas/loop.schemas"],
+      "@contracts/schemas/loop-events":      ["./packages/contracts/src/schemas/loop-events.schemas"],
       "@contracts/schemas/campaign":         ["./packages/contracts/src/schemas/campaign.schemas"],
       "@contracts/schemas/doc-review":       ["./packages/contracts/src/schemas/doc-review.schemas"],
       "@contracts/schemas/rlm-maintenance":  ["./packages/contracts/src/schemas/rlm-maintenance.schemas"],

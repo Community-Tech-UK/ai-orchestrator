@@ -9,7 +9,6 @@ describe('LEARNING_CHANNELS', () => {
   it('has training (GRPO) channels', () => {
     expect(LEARNING_CHANNELS.TRAINING_RECORD_OUTCOME).toBe('training:record-outcome');
     expect(LEARNING_CHANNELS.TRAINING_GET_INSIGHTS).toBe('training:get-insights');
-    expect(LEARNING_CHANNELS.TRAINING_EVENT_COMPLETED).toBe('training:event:completed');
   });
 
   it('has specialist channels', () => {

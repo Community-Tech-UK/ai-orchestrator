@@ -15,7 +15,7 @@ describe('ORCHESTRATION_CHANNELS', () => {
 
   it('has debate channels', () => {
     expect(ORCHESTRATION_CHANNELS.DEBATE_START).toBe('debate:start');
-    expect(ORCHESTRATION_CHANNELS.DEBATE_EVENT).toBe('debate:event');
+    expect(ORCHESTRATION_CHANNELS.DEBATE_INTERVENE).toBe('debate:intervene');
   });
 
   it('has consensus channels', () => {

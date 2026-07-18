@@ -92,6 +92,19 @@ describe('MainEventBus', () => {
     expect(send).toHaveBeenNthCalledWith(2, 'custom:multi-arg', 'one', { two: 2 });
   });
 
+  it('blocks invalid registered renderer events at the Electron transport boundary', () => {
+    const send = vi.fn();
+    const bus = new MainEventBus({ now: () => 100 });
+    bus.addTransport(new ElectronWindowTransport(() => ({ send })));
+
+    bus.emitRendererEvent(IPC_CHANNELS.VOICE_LOCAL_STT_EVENT, {
+      kind: 'final',
+      text: 'missing session id',
+    });
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('derives instance lifecycle phase events from state updates', () => {
     const bus = new MainEventBus({ now: () => 10 });
     const lifecycle = new CollectingTransport(new Set<EventTier>(['lifecycle']));

@@ -3,111 +3,132 @@
  * Handles observation memory system IPC channels
  */
 
-import { ipcMain } from 'electron';
+import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import { getObservationStore } from '../observation/observation-store';
 import { getObservationIngestor } from '../observation/observation-ingestor';
 import { getReflectorAgent } from '../observation/reflector-agent';
-import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   ObservationConfigurePayloadSchema,
   ObservationGetReflectionsPayloadSchema,
   ObservationGetObservationsPayloadSchema,
 } from '@contracts/schemas/session';
+import { validatedHandler, type IpcResponse } from './validated-handler';
+
+interface RegisterObservationHandlersDeps {
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
+}
 
 /**
  * Register all observation-related IPC handlers
  */
-export function registerObservationHandlers(): void {
-  // Get stats
-  ipcMain.handle(IPC_CHANNELS.OBSERVATION_GET_STATS, () => {
-    try {
-      const stats = getObservationStore().getStats();
-      return { success: true, data: stats };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
+export function registerObservationHandlers(deps: RegisterObservationHandlersDeps = {}): void {
+  const emptyPayloadSchema = z.undefined().optional();
+  const options = (errorCode: string) => ({
+    ensureTrustedSender: deps.ensureTrustedSender,
+    errorCode,
   });
+
+  // Get stats
+  ipcMain.handle(
+    IPC_CHANNELS.OBSERVATION_GET_STATS,
+    validatedHandler(
+      IPC_CHANNELS.OBSERVATION_GET_STATS,
+      emptyPayloadSchema,
+      async () => ({ success: true, data: getObservationStore().getStats() }),
+      options('OBSERVATION_GET_STATS_FAILED'),
+    ),
+  );
 
   // Get reflections
   ipcMain.handle(
     IPC_CHANNELS.OBSERVATION_GET_REFLECTIONS,
-    (_event, payload: unknown) => {
-      try {
-        const validated = validateIpcPayload(ObservationGetReflectionsPayloadSchema, payload, 'OBSERVATION_GET_REFLECTIONS');
+    validatedHandler(
+      IPC_CHANNELS.OBSERVATION_GET_REFLECTIONS,
+      ObservationGetReflectionsPayloadSchema,
+      async (payload) => {
         const store = getObservationStore();
         const reflections = store.getReflections({
-          minConfidence: validated?.minConfidence,
-          limit: validated?.limit,
+          minConfidence: payload?.minConfidence,
+          limit: payload?.limit,
         });
         return { success: true, data: reflections };
-      } catch (error) {
-        return { success: false, error: (error as Error).message };
-      }
-    }
+      },
+      options('OBSERVATION_GET_REFLECTIONS_FAILED'),
+    ),
   );
 
   // Get observations
   ipcMain.handle(
     IPC_CHANNELS.OBSERVATION_GET_OBSERVATIONS,
-    (_event, payload: unknown) => {
-      try {
-        const validated = validateIpcPayload(ObservationGetObservationsPayloadSchema, payload, 'OBSERVATION_GET_OBSERVATIONS');
+    validatedHandler(
+      IPC_CHANNELS.OBSERVATION_GET_OBSERVATIONS,
+      ObservationGetObservationsPayloadSchema,
+      async (payload) => {
         const store = getObservationStore();
         const observations = store.getObservations({
-          since: validated?.since,
-          limit: validated?.limit,
+          since: payload?.since,
+          limit: payload?.limit,
         });
         return { success: true, data: observations };
-      } catch (error) {
-        return { success: false, error: (error as Error).message };
-      }
-    }
+      },
+      options('OBSERVATION_GET_OBSERVATIONS_FAILED'),
+    ),
   );
 
   // Configure
   ipcMain.handle(
     IPC_CHANNELS.OBSERVATION_CONFIGURE,
-    (_event, payload: unknown) => {
-      try {
-        const validated = validateIpcPayload(ObservationConfigurePayloadSchema, payload, 'OBSERVATION_CONFIGURE');
-        getObservationStore().configure(validated ?? {});
-        getObservationIngestor().configure(validated ?? {});
+    validatedHandler(
+      IPC_CHANNELS.OBSERVATION_CONFIGURE,
+      ObservationConfigurePayloadSchema,
+      async (payload) => {
+        getObservationStore().configure(payload ?? {});
+        getObservationIngestor().configure(payload ?? {});
         return { success: true };
-      } catch (error) {
-        return { success: false, error: (error as Error).message };
-      }
-    }
+      },
+      options('OBSERVATION_CONFIGURE_FAILED'),
+    ),
   );
 
   // Get config
-  ipcMain.handle(IPC_CHANNELS.OBSERVATION_GET_CONFIG, () => {
-    try {
-      const config = getObservationStore().getConfig();
-      return { success: true, data: config };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.OBSERVATION_GET_CONFIG,
+    validatedHandler(
+      IPC_CHANNELS.OBSERVATION_GET_CONFIG,
+      emptyPayloadSchema,
+      async () => ({ success: true, data: getObservationStore().getConfig() }),
+      options('OBSERVATION_GET_CONFIG_FAILED'),
+    ),
+  );
 
   // Force reflect
-  ipcMain.handle(IPC_CHANNELS.OBSERVATION_FORCE_REFLECT, () => {
-    try {
-      getObservationIngestor().forceFlush();
-      getReflectorAgent().forceReflect();
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.OBSERVATION_FORCE_REFLECT,
+    validatedHandler(
+      IPC_CHANNELS.OBSERVATION_FORCE_REFLECT,
+      emptyPayloadSchema,
+      async () => {
+        getObservationIngestor().forceFlush();
+        getReflectorAgent().forceReflect();
+        return { success: true };
+      },
+      options('OBSERVATION_FORCE_REFLECT_FAILED'),
+    ),
+  );
 
   // Cleanup (expire old data)
-  ipcMain.handle(IPC_CHANNELS.OBSERVATION_CLEANUP, () => {
-    try {
-      const result = getObservationStore().applyDecay();
-      return { success: true, data: result };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.OBSERVATION_CLEANUP,
+    validatedHandler(
+      IPC_CHANNELS.OBSERVATION_CLEANUP,
+      emptyPayloadSchema,
+      async () => ({ success: true, data: getObservationStore().applyDecay() }),
+      options('OBSERVATION_CLEANUP_FAILED'),
+    ),
+  );
 }

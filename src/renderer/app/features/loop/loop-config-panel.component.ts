@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LoopIpcService, type LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-history.service';
@@ -116,18 +116,17 @@ export class LoopConfigPanelComponent {
    *  applied (e.g. consecutive Reattempts on different runs); we react to
    *  every update rather than only the initial value. */
   seedPrompt = input<string | null>(null);
-  private defaultProviderSignal = signal<PickerProvider>('claude');
-  private availableProvidersSignal = signal<PickerProvider[]>(DEFAULT_INSTANCE_PROVIDERS);
-
+  readonly defaultProvider = input<PickerProvider | null | undefined>();
+  readonly availableProviders = input<PickerProvider[] | null | undefined>();
   /** Concrete chat/session provider to use unless the user overrides it. */
-  @Input() set defaultProvider(value: PickerProvider | null | undefined) {
-    this.defaultProviderSignal.set(this.resolveProvider(value, DEFAULT_INSTANCE_PROVIDERS));
-  }
-
+  private readonly defaultProviderSignal = computed(() =>
+    this.resolveProvider(this.defaultProvider(), DEFAULT_INSTANCE_PROVIDERS),
+  );
   /** Providers available on the chat/session picker. `auto` is resolved before loop start. */
-  @Input() set availableProviders(value: PickerProvider[] | null | undefined) {
-    this.availableProvidersSignal.set(value && value.length > 0 ? value : DEFAULT_INSTANCE_PROVIDERS);
-  }
+  private readonly availableProvidersSignal = computed(() => {
+    const providers = this.availableProviders();
+    return providers && providers.length > 0 ? providers : DEFAULT_INSTANCE_PROVIDERS;
+  });
 
   dismissed = output<void>();
   /** Emits whenever the panel's submittability changes. Lets the host

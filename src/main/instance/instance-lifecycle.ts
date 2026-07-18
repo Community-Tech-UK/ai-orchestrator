@@ -14,11 +14,7 @@ import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import {
-  getDefaultModelForCli,
   getProviderModelContextWindow,
-  isModelTier,
-  looksLikeCodexModelId,
-  resolveModelForTier
 } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import {
@@ -33,7 +29,7 @@ import { extractAuthoredLessons } from '../memory/project-story-convention';
 import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
-import { getDefaultAgent, getAgentById } from '../../shared/types/agent.types';
+import { getAgentById } from '../../shared/types/agent.types';
 import { getAgentRegistry } from '../agents/agent-registry';
 import { getPermissionManager } from '../security/permission-manager';
 import { generateId } from '../../shared/utils/id-generator';
@@ -44,7 +40,6 @@ import type {
   OutputMessage,
   RuntimeChangeRequest,
 } from '../../shared/types/instance.types';
-import { getModelSwitchUnavailableReason } from '../../shared/types/instance-status-policy';
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { getLogger } from '../logging/logger';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
@@ -72,10 +67,10 @@ import {
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import {
   buildInstanceRecord,
-  buildLocalModelRuntimeSummary,
 } from './lifecycle/instance-create-builder';
-import { resolveInitialModel } from './lifecycle/resolve-initial-model';
-import { createModelSelectionDegradationNotice, resolveAvailableModelSelection, type ModelSelectionDegradation } from './lifecycle/model-selection-degradation';
+import { createModelSelectionDegradationNotice, type ModelSelectionDegradation } from './lifecycle/model-selection-degradation';
+import { ModelSelectionResolver } from './lifecycle/model-selection-resolver';
+import { InstanceSpawnPreflightChain } from './lifecycle/instance-spawn-preflight-chain';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import { computeRuntimeDiff } from './lifecycle/runtime-reconciler-plan';
 import { setInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping';
@@ -134,9 +129,8 @@ import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-loggi
 import { callWithDeadline } from '../util/deadline';
 import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-monitor';
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
-import { getKnownModelsForCli, isRestoreOrReplayContinuity, requiresFreshConfiguredModelSpawn } from './lifecycle/create-validation-helpers';
+import { isRestoreOrReplayContinuity } from './lifecycle/create-validation-helpers';
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
-import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
 import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { buildToolPermissionPrompt } from './lifecycle/tool-permission-prompt';
@@ -234,6 +228,12 @@ export class InstanceLifecycleManager extends EventEmitter {
   /** Extracted MCP/permission/RTK hook config builder for spawn options. */
   private readonly spawnConfigBuilder: SpawnConfigBuilder;
 
+  /** Extracted create-time model precedence, tier, and catalog resolver. */
+  private readonly modelSelectionResolver = new ModelSelectionResolver();
+
+  /** Extracted warm/fresh decision and fresh-spawn preparation chain. */
+  private readonly spawnPreflight: InstanceSpawnPreflightChain;
+
   private getRecoveryEngine(): RecoveryRecipeEngine {
     if (!this.recoveryEngine) {
       this.recoveryEngine = new RecoveryRecipeEngine(
@@ -289,6 +289,12 @@ export class InstanceLifecycleManager extends EventEmitter {
     super();
     this.deps = deps;
     this.spawnConfigBuilder = new SpawnConfigBuilder({ settings: this.settings });
+    this.spawnPreflight = new InstanceSpawnPreflightChain({
+      consumeWarmAdapter: (provider, workingDirectory) =>
+        (deps.warmStartManager?.consume(provider, workingDirectory) as CliAdapter | null) ?? null,
+      assertLocalModelRuntimeAvailable: (target) => this.assertLocalModelRuntimeAvailable(target),
+      warmCodememWorkspace: (workingDirectory) => this.warmCodememWorkspace(workingDirectory),
+    });
     this.runtimeReadiness = new RuntimeReadinessCoordinator({
       getInstance: (id) => deps.getInstance(id),
       getAdapter: (id) => deps.getAdapter(id),
@@ -723,8 +729,11 @@ export class InstanceLifecycleManager extends EventEmitter {
     return true;
   }
 
-  private getAdapterRuntimeCapabilities(adapter?: CliAdapter) {
-    return this.runtimeReadiness.getAdapterRuntimeCapabilities(adapter);
+  private getAdapterRuntimeCapabilities(adapter?: CliAdapter, provider?: CliType) {
+    if (adapter) {
+      return this.runtimeReadiness.getAdapterRuntimeCapabilities(adapter);
+    }
+    return getProviderRuntimeService().getCapabilities(undefined, provider);
   }
 
   private residentClaudeForSpawn(instance: Instance): boolean {
@@ -1679,52 +1688,31 @@ export class InstanceLifecycleManager extends EventEmitter {
           displayName: getCliDisplayName(resolvedCliType)
         });
 
-        // Resolve model: explicit override > agent override > per-provider
-        // remembered (defaultModelByProvider, persisted by the renderer's
-        // provider-state.service) > legacy global default. A8a: honoring the
-        // per-provider map here makes a backend spawn start on the same model the
-        // picker pre-selects for this provider.
         const settingsModel = settingsAll.defaultModel;
-        let resolvedModel = localModelTarget?.modelId ?? resolveInitialModel({
-            configModelOverride: config.modelOverride,
-            agentModelOverride: resolvedAgent.modelOverride,
+        const modelSelection = await this.modelSelectionResolver.resolve({
+          provider: resolvedCliType,
+          configModelOverride: config.modelOverride,
+          agentModelOverride: resolvedAgent.modelOverride,
+          defaultModelByProvider: settingsAll.defaultModelByProvider,
+          defaultModel: settingsModel,
+          localModelId: localModelTarget?.modelId,
+        });
+        const resolvedModel = modelSelection.model;
+        if (modelSelection.tierResolution) {
+          logger.info('Resolved model tier to provider-specific model', {
+            tier: modelSelection.tierResolution.tier,
             provider: resolvedCliType,
-            defaultModelByProvider: settingsAll.defaultModelByProvider,
-            defaultModel: settingsModel,
+            resolvedModel: modelSelection.tierResolution.model || 'provider-default',
           });
-
-        if (resolvedModel && !localModelTarget) {
-          if (isModelTier(resolvedModel)) {
-            const tierResolved = resolveModelForTier(resolvedModel, resolvedCliType);
-            logger.info('Resolved model tier to provider-specific model', {
-              tier: resolvedModel,
-              provider: resolvedCliType,
-              resolvedModel: tierResolved || 'provider-default',
-            });
-            resolvedModel = tierResolved;
-          }
-
-          if (resolvedModel) {
-            const providerModels = await getKnownModelsForCli(resolvedCliType);
-            const selection = resolveAvailableModelSelection({
-              provider: resolvedCliType,
-              requestedModel: resolvedModel,
-              knownModelIds: providerModels,
-              fallbackModel: getDefaultModelForCli(resolvedCliType),
-              allowDynamicCodexModel:
-                resolvedCliType === 'codex' && looksLikeCodexModelId(resolvedModel),
-            });
-            if (selection.degradation) {
-              logger.warn('Model not valid for target provider, falling back to provider default', {
-                model: selection.degradation.requestedModel,
-                provider: resolvedCliType,
-                validModelCount: providerModels.length,
-                fallbackModel: selection.degradation.fallbackModel ?? 'provider-default',
-              });
-              this.emitModelSelectionDegradation(instance, selection.degradation);
-            }
-            resolvedModel = selection.model;
-          }
+        }
+        if (modelSelection.degradation) {
+          logger.warn('Model not valid for target provider, falling back to provider default', {
+            model: modelSelection.degradation.requestedModel,
+            provider: resolvedCliType,
+            validModelCount: modelSelection.knownModelCount ?? 0,
+            fallbackModel: modelSelection.degradation.fallbackModel ?? 'provider-default',
+          });
+          this.emitModelSelectionDegradation(instance, modelSelection.degradation);
         }
 
         instance.currentModel = resolvedModel;
@@ -1757,7 +1745,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // Create CLI adapter - use resolved model
         const modelOverride = resolvedModel;
-        const spawnOptions: UnifiedSpawnOptions = {
+        let spawnOptions: UnifiedSpawnOptions = {
           instanceId: instance.id,
           sessionId: instance.sessionId,
           workingDirectory: instance.workingDirectory,
@@ -1785,27 +1773,16 @@ export class InstanceLifecycleManager extends EventEmitter {
           modelRuntimeTarget: config.modelRuntimeTarget,
         };
 
-        // Check for a pre-warmed adapter before spawning fresh.
-        // NEVER use warm-start for resume operations — warm adapters have fresh sessions
-        // with no conversation context. Resume requires --resume <sessionId> on a freshly
-        // spawned CLI process.
-        // NEVER use warm-start for remote sessions — warm adapters are local processes
-        // and cannot proxy commands to a remote worker node.
-        // NEVER use warm-start for providers whose explicit model is fixed on
-        // the adapter at spawn/prewarm time. Cursor/Copilot bind `--model` at
-        // ACP session creation; Antigravity stores the exact `agy --model`
-        // label on the adapter config. Reusing a warm process would silently
-        // ignore the user's model pick. `auto`/unset is fine: it intentionally
-        // means "let the CLI pick".
-        const wantsExplicitConfiguredModel = requiresFreshConfiguredModelSpawn(resolvedCliType, spawnOptions.model);
-        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || config.modelRuntimeTarget || spawnOptions.browserGatewayMcp || wantsExplicitConfiguredModel || instance.bareMode === true)
-          ? null
-          : (this.deps.warmStartManager?.consume(resolvedCliType, instance.workingDirectory) as CliAdapter | null ?? null);
-
+        const preflight = await this.spawnPreflight.prepare({
+          config,
+          instance,
+          provider: resolvedCliType,
+          spawnOptions,
+        });
         let adapter: CliAdapter;
-        if (warmAdapter) {
+        if (preflight.kind === 'warm') {
           logger.info('Using warm-start adapter (skipping spawn)', { provider: resolvedCliType, instanceId: instance.id });
-          adapter = warmAdapter;
+          adapter = preflight.adapter;
 
           // Set up adapter events and store the adapter.
           this.deps.setupAdapterEvents(instance.id, adapter);
@@ -1866,16 +1843,9 @@ export class InstanceLifecycleManager extends EventEmitter {
             );
           }
         } else {
-          const executionLocation = resolveExecutionLocation(config);
+          const executionLocation = preflight.executionLocation;
+          spawnOptions = preflight.spawnOptions;
           instance.executionLocation = executionLocation;
-          await this.assertLocalModelRuntimeAvailable(config.modelRuntimeTarget);
-          // Clear local MCP config for remote instances — paths don't exist on workers
-          if (executionLocation.type === 'remote') {
-            spawnOptions.mcpConfig = [];
-            spawnOptions.browserGatewayMcp = undefined;
-          } else {
-            await this.warmCodememWorkspace(instance.workingDirectory);
-          }
           adapter = this.createRuntimeAdapter(resolvedCliType, spawnOptions, executionLocation);
 
           // Set up adapter events
@@ -2026,7 +1996,26 @@ export class InstanceLifecycleManager extends EventEmitter {
     instanceId: string,
     graceful = true
   ): Promise<void> {
+    this.abortPendingInitialization(instanceId);
     await this.terminator.terminateInstance(instanceId, graceful);
+  }
+
+  private abortPendingInitialization(instanceId: string): void {
+    const instance = this.deps.getInstance(instanceId);
+    const readyPromise = instance?.readyPromise;
+    const abortController = instance?.abortController;
+    abortController?.abort();
+    if (readyPromise && abortController) {
+      // Initialization may currently be inside an async RLM setup that does
+      // not observe AbortSignal until it returns. Termination itself must not
+      // wait on that work (a wedged initializer would make terminate hang),
+      // but a late successful return can have created an RLM session after the
+      // primary teardown ran. Repeat that idempotent cleanup once init settles.
+      void readyPromise.then(
+        () => this.deps.endRlmSession(instanceId),
+        () => undefined,
+      );
+    }
   }
 
   /**
@@ -2036,14 +2025,15 @@ export class InstanceLifecycleManager extends EventEmitter {
     const instanceIds: string[] = [];
     this.deps.forEachInstance((_, id) => instanceIds.push(id));
 
-    const promises = instanceIds.map((id) =>
-      this.terminator.terminateInstance(id, false, {
+    const promises = instanceIds.map(async (id) => {
+      this.abortPendingInitialization(id);
+      await this.terminator.terminateInstance(id, false, {
         skipTranscriptMining: true,
         // Shutdown must leave the durable quota-resume automation standing —
         // it is the only path that revives a parked session after restart.
         preserveDurableProviderResume: true,
-      })
-    );
+      });
+    });
     await Promise.all(promises);
   }
 
@@ -2428,12 +2418,12 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     const previousAdapter = this.deps.getAdapter(instanceId);
-    const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
+    const cliType = await this.resolveCliTypeForInstance(instance);
+    const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter, cliType);
     if (!capabilities.supportsResume || !providerSessionId || instance.sessionResumeBlacklisted) {
       return { success: false, error: 'Native resume unavailable for this session' };
     }
 
-    const cliType = await this.resolveCliTypeForInstance(instance);
     const adapter = this.createRuntimeAdapter(
       cliType,
       {
@@ -2636,6 +2626,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         nativeResume: (id, sessionId) => this.nativeResumeAfterRestart(id, sessionId),
         replayFallback: (id, sessionId) => this.replayFallbackAfterRestart(id, sessionId),
       });
+      const cliType = await this.resolveCliTypeForInstance(instance);
       const providerSessionId = instance.providerSessionId || instance.sessionId;
       const result = await recovery.recover(instanceId, providerSessionId, {
         reason: 'restart',
@@ -2646,7 +2637,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         cwd: instance.workingDirectory,
         yolo: instance.yoloMode,
         executionLocation: instance.executionLocation.type,
-        capabilities: this.getAdapterRuntimeCapabilities(oldAdapter),
+        capabilities: this.getAdapterRuntimeCapabilities(oldAdapter, cliType),
         activeTurnId: instance.activeTurnId,
         adapterGeneration: instance.adapterGeneration ?? 0,
         hasConversation: this.hasActiveConversation(instance),

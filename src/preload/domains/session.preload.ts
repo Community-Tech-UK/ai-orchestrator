@@ -384,7 +384,7 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
      */
     archiveSearch: (
       query: string,
-      options?: { limit?: number; fields?: string[] }
+      options?: { limit?: number; tags?: string[] }
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.ARCHIVE_SEARCH, { query, options });
     },

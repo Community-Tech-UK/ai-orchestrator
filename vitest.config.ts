@@ -1,5 +1,46 @@
+import { angularJitApplicationTransform } from '@angular/compiler-cli';
+import ts from 'typescript';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { aliases } from './vitest.aliases';
+
+function angularJitPlugin(): Plugin {
+  const config = ts.readConfigFile('tsconfig.json', ts.sys.readFile);
+  if (config.error) {
+    throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));
+  }
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, '.');
+  const program = ts.createProgram(parsed.fileNames, parsed.options);
+
+  return {
+    name: 'aio-angular-jit-transform',
+    enforce: 'pre',
+    transform(code, id) {
+      const fileName = id.split('?', 1)[0];
+      if (!fileName.includes('/src/renderer/') || !fileName.endsWith('.ts')) {
+        return null;
+      }
+
+      const result = ts.transpileModule(code, {
+        fileName,
+        compilerOptions: {
+          ...parsed.options,
+          module: ts.ModuleKind.ESNext,
+          target: ts.ScriptTarget.ES2022,
+          sourceMap: true,
+          inlineSources: true,
+        },
+        transformers: {
+          before: [angularJitApplicationTransform(program)],
+        },
+      });
+      return {
+        code: result.outputText,
+        map: result.sourceMapText ?? null,
+      };
+    },
+  };
+}
 
 /** Slow / wall-clock specs — excluded from the default suite; run via `test:slow`. */
 const slowTestGlobs = [
@@ -24,6 +65,7 @@ export default defineConfig({
     // forks safely. CI still shards across jobs for wall-clock speed.
     projects: [
       {
+        plugins: [angularJitPlugin()],
         resolve: { alias: aliases },
         test: {
           name: 'renderer',

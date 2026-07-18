@@ -1,11 +1,11 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  Input,
   OnChanges,
   SimpleChanges,
   inject,
   signal,
+  input
 } from '@angular/core';
 import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
@@ -202,7 +202,7 @@ import {
   `],
 })
 export class RemoteNodeRepairPanelComponent implements OnChanges {
-  @Input({ required: true }) entry!: NodeHealthEntry;
+  readonly entry = input.required<NodeHealthEntry>();
 
   private readonly ipc = inject(RemoteNodeIpcService);
   private readonly clipboard = inject(CLIPBOARD_SERVICE);
@@ -220,7 +220,7 @@ export class RemoteNodeRepairPanelComponent implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['entry']) {
-      const nextKey = this.buildRepairContextKey(this.entry);
+      const nextKey = this.buildRepairContextKey(this.entry());
       if (nextKey !== this.repairContextKey) {
         this.repairContextKey = nextKey;
         void this.refreshDiagnostic();
@@ -232,7 +232,7 @@ export class RemoteNodeRepairPanelComponent implements OnChanges {
     this.command.set(null);
     this.error.set(null);
     this.serviceStatus.set(null);
-    this.diagnostic.set(await this.ipc.diagnoseRepair(this.entry.id));
+    this.diagnostic.set(await this.ipc.diagnoseRepair(this.entry().id));
   }
 
   protected setPlatform(platform: 'win32' | ''): void {
@@ -244,7 +244,7 @@ export class RemoteNodeRepairPanelComponent implements OnChanges {
     this.busy.set(true);
     this.error.set(null);
     try {
-      this.serviceStatus.set(await this.ipc.getServiceStatus(this.entry.id));
+      this.serviceStatus.set(await this.ipc.getServiceStatus(this.entry().id));
     } catch (err) {
       this.error.set((err as Error).message);
     } finally {
@@ -253,7 +253,7 @@ export class RemoteNodeRepairPanelComponent implements OnChanges {
   }
 
   protected serviceConfigDetail(): string {
-    return formatServiceConfigStatus(this.serviceStatus(), this.entry.platform);
+    return formatServiceConfigStatus(this.serviceStatus(), this.entry().platform);
   }
 
   protected async generateRepairCommand(): Promise<void> {
@@ -268,7 +268,7 @@ export class RemoteNodeRepairPanelComponent implements OnChanges {
     this.busy.set(true);
     this.error.set(null);
     try {
-      this.command.set(await this.ipc.generateRepairCommand(this.entry.id, options));
+      this.command.set(await this.ipc.generateRepairCommand(this.entry().id, options));
     } catch (err) {
       this.error.set((err as Error).message);
     } finally {

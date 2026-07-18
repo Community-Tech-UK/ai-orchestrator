@@ -3,21 +3,38 @@
  * Handles RLM Context Management, Self-Improvement/Learning, Model Discovery, and A/B Testing
  */
 
-import { ipcMain } from 'electron';
+import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
-import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   RlmAddSectionPayloadSchema,
+  RlmConfigurePayloadSchema,
+  RlmCreateStorePayloadSchema,
+  RlmEmptyPayloadSchema,
+  RlmExecuteQueryPayloadSchema,
   RlmRemoveSectionPayloadSchema,
+  RlmSessionIdPayloadSchema,
   RlmStartSessionPayloadSchema,
+  RlmStoreIdPayloadSchema,
   RlmGetPatternsPayloadSchema,
   RlmGetStrategySuggestionsPayloadSchema,
   RlmTokenSavingsPayloadSchema,
   RlmQueryStatsPayloadSchema,
+  LearningConfigurePayloadSchema,
+  LearningEmptyPayloadSchema,
   LearningGetInsightsPayloadSchema,
+  LearningOutcomeIdPayloadSchema,
+  LearningRecentOutcomesPayloadSchema,
+  LearningRecordOutcomePayloadSchema,
   LearningGetRecommendationPayloadSchema,
   LearningEnhancePromptPayloadSchema,
   LearningRateOutcomePayloadSchema,
+  LearningTaskTypePayloadSchema,
+  AbConfigurePayloadSchema,
+  AbCreateExperimentPayloadSchema,
+  AbDeleteExperimentPayloadSchema,
+  AbEmptyPayloadSchema,
+  AbExperimentIdPayloadSchema,
   AbUpdateExperimentPayloadSchema,
   AbGetVariantPayloadSchema,
   AbRecordOutcomePayloadSchema,
@@ -27,84 +44,68 @@ import { RLMContextManager } from '../rlm/context-manager';
 import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';
 import { PromptEnhancer } from '../learning/prompt-enhancer';
-import { ABTestingEngine, type Experiment, type Variant, type ABTestingConfig } from '../learning/ab-testing';
-import type {
-  ContextQuery,
-  RLMConfig,
-  ContextStore,
-  ContextSection,
-  RLMSession,
-  RLMStoreStats,
-  RLMSessionStats,
-  ContextQueryResult,
-} from '../../shared/types/rlm.types';
-import type {
-  TaskOutcome,
-  TaskPattern,
-  ToolUsageRecord,
-  Experience,
-  LearningInsight,
-  StrategyRecommendation,
-  PromptEnhancement,
-  LearningStats,
-  TaskTypeStats,
-  SelfImprovementConfig,
-} from '../../shared/types/self-improvement.types';
+import { ABTestingEngine } from '../learning/ab-testing';
+import type { ContextSection } from '../../shared/types/rlm.types';
 import {
   serializeContextSectionForIpc,
   serializeContextStoreForIpc,
 } from './rlm-ipc-serialization';
 import { registerModelDiscoveryHandlers } from './model-discovery-ipc-handlers';
+import { validatedHandler, type IpcResponse } from './validated-handler';
+
+interface RegisterLearningHandlersDeps {
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
+}
 
 /**
  * Register all learning-related IPC handlers
  */
-export function registerLearningHandlers(): void {
-  registerRLMHandlers();
-  registerSelfImprovementHandlers();
-  registerModelDiscoveryHandlers();
-  registerABTestingHandlers();
+export function registerLearningHandlers(deps: RegisterLearningHandlersDeps = {}): void {
+  registerRLMHandlers(deps);
+  registerSelfImprovementHandlers(deps);
+  registerModelDiscoveryHandlers(deps);
+  registerABTestingHandlers(deps);
 }
 
 // ============ RLM Context Management Handlers ============
 
-function registerRLMHandlers(): void {
+function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
   const rlm = RLMContextManager.getInstance();
   const tracker = OutcomeTracker.getInstance();
   const strategist = StrategyLearner.getInstance();
 
   // Create store
-  ipcMain.handle(IPC_CHANNELS.RLM_CREATE_STORE, (_event, instanceId: string): ContextStore => {
+  registerRlmHandler(IPC_CHANNELS.RLM_CREATE_STORE, RlmCreateStorePayloadSchema, (instanceId) => {
     return serializeContextStoreForIpc(rlm.createStore(instanceId), {
       includeSections: true,
     });
-  });
+  }, deps);
 
   // Add section
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.RLM_ADD_SECTION,
-    (
-      _event,
-      payload: unknown
-    ): ContextSection => {
-      const validated = validateIpcPayload(RlmAddSectionPayloadSchema, payload, 'RLM_ADD_SECTION');
+    RlmAddSectionPayloadSchema,
+    (payload) => {
       return serializeContextSectionForIpc(
-        rlm.addSection(validated.storeId, validated.type as ContextSection['type'], validated.name, validated.content, validated.metadata as Partial<ContextSection> | undefined),
+        rlm.addSection(payload.storeId, payload.type, payload.name, payload.content, payload.metadata as Partial<ContextSection> | undefined),
       );
-    }
+    },
+    deps,
   );
 
   // Remove section
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.RLM_REMOVE_SECTION,
-    (_event, payload: unknown): boolean => {
-      const validated = validateIpcPayload(RlmRemoveSectionPayloadSchema, payload, 'RLM_REMOVE_SECTION');
-      return rlm.removeSection(validated.storeId, validated.sectionId);
-    }
+    RlmRemoveSectionPayloadSchema,
+    (payload) => rlm.removeSection(payload.storeId, payload.sectionId),
+    deps,
   );
 
   // Get store
-  ipcMain.handle(IPC_CHANNELS.RLM_GET_STORE, (_event, storeId: string): ContextStore | undefined => {
+  registerRlmHandler(IPC_CHANNELS.RLM_GET_STORE, RlmStoreIdPayloadSchema, (storeId) => {
     const store = rlm.getStore(storeId);
     return store
       ? serializeContextStoreForIpc(store, {
@@ -112,517 +113,437 @@ function registerRLMHandlers(): void {
         sectionLimit: 1_000,
       })
       : undefined;
-  });
+  }, deps);
 
   // List stores
-  ipcMain.handle(IPC_CHANNELS.RLM_LIST_STORES, (): ContextStore[] => {
+  registerRlmHandler(IPC_CHANNELS.RLM_LIST_STORES, RlmEmptyPayloadSchema, () => {
     return rlm.listStores().map((store) => serializeContextStoreForIpc(store));
-  });
+  }, deps);
 
   // List sections
-  ipcMain.handle(IPC_CHANNELS.RLM_LIST_SECTIONS, (_event, storeId: string): ContextSection[] => {
+  registerRlmHandler(IPC_CHANNELS.RLM_LIST_SECTIONS, RlmStoreIdPayloadSchema, (storeId) => {
     return rlm.listSections(storeId).map((section) => serializeContextSectionForIpc(section));
-  });
+  }, deps);
 
   // List active sessions
-  ipcMain.handle(IPC_CHANNELS.RLM_LIST_SESSIONS, (): RLMSession[] => {
+  registerRlmHandler(IPC_CHANNELS.RLM_LIST_SESSIONS, RlmEmptyPayloadSchema, () => {
     return rlm.listSessions();
-  });
+  }, deps);
 
   // Delete store
-  ipcMain.handle(IPC_CHANNELS.RLM_DELETE_STORE, (_event, storeId: string): void => {
+  registerRlmHandler(IPC_CHANNELS.RLM_DELETE_STORE, RlmStoreIdPayloadSchema, (storeId) => {
     rlm.deleteStore(storeId);
-  });
+  }, deps);
 
   // Start session
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.RLM_START_SESSION,
-    async (_event, payload: unknown): Promise<RLMSession> => {
-      const validated = validateIpcPayload(RlmStartSessionPayloadSchema, payload, 'RLM_START_SESSION');
-      return rlm.startSession(validated.storeId, validated.instanceId);
-    }
+    RlmStartSessionPayloadSchema,
+    (payload) => rlm.startSession(payload.storeId, payload.instanceId),
+    deps,
   );
 
   // End session
-  ipcMain.handle(IPC_CHANNELS.RLM_END_SESSION, (_event, sessionId: string): void => {
+  registerRlmHandler(IPC_CHANNELS.RLM_END_SESSION, RlmSessionIdPayloadSchema, (sessionId) => {
     rlm.endSession(sessionId);
-  });
+  }, deps);
 
   // Execute query
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.RLM_EXECUTE_QUERY,
-    async (
-      _event,
-      payload: { sessionId: string; query: ContextQuery; depth?: number }
-    ): Promise<ContextQueryResult> => {
-      return rlm.executeQuery(payload.sessionId, payload.query, payload.depth);
-    }
+    RlmExecuteQueryPayloadSchema,
+    (payload) => rlm.executeQuery(payload.sessionId, payload.query, payload.depth),
+    deps,
   );
 
   // Get session
-  ipcMain.handle(IPC_CHANNELS.RLM_GET_SESSION, (_event, sessionId: string): RLMSession | undefined => {
-    return rlm.getSession(sessionId);
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.RLM_GET_SESSION,
+    RlmSessionIdPayloadSchema,
+    (sessionId) => rlm.getSession(sessionId),
+    deps,
+  );
 
   // Get store stats
-  ipcMain.handle(IPC_CHANNELS.RLM_GET_STORE_STATS, (_event, storeId: string): RLMStoreStats | undefined => {
-    return rlm.getStoreStats(storeId);
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.RLM_GET_STORE_STATS,
+    RlmStoreIdPayloadSchema,
+    (storeId) => rlm.getStoreStats(storeId),
+    deps,
+  );
 
   // Get session stats
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.RLM_GET_SESSION_STATS,
-    (_event, sessionId: string): RLMSessionStats | undefined => {
-      return rlm.getSessionStats(sessionId);
-    }
+    RlmSessionIdPayloadSchema,
+    (sessionId) => rlm.getSessionStats(sessionId),
+    deps,
   );
 
   // Configure RLM
-  ipcMain.handle(IPC_CHANNELS.RLM_CONFIGURE, (_event, config: Partial<RLMConfig>): void => {
+  registerRlmHandler(IPC_CHANNELS.RLM_CONFIGURE, RlmConfigurePayloadSchema, (config) => {
     rlm.configure(config);
-  });
+  }, deps);
 
   // Record outcome (RLM alias for learning outcomes)
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.RLM_RECORD_OUTCOME,
-    (
-      _event,
-      payload: {
-        instanceId: string;
-        taskType: string;
-        taskDescription: string;
-        prompt: string;
-        context?: string;
-        agentUsed: string;
-        modelUsed: string;
-        workflowUsed?: string;
-        toolsUsed: ToolUsageRecord[];
-        tokensUsed: number;
-        duration: number;
-        success: boolean;
-        completionScore?: number;
-        userSatisfaction?: number;
-        errorType?: string;
-        errorMessage?: string;
-      }
-    ): TaskOutcome => {
-      return tracker.recordOutcome(payload);
-    }
+    LearningRecordOutcomePayloadSchema,
+    (payload) => tracker.recordOutcome(payload),
+    deps,
   );
 
   // Get patterns (RLM alias)
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.RLM_GET_PATTERNS,
-    (_event, payload: unknown): TaskPattern[] => {
-      const validated = validateIpcPayload(RlmGetPatternsPayloadSchema, payload, 'RLM_GET_PATTERNS');
-      const minSuccessRate = validated?.minSuccessRate ?? 0;
+    RlmGetPatternsPayloadSchema,
+    (payload) => {
+      const minSuccessRate = payload?.minSuccessRate ?? 0;
       return tracker.getTopPatterns(50).filter(p => p.effectiveness >= minSuccessRate);
-    }
+    },
+    deps,
   );
 
   // Renderer-facing learning alias used by the training page.
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.LEARNING_GET_PATTERNS,
-    (_event, payload: unknown): TaskPattern[] => {
-      const validated = validateIpcPayload(RlmGetPatternsPayloadSchema, payload, 'LEARNING_GET_PATTERNS');
-      const minSuccessRate = validated?.minSuccessRate ?? 0;
+    RlmGetPatternsPayloadSchema,
+    (payload) => {
+      const minSuccessRate = payload?.minSuccessRate ?? 0;
       return tracker.getTopPatterns(50).filter(p => p.effectiveness >= minSuccessRate);
-    }
+    },
+    deps,
   );
 
   // Get strategy suggestions (RLM alias)
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.RLM_GET_STRATEGY_SUGGESTIONS,
-    (_event, payload: unknown): StrategyRecommendation => {
-      const validated = validateIpcPayload(RlmGetStrategySuggestionsPayloadSchema, payload, 'RLM_GET_STRATEGY_SUGGESTIONS');
-      return strategist.getRecommendation('general', validated.context, validated.context);
-    }
+    RlmGetStrategySuggestionsPayloadSchema,
+    (payload) => strategist.getRecommendation('general', payload.context, payload.context),
+    deps,
   );
 
   // Renderer-facing learning alias used by the training page.
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.LEARNING_GET_SUGGESTIONS,
-    (_event, payload: unknown): StrategyRecommendation => {
-      const validated = validateIpcPayload(RlmGetStrategySuggestionsPayloadSchema, payload, 'LEARNING_GET_SUGGESTIONS');
-      return strategist.getRecommendation('general', validated.context, validated.context);
-    }
+    RlmGetStrategySuggestionsPayloadSchema,
+    (payload) => strategist.getRecommendation('general', payload.context, payload.context),
+    deps,
   );
 
   // ============ RLM Analytics Handlers ============
 
   // Get token savings history
-  ipcMain.handle('rlm:get-token-savings-history', (_event, payload: unknown) => {
-    try {
-      const validated = validateIpcPayload(RlmTokenSavingsPayloadSchema, payload, 'rlm:get-token-savings-history');
-      const days = validated.range === '7d' ? 7 : validated.range === '90d' ? 90 : 30;
-      const history = rlm.getTokenSavingsHistory(days);
-      return { success: true, data: history };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.RLM_GET_TOKEN_SAVINGS_HISTORY,
+    RlmTokenSavingsPayloadSchema,
+    (payload) => {
+      const days = payload.range === '7d' ? 7 : payload.range === '90d' ? 90 : 30;
+      return rlm.getTokenSavingsHistory(days);
+    },
+    deps,
+  );
 
   // Get query statistics
-  ipcMain.handle('rlm:get-query-stats', (_event, payload: unknown) => {
-    try {
-      const validated = validateIpcPayload(RlmQueryStatsPayloadSchema, payload, 'rlm:get-query-stats');
-      const days = validated.range === '7d' ? 7 : validated.range === '90d' ? 90 : 30;
-      const stats = rlm.getQueryStats(days);
-      return { success: true, data: stats };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.RLM_GET_QUERY_STATS,
+    RlmQueryStatsPayloadSchema,
+    (payload) => {
+      const days = payload.range === '7d' ? 7 : payload.range === '90d' ? 90 : 30;
+      return rlm.getQueryStats(days);
+    },
+    deps,
+  );
 
   // Get storage statistics
-  ipcMain.handle('rlm:get-storage-stats', () => {
-    try {
-      const stats = rlm.getStorageStats();
-      return { success: true, data: stats };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.RLM_GET_STORAGE_STATS,
+    RlmEmptyPayloadSchema,
+    () => rlm.getStorageStats(),
+    deps,
+  );
 
-  // ============ RLM Export/Import Handlers ============
+}
 
-  // Export store to JSON
-  ipcMain.handle('rlm:export-store', (_event, storeId: string) => {
-    try {
-      const data = rlm.exportStore(storeId);
-      if (!data) {
-        return { success: false, error: 'Store not found' };
-      }
-      return { success: true, data };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
-
-  // Import store from JSON
-  ipcMain.handle('rlm:import-store', (_event, payload: {
-    data: ReturnType<typeof rlm.exportStore>;
-    options?: {
-      newId?: boolean;
-      merge?: boolean;
-      targetStoreId?: string;
-      instanceId?: string;
-    };
-  }) => {
-    try {
-      if (!payload.data) {
-        return { success: false, error: 'Invalid import data' };
-      }
-      const storeId = rlm.importStore(payload.data, payload.options);
-      return { success: true, data: { storeId } };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+function registerRlmHandler<TPayload, TResult>(
+  channel: string,
+  schema: z.ZodSchema<TPayload>,
+  call: (payload: TPayload) => TResult | Promise<TResult>,
+  deps: RegisterLearningHandlersDeps,
+): void {
+  const errorCode = `${channel.replace(/[:-]/g, '_').toUpperCase()}_FAILED`;
+  ipcMain.handle(
+    channel,
+    validatedHandler(
+      channel,
+      schema,
+      async (payload): Promise<IpcResponse<TResult>> => {
+        const data = await call(payload);
+        return data === undefined
+          ? { success: true }
+          : { success: true, data };
+      },
+      {
+        ensureTrustedSender: deps.ensureTrustedSender,
+        errorCode,
+      },
+    ),
+  );
 }
 
 // ============ Self-Improvement Handlers ============
 
-function registerSelfImprovementHandlers(): void {
+function registerSelfImprovementHandlers(deps: RegisterLearningHandlersDeps): void {
   const tracker = OutcomeTracker.getInstance();
   const strategist = StrategyLearner.getInstance();
   const enhancer = PromptEnhancer.getInstance();
 
   // Record outcome
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.LEARNING_RECORD_OUTCOME,
-    (
-      _event,
-      payload: {
-        instanceId: string;
-        taskType: string;
-        taskDescription: string;
-        prompt: string;
-        context?: string;
-        agentUsed: string;
-        modelUsed: string;
-        workflowUsed?: string;
-        toolsUsed: ToolUsageRecord[];
-        tokensUsed: number;
-        duration: number;
-        success: boolean;
-        completionScore?: number;
-        userSatisfaction?: number;
-        errorType?: string;
-        errorMessage?: string;
-      }
-    ): TaskOutcome => {
-      return tracker.recordOutcome(payload);
-    }
+    LearningRecordOutcomePayloadSchema,
+    (payload) => tracker.recordOutcome(payload),
+    deps,
   );
 
   // Get outcome
-  ipcMain.handle(IPC_CHANNELS.LEARNING_GET_OUTCOME, (_event, outcomeId: string): TaskOutcome | undefined => {
-    return tracker.getOutcome(outcomeId);
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.LEARNING_GET_OUTCOME,
+    LearningOutcomeIdPayloadSchema,
+    (outcomeId) => tracker.getOutcome(outcomeId),
+    deps,
+  );
 
   // Get recent outcomes
-  ipcMain.handle(IPC_CHANNELS.LEARNING_GET_RECENT_OUTCOMES, (_event, limit?: number): TaskOutcome[] => {
-    return tracker.getRecentOutcomes(limit);
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.LEARNING_GET_RECENT_OUTCOMES,
+    LearningRecentOutcomesPayloadSchema,
+    (limit) => tracker.getRecentOutcomes(limit),
+    deps,
+  );
 
   // Get experience
-  ipcMain.handle(IPC_CHANNELS.LEARNING_GET_EXPERIENCE, (_event, taskType: string): Experience | undefined => {
-    return tracker.getExperience(taskType);
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.LEARNING_GET_EXPERIENCE,
+    LearningTaskTypePayloadSchema,
+    (taskType) => tracker.getExperience(taskType),
+    deps,
+  );
 
   // Get all experiences
-  ipcMain.handle(IPC_CHANNELS.LEARNING_GET_ALL_EXPERIENCES, (): Experience[] => {
-    return tracker.getAllExperiences();
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.LEARNING_GET_ALL_EXPERIENCES,
+    LearningEmptyPayloadSchema,
+    () => tracker.getAllExperiences(),
+    deps,
+  );
 
   // Get insights
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.LEARNING_GET_INSIGHTS,
-    (_event, payload: unknown): LearningInsight[] => {
-      const validated = validateIpcPayload(LearningGetInsightsPayloadSchema, payload, 'LEARNING_GET_INSIGHTS');
-      return tracker.getInsights(validated?.taskType, validated?.minConfidence);
-    }
+    LearningGetInsightsPayloadSchema,
+    (payload) => tracker.getInsights(payload?.taskType, payload?.minConfidence),
+    deps,
   );
 
   // Get recommendation
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.LEARNING_GET_RECOMMENDATION,
-    (
-      _event,
-      payload: unknown
-    ): StrategyRecommendation => {
-      const validated = validateIpcPayload(LearningGetRecommendationPayloadSchema, payload, 'LEARNING_GET_RECOMMENDATION');
-      return strategist.getRecommendation(validated.taskType, validated.taskDescription, validated.context);
-    }
+    LearningGetRecommendationPayloadSchema,
+    (payload) => strategist.getRecommendation(payload.taskType, payload.taskDescription, payload.context),
+    deps,
   );
 
   // Enhance prompt
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.LEARNING_ENHANCE_PROMPT,
-    (_event, payload: unknown): PromptEnhancement => {
-      const validated = validateIpcPayload(LearningEnhancePromptPayloadSchema, payload, 'LEARNING_ENHANCE_PROMPT');
-      return enhancer.enhance(validated.prompt, validated.taskType, validated.context);
-    }
+    LearningEnhancePromptPayloadSchema,
+    (payload) => enhancer.enhance(payload.prompt, payload.taskType, payload.context),
+    deps,
   );
 
   // Get stats
-  ipcMain.handle(IPC_CHANNELS.LEARNING_GET_STATS, (): LearningStats => {
-    return tracker.getStats();
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.LEARNING_GET_STATS,
+    LearningEmptyPayloadSchema,
+    () => tracker.getStats(),
+    deps,
+  );
 
   // Get task type stats
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.LEARNING_GET_TASK_STATS,
-    (_event, taskType: string): TaskTypeStats | undefined => {
-      return tracker.getTaskTypeStats(taskType);
-    }
+    LearningTaskTypePayloadSchema,
+    (taskType) => tracker.getTaskTypeStats(taskType),
+    deps,
   );
 
   // Rate outcome
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.LEARNING_RATE_OUTCOME,
-    (_event, payload: unknown): boolean => {
-      const validated = validateIpcPayload(LearningRateOutcomePayloadSchema, payload, 'LEARNING_RATE_OUTCOME');
-      return tracker.rateOutcome(validated.outcomeId, validated.satisfaction);
-    }
+    LearningRateOutcomePayloadSchema,
+    (payload) => tracker.rateOutcome(payload.outcomeId, payload.satisfaction),
+    deps,
   );
 
   // Configure learning
-  ipcMain.handle(IPC_CHANNELS.LEARNING_CONFIGURE, (_event, config: Partial<SelfImprovementConfig>): void => {
-    tracker.configure(config);
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.LEARNING_CONFIGURE,
+    LearningConfigurePayloadSchema,
+    (config) => tracker.configure(config),
+    deps,
+  );
 }
 
 // ============ A/B Testing Handlers ============
 
-function registerABTestingHandlers(): void {
+function registerABTestingHandlers(deps: RegisterLearningHandlersDeps): void {
   const abEngine = ABTestingEngine.getInstance();
 
   // Create experiment
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.AB_CREATE_EXPERIMENT,
-    (
-      _event,
-      payload: {
-        name: string;
-        description?: string;
-        taskType: string;
-        variants: Omit<Variant, 'id'>[];
-        minSamples?: number;
-        confidenceThreshold?: number;
-      }
-    ) => {
-      try {
-        const experiment = abEngine.createExperiment(payload);
-        return { success: true, data: experiment };
-      } catch (error) {
-        return { success: false, error: (error as Error).message };
-      }
-    }
+    AbCreateExperimentPayloadSchema,
+    (payload) => abEngine.createExperiment(payload),
+    deps,
   );
 
   // Update experiment
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.AB_UPDATE_EXPERIMENT,
-    (
-      _event,
-      payload: unknown
-    ) => {
-      try {
-        const validated = validateIpcPayload(AbUpdateExperimentPayloadSchema, payload, 'AB_UPDATE_EXPERIMENT');
-        const experiment = abEngine.updateExperiment(validated.experimentId, validated.updates);
-        if (!experiment) {
-          return { success: false, error: 'Experiment not found or cannot be updated' };
-        }
-        return { success: true, data: experiment };
-      } catch (error) {
-        return { success: false, error: (error as Error).message };
+    AbUpdateExperimentPayloadSchema,
+    (payload) => {
+      const experiment = abEngine.updateExperiment(payload.experimentId, payload.updates);
+      if (!experiment) {
+        throw new Error('Experiment not found or cannot be updated');
       }
-    }
+      return experiment;
+    },
+    deps,
   );
 
   // Delete experiment
-  ipcMain.handle(IPC_CHANNELS.AB_DELETE_EXPERIMENT, (_event, experimentId: string) => {
-    try {
-      const deleted = abEngine.deleteExperiment(experimentId);
-      return { success: deleted, error: deleted ? undefined : 'Experiment not found' };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.AB_DELETE_EXPERIMENT,
+    AbDeleteExperimentPayloadSchema,
+    (experimentId) => {
+      if (!abEngine.deleteExperiment(experimentId)) {
+        throw new Error('Experiment not found');
+      }
+      return true;
+    },
+    deps,
+  );
 
   // Start experiment
-  ipcMain.handle(IPC_CHANNELS.AB_START_EXPERIMENT, (_event, experimentId: string) => {
-    try {
-      const started = abEngine.startExperiment(experimentId);
-      return { success: started, error: started ? undefined : 'Failed to start experiment' };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.AB_START_EXPERIMENT,
+    AbExperimentIdPayloadSchema,
+    (payload) => {
+      if (!abEngine.startExperiment(payload.experimentId)) {
+        throw new Error('Failed to start experiment');
+      }
+      return true;
+    },
+    deps,
+  );
 
   // Pause experiment
-  ipcMain.handle(IPC_CHANNELS.AB_PAUSE_EXPERIMENT, (_event, experimentId: string) => {
-    try {
-      const paused = abEngine.pauseExperiment(experimentId);
-      return { success: paused, error: paused ? undefined : 'Failed to pause experiment' };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.AB_PAUSE_EXPERIMENT,
+    AbExperimentIdPayloadSchema,
+    (payload) => {
+      if (!abEngine.pauseExperiment(payload.experimentId)) {
+        throw new Error('Failed to pause experiment');
+      }
+      return true;
+    },
+    deps,
+  );
 
   // Complete experiment
-  ipcMain.handle(IPC_CHANNELS.AB_COMPLETE_EXPERIMENT, (_event, experimentId: string) => {
-    try {
-      const result = abEngine.completeExperiment(experimentId);
+  registerRlmHandler(
+    IPC_CHANNELS.AB_COMPLETE_EXPERIMENT,
+    AbExperimentIdPayloadSchema,
+    (payload) => {
+      const result = abEngine.completeExperiment(payload.experimentId);
       if (!result) {
-        return { success: false, error: 'Experiment not found' };
+        throw new Error('Experiment not found');
       }
-      return { success: true, data: result };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+      return result;
+    },
+    deps,
+  );
 
   // Get experiment
-  ipcMain.handle(IPC_CHANNELS.AB_GET_EXPERIMENT, (_event, experimentId: string) => {
-    try {
-      const experiment = abEngine.getExperiment(experimentId);
+  registerRlmHandler(
+    IPC_CHANNELS.AB_GET_EXPERIMENT,
+    AbExperimentIdPayloadSchema,
+    (payload) => {
+      const experiment = abEngine.getExperiment(payload.experimentId);
       if (!experiment) {
-        return { success: false, error: 'Experiment not found' };
+        throw new Error('Experiment not found');
       }
-      return { success: true, data: experiment };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+      return experiment;
+    },
+    deps,
+  );
 
   // List experiments
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.AB_LIST_EXPERIMENTS,
-    (_event, filter: unknown) => {
-      try {
-        const validated = validateIpcPayload(AbListExperimentsPayloadSchema, filter, 'AB_LIST_EXPERIMENTS');
-        const experiments = abEngine.listExperiments(validated as { status?: Experiment['status']; taskType?: string } | undefined);
-        return { success: true, data: experiments };
-      } catch (error) {
-        return { success: false, error: (error as Error).message };
-      }
-    }
+    AbListExperimentsPayloadSchema,
+    (filter) => abEngine.listExperiments(filter),
+    deps,
   );
 
   // Get variant for task
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.AB_GET_VARIANT,
-    (_event, payload: unknown) => {
-      try {
-        const validated = validateIpcPayload(AbGetVariantPayloadSchema, payload, 'AB_GET_VARIANT');
-        const result = abEngine.getVariant(validated.taskType, validated.sessionId);
-        if (!result) {
-          return { success: true, data: null }; // No experiment running for this task type
-        }
-        return { success: true, data: result };
-      } catch (error) {
-        return { success: false, error: (error as Error).message };
-      }
-    }
+    AbGetVariantPayloadSchema,
+    (payload) => abEngine.getVariant(payload.taskType, payload.sessionId),
+    deps,
   );
 
   // Record outcome
-  ipcMain.handle(
+  registerRlmHandler(
     IPC_CHANNELS.AB_RECORD_OUTCOME,
-    (
-      _event,
-      payload: unknown
-    ) => {
-      try {
-        const validated = validateIpcPayload(AbRecordOutcomePayloadSchema, payload, 'AB_RECORD_OUTCOME');
-        abEngine.recordOutcome(validated.experimentId, validated.variantId, validated.outcome);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: (error as Error).message };
-      }
-    }
+    AbRecordOutcomePayloadSchema,
+    (payload) => abEngine.recordOutcome(payload.experimentId, payload.variantId, payload.outcome),
+    deps,
   );
 
   // Get results
-  ipcMain.handle(IPC_CHANNELS.AB_GET_RESULTS, (_event, experimentId: string) => {
-    try {
-      const results = abEngine.getResults(experimentId);
-      return { success: true, data: results };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.AB_GET_RESULTS,
+    AbExperimentIdPayloadSchema,
+    (payload) => abEngine.getResults(payload.experimentId),
+    deps,
+  );
 
   // Get winner
-  ipcMain.handle(IPC_CHANNELS.AB_GET_WINNER, (_event, experimentId: string) => {
-    try {
-      const winner = abEngine.getWinner(experimentId);
-      return { success: true, data: winner };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.AB_GET_WINNER,
+    AbExperimentIdPayloadSchema,
+    (payload) => abEngine.getWinner(payload.experimentId),
+    deps,
+  );
 
   // Get stats
-  ipcMain.handle(IPC_CHANNELS.AB_GET_STATS, () => {
-    try {
-      const stats = abEngine.getStats();
-      return { success: true, data: stats };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+  registerRlmHandler(
+    IPC_CHANNELS.AB_GET_STATS,
+    AbEmptyPayloadSchema,
+    () => abEngine.getStats(),
+    deps,
+  );
 
   // Configure
-  ipcMain.handle(IPC_CHANNELS.AB_CONFIGURE, (_event, config: Partial<ABTestingConfig>) => {
-    try {
+  registerRlmHandler(
+    IPC_CHANNELS.AB_CONFIGURE,
+    AbConfigurePayloadSchema,
+    (config) => {
       abEngine.configure(config);
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
+    },
+    deps,
+  );
 }

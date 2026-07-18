@@ -55,7 +55,6 @@ import type {
   EvidenceBlobReplacementInput,
   EvidenceRangeAuthorizationInput,
   EvidenceStageInput,
-  LegacyMarkerCompareAndSwapInput,
 } from './context-evidence-ledger.types';
 import type {
   LedgerWorkerInboundMsg,
@@ -215,10 +214,6 @@ function callStore(method: LedgerStoreMethod, args: unknown[]): unknown {
         args[2] as string,
         args[3] as number,
       );
-    case 'compareAndSwapLegacyOutputMarker':
-      return store.contextEvidence.compareAndSwapLegacyOutputMarker(args[0] as LegacyMarkerCompareAndSwapInput);
-    case 'listLegacyOutputCacheMarkers':
-      return store.contextEvidence.listLegacyOutputCacheMarkers();
     default: {
       const exhaustive: never = method;
       throw new Error(`Unknown ledger store method: ${String(exhaustive)}`);

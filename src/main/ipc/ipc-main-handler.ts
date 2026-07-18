@@ -19,10 +19,8 @@ import { registerSpecialistHandlers } from './specialist-ipc-handler';
 import { registerTrainingHandlers } from './training-ipc-handler';
 import { registerLLMHandlers } from './llm-ipc-handler';
 import { registerObservationHandlers } from './observation-ipc-handler';
-import { registerTokenStatsHandlers } from './token-stats-ipc-handler';
-import { getRLMDatabase } from '../persistence/rlm-database';
-import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
-import { isFeatureEnabled } from '../../shared/constants/feature-flags';
+import { registerCrossModelReviewIpcHandlers } from './cross-model-review-ipc';
+import { initializeTokenStatsPersistence } from '../memory/token-stats-initialization';
 import { registerDefaultQuotaProbes } from '../core/system/provider-quota';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
@@ -76,7 +74,6 @@ import {
   registerFileHandlers,
   registerCodebaseHandlers,
   registerWorkspaceHintHandlers,
-  registerEventStoreHandlers,
   registerSupervisionHandlers,
   registerRecentDirectoriesHandlers,
   registerEcosystemHandlers,
@@ -236,21 +233,6 @@ export class IpcMainHandler {
       }),
     });
 
-    if (isFeatureEnabled('EVENT_SOURCING')) {
-      const getEventStore = () => {
-        const store = OrchestrationEventStore.getInstance(getRLMDatabase().getRawDb());
-        store.initialize();
-        return store;
-      };
-      registerEventStoreHandlers({
-        getByAggregateId: (aggregateId) => getEventStore().getByAggregateId(aggregateId),
-        getByType: (type, limit) => getEventStore().getByType(type as never, limit),
-        getRecentEvents: (limit) => getEventStore().getRecentEvents(limit),
-      });
-    } else {
-      logger.info('Event store IPC handlers skipped because EVENT_SOURCING is disabled');
-    }
-
     // Settings, config, and remote config handlers
     registerSettingsHandlers({ windowManager: this.windowManager });
     registerPauseHandlers({ windowManager: this.windowManager });
@@ -267,6 +249,7 @@ export class IpcMainHandler {
     registerSessionHandlers({
       instanceManager: this.instanceManager,
       serializeInstance: serializeInstanceForIpc,
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
     });
 
     // Provider and plugin handlers
@@ -402,16 +385,22 @@ export class IpcMainHandler {
     });
 
     // Learning handlers (RLM Context, Self-Improvement, Model Discovery)
-    registerLearningHandlers();
+    registerLearningHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
 
     // Memory handlers (Memory-R1, Unified Memory, Debate, Training)
-    registerMemoryHandlers();
+    registerMemoryHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
 
     // Specialist handlers (Phase 7.4: Specialist Profiles)
     registerSpecialistHandlers();
 
     // Training handlers (GRPO Dashboard)
-    registerTrainingHandlers();
+    registerTrainingHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
 
     // LLM handlers (streaming and token counting)
     registerLLMHandlers();
@@ -420,10 +409,16 @@ export class IpcMainHandler {
     registerSupervisionHandlers();
 
     // Observation memory handlers
-    registerObservationHandlers();
+    registerObservationHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
 
-    // Token stats handlers (lightweight token usage tracking)
-    registerTokenStatsHandlers();
+    registerCrossModelReviewIpcHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
+
+    // Connect lightweight token usage tracking to persistence.
+    initializeTokenStatsPersistence();
 
     // Recent directories handlers
     registerRecentDirectoriesHandlers();

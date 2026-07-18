@@ -16,6 +16,7 @@ function createClientDispatchHarness() {
   if (!Base) throw new Error('AppServerClientBase is not exported');
 
   return Reflect.construct(Base, ['/tmp/project', 'direct']) as {
+    handleChunk(chunk: string): void;
     handleLine(line: string): void;
     handleExit(error?: Error): void;
     isRunning(): boolean;
@@ -38,7 +39,7 @@ function createWritableClientDispatchHarness() {
   class WritableHarness extends Base {
     readonly sent: Record<string, unknown>[] = [];
 
-    async close(): Promise<void> {}
+    async close(): Promise<void> { /* test harness has no transport */ }
 
     protected sendMessage(message: Record<string, unknown>): void {
       this.sent.push(message);
@@ -161,6 +162,18 @@ describe('socket broker transport lifecycle', () => {
 });
 
 describe('app-server JSON-RPC routing', () => {
+  it('deframes fragmented and batched socket chunks before routing notifications', () => {
+    const client = createClientDispatchHarness();
+    const handled: string[] = [];
+    client.setNotificationHandler((notification) => handled.push(notification.method));
+
+    client.handleChunk('{"method":"turn/started","params":{}}\n{"method":"turn/com');
+    expect(handled).toEqual(['turn/started']);
+
+    client.handleChunk('pleted","params":{}}\r\n');
+    expect(handled).toEqual(['turn/started', 'turn/completed']);
+  });
+
   it('enables the experimental API required by metadata-only thread resume', async () => {
     const client = createWritableClientDispatchHarness();
 
@@ -377,7 +390,7 @@ describe('app-server notification subscriptions', () => {
   it('uses a stable dispatch snapshot when subscriptions change inside a callback', () => {
     const client = createClientDispatchHarness();
     const handled: string[] = [];
-    let unsubscribeSecond = () => {};
+    let unsubscribeSecond = () => { /* assigned before the first dispatch */ };
     client.subscribeNotifications(() => {
       handled.push('first');
       unsubscribeSecond();

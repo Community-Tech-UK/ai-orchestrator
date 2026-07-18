@@ -1,9 +1,17 @@
 import type { OutputMessage } from '../../shared/types/instance.types';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
-const RECENT_TURNS_THRESHOLD = 5;
 const MIN_TURNS = 3;
 const TOOL_TRUNCATE_LIMIT = 200;
+const PACKET_MESSAGE_PREVIEW_LIMIT = 1_200;
+const HISTORY_MESSAGE_PREVIEW_LIMIT = 4_000;
+
+/**
+ * Hard ceiling for the complete generated recovery turn. Codex currently
+ * rejects assembled turns above 1 MiB; keeping replay context below 200k leaves
+ * room for system instructions, tool schemas, and attachment descriptors.
+ */
+export const MAX_RECOVERY_MESSAGE_CHARS = 200_000;
 
 export interface RecoveryPacket {
   version: 1;
@@ -14,6 +22,8 @@ export interface RecoveryPacket {
     id: string;
     type: OutputMessage['type'];
     content: string;
+    contentChars: number;
+    contentTruncated: boolean;
     timestamp: number;
     attachmentCount: number;
     toolName?: string;
@@ -47,7 +57,35 @@ function toolName(message: OutputMessage): string {
   return name ? `: ${name}` : '';
 }
 
-function formatMessage(message: OutputMessage, truncateToolOutput: boolean): string {
+function previewMessageContent(message: OutputMessage, textLimit: number): {
+  content: string;
+  contentChars: number;
+  contentTruncated: boolean;
+} {
+  const contentChars = message.content.length;
+  const isToolMessage = message.type === 'tool_result' || message.type === 'tool_use';
+  const limit = isToolMessage ? TOOL_TRUNCATE_LIMIT : textLimit;
+  if (contentChars <= limit) {
+    return { content: message.content, contentChars, contentTruncated: false };
+  }
+
+  if (isToolMessage) {
+    return {
+      content: `[Tool${toolName(message)} — output truncated for recovery, ${contentChars} chars original]`,
+      contentChars,
+      contentTruncated: true,
+    };
+  }
+
+  const suffix = `...[truncated for recovery, ${contentChars} chars original]`;
+  return {
+    content: `${message.content.slice(0, Math.max(0, limit - suffix.length))}${suffix}`,
+    contentChars,
+    contentTruncated: true,
+  };
+}
+
+function formatMessage(message: OutputMessage): string {
   const label = message.type === 'tool_result'
     ? `[TOOL${toolName(message)}]`
     : message.type === 'tool_use'
@@ -55,13 +93,11 @@ function formatMessage(message: OutputMessage, truncateToolOutput: boolean): str
       : roleLabel(message.type);
 
   const time = formatTimestamp(message.timestamp);
-  let content = message.content;
-
-  if (truncateToolOutput && (message.type === 'tool_result' || message.type === 'tool_use')) {
-    if (content.length > TOOL_TRUNCATE_LIMIT) {
-      content = `[Tool${toolName(message)} — output truncated for recovery, ${content.length} chars original]`;
-    }
+  if (message.type === 'tool_result' || message.type === 'tool_use') {
+    const toolContentKind = message.type === 'tool_result' ? 'output' : 'invocation';
+    return `${label} (${time}): [${message.content.length}-character tool ${toolContentKind} omitted from replay; see the structured packet preview and archived transcript.]`;
   }
+  const { content } = previewMessageContent(message, HISTORY_MESSAGE_PREVIEW_LIMIT);
 
   return `${label} (${time}): ${content}`;
 }
@@ -87,10 +123,13 @@ export function buildRecoveryPacket(messages: OutputMessage[], reason: string): 
         pendingToolCallIds.delete(toolCallId);
         completedToolCallIds.add(toolCallId);
       }
+      const preview = previewMessageContent(message, PACKET_MESSAGE_PREVIEW_LIMIT);
       return {
         id: message.id,
         type: message.type,
-        content: message.content,
+        content: preview.content,
+        contentChars: preview.contentChars,
+        contentTruncated: preview.contentTruncated,
         timestamp: message.timestamp,
         attachmentCount: message.attachments?.length ?? 0,
         toolName: message.metadata?.['name'] as string | undefined,
@@ -190,38 +229,80 @@ function buildMetadataHeader(messages: OutputMessage[], totalTurns: number): str
   return lines.join('\n');
 }
 
+function withTrailingNotice(message: string, trailingNotice?: string): string {
+  return trailingNotice?.trim()
+    ? `${message}\n\n${trailingNotice.trim()}`
+    : message;
+}
+
+function fitsRecoveryBudget(message: string, budgetTokens: number): boolean {
+  return message.length <= MAX_RECOVERY_MESSAGE_CHARS
+    && estimateTokens(message) <= budgetTokens;
+}
+
+function buildMinimalRecoveryMessage(
+  messages: OutputMessage[],
+  reason: string,
+  trailingNotice?: string,
+): string {
+  const conversational = messages.filter(
+    (message) => message.type === 'user' || message.type === 'assistant',
+  );
+  const latestUser = [...conversational].reverse().find((message) => message.type === 'user');
+  const latestAssistant = [...conversational].reverse().find((message) => message.type === 'assistant');
+  const lines = [
+    '[SESSION RECOVERY]',
+    `Native resume failed (${reason}). The complete transcript remains archived; this replay was reduced to fit provider limits.`,
+  ];
+  if (latestUser) {
+    lines.push(`[USER] ${previewMessageContent(latestUser, 200).content}`);
+  }
+  if (latestAssistant) {
+    lines.push(`[ASSISTANT] ${previewMessageContent(latestAssistant, 200).content}`);
+  }
+  lines.push('Continue from the current workspace state and ask only for context that cannot be recovered locally.');
+  return withTrailingNotice(lines.join('\n'), trailingNotice);
+}
+
+function fitPlainRecoveryMessage(message: string, budgetTokens: number): string {
+  if (fitsRecoveryBudget(message, budgetTokens)) return message;
+
+  const marker = '\n[Recovery context truncated to fit provider limits.]';
+  let low = 0;
+  let high = Math.min(message.length, MAX_RECOVERY_MESSAGE_CHARS - marker.length);
+  let best = '';
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = `${message.slice(0, middle).trimEnd()}${marker}`;
+    if (fitsRecoveryBudget(candidate, budgetTokens)) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+
+  return best || '[SESSION RECOVERY]';
+}
+
 export function buildFallbackHistoryMessage(
   messages: OutputMessage[],
   reason: string,
   contextWindowTokens: number,
   budgetFraction = 0.3,
+  trailingNotice?: string,
 ): string | null {
   if (messages.length === 0) return null;
   const packet = buildRecoveryPacket(messages, reason);
 
-  const budgetTokens = Math.floor(contextWindowTokens * budgetFraction);
+  const budgetTokens = Math.max(1, Math.floor(contextWindowTokens * budgetFraction));
   const conversational = messages.filter(
     m => m.type === 'user' || m.type === 'assistant' || m.type === 'tool_use' || m.type === 'tool_result'
   );
 
   if (conversational.length === 0) return null;
 
-  let recentBoundary = conversational.length;
-  let userTurnsSeen = 0;
-  for (let i = conversational.length - 1; i >= 0; i--) {
-    if (conversational[i].type === 'user') {
-      userTurnsSeen++;
-      if (userTurnsSeen >= RECENT_TURNS_THRESHOLD) {
-        recentBoundary = i;
-        break;
-      }
-    }
-  }
-
-  const formatted = conversational.map((m, i) => {
-    const truncate = i < recentBoundary;
-    return formatMessage(m, truncate);
-  });
+  const formatted = conversational.map((message) => formatMessage(message));
 
   const header = [
     `[SESSION RECOVERY — original session lost (${reason})]`,
@@ -232,9 +313,12 @@ export function buildFallbackHistoryMessage(
   ].join('\n');
 
   const fullBody = formatted.join('\n');
-  const fullMessage = `${header}--- Conversation History ---\n${fullBody}`;
+  const fullMessage = withTrailingNotice(
+    `${header}--- Conversation History ---\n${fullBody}`,
+    trailingNotice,
+  );
 
-  if (estimateTokens(fullMessage) <= budgetTokens) {
+  if (fitsRecoveryBudget(fullMessage, budgetTokens)) {
     return fullMessage;
   }
 
@@ -243,33 +327,38 @@ export function buildFallbackHistoryMessage(
 
   for (let keepTurns = conversational.length; keepTurns >= MIN_TURNS; keepTurns = Math.floor(keepTurns * 0.7)) {
     const slice = conversational.slice(-keepTurns);
-    const sliceFormatted = slice.map((m, i) => {
-      const truncate = i < Math.max(0, slice.length - RECENT_TURNS_THRESHOLD * 2);
-      return formatMessage(m, truncate);
-    });
+    const sliceFormatted = slice.map((message) => formatMessage(message));
 
     const omittedCount = conversational.length - keepTurns;
     const body = sliceFormatted.join('\n');
-    const candidate = [
+    const candidate = withTrailingNotice([
       header,
       metadataHeader,
       `\n(${omittedCount} earlier messages omitted)\n`,
       '--- Recent Conversation History ---',
       body,
-    ].join('\n');
+    ].join('\n'), trailingNotice);
 
-    if (estimateTokens(candidate) <= budgetTokens) {
+    if (fitsRecoveryBudget(candidate, budgetTokens)) {
       return candidate;
     }
   }
 
   const minSlice = conversational.slice(-MIN_TURNS);
-  const minFormatted = minSlice.map(m => formatMessage(m, true));
-  return [
+  const minFormatted = minSlice.map((message) => formatMessage(message));
+  const minimumCandidate = withTrailingNotice([
     header,
     metadataHeader,
     `\n(${conversational.length - MIN_TURNS} earlier messages omitted)\n`,
     '--- Recent Conversation History ---',
     minFormatted.join('\n'),
-  ].join('\n');
+  ].join('\n'), trailingNotice);
+  if (fitsRecoveryBudget(minimumCandidate, budgetTokens)) {
+    return minimumCandidate;
+  }
+
+  return fitPlainRecoveryMessage(
+    buildMinimalRecoveryMessage(messages, reason, trailingNotice),
+    budgetTokens,
+  );
 }

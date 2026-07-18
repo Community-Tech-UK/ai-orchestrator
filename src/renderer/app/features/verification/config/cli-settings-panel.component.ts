@@ -225,7 +225,6 @@ export class CliSettingsPanelComponent implements OnInit {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   useApiFallback(_command?: string): void {
     // Switch to API tab and show API key setup
     this.activeTab.set('api-keys');

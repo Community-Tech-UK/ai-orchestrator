@@ -46,7 +46,7 @@ import {
   CLAUDE_MODELS,
   getProviderModelContextWindow
 } from '../../../shared/types/provider.types';
-import { classifyError } from '../cli-error-handler';
+import { getErrorRecoveryManager } from '../../core/error-recovery';
 import type {
   RawCliPayload,
   ClaudeCliReasoningEffort,
@@ -736,7 +736,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             return; // Swallow EPIPE — expected when process closes pipe during interrupt/exit
           }
           logger.error('stdin stream error', error);
-          this.emit('error', error, classifyError(error));
+          this.emitClassifiedError(error);
         });
       }
 
@@ -804,7 +804,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       // Handle stderr
       this.process.stderr?.on('data', (chunk: Buffer) => {
         const stderrError = new Error(chunk.toString().trim());
-        this.emit('error', stderrError, classifyError(stderrError));
+        this.emitClassifiedError(stderrError);
       });
 
       // Handle exit
@@ -1252,7 +1252,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           return; // Swallow EPIPE — expected when process closes pipe during interrupt/exit
         }
         logger.error('stdin stream error', error);
-        this.emit('error', error, classifyError(error));
+        this.emitClassifiedError(error);
       });
     }
 
@@ -1273,7 +1273,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     // Set up error handler
     this.process.on('error', (error) => {
-      this.emit('error', error, classifyError(error));
+      this.emitClassifiedError(error);
     });
 
     return this.process.pid;
@@ -1389,6 +1389,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   // ============ Private Helper Methods ============
+
+  private emitClassifiedError(error: Error): void {
+    getErrorRecoveryManager().classifyError(error, 'claude-cli-adapter');
+    this.emit('error', error);
+  }
 
   private handleStdout(chunk: Buffer): void {
     const raw = chunk.toString();

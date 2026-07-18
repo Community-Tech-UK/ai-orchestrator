@@ -52,8 +52,6 @@ import type {
   EvidenceRangeAuthorization,
   EvidenceRangeAuthorizationInput,
   EvidenceStageInput,
-  LegacyMarkerCompareAndSwapInput,
-  LegacyOutputCacheMarkerRecord,
 } from './context-evidence-ledger.types';
 import { getNativeConversationRegistry, NativeConversationRegistry } from './native-conversation-registry';
 import type { NativeConversationAdapter } from './native-conversation-adapter';
@@ -636,14 +634,6 @@ export class ConversationLedgerService {
     retryAt: number,
   ): Promise<boolean> {
     return this.port.failEvidenceDeletion(id, claimToken, errorCode, retryAt);
-  }
-
-  async compareAndSwapLegacyOutputMarker(input: LegacyMarkerCompareAndSwapInput): Promise<boolean> {
-    return this.port.compareAndSwapLegacyOutputMarker(input);
-  }
-
-  async listLegacyOutputCacheMarkers(): Promise<LegacyOutputCacheMarkerRecord[]> {
-    return this.port.listLegacyOutputCacheMarkers();
   }
 
   async close(): Promise<void> {

@@ -90,7 +90,6 @@ export class InstanceTerminationCoordinator {
     this.deps.forceReleaseSessionMutex(instanceId);
     this.deps.stopStuckTracking?.(instanceId);
     this.deps.deleteDiffTracker?.(instanceId);
-    this.deps.deleteStateMachine?.(instanceId);
     this.deps.removeActivityDetector(instanceId);
     this.deps.clearRecoveryHistory(instanceId);
     // A quota-parked instance holds an early-resume probe interval, a resume
@@ -119,6 +118,7 @@ export class InstanceTerminationCoordinator {
     }
 
     if (!instance) {
+      this.deps.deleteStateMachine?.(instanceId);
       return;
     }
 
@@ -143,6 +143,7 @@ export class InstanceTerminationCoordinator {
     this.deleteOutputStorage(instanceId);
     this.deps.emitRemoved(instanceId);
     this.deps.deleteInstance(instanceId);
+    this.deps.deleteStateMachine?.(instanceId);
     deleteTurnSupervisor(instanceId);
     deleteCircuitBreaker(instanceId);
   }

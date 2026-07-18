@@ -33,12 +33,6 @@ export const ORCHESTRATION_CHANNELS = {
   VERIFICATION_ERROR: 'verification:error',
   VERIFICATION_VERDICT_READY: 'verification:verdict-ready',
 
-  // Verification event forwarding (main -> renderer)
-  VERIFICATION_EVENT_STARTED: 'verification:event:started',
-  VERIFICATION_EVENT_PROGRESS: 'verification:event:progress',
-  VERIFICATION_EVENT_COMPLETED: 'verification:event:completed',
-  VERIFICATION_EVENT_ERROR: 'verification:event:error',
-
   // Debate operations
   DEBATE_START: 'debate:start',
   DEBATE_GET_RESULT: 'debate:get-result',
@@ -49,15 +43,6 @@ export const ORCHESTRATION_CHANNELS = {
   DEBATE_RESUME: 'debate:resume',
   DEBATE_STOP: 'debate:stop',
   DEBATE_INTERVENE: 'debate:intervene',
-  DEBATE_EVENT: 'debate:event',
-
-  // Debate event forwarding (main -> renderer)
-  DEBATE_EVENT_STARTED: 'debate:event:started',
-  DEBATE_EVENT_ROUND_COMPLETE: 'debate:event:round-complete',
-  DEBATE_EVENT_COMPLETED: 'debate:event:completed',
-  DEBATE_EVENT_ERROR: 'debate:event:error',
-  DEBATE_EVENT_PAUSED: 'debate:event:paused',
-  DEBATE_EVENT_RESUMED: 'debate:event:resumed',
 
   // Consensus operations
   CONSENSUS_QUERY: 'consensus:query',

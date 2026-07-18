@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
   loadProjectRules: vi.fn(),
   supervisorRegister: vi.fn(() => ({ supervisorNodeId: 'sup-1', workerNodeId: 'worker-1' })),
   supervisorUnregister: vi.fn(),
-  outputStorageDelete: vi.fn(),
+  outputStorageDelete: vi.fn().mockResolvedValue(undefined),
   createAdapter: vi.fn(),
   resolveCliType: vi.fn().mockResolvedValue('claude'),
   promptHistoryRecord: vi.fn(),
@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   maybeGenerateTitle: vi.fn().mockResolvedValue(undefined),
   localModelInventory: [] as unknown[],
   localModelRefresh: vi.fn(),
+  getProviderCapabilities: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -153,7 +154,11 @@ vi.mock('../lifecycle/create-validation-helpers', () => ({
 }));
 
 vi.mock('../../providers/provider-runtime-service', () => ({
-  getProviderRuntimeService: () => ({ createAdapter: mocks.createAdapter }),
+  getProviderRuntimeService: () => ({
+    createAdapter: mocks.createAdapter,
+    getCapabilities: mocks.getProviderCapabilities,
+    getRuntimeSnapshot: () => undefined,
+  }),
 }));
 
 vi.mock('../../providers/activity-state-detector', () => ({
@@ -242,6 +247,7 @@ vi.mock('../lifecycle/runtime-readiness', () => ({
       return { supportsResume: false, supportsForkSession: false };
     }
     waitForResumeHealth(): Promise<boolean> { return Promise.resolve(true); }
+    evaluateResumeHealth(): Promise<'healthy'> { return Promise.resolve('healthy'); }
     waitForAdapterWritable(): Promise<boolean> { return Promise.resolve(true); }
     waitForInputReadinessBoundary(): Promise<void> { return Promise.resolve(); }
   },
@@ -403,6 +409,14 @@ describe('createInstance spawn transaction rollback', () => {
     mocks.maybeGenerateTitle.mockResolvedValue(undefined);
     mocks.localModelInventory.length = 0;
     mocks.localModelRefresh.mockResolvedValue(mocks.localModelInventory);
+    mocks.getProviderCapabilities.mockReturnValue({
+      supportsResume: false,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
+      selfManagedAutoCompaction: false,
+    });
   });
 
   it('rolls back Phase-1 registrations when RLM init fails (before any adapter exists)', async () => {
@@ -555,6 +569,56 @@ describe('createInstance spawn transaction rollback', () => {
     expect(adapter.sendInput).toHaveBeenCalledWith('hello world', undefined);
   });
 
+  it('creates, becomes ready, and terminates without leaving lifecycle resources behind', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+    });
+    await instance.readyPromise;
+
+    await harness.manager.terminateInstance(instance.id);
+
+    expect(adapter.terminate).toHaveBeenCalledWith(true);
+    expect(harness.instances.has(instance.id)).toBe(false);
+    expect(harness.adapters.has(instance.id)).toBe(false);
+    expect(harness.stateMachines.has(instance.id)).toBe(false);
+    expect(mocks.supervisorUnregister).toHaveBeenCalledWith(instance.id);
+    expect(harness.unregisterOrchestration).toHaveBeenCalledWith(instance.id);
+    expect(harness.endRlmSession).toHaveBeenCalledWith(instance.id);
+    expect(harness.removedEvents).toContain(instance.id);
+  });
+
+  it('rolls back an in-flight create when termination wins the race', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    let releaseRlm!: () => void;
+    harness.initializeRlm.mockImplementation(
+      () => new Promise<void>((resolve) => { releaseRlm = resolve; }),
+    );
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+    });
+    const readyPromise = instance.readyPromise;
+
+    const termination = harness.manager.terminateInstance(instance.id);
+    releaseRlm();
+    await termination;
+    await readyPromise?.catch(() => undefined);
+
+    expect(harness.instances.has(instance.id)).toBe(false);
+    expect(harness.adapters.has(instance.id)).toBe(false);
+    expect(harness.stateMachines.has(instance.id)).toBe(false);
+    expect(adapter.spawn).not.toHaveBeenCalled();
+    expect(harness.removedEvents).toContain(instance.id);
+  });
+
   it('creates root Codex adapters with durable provider sessions', async () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();
@@ -577,6 +641,47 @@ describe('createInstance spawn transaction rollback', () => {
         }),
       }),
     );
+  });
+
+  it('native-resumes from registry capabilities after the previous adapter was disposed', async () => {
+    const harness = makeHarness();
+    const initialAdapter = makeFakeAdapter();
+    const resumedAdapter = makeFakeAdapter();
+    mocks.resolveCliType.mockResolvedValue('codex');
+    mocks.createAdapter
+      .mockReturnValueOnce(initialAdapter)
+      .mockReturnValueOnce(resumedAdapter);
+    mocks.getProviderCapabilities.mockReturnValue({
+      supportsResume: true,
+      supportsForkSession: false,
+      supportsNativeCompaction: true,
+      supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
+      selfManagedAutoCompaction: true,
+    });
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'codex',
+      initialPrompt: 'continue the task',
+    });
+    await instance.readyPromise;
+    instance.providerSessionId = 'provider-thread-1';
+    instance.sessionId = 'provider-thread-1';
+    harness.adapters.delete(instance.id);
+
+    await harness.manager.restartInstance(instance.id);
+
+    expect(mocks.getProviderCapabilities).toHaveBeenCalledWith(undefined, 'codex');
+    expect(mocks.createAdapter).toHaveBeenLastCalledWith(expect.objectContaining({
+      cliType: 'codex',
+      options: expect.objectContaining({
+        sessionId: 'provider-thread-1',
+        resume: true,
+      }),
+    }));
+    expect(instance.recoveryMethod).toBe('native');
+    expect(harness.adapters.get(instance.id)).toBe(resumedAdapter);
   });
 
   it('passes local-model runtime targets to adapter creation with resolved remote execution', async () => {

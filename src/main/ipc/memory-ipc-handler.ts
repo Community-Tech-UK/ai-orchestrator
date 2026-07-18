@@ -3,7 +3,8 @@
  * Handles Memory-R1, Unified Memory, Debate, and Training operations
  */
 
-import { ipcMain } from 'electron';
+import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 import { getMemoryManager } from '../memory/r1-memory-manager';
@@ -15,6 +16,8 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   DebateCancelPayloadSchema,
   DebateGetResultPayloadSchema,
+  DebateIntervenePayloadSchema,
+  DebateSessionActionPayloadSchema,
   DebateStartPayloadSchema,
 } from '@contracts/schemas/orchestration';
 import {
@@ -55,6 +58,7 @@ import type {
   StrategyMemory
 } from '../../shared/types/unified-memory.types';
 import type { DebateResult, ActiveDebate, DebateStats } from '../../shared/types/debate.types';
+import { validatedHandler } from './validated-handler';
 // Training types moved to training-ipc-handler.ts
 
 function success<T>(data: T): IpcResponse<T> {
@@ -74,20 +78,28 @@ function getOrchestrationEventStore(): OrchestrationEventStore {
 /**
  * Register all memory-related IPC handlers
  */
-export function registerMemoryHandlers(): void {
-  registerMemoryR1Handlers();
-  registerUnifiedMemoryHandlers();
-  registerDebateHandlers();
+interface RegisterMemoryHandlersDeps {
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
+}
+
+export function registerMemoryHandlers(deps: RegisterMemoryHandlersDeps = {}): void {
+  registerMemoryR1Handlers(deps);
+  registerUnifiedMemoryHandlers(deps);
+  registerDebateHandlers(deps);
   // Note: Training handlers are registered separately via training-ipc-handler.ts
 }
 
 // ============ Memory-R1 Handlers ============
 
-function registerMemoryR1Handlers(): void {
+function registerMemoryR1Handlers(deps: RegisterMemoryHandlersDeps): void {
   const memory = getMemoryManager();
+  const registerMemoryHandler = createMemoryHandlerRegistrar(deps);
 
   // Decide operation
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.MEMORY_R1_DECIDE_OPERATION,
     async (_event, payload: unknown): Promise<IpcResponse<MemoryManagerDecision>> => {
       const validated = validateIpcPayload(
@@ -105,7 +117,7 @@ function registerMemoryR1Handlers(): void {
   );
 
   // Execute operation
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.MEMORY_R1_EXECUTE_OPERATION,
     async (_event, decision: unknown): Promise<IpcResponse<MemoryEntry | null>> => {
       const validated = validateIpcPayload(
@@ -118,7 +130,7 @@ function registerMemoryR1Handlers(): void {
   );
 
   // Add entry directly
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.MEMORY_R1_ADD_ENTRY,
     async (_event, payload: unknown): Promise<IpcResponse<MemoryEntry>> => {
       const validated = validateIpcPayload(
@@ -137,7 +149,7 @@ function registerMemoryR1Handlers(): void {
   );
 
   // Delete entry
-  ipcMain.handle(IPC_CHANNELS.MEMORY_R1_DELETE_ENTRY, (_event, entryId: unknown): IpcResponse<void> => {
+  registerMemoryHandler(IPC_CHANNELS.MEMORY_R1_DELETE_ENTRY, (_event, entryId: unknown): IpcResponse<void> => {
     const validated = validateIpcPayload(
       MemoryR1DeleteEntryPayloadSchema,
       entryId,
@@ -148,7 +160,7 @@ function registerMemoryR1Handlers(): void {
   });
 
   // Get entry
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.MEMORY_R1_GET_ENTRY,
     (_event, entryId: unknown): IpcResponse<MemoryEntry | undefined> => {
       const validated = validateIpcPayload(
@@ -161,7 +173,7 @@ function registerMemoryR1Handlers(): void {
   );
 
   // Retrieve memories
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.MEMORY_R1_RETRIEVE,
     async (_event, payload: unknown): Promise<IpcResponse<MemoryEntry[]>> => {
       const validated = validateIpcPayload(
@@ -174,7 +186,7 @@ function registerMemoryR1Handlers(): void {
   );
 
   // Record task outcome
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.MEMORY_R1_RECORD_OUTCOME,
     (_event, payload: unknown): IpcResponse<void> => {
       const validated = validateIpcPayload(
@@ -188,17 +200,17 @@ function registerMemoryR1Handlers(): void {
   );
 
   // Get stats
-  ipcMain.handle(IPC_CHANNELS.MEMORY_R1_GET_STATS, (): IpcResponse<MemoryR1Stats> => {
+  registerMemoryHandler(IPC_CHANNELS.MEMORY_R1_GET_STATS, (): IpcResponse<MemoryR1Stats> => {
     return success(memory.getStats());
   });
 
   // Save state
-  ipcMain.handle(IPC_CHANNELS.MEMORY_R1_SAVE, async (): Promise<IpcResponse<MemoryR1Snapshot>> => {
+  registerMemoryHandler(IPC_CHANNELS.MEMORY_R1_SAVE, async (): Promise<IpcResponse<MemoryR1Snapshot>> => {
     return success(await memory.save());
   });
 
   // Load state
-  ipcMain.handle(IPC_CHANNELS.MEMORY_R1_LOAD, async (_event, snapshot: unknown): Promise<IpcResponse<void>> => {
+  registerMemoryHandler(IPC_CHANNELS.MEMORY_R1_LOAD, async (_event, snapshot: unknown): Promise<IpcResponse<void>> => {
     const validated = validateIpcPayload(
       MemoryR1LoadPayloadSchema,
       snapshot,
@@ -209,7 +221,7 @@ function registerMemoryR1Handlers(): void {
   });
 
   // Configure
-  ipcMain.handle(IPC_CHANNELS.MEMORY_R1_CONFIGURE, (_event, config: unknown): IpcResponse<void> => {
+  registerMemoryHandler(IPC_CHANNELS.MEMORY_R1_CONFIGURE, (_event, config: unknown): IpcResponse<void> => {
     const validated = validateIpcPayload(
       MemoryR1ConfigurePayloadSchema,
       config,
@@ -222,11 +234,12 @@ function registerMemoryR1Handlers(): void {
 
 // ============ Unified Memory Handlers ============
 
-function registerUnifiedMemoryHandlers(): void {
+function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
   const unified = getUnifiedMemory();
+  const registerMemoryHandler = createMemoryHandlerRegistrar(deps);
 
   // Process input
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_PROCESS_INPUT,
     async (_event, payload: unknown): Promise<IpcResponse<void>> => {
       const validated = validateIpcPayload(
@@ -240,7 +253,7 @@ function registerUnifiedMemoryHandlers(): void {
   );
 
   // Retrieve
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RETRIEVE,
     async (_event, payload: unknown): Promise<IpcResponse<UnifiedRetrievalResult>> => {
       const validated = validateIpcPayload(
@@ -253,7 +266,7 @@ function registerUnifiedMemoryHandlers(): void {
   );
 
   // Record session end
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RECORD_SESSION_END,
     async (_event, payload: unknown): Promise<IpcResponse<void>> => {
       const validated = validateIpcPayload(
@@ -272,7 +285,7 @@ function registerUnifiedMemoryHandlers(): void {
   );
 
   // Record workflow
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RECORD_WORKFLOW,
     async (_event, payload: unknown): Promise<IpcResponse<WorkflowMemory>> => {
       const validated = validateIpcPayload(
@@ -290,7 +303,7 @@ function registerUnifiedMemoryHandlers(): void {
   );
 
   // Record strategy
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RECORD_STRATEGY,
     async (_event, payload: unknown): Promise<IpcResponse<StrategyMemory>> => {
       const validated = validateIpcPayload(
@@ -310,7 +323,7 @@ function registerUnifiedMemoryHandlers(): void {
   );
 
   // Record task outcome
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RECORD_OUTCOME,
     (_event, payload: unknown): IpcResponse<void> => {
       const validated = validateIpcPayload(
@@ -324,12 +337,12 @@ function registerUnifiedMemoryHandlers(): void {
   );
 
   // Get stats
-  ipcMain.handle(IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS, (): IpcResponse<UnifiedMemoryStats> => {
+  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS, (): IpcResponse<UnifiedMemoryStats> => {
     return success(unified.getStats());
   });
 
   // Get sessions
-  ipcMain.handle(IPC_CHANNELS.UNIFIED_MEMORY_GET_SESSIONS, (_event, limit: unknown): IpcResponse<SessionMemory[]> => {
+  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_SESSIONS, (_event, limit: unknown): IpcResponse<SessionMemory[]> => {
     const validated = validateIpcPayload(
       UnifiedMemoryGetSessionsPayloadSchema,
       limit,
@@ -339,7 +352,7 @@ function registerUnifiedMemoryHandlers(): void {
   });
 
   // Get patterns
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_GET_PATTERNS,
     (_event, minSuccessRate: unknown): IpcResponse<LearnedPattern[]> => {
       const validated = validateIpcPayload(
@@ -352,17 +365,17 @@ function registerUnifiedMemoryHandlers(): void {
   );
 
   // Get workflows
-  ipcMain.handle(IPC_CHANNELS.UNIFIED_MEMORY_GET_WORKFLOWS, (): IpcResponse<WorkflowMemory[]> => {
+  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_WORKFLOWS, (): IpcResponse<WorkflowMemory[]> => {
     return success(unified.getWorkflows());
   });
 
   // Save state
-  ipcMain.handle(IPC_CHANNELS.UNIFIED_MEMORY_SAVE, async (): Promise<IpcResponse<UnifiedMemorySnapshot>> => {
+  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_SAVE, async (): Promise<IpcResponse<UnifiedMemorySnapshot>> => {
     return success(await unified.save());
   });
 
   // Load state
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_LOAD,
     async (_event, snapshot: unknown): Promise<IpcResponse<void>> => {
       const validated = validateIpcPayload(
@@ -376,7 +389,7 @@ function registerUnifiedMemoryHandlers(): void {
   );
 
   // Configure
-  ipcMain.handle(
+  registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_CONFIGURE,
     (_event, config: unknown): IpcResponse<void> => {
       const validated = validateIpcPayload(
@@ -392,121 +405,168 @@ function registerUnifiedMemoryHandlers(): void {
 
 // ============ Debate Handlers ============
 
-function registerDebateHandlers(): void {
+function registerDebateHandlers(deps: RegisterMemoryHandlersDeps): void {
   const debate = getDebateCoordinator();
+  const emptyPayloadSchema = z.undefined().optional();
+  const options = (errorCode: string) => ({
+    ensureTrustedSender: deps.ensureTrustedSender,
+    errorCode,
+  });
 
   // Start debate
   ipcMain.handle(
     IPC_CHANNELS.DEBATE_START,
-    async (_event, payload: unknown): Promise<string> => {
-      const validated = validateIpcPayload(
-        DebateStartPayloadSchema,
-        payload,
-        'DEBATE_START'
-      );
-      return debate.startDebate(validated.query, validated.context, validated.config, {
-        instanceId: validated.instanceId,
-        provider: validated.provider,
-      });
-    }
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_START,
+      DebateStartPayloadSchema,
+      async (payload) => success(await debate.startDebate(
+        payload.query,
+        payload.context,
+        payload.config,
+        { instanceId: payload.instanceId, provider: payload.provider },
+      )),
+      options('DEBATE_START_FAILED'),
+    ),
   );
 
   // Get result
   ipcMain.handle(
     IPC_CHANNELS.DEBATE_GET_RESULT,
-    (_event, debateId: unknown): DebateResult | undefined => {
-      const validated = validateIpcPayload(
-        DebateGetResultPayloadSchema,
-        debateId,
-        'DEBATE_GET_RESULT'
-      );
-      if (isFeatureEnabled('EVENT_SOURCING')) {
-        return getOrchestrationEventStore().getDebateResult(validated);
-      }
-      return debate.getResult(validated);
-    }
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_GET_RESULT,
+      DebateGetResultPayloadSchema,
+      async (debateId) => success(isFeatureEnabled('EVENT_SOURCING')
+        ? getOrchestrationEventStore().getDebateResult(debateId)
+        : debate.getResult(debateId)),
+      options('DEBATE_GET_RESULT_FAILED'),
+    ),
   );
 
   // Get active debates
-  ipcMain.handle(IPC_CHANNELS.DEBATE_GET_ACTIVE, (): ActiveDebate[] => {
-    if (isFeatureEnabled('EVENT_SOURCING')) {
-      return getOrchestrationEventStore().getActiveDebates();
-    }
-    return debate.getActiveDebates();
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.DEBATE_GET_ACTIVE,
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_GET_ACTIVE,
+      emptyPayloadSchema,
+      async () => success<ActiveDebate[]>(isFeatureEnabled('EVENT_SOURCING')
+        ? getOrchestrationEventStore().getActiveDebates()
+        : debate.getActiveDebates()),
+      options('DEBATE_GET_ACTIVE_FAILED'),
+    ),
+  );
 
   // Cancel debate
-  ipcMain.handle(IPC_CHANNELS.DEBATE_CANCEL, async (_event, debateId: unknown): Promise<boolean> => {
-    const validated = validateIpcPayload(
+  ipcMain.handle(
+    IPC_CHANNELS.DEBATE_CANCEL,
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_CANCEL,
       DebateCancelPayloadSchema,
-      debateId,
-      'DEBATE_CANCEL'
-    );
-    return debate.cancelDebate(validated);
-  });
+      async (debateId) => success(await debate.cancelDebate(debateId)),
+      options('DEBATE_CANCEL_FAILED'),
+    ),
+  );
 
   // Get stats
-  ipcMain.handle(IPC_CHANNELS.DEBATE_GET_STATS, (): DebateStats => {
-    return debate.getStats();
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.DEBATE_GET_STATS,
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_GET_STATS,
+      emptyPayloadSchema,
+      async () => success<DebateStats>(debate.getStats()),
+      options('DEBATE_GET_STATS_FAILED'),
+    ),
+  );
 
-  // Pause debate — frontend calls 'debate:pause'
-  ipcMain.handle('debate:pause', async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const data = payload as { sessionId?: string } | undefined;
-      const debateId = data?.sessionId;
-      if (!debateId) {
-        return { success: false, error: { code: 'INVALID_PAYLOAD', message: 'sessionId required', timestamp: Date.now() } };
-      }
-      return { success: debate.pauseDebate(debateId), data: { debateId, status: 'paused' } };
-    } catch (error) {
-      return { success: false, error: { code: 'DEBATE_PAUSE_FAILED', message: (error as Error).message, timestamp: Date.now() } };
-    }
-  });
+  // Pause debate
+  ipcMain.handle(
+    IPC_CHANNELS.DEBATE_PAUSE,
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_PAUSE,
+      DebateSessionActionPayloadSchema,
+      async ({ sessionId }) => success({
+        debateId: sessionId,
+        status: 'paused' as const,
+        paused: debate.pauseDebate(sessionId),
+      }),
+      options('DEBATE_PAUSE_FAILED'),
+    ),
+  );
 
-  // Resume debate — frontend calls 'debate:resume'
-  ipcMain.handle('debate:resume', async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const data = payload as { sessionId?: string } | undefined;
-      const debateId = data?.sessionId;
-      if (!debateId) {
-        return { success: false, error: { code: 'INVALID_PAYLOAD', message: 'sessionId required', timestamp: Date.now() } };
-      }
-      return { success: debate.resumeDebate(debateId), data: { debateId, status: 'in_progress' } };
-    } catch (error) {
-      return { success: false, error: { code: 'DEBATE_RESUME_FAILED', message: (error as Error).message, timestamp: Date.now() } };
-    }
-  });
+  // Resume debate
+  ipcMain.handle(
+    IPC_CHANNELS.DEBATE_RESUME,
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_RESUME,
+      DebateSessionActionPayloadSchema,
+      async ({ sessionId }) => success({
+        debateId: sessionId,
+        status: 'in_progress' as const,
+        resumed: debate.resumeDebate(sessionId),
+      }),
+      options('DEBATE_RESUME_FAILED'),
+    ),
+  );
 
-  // Stop debate — frontend calls 'debate:stop' (alias for cancel)
-  ipcMain.handle('debate:stop', async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const data = payload as { sessionId?: string } | undefined;
-      const debateId = data?.sessionId;
-      if (!debateId) {
-        return { success: false, error: { code: 'INVALID_PAYLOAD', message: 'sessionId required', timestamp: Date.now() } };
-      }
-      const stopped = await debate.cancelDebate(debateId);
-      return { success: stopped, data: { debateId, status: 'cancelled' } };
-    } catch (error) {
-      return { success: false, error: { code: 'DEBATE_STOP_FAILED', message: (error as Error).message, timestamp: Date.now() } };
-    }
-  });
+  // Stop debate (alias for cancel)
+  ipcMain.handle(
+    IPC_CHANNELS.DEBATE_STOP,
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_STOP,
+      DebateSessionActionPayloadSchema,
+      async ({ sessionId }) => success({
+        debateId: sessionId,
+        status: 'cancelled' as const,
+        stopped: await debate.cancelDebate(sessionId),
+      }),
+      options('DEBATE_STOP_FAILED'),
+    ),
+  );
 
-  // Intervene in debate — frontend calls 'debate:intervene'
-  ipcMain.handle('debate:intervene', async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const data = payload as { sessionId?: string; message?: string } | undefined;
-      const debateId = data?.sessionId;
-      const message = data?.message;
-      if (!debateId || !message) {
-        return { success: false, error: { code: 'INVALID_PAYLOAD', message: 'sessionId and message required', timestamp: Date.now() } };
+  // Intervene in debate
+  ipcMain.handle(
+    IPC_CHANNELS.DEBATE_INTERVENE,
+    validatedHandler(
+      IPC_CHANNELS.DEBATE_INTERVENE,
+      DebateIntervenePayloadSchema,
+      async ({ sessionId, message }) => success({
+        debateId: sessionId,
+        accepted: debate.intervene(sessionId, message),
+      }),
+      options('DEBATE_INTERVENE_FAILED'),
+    ),
+  );
+}
+
+type MemoryHandler = (
+  event: IpcMainInvokeEvent,
+  payload: unknown,
+) => IpcResponse<unknown> | Promise<IpcResponse<unknown>>;
+
+function createMemoryHandlerRegistrar(deps: RegisterMemoryHandlersDeps) {
+  return (channel: string, handler: MemoryHandler): void => {
+    ipcMain.handle(channel, async (event, payload): Promise<IpcResponse> => {
+      const trustError = deps.ensureTrustedSender?.(event, channel);
+      if (trustError) {
+        return trustError;
       }
-      return { success: debate.intervene(debateId, message), data: { debateId } };
-    } catch (error) {
-      return { success: false, error: { code: 'DEBATE_INTERVENE_FAILED', message: (error as Error).message, timestamp: Date.now() } };
-    }
-  });
+      try {
+        return await handler(event, payload);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const validationFailed = message.startsWith('IPC validation failed for ');
+        return {
+          success: false,
+          error: {
+            code: validationFailed
+              ? 'VALIDATION_FAILED'
+              : `${channel.replace(/[:-]/g, '_').toUpperCase()}_FAILED`,
+            message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    });
+  };
 }
 
 // Note: Training handlers (GRPO) are now registered in training-ipc-handler.ts

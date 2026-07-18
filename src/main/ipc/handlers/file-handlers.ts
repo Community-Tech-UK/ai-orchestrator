@@ -19,7 +19,10 @@ import {
   WatcherStopPayloadSchema,
 } from '@contracts/schemas/file-operations';
 import { getExternalEditorManager } from '../../workspace/editor/external-editor';
-import { getFileWatcherManager } from '../../workspace/watcher/file-watcher';
+import {
+  getFileWatcherManager,
+  type FileChangeEvent,
+} from '../../workspace/watcher/file-watcher';
 import { getMultiEditManager } from '../../workspace/multiedit-manager';
 import { WindowManager } from '../../window-manager';
 
@@ -279,13 +282,13 @@ export function registerFileHandlers(deps: {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(WatcherStartPayloadSchema, payload, 'WATCHER_START');
-        const sessionId = await watcherManager.watch(validated.directory, {
+        const session = await watcherManager.watch(validated.directory, {
           ignored: validated.ignored,
           useGitignore: validated.useGitignore,
           depth: validated.depth,
           ignoreInitial: validated.ignoreInitial
         });
-        return { success: true, data: { sessionId } };
+        return { success: true, data: { sessionId: session.id } };
       } catch (error) {
         return {
           success: false,
@@ -415,20 +418,21 @@ export function registerFileHandlers(deps: {
   );
 
   // Forward watcher events to renderer
-  watcherManager.on('file-changed', (data) => {
-    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
+  watcherManager.on('change', (sessionId: string, event: FileChangeEvent) => {
+    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_FILE_CHANGED, {
+      sessionId,
+      type: event.type,
+      path: event.path,
+      relativePath: event.relativePath,
+      timestamp: event.timestamp,
+    });
   });
 
-  watcherManager.on('file-added', (data) => {
-    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
-  });
-
-  watcherManager.on('file-removed', (data) => {
-    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
-  });
-
-  watcherManager.on('error', (data) => {
-    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_ERROR, data);
+  watcherManager.on('error', (sessionId: string, error: unknown) => {
+    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_ERROR, {
+      sessionId,
+      message: error instanceof Error ? error.message : String(error),
+    });
   });
 
   // ============================================

@@ -35,7 +35,7 @@ describe('NestedMenuComponent', () => {
   });
 
   function attach(m: MenuModel<Payload>): void {
-    fixture.componentInstance.model = m;
+    fixture.componentRef.setInput('model', m);
     fixture.detectChanges();
     menuRoot = fixture.nativeElement.querySelector('.nested-menu') as HTMLDivElement;
   }
@@ -60,12 +60,12 @@ describe('NestedMenuComponent', () => {
   });
 
   it('renders section labels when provided, omits when not', () => {
-    fixture.componentInstance.model = {
+    fixture.componentRef.setInput('model', {
       sections: [
         { id: 's0', items: [leaf('a')] },
         { id: 's1', label: 'Other versions', items: [leaf('b')] },
       ],
-    };
+    });
     fixture.detectChanges();
     const labels = Array.from(fixture.nativeElement.querySelectorAll('.nested-menu__section-label'))
       .map((el) => (el as HTMLElement).textContent?.trim());
@@ -192,8 +192,8 @@ describe('NestedMenuComponent', () => {
   });
 
   it('autoFocus focuses the first item on mount', async () => {
-    fixture.componentInstance.model = model([[leaf('a'), leaf('b')]]);
-    fixture.componentInstance.autoFocus = true;
+    fixture.componentRef.setInput('model', model([[leaf('a'), leaf('b')]]));
+    fixture.componentRef.setInput('autoFocus', true);
     fixture.detectChanges();
     // Drain the microtask queue so queueMicrotask() inside ngAfterViewInit runs.
     await Promise.resolve();

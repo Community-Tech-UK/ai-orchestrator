@@ -8,6 +8,7 @@ import type { ContextSectionRow } from '../persistence/rlm-database.types';
 import { createSearchIndex, updateSearchIndex } from './context';
 
 const METADATA_ONLY_SECTION_LIMIT = 5_000;
+const PERSISTED_SECTION_QUERY_LIMIT = METADATA_ONLY_SECTION_LIMIT + 1;
 const METADATA_ONLY_TOKEN_LIMIT = 2_000_000;
 const METADATA_ONLY_SIZE_LIMIT = 25 * 1024 * 1024;
 
@@ -26,9 +27,10 @@ export function loadPersistedContextState(db: RLMDatabase): PersistedContextStat
   let loadedSections = 0;
 
   for (const row of storeRows) {
-    const sectionRows = db.getSections(row.id);
+    const queriedSectionRows = db.getSections(row.id, { limit: PERSISTED_SECTION_QUERY_LIMIT });
     const config = parseStoreConfig(row.config_json);
-    const metadataOnly = shouldLoadMetadataOnly(row, config, sectionRows.length);
+    const metadataOnly = shouldLoadMetadataOnly(row, config, queriedSectionRows.length);
+    const sectionRows = queriedSectionRows.slice(0, METADATA_ONLY_SECTION_LIMIT);
 
     const store: ContextStore = {
       id: row.id,

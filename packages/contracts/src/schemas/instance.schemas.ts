@@ -11,6 +11,29 @@ import {
 
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
 export const InstanceLaunchModeSchema = z.enum(['orchestrated', 'interactive']);
+export const InstanceStatusSchema = z.enum([
+  'initializing',
+  'ready',
+  'idle',
+  'busy',
+  'processing',
+  'thinking_deeply',
+  'waiting_for_input',
+  'waiting_for_permission',
+  'interrupting',
+  'cancelling',
+  'interrupt-escalating',
+  'cancelled',
+  'superseded',
+  'respawning',
+  'hibernating',
+  'hibernated',
+  'waking',
+  'degraded',
+  'error',
+  'failed',
+  'terminated',
+]);
 const InstanceCreateProviderSchema = z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
 const NodePlacementPrefsSchema = z.object({
   requiresBrowser: z.boolean().optional(),
@@ -381,6 +404,69 @@ export const InstanceRecoverCompactionContextPayloadSchema = z.object({
 
 export type InstanceRecoverCompactionContextPayload = z.infer<typeof InstanceRecoverCompactionContextPayloadSchema>;
 
+const ContextUsageEventSchema = z.object({
+  used: z.number().nonnegative().finite(),
+  total: z.number().nonnegative().finite(),
+  percentage: z.number().min(0).max(100).finite(),
+  cumulativeTokens: z.number().nonnegative().finite().optional(),
+  inputTokens: z.number().nonnegative().finite().optional(),
+  outputTokens: z.number().nonnegative().finite().optional(),
+  source: z.string().min(1).max(200).optional(),
+  promptWeight: z.number().nonnegative().finite().optional(),
+  promptWeightBreakdown: z.object({
+    systemPrompt: z.number().nonnegative().finite().optional(),
+    mcpToolDescriptions: z.number().nonnegative().finite().optional(),
+    skills: z.number().nonnegative().finite().optional(),
+    plugins: z.number().nonnegative().finite().optional(),
+    userPrompt: z.number().nonnegative().finite().optional(),
+    other: z.number().nonnegative().finite().optional(),
+  }).strict().optional(),
+  costEstimate: z.number().nonnegative().finite().optional(),
+  isEstimated: z.boolean().optional(),
+}).strict();
+
+export const ContextWarningEventSchema = z.union([
+  z.object({
+    instanceId: InstanceIdSchema,
+    percentage: z.number().min(0).max(100).finite(),
+    level: z.enum(['warning', 'critical', 'emergency']),
+    deprecated: z.boolean().optional(),
+    legacyThreshold: z.union([z.literal(75), z.literal(80), z.literal(95)]).optional(),
+    decisionOwner: z.literal('ContextSafetyPolicy').optional(),
+  }).strict(),
+  z.object({
+    instanceId: InstanceIdSchema,
+    allowed: z.boolean(),
+    shouldWarn: z.boolean(),
+    remainingTokens: z.number().finite(),
+    source: z.enum(['config', 'model', 'default']),
+    message: z.string().min(1).max(10_000).optional(),
+  }).strict(),
+]);
+
+export const InstanceCompactStatusEventSchema = z.discriminatedUnion('status', [
+  z.object({
+    instanceId: InstanceIdSchema,
+    status: z.literal('started'),
+  }).strict(),
+  z.object({
+    instanceId: InstanceIdSchema,
+    status: z.literal('completed'),
+    success: z.boolean(),
+    method: z.enum(['native', 'restart-with-summary']),
+    blocking: z.boolean(),
+    previousUsage: ContextUsageEventSchema.optional(),
+    newUsage: ContextUsageEventSchema.optional(),
+    summary: z.string().max(500_000).optional(),
+    error: z.string().max(10_000).optional(),
+  }).strict(),
+  z.object({
+    instanceId: InstanceIdSchema,
+    status: z.literal('error'),
+    error: z.string().min(1).max(10_000),
+  }).strict(),
+]);
+
 // ============ User Action Response ============
 
 export const UserActionResponsePayloadSchema = z.object({
@@ -460,3 +546,105 @@ export type PersistedQueuedMessage = z.infer<typeof PersistedQueuedMessageSchema
 export type InstanceQueueSavePayload = z.infer<typeof InstanceQueueSavePayloadSchema>;
 export type InstanceQueueLoadAllResponse = z.infer<typeof InstanceQueueLoadAllResponseSchema>;
 export type InstanceQueueInitialPromptPayload = z.infer<typeof InstanceQueueInitialPromptPayloadSchema>;
+
+// ============ Main → Renderer Lifecycle Events ============
+
+export const InstanceCreatedEventPayloadSchema = z.object({
+  id: InstanceIdSchema,
+  status: InstanceStatusSchema,
+  workingDirectory: WorkingDirectorySchema,
+}).passthrough();
+
+export const InstanceRemovedEventPayloadSchema = InstanceIdSchema;
+
+export const InstanceStateUpdateEventPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  status: InstanceStatusSchema,
+}).passthrough();
+
+export const InstanceBatchUpdateEventPayloadSchema = z.object({
+  updates: z.array(InstanceStateUpdateEventPayloadSchema),
+  timestamp: z.number().int().nonnegative(),
+}).passthrough();
+
+export const InstanceYoloToggledEventPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  yoloMode: z.boolean(),
+  pendingYoloMode: z.boolean().optional(),
+}).strict();
+
+export const InstanceFastToggledEventPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  fastMode: z.boolean(),
+  reason: z.enum(['user', 'unavailable']).optional(),
+}).strict();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-model review + doom-loop + input-required renderer events
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const CrossModelReviewStartedEventSchema = z.object({
+  instanceId: z.string(),
+  reviewId: z.string(),
+  reviewStartedAt: z.number(),
+}).strict();
+
+/** `cross-model-review:result` — AggregatedReview. The envelope is pinned;
+ *  individual reviewer results are deep, versioned structures validated at
+ *  parse time in the service, so they pass through loosely here. */
+export const CrossModelReviewResultEventSchema = z.object({
+  id: z.string(),
+  instanceId: z.string(),
+  outputType: z.enum(['code', 'plan', 'architecture']),
+  reviewDepth: z.enum(['structured', 'tiered']),
+  reviews: z.array(z.object({ reviewerId: z.string() }).passthrough()),
+  localReviewer: z.unknown().optional(),
+  hasDisagreement: z.boolean(),
+  reviewStartedAt: z.number().optional(),
+  timestamp: z.number(),
+}).strict();
+
+export const CrossModelReviewDiscardedEventSchema = z.object({
+  instanceId: z.string(),
+  reviewId: z.string(),
+  reviewStartedAt: z.number(),
+  reason: z.string(),
+}).strict();
+
+export const CrossModelReviewAllUnavailableEventSchema = z.object({
+  instanceId: z.string(),
+  reviewId: z.string(),
+  reviewStartedAt: z.number(),
+}).strict();
+
+export const CrossModelReviewReviewerUnavailableEventSchema = z.object({
+  dropped: z.array(z.object({
+    cli: z.string(),
+    error: z.string().optional(),
+  })),
+}).strict();
+
+export const CrossModelReviewReviewerRateLimitedEventSchema = z.object({
+  instanceId: z.string(),
+  reviewId: z.string(),
+  cliType: z.string(),
+}).strict();
+
+export const CrossModelReviewReviewerRateLimitClearedEventSchema = z.object({
+  cliType: z.string(),
+}).strict();
+
+export const InstanceDoomLoopEventSchema = z.object({
+  instanceId: z.string(),
+  toolName: z.string(),
+  input: z.unknown().optional(),
+  consecutiveCount: z.number().int(),
+}).strict();
+
+export const InstanceInputRequiredEventSchema = z.object({
+  instanceId: z.string(),
+  requestId: z.string(),
+  prompt: z.string(),
+  timestamp: z.number(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();

@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, Input, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { Automation } from '../../../../shared/types/automation.types';
 import type {
@@ -28,7 +28,7 @@ interface WebhookRouteForm {
   styleUrl: './automation-webhooks-panel.component.css',
 })
 export class AutomationWebhooksPanelComponent {
-  @Input() automations: Automation[] = [];
+  readonly automations = input<Automation[]>([]);
 
   private readonly ipc = inject(AutomationIpcService);
 
@@ -147,7 +147,7 @@ export class AutomationWebhooksPanelComponent {
   }
 
   automationLabel(id: string): string {
-    return this.automations.find((automation) => automation.id === id)?.name ?? id;
+    return this.automations().find((automation) => automation.id === id)?.name ?? id;
   }
 
   routeAutomations(route: WebhookRouteConfig): string {

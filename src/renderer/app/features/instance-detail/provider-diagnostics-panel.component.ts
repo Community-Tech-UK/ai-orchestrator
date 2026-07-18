@@ -2,8 +2,9 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
-  Input,
+  input,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -110,22 +111,9 @@ interface ProviderDiagnosticItem {
 export class ProviderDiagnosticsPanelComponent {
   private readonly instanceEvents = inject(InstanceEventsService);
   private readonly snapshot = signal<ProviderDiagnosticsSnapshot>({});
-  private readonly instanceIdValue = signal('');
-  private readonly contextUsageValue = signal<ContextUsage | null>(null);
-
-  @Input()
-  set instanceId(value: string) {
-    const next = value ?? '';
-    if (next !== this.instanceIdValue()) {
-      this.snapshot.set({});
-    }
-    this.instanceIdValue.set(next);
-  }
-
-  @Input()
-  set contextUsage(value: ContextUsage | null) {
-    this.contextUsageValue.set(value ?? null);
-  }
+  readonly instanceId = input('');
+  readonly contextUsage = input<ContextUsage | null>(null);
+  private previousInstanceId = '';
 
   readonly items = computed<ProviderDiagnosticItem[]>(() => {
     const snapshot = this.withInputContext(this.snapshot());
@@ -166,10 +154,17 @@ export class ProviderDiagnosticsPanelComponent {
   });
 
   constructor() {
+    effect(() => {
+      const instanceId = this.instanceId() ?? '';
+      if (instanceId !== this.previousInstanceId) {
+        this.snapshot.set({});
+        this.previousInstanceId = instanceId;
+      }
+    });
     this.instanceEvents.events$
       .pipe(takeUntilDestroyed())
       .subscribe((envelope) => {
-        if (envelope.instanceId !== this.instanceIdValue()) {
+        if (envelope.instanceId !== this.instanceId()) {
           return;
         }
         this.applyEvent(envelope.event);
@@ -208,7 +203,7 @@ export class ProviderDiagnosticsPanelComponent {
   }
 
   private withInputContext(snapshot: ProviderDiagnosticsSnapshot): ProviderDiagnosticsSnapshot {
-    const usage = this.contextUsageValue();
+    const usage = this.contextUsage();
     if (!usage) {
       return snapshot;
     }

@@ -4,6 +4,7 @@ import {
   RemoteNodeIssuePairingPayloadSchema,
   RemoteNodeRepairCommandPayloadSchema,
   RemoteNodeRepairDiagnosePayloadSchema,
+  RemoteNodeRosterChangedEventSchema,
 } from '../remote-node.schemas';
 
 describe('remote-node.schemas', () => {
@@ -57,5 +58,43 @@ describe('remote-node.schemas', () => {
       ...candidate,
       authToken: 'secret-token',
     }).success).toBe(false);
+  });
+
+  it('validates renderer-bound remote-node roster events', () => {
+    const entry = {
+      id: nodeId,
+      name: 'Worker Mac',
+      status: 'connected',
+      address: '127.0.0.1',
+      connected: true,
+      supportedClis: ['claude'],
+      hasBrowserRuntime: true,
+      hasBrowserMcp: true,
+      hasAndroidMcp: false,
+      hasDocker: false,
+      activeInstances: 1,
+      maxConcurrentInstances: 4,
+      workingDirectories: ['/tmp/project'],
+      capabilities: {
+        platform: 'darwin',
+        arch: 'arm64',
+        cpuCores: 10,
+        totalMemoryMB: 32_768,
+        availableMemoryMB: 16_384,
+        supportedClis: ['claude'],
+        hasBrowserRuntime: true,
+        hasBrowserMcp: true,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 4,
+        workingDirectories: ['/tmp/project'],
+        browsableRoots: ['/tmp'],
+        discoveredProjects: [],
+      },
+    };
+
+    expect(RemoteNodeRosterChangedEventSchema.safeParse([entry]).success).toBe(true);
+    expect(RemoteNodeRosterChangedEventSchema.safeParse([{ id: nodeId }]).success).toBe(false);
+    expect(RemoteNodeRosterChangedEventSchema.safeParse(null).success).toBe(false);
   });
 });

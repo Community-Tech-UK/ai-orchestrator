@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 @Component({
   selector: 'app-danger-zone',
@@ -8,9 +8,9 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
     <section class="danger-zone">
       <div class="danger-header">
         <div>
-          <h4>{{ title }}</h4>
-          @if (description) {
-            <p>{{ description }}</p>
+          <h4>{{ title() }}</h4>
+          @if (description()) {
+            <p>{{ description() }}</p>
           }
         </div>
       </div>
@@ -22,6 +22,6 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
   styleUrl: './danger-zone.component.scss',
 })
 export class DangerZoneComponent {
-  @Input() title = 'Danger Zone';
-  @Input() description = '';
+  readonly title = input('Danger Zone');
+  readonly description = input('');
 }

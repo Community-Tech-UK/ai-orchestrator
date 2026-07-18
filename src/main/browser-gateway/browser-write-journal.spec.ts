@@ -6,18 +6,29 @@ import { BrowserWriteJournal } from './browser-write-journal';
 
 describe('BrowserWriteJournal', () => {
   let rootDir: string;
+  let journals: BrowserWriteJournal[];
+
+  function createJournal(
+    options: ConstructorParameters<typeof BrowserWriteJournal>[0] = {},
+  ): BrowserWriteJournal {
+    const journal = new BrowserWriteJournal(options);
+    journals.push(journal);
+    return journal;
+  }
 
   beforeEach(async () => {
     rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'bwj-'));
+    journals = [];
     BrowserWriteJournal._resetForTesting();
   });
 
   afterEach(async () => {
+    await Promise.all(journals.map((journal) => journal.flushPending()));
     await fs.rm(rootDir, { recursive: true, force: true });
   });
 
   it('records intent + outcome and lists entries newest last', async () => {
-    const journal = new BrowserWriteJournal({ rootDir, now: () => 42 });
+    const journal = createJournal({ rootDir, now: () => 42 });
     const seq = await journal.recordIntent({
       profileId: 'profile-1',
       targetId: 'target-1',
@@ -45,7 +56,7 @@ describe('BrowserWriteJournal', () => {
   });
 
   it('never writes field values (or exact lengths) to disk', async () => {
-    const journal = new BrowserWriteJournal({ rootDir, now: () => 1 });
+    const journal = createJournal({ rootDir, now: () => 1 });
     await journal.recordIntent({
       profileId: 'profile-1',
       targetId: 'target-1',
@@ -63,7 +74,7 @@ describe('BrowserWriteJournal', () => {
   });
 
   it('records failure outcomes with the reason and sentinel verdict', async () => {
-    const journal = new BrowserWriteJournal({ rootDir, now: () => 1 });
+    const journal = createJournal({ rootDir, now: () => 1 });
     const seq = await journal.recordIntent({
       profileId: 'profile-1',
       targetId: 'target-1',
@@ -89,7 +100,7 @@ describe('BrowserWriteJournal', () => {
   });
 
   it('survives a restart (reloads entries and continues seq from disk)', async () => {
-    const first = new BrowserWriteJournal({ rootDir, now: () => 1 });
+    const first = createJournal({ rootDir, now: () => 1 });
     const seq1 = await first.recordIntent({
       profileId: 'profile-1',
       targetId: 'target-1',
@@ -98,7 +109,7 @@ describe('BrowserWriteJournal', () => {
     });
     await first.flushPending();
 
-    const second = new BrowserWriteJournal({ rootDir, now: () => 2 });
+    const second = createJournal({ rootDir, now: () => 2 });
     const seq2 = await second.recordIntent({
       profileId: 'profile-1',
       targetId: 'target-1',
@@ -110,7 +121,7 @@ describe('BrowserWriteJournal', () => {
   });
 
   it('caps entries per target', async () => {
-    const journal = new BrowserWriteJournal({ rootDir, now: () => 1 });
+    const journal = createJournal({ rootDir, now: () => 1 });
     for (let i = 0; i < 210; i++) {
       await journal.recordIntent({
         profileId: 'profile-1',
@@ -124,13 +135,13 @@ describe('BrowserWriteJournal', () => {
   });
 
   it('starts fresh on a corrupt journal file', async () => {
-    const first = new BrowserWriteJournal({ rootDir, now: () => 1 });
+    const first = createJournal({ rootDir, now: () => 1 });
     await first.recordIntent({ profileId: 'p', targetId: 't', command: 'click' });
     await first.flushPending();
     const [file] = await fs.readdir(rootDir);
     await fs.writeFile(path.join(rootDir, file), 'not json');
 
-    const second = new BrowserWriteJournal({ rootDir, now: () => 2 });
+    const second = createJournal({ rootDir, now: () => 2 });
     expect(await second.list('p', 't')).toEqual([]);
   });
 });

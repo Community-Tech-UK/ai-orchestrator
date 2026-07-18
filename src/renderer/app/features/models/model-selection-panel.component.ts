@@ -3,13 +3,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  EventEmitter,
-  Input,
-  Output,
   ViewChild,
   computed,
+  effect,
   inject,
+  input,
   signal,
+  output,
 } from '@angular/core';
 import type {
   ModelDisplayInfo,
@@ -653,65 +653,46 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   private readonly favoriteKeys = signal<string[]>(this.storedFavorites.keys);
   private readonly customizedFavorites = signal(this.storedFavorites.customized);
 
-  private readonly _providers = signal<PickerProvider[]>([]);
-  private readonly _selectedProvider = signal<PickerProvider | null>(null);
-  private readonly _selectedModelId = signal<string | null>(null);
-  private readonly _selectedReasoning = signal<ReasoningEffort | null>(null);
-  private readonly _providerLabels = signal<ProviderLabelMap>(PROVIDER_MENU_LABELS);
-  private readonly _modelsForProvider = signal<
+  readonly providers = input.required<PickerProvider[]>();
+  readonly selectedProvider = input.required<PickerProvider | null>();
+  readonly selectedModelId = input.required<string | null>();
+  readonly selectedReasoning = input.required<ReasoningEffort | null>();
+  readonly providerLabels = input.required<ProviderLabelMap | null | undefined>();
+  readonly modelsForProvider = input.required<
     (provider: PickerProvider) => ModelDisplayInfo[]
-  >(() => []);
-  private readonly _reasoningOptionsForProvider = signal<
+  >();
+  readonly reasoningOptionsForProvider = input.required<
     (provider: PickerProvider) => UnifiedReasoningOption[]
-  >(() => []);
-  private readonly _disabledReasonForProvider = signal<
-    (provider: PickerProvider) => string | undefined
-  >(() => undefined);
+  >();
+  readonly disabledReasonForProvider = input<
+    ((provider: PickerProvider) => string | undefined) | undefined | null
+  >();
 
-  @Input({ required: true }) set providers(value: PickerProvider[]) {
-    const next = value ?? [];
-    this._providers.set(next);
-    const active = this.activeTab();
-    if (active !== 'favorites' && !next.includes(active)) {
-      this.activeTab.set('favorites');
-    }
-  }
-  @Input({ required: true }) set selectedProvider(value: PickerProvider | null) {
-    this._selectedProvider.set(value);
-  }
-  @Input({ required: true }) set selectedModelId(value: string | null) {
-    this._selectedModelId.set(value);
-  }
-  @Input({ required: true }) set selectedReasoning(value: ReasoningEffort | null) {
-    this._selectedReasoning.set(value);
-  }
-  @Input({ required: true }) set providerLabels(value: ProviderLabelMap | null | undefined) {
-    this._providerLabels.set(value ?? PROVIDER_MENU_LABELS);
-  }
-  @Input({ required: true }) set modelsForProvider(
-    fn: (provider: PickerProvider) => ModelDisplayInfo[],
-  ) {
-    this._modelsForProvider.set(fn ?? (() => []));
-  }
-  @Input({ required: true }) set reasoningOptionsForProvider(
-    fn: (provider: PickerProvider) => UnifiedReasoningOption[],
-  ) {
-    this._reasoningOptionsForProvider.set(fn ?? (() => []));
-  }
-  @Input() set disabledReasonForProvider(
-    fn: ((provider: PickerProvider) => string | undefined) | undefined | null,
-  ) {
-    this._disabledReasonForProvider.set(fn ?? (() => undefined));
-  }
+  private readonly _providers = computed(() => this.providers() ?? []);
+  private readonly _selectedProvider = computed(() => this.selectedProvider());
+  private readonly _selectedModelId = computed(() => this.selectedModelId());
+  private readonly _selectedReasoning = computed(() => this.selectedReasoning());
+  private readonly _providerLabels = computed(() =>
+    this.providerLabels() ?? PROVIDER_MENU_LABELS,
+  );
+  private readonly _modelsForProvider = computed(() =>
+    this.modelsForProvider() ?? (() => []),
+  );
+  private readonly _reasoningOptionsForProvider = computed(() =>
+    this.reasoningOptionsForProvider() ?? (() => []),
+  );
+  private readonly _disabledReasonForProvider = computed(() =>
+    this.disabledReasonForProvider() ?? (() => undefined),
+  );
 
-  @Output() selection = new EventEmitter<UnifiedSelection>();
-  @Output() dismiss = new EventEmitter<void>();
+  readonly selection = output<UnifiedSelection>();
+  readonly dismiss = output<void>();
 
   @ViewChild('searchInput', { static: true })
   private readonly searchInput!: ElementRef<HTMLInputElement>;
 
-  protected readonly providerList = this._providers.asReadonly();
-  protected readonly providerLabelMap = this._providerLabels.asReadonly();
+  protected readonly providerList = this._providers;
+  protected readonly providerLabelMap = this._providerLabels;
 
   /**
    * Default (non-customized) favorites: the curated `DEFAULT_FAVORITE_MODEL_KEYS`,
@@ -833,6 +814,16 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     const label = this._providerLabels()[active] ?? active;
     return `No models available for ${label}`;
   });
+
+  constructor() {
+    effect(() => {
+      const providers = this._providers();
+      const active = this.activeTab();
+      if (active !== 'favorites' && !providers.includes(active)) {
+        this.activeTab.set('favorites');
+      }
+    });
+  }
 
   ngAfterViewInit(): void {
     queueMicrotask(() => this.searchInput.nativeElement.focus());

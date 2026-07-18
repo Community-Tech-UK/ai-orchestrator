@@ -31,6 +31,7 @@ import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EchartsThemedComponent } from '../../shared/components/echarts-themed/echarts-themed.component';
 import type { EChartsOption } from 'echarts';
+import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 
 // ─── Local data shapes ────────────────────────────────────────────────────────
 
@@ -133,6 +134,7 @@ const EMPTY_BUDGET_STATUS: BudgetStatusData = {
 })
 export class CostPageComponent implements OnInit, OnDestroy {
   private readonly costIpc = inject(CostIpcService);
+  private readonly pollScheduler = inject(RendererPollSchedulerService);
 
   // ── Raw state signals ────────────────────────────────────────────────────
 
@@ -247,7 +249,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
   // ── Lifecycle & event subscriptions ─────────────────────────────────────
 
   private readonly unsubscribers: (() => void)[] = [];
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private stopPolling: (() => void) | null = null;
 
   constructor() {
     this.unsubscribers.push(
@@ -267,13 +269,11 @@ export class CostPageComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     void this.refreshAll(true);
-    this.pollTimer = setInterval(() => void this.refreshAll(false), 10_000);
+    this.stopPolling = this.pollScheduler.register(() => this.refreshAll(false), 10_000);
   }
 
   ngOnDestroy(): void {
-    if (this.pollTimer !== null) {
-      clearInterval(this.pollTimer);
-    }
+    this.stopPolling?.();
     for (const unsub of this.unsubscribers) {
       unsub();
     }

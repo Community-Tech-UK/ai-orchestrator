@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+const ConversationFormatSchema = z.enum([
+  'claude-code-jsonl', 'codex-jsonl', 'claude-ai-json',
+  'chatgpt-json', 'slack-json', 'plain-text',
+]);
+
 // ============ Knowledge Graph Payloads ============
 
 export const KgAddFactPayloadSchema = z.object({
@@ -53,10 +58,7 @@ export const ConvoImportStringPayloadSchema = z.object({
   content: z.string().min(1),
   wing: z.string().min(1),
   sourceFile: z.string().min(1),
-  format: z.enum([
-    'claude-code-jsonl', 'codex-jsonl', 'claude-ai-json',
-    'chatgpt-json', 'slack-json', 'plain-text',
-  ]).optional(),
+  format: ConversationFormatSchema.optional(),
 });
 
 export const ConvoDetectFormatPayloadSchema = z.object({
@@ -126,3 +128,36 @@ export const ProjectKnowledgeGetEvidencePayloadSchema = z.object({
 export const ProjectKnowledgeRefreshCodeIndexPayloadSchema = z.object({
   projectKey: z.string().min(1),
 });
+
+// ============ Main-to-renderer Events ============
+
+export const KgFactAddedEventSchema = z.object({
+  tripleId: z.string().min(1).max(500),
+  subject: z.string().min(1).max(10_000),
+  predicate: z.string().min(1).max(10_000),
+  object: z.string().min(1).max(100_000),
+}).strict();
+
+export const KgFactInvalidatedEventSchema = z.object({
+  subject: z.string().min(1).max(10_000),
+  predicate: z.string().min(1).max(10_000),
+  object: z.string().min(1).max(100_000),
+  ended: z.string().max(1_000).optional(),
+}).strict();
+
+export const ConvoImportCompleteEventSchema = z.object({
+  sourceFile: z.string().min(1).max(4_000),
+  segmentsCreated: z.number().int().nonnegative(),
+  format: ConversationFormatSchema,
+}).strict();
+
+export const WakeHintAddedEventSchema = z.object({
+  id: z.string().min(1).max(500),
+  content: z.string().min(1).max(100_000),
+  importance: z.number().min(0).max(10),
+}).strict();
+
+export const WakeContextGeneratedEventSchema = z.object({
+  totalTokens: z.number().int().nonnegative(),
+  wing: z.string().max(4_000).optional(),
+}).strict();

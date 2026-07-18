@@ -16,6 +16,7 @@ import {
   VoiceTtsPayloadSchema,
 } from '@contracts/schemas/voice';
 import { getSettingsManager } from '../../core/config/settings-manager';
+import { sendValidatedRendererEvent } from '../../event-bus/renderer-event-validation';
 import { getVoiceService, VoiceServiceError } from '../../services/voice';
 
 interface RegisterVoiceHandlersDeps {
@@ -175,12 +176,19 @@ export function registerVoiceHandlers(deps: RegisterVoiceHandlersDeps): void {
           'VOICE_LOCAL_STT_CHUNK'
         );
         const transcriptEvent = await voice.pushLocalSttChunk(validated);
-        event.sender.send(IPC_CHANNELS.VOICE_LOCAL_STT_EVENT, transcriptEvent);
+        const sent = sendValidatedRendererEvent(
+          event.sender,
+          IPC_CHANNELS.VOICE_LOCAL_STT_EVENT,
+          transcriptEvent,
+        );
+        if (!sent) {
+          throw new Error('Voice service returned an invalid transcript event.');
+        }
         return { success: true, data: { accepted: true } };
       } catch (error) {
         const sessionId = sessionIdFromPayload(payload);
         if (sessionId) {
-          event.sender.send(IPC_CHANNELS.VOICE_LOCAL_STT_EVENT, {
+          sendValidatedRendererEvent(event.sender, IPC_CHANNELS.VOICE_LOCAL_STT_EVENT, {
             sessionId,
             kind: 'error',
             error: error instanceof Error ? error.message : 'Local STT failed.',

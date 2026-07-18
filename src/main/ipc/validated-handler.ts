@@ -10,6 +10,14 @@ export interface IpcResponse<T = unknown> {
   error?: { code: string; message: string; timestamp: number };
 }
 
+export interface ValidatedHandlerOptions {
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
+  errorCode?: string;
+}
+
 /**
  * Creates a validated IPC handler that:
  * 1. Validates payload against Zod schema
@@ -19,10 +27,15 @@ export interface IpcResponse<T = unknown> {
 export function validatedHandler<TInput, TOutput = unknown>(
   channel: string,
   schema: z.ZodSchema<TInput>,
-  fn: (validated: TInput, event: IpcMainInvokeEvent) => Promise<IpcResponse<TOutput>>
+  fn: (validated: TInput, event: IpcMainInvokeEvent) => Promise<IpcResponse<TOutput>>,
+  options: ValidatedHandlerOptions = {},
 ): (event: IpcMainInvokeEvent, payload: unknown) => Promise<IpcResponse<TOutput>> {
   return async (event: IpcMainInvokeEvent, payload: unknown) => {
     try {
+      const trustError = options.ensureTrustedSender?.(event, channel);
+      if (trustError) {
+        return trustError as IpcResponse<TOutput>;
+      }
       const result = schema.safeParse(payload);
       if (!result.success) {
         const errors = result.error.issues
@@ -40,7 +53,11 @@ export function validatedHandler<TInput, TOutput = unknown>(
       logger.error(`IPC handler error for ${channel}`, error instanceof Error ? error : undefined);
       return {
         success: false,
-        error: { code: `${channel}_FAILED`, message, timestamp: Date.now() },
+        error: {
+          code: options.errorCode ?? `${channel}_FAILED`,
+          message,
+          timestamp: Date.now(),
+        },
       };
     }
   };

@@ -16,8 +16,6 @@ import { getHandoffStateService } from '../session/handoff-state-service';
 import { noteSandboxDenialOnExit } from './lifecycle/sandbox-exit-advice';
 import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { getHookManager } from '../hooks/hook-manager';
-import { emitPluginHook } from '../plugins/hook-emitter';
-import { getFileEditBus } from './file-edit-bus';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import type {
@@ -28,7 +26,6 @@ import type {
   OutputMessage,
 } from '../../shared/types/instance.types';
 import type { ErrorInfo } from '../../shared/types/ipc.types';
-import { ToolOutputParser } from './tool-output-parser';
 import {
   buildUnsupportedAttachmentWarnings,
   isUnsupportedOrchestratorAttachmentError,
@@ -85,10 +82,8 @@ import {
 import type { CircuitBreakerState } from './instance-communication.constants';
 import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
 import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
-import {
-  buildParsedToolResultEvidenceIngress,
-  buildRawToolResultEvidenceIngress,
-} from './instance-provider-event-ingress';
+import { InstanceContinuityInputQueue } from './instance-continuity-input-queue';
+import { InstanceToolResultProcessor } from './instance-tool-result-processor';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -98,7 +93,8 @@ export class InstanceCommunicationManager extends EventEmitter {
   private outputStorage = getOutputStorageManager();
   private hookManager = getHookManager();
   private deps: CommunicationDependencies;
-  private toolOutputParser = new ToolOutputParser();
+  private continuityInputQueue = new InstanceContinuityInputQueue();
+  private toolResultProcessor: InstanceToolResultProcessor;
   private interruptedInstances = new Set<string>();
 
   // Circuit breaker state per instance
@@ -118,22 +114,18 @@ export class InstanceCommunicationManager extends EventEmitter {
   private contextWarningIssued = new Set<string>();
   private contextOverflowRetried = new Set<string>();
   private contextOverflowSeen = new Set<string>(); // Tracks instances that hit context overflow via output path
-  private pendingContinuityPreambles = new Map<string, string>(); // Continuity queued for next input
-  private pendingContextWarnings = new Map<string, string>(); // Warnings queued for next input
-
-  // Tool result deduplication — tracks seen tool_use_ids per instance
-  private seenToolResultIds = new Map<string, Set<string>>();
-
-  // Rewind point tracking — counts autonomous tool completions between user inputs
-  private autonomousToolCounts = new Map<string, number>();
-  private softCheckpointCounts = new Map<string, number>();
-
   // Repeated error suppression
   private lastErrorContent = new Map<string, { content: string; count: number }>();
 
   constructor(deps: CommunicationDependencies) {
     super();
     this.deps = deps;
+    this.toolResultProcessor = new InstanceToolResultProcessor({
+      captureContextEvidenceToolResult: deps.captureContextEvidenceToolResult,
+      createSnapshot: deps.createSnapshot,
+      getDiffTracker: deps.getDiffTracker,
+      hookManager: this.hookManager,
+    });
   }
 
   /**
@@ -414,16 +406,13 @@ export class InstanceCommunicationManager extends EventEmitter {
     this.contextWarningIssued.delete(instanceId);
     this.contextOverflowRetried.delete(instanceId);
     this.contextOverflowSeen.delete(instanceId);
-    this.pendingContinuityPreambles.delete(instanceId);
-    this.pendingContextWarnings.delete(instanceId);
+    this.continuityInputQueue.cleanup(instanceId);
     this.lastErrorContent.delete(instanceId);
-    this.seenToolResultIds.delete(instanceId);
-    this.autonomousToolCounts.delete(instanceId);
-    this.softCheckpointCounts.delete(instanceId);
+    this.toolResultProcessor.cleanup(instanceId);
   }
 
   cleanupToolResultDedup(instanceId: string): void {
-    this.seenToolResultIds.delete(instanceId);
+    this.toolResultProcessor.cleanupDedup(instanceId);
   }
 
   private transitionInstanceStatus(instance: Instance, status: InstanceStatus): void {
@@ -517,12 +506,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   }
 
   queueContinuityPreamble(instanceId: string, preamble: string): void {
-    if (!preamble.trim()) {
-      return;
-    }
-
-    this.pendingContinuityPreambles.set(instanceId, preamble);
-    logger.info('Queued continuity preamble for next user input', { instanceId });
+    this.continuityInputQueue.queueContinuity(instanceId, preamble);
   }
 
   private emitAttachmentDropWarnings(
@@ -706,27 +690,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     // Track last sent message for retry-after-compaction
     this.lastSentMessages.set(instanceId, { message, attachments, contextBlock });
 
-    const pendingPreambles: string[] = [];
-    const pendingContinuity = this.pendingContinuityPreambles.get(instanceId);
-    if (pendingContinuity) {
-      pendingPreambles.push(pendingContinuity);
-      this.pendingContinuityPreambles.delete(instanceId);
-      logger.info('Prepended pending continuity preamble to user input', { instanceId });
-    }
-
-    let finalContextBlock = contextBlock;
-    const pendingWarning = this.pendingContextWarnings.get(instanceId);
-    if (pendingWarning) {
-      pendingPreambles.push(pendingWarning);
-      this.pendingContextWarnings.delete(instanceId);
-      logger.info('Prepended pending context warning to user input', { instanceId });
-    }
-
-    if (pendingPreambles.length > 0) {
-      finalContextBlock = finalContextBlock
-        ? `${pendingPreambles.join('\n\n')}\n\n${finalContextBlock}`
-        : pendingPreambles.join('\n\n');
-    }
+    const finalContextBlock = this.continuityInputQueue.consume(instanceId, contextBlock);
 
     const isAutoContinuation = options?.autoContinuation === true;
     const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
@@ -752,7 +716,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     }
     // Reset autonomous tool counter on user input
-    this.autonomousToolCounts.set(instanceId, 0);
+    this.toolResultProcessor.resetAutonomousCount(instanceId);
 
     // Budget gate: silent. Never throws a message at the user; the CLI
     // handles its own context and the CompactionCoordinator auto-compacts
@@ -1133,15 +1097,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
         message = this.withRuntimeMetadata(message, adapterGenerationAtSubscribe, turnId);
-        const parsedEvidenceIngress = buildParsedToolResultEvidenceIngress(instance, message);
-        if (parsedEvidenceIngress) {
-          void this.deps.captureContextEvidenceToolResult?.(parsedEvidenceIngress).catch((error) => {
-            logger.error('Parsed tool-result evidence ingress failed', error instanceof Error ? error : undefined, {
-              instanceId,
-              captureKey: parsedEvidenceIngress.captureKey,
-            });
-          });
-        }
+        this.toolResultProcessor.captureParsedEvidence(instance, message);
         reconcileClaudeSafetyRouteModel(instanceId, instance, message, this.deps.queueUpdate);
 
         if (message.type === 'error' && isSessionNotFoundText(message.content)) {
@@ -1319,89 +1275,8 @@ export class InstanceCommunicationManager extends EventEmitter {
           getTodoManager().writeTodos(instance.sessionId, todoItems);
         }
 
-        // Trigger hooks for tool_use events (PreToolUse)
-        if (message.type === 'tool_use' && message.metadata) {
-          const metadata = message.metadata as Record<string, unknown>;
-          const toolName = (metadata['name'] as string) || 'unknown';
-
-          try {
-            await this.hookManager.triggerLifecycleHooks('PreToolUse', {
-              instanceId,
-              sessionId: instance.providerSessionId || instance.sessionId,
-              toolName,
-              toolInput: metadata,
-              workingDirectory: instance.workingDirectory,
-            });
-          } catch (err) {
-            logger.error('PreToolUse hook error', err instanceof Error ? err : undefined, { instanceId });
-          }
-        }
-
-        // Capture file baselines for diff tracking + emit file.edited lifecycle hook
-        // on file-modifying tool events. extractFilePaths already excludes read-only
-        // tools, so every returned path is a mutation target.
         if (message.type === 'tool_use' || message.type === 'tool_result') {
-          const filePaths = this.toolOutputParser.extractFilePaths(message, instance.workingDirectory, instance.provider);
-          if (filePaths.length > 0) {
-            const tracker = this.deps.getDiffTracker?.(instanceId);
-            if (tracker) {
-              for (const fp of filePaths) {
-                try {
-                  tracker.captureBaseline(fp);
-                } catch (err) {
-                  logger.debug('Baseline capture failed', { instanceId, filePath: fp, error: String(err) });
-                }
-              }
-            }
-            // Emit file.edited on the tool_use (the invocation carrying file_path);
-            // gating to tool_use keeps it to one event per mutation across providers.
-            if (message.type === 'tool_use') {
-              const meta = message.metadata as Record<string, unknown> | undefined;
-              const toolName = typeof meta?.['name'] === 'string' ? (meta['name'] as string) : 'unknown';
-              for (const fp of filePaths) {
-                emitPluginHook('file.edited', {
-                  instanceId,
-                  filePath: fp,
-                  toolName,
-                  provider: instance.provider,
-                  timestamp: Date.now(),
-                });
-                // Internal main-process bus for coordinators (e.g. LSP feedback).
-                getFileEditBus().emitEdited({ instanceId, filePath: fp, toolName, provider: instance.provider });
-                dispatchInstanceLifecycleHook('FileChanged', instance, {
-                  toolName,
-                  filePath: fp,
-                  changedPath: fp,
-                  changedRelativePath: fp.startsWith(instance.workingDirectory)
-                    ? fp.slice(instance.workingDirectory.length).replace(/^[/\\]/, '')
-                    : fp,
-                  changeType: 'change',
-                }, logger, this.hookManager);
-              }
-            }
-          }
-        }
-
-        // Trigger hooks for tool_result events (PostToolUse)
-        if (message.type === 'tool_result' && message.metadata) {
-          const metadata = message.metadata as Record<string, unknown>;
-          const isError = (metadata['is_error'] as boolean) || false;
-
-          try {
-            await this.hookManager.triggerLifecycleHooks('PostToolUse', {
-              instanceId,
-              sessionId: instance.providerSessionId || instance.sessionId,
-              content: message.content,
-              toolOutput: message.content,
-              workingDirectory: instance.workingDirectory,
-            });
-            // Log warning if tool result was an error
-            if (isError) {
-              logger.warn('Tool execution reported an error', { instanceId });
-            }
-          } catch (err) {
-            logger.error('PostToolUse hook error', err instanceof Error ? err : undefined, { instanceId });
-          }
+          await this.toolResultProcessor.processToolLifecycle(instanceId, instance, message);
         }
 
         // Detect corrupted session errors (empty user messages stored in CLI history).
@@ -1496,15 +1371,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       captureToolResult: (toolCall) => {
         const instance = this.deps.getInstance(instanceId);
         if (!instance) return;
-        const rawEvidenceIngress = buildRawToolResultEvidenceIngress(instance, toolCall);
-        if (rawEvidenceIngress) {
-          void this.deps.captureContextEvidenceToolResult?.(rawEvidenceIngress).catch((error) => {
-            logger.error('Raw tool-result evidence ingress failed', error instanceof Error ? error : undefined, {
-              instanceId,
-              captureKey: rawEvidenceIngress.captureKey,
-            });
-          });
-        }
+        this.toolResultProcessor.captureRawEvidence(instance, toolCall);
       },
     });
 
@@ -2366,48 +2233,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.lastErrorContent.delete(instance.id);
     }
 
-    // Tool result deduplication — skip duplicate tool_results by tool_use_id
-    if (message.type === 'tool_result' && message.metadata) {
-      const toolUseId = message.metadata['tool_use_id'] as string | undefined;
-      if (toolUseId) {
-        let seen = this.seenToolResultIds.get(instance.id);
-        if (!seen) {
-          seen = new Set();
-          this.seenToolResultIds.set(instance.id, seen);
-        }
-        if (seen.has(toolUseId)) {
-          logger.debug('Skipped duplicate tool_result', { instanceId: instance.id, toolUseId });
-          return;
-        }
-        seen.add(toolUseId);
-      }
-    }
-
-    // Soft checkpoint: track autonomous tool completions
-    if (message.type === 'tool_result' && this.deps.createSnapshot) {
-      const count = (this.autonomousToolCounts.get(instance.id) ?? 0) + 1;
-      this.autonomousToolCounts.set(instance.id, count);
-
-      if (count > 5) {
-        const softCount = this.softCheckpointCounts.get(instance.id) ?? 0;
-        if (softCount < 10) {
-          const toolName = (message.metadata?.['name'] as string) || 'unknown';
-          try {
-            this.deps.createSnapshot(
-              instance.id,
-              `Auto: after ${toolName} (autonomous run, tool #${count})`,
-              undefined,
-              'auto'
-            );
-            this.softCheckpointCounts.set(instance.id, softCount + 1);
-          } catch (err) {
-            logger.debug('Failed to create soft checkpoint', { instanceId: instance.id, error: String(err) });
-          }
-          // Reset counter after creating checkpoint (per spec)
-          this.autonomousToolCounts.set(instance.id, 0);
-        }
-      }
-    }
+    if (!this.toolResultProcessor.acceptForBuffer(instance, message)) return;
 
     const streamingState = message.metadata && 'streaming' in message.metadata
       ? message.metadata['streaming']
@@ -2571,8 +2397,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       '[END SYSTEM WARNING]'
     ].join('\n');
 
-    this.pendingContextWarnings.set(instanceId, guidance);
-    logger.info('Queued context warning for next user input', { instanceId });
+    this.continuityInputQueue.queueContextWarning(instanceId, guidance);
   }
 
   // ============================================

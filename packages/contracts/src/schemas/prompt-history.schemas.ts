@@ -34,5 +34,10 @@ export const PromptHistoryClearInstancePayloadSchema = z.object({
   instanceId: InstanceIdSchema,
 });
 
+export const PromptHistoryDeltaPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  record: PromptHistoryRecordSchema,
+});
+
 export type PromptHistoryRecordPayload = z.infer<typeof PromptHistoryRecordPayloadSchema>;
 export type PromptHistoryClearInstancePayload = z.infer<typeof PromptHistoryClearInstancePayloadSchema>;

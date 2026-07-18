@@ -34,6 +34,7 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import { RlmStorageMaintenanceComponent } from './rlm-storage-maintenance.component';
 import { VerificationRunHistoryComponent } from './verification-run-history.component';
+import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 
 /**
  * Shows the Loop Mode HUD for one chat:
@@ -494,6 +495,7 @@ export class LoopControlComponent implements OnDestroy {
   private clipboard = inject(CLIPBOARD_SERVICE);
   private reactionIpc = inject(ReactionIpcService);
   private toast = inject(ToastService);
+  private pollScheduler = inject(RendererPollSchedulerService);
 
   /** Per-instance reactions armed state. Tri-state: null = not yet loaded. */
   protected reactionsArmed = signal<boolean | null>(null);
@@ -506,7 +508,7 @@ export class LoopControlComponent implements OnDestroy {
 
   /** 1Hz tick that drives elapsed-time recomputation in the active strip. */
   private tick = signal(0);
-  private tickHandle: ReturnType<typeof setInterval> | null = null;
+  private stopTick: (() => void) | null = null;
 
   /** Summary card UI state — owned by this component because the card
    *  itself is owned here. */
@@ -775,7 +777,7 @@ export class LoopControlComponent implements OnDestroy {
 
   constructor() {
     this.store.ensureWired();
-    this.tickHandle = setInterval(() => this.tick.update((t) => t + 1), 1000);
+    this.stopTick = this.pollScheduler.register(() => this.tick.update((t) => t + 1), 1000);
 
     // Subscribe globally to reaction events and show a toast when the event
     // is for the currently-viewed instance, so firings are visible in the UI.
@@ -851,7 +853,7 @@ export class LoopControlComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.tickHandle) clearInterval(this.tickHandle);
+    this.stopTick?.();
     if (this.copyClearHandle) clearTimeout(this.copyClearHandle);
     this.reactionEventUnsub?.();
   }

@@ -54,6 +54,14 @@ const mockGetEntries = vi.fn().mockReturnValue([]);
 const mockBackfillMissingAiTitles = vi.fn();
 const mockGenerateTitle = vi.fn();
 const mockListArchivedSessions = vi.fn().mockReturnValue([]);
+const mockRestoreArchivedSession = vi.fn();
+const mockDeleteArchivedSession = vi.fn();
+const mockGetArchiveStats = vi.fn();
+const mockGetResumableSessions = vi.fn().mockResolvedValue([]);
+const mockResumeSession = vi.fn();
+const mockListSnapshots = vi.fn().mockReturnValue([]);
+const mockCreateSnapshot = vi.fn();
+const mockGetSessionStats = vi.fn();
 
 vi.mock('../../../history', () => ({
   getHistoryManager: () => ({
@@ -77,11 +85,11 @@ vi.mock('../../../session/session-archive', () => ({
   getSessionArchiveManager: () => ({
     archiveSession: vi.fn(),
     listArchivedSessions: mockListArchivedSessions,
-    restoreSession: vi.fn(),
-    deleteArchivedSession: vi.fn(),
+    restoreSession: mockRestoreArchivedSession,
+    deleteArchivedSession: mockDeleteArchivedSession,
     getArchivedSessionMeta: vi.fn(),
     updateTags: vi.fn(),
-    getArchiveStats: vi.fn(),
+    getArchiveStats: mockGetArchiveStats,
     cleanupOldArchives: vi.fn(),
   }),
 }));
@@ -97,11 +105,11 @@ vi.mock('../../../session/session-share-service', () => ({
 
 vi.mock('../../../session/session-continuity', () => ({
   getSessionContinuityManager: () => ({
-    getResumableSessions: vi.fn().mockReturnValue([]),
-    resumeSession: vi.fn(),
-    listSnapshots: vi.fn().mockReturnValue([]),
-    createSnapshot: vi.fn(),
-    getStats: vi.fn(),
+    getResumableSessions: mockGetResumableSessions,
+    resumeSession: mockResumeSession,
+    listSnapshots: mockListSnapshots,
+    createSnapshot: mockCreateSnapshot,
+    getStats: mockGetSessionStats,
   }),
 }));
 
@@ -147,9 +155,19 @@ describe('session-handlers', () => {
     mockGetEntries.mockReturnValue([]);
     mockListArchivedSessions.mockReset();
     mockListArchivedSessions.mockReturnValue([]);
+    mockRestoreArchivedSession.mockReset();
+    mockDeleteArchivedSession.mockReset();
+    mockGetArchiveStats.mockReset();
     mockBackfillMissingAiTitles.mockReset();
     mockGenerateTitle.mockReset();
     mockIsRemoteNodeReachable.mockReset();
+    mockGetResumableSessions.mockReset();
+    mockGetResumableSessions.mockResolvedValue([]);
+    mockResumeSession.mockReset();
+    mockListSnapshots.mockReset();
+    mockListSnapshots.mockReturnValue([]);
+    mockCreateSnapshot.mockReset();
+    mockGetSessionStats.mockReset();
 
     mockInstanceManager = makeMockInstanceManager();
 
@@ -222,6 +240,155 @@ describe('session-handlers', () => {
         searchTerm: 'build failure',
         tags: ['ci'],
       });
+    });
+
+    it('accepts archive IDs and wrapped filters emitted by renderer services', async () => {
+      mockRestoreArchivedSession.mockReturnValue({ sessionId: 'arch-1' });
+      mockListArchivedSessions.mockReturnValue([{ sessionId: 'arch-1' }]);
+
+      await expect(invoke(IPC_CHANNELS.ARCHIVE_RESTORE, { archiveId: 'arch-1' }))
+        .resolves.toMatchObject({ success: true });
+      await expect(invoke(IPC_CHANNELS.ARCHIVE_LIST, {
+        filter: {
+          tags: ['ci'],
+          startDate: 100,
+          endDate: 200,
+          search: 'failure',
+        },
+      })).resolves.toMatchObject({ success: true });
+
+      expect(mockRestoreArchivedSession).toHaveBeenCalledWith('arch-1');
+      expect(mockListArchivedSessions).toHaveBeenCalledWith({
+        afterDate: 100,
+        beforeDate: 200,
+        tags: ['ci'],
+        searchTerm: 'failure',
+      });
+    });
+
+    it('rejects malformed archive search options before listing archives', async () => {
+      const result = await invoke(IPC_CHANNELS.ARCHIVE_SEARCH, {
+        query: 'failure',
+        options: { limit: 0 },
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'ARCHIVE_SEARCH_FAILED' }),
+      });
+      expect(mockListArchivedSessions).not.toHaveBeenCalled();
+    });
+  });
+
+  it('rejects an untrusted sender before legacy session handlers read state', async () => {
+    const trustError: IpcResponse = {
+      success: false,
+      error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 123 },
+    };
+    const ensureTrustedSender = vi.fn(() => trustError);
+    registerSessionHandlers({
+      instanceManager: mockInstanceManager,
+      serializeInstance: vi.fn((instance: unknown) => instance as Record<string, unknown>),
+      ensureTrustedSender,
+    });
+
+    await expect(invoke(IPC_CHANNELS.HISTORY_LIST)).resolves.toEqual(trustError);
+    expect(ensureTrustedSender).toHaveBeenCalledWith({}, IPC_CHANNELS.HISTORY_LIST);
+    expect(mockGetEntries).not.toHaveBeenCalled();
+  });
+
+  describe('session continuity', () => {
+    it('wraps resumable sessions in a structured IPC response', async () => {
+      const sessions = [{ instanceId: 'instance-1' }];
+      mockGetResumableSessions.mockResolvedValue(sessions);
+
+      await expect(invoke(IPC_CHANNELS.SESSION_LIST_RESUMABLE)).resolves.toEqual({
+        success: true,
+        data: sessions,
+      });
+    });
+
+    it('rejects an invalid resume payload before calling the continuity manager', async () => {
+      const result = await invoke(IPC_CHANNELS.SESSION_RESUME, { options: {} });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+      });
+      expect(mockResumeSession).not.toHaveBeenCalled();
+    });
+
+    it('validates and wraps a session resume result', async () => {
+      const resumed = { instanceId: 'instance-1', status: 'ready' };
+      mockResumeSession.mockResolvedValue(resumed);
+
+      const result = await invoke(IPC_CHANNELS.SESSION_RESUME, {
+        instanceId: 'instance-1',
+        options: { fromSnapshot: 'snapshot-1', restoreMessages: false },
+      });
+
+      expect(result).toEqual({ success: true, data: resumed });
+      expect(mockResumeSession).toHaveBeenCalledWith('instance-1', {
+        fromSnapshot: 'snapshot-1',
+        restoreMessages: false,
+      });
+    });
+
+    it('rejects an invalid snapshot payload before creating a snapshot', async () => {
+      const result = await invoke(IPC_CHANNELS.SESSION_CREATE_SNAPSHOT, {
+        instanceId: '',
+        name: 'checkpoint',
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+      });
+      expect(mockCreateSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('returns structured errors when a continuity operation fails', async () => {
+      mockListSnapshots.mockImplementation(() => {
+        throw new Error('snapshot index unavailable');
+      });
+
+      const result = await invoke(IPC_CHANNELS.SESSION_LIST_SNAPSHOTS, {
+        instanceId: 'instance-1',
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          code: 'SESSION_LIST_SNAPSHOTS_FAILED',
+          message: 'snapshot index unavailable',
+          timestamp: expect.any(Number),
+        },
+      });
+    });
+
+    it('rejects an untrusted sender before invoking session continuity', async () => {
+      const trustError: IpcResponse = {
+        success: false,
+        error: {
+          code: 'IPC_TRUST_FAILED',
+          message: 'Untrusted sender',
+          timestamp: 123,
+        },
+      };
+      const ensureTrustedSender = vi.fn(() => trustError);
+      registerSessionHandlers({
+        instanceManager: mockInstanceManager,
+        serializeInstance: vi.fn((instance: unknown) => instance as Record<string, unknown>),
+        ensureTrustedSender,
+      });
+
+      const result = await invoke(IPC_CHANNELS.SESSION_RESUME, {
+        instanceId: 'instance-1',
+      });
+
+      expect(result).toEqual(trustError);
+      expect(ensureTrustedSender).toHaveBeenCalledWith({}, IPC_CHANNELS.SESSION_RESUME);
+      expect(mockResumeSession).not.toHaveBeenCalled();
     });
   });
 

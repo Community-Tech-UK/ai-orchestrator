@@ -4,12 +4,10 @@ import {
   HostListener,
   DestroyRef,
   inject,
-  signal,
   computed,
-  Input,
-  Output,
-  EventEmitter,
+  input,
   ViewChild,
+  output,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import {
@@ -175,10 +173,17 @@ export class ContextMenuComponent {
   @ViewChild(CdkConnectedOverlay, { static: true })
   private overlay?: CdkConnectedOverlay;
 
-  protected menuItems = signal<ContextMenuItem[]>([]);
-  private menuX = signal(0);
-  private menuY = signal(0);
-  protected menuVisible = signal(false);
+  readonly items = input<ContextMenuItem[] | null | undefined>();
+  readonly x = input<number | string | null | undefined>();
+  readonly y = input<number | string | null | undefined>();
+  readonly visible = input<boolean | string | null | undefined>();
+  protected readonly menuItems = computed(() => this.items() ?? []);
+  private readonly menuX = computed(() => this.coerceNumber(this.x()));
+  private readonly menuY = computed(() => this.coerceNumber(this.y()));
+  protected readonly menuVisible = computed(() => {
+    const value = this.visible();
+    return value === true || value === '' || value === 'true';
+  });
   protected menuOrigin = computed(() => ({
     x: this.menuX(),
     y: this.menuY(),
@@ -191,23 +196,7 @@ export class ContextMenuComponent {
       overlayY: 'top',
     },
   ];
-  @Output() closed = new EventEmitter<void>();
-
-  @Input() set items(value: ContextMenuItem[] | null | undefined) {
-    this.menuItems.set(value ?? []);
-  }
-
-  @Input() set x(value: number | string | null | undefined) {
-    this.menuX.set(this.coerceNumber(value));
-  }
-
-  @Input() set y(value: number | string | null | undefined) {
-    this.menuY.set(this.coerceNumber(value));
-  }
-
-  @Input() set visible(value: boolean | string | null | undefined) {
-    this.menuVisible.set(value === true || value === '' || value === 'true');
-  }
+  readonly closed = output<void>();
 
   constructor() {
     this.document.addEventListener('pointerdown', this.onDocumentPointerDown, true);

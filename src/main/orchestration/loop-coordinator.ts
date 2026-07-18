@@ -131,7 +131,6 @@ import {
   classifyDegradedIteration as classifyDegradedIterationHelper,
   drainFollowUpsForCompletion,
   evaluatePostCompactionCanaryPause,
-  getBlockOverrideInterventionText as getBlockOverrideInterventionTextHelper,
   isCircuitBreakerOpenError,
   isToolchainClassBlock as isToolchainClassBlockHelper,
   partitionPendingByDrainTiming,
@@ -156,9 +155,12 @@ import {
   type LoopIterationHook,
   type LoopPreIterationHook,
   type LoopRuntimeContext,
-  type PauseGate,
   type ProviderLimitResumeScheduler,
 } from './loop-coordinator.types';
+import { LoopLifecycleStateManager } from './loop-lifecycle-state-manager';
+import { LoopCompletionContextStore } from './loop-completion-context-store';
+import { LoopPreIterationGuard } from './loop-pre-iteration-guard';
+import { LoopBlockedFileHandler } from './loop-blocked-file-handler';
 import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
 import { streamLoopEvents } from './loop-stream';
 import {
@@ -178,12 +180,10 @@ import type { PingPongReviewer } from './agentic-pingpong-reviewer';
 import type { PingPongSubject } from '../../shared/types/loop-pingpong.types';
 import {
   applyLoopPlanRegenerationOnStall,
-  buildCapWrapUpDirective,
   captureLoopOutstanding,
   canRegenerateLoopPlanOnStall,
   checkLoopHardCaps,
   cloneLoopStateForBroadcast,
-  describeLoopCapReason,
   materializeLoopConfig,
   moveBlockedFileAside as moveBlockedFileAsideHelper,
   preflightBlockedSignal,
@@ -260,34 +260,17 @@ type LoopResourceGovernor = (state: LoopState) => LongRunResourceDecision | null
 export class LoopCoordinator extends EventEmitter {
   private static instance: LoopCoordinator | null = null;
 
-  private active = new Map<string, LoopState>();
-  private pauseGates = new Map<string, PauseGate>();
-  private cancelFlags = new Map<string, boolean>();
-  private histories = new Map<string, LoopIteration[]>();
-  /**
-   * Why the loop most recently *failed to converge* on a stop, keyed by
-   * loopRunId. Set whenever a completion attempt is rejected (verify red,
-   * unverifiable, rename gate unmet) or blocked (fresh-eyes review). Cleared
-   * when a stop is accepted. Read when a hard cap fires so `cap-reached`
-   * reports *why* it stopped (e.g. "while verify was failing") instead of a
-   * bare `cap=iterations`. Held off-`LoopState` so no DB/schema column is
-   * needed for a purely diagnostic, in-memory hint.
-   */
-  private convergenceNotes = new Map<string, string>();
-  /**
-   * LF-4: count of disposable-plan regenerations this stall streak, keyed by
-   * loopRunId. Held off-`LoopState` (in-memory, like `convergenceNotes`) — it's
-   * a transient control hint, not persisted run state. Bounded by
-   * `LOOP_MAX_PLAN_REGENERATIONS`.
-   */
-  private planRegenerations = new Map<string, number>();
-  /**
-   * LF-4: loopRunIds whose next iteration should start in a fresh context
-   * because the stage just transitioned PLAN→IMPLEMENT (RPI context reset).
-   */
-  private pendingContextReset = new Set<string>();
-  /** WS7: loop runs whose NEXT iteration should record `failedOverFrom`. */
-  private pendingFailoverTag = new Map<string, string>();
+  private lifecycle = new LoopLifecycleStateManager();
+  /** Transient per-run convergence, reset, failover, and cap hints. */
+  private completionContext = new LoopCompletionContextStore();
+  /** Compatibility seam for existing black-box specs that inspect live state. */
+  private get active(): Map<string, LoopState> {
+    return this.lifecycle.statesForTesting();
+  }
+  /** Compatibility seam for evidence-journal specs that inspect convergence notes. */
+  private get convergenceNotes(): Map<string, string> {
+    return this.completionContext.convergenceNotesForHelpers();
+  }
   private watchers = new Map<string, CompletedFileWatcher>();
   private restoredLoops = new Set<string>();
   private runtimeContexts = new Map<string, LoopRuntimeContext>();
@@ -297,21 +280,56 @@ export class LoopCoordinator extends EventEmitter {
   private iterationHooks: LoopIterationHook[] = [];
   private intentPersistHook: LoopIntentPersistHook | null = null;
   private adapterCleanupHook: LoopAdapterCleanupHook | null = null;
-  /**
-   * In-flight terminal-cleanup promises, keyed by loopRunId. Populated
-   * inside `terminate()` when an adapter-cleanup hook is registered;
-   * `awaitTerminalCleanup` returns the matching promise so callers
-   * (e.g. `cancelLoop`) can wait for full shutdown.
-   */
-  private terminalCleanupPromises = new Map<string, Promise<void>>();
   private resourceGovernor: LoopResourceGovernor | null = null;
   /** Prevents new child turns while storage maintenance owns the RLM DB. */
   private maintenanceGate: (() => boolean) | null = null;
-  /**
-   * P2: maps loopRunId → worktree session id. Populated when `isolateLoopWorkspaces`
-   * is true, cleared in terminate(). Used for harvest+cleanup on terminal.
-   */
-  private worktreeSessionIds = new Map<string, string>();
+  private preIterationGuard = new LoopPreIterationGuard({
+    isCancelled: (loopRunId) => this.lifecycle.isCancelled(loopRunId),
+    waitWhilePaused: (loopRunId) => this.waitWhilePaused(loopRunId),
+    maintenanceActive: () => this.maintenanceGate?.() ?? false,
+    getConvergenceNote: (loopRunId) => this.completionContext.getConvergenceNote(loopRunId),
+    getCapWrapUp: (loopRunId) => this.completionContext.getCapWrapUp(loopRunId),
+    setCapWrapUp: (loopRunId, cap) => this.completionContext.setCapWrapUp(loopRunId, cap),
+    terminate: (state, status, reason) => this.terminate(state, status, reason),
+    emit: (eventName, payload) => { this.emit(eventName, payload); },
+    sleep,
+    onCapWrapUp: (loopRunId, cap) => {
+      logger.info('Loop cap reached — running one final wrap-up iteration', { loopRunId, cap });
+    },
+  });
+  private blockedFileHandler = new LoopBlockedFileHandler({
+    readBlockedFile: readBlockedFileIfPresentHelper,
+    isToolchainClassBlock: isToolchainClassBlockHelper,
+    runLivenessProbe: runWorkspaceLivenessProbeHelper,
+    moveBlockedFileAside: async (state) => {
+      const loopControl = this.loopControls.get(state.id);
+      await moveBlockedFileAsideHelper({
+        state,
+        loopControlDir: loopControl?.controlDir,
+        warn: ({ errorCode, error }) => {
+          logger.warn('Failed to move BLOCKED.md aside after override', {
+            loopRunId: state.id,
+            errorCode,
+            error,
+          });
+        },
+      });
+    },
+    setConvergenceNote: (loopRunId, note) => {
+      this.completionContext.setConvergenceNote(loopRunId, note);
+    },
+    cloneStateForBroadcast: (state) => this.cloneStateForBroadcast(state),
+    emit: (eventName, payload) => { this.emit(eventName, payload); },
+    onOverridden: (loopRunId, probe) => {
+      logger.info('BLOCKED.md override by liveness probe', { loopRunId, probe });
+    },
+    onPaused: (loopRunId, probeDetail) => {
+      logger.info('Loop paused because the iteration wrote BLOCKED.md', {
+        loopRunId,
+        probeDetail,
+      });
+    },
+  });
   private pingPongReviewAborts = new LoopPingPongReviewAbortRegistry();
 
   private progressDetector = new LoopProgressDetector();
@@ -417,17 +435,11 @@ export class LoopCoordinator extends EventEmitter {
   private providerLimitHandler = new LoopProviderLimitHandler({
     emit: (eventName, payload) => this.emit(eventName, payload),
     cloneStateForBroadcast: (state) => this.cloneStateForBroadcast(state),
-    setConvergenceNote: (loopRunId, reason) => this.convergenceNotes.set(loopRunId, reason),
+    setConvergenceNote: (loopRunId, reason) => this.completionContext.setConvergenceNote(loopRunId, reason),
     terminate: (state, status, reason) => this.terminate(state, status, reason),
     resumeLoop: (loopRunId) => this.resumeLoop(loopRunId),
   });
 
-  /** Current model downshift override, keyed by loopRunId. */
-  private downshiftModelByLoop = new Map<string, string>();
-  /** D2 (#6 interim): loops that already ran their single cap wrap-up iteration. */
-  private capWrapUpRuns = new Map<string, 'iterations' | 'wall-time' | 'tokens' | 'cost'>();
-  /** D4 (#28): per-run count of malformed-envelope corrections issued. */
-  private envelopeRewraps = new Map<string, number>();
   private scheduledWakeups = new Map<string, ScheduledWakeup>();
 
   /** Override the quota snapshot source (production wiring / tests). */
@@ -536,7 +548,13 @@ export class LoopCoordinator extends EventEmitter {
   ): void {
     const store = this.resolveEvidenceStore();
     if (!store) return;
-    recordCompletionEvidenceToStore(state, candidate, ev, store, this.convergenceNotes);
+    recordCompletionEvidenceToStore(
+      state,
+      candidate,
+      ev,
+      store,
+      this.completionContext.convergenceNotesForHelpers(),
+    );
   }
 
   static getInstance(): LoopCoordinator {
@@ -551,14 +569,8 @@ export class LoopCoordinator extends EventEmitter {
       for (const w of this.instance.watchers.values()) {
         void w.stop();
       }
-      this.instance.active.clear();
-      this.instance.pauseGates.clear();
-      this.instance.cancelFlags.clear();
-      this.instance.histories.clear();
-      this.instance.convergenceNotes.clear();
-      this.instance.planRegenerations.clear();
-      this.instance.pendingContextReset.clear();
-      this.instance.pendingFailoverTag.clear();
+      this.instance.lifecycle.reset();
+      this.instance.completionContext.reset();
       this.instance.watchers.clear();
       this.instance.restoredLoops.clear();
       this.instance.runtimeContexts.clear();
@@ -569,7 +581,6 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.iterationHooks = [];
       this.instance.intentPersistHook = null;
       this.instance.adapterCleanupHook = null;
-      this.instance.terminalCleanupPromises.clear();
       this.instance.pingPongReviewAborts.abortAll('test reset');
       this.instance.pingPongReviewAborts.clear();
       this.instance.contextSurvivalManager = defaultLoopContextSurvivalManager;
@@ -640,7 +651,7 @@ export class LoopCoordinator extends EventEmitter {
    * need to wait until child processes are torn down.
    */
   awaitTerminalCleanup(loopRunId: string, timeoutMs = 5_000): Promise<void> {
-    const pending = this.terminalCleanupPromises.get(loopRunId);
+    const pending = this.lifecycle.getTerminalCleanup(loopRunId);
     if (!pending) return Promise.resolve();
     return Promise.race([
       pending,
@@ -783,7 +794,7 @@ export class LoopCoordinator extends EventEmitter {
     // Enforce one-active-loop-per-chat. Without this, double-start races
     // (Send + Enter, Enter + Enter) can spawn duplicate runs in the same
     // workspace — they'd fight over STAGE.md, NOTES.md, and the plan file.
-    for (const existing of this.active.values()) {
+    for (const existing of this.lifecycle.listStates()) {
       if (existing.chatId !== chatId) continue;
       if (isActiveLoopRuntimeState(existing)) {
         throw new Error(
@@ -801,7 +812,7 @@ export class LoopCoordinator extends EventEmitter {
     // on its single `_completed` rename, which is inherently ambiguous.
     if (config.planFile) {
       const thisPlan = path.resolve(config.workspaceCwd, config.planFile);
-      for (const existing of this.active.values()) {
+      for (const existing of this.lifecycle.listStates()) {
         if (!isActiveLoopRuntimeState(existing)) continue;
         if (!existing.config.planFile) continue;
         const otherPlan = path.resolve(existing.config.workspaceCwd, existing.config.planFile);
@@ -833,7 +844,7 @@ export class LoopCoordinator extends EventEmitter {
         config.executionCwd = worktreeSession.worktreePath;
         // P3: also store branch name so upsertRun can persist it to branch_name column.
         config.worktreeBranch = worktreeSession.branchName;
-        this.worktreeSessionIds.set(id, worktreeSession.id);
+        this.lifecycle.setWorktreeSession(id, worktreeSession.id);
         logger.info('Loop start: acquired worktree', {
           loopRunId: id,
           worktreePath: worktreeSession.worktreePath,
@@ -862,7 +873,7 @@ export class LoopCoordinator extends EventEmitter {
     const loopControl = await prepareLoopControl(
       config.workspaceCwd,
       id,
-      [...this.active.keys(), id],
+      [...this.lifecycle.listStates().map((state) => state.id), id],
     );
 
     // Persist attachments to the workspace and prepend their paths to BOTH
@@ -1004,11 +1015,9 @@ export class LoopCoordinator extends EventEmitter {
     if (runtimeNextObjectivePlanner) {
       this.nextObjectivePlanners.set(id, runtimeNextObjectivePlanner);
     }
-    this.active.set(id, state);
-    this.histories.set(id, []);
+    this.lifecycle.register(state, []);
     this.watchers.set(id, watcher);
     this.loopControls.set(id, loopControl);
-    this.cancelFlags.set(id, false);
     // LF-6: surface prior-run learnings for this workspace (best-effort,
     // token-bounded). Injected into each iteration prompt as non-binding
     // "prior observations".
@@ -1113,7 +1122,7 @@ export class LoopCoordinator extends EventEmitter {
 
   async restoreLoopFromCheckpoint(checkpoint: LoopCheckpoint): Promise<LoopState> {
     const state = checkpoint.state;
-    const existing = this.active.get(state.id);
+    const existing = this.lifecycle.getState(state.id);
     if (existing) {
       return existing;
     }
@@ -1169,7 +1178,7 @@ export class LoopCoordinator extends EventEmitter {
       // terminate path (harvestWorktree + cleanupWorktree) works correctly.
       // Without this the in-memory worktreeSessionIds map is empty for restored
       // loops and the terminate path silently skips cleanup.
-      if (!this.worktreeSessionIds.has(state.id)) {
+      if (!this.lifecycle.hasWorktreeSession(state.id)) {
         try {
           const worktreeManager = getWorktreeManager();
           const adopted = await worktreeManager.adoptWorktree(
@@ -1177,7 +1186,7 @@ export class LoopCoordinator extends EventEmitter {
             state.config.executionCwd!,
             state.config.initialPrompt.slice(0, 60),
           );
-          this.worktreeSessionIds.set(state.id, adopted.id);
+          this.lifecycle.setWorktreeSession(state.id, adopted.id);
           logger.info('Loop restore: re-registered existing worktree', {
             id: state.id,
             worktreePath: state.config.executionCwd,
@@ -1208,7 +1217,7 @@ export class LoopCoordinator extends EventEmitter {
     const loopControl = await prepareLoopControl(
       state.config.workspaceCwd,
       state.id,
-      [...this.active.keys(), state.id],
+      [...this.lifecycle.listStates().map((activeState) => activeState.id), state.id],
     );
     const watcher = new CompletedFileWatcher(
       state.config.workspaceCwd,
@@ -1230,20 +1239,22 @@ export class LoopCoordinator extends EventEmitter {
       this.nextObjectivePlanners.set(state.id, createAuxiliaryNextObjectivePlanner());
     }
     this.watchers.set(state.id, watcher);
-    this.active.set(state.id, state);
-    this.histories.set(state.id, checkpoint.historyTail);
-    this.cancelFlags.set(state.id, false);
+    this.lifecycle.register(state, checkpoint.historyTail);
     this.restoredLoops.add(state.id);
-    if (checkpoint.convergenceNote) this.convergenceNotes.set(state.id, checkpoint.convergenceNote);
-    if (checkpoint.planRegenerationCount > 0) this.planRegenerations.set(state.id, checkpoint.planRegenerationCount);
-    if (checkpoint.pendingContextReset) this.pendingContextReset.add(state.id);
+    if (checkpoint.convergenceNote) {
+      this.completionContext.setConvergenceNote(state.id, checkpoint.convergenceNote);
+    }
+    if (checkpoint.planRegenerationCount > 0) {
+      this.completionContext.setPlanRegenerationCount(state.id, checkpoint.planRegenerationCount);
+    }
+    if (checkpoint.pendingContextReset) this.completionContext.requestContextReset(state.id);
     this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
     return state;
   }
 
   /** Pause the loop. Iteration in-flight finishes; next pre-flight blocks. */
   pauseLoop(loopRunId: string): boolean {
-    const state = this.active.get(loopRunId);
+    const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;
     if (state.status !== 'running') return false;
     state.status = 'paused';
@@ -1255,15 +1266,11 @@ export class LoopCoordinator extends EventEmitter {
 
   /** Fail the loop immediately through the normal terminal cleanup path. */
   failLoop(loopRunId: string, reason = 'failed'): boolean {
-    const state = this.active.get(loopRunId);
+    const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;
     if (isTerminalLoopRuntimeState(state)) return false;
-    this.cancelFlags.set(loopRunId, true);
-    const gate = this.pauseGates.get(loopRunId);
-    if (gate) {
-      gate.resolve();
-      this.pauseGates.delete(loopRunId);
-    }
+    this.lifecycle.setCancelled(loopRunId, true);
+    this.lifecycle.releasePause(loopRunId);
     this.terminate(state, 'failed', reason);
     return true;
   }
@@ -1275,7 +1282,7 @@ export class LoopCoordinator extends EventEmitter {
    * the loop isn't in ping-pong mode.
    */
   requestPingPongSkipRound(loopRunId: string): boolean {
-    const state = this.active.get(loopRunId);
+    const state = this.lifecycle.getState(loopRunId);
     if (!state?.pingPong) return false;
     state.pingPong.skipNextRound = true;
     this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
@@ -1289,7 +1296,7 @@ export class LoopCoordinator extends EventEmitter {
    * surfacing the open issue ledger. Returns false if not in ping-pong mode.
    */
   requestPingPongArbitration(loopRunId: string): boolean {
-    const state = this.active.get(loopRunId);
+    const state = this.lifecycle.getState(loopRunId);
     if (!state?.pingPong) return false;
     state.pingPong.forceArbitration = true;
     this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
@@ -1299,7 +1306,7 @@ export class LoopCoordinator extends EventEmitter {
 
   /** Resume a paused or provider-limited loop. */
   resumeLoop(loopRunId: string): boolean {
-    const state = this.active.get(loopRunId);
+    const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;
     if (state.status !== 'paused' && state.status !== 'provider-limit') return false;
     if (state.status === 'provider-limit' && state.endedAt != null) return false;
@@ -1327,11 +1334,7 @@ export class LoopCoordinator extends EventEmitter {
     state.status = 'running';
     // A3 (#29): no longer waiting on input once the operator resumes.
     state.pausedForInput = false;
-    const gate = this.pauseGates.get(loopRunId);
-    if (gate) {
-      gate.resolve();
-      this.pauseGates.delete(loopRunId);
-    } else if (this.restoredLoops.delete(loopRunId)) {
+    if (!this.lifecycle.releasePause(loopRunId) && this.restoredLoops.delete(loopRunId)) {
       this.startRestoredLoopRunner(state);
     }
     this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
@@ -1354,7 +1357,7 @@ export class LoopCoordinator extends EventEmitter {
     kind: LoopPendingInputKind = 'queue',
     drainMode?: LoopQueueDrainMode,
   ): boolean {
-    const state = this.active.get(loopRunId);
+    const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;
     if (!isActiveLoopRuntimeState(state)) return false;
     // Pi Task 18: live mid-iteration steering requires a provider adapter that
@@ -1422,17 +1425,13 @@ export class LoopCoordinator extends EventEmitter {
    * `terminate()` call that no-ops because the state is already terminal.
    */
   async cancelLoop(loopRunId: string): Promise<boolean> {
-    const state = this.active.get(loopRunId);
+    const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;
     if (isTerminalLoopRuntimeState(state)) return false;
-    this.cancelFlags.set(loopRunId, true);
+    this.lifecycle.setCancelled(loopRunId, true);
     this.pingPongReviewAborts.abortTerminal(loopRunId, 'loop cancelled');
     // unblock pause if any
-    const gate = this.pauseGates.get(loopRunId);
-    if (gate) {
-      gate.resolve();
-      this.pauseGates.delete(loopRunId);
-    }
+    this.lifecycle.releasePause(loopRunId);
     // Force-terminate now so the UI escapes a hung in-flight iteration.
     this.terminate(state, 'cancelled', 'user cancelled');
     // FU-8: wait for the adapter-cleanup hook (if registered) to actually
@@ -1460,7 +1459,7 @@ export class LoopCoordinator extends EventEmitter {
     await confirmLoopStablyStopped({
       loopRunId,
       hasAdapterCleanupHook: this.adapterCleanupHook !== null,
-      inFlight: this.active.get(loopRunId)?.inFlightIteration !== undefined,
+      inFlight: this.lifecycle.getState(loopRunId)?.inFlightIteration !== undefined,
       subscribeActivity: (listener) => {
         this.on('loop:activity', listener);
         return () => this.off('loop:activity', listener);
@@ -1488,7 +1487,7 @@ export class LoopCoordinator extends EventEmitter {
    * Returns true iff the loop terminated.
    */
   async acceptCompletion(loopRunId: string): Promise<boolean> {
-    const state = this.active.get(loopRunId);
+    const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;
     if (state.status !== 'paused') {
       logger.info('acceptCompletion ignored — loop is not paused', { loopRunId, status: state.status });
@@ -1513,7 +1512,7 @@ export class LoopCoordinator extends EventEmitter {
       if (isTerminalLoopRuntimeState(state)) return false;
       if (verify.status === 'failed') {
         state.lastCompletionOutcome = 'verify-failed';
-        this.convergenceNotes.set(state.id, 'operator-accept verify failed');
+        this.completionContext.setConvergenceNote(state.id, 'operator-accept verify failed');
         if (state.lastIteration) {
           applyVerifyOutcomeToIteration(state.lastIteration, verify);
           void this.enrichVerifyFailureSummary(state, state.lastIteration, verify.output);
@@ -1589,12 +1588,8 @@ export class LoopCoordinator extends EventEmitter {
     // cleanly. terminate() already flipped the status; the cancel flag makes
     // the post-pause check return, and its terminate('cancelled') no-ops
     // because we are already terminal (idempotent guard).
-    this.cancelFlags.set(loopRunId, true);
-    const gate = this.pauseGates.get(loopRunId);
-    if (gate) {
-      gate.resolve();
-      this.pauseGates.delete(loopRunId);
-    }
+    this.lifecycle.setCancelled(loopRunId, true);
+    this.lifecycle.releasePause(loopRunId);
     try {
       await this.awaitTerminalCleanup(loopRunId);
     } catch (err) {
@@ -1633,24 +1628,23 @@ export class LoopCoordinator extends EventEmitter {
 
   /** Snapshot of the live loop state. */
   getLoop(loopRunId: string): LoopState | undefined {
-    const s = this.active.get(loopRunId);
+    const s = this.lifecycle.getState(loopRunId);
     return s ? this.cloneStateForBroadcast(s) : undefined;
   }
 
   getActiveLoops(): LoopState[] {
-    return Array.from(this.active.values()).map((s) => this.cloneStateForBroadcast(s));
+    return this.lifecycle.listStates().map((s) => this.cloneStateForBroadcast(s));
   }
 
   /** Snapshot of the recent iteration history (oldest → newest). */
   getIterations(loopRunId: string): LoopIteration[] {
-    const h = this.histories.get(loopRunId);
-    return h ? [...h] : [];
+    return [...this.lifecycle.historyFor(loopRunId)];
   }
 
   // ============ Stream API ============
 
   async *streamLoop(loopRunId: string): AsyncGenerator<LoopStreamEvent> {
-    const active = this.active.get(loopRunId);
+    const active = this.lifecycle.getState(loopRunId);
     if (!active) {
       yield { type: 'error', loopRunId, error: `Loop ${loopRunId} not found` };
       return;
@@ -1673,55 +1667,9 @@ export class LoopCoordinator extends EventEmitter {
     const pingPongEnabled =
       reviewDriven && state.config.completion.crossModelReview?.pingPong?.enabled === true;
     while (true) {
-      // -- pause / cancel / cap pre-flight --
-      // If the state was already terminated externally (e.g. cancelLoop
-      // force-terminating because the in-flight iteration was hung), exit
-      // immediately. terminate() is idempotent so the no-op is safe even
-      // if we still call it.
-      if (isTerminalLoopRuntimeState(state) || this.cancelFlags.get(state.id)) {
-        this.terminate(state, 'cancelled');
-        return;
-      }
-      if (isParkedLoopRuntimeState(state)) {
-        await this.waitWhilePaused(state.id);
-        if (this.cancelFlags.get(state.id)) {
-          this.terminate(state, 'cancelled');
-          return;
-        }
-      }
-      if (this.maintenanceGate?.()) {
-        // Maintenance is deliberately transparent to loop state: a loop that
-        // was already running remains running, but no child process starts
-        // while the backup/prune/VACUUM/reload critical section is active.
-        await sleep(100);
-        continue;
-      }
-      const capHit = checkLoopHardCaps(state);
-      if (capHit) {
-        const reason = describeLoopCapReason(state, capHit, this.convergenceNotes.get(state.id));
-        // D2 (#6, prompt-only interim): before terminating on a cap, run ONE
-        // final wrap-up iteration with a strong "summarize, do not start new
-        // work" directive so the run ends with a structured hand-off instead
-        // of an abrupt mid-action cut. Guarded to exactly one wrap-up per run.
-        const wrapUpEnabled = state.config.caps.capWrapUpIteration ?? true;
-        if (wrapUpEnabled && !this.capWrapUpRuns.has(state.id) && state.status === 'running') {
-          this.capWrapUpRuns.set(state.id, capHit);
-          state.pendingInterventions.push(
-            createLoopPendingInput(buildCapWrapUpDirective(capHit, reason), { source: 'cap-wrap-up' }),
-          );
-          this.emit('loop:cap-wrap-up', { loopRunId: state.id, cap: capHit, reason });
-          logger.info('Loop cap reached — running one final wrap-up iteration', {
-            loopRunId: state.id,
-            cap: capHit,
-          });
-          // fall through: spawn the single wrap-up iteration; the next pass
-          // re-detects the cap and terminates.
-        } else {
-          this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit, reason });
-          this.terminate(state, 'cap-reached', reason);
-          return;
-        }
-      }
+      const guardResult = await this.preIterationGuard.run(state);
+      if (guardResult === 'terminal') return;
+      if (guardResult === 'restart') continue;
 
       // -- usage-aware throttle (preventive) --
       // Before spawning another paid iteration, consult the active provider's
@@ -1730,14 +1678,14 @@ export class LoopCoordinator extends EventEmitter {
       if (state.status === 'running') {
         const ledgerOutcome = this.providerLimitHandler.maybeParkKnownProviderLimit(
           state,
-          this.downshiftModelByLoop.get(state.id) ?? null,
+          this.completionContext.getDownshiftModel(state.id) ?? null,
         );
         if (ledgerOutcome === 'terminated') return;
         if (ledgerOutcome === 'parked') continue;
 
         const throttle = this.providerLimitHandler.evaluateLoopQuotaThrottle(state);
         if (throttle.action === 'downshift' && throttle.downshift) {
-          this.downshiftModelByLoop.set(state.id, throttle.downshift.model);
+          this.completionContext.setDownshiftModel(state.id, throttle.downshift.model);
           this.emit('loop:activity', {
             loopRunId: state.id,
             seq: state.totalIterations,
@@ -1763,7 +1711,7 @@ export class LoopCoordinator extends EventEmitter {
           if (outcome === 'parked') continue; // next pass blocks in waitWhilePaused
           // 'skipped' (stale/soft) → fall through and spawn this iteration.
         } else {
-          this.downshiftModelByLoop.delete(state.id);
+          this.completionContext.clearDownshiftModel(state.id);
         }
       }
       const resourceDecision = this.resourceGovernor?.(state);
@@ -1771,7 +1719,7 @@ export class LoopCoordinator extends EventEmitter {
         state.status = 'paused';
         const reason = `Paused by resource governor: ${resourceDecision.reasons.join(', ')}`;
         const signal = resourceGovernorPauseSignal(reason, resourceDecision);
-        this.convergenceNotes.set(state.id, reason);
+        this.completionContext.setConvergenceNote(state.id, reason);
         this.emit('loop:paused-no-progress', {
           loopRunId: state.id,
           reason: 'resource-governor',
@@ -1798,68 +1746,8 @@ export class LoopCoordinator extends EventEmitter {
         continue;
       }
 
-      // -- BLOCKED.md handshake --
-      // The autonomous-mode rules tell the AI to write BLOCKED.md and exit
-      // when it genuinely cannot proceed. Honor that contract: if we find
-      // one in the workspace, pause the loop and surface it as a no-progress
-      // banner so the operator can intervene with a hint.
-      const blockedFile = await readBlockedFileIfPresentHelper(state);
-      if (blockedFile && state.status === 'running') {
-        const probeCfg = state.config.blockSanityProbe;
-        const probeEnabled = probeCfg?.enabled !== false; // default-on when undefined
-        let failedProbeDetail: string | undefined;
-        if (probeEnabled && isToolchainClassBlockHelper(blockedFile.message, [])) {
-          const probe = await runWorkspaceLivenessProbeHelper(
-            state.config.workspaceCwd,
-            probeCfg?.timeoutMs ?? 5000,
-          );
-          if (probe.alive) {
-            state.pendingInterventions.push(
-              createLoopPendingInput(getBlockOverrideInterventionTextHelper(), { source: 'block-override' }),
-            );
-            this.convergenceNotes.set(state.id, 'BLOCKED.md overridden by liveness probe');
-            await this.moveBlockedFileAside(state);
-            this.emit('loop:activity', {
-              loopRunId: state.id,
-              seq: state.totalIterations,
-              stage: state.currentStage,
-              timestamp: Date.now(),
-              kind: 'status',
-              message: 'BLOCKED.md overridden: liveness probe confirmed toolchain responsive',
-              detail: { probe: probe.detail },
-            });
-            logger.info('BLOCKED.md override by liveness probe', {
-              loopRunId: state.id,
-              probe: probe.detail,
-            });
-            continue;
-          }
-          failedProbeDetail = probe.detail;
-        }
-        state.status = 'paused';
-        // A3 (#29): this pause is *waiting for operator input*, not a stall —
-        // sticky state exempt from idle/stall kills until resumed.
-        state.pausedForInput = true;
-        const signal: ProgressSignalEvidence = {
-          id: 'BLOCKED',
-          verdict: 'CRITICAL',
-          message: failedProbeDetail
-            ? `BLOCKED.md present: ${blockedFile.message} (liveness probe failed: ${failedProbeDetail})`
-            : `BLOCKED.md present: ${blockedFile.message}`,
-          detail: {
-            file: 'BLOCKED.md',
-            excerpt: blockedFile.message,
-            ...(failedProbeDetail ? { probeDetail: failedProbeDetail } : {}),
-          },
-        };
-        this.emit('loop:paused-no-progress', { loopRunId: state.id, signal });
-        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
-        logger.info('Loop paused because the iteration wrote BLOCKED.md', {
-          loopRunId: state.id,
-          probeDetail: failedProbeDetail,
-        });
-        continue;
-      }
+      const blockedFileResult = await this.blockedFileHandler.handle(state);
+      if (blockedFileResult === 'restart') continue;
 
       if (
         state.totalIterations === 0
@@ -1879,7 +1767,7 @@ export class LoopCoordinator extends EventEmitter {
           const reason = 'preflight verification failed before implementation';
           const signal = preflightBlockedSignal(reason, preflight);
           state.endReason = reason;
-          this.convergenceNotes.set(state.id, reason);
+          this.completionContext.setConvergenceNote(state.id, reason);
           this.emit('loop:paused-no-progress', {
             loopRunId: state.id,
             reason,
@@ -1891,7 +1779,7 @@ export class LoopCoordinator extends EventEmitter {
       }
 
       // -- pre-iteration kill switch --
-      const history = this.histories.get(state.id) ?? [];
+      const history = this.lifecycle.historyFor(state.id);
       // review-driven loops converge by going quiet (no changes + clean review),
       // which the structural no-progress detector would mistake for a stall. The
       // clean-pass counter + hard caps bound these runs instead.
@@ -1908,7 +1796,10 @@ export class LoopCoordinator extends EventEmitter {
         // This is a READ-ONLY check — the single increment + directive happens
         // in `maybeRegeneratePlanOnStall` at the post-iteration site, so a stall
         // never burns two of the cap budget in one pass.
-        if (canRegenerateLoopPlanOnStall(state, this.planRegenerations.get(state.id) ?? 0)) {
+        if (canRegenerateLoopPlanOnStall(
+          state,
+          this.completionContext.getPlanRegenerationCount(state.id),
+        )) {
           logger.info('Loop kill switch bypassed for disposable-plan regeneration', {
             loopRunId: state.id,
             signal: block.id,
@@ -1933,7 +1824,7 @@ export class LoopCoordinator extends EventEmitter {
         // context discipline being enabled (it reuses the LF-1 recycle path).
         const contextEnabled = (state.config.context?.compaction.enabled) ?? true;
         if (state.currentStage === 'PLAN' && stage === 'IMPLEMENT' && contextEnabled) {
-          this.pendingContextReset.add(state.id);
+          this.completionContext.requestContextReset(state.id);
           logger.info('Loop PLAN→IMPLEMENT: scheduling context reset for the first IMPLEMENT iteration', {
             loopRunId: state.id,
           });
@@ -2009,7 +1900,7 @@ export class LoopCoordinator extends EventEmitter {
       let invocationError: string | null = null;
       let invocationFailure: unknown = null;
       // LF-4 RPI: consume a one-shot PLAN→IMPLEMENT context reset request.
-      let forceContextReset = this.pendingContextReset.delete(state.id);
+      let forceContextReset = this.completionContext.consumeContextReset(state.id);
       let contextOverflowRecoveryAttempted = false;
 
       // Degraded-iteration resilience: a single transient invocation failure or a
@@ -2045,7 +1936,7 @@ export class LoopCoordinator extends EventEmitter {
         // off to the normal terminal-intent flow. Also stop if the loop was
         // cancelled/terminated/parked mid-attempt.
         if (state.terminalIntentPending) break;
-        if (isTerminalLoopRuntimeState(state) || this.cancelFlags.get(state.id)) break;
+        if (isTerminalLoopRuntimeState(state) || this.lifecycle.isCancelled(state.id)) break;
         // D6: if the parent instance was interrupted (pauseLoop() was called inside
         // the invoker), or the loop parks on a provider limit, exit the retry
         // inner loop so runLoop's top-of-iteration pause check can wait for
@@ -2059,7 +1950,7 @@ export class LoopCoordinator extends EventEmitter {
         if (!childResult && invocationFailure) {
           const route = routeClassifiedLoopInvocationFailure({
             state, error: invocationFailure, seq, stage,
-            model: this.downshiftModelByLoop.get(state.id),
+            model: this.completionContext.getDownshiftModel(state.id),
             contextOverflowRecoveryAttempted,
             providerLimitHandler: this.providerLimitHandler,
             emit: (eventName, payload) => this.emit(eventName, payload),
@@ -2110,7 +2001,7 @@ export class LoopCoordinator extends EventEmitter {
           });
           await sleep(LOOP_BREAKER_OPEN_BACKOFF_MS);
           // The loop may have been cancelled/terminated while we waited.
-          if (isTerminalLoopRuntimeState(state) || this.cancelFlags.get(state.id)) break;
+          if (isTerminalLoopRuntimeState(state) || this.lifecycle.isCancelled(state.id)) break;
           // Force a fresh session so a wedged same-session adapter recycles.
           forceContextReset = true;
           continue;
@@ -2181,7 +2072,7 @@ export class LoopCoordinator extends EventEmitter {
       // iteration was in flight, drop the result silently. Don't accumulate
       // stats, don't emit iteration-complete, don't run progress detection
       // — the loop is over from the user's perspective.
-      if (isTerminalLoopRuntimeState(state) || this.cancelFlags.get(state.id)) {
+      if (isTerminalLoopRuntimeState(state) || this.lifecycle.isCancelled(state.id)) {
         logger.info('Iteration completed after loop was cancelled — dropping result', {
           loopRunId: state.id,
           seq,
@@ -2237,7 +2128,9 @@ export class LoopCoordinator extends EventEmitter {
       if (canaryPause) {
         state.status = 'paused';
         state.endReason = canaryPause.reason;
-        if (!this.convergenceNotes.has(state.id)) this.convergenceNotes.set(state.id, canaryPause.reason);
+        if (!this.completionContext.hasConvergenceNote(state.id)) {
+          this.completionContext.setConvergenceNote(state.id, canaryPause.reason);
+        }
         const signal: ProgressSignalEvidence = {
           id: 'BLOCKED',
           verdict: 'CRITICAL',
@@ -2302,8 +2195,8 @@ export class LoopCoordinator extends EventEmitter {
         testFailCount: childResult.testFailCount,
         ...(childResult.finishReason ? { finishReason: childResult.finishReason } : {}),
         // WS7: first iteration after a provider switch records where it came from.
-        ...(this.pendingFailoverTag.has(state.id)
-          ? { failedOverFrom: this.pendingFailoverTag.get(state.id)! }
+        ...(this.completionContext.peekPendingFailover(state.id)
+          ? { failedOverFrom: this.completionContext.peekPendingFailover(state.id)! }
           : {}),
         unresolvedToolCalls: childResult.unresolvedToolCalls ?? false,
         workHash,
@@ -2317,7 +2210,7 @@ export class LoopCoordinator extends EventEmitter {
         verifyOutputExcerpt: '',
         transcriptBound: childResult.transcriptBound ?? false,
       };
-      this.pendingFailoverTag.delete(state.id);
+      this.completionContext.consumePendingFailover(state.id);
 
       // D6 (#7) part 3: any production-file change invalidates the cached
       // clean fresh-eyes verdict (edit-invalidates-proof for reviews).
@@ -2590,7 +2483,7 @@ export class LoopCoordinator extends EventEmitter {
           verifyStatus: v2.status,
           beltAndBracesPassed,
           resolution,
-          convergenceNotes: this.convergenceNotes,
+          convergenceNotes: this.completionContext.convergenceNotesForHelpers(),
         });
 
         if (resolution.decision === 'stop') {
@@ -2622,7 +2515,10 @@ export class LoopCoordinator extends EventEmitter {
             failure: pauseMessages.failure,
           });
           state.pendingInterventions.push(createLoopPendingInput(pauseMessages.intervention));
-          this.convergenceNotes.set(state.id, resolution.convergenceNote ?? 'completion was unverifiable (no verify command configured)');
+          this.completionContext.setConvergenceNote(
+            state.id,
+            resolution.convergenceNote ?? 'completion was unverifiable (no verify command configured)',
+          );
           state.endReason = resolution.reason;
           pauseBecauseCompletionCannotBeVerified = true;
         } else {
@@ -2864,14 +2760,14 @@ export class LoopCoordinator extends EventEmitter {
         !pingPongEnabled &&
         !this.completionDetector.hasSufficientSignal(completionSignals)
       ) {
-        const rewraps = this.envelopeRewraps.get(state.id) ?? 0;
+        const rewraps = this.completionContext.getEnvelopeRewrapCount(state.id);
         if (rewraps < (state.config.caps.maxCompletionAttempts ?? 3)) {
           const detection = detectMalformedCompletionEnvelope(
             childResult.output,
             state.config.completion.donePromiseRegex,
           );
           if (detection.malformed) {
-            this.envelopeRewraps.set(state.id, rewraps + 1);
+            this.completionContext.setEnvelopeRewrapCount(state.id, rewraps + 1);
             state.pendingInterventions.push(
               createLoopPendingInput(buildEnvelopeRewrapCorrection(detection.excerpt ?? '')),
             );
@@ -2895,7 +2791,7 @@ export class LoopCoordinator extends EventEmitter {
         // reset is orthogonal to steering. Only the budget nudge yields to a
         // non-empty queue (suppressNudge), preserving the old "don't pile
         // automated nudges on active steering" behaviour.
-        await applyLoopContextSurvivalDecision({ manager: this.contextSurvivalManager, state, iteration, childResult, pendingContextReset: this.pendingContextReset, emit: (eventName, payload) => this.emit(eventName, payload), suppressNudge: state.pendingInterventions.length > 0 });
+        await applyLoopContextSurvivalDecision({ manager: this.contextSurvivalManager, state, iteration, childResult, pendingContextReset: this.completionContext.pendingContextResetsForHelpers(), emit: (eventName, payload) => this.emit(eventName, payload), suppressNudge: state.pendingInterventions.length > 0 });
       }
 
       // F2 (#22): coordinator-enforced REVIEW→PLAN back-edge. Only for
@@ -2916,7 +2812,7 @@ export class LoopCoordinator extends EventEmitter {
           logger.warn('Iteration hook threw', { error: String(err) });
         }
       }
-      if (isTerminalLoopRuntimeState(state) || this.cancelFlags.get(state.id)) {
+      if (isTerminalLoopRuntimeState(state) || this.lifecycle.isCancelled(state.id)) {
         logger.info('Loop terminated by iteration hook; stopping post-iteration flow', {
           loopRunId: state.id,
           seq,
@@ -3088,8 +2984,8 @@ export class LoopCoordinator extends EventEmitter {
           ` The loop is changing files each round but not closing ledger items — likely an ` +
           `open-ended or externally-gated item that can never reach [x]. Stopped for human ` +
           `review instead of spinning to a hard cap.`;
-        if (!this.convergenceNotes.has(state.id)) {
-          this.convergenceNotes.set(
+        if (!this.completionContext.hasConvergenceNote(state.id)) {
+          this.completionContext.setConvergenceNote(
             state.id,
             `ledger stall: ${openIds.length} open, no meaningful transition for ${stalledFor} iters`,
           );
@@ -3097,7 +2993,7 @@ export class LoopCoordinator extends EventEmitter {
         recordLoopLearningForState({
           state,
           status: 'no-progress',
-          note: this.convergenceNotes.get(state.id),
+          note: this.completionContext.getConvergenceNote(state.id),
           store: this.loopMemoryStore,
         });
         this.emit('loop:completed-needs-review', {
@@ -3138,8 +3034,8 @@ export class LoopCoordinator extends EventEmitter {
               `convergence` +
               (primary ? ` (${primary.message})` : '') +
               `. Stopped for human review instead of spinning to a cap / circuit breaker.`;
-            if (!this.convergenceNotes.has(state.id)) {
-              this.convergenceNotes.set(
+            if (!this.completionContext.hasConvergenceNote(state.id)) {
+              this.completionContext.setConvergenceNote(
                 state.id,
                 `review-driven stall: ${primary?.message ?? 'no progress, no convergence'}`,
               );
@@ -3147,7 +3043,7 @@ export class LoopCoordinator extends EventEmitter {
             recordLoopLearningForState({
               state,
               status: 'no-progress',
-              note: this.convergenceNotes.get(state.id),
+              note: this.completionContext.getConvergenceNote(state.id),
               store: this.loopMemoryStore,
             });
             this.emit('loop:completed-needs-review', {
@@ -3222,7 +3118,9 @@ export class LoopCoordinator extends EventEmitter {
       // when this iteration did NOT pass verify.
       // Review-driven loops and cap wrap-up turns are exempt: both must be
       // allowed to reach their own terminal decision path instead of pausing.
-      const suppressNoProgressForCapWrapUp = this.capWrapUpRuns.has(state.id) && checkLoopHardCaps(state) !== null;
+      const suppressNoProgressForCapWrapUp = Boolean(
+        this.completionContext.getCapWrapUp(state.id) && checkLoopHardCaps(state) !== null,
+      );
       if (!reviewDriven && !suppressNoProgressForCapWrapUp && evaluation.verdict === 'CRITICAL' && iteration.verifyStatus !== 'passed') {
         // -- LF-5: branch-and-select before pausing (opt-in, default off) --
         // When exploration is enabled and a cost cap is set, fan out candidate
@@ -3279,13 +3177,13 @@ export class LoopCoordinator extends EventEmitter {
         const primary = evaluation.primary ?? evaluation.signals[0];
         state.status = 'paused';
         // LF-6: capture the dead-end signal as a learning before pausing.
-        if (primary && !this.convergenceNotes.has(state.id)) {
-          this.convergenceNotes.set(state.id, `no-progress: ${primary.message}`);
+        if (primary && !this.completionContext.hasConvergenceNote(state.id)) {
+          this.completionContext.setConvergenceNote(state.id, `no-progress: ${primary.message}`);
         }
         recordLoopLearningForState({
           state,
           status: 'no-progress',
-          note: this.convergenceNotes.get(state.id),
+          note: this.completionContext.getConvergenceNote(state.id),
           store: this.loopMemoryStore,
         });
         this.emit('loop:paused-no-progress', { loopRunId: state.id, signal: primary });
@@ -3380,7 +3278,7 @@ export class LoopCoordinator extends EventEmitter {
         stage,
         classifyCleanReview: this.cleanReviewClassifier,
         emit: (eventName, payload) => this.emit(eventName, payload),
-        isCancelled: () => this.cancelFlags.get(state.id) === true || isParkedLoopRuntimeState(state),
+        isCancelled: () => this.lifecycle.isCancelled(state.id) || isParkedLoopRuntimeState(state),
         signal: reviewAbort.signal,
         foldReviewerSpend: (tokens, costCents) => {
           state.totalTokens += tokens; state.totalCostCents += costCents;
@@ -3414,7 +3312,7 @@ export class LoopCoordinator extends EventEmitter {
       verifyOutput,
       reviewer: this.freshEyesReviewer,
       emit: (eventName, payload) => this.emit(eventName, payload),
-      setConvergenceNote: (note) => this.convergenceNotes.set(state.id, note),
+      setConvergenceNote: (note) => this.completionContext.setConvergenceNote(state.id, note),
       captureReviewLesson: (verdict) => captureReviewLessonForVerdict({
         loopRunId: state.id,
         goal: state.config.initialPrompt,
@@ -3443,7 +3341,7 @@ export class LoopCoordinator extends EventEmitter {
       seq,
       classifyCleanReview: this.cleanReviewClassifier,
       emit: (eventName, payload) => this.emit(eventName, payload),
-      setConvergenceNote: (note) => this.convergenceNotes.set(state.id, note),
+      setConvergenceNote: (note) => this.completionContext.setConvergenceNote(state.id, note),
     });
   }
 
@@ -3457,14 +3355,14 @@ export class LoopCoordinator extends EventEmitter {
       prompt,
       stage,
       forceContextReset,
-      downshiftModel: this.downshiftModelByLoop.get(state.id),
+      downshiftModel: this.completionContext.getDownshiftModel(state.id),
       loopControlEnv: control ? buildLoopControlEnv(control) : undefined,
       idempotencyKey: state.inFlightIteration?.idempotencyKey
         ?? this.iterationIdempotencyKey(state.id, state.totalIterations),
       // D2 (#6): the cap wrap-up turn runs with new-work tools disabled where
       // the provider supports enforcement (bookkeeping tools stay available —
       // the directive requires LOOP_TASKS.md/NOTES.md updates).
-      disableTools: this.capWrapUpRuns.has(state.id),
+      disableTools: this.completionContext.getCapWrapUp(state.id) !== undefined,
     });
   }
 
@@ -3490,7 +3388,7 @@ export class LoopCoordinator extends EventEmitter {
     const outcome = attemptLoopFailover(state, error, seq, stage, {
       classify: (err) => classifyLoopError(err, {
         provider: state.config.provider,
-        model: this.downshiftModelByLoop.get(state.id),
+        model: this.completionContext.getDownshiftModel(state.id),
       }),
       selectTarget: (request) => getFailoverManager().selectLoopFailoverTarget(request),
       isProviderParked: (provider) => Boolean(getProviderLimitLedgerPort().getActive({
@@ -3521,8 +3419,8 @@ export class LoopCoordinator extends EventEmitter {
       }),
     });
     if (outcome.switched && outcome.from) {
-      this.pendingFailoverTag.set(state.id, outcome.from);
-      this.pendingContextReset.add(state.id);
+      this.completionContext.setPendingFailover(state.id, outcome.from);
+      this.completionContext.requestContextReset(state.id);
       // Durable persistence rides the caller's `loop:state-changed` emit
       // (loop-handlers upserts the run on that event).
     }
@@ -3603,7 +3501,7 @@ export class LoopCoordinator extends EventEmitter {
       loopControl: this.loopControls.get(state.id),
       options,
       isTerminalStatus: (status) => isTerminalLoopRuntimeStatus(status),
-      isCancelled: (loopRunId) => this.cancelFlags.get(loopRunId) === true,
+      isCancelled: (loopRunId) => this.lifecycle.isCancelled(loopRunId),
       emit: (eventName, payload) => this.emit(eventName, payload),
       transitionTerminalIntent: (targetState, intent, status, reason) =>
         this.transitionTerminalIntent(targetState, intent, status, reason),
@@ -3645,7 +3543,7 @@ export class LoopCoordinator extends EventEmitter {
     state.pendingInterventions.push(createLoopPendingInput(intervention));
     // Record the obstacle so a later hard-cap stop can explain why the loop
     // never converged (see describeCapReason).
-    this.convergenceNotes.set(state.id, reason);
+    this.completionContext.setConvergenceNote(state.id, reason);
   }
 
   private handleWakeupIntent(state: LoopState, intent: LoopTerminalIntent): LoopTerminalIntent | undefined {
@@ -3657,7 +3555,7 @@ export class LoopCoordinator extends EventEmitter {
         this.transitionTerminalIntent(targetState, targetIntent, status, reason),
       scheduleWakeupResume: (targetState, opts) =>
         this.providerLimitHandler.scheduleWakeupResume(targetState, opts),
-      setConvergenceNote: (loopRunId, note) => this.convergenceNotes.set(loopRunId, note),
+      setConvergenceNote: (loopRunId, note) => this.completionContext.setConvergenceNote(loopRunId, note),
       cloneStateForBroadcast: (targetState) => this.cloneStateForBroadcast(targetState),
       emit: (eventName, payload) => this.emit(eventName, payload),
     });
@@ -3675,7 +3573,7 @@ export class LoopCoordinator extends EventEmitter {
       rejectPendingCompleteIntent: (state, reason) => this.rejectPendingCompleteIntent(state, reason),
       rejectCompletionAttempt: (state, reason, intervention) =>
         this.rejectCompletionAttempt(state, reason, intervention),
-      setConvergenceNote: (loopRunId, note) => this.convergenceNotes.set(loopRunId, note),
+      setConvergenceNote: (loopRunId, note) => this.completionContext.setConvergenceNote(loopRunId, note),
       emitClaimedDoneButFailed: (payload) => this.emit('loop:claimed-done-but-failed', payload),
       emitCompletedNeedsReview: (payload) => this.emit('loop:completed-needs-review', payload),
       terminate: (state, status, reason) => this.terminate(state, status, reason),
@@ -3700,32 +3598,15 @@ export class LoopCoordinator extends EventEmitter {
       loopControlDir: loopControl?.controlDir,
       transitionTerminalIntent: (targetState, targetIntent, status, reason) =>
         this.transitionTerminalIntent(targetState, targetIntent, status, reason),
-      setConvergenceNote: (loopRunId, note) => this.convergenceNotes.set(loopRunId, note),
+      setConvergenceNote: (loopRunId, note) => this.completionContext.setConvergenceNote(loopRunId, note),
       cloneStateForBroadcast: (targetState) => this.cloneStateForBroadcast(targetState),
       emit: (eventName, payload) => this.emit(eventName, payload),
     });
   }
 
-  private async moveBlockedFileAside(state: LoopState): Promise<void> {
-    const loopControl = this.loopControls.get(state.id);
-    await moveBlockedFileAsideHelper({
-      state,
-      loopControlDir: loopControl?.controlDir,
-      warn: ({ errorCode, error }) => {
-        logger.warn('Failed to move BLOCKED.md aside after override', {
-          loopRunId: state.id,
-          errorCode,
-          error,
-        });
-      },
-    });
-  }
-
   private async waitWhilePaused(loopRunId: string): Promise<void> {
     // already pause-emitted by the caller; just wait until resumed.
-    await new Promise<void>((resolve) => {
-      this.pauseGates.set(loopRunId, { resolve });
-    });
+    await this.lifecycle.waitUntilResumed(loopRunId);
   }
 
   private terminate(state: LoopState, status: LoopState['status'], reason?: string): void {
@@ -3737,9 +3618,6 @@ export class LoopCoordinator extends EventEmitter {
     // Cancel any pending provider-limit auto-resume; this run is over.
     this.providerLimitHandler.clearResumeTimer(state.id);
     this.pingPongReviewAborts.abortTerminal(state.id, reason ?? status);
-    this.downshiftModelByLoop.delete(state.id);
-    this.capWrapUpRuns.delete(state.id);
-    this.envelopeRewraps.delete(state.id);
     this.scheduledWakeups.delete(state.id);
     state.status = status;
     state.inFlightIteration = undefined;
@@ -3760,22 +3638,20 @@ export class LoopCoordinator extends EventEmitter {
     recordLoopLearningForState({
       state,
       status,
-      note: this.convergenceNotes.get(state.id),
+      note: this.completionContext.getConvergenceNote(state.id),
       store: this.loopMemoryStore,
     });
     // WS16: reinforce-on-use — lessons surfaced this run that the convergence
     // note / terminal outcome actually echoed get a use bump (fail-soft).
     creditSurfacedLessonUse(
       this.runtimeContexts.get(state.id)?.surfacedLessons,
-      this.convergenceNotes.get(state.id),
+      this.completionContext.getConvergenceNote(state.id),
     );
     const watcher = this.watchers.get(state.id);
     this.watchers.delete(state.id);
     this.runtimeContexts.delete(state.id);
     this.nextObjectivePlanners.delete(state.id);
-    this.convergenceNotes.delete(state.id);
-    this.planRegenerations.delete(state.id);
-    this.pendingContextReset.delete(state.id);
+    this.completionContext.clearRun(state.id);
     const loopControl = this.loopControls.get(state.id);
     this.loopControls.delete(state.id);
     if (status === 'cancelled') this.emit('loop:cancelled', { loopRunId: state.id });
@@ -3788,13 +3664,12 @@ export class LoopCoordinator extends EventEmitter {
     void cleanupLoopControl(loopControl);
     // P2/P3: harvest uncommitted session output then reap the worktree.
     // Fire-and-forget (best-effort): worktree cleanup never blocks termination.
-    const worktreeSessionId = this.worktreeSessionIds.get(state.id);
-    this.worktreeSessionIds.delete(state.id);
+    const worktreeSessionId = this.lifecycle.takeWorktreeSession(state.id);
     cleanupLoopWorktreeAfterTerminate({
       state,
       status,
       worktreeSessionId,
-      terminalCleanupPromises: this.terminalCleanupPromises,
+      getTerminalCleanup: (loopRunId) => this.lifecycle.getTerminalCleanup(loopRunId),
     });
     // A4: drop this run's evidence journal so the table stays compact. Evidence
     // is per-loop-run and only consumed within the run (contradiction
@@ -3823,15 +3698,13 @@ export class LoopCoordinator extends EventEmitter {
         });
       })
       .finally(() => {
-        if (this.terminalCleanupPromises.get(loopRunId) === cleanupPromise) {
-          this.terminalCleanupPromises.delete(loopRunId);
-        }
+        this.lifecycle.clearTerminalCleanup(loopRunId, cleanupPromise);
       });
-    this.terminalCleanupPromises.set(loopRunId, cleanupPromise);
+    this.lifecycle.setTerminalCleanup(loopRunId, cleanupPromise);
   }
 
   private maybeRegeneratePlanOnStall(state: LoopState, seq: number): boolean {
-    const done = this.planRegenerations.get(state.id) ?? 0;
+    const done = this.completionContext.getPlanRegenerationCount(state.id);
     const regenerated = applyLoopPlanRegenerationOnStall({
       state,
       seq,
@@ -3847,7 +3720,7 @@ export class LoopCoordinator extends EventEmitter {
       }
       return false;
     }
-    this.planRegenerations.set(state.id, done + 1);
+    this.completionContext.setPlanRegenerationCount(state.id, done + 1);
     logger.info('Loop disposable-plan regeneration injected on stall', {
       loopRunId: state.id,
       seq,

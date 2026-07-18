@@ -57,6 +57,19 @@ export const WatcherClearBufferPayloadSchema = z.object({
   sessionId: SessionIdSchema,
 });
 
+export const WatcherFileChangedEventSchema = z.object({
+  sessionId: SessionIdSchema,
+  type: z.enum(['add', 'change', 'unlink', 'addDir', 'unlinkDir']),
+  path: FilePathSchema,
+  relativePath: z.string().max(10_000),
+  timestamp: z.number().int().nonnegative(),
+}).strict();
+
+export const WatcherErrorEventSchema = z.object({
+  sessionId: SessionIdSchema,
+  message: z.string().min(1).max(10_000),
+}).strict();
+
 // Multi-edit operations
 export const MultiEditOperationSchema = z.object({
   filePath: FilePathSchema,
@@ -91,6 +104,36 @@ export const CodebaseWatcherPayloadSchema = z.object({
   storeId: StoreIdSchema,
   rootPath: DirectoryPathSchema.optional(),
 });
+
+export const CodebaseIndexProgressEventSchema = z.object({
+  status: z.enum(['idle', 'scanning', 'chunking', 'complete', 'error', 'cancelled']),
+  totalFiles: z.number().int().nonnegative(),
+  processedFiles: z.number().int().nonnegative(),
+  totalChunks: z.number().int().nonnegative(),
+  rootPath: z.string().max(10_000).optional(),
+  currentFile: z.string().max(10_000).optional(),
+  startedAt: z.number().int().nonnegative().optional(),
+  completedAt: z.number().int().nonnegative().optional(),
+  errorMessage: z.string().max(10_000).optional(),
+  eta: z.number().nonnegative().finite().optional(),
+}).strict();
+
+export const CodebaseWatcherChangesEventSchema = z.object({
+  storeId: StoreIdSchema,
+  count: z.number().int().nonnegative(),
+}).strict();
+
+export const CodebaseAutoStatusChangedEventSchema = z.object({
+  rootPath: z.string().min(1).max(10_000),
+  storeId: StoreIdSchema,
+  state: z.enum(['idle', 'queued', 'running', 'complete', 'skipped', 'failed']),
+  reason: z.enum(['too_large', 'excluded', 'disabled', 'remote', 'error']).optional(),
+  startedAt: z.number().int().nonnegative().optional(),
+  completedAt: z.number().int().nonnegative().optional(),
+  filesProcessed: z.number().int().nonnegative().optional(),
+  chunksProcessed: z.number().int().nonnegative().optional(),
+  errorMessage: z.string().max(10_000).optional(),
+}).strict();
 
 // Note: the legacy `CodebaseAutoHintPayloadSchema` was removed when the
 // per-subsystem hint channels (CODEBASE_AUTO_HINT, CODEMEM_PREWARM_HINT)
@@ -154,3 +197,27 @@ export const FileOpenTerminalPayloadSchema = z.object({
 export const FileCopyToClipboardPayloadSchema = z.object({
   path: z.string().min(1).max(4096),
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VCS renderer event payloads (main → renderer pushes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `vcs:status-changed` — GitStatusChangedEvent from the git status watcher. */
+export const VcsStatusChangedEventSchema = z.object({
+  repoPath: z.string(),
+  reason: z.enum(['index', 'head', 'refs', 'remotes', 'packed-refs', 'worktree']),
+  timestamp: z.number(),
+}).strict();
+
+/** `vcs:operation-progress` — fetch/pull/push progress envelope. */
+export const VcsOperationProgressEventSchema = z.object({
+  opId: z.string(),
+  kind: z.enum(['fetch', 'pull', 'push']),
+  phase: z.enum(['started', 'running', 'completed', 'cancelled', 'failed']),
+  repoPath: z.string(),
+  durationMs: z.number().optional(),
+  message: z.string().optional(),
+  stdout: z.string().optional(),
+  stderr: z.string().optional(),
+  exitCode: z.number().nullable().optional(),
+}).strict();

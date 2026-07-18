@@ -435,7 +435,7 @@ export function createLearningDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     abCompleteExperiment: (experimentId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.AB_COMPLETE_EXPERIMENT, { experimentId }),
 
-    abGetVariant: (payload: { experimentId: string; sessionId: string }): Promise<IpcResponse> =>
+    abGetVariant: (payload: { taskType: string; sessionId?: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.AB_GET_VARIANT, payload),
 
     abRecordOutcome: (payload: Record<string, unknown>): Promise<IpcResponse> =>

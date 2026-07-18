@@ -1,10 +1,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  Input,
   OnInit,
   computed,
   inject,
+  input,
   signal,
 } from '@angular/core';
 import { SettingsIpcService } from '../../core/services/ipc/settings-ipc.service';
@@ -212,19 +212,16 @@ import { MAX_MODEL_ID_LENGTH } from '../../../../shared/types/provider.types';
 export class CustomModelsPanelComponent implements OnInit {
   private readonly settingsIpc = inject(SettingsIpcService);
 
-  private readonly _provider = signal('claude');
-  private readonly _availableModelIds = signal<string[]>([]);
+  readonly provider = input<string | null | undefined>();
+  readonly availableModelIds = input<string[] | null | undefined>();
 
-  readonly activeProvider = this._provider.asReadonly();
-  readonly availableModelIdsValue = this._availableModelIds.asReadonly();
-
-  @Input() set provider(value: string | null | undefined) {
-    this._provider.set(value?.trim().toLowerCase() || 'claude');
-  }
-
-  @Input() set availableModelIds(value: string[] | null | undefined) {
-    this._availableModelIds.set(Array.isArray(value) ? value : []);
-  }
+  readonly activeProvider = computed(() =>
+    this.provider()?.trim().toLowerCase() || 'claude',
+  );
+  readonly availableModelIdsValue = computed(() => {
+    const modelIds = this.availableModelIds();
+    return Array.isArray(modelIds) ? modelIds : [];
+  });
 
   readonly customModelsByProvider = signal<Record<string, string[]>>({});
   readonly customModelInput = signal('');

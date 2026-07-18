@@ -64,6 +64,7 @@ import { TranscriptFindBarComponent } from './transcript-find-bar.component';
 import { TranscriptFindController } from './transcript-find-controller';
 import { TranscriptJumpRailComponent } from './transcript-jump-rail.component';
 import { excerptText } from './transcript-jump-rail.markers';
+import { OutputStreamRenderWindow } from './output-stream-render-window';
 
 interface OlderMessagesLoadResult {
   prependedCount: number;
@@ -178,8 +179,15 @@ export class OutputStreamComponent {
 
   protected readonly transcriptFind = new TranscriptFindController({
     getViewportElement: () => this.getViewportElement(),
-    hasOlderMessages: () => this.hasOlderMessages(),
-    loadOlderMessages: () => this.loadOlderMessages(),
+    // Reveal window-hidden items before fetching disk-stored pages.
+    hasOlderMessages: () => this.hiddenRenderedCount() > 0 || this.hasOlderMessages(),
+    loadOlderMessages: async () => {
+      if (this.hiddenRenderedCount() > 0) {
+        this.expandRenderWindow();
+        return;
+      }
+      await this.loadOlderMessages();
+    },
   });
 
   // Load-more state
@@ -297,6 +305,16 @@ export class OutputStreamComponent {
     );
     return this.stableVisibleState.result as RenderedDisplayItem[];
   });
+
+  /** Bounds normal streaming DOM while preserving loaded history on demand. */
+  private readonly renderWindow = new OutputStreamRenderWindow(
+    () => this.instanceId(),
+    () => this.visibleItems(),
+  );
+  protected readonly windowedItems = this.renderWindow.items;
+  protected readonly hiddenRenderedCount = this.renderWindow.hiddenCount;
+  /** rAF-scoped guard so a burst of scroll events expands one step, not many. */
+  private isExpandingRenderWindow = false;
 
   /** Count of hidden tool-group items (for the toggle bar), including those
    *  nested inside work-cycles. */
@@ -491,9 +509,11 @@ export class OutputStreamComponent {
     });
 
     // Deferred syntax highlighting: after Angular renders new content,
-    // highlight code blocks in idle time so input is never blocked.
+    // highlight code blocks in idle time so input is never blocked. Tracks
+    // the windowed list — the DOM only ever contains windowedItems, and
+    // window expansion must highlight the newly revealed rows.
     effect(() => {
-      this.visibleItems();
+      this.windowedItems();
       setTimeout(() => {
         const container = this.getViewportElement();
         if (container) {
@@ -504,7 +524,7 @@ export class OutputStreamComponent {
 
     // Re-apply find highlights after Angular replaces rendered transcript nodes.
     effect(() => {
-      this.visibleItems();
+      this.windowedItems();
       this.transcriptFind.reapplyAfterRender();
     });
 
@@ -581,9 +601,34 @@ export class OutputStreamComponent {
       () => this.instanceId(),
       () => this.messages(),
       () => this.isLoadingOlder(),
-      () => this.hasOlderMessages(),
-      () => { void this.loadOlderMessages(); },
+      () => this.hiddenRenderedCount() > 0 || this.hasOlderMessages(),
+      () => { this.revealOlderContent(); },
     );
+  }
+
+  /** Reveal window-hidden items before fetching disk-stored pages. */
+  protected revealOlderContent(): void {
+    if (this.hiddenRenderedCount() > 0) {
+      this.expandRenderWindow();
+      return;
+    }
+    void this.loadOlderMessages();
+  }
+
+  /** Expand once while preserving the viewport's visual position. */
+  protected expandRenderWindow(): void {
+    if (this.hiddenRenderedCount() === 0 || this.isExpandingRenderWindow) return;
+    this.isExpandingRenderWindow = true;
+    const instanceId = this.instanceId();
+    const viewport = this.getViewportElement();
+    const scrollHeightBefore = viewport?.scrollHeight ?? 0;
+    this.renderWindow.expand();
+    requestAnimationFrame(() => {
+      if (viewport && this.instanceId() === instanceId) {
+        viewport.scrollTop += viewport.scrollHeight - scrollHeightBefore;
+      }
+      this.isExpandingRenderWindow = false;
+    });
   }
 
   /**
@@ -605,6 +650,9 @@ export class OutputStreamComponent {
           this.hasOlderMessages.set(data.hasMore);
           this.olderMessagesHiddenCount.set(Math.max(0, data.totalStored - this.messages().length));
           if (data.prependedCount > 0) {
+            // Newly loaded pages must actually enter the DOM: grow the render
+            // window by at least the prepended item count.
+            this.renderWindow.grow(instanceId, data.prependedCount);
             requestAnimationFrame(() => {
               if (viewport) {
                 const scrollHeightAfter = viewport.scrollHeight;
@@ -643,6 +691,7 @@ export class OutputStreamComponent {
           this.outputStore.prependOlderMessages(instanceId, data.messages);
           if (prependedCount > 0) {
             this.olderMessagesHiddenCount.update((count) => Math.max(0, count - prependedCount));
+            this.renderWindow.grow(instanceId, prependedCount);
           }
 
           // After Angular renders the new items, restore scroll position

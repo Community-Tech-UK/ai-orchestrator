@@ -241,20 +241,3 @@ export interface EvidenceDeletionQueueRecord {
   createdAt: number;
 }
 
-export interface LegacyMarkerCompareAndSwapInput {
-  conversationId: string;
-  messageId: string;
-  evidenceId: string;
-  expectedMarker: string;
-  evidenceCitation: string;
-  /** Citation plus the fixed legacy-unverified disclosure. */
-  replacementText?: string;
-}
-
-export interface LegacyOutputCacheMarkerRecord {
-  conversationId: string;
-  messageId: string;
-  content: string;
-  provider: string;
-  sourceKind: string;
-}

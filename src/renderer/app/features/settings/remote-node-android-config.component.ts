@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, signal, input, output } from '@angular/core';
 import type { WorkerNodeAndroidAutomationSummary } from '../../../../shared/types/worker-node.types';
 
 export interface AndroidAutomationConfigDraft {
@@ -49,7 +49,7 @@ export interface AndroidAutomationConfigDraft {
             (input)="defaultAvd.set($any($event.target).value)"
           />
           <datalist id="android-avd-list">
-            @for (avd of summary?.avds ?? []; track avd) {
+            @for (avd of summary()?.avds ?? []; track avd) {
               <option [value]="avd"></option>
             }
           </datalist>
@@ -98,16 +98,16 @@ export interface AndroidAutomationConfigDraft {
       </div>
 
       <div class="android-summary">
-        <span>SDK: {{ summary?.sdkPath || 'not detected yet' }}</span>
-        <span>ADB: {{ summary?.adbVersion || 'unavailable' }}</span>
-        <span>AVDs: {{ summary?.avds?.length ?? 0 }}</span>
-        <span>Devices: {{ summary?.connectedDevices?.length ?? 0 }}</span>
-        <span>Maestro: {{ summary?.hasMaestro ? 'yes' : 'no' }}</span>
+        <span>SDK: {{ summary()?.sdkPath || 'not detected yet' }}</span>
+        <span>ADB: {{ summary()?.adbVersion || 'unavailable' }}</span>
+        <span>AVDs: {{ summary()?.avds?.length ?? 0 }}</span>
+        <span>Devices: {{ summary()?.connectedDevices?.length ?? 0 }}</span>
+        <span>Maestro: {{ summary()?.hasMaestro ? 'yes' : 'no' }}</span>
       </div>
 
-      @if ((summary?.connectedDevices?.length ?? 0) > 0) {
+      @if ((summary()?.connectedDevices?.length ?? 0) > 0) {
         <div class="device-list">
-          @for (device of summary?.connectedDevices ?? []; track device.serial) {
+          @for (device of summary()?.connectedDevices ?? []; track device.serial) {
             <span class="device-pill">
               {{ device.serial }} · {{ device.kind }} · {{ device.state }}
             </span>
@@ -125,15 +125,15 @@ export interface AndroidAutomationConfigDraft {
         <button
           class="btn btn-primary small"
           type="button"
-          [disabled]="busy"
+          [disabled]="busy()"
           (click)="applyRequested.emit(buildPayload())"
         >
-          {{ busy ? 'Applying...' : 'Apply' }}
+          {{ busy() ? 'Applying...' : 'Apply' }}
         </button>
         <button
           class="btn btn-secondary small"
           type="button"
-          [disabled]="busy"
+          [disabled]="busy()"
           (click)="cancelRequested.emit()"
         >
           Cancel
@@ -230,18 +230,12 @@ export interface AndroidAutomationConfigDraft {
   `],
 })
 export class RemoteNodeAndroidConfigComponent {
-  @Input() busy = false;
-  @Input() enabledFallback = false;
-  @Input() set summary(value: WorkerNodeAndroidAutomationSummary | undefined) {
-    this.currentSummary = value;
-    this.resetDraft();
-  }
-  get summary(): WorkerNodeAndroidAutomationSummary | undefined {
-    return this.currentSummary;
-  }
+  readonly busy = input(false);
+  readonly enabledFallback = input(false);
+  readonly summary = input<WorkerNodeAndroidAutomationSummary | undefined>();
 
-  @Output() readonly applyRequested = new EventEmitter<AndroidAutomationConfigDraft>();
-  @Output() readonly cancelRequested = new EventEmitter<void>();
+  readonly applyRequested = output<AndroidAutomationConfigDraft>();
+  readonly cancelRequested = output<void>();
 
   protected readonly enabled = signal(false);
   protected readonly sdkPath = signal('');
@@ -251,7 +245,13 @@ export class RemoteNodeAndroidConfigComponent {
   protected readonly allowPhysicalDevices = signal(true);
   protected readonly injectMaestroMcp = signal(false);
 
-  private currentSummary: WorkerNodeAndroidAutomationSummary | undefined;
+  constructor() {
+    effect(() => {
+      this.summary();
+      this.enabledFallback();
+      this.resetDraft();
+    });
+  }
 
   protected clampMaxEmulators(value: number): number {
     if (!Number.isFinite(value)) {
@@ -275,8 +275,8 @@ export class RemoteNodeAndroidConfigComponent {
   }
 
   private resetDraft(): void {
-    const summary = this.currentSummary;
-    this.enabled.set(summary?.enabled ?? this.enabledFallback);
+    const summary = this.summary();
+    this.enabled.set(summary?.enabled ?? this.enabledFallback());
     this.sdkPath.set(summary?.sdkPath ?? '');
     this.defaultAvd.set(summary?.defaultAvd ?? summary?.avds[0] ?? '');
     this.headlessEmulator.set(summary?.headlessEmulator ?? true);

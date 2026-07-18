@@ -19,6 +19,7 @@ import { getClampedLoadWatchdogMultiplier } from '../../../runtime/system-load-m
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import { buildCliSpawnOptions } from '../../cli-environment';
 import { parseNdjsonLine } from '../../json-parse';
+import { CliStreamLineParser } from '../cli-stream-line-parser';
 import {
   checkAppServerAvailability,
   parseBrokerEndpoint,
@@ -109,7 +110,7 @@ export abstract class AppServerClientBase {
   protected pending = new Map<number, PendingRequest>();
   protected nextId = 1;
   protected closed = false;
-  protected lineBuffer = '';
+  private readonly lineParser = new CliStreamLineParser();
   private readonly notificationHub = new AppServerNotificationHub((notification, error) => {
     logger.warn('App-server notification observer failed', {
       method: notification.method,
@@ -307,10 +308,7 @@ export abstract class AppServerClientBase {
    * Buffers partial lines and emits complete lines to handleLine().
    */
   protected handleChunk(chunk: string): void {
-    const combined = this.lineBuffer + chunk;
-    const lines = combined.split('\n');
-    this.lineBuffer = lines.pop() || '';
-    for (const line of lines) {
+    for (const line of this.lineParser.push(chunk)) {
       if (line.trim()) {
         this.handleLine(line);
       }
@@ -324,6 +322,7 @@ export abstract class AppServerClientBase {
   protected handleExit(error?: Error): void {
     this.closed = true;
     this.exitError = error || null;
+    this.lineParser.reset();
 
     for (const [id, pending] of this.pending) {
       if (pending.timer) clearTimeout(pending.timer);

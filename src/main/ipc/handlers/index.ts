@@ -36,7 +36,6 @@ export { registerResumeHandlers } from './resume-handlers';
 export { registerWorkflowHandlers } from './workflow-handlers';
 export { registerDiagnosticsHandlers, bridgeCliUpdatePillDeltaToWindow } from './diagnostics-handlers';
 export { registerAppHandlers } from './app-handlers';
-export { registerEventStoreHandlers } from './event-store-handlers';
 export { registerFileHandlers } from './file-handlers';
 export { registerCodebaseHandlers } from './codebase-handlers';
 export { registerWorkspaceHintHandlers } from './workspace-hint-handlers';

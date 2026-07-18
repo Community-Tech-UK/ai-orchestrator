@@ -9,9 +9,9 @@ export function cleanupLoopWorktreeAfterTerminate(args: {
   state: LoopState;
   status: LoopState['status'];
   worktreeSessionId: string | undefined;
-  terminalCleanupPromises: Map<string, Promise<void>>;
+  getTerminalCleanup: (loopRunId: string) => Promise<void> | undefined;
 }): void {
-  const { state, status, worktreeSessionId, terminalCleanupPromises } = args;
+  const { state, status, worktreeSessionId, getTerminalCleanup } = args;
   if (!worktreeSessionId) return;
 
   void (async () => {
@@ -26,7 +26,7 @@ export function cleanupLoopWorktreeAfterTerminate(args: {
       // Decision C ordering: stop child -> harvest -> reap. If we harvest while
       // the child is still alive it can write files after our commit snapshot,
       // and those post-harvest writes would be silently deleted by cleanup.
-      const adapterDonePromise = terminalCleanupPromises.get(state.id);
+      const adapterDonePromise = getTerminalCleanup(state.id);
       if (adapterDonePromise) {
         try {
           await adapterDonePromise;

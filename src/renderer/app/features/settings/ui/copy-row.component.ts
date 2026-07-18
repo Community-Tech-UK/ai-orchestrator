@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 @Component({
   selector: 'app-copy-row',
@@ -6,20 +6,20 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from 
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="copy-row">
-      <span class="copy-label">{{ label }}</span>
+      <span class="copy-label">{{ label() }}</span>
       <div class="copy-control">
         <input
           type="text"
           class="copy-input"
-          [class.mono]="mono"
-          [value]="value"
+          [class.mono]="mono()"
+          [value]="value()"
           readonly
         />
         <button
           type="button"
           class="copy-button"
-          [disabled]="!value"
-          (click)="copyRequested.emit(value)"
+          [disabled]="!value()"
+          (click)="copyRequested.emit(value())"
         >
           Copy
         </button>
@@ -29,8 +29,8 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from 
   styleUrl: './copy-row.component.scss',
 })
 export class CopyRowComponent {
-  @Input() label = '';
-  @Input() value = '';
-  @Input() mono = true;
-  @Output() readonly copyRequested = new EventEmitter<string>();
+  readonly label = input('');
+  readonly value = input('');
+  readonly mono = input(true);
+  readonly copyRequested = output<string>();
 }

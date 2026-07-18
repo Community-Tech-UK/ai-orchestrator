@@ -27,8 +27,9 @@ export interface InputCapRecoveryOps {
  *      history, not shrink one huge file dump), or compaction was unavailable,
  *      reopen a fresh thread and retry once — loses context, but the session
  *      survives and the user's message goes through.
- *   3. Only if the user's *own* message overflows a fresh thread is the message
- *      itself the problem — surface a clear, actionable error.
+ *   3. If the assembled turn still overflows on a fresh thread, surface a
+ *      neutral, actionable error without assuming the visible user message
+ *      was the oversized component.
  *
  * Non-cap errors from any retry propagate unchanged.
  */
@@ -50,7 +51,7 @@ export async function recoverFromInputCap(ops: InputCapRecoveryOps): Promise<voi
   } catch (freshErr) {
     if (isCodexInputTooLargeError(freshErr)) {
       throw new Error(
-        'Codex rejected the turn: your message exceeds Codex’s per-turn size limit even on a fresh thread. Reduce the message itself (e.g. attach fewer or smaller files) and retry.',
+        'Codex rejected the assembled turn because it exceeds Codex’s per-turn size limit even on a fresh thread. Reduce the input or restart without replay context and retry.',
       );
     }
     throw freshErr;

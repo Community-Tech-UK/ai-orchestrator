@@ -26,6 +26,7 @@ import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
 import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
+import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 
 interface WorktreeActionPayload {
   sessionId: string;
@@ -401,6 +402,7 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
   private readonly orchestrationIpc = inject(OrchestrationIpcService);
   private readonly instanceIpc = inject(InstanceIpcService);
   private readonly taskIpc = inject(TaskIpcService);
+  private readonly pollScheduler = inject(RendererPollSchedulerService);
 
   readonly sessions = signal<WorktreeSession[]>([]);
   readonly instances = signal<InstanceOption[]>([]);
@@ -432,20 +434,15 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
     (this.preflight()?.blockers.length || 0) === 0
   );
 
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private stopPolling: (() => void) | null = null;
 
   async ngOnInit(): Promise<void> {
     await this.refreshAll();
-    this.pollTimer = setInterval(() => {
-      void this.refreshSessions();
-    }, 3000);
+    this.stopPolling = this.pollScheduler.register(() => this.refreshSessions(), 3000);
   }
 
   ngOnDestroy(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
+    this.stopPolling?.();
   }
 
   openRepoJobLaunch(): void {

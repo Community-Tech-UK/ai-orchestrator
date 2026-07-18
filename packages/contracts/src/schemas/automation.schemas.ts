@@ -185,6 +185,75 @@ export const AutomationPreflightPayloadSchema = z.object({
   expectedUnattended: z.boolean().optional(),
 });
 
+export const AutomationSchema = z.object({
+  id: AutomationIdSchema,
+  name: z.string().min(1).max(200),
+  description: z.string().max(1000).optional(),
+  enabled: z.boolean(),
+  active: z.boolean(),
+  workspaceId: z.string().min(1).max(1000),
+  schedule: AutomationScheduleSchema,
+  trigger: AutomationConfiguredTriggerSchema,
+  missedRunPolicy: AutomationMissedRunPolicySchema,
+  concurrencyPolicy: z.enum(['skip', 'queue']),
+  destination: AutomationDestinationSchema,
+  action: AutomationActionSchema,
+  nextFireAt: z.number().int().nonnegative().nullable(),
+  lastFiredAt: z.number().int().nonnegative().nullable(),
+  lastRunId: AutomationRunIdSchema.nullable(),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+  unreadRunCount: z.number().int().nonnegative().optional(),
+  consecutiveFailures: z.number().int().nonnegative().optional(),
+  lastFailureAt: z.number().int().nonnegative().nullable().optional(),
+  lastFailureReason: z.string().nullable().optional(),
+});
+
+const AutomationConfigSnapshotSchema = z.object({
+  name: z.string().min(1).max(200),
+  schedule: AutomationScheduleSchema,
+  trigger: AutomationConfiguredTriggerSchema,
+  missedRunPolicy: AutomationMissedRunPolicySchema,
+  concurrencyPolicy: z.enum(['skip', 'queue']),
+  destination: AutomationDestinationSchema,
+  action: AutomationActionSchema,
+});
+
+export const AutomationRunSchema = z.object({
+  id: AutomationRunIdSchema,
+  automationId: AutomationIdSchema,
+  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled']),
+  trigger: AutomationTriggerSchema,
+  scheduledAt: z.number().int().nonnegative(),
+  startedAt: z.number().int().nonnegative().nullable(),
+  finishedAt: z.number().int().nonnegative().nullable(),
+  instanceId: z.string().min(1).max(200).nullable(),
+  loopRunId: z.string().min(1).max(200).nullable(),
+  error: z.string().nullable(),
+  outputSummary: z.string().nullable(),
+  outputFullRef: z.string().nullable(),
+  idempotencyKey: z.string().nullable(),
+  triggerSource: AutomationTriggerSourceSchema.nullable(),
+  deliveryMode: AutomationDeliveryModeSchema,
+  seenAt: z.number().int().nonnegative().nullable(),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+  configSnapshot: AutomationConfigSnapshotSchema.nullable(),
+  attempt: z.number().int().positive(),
+  maxAttempts: z.number().int().positive(),
+});
+
+export const AutomationChangedEventSchema = z.object({
+  automation: AutomationSchema.nullable(),
+  automationId: AutomationIdSchema,
+  type: z.enum(['created', 'updated', 'deleted']),
+}).strict();
+
+export const AutomationRunChangedEventSchema = z.object({
+  run: AutomationRunSchema,
+  automationId: AutomationIdSchema,
+}).strict();
+
 export type AutomationCreatePayload = z.infer<typeof AutomationCreatePayloadSchema>;
 export type AutomationUpdatePayload = z.infer<typeof AutomationUpdatePayloadSchema>;
 export type AutomationGetPayload = z.infer<typeof AutomationGetPayloadSchema>;

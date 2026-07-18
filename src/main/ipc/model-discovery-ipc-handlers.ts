@@ -1,4 +1,13 @@
-import { ipcMain } from 'electron';
+import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
+import {
+  ModelDiscoverPayloadSchema,
+  ModelEmptyPayloadSchema,
+  ModelGetPayloadSchema,
+  ModelProviderStatusPayloadSchema,
+  ModelSelectPayloadSchema,
+  ModelVerifyPayloadSchema,
+} from '@contracts/schemas/provider';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import {
   getModelDiscoveryService,
@@ -8,124 +17,188 @@ import {
 import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
 import type { UnifiedModelEntry } from '../../shared/types/unified-model-catalog.types';
 import { registerModelOverrideHandlers } from './model-override-ipc-handlers';
+import { validatedHandler, type IpcResponse } from './validated-handler';
 
-export function registerModelDiscoveryHandlers(): void {
+export interface ModelDiscoveryHandlerDeps {
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
+}
+
+export function registerModelDiscoveryHandlers(deps: ModelDiscoveryHandlerDeps = {}): void {
   const discoveryService = getModelDiscoveryService();
 
-  ipcMain.handle(
+  registerModelHandler(
     IPC_CHANNELS.MODEL_DISCOVER,
-    async (_event, config: ProviderModelConfig | undefined) => {
+    ModelDiscoverPayloadSchema,
+    async (config) => {
       if (!hasProviderModelConfig(config)) {
         return getUnifiedCatalogModelsForLegacyDiscovery();
       }
       return discoveryService.discoverModels(normalizeProviderModelConfig(config));
     },
+    deps,
   );
 
-  ipcMain.handle(IPC_CHANNELS.MODEL_GET_ALL, async (_event, config: ProviderModelConfig | undefined) => {
-    if (!hasProviderModelConfig(config)) {
-      return getUnifiedCatalogModelsForLegacyDiscovery();
-    }
-    return discoveryService.discoverModels(normalizeProviderModelConfig(config));
-  });
-
-  ipcMain.handle(
-    IPC_CHANNELS.MODEL_GET,
-    async (_event, payload: { config?: ProviderModelConfig; modelId?: unknown } | undefined) => {
-      const modelId = readModelId(payload);
-      if (!modelId) {
-        return undefined;
+  registerModelHandler(
+    IPC_CHANNELS.MODEL_GET_ALL,
+    ModelDiscoverPayloadSchema,
+    async (config) => {
+      if (!hasProviderModelConfig(config)) {
+        return getUnifiedCatalogModelsForLegacyDiscovery();
       }
-      if (!hasProviderModelConfig(payload?.config)) {
-        const entry = getUnifiedModelCatalog().getModel(modelId);
+      return discoveryService.discoverModels(normalizeProviderModelConfig(config));
+    },
+    deps,
+  );
+
+  registerModelHandler(
+    IPC_CHANNELS.MODEL_GET,
+    ModelGetPayloadSchema,
+    async (payload) => {
+      if (!hasProviderModelConfig(payload.config)) {
+        const entry = getUnifiedModelCatalog().getModel(payload.modelId);
         return entry ? toLegacyDiscoveredModel(entry) : undefined;
       }
       return discoveryService.getModelDetails(
         normalizeProviderModelConfig(payload.config),
-        modelId,
+        payload.modelId,
       );
     },
+    deps,
   );
 
-  ipcMain.handle(
+  registerModelHandler(
     IPC_CHANNELS.MODEL_SELECT,
-    async (
-      _event,
-      payload: { config?: ProviderModelConfig; criteria?: { capabilities?: string[] } } | undefined,
-    ) => {
+    ModelSelectPayloadSchema,
+    async (payload) => {
       const models = hasProviderModelConfig(payload?.config)
         ? await discoveryService.discoverModels(normalizeProviderModelConfig(payload.config))
         : getUnifiedCatalogModelsForLegacyDiscovery();
       return selectBestDiscoveredModel(models, payload?.criteria);
     },
+    deps,
   );
 
-  ipcMain.handle(IPC_CHANNELS.MODEL_CONFIGURE_PROVIDER, async () => {
-    return {
-      success: false,
-      error: {
-        code: 'MODEL_CONFIGURE_PROVIDER_UNSUPPORTED',
-        message: 'Provider configuration is managed through provider settings; use provider:update-config.',
-        timestamp: Date.now(),
+  ipcMain.handle(
+    IPC_CHANNELS.MODEL_CONFIGURE_PROVIDER,
+    validatedHandler(
+      IPC_CHANNELS.MODEL_CONFIGURE_PROVIDER,
+      ModelDiscoverPayloadSchema,
+      async () => ({
+        success: false,
+        error: {
+          code: 'MODEL_CONFIGURE_PROVIDER_UNSUPPORTED',
+          message: 'Provider configuration is managed through provider settings; use provider:update-config.',
+          timestamp: Date.now(),
+        },
+      }),
+      {
+        ensureTrustedSender: deps.ensureTrustedSender,
+        errorCode: 'MODEL_CONFIGURE_PROVIDER_FAILED',
       },
-    };
-  });
+    ),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.MODEL_GET_PROVIDER_STATUS, async (_event, config: ProviderModelConfig) => {
-    const providerConfig = normalizeProviderModelConfig(config);
-    const models = await discoveryService.discoverModels(providerConfig);
-    const availableModels = models.filter((model) => model.isAvailable).length;
-    return {
-      provider: providerConfig.type,
-      enabled: providerConfig.type.length > 0,
-      configured: isProviderConfigured(providerConfig),
-      connected: availableModels > 0,
-      totalModels: models.length,
-      availableModels,
-      lastChecked: latestModelCheck(models),
-    };
-  });
+  registerModelHandler(
+    IPC_CHANNELS.MODEL_GET_PROVIDER_STATUS,
+    ModelProviderStatusPayloadSchema,
+    async (config) => {
+      const providerConfig = normalizeProviderModelConfig(config);
+      const models = await discoveryService.discoverModels(providerConfig);
+      const availableModels = models.filter((model) => model.isAvailable).length;
+      return {
+        provider: providerConfig.type,
+        enabled: providerConfig.type.length > 0,
+        configured: isProviderConfigured(providerConfig),
+        connected: availableModels > 0,
+        totalModels: models.length,
+        availableModels,
+        lastChecked: latestModelCheck(models),
+      };
+    },
+    deps,
+  );
 
-  ipcMain.handle(IPC_CHANNELS.MODEL_GET_STATS, async () => {
-    const models = getUnifiedModelCatalog().getAllModels();
-    const providers = new Set(models.map((model) => model.provider));
-    return {
-      totalProviders: providers.size,
-      enabledProviders: providers.size,
-      connectedProviders: providers.size,
-      totalModels: models.length,
-      availableModels: models.length,
-    };
-  });
+  registerModelHandler(
+    IPC_CHANNELS.MODEL_GET_STATS,
+    ModelEmptyPayloadSchema,
+    () => {
+      const models = getUnifiedModelCatalog().getAllModels();
+      const providers = new Set(models.map((model) => model.provider));
+      return {
+        totalProviders: providers.size,
+        enabledProviders: providers.size,
+        connectedProviders: providers.size,
+        totalModels: models.length,
+        availableModels: models.length,
+      };
+    },
+    deps,
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.MODEL_VERIFY,
-    async (_event, payload: { config?: ProviderModelConfig; modelId?: unknown } | undefined) => {
-      const modelId = readModelId(payload);
-      if (!modelId) {
-        return false;
-      }
-      if (!hasProviderModelConfig(payload?.config)) {
-        return getUnifiedModelCatalog().getModel(modelId) !== undefined;
-      }
-      return discoveryService.isModelAvailable(
-        normalizeProviderModelConfig(payload.config),
-        modelId,
-      );
-    },
+    validatedHandler(
+      IPC_CHANNELS.MODEL_VERIFY,
+      ModelVerifyPayloadSchema,
+      async (payload) => {
+        const available = !hasProviderModelConfig(payload.config)
+          ? getUnifiedModelCatalog().getModel(payload.modelId) !== undefined
+          : await discoveryService.isModelAvailable(
+            normalizeProviderModelConfig(payload.config),
+            payload.modelId,
+          );
+        return available
+          ? { success: true, data: true }
+          : {
+            success: false,
+            data: false,
+            error: {
+              code: 'MODEL_NOT_AVAILABLE',
+              message: 'Model is not available.',
+              timestamp: Date.now(),
+            },
+          };
+      },
+      {
+        ensureTrustedSender: deps.ensureTrustedSender,
+        errorCode: 'MODEL_VERIFY_FAILED',
+      },
+    ),
   );
 
-  registerModelOverrideHandlers();
+  registerModelOverrideHandlers(deps);
+}
+
+function registerModelHandler<TPayload, TResult>(
+  channel: string,
+  schema: z.ZodSchema<TPayload>,
+  call: (payload: TPayload) => TResult | Promise<TResult>,
+  deps: ModelDiscoveryHandlerDeps,
+): void {
+  ipcMain.handle(
+    channel,
+    validatedHandler(
+      channel,
+      schema,
+      async (payload) => {
+        const data = await call(payload);
+        return data === undefined
+          ? { success: true }
+          : { success: true, data };
+      },
+      {
+        ensureTrustedSender: deps.ensureTrustedSender,
+        errorCode: `${channel.replace(/[:-]/g, '_').toUpperCase()}_FAILED`,
+      },
+    ),
+  );
 }
 
 function hasProviderModelConfig(config: ProviderModelConfig | undefined): config is ProviderModelConfig {
   return typeof config?.type === 'string' && config.type.trim().length > 0;
-}
-
-function readModelId(payload: { modelId?: unknown } | undefined): string | undefined {
-  return typeof payload?.modelId === 'string' && payload.modelId.trim()
-    ? payload.modelId.trim()
-    : undefined;
 }
 
 function normalizeProviderModelConfig(config: ProviderModelConfig): ProviderModelConfig {

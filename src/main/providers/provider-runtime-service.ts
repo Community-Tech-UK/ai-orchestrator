@@ -32,7 +32,7 @@ export interface ProviderRuntimeStartInput {
 
 export interface ProviderRuntimeContract {
   createAdapter(input: ProviderRuntimeStartInput): CliAdapter;
-  getCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities;
+  getCapabilities(adapter?: CliAdapter, provider?: CliType): AdapterRuntimeCapabilities;
   interruptTurn(adapter: CliAdapter): InterruptResult;
   getRuntimeSnapshot(adapter?: CliAdapter): ProviderRuntimeSnapshot | undefined;
   getResumeProof(adapter?: CliAdapter): ResumeAttemptResult | undefined;
@@ -141,8 +141,14 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
     }) as CliAdapter;
   }
 
-  getCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities {
-    return adapter?.getRuntimeCapabilities?.() ?? DEFAULT_RUNTIME_CAPABILITIES;
+  getCapabilities(adapter?: CliAdapter, provider?: CliType): AdapterRuntimeCapabilities {
+    const liveCapabilities = adapter?.getRuntimeCapabilities?.();
+    if (liveCapabilities) return liveCapabilities;
+
+    const registeredCapabilities = provider
+      ? this.registry.getSnapshot(provider)?.capabilities
+      : undefined;
+    return registeredCapabilities ?? { ...DEFAULT_RUNTIME_CAPABILITIES };
   }
 
   interruptTurn(adapter: CliAdapter): InterruptResult {

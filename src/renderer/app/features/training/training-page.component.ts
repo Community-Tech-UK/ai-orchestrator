@@ -23,6 +23,7 @@ import {
 import { TrainingIpcService } from '../../core/services/ipc/training-ipc.service';
 import { MemoryIpcService } from '../../core/services/ipc/memory-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 
 interface RawTrainingStats {
   totalOutcomes: number;
@@ -413,6 +414,7 @@ interface RewardTrend {
 export class TrainingPageComponent implements OnInit, OnDestroy {
   private readonly trainingIpc = inject(TrainingIpcService);
   private readonly memoryIpc = inject(MemoryIpcService);
+  private readonly pollScheduler = inject(RendererPollSchedulerService);
 
   readonly dashboardStats = signal<TrainingStats | null>(null);
   readonly patterns = signal<TaskPattern[]>([]);
@@ -440,20 +442,15 @@ export class TrainingPageComponent implements OnInit, OnDestroy {
     (this.dashboardStats()?.totalOutcomes || 0) > 0 || this.topStrategies().length > 0
   );
 
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private stopPolling: (() => void) | null = null;
 
   async ngOnInit(): Promise<void> {
     await this.refreshAll();
-    this.pollTimer = setInterval(() => {
-      void this.refreshAll(false);
-    }, 8000);
+    this.stopPolling = this.pollScheduler.register(() => this.refreshAll(false), 8000);
   }
 
   ngOnDestroy(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
+    this.stopPolling?.();
   }
 
   async refreshAll(showBusy = true): Promise<void> {

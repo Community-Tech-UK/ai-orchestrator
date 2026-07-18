@@ -21,11 +21,7 @@ import type {
   EvidenceRangeAuthorization,
   EvidenceRangeAuthorizationInput,
   EvidenceStageInput,
-  LegacyMarkerCompareAndSwapInput,
-  LegacyOutputCacheMarkerRecord,
 } from './context-evidence-ledger.types';
-import { compareAndSwapLegacyOutputMarker as compareAndSwapLegacyOutputMarkerInStore,
-  listLegacyOutputCacheMarkers as listLegacyOutputCacheMarkersFromStore } from './legacy-output-cache-ledger-store';
 import { evidenceDeletionRowToRecord, type EvidenceDeletionQueueRow } from './evidence-deletion-ledger-mapper';
 
 interface EvidenceRow {
@@ -76,26 +72,30 @@ export class ContextEvidenceLedgerStore {
   constructor(private readonly db: SqliteDriver) {}
 
   stageEvidence(input: EvidenceStageInput): EvidenceLedgerRecord {
-    if (!this.hasLiveConversation(input.conversationId)) throw new Error('EVIDENCE_CONVERSATION_NOT_FOUND');
-    const existing = this.findEvidenceByCaptureKey(input.conversationId, input.captureKey);
-    if (existing) return existing;
     const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ?? Date.now();
-    this.db.prepare(`
+    const row = this.db.prepare(`
       INSERT INTO evidence_records (
         id, conversation_id, provider, provider_thread_ref, provider_session_ref,
         turn_ref, tool_call_ref, tool_name, source_kind, source_locator_redacted,
         status, byte_count, mime_type, sensitivity, provenance_trust, capture_mode,
         capture_completeness, truncation_reason, capture_key, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'staging', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'staging', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      FROM conversation_threads
+      WHERE id = ? AND deleted_at IS NULL
+      ON CONFLICT(conversation_id, capture_key) DO UPDATE SET
+        capture_key = excluded.capture_key
+      RETURNING *
+    `).get<EvidenceRow>(
       id, input.conversationId, input.provider, input.providerThreadRef ?? null,
       input.providerSessionRef ?? null, input.turnRef ?? null, input.toolCallRef ?? null,
       input.toolName, input.sourceKind, input.sourceLocatorRedacted ?? null, input.mimeType,
       input.sensitivity, input.provenanceTrust, input.captureMode, input.captureCompleteness,
-      input.truncationReason ?? null, input.captureKey, createdAt, createdAt,
+      input.truncationReason ?? null, input.captureKey, createdAt, createdAt, input.conversationId,
     );
-    return this.findEvidenceForMaintenance(input.conversationId, id)!;
+    if (!row) throw new Error('EVIDENCE_CONVERSATION_NOT_FOUND');
+    return evidenceRowToRecord(row);
   }
 
   finalizeEvidence(input: EvidenceFinalizeInput): EvidenceLedgerRecord {
@@ -625,18 +625,6 @@ export class ContextEvidenceLedgerStore {
     `).run(errorCode, retryAt, id, claimToken).changes === 1;
   }
 
-  compareAndSwapLegacyOutputMarker(input: LegacyMarkerCompareAndSwapInput): boolean {
-    return compareAndSwapLegacyOutputMarkerInStore(
-      this.db,
-      input,
-      (conversationId, evidenceId) => this.getEvidence(conversationId, evidenceId),
-    );
-  }
-
-  listLegacyOutputCacheMarkers(): LegacyOutputCacheMarkerRecord[] {
-    return listLegacyOutputCacheMarkersFromStore(this.db);
-  }
-
   private assertPreparedIdentityCompatible(
     existing: EvidenceLedgerRecord,
     input: EvidenceFinalizeInput,
@@ -649,17 +637,6 @@ export class ContextEvidenceLedgerStore {
     ) {
       throw new Error('EVIDENCE_CAPTURE_KEY_CONTENT_CONFLICT');
     }
-  }
-
-  private hasLiveConversation(conversationId: string): boolean {
-    return this.db.prepare('SELECT 1 AS present FROM conversation_threads WHERE id = ? AND deleted_at IS NULL')
-      .get<{ present: number }>(conversationId) !== undefined;
-  }
-
-  private findEvidenceByCaptureKey(conversationId: string, captureKey: string): EvidenceLedgerRecord | null {
-    const row = this.db.prepare('SELECT * FROM evidence_records WHERE conversation_id = ? AND capture_key = ?')
-      .get<EvidenceRow>(conversationId, captureKey);
-    return row ? evidenceRowToRecord(row) : null;
   }
 
   private findEvidenceForMaintenance(conversationId: string, evidenceId: string): EvidenceLedgerRecord | null {

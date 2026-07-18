@@ -4,7 +4,6 @@ import {
   SessionIdSchema,
   FilePathSchema,
   SnapshotIdSchema,
-  StoreIdSchema,
   WorkingDirectorySchema,
   DisplayNameSchema,
   FileAttachmentSchema,
@@ -386,34 +385,119 @@ export const SessionShareReplayPayloadSchema = z.object({
   displayName: DisplayNameSchema.optional(),
 });
 
-export const ArchiveSessionPayloadSchema = z.object({
+export const SessionListResumablePayloadSchema = z.undefined().optional();
+
+export const SessionResumePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  options: z.object({
+    restoreMessages: z.boolean().optional(),
+    restoreContext: z.boolean().optional(),
+    restoreTasks: z.boolean().optional(),
+    restoreEnvironment: z.boolean().optional(),
+    fromSnapshot: SnapshotIdSchema.optional(),
+    validateParallelToolResults: z.boolean().optional(),
+  }).strict().optional(),
+}).strict();
+
+export const SessionListSnapshotsPayloadSchema = z.object({
+  instanceId: InstanceIdSchema.optional(),
+}).strict().optional();
+
+export const SessionCreateSnapshotPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(2_000).optional(),
+}).strict();
+
+export const SessionGetStatsPayloadSchema = z.undefined().optional();
+
+const ArchiveSessionByInstancePayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   tags: z.array(z.string().max(100)).max(50).optional(),
-});
+}).strict();
 
-export const ArchiveListPayloadSchema = z.object({
+const ArchiveSessionByLegacyIdPayloadSchema = z.object({
+  sessionId: InstanceIdSchema,
+  tags: z.array(z.string().max(100)).max(50).optional(),
+  notes: z.string().max(10_000).optional(),
+  sessionData: z.unknown().optional(),
+  options: z.object({
+    compress: z.boolean().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }).strict().optional(),
+}).strict();
+
+export const ArchiveSessionPayloadSchema = z.union([
+  ArchiveSessionByInstancePayloadSchema,
+  ArchiveSessionByLegacyIdPayloadSchema.transform((payload) => ({
+    instanceId: payload.sessionId,
+    tags: payload.tags,
+  })),
+]);
+
+const ArchiveListFilterSchema = z.object({
   beforeDate: z.number().int().nonnegative().optional(),
   afterDate: z.number().int().nonnegative().optional(),
   tags: z.array(z.string().max(100)).max(50).optional(),
   searchTerm: z.string().max(500).optional(),
-}).optional();
+}).strict();
 
-export const ArchiveRestorePayloadSchema = z.object({
-  sessionId: SessionIdSchema,
-});
+const RendererArchiveListPayloadSchema = z.object({
+  filter: z.object({
+    startDate: z.number().int().nonnegative().optional(),
+    endDate: z.number().int().nonnegative().optional(),
+    limit: z.number().int().min(1).max(10_000).optional(),
+    tags: z.array(z.string().max(100)).max(50).optional(),
+    search: z.string().max(500).optional(),
+  }).strict().optional(),
+}).strict().transform((payload) => payload.filter
+  ? {
+    beforeDate: payload.filter.endDate,
+    afterDate: payload.filter.startDate,
+    tags: payload.filter.tags,
+    searchTerm: payload.filter.search,
+  }
+  : undefined);
 
-export const ArchiveDeletePayloadSchema = z.object({
-  sessionId: SessionIdSchema,
-});
+export const ArchiveListPayloadSchema = z.union([
+  ArchiveListFilterSchema,
+  RendererArchiveListPayloadSchema,
+]).optional();
 
-export const ArchiveGetMetaPayloadSchema = z.object({
-  sessionId: SessionIdSchema,
-});
+const ArchiveIdPayloadSchema = z.union([
+  z.object({ archiveId: SessionIdSchema }).strict(),
+  z.object({ sessionId: SessionIdSchema }).strict().transform((payload) => ({
+    archiveId: payload.sessionId,
+  })),
+]);
 
-export const ArchiveUpdateTagsPayloadSchema = z.object({
-  sessionId: SessionIdSchema,
-  tags: z.array(z.string().max(100)).max(50),
-});
+export const ArchiveRestorePayloadSchema = ArchiveIdPayloadSchema;
+export const ArchiveDeletePayloadSchema = ArchiveIdPayloadSchema;
+export const ArchiveGetMetaPayloadSchema = ArchiveIdPayloadSchema;
+
+export const ArchiveUpdateTagsPayloadSchema = z.union([
+  z.object({
+    archiveId: SessionIdSchema,
+    tags: z.array(z.string().max(100)).max(50),
+  }).strict(),
+  z.object({
+    sessionId: SessionIdSchema,
+    tags: z.array(z.string().max(100)).max(50),
+  }).strict().transform((payload) => ({
+    archiveId: payload.sessionId,
+    tags: payload.tags,
+  })),
+]);
+
+export const ArchiveSearchPayloadSchema = z.object({
+  query: z.string().max(500),
+  options: z.object({
+    tags: z.array(z.string().max(100)).max(50).optional(),
+    limit: z.number().int().min(1).max(10_000).optional(),
+  }).strict().optional(),
+}).strict();
+
+export const SessionHandlerEmptyPayloadSchema = z.undefined().optional();
 
 export const ArchiveCleanupPayloadSchema = z.object({
   maxAgeDays: z.number().int().min(1).max(3650),
@@ -555,95 +639,7 @@ export const ObservationGetObservationsPayloadSchema = z.object({
   limit: z.number().int().min(1).max(10000).optional(),
 }).optional();
 
-// ============ Learning / RLM schemas ============
-
-export const RlmAddSectionPayloadSchema = z.object({
-  storeId: StoreIdSchema,
-  type: z.enum(['system', 'conversation', 'memory', 'tool', 'result', 'error', 'metadata']),
-  name: z.string().min(1).max(200),
-  content: z.string().max(10000000),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
-
-export const RlmRemoveSectionPayloadSchema = z.object({
-  storeId: StoreIdSchema,
-  sectionId: z.string().min(1).max(200),
-});
-
-export const RlmStartSessionPayloadSchema = z.object({
-  storeId: StoreIdSchema,
-  instanceId: InstanceIdSchema,
-});
-
-export const RlmGetPatternsPayloadSchema = z.object({
-  minSuccessRate: z.number().min(0).max(1).optional(),
-}).optional();
-
-export const RlmGetStrategySuggestionsPayloadSchema = z.object({
-  context: z.string().min(1).max(1000000),
-  maxSuggestions: z.number().int().min(1).max(100).optional(),
-});
-
-export const RlmTokenSavingsPayloadSchema = z.object({
-  range: z.enum(['7d', '30d', '90d']),
-});
-
-export const RlmQueryStatsPayloadSchema = z.object({
-  range: z.enum(['7d', '30d', '90d']),
-});
-
-export const LearningGetInsightsPayloadSchema = z.object({
-  taskType: z.string().max(200).optional(),
-  minConfidence: z.number().min(0).max(1).optional(),
-}).optional();
-
-export const LearningGetRecommendationPayloadSchema = z.object({
-  taskType: z.string().min(1).max(200),
-  taskDescription: z.string().max(10000).optional(),
-  context: z.string().max(1000000).optional(),
-});
-
-export const LearningEnhancePromptPayloadSchema = z.object({
-  prompt: z.string().min(1).max(500000),
-  taskType: z.string().max(200).optional(),
-  context: z.string().max(1000000).optional(),
-});
-
-export const LearningRateOutcomePayloadSchema = z.object({
-  outcomeId: z.string().min(1).max(200),
-  satisfaction: z.number().min(0).max(1),
-});
-
-export const AbUpdateExperimentPayloadSchema = z.object({
-  experimentId: z.string().min(1).max(200),
-  updates: z.object({
-    name: z.string().min(1).max(200).optional(),
-    description: z.string().max(1000).optional(),
-    minSamples: z.number().int().min(1).optional(),
-    confidenceThreshold: z.number().min(0).max(1).optional(),
-  }),
-});
-
-export const AbGetVariantPayloadSchema = z.object({
-  taskType: z.string().min(1).max(200),
-  sessionId: SessionIdSchema.optional(),
-});
-
-export const AbRecordOutcomePayloadSchema = z.object({
-  experimentId: z.string().min(1).max(200),
-  variantId: z.string().min(1).max(200),
-  outcome: z.object({
-    success: z.boolean(),
-    duration: z.number().int().min(0).optional(),
-    tokens: z.number().int().min(0).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-  }),
-});
-
-export const AbListExperimentsPayloadSchema = z.object({
-  status: z.enum(['active', 'paused', 'completed', 'draft']).optional(),
-  taskType: z.string().max(200).optional(),
-}).optional();
+export * from './learning.schemas';
 
 // ============ Todo schemas ============
 
@@ -689,6 +685,36 @@ export const TodoClearPayloadSchema = z.object({
 export const TodoGetCurrentPayloadSchema = z.object({
   sessionId: SessionIdSchema,
 });
+
+const TodoItemEventSchema = z.object({
+  id: z.string().min(1).max(200),
+  content: z.string().min(1).max(10_000),
+  activeForm: z.string().max(100).optional(),
+  status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  parentId: z.string().max(200).optional(),
+  sessionId: SessionIdSchema,
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+  completedAt: z.number().int().nonnegative().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+export const TodoListChangedEventSchema = z.object({
+  sessionId: SessionIdSchema,
+  list: z.object({
+    sessionId: SessionIdSchema,
+    items: z.array(TodoItemEventSchema).max(10_000),
+    stats: z.object({
+      total: z.number().int().nonnegative(),
+      pending: z.number().int().nonnegative(),
+      inProgress: z.number().int().nonnegative(),
+      completed: z.number().int().nonnegative(),
+      cancelled: z.number().int().nonnegative(),
+      percentComplete: z.number().min(0).max(100),
+    }).strict(),
+  }).strict(),
+}).strict();
 
 // ============ Cost schemas ============
 
@@ -741,3 +767,27 @@ export const CostGetEntriesPayloadSchema = z.object({
 export const CostClearEntriesPayloadSchema = z.object({
   ipcAuthToken: IpcAuthTokenSchema,
 }).optional();
+
+export const CostEntryEventSchema = z.object({
+  id: z.string().min(1).max(200),
+  timestamp: z.number().int().nonnegative(),
+  instanceId: InstanceIdSchema,
+  sessionId: SessionIdSchema,
+  model: RequiredModelIdSchema,
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cacheReadTokens: z.number().int().nonnegative().optional(),
+  cacheWriteTokens: z.number().int().nonnegative().optional(),
+  reasoningTokens: z.number().int().nonnegative().optional(),
+  cost: z.number().nonnegative().finite(),
+}).strict();
+
+export const CostBudgetAlertEventSchema = z.object({
+  type: z.enum(['daily', 'weekly', 'monthly', 'session']),
+  threshold: z.number().nonnegative().finite(),
+  currentUsage: z.number().nonnegative().finite(),
+  limit: z.number().nonnegative().finite(),
+  timestamp: z.number().int().nonnegative(),
+  message: z.string().min(1).max(2_000),
+  exceeded: z.boolean(),
+}).strict();

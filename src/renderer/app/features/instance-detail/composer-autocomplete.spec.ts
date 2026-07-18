@@ -205,6 +205,7 @@ async function typeInTextarea(
   textarea.value = value;
   textarea.setSelectionRange(value.length, value.length);
   textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 130));
   await fixture.whenStable();
   await Promise.resolve();
   fixture.detectChanges();

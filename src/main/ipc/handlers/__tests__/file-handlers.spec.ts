@@ -69,7 +69,7 @@ vi.mock('../../../workspace/editor/external-editor', () => ({
 }));
 
 class FakeWatcherManager extends EventEmitter {
-  watch = vi.fn().mockResolvedValue('session-1');
+  watch = vi.fn().mockResolvedValue({ id: 'session-1' });
   unwatch = vi.fn().mockResolvedValue(undefined);
   unwatchAll = vi.fn().mockResolvedValue(undefined);
   getActiveSessions = vi.fn().mockReturnValue(['session-1']);
@@ -274,28 +274,36 @@ describe('file-handlers', () => {
   // WATCHER event forwarding
   // ----------------------------------------------------------
   describe('watcher event forwarding', () => {
-    it('forwards file-changed events to the renderer', () => {
+    it('forwards the real watcher change signature to the renderer', () => {
       const sendSpy = windowManager.sendToRenderer as unknown as ReturnType<typeof vi.fn>;
 
-      watcherManagerMock.emit('file-changed', {
+      watcherManagerMock.emit('change', 'session-1', {
         path: '/x',
+        relativePath: 'x',
         type: 'change',
+        timestamp: 123,
       });
 
       expect(sendSpy).toHaveBeenCalledWith(
         IPC_CHANNELS.WATCHER_FILE_CHANGED,
-        { path: '/x', type: 'change' }
+        {
+          sessionId: 'session-1',
+          path: '/x',
+          relativePath: 'x',
+          type: 'change',
+          timestamp: 123,
+        }
       );
     });
 
-    it('forwards watcher error events on the dedicated channel', () => {
+    it('normalizes the real watcher error signature on the dedicated channel', () => {
       const sendSpy = windowManager.sendToRenderer as unknown as ReturnType<typeof vi.fn>;
 
-      watcherManagerMock.emit('error', { message: 'oops' });
+      watcherManagerMock.emit('error', 'session-1', new Error('oops'));
 
       expect(sendSpy).toHaveBeenCalledWith(
         IPC_CHANNELS.WATCHER_ERROR,
-        { message: 'oops' }
+        { sessionId: 'session-1', message: 'oops' }
       );
     });
   });

@@ -1,71 +1,54 @@
 import { app, ipcMain } from 'electron';
-import { z } from 'zod';
-import { validateIpcPayload } from '@contracts/schemas/common';
+import {
+  ModelRemoveOverridePayloadSchema,
+  ModelSetOverridePayloadSchema,
+} from '@contracts/schemas/provider';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import { getCatalogOverrideSource } from '../providers/catalog-override-source';
+import type { ModelDiscoveryHandlerDeps } from './model-discovery-ipc-handlers';
+import { validatedHandler } from './validated-handler';
 
-const ModelSetOverridePayloadSchema = z.object({
-  provider: z.string().trim().min(1).max(128),
-  modelId: z.string().trim().min(1).max(512),
-  config: z.record(z.string(), z.unknown()).optional(),
-}).strict();
-
-const ModelRemoveOverridePayloadSchema = z.object({
-  provider: z.string().trim().min(1).max(128).optional(),
-  modelId: z.string().trim().min(1).max(512),
-}).strict();
-
-export function registerModelOverrideHandlers(): void {
-  ipcMain.handle(IPC_CHANNELS.MODEL_SET_OVERRIDE, async (_event, payload: unknown) => {
-    try {
-      const validated = validateIpcPayload(
-        ModelSetOverridePayloadSchema,
-        payload,
-        'MODEL_SET_OVERRIDE',
-      );
+export function registerModelOverrideHandlers(deps: ModelDiscoveryHandlerDeps = {}): void {
+  ipcMain.handle(
+    IPC_CHANNELS.MODEL_SET_OVERRIDE,
+    validatedHandler(
+      IPC_CHANNELS.MODEL_SET_OVERRIDE,
+      ModelSetOverridePayloadSchema,
+      async (payload) => {
       const source = getCatalogOverrideSource();
       await source.ensureLocalStarted(app.getPath('userData'));
       const entry = await source.setLocalOverrideModel(
-        validated.provider,
-        validated.modelId,
-        validated.config ?? {},
+          payload.provider,
+          payload.modelId,
+          payload.config ?? {},
       );
-      return { success: true, data: entry };
-    } catch (error) {
-      return {
-        success: false,
-        error: {
-          code: 'MODEL_SET_OVERRIDE_FAILED',
-          message: error instanceof Error ? error.message : String(error),
-          timestamp: Date.now(),
-        },
-      };
-    }
-  });
+        return { success: true, data: entry };
+      },
+      {
+        ensureTrustedSender: deps.ensureTrustedSender,
+        errorCode: 'MODEL_SET_OVERRIDE_FAILED',
+      },
+    ),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.MODEL_REMOVE_OVERRIDE, async (_event, payload: unknown) => {
-    try {
-      const validated = validateIpcPayload(
-        ModelRemoveOverridePayloadSchema,
-        payload,
-        'MODEL_REMOVE_OVERRIDE',
-      );
+  ipcMain.handle(
+    IPC_CHANNELS.MODEL_REMOVE_OVERRIDE,
+    validatedHandler(
+      IPC_CHANNELS.MODEL_REMOVE_OVERRIDE,
+      ModelRemoveOverridePayloadSchema,
+      async (payload) => {
       const source = getCatalogOverrideSource();
       await source.ensureLocalStarted(app.getPath('userData'));
       const removed = await source.removeLocalOverrideModel(
-        validated.provider,
-        validated.modelId,
+          payload.provider,
+          payload.modelId,
       );
-      return { success: true, data: { removed } };
-    } catch (error) {
-      return {
-        success: false,
-        error: {
-          code: 'MODEL_REMOVE_OVERRIDE_FAILED',
-          message: error instanceof Error ? error.message : String(error),
-          timestamp: Date.now(),
-        },
-      };
-    }
-  });
+        return { success: true, data: { removed } };
+      },
+      {
+        ensureTrustedSender: deps.ensureTrustedSender,
+        errorCode: 'MODEL_REMOVE_OVERRIDE_FAILED',
+      },
+    ),
+  );
 }
