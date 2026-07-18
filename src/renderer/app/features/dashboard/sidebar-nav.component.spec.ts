@@ -52,7 +52,7 @@ describe('SidebarNavComponent', () => {
     expect(text).toContain('Browser Gateway');
     expect(text).toContain('Models');
     expect(text).toContain('Background Jobs');
-    expect(text).toContain('Fleet Dashboard');
+    expect(text).toContain('Workboard');
   });
 
   it('does not render the Control Center Settings route in dashboard Tools & Views', () => {

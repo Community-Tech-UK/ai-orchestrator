@@ -227,6 +227,85 @@ describe('LocalInstanceManager', () => {
     expect(manager.getAllInstanceIds()).toEqual([]);
   });
 
+  describe('spawn failure accounting (worker-side leak invariants)', () => {
+    const spyRelease = (m: LocalInstanceManager) =>
+      vi.spyOn(
+        m as unknown as { releaseAndroidLease: (id: string) => void },
+        'releaseAndroidLease',
+      );
+
+    it('adapter creation throwing mid-spawn leaves no leaked accounting', async () => {
+      const releaseSpy = spyRelease(manager);
+      mockCreateCliAdapter.mockImplementationOnce(() => {
+        throw new Error('adapter factory failed');
+      });
+
+      await expect(
+        manager.spawn({
+          instanceId: 'factory-throw',
+          cliType: 'claude',
+          workingDirectory: '/tmp/allowed',
+        }),
+      ).rejects.toThrow('adapter factory failed');
+
+      expect(manager.getInstance('factory-throw')).toBeUndefined();
+      expect(manager.getInstanceCount()).toBe(0);
+      expect(manager.getAllInstanceIds()).toEqual([]);
+      expect(releaseSpy).toHaveBeenCalledWith('factory-throw');
+
+      // pendingSpawns was cleared: the id can be spawned again without "already exists".
+      mockCreateCliAdapter.mockImplementationOnce(() => mockAdapter);
+      await expect(
+        manager.spawn({
+          instanceId: 'factory-throw',
+          cliType: 'claude',
+          workingDirectory: '/tmp/allowed',
+        }),
+      ).resolves.toBeUndefined();
+      expect(manager.getInstanceCount()).toBe(1);
+    });
+
+    it('adapter.spawn() rejection leaves no leaked accounting', async () => {
+      const releaseSpy = spyRelease(manager);
+      mockAdapter.spawn.mockRejectedValueOnce(new Error('remote spawn rejected'));
+
+      await expect(
+        manager.spawn({
+          instanceId: 'spawn-reject',
+          cliType: 'claude',
+          workingDirectory: '/tmp/allowed',
+        }),
+      ).rejects.toThrow('remote spawn rejected');
+
+      expect(manager.getInstance('spawn-reject')).toBeUndefined();
+      expect(manager.getInstanceCount()).toBe(0);
+      expect(manager.getAllInstanceIds()).toEqual([]);
+      expect(releaseSpy).toHaveBeenCalledWith('spawn-reject');
+    });
+
+    it('getInstance during the pending window returns undefined without corrupting accounting', async () => {
+      const pendingAdapter = new ControlledWorkerAdapter();
+      mockCreateCliAdapter.mockReturnValueOnce(pendingAdapter);
+
+      const spawnPromise = manager.spawn({
+        instanceId: 'pending-lookup',
+        cliType: 'claude',
+        workingDirectory: '/tmp/allowed',
+      });
+      await waitForSpawnToStart(pendingAdapter);
+
+      // Mid-spawn: the instance is not yet in the map.
+      expect(manager.getInstance('pending-lookup')).toBeUndefined();
+      expect(manager.getInstanceCount()).toBe(0);
+
+      pendingAdapter.resolveSpawn();
+      await spawnPromise;
+
+      expect(manager.getInstance('pending-lookup')).toBeDefined();
+      expect(manager.getInstanceCount()).toBe(1);
+    });
+  });
+
   it('forwards adapter status events as instance state changes', async () => {
     const stateHandler = vi.fn();
     manager.on('instance:stateChange', stateHandler);

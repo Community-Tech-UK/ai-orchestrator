@@ -296,10 +296,17 @@ const controlSurfaceRoutes: Routes = [
       import('./features/compare/ask-council-page.component').then((m) => m.AskCouncilPageComponent),
   },
   {
-    path: 'fleet',
-    data: controlSurfaceRouteData('fleet'),
+    path: 'work',
+    data: controlSurfaceRouteData('workboard'),
     loadComponent: () =>
-      import('./features/fleet-dashboard/fleet-dashboard.component').then((m) => m.FleetDashboardComponent),
+      import('./features/workboard/workboard-page.component').then((m) => m.WorkboardPageComponent),
+  },
+  {
+    // Compatibility alias so existing /fleet bookmarks land on the canonical
+    // Workboard. Not a second Control Surface entry — just a redirect.
+    path: 'fleet',
+    redirectTo: 'work',
+    pathMatch: 'full',
   },
   {
     path: 'compare/split',

@@ -107,6 +107,7 @@ describe('LoopStore.getRunSummary', () => {
     expect(summary?.iterationPrompt).toBe('continue toward the goal');
     expect(summary?.totalIterations).toBe(4);
     expect(summary?.endReason).toBe('all done');
+    expect(summary?.workspaceCwd).toBe('/tmp/project');
   });
 
   it('returns iterationPrompt=null when the loop reused initialPrompt', () => {
@@ -504,6 +505,36 @@ describe('LoopStore.listRunsForChat', () => {
   it('returns an empty array when no runs exist for the chat', () => {
     store.upsertRun(makeState({ id: 'loop-x', chatId: 'chat-other' }));
     expect(store.listRunsForChat('chat-1')).toEqual([]);
+  });
+});
+
+describe('LoopStore.listRuns (global recent-run read model)', () => {
+  function makeStateWithWorkspace(id: string, startedAt: number, workspaceCwd: string, chatId = 'chat-1'): LoopState {
+    const state = makeState({ id, startedAt, chatId });
+    state.config = { ...state.config, workspaceCwd };
+    return state;
+  }
+
+  it('returns runs newest-first across all chats with the workspace populated', () => {
+    store.upsertRun(makeStateWithWorkspace('loop-1', 1, '/repo/a', 'chat-1'));
+    store.upsertRun(makeStateWithWorkspace('loop-2', 2, '/repo/b', 'chat-2'));
+    store.upsertRun(makeStateWithWorkspace('loop-3', 3, '/repo/c', 'chat-3'));
+
+    const runs = store.listRuns();
+
+    expect(runs.map((r) => r.id)).toEqual(['loop-3', 'loop-2', 'loop-1']);
+    expect(runs.map((r) => r.workspaceCwd)).toEqual(['/repo/c', '/repo/b', '/repo/a']);
+  });
+
+  it('respects an explicit limit', () => {
+    for (let i = 0; i < 5; i++) {
+      store.upsertRun(makeStateWithWorkspace(`loop-${i}`, i, '/repo/a'));
+    }
+    expect(store.listRuns(2)).toHaveLength(2);
+  });
+
+  it('returns an empty array for an empty store', () => {
+    expect(store.listRuns()).toEqual([]);
   });
 });
 

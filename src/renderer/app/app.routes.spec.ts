@@ -97,4 +97,23 @@ describe('app routes', () => {
       expect(shellChildrenByPath.get(surface.path)?.data?.['controlSurfaceId']).toBe(surface.id);
     }
   });
+
+  it('lazy-loads the Workboard at /work through Control Surface metadata', () => {
+    const shellRoute = findShellRoute(routes);
+    const workRoute = (shellRoute?.children ?? []).find((route) => route.path === 'work');
+    expect(workRoute).toBeDefined();
+    expect(workRoute?.loadComponent).toBeTypeOf('function');
+    expect(workRoute?.data?.['controlSurfaceId']).toBe('workboard');
+  });
+
+  it('keeps /fleet as an explicit redirect alias to work (not a canonical surface)', () => {
+    const shellRoute = findShellRoute(routes);
+    const fleetRoute = (shellRoute?.children ?? []).find((route) => route.path === 'fleet');
+    expect(fleetRoute).toBeDefined();
+    expect(fleetRoute?.redirectTo).toBe('work');
+    expect(fleetRoute?.pathMatch).toBe('full');
+    // The alias is not a registered Control Surface, so it must not appear as
+    // one of the shell's canonical (non-redirect) child paths.
+    expect(collectShellChildPaths(shellRoute as Route)).not.toContain('/fleet');
+  });
 });

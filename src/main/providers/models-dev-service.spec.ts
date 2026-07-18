@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { ModelsDevService } from './models-dev-service';
 import { clearModelRateOverlay } from '../../shared/data/model-pricing';
 import { MAX_MODEL_ID_LENGTH } from '../../shared/types/provider.types';
@@ -131,6 +131,68 @@ describe('ModelsDevService.parseRegistry', () => {
   it('listEntries returns empty array before any refresh', () => {
     const freshService = new ModelsDevService();
     expect(freshService.listEntries()).toEqual([]);
+  });
+});
+
+describe('ModelsDevService.start/stop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('refreshes immediately on start, then once per interval (ticks force)', () => {
+    const svc = new ModelsDevService();
+    // Stub refresh so no network is touched and we can inspect call args.
+    const refresh = vi.spyOn(svc, 'refresh').mockResolvedValue(false);
+
+    svc.start(1000);
+    // Immediate startup refresh is unforced so it coalesces with other startup
+    // callers and respects a warm TTL.
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenLastCalledWith();
+
+    vi.advanceTimersByTime(1000);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenLastCalledWith(true);
+
+    vi.advanceTimersByTime(1000);
+    expect(refresh).toHaveBeenCalledTimes(3);
+    expect(refresh).toHaveBeenLastCalledWith(true);
+
+    svc.stop();
+  });
+
+  it('is idempotent — a second start() does not create a second interval', () => {
+    const svc = new ModelsDevService();
+    const refresh = vi.spyOn(svc, 'refresh').mockResolvedValue(false);
+
+    svc.start(1000);
+    svc.start(1000); // no-op: timer already running
+    expect(refresh).toHaveBeenCalledTimes(1); // only the first immediate refresh
+
+    vi.advanceTimersByTime(1000);
+    expect(refresh).toHaveBeenCalledTimes(2); // one tick, not two
+
+    svc.stop();
+  });
+
+  it('stop() halts periodic refresh and is idempotent', () => {
+    const svc = new ModelsDevService();
+    const refresh = vi.spyOn(svc, 'refresh').mockResolvedValue(false);
+
+    svc.start(1000);
+    vi.advanceTimersByTime(1000);
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    svc.stop();
+    vi.advanceTimersByTime(5000);
+    expect(refresh).toHaveBeenCalledTimes(2); // no further refreshes after stop
+
+    svc.stop(); // second stop is a harmless no-op
   });
 });
 

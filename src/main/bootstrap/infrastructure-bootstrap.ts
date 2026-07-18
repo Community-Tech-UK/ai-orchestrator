@@ -71,13 +71,19 @@ export function registerInfrastructureBootstrap(): void {
     init: () => {
       // Seed the committed offline snapshot synchronously first, so pricing +
       // context windows for the supported providers are correct immediately and
-      // fully offline. The live refresh below overwrites individual entries when
-      // it lands. Fire-and-forget: refresh() is fail-soft and never throws, so a
-      // slow or offline models.dev never blocks startup.
+      // fully offline. start() then fires an immediate live refresh (which
+      // overwrites individual entries when it lands) and schedules periodic
+      // refreshes so a long-running instance picks up models published upstream
+      // after launch. Fire-and-forget: refresh() is fail-soft and never throws,
+      // so a slow or offline models.dev never blocks startup.
       const { getModelsDevService } = require('../providers/models-dev-service') as typeof import('../providers/models-dev-service');
       const modelsDev = getModelsDevService();
       modelsDev.loadOfflineSnapshot();
-      void modelsDev.refresh();
+      modelsDev.start();
+    },
+    teardown: () => {
+      const { getModelsDevService } = require('../providers/models-dev-service') as typeof import('../providers/models-dev-service');
+      getModelsDevService().stop();
     },
   });
 

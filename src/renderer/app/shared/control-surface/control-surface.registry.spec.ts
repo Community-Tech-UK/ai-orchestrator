@@ -60,7 +60,7 @@ const EXPECTED_PATHS = [
   '/channels',
   '/remote-nodes',
   '/ask-council',
-  '/fleet',
+  '/work',
   '/compare/split',
 ] as const;
 
@@ -98,6 +98,22 @@ describe('control surface registry', () => {
     const paths = CONTROL_SURFACES.map((surface) => surface.path).sort();
 
     expect(paths).toEqual([...EXPECTED_PATHS].sort());
+  });
+
+  it('registers the Workboard as a full-bleed automation view visible in navigation', () => {
+    const workboard = CONTROL_SURFACES.find((surface) => surface.id === 'workboard');
+    expect(workboard).toBeDefined();
+    expect(workboard?.path).toBe('/work');
+    expect(workboard?.group).toBe('automation');
+    expect(workboard?.kind).toBe('view');
+    expect(workboard?.layout).toBe('fullBleed');
+    expect(workboard?.showInDashboardNav).toBe(true);
+    expect(workboard?.showInControlNav).toBe(true);
+  });
+
+  it('no longer registers the retired Fleet surface', () => {
+    expect(CONTROL_SURFACES.some((surface) => surface.id === ('fleet' as string))).toBe(false);
+    expect(CONTROL_SURFACES.some((surface) => surface.path === '/fleet')).toBe(false);
   });
 
   it('has valid metadata for every surface', () => {

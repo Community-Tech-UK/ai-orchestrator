@@ -6,6 +6,8 @@ import {
   LoopCrossModelReviewConfigSchema,
   LoopHardCapsSchema,
   LoopInterveneePayloadSchema,
+  LoopListRunsPayloadSchema,
+  LoopRunSummarySchema,
   LoopContextWindowCalibrationSchema,
   LoopPendingInputSchema,
   LoopIterationSchema,
@@ -1108,6 +1110,52 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
 
       expect(parsed.config.audit).toEqual({ preflightMode: 'block' });
+    });
+  });
+
+  describe('LoopRunSummarySchema', () => {
+    const baseSummary = {
+      id: 'loop-1',
+      chatId: 'chat-1',
+      status: 'running' as const,
+      totalIterations: 3,
+      totalTokens: 1000,
+      totalCostCents: 50,
+      startedAt: 1_700_000_000_000,
+      endedAt: null,
+      endReason: null,
+      workspaceCwd: '/repo/project-a',
+      initialPrompt: 'implement the feature',
+      iterationPrompt: null,
+    };
+
+    it('requires and round-trips workspaceCwd', () => {
+      const parsed = LoopRunSummarySchema.parse(baseSummary);
+      expect(parsed.workspaceCwd).toBe('/repo/project-a');
+    });
+
+    it('rejects a summary missing workspaceCwd', () => {
+      const { workspaceCwd: _omit, ...withoutWorkspace } = baseSummary;
+      expect(LoopRunSummarySchema.safeParse(withoutWorkspace).success).toBe(false);
+    });
+  });
+
+  describe('LoopListRunsPayloadSchema', () => {
+    it('accepts an omitted limit', () => {
+      const parsed = LoopListRunsPayloadSchema.parse({});
+      expect(parsed.limit).toBeUndefined();
+    });
+
+    it('accepts limits from 1 through 200', () => {
+      for (const limit of [1, 50, 100, 200]) {
+        expect(LoopListRunsPayloadSchema.parse({ limit }).limit).toBe(limit);
+      }
+    });
+
+    it('rejects zero, negative, non-integer, and values above 200', () => {
+      for (const limit of [0, -1, 1.5, 201, 1000]) {
+        expect(LoopListRunsPayloadSchema.safeParse({ limit }).success).toBe(false);
+      }
     });
   });
 

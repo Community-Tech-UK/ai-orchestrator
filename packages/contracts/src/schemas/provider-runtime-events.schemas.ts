@@ -134,7 +134,9 @@ const ProviderExitEventSchema = z.object({
 
 const ProviderSpawnedEventSchema = z.object({
   kind: z.literal('spawned'),
-  pid: z.number().int().nonnegative(),
+  // -1 is the documented sentinel for remote instances that have no local pid —
+  // see RemoteCliAdapter.spawn(). Local spawns emit a real non-negative pid.
+  pid: z.number().int().min(-1),
 });
 
 const ProviderCompleteEventSchema = z.object({

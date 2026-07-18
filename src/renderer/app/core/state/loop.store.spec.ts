@@ -33,6 +33,7 @@ describe('LoopStore', () => {
     intervene: ReturnType<typeof vi.fn>;
     cancel: ReturnType<typeof vi.fn>;
     listRunsForChat: ReturnType<typeof vi.fn>;
+    listRuns: ReturnType<typeof vi.fn>;
     getIterations: ReturnType<typeof vi.fn>;
     onStateChanged: ReturnType<typeof vi.fn>;
     onIterationStarted: ReturnType<typeof vi.fn>;
@@ -91,6 +92,7 @@ describe('LoopStore', () => {
       intervene: vi.fn(),
       cancel: vi.fn(),
       listRunsForChat: vi.fn(),
+      listRuns: vi.fn(),
       getIterations: vi.fn(),
       onStateChanged: vi.fn((cb) => subscribe(listeners.stateChanged, cb)),
       onIterationStarted: vi.fn((cb) => subscribe(listeners.iterationStarted, cb)),
@@ -711,6 +713,83 @@ describe('LoopStore', () => {
     await store.intervene('loop-1', 'plain hint');
     expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'plain hint', undefined, undefined);
   });
+
+  describe('recent-run read model (Workboard)', () => {
+    it('refreshRecentRuns replaces recentRuns with the returned newest-first list', async () => {
+      ipc.listRuns.mockResolvedValueOnce({
+        success: true,
+        data: {
+          runs: [
+            runSummary({ id: 'loop-old', startedAt: 1, status: 'completed' }),
+            runSummary({ id: 'loop-review', startedAt: 3, status: 'completed-needs-review' }),
+            runSummary({ id: 'loop-active', startedAt: 2, status: 'running' }),
+          ],
+        },
+      });
+
+      const result = await store.refreshRecentRuns();
+
+      expect(ipc.listRuns).toHaveBeenCalledWith(100);
+      expect(result).toEqual({ ok: true, runs: expect.any(Array) });
+      expect(store.recentRuns().map((r) => r.id)).toEqual(['loop-review', 'loop-active', 'loop-old']);
+    });
+
+    it('preserves the prior list and returns a recoverable error when a refresh fails', async () => {
+      ipc.listRuns.mockResolvedValueOnce({
+        success: true,
+        data: { runs: [runSummary({ id: 'loop-keep', startedAt: 5 })] },
+      });
+      await store.refreshRecentRuns();
+
+      ipc.listRuns.mockResolvedValueOnce({ success: false, error: { message: 'store offline' } });
+      const result = await store.refreshRecentRuns();
+
+      expect(result).toEqual({ ok: false, error: 'store offline' });
+      expect(store.recentRuns().map((r) => r.id)).toEqual(['loop-keep']);
+    });
+
+    it('upserts a changed run from an onStateChanged event without duplicating its ID', () => {
+      store.ensureWired();
+
+      listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+      expect(store.recentRuns()).toHaveLength(1);
+      expect(store.recentRuns()[0]).toMatchObject({ id: 'loop-1', status: 'running', workspaceCwd: '/tmp/project' });
+
+      listeners.stateChanged.forEach((cb) => cb({
+        loopRunId: 'loop-1',
+        state: { ...activeState(), status: 'paused', totalIterations: 2 },
+      }));
+
+      expect(store.recentRuns()).toHaveLength(1);
+      expect(store.recentRuns()[0]).toMatchObject({ id: 'loop-1', status: 'paused', totalIterations: 2 });
+    });
+
+    it('keeps a terminal run in recentRuns after it leaves the active map', () => {
+      store.ensureWired();
+
+      listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+      listeners.stateChanged.forEach((cb) => cb({
+        loopRunId: 'loop-1',
+        state: { ...activeState(), status: 'completed', endedAt: 1778310120000, endReason: 'done' },
+      }));
+
+      expect(store.activeForChat('chat-1')()).toBeUndefined();
+      expect(store.recentRuns()).toHaveLength(1);
+      expect(store.recentRuns()[0]).toMatchObject({ id: 'loop-1', status: 'completed' });
+    });
+
+    it('does not expose any selection behaviour when a passive loop event arrives', () => {
+      store.ensureWired();
+      // The LoopStore is a passive projection; a background loop event must not
+      // introduce instance/Workboard selection into this store.
+      expect('setSelectedInstance' in store).toBe(false);
+      expect('selectedInstance' in store).toBe(false);
+
+      listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+
+      expect(store.recentRuns()).toHaveLength(1);
+    });
+  });
 });
 
 function validConfig(): LoopStartConfigInput {
@@ -719,6 +798,26 @@ function validConfig(): LoopStartConfigInput {
     workspaceCwd: '/tmp/project',
     provider: 'claude',
     contextStrategy: 'same-session',
+  };
+}
+
+function runSummary(
+  overrides: Partial<import('@contracts/schemas/loop').LoopRunSummaryPayload> = {},
+): import('@contracts/schemas/loop').LoopRunSummaryPayload {
+  return {
+    id: 'loop-1',
+    chatId: 'chat-1',
+    status: 'running',
+    totalIterations: 0,
+    totalTokens: 0,
+    totalCostCents: 0,
+    startedAt: 1778310000000,
+    endedAt: null,
+    endReason: null,
+    workspaceCwd: '/tmp/project',
+    initialPrompt: 'continue until done',
+    iterationPrompt: null,
+    ...overrides,
   };
 }
 

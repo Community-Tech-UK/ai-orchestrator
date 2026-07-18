@@ -189,8 +189,23 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       }
     }
 
+    // Defense (Fix B): validation must never kill the event path. A schema
+    // mismatch is logged and the event still flows to renderer/trace/observer —
+    // a strict `.parse()` here previously threw synchronously back into the
+    // adapter's spawn() and destroyed the instance (remote pid=-1 regression).
     if (process.env['NODE_ENV'] !== 'production') {
-      ProviderRuntimeEventEnvelopeSchema.parse(enrichedEnvelope);
+      const validation = ProviderRuntimeEventEnvelopeSchema.safeParse(enrichedEnvelope);
+      if (!validation.success) {
+        logger.error('Provider runtime event failed schema validation (forwarding anyway)', undefined, {
+          eventId: enrichedEnvelope.eventId,
+          instanceId: enrichedEnvelope.instanceId,
+          kind: enrichedEnvelope.event.kind,
+          issues: validation.error.issues.map((issue) => ({
+            path: issue.path.join('.'),
+            message: issue.message,
+          })),
+        });
+      }
     }
 
     // Lightweight OTel span only for diagnostic event kinds (error/complete/context/exit).

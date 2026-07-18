@@ -82,7 +82,7 @@ export function parseOrchestratorCommands(text: string): OrchestratorCommand[] {
   while ((match = regex.exec(text)) !== null) {
     try {
       const jsonStr = match[1].trim();
-      const command = JSON.parse(jsonStr) as OrchestratorCommand;
+      const command = parseCommandJson(jsonStr) as OrchestratorCommand;
 
       // Validate the command has required fields
       if (isValidCommand(command)) {
@@ -94,6 +94,87 @@ export function parseOrchestratorCommands(text: string): OrchestratorCommand[] {
   }
 
   return commands;
+}
+
+/**
+ * Parse the JSON payload of an orchestrator command, tolerating the single most
+ * common defect in LLM-authored command JSON: RAW (unescaped) newlines, tabs, or
+ * other control characters inside a string value — typically a multi-line
+ * automation `prompt`. Strict `JSON.parse` rejects those with "Bad control
+ * character in string literal" / "Unterminated string", which silently drops the
+ * command (e.g. an automation the user asked for is never created).
+ *
+ * Strategy: try strict parsing first so well-formed JSON is never altered, then
+ * retry once after escaping control characters that appear inside string
+ * literals. Structural whitespace between tokens is left untouched.
+ */
+function parseCommandJson(jsonStr: string): unknown {
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    // Retry with raw control characters inside string literals escaped.
+    return JSON.parse(escapeControlCharsInsideStrings(jsonStr));
+  }
+}
+
+/**
+ * Escape control characters (code points < 0x20) that appear inside JSON string
+ * literals, leaving everything outside string literals — including structural
+ * whitespace and newlines between tokens — untouched. Backslash escapes are
+ * respected so an already-escaped quote does not flip the in-string state.
+ */
+function escapeControlCharsInsideStrings(jsonStr: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < jsonStr.length; i++) {
+    const ch = jsonStr[i];
+
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      out += ch;
+      continue;
+    }
+
+    if (inString && ch.charCodeAt(0) < 0x20) {
+      switch (ch) {
+        case '\n':
+          out += '\\n';
+          break;
+        case '\r':
+          out += '\\r';
+          break;
+        case '\t':
+          out += '\\t';
+          break;
+        case '\b':
+          out += '\\b';
+          break;
+        case '\f':
+          out += '\\f';
+          break;
+        default:
+          out += `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
+          break;
+      }
+      continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
 }
 
 /**

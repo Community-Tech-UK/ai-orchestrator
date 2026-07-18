@@ -6,6 +6,7 @@ import {
   LoopByIdPayloadSchema,
   LoopInterveneePayloadSchema,
   LoopListByChatPayloadSchema,
+  LoopListRunsPayloadSchema,
   LoopGetIterationsPayloadSchema,
   VerificationRunsListPayloadSchema,
   LoopInferVerifyPayloadSchema,
@@ -475,6 +476,16 @@ export function registerLoopHandlers(deps: {
     try {
       const validated = validateIpcPayload(LoopListByChatPayloadSchema, payload, 'LOOP_LIST_RUNS_FOR_CHAT');
       const runs = store.listRunsForChat(validated.chatId, validated.limit ?? 25);
+      return { success: true, data: { runs } };
+    } catch (error) {
+      return errorResponse('LOOP_LIST_RUNS_FAILED', error);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LOOP_LIST_RUNS, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopListRunsPayloadSchema, payload, 'LOOP_LIST_RUNS');
+      const runs = store.listRuns(validated.limit ?? 100);
       return { success: true, data: { runs } };
     } catch (error) {
       return errorResponse('LOOP_LIST_RUNS_FAILED', error);

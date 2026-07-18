@@ -33,6 +33,7 @@ const hoisted = vi.hoisted(() => ({
     upsertTerminalIntent: vi.fn(),
     getRunSummary: vi.fn(),
     listRunsForChat: vi.fn(),
+    listRuns: vi.fn(),
     getIterations: vi.fn(),
     getCheckpoint: vi.fn(),
     listResumableCheckpoints: vi.fn(),
@@ -1341,5 +1342,49 @@ describe('WS7: plan-scope assessment (LOOP_ASSESS_SCOPE + LOOP_START guard)', ()
 
     expect(response.success).toBe(true);
     expect(hoisted.coordinator.startLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LOOP_LIST_RUNS handler (global recent-run read model)', () => {
+  function register(): void {
+    registerLoopHandlers({
+      windowManager: { sendToRenderer: vi.fn() } as never,
+      instanceManager: makeInstanceManager([]),
+    });
+  }
+
+  it('forwards an explicit limit to store.listRuns', async () => {
+    hoisted.store.listRuns.mockReturnValue([]);
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_LIST_RUNS);
+
+    const response = await handler({}, { limit: 50 });
+
+    expect(response.success).toBe(true);
+    expect(hoisted.store.listRuns).toHaveBeenCalledWith(50);
+    expect((response.data as { runs: unknown[] }).runs).toEqual([]);
+  });
+
+  it('defaults to a limit of 100 when none is supplied', async () => {
+    hoisted.store.listRuns.mockReturnValue([]);
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_LIST_RUNS);
+
+    const response = await handler({}, {});
+
+    expect(response.success).toBe(true);
+    expect(hoisted.store.listRuns).toHaveBeenCalledWith(100);
+  });
+
+  it('rejects a limit above 200 before reaching the store', async () => {
+    hoisted.store.listRuns.mockReturnValue([]);
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_LIST_RUNS);
+
+    const response = await handler({}, { limit: 201 });
+
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('LOOP_LIST_RUNS_FAILED');
+    expect(hoisted.store.listRuns).not.toHaveBeenCalled();
   });
 });

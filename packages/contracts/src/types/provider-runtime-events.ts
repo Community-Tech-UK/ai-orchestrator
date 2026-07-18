@@ -212,7 +212,12 @@ export interface ProviderExitEvent {
 /** Process spawned. */
 export interface ProviderSpawnedEvent {
   kind: 'spawned';
-  /** Process ID. */
+  /**
+   * Process ID. `-1` is the documented sentinel for remote instances that have
+   * no local pid (see RemoteCliAdapter.spawn()); local spawns report a real
+   * non-negative OS pid. Consumers must not treat this as a killable OS pid
+   * without checking `pid >= 0`.
+   */
   pid: number;
 }
 

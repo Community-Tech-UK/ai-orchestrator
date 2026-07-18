@@ -121,6 +121,36 @@ describe('BaseProvider lifecycle helpers', () => {
     expect(events[1].event).toMatchObject({ kind: 'complete', tokensUsed: 10, durationMs: 500 });
   });
 
+  it('pushEvent emits a schema-invalid envelope instead of throwing (Fix B)', async () => {
+    const p = makeProvider();
+    const events: ProviderRuntimeEventEnvelope[] = [];
+    p.events$.subscribe(e => events.push(e));
+
+    // pid -2 is below the remote sentinel and fails schema validation. Before
+    // Fix B the strict .parse() threw synchronously back into the caller (e.g.
+    // an adapter's spawn()), killing the instance. Now it is logged and emitted.
+    expect(() =>
+      (p as unknown as { pushEvent: (e: unknown) => void }).pushEvent({ kind: 'spawned', pid: -2 }),
+    ).not.toThrow();
+
+    await new Promise(r => setImmediate(r));
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toEqual({ kind: 'spawned', pid: -2 });
+  });
+
+  it('pushSpawned accepts the remote pid sentinel (-1) without throwing (Fix A)', async () => {
+    const p = makeProvider();
+    const events: ProviderRuntimeEventEnvelope[] = [];
+    p.events$.subscribe(e => events.push(e));
+
+    expect(() =>
+      (p as unknown as { pushSpawned: (pid: number) => void }).pushSpawned(-1),
+    ).not.toThrow();
+
+    await new Promise(r => setImmediate(r));
+    expect(events[0].event).toEqual({ kind: 'spawned', pid: -1 });
+  });
+
   it('seq is monotonic per instance and resets on new instance', async () => {
     const p1 = makeProvider();
     const events: ProviderRuntimeEventEnvelope[] = [];

@@ -78,6 +78,11 @@ export interface LoopRunSummary {
   startedAt: number;
   endedAt: number | null;
   endReason: string | null;
+  /** Canonical workspace the loop ran in, recovered from the persisted loop
+   *  config (`config.workspaceCwd`) rather than a dedicated column. Empty
+   *  string when the blob is missing/unparseable. Used by the Workboard to
+   *  group and filter loop runs by workspace. */
+  workspaceCwd: string;
   /** The goal/ask the loop was started with (iteration 0 prompt). Pulled
    *  from the persisted config so the renderer can let users copy/inspect/
    *  reattempt past prompts even after an app reload. */

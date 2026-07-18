@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AndroidExecFile } from './android-detect';
 import { detectAndroidAutomation, parseAdbDevicesOutput } from './android-detect';
@@ -64,6 +65,44 @@ USB123 device usb:1-1 model:Pixel_8
       ],
       emulatorRunning: true,
       hasMaestro: true,
+    });
+  });
+
+  it('resolves the win32 default SDK root under %LOCALAPPDATA% and .exe-suffixed tools', async () => {
+    // Mirror windows-pc: C:\Users\shutu\AppData\Local\Android\Sdk.
+    const localAppData = 'C:\\Users\\shutu\\AppData\\Local';
+    const sdkPath = path.win32.join(localAppData, 'Android', 'Sdk');
+    const adbExe = path.win32.join(sdkPath, 'platform-tools', 'adb.exe');
+    const emulatorExe = path.win32.join(sdkPath, 'emulator', 'emulator.exe');
+
+    const execFile = execStub({
+      [`${adbExe} --version`]: 'Android Debug Bridge version 1.0.41\nVersion 36.0.0\n',
+      [`${adbExe} devices -l`]: 'List of devices attached\nemulator-5554 device model:Pixel_7\n',
+      [`${adbExe} -s emulator-5554 shell getprop ro.build.version.sdk`]: '35\n',
+      [`${emulatorExe} -list-avds`]: 'sbe_test\n',
+    });
+
+    const summary = await detectAndroidAutomation({
+      config: { enabled: true },
+      env: { LOCALAPPDATA: localAppData },
+      // Only the win32 SDK root and its .exe tools "exist".
+      exists: (candidate) =>
+        candidate === sdkPath || candidate === adbExe || candidate === emulatorExe,
+      execFile,
+      platform: 'win32',
+      homedir: () => 'C:\\Users\\shutu',
+    });
+
+    expect(summary).toEqual({
+      enabled: true,
+      sdkPath,
+      adbVersion: 'Android Debug Bridge version 1.0.41',
+      avds: ['sbe_test'],
+      connectedDevices: [
+        { serial: 'emulator-5554', kind: 'emulator', state: 'device', model: 'Pixel 7', apiLevel: 35 },
+      ],
+      emulatorRunning: true,
+      hasMaestro: false,
     });
   });
 

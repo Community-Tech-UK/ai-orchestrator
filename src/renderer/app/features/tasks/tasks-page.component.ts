@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { SettingsStore } from '../../core/state/settings.store';
+import { RepoJobStore } from '../../core/state/repo-job.store';
 import { RepoJobIpcService } from '../../core/services/ipc/repo-job-ipc.service';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
 import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
@@ -634,6 +635,7 @@ export class TasksPageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly repoJobs = inject(RepoJobIpcService);
+  private readonly repoJobStore = inject(RepoJobStore);
   private readonly vcs = inject(VcsIpcService);
   private readonly tasks = inject(TaskIpcService);
   private readonly sessionShare = inject(SessionShareIpcService);
@@ -650,12 +652,11 @@ export class TasksPageComponent {
   readonly useWorktree = signal(true);
   readonly browserEvidence = signal(false);
 
-  readonly jobs = signal<RepoJobRecord[]>([]);
-  readonly stats = signal({ queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0, total: 0 });
+  readonly stats = this.repoJobStore.stats;
+  readonly loading = this.repoJobStore.loading;
   readonly repoInfo = signal<RepoInfo | null>(null);
   readonly preflight = signal<TaskPreflightReport | null>(null);
   readonly preflightLoading = signal(false);
-  readonly loading = signal(false);
   readonly submitting = signal(false);
   readonly error = signal<string | null>(null);
   readonly info = signal<string | null>(null);
@@ -663,7 +664,7 @@ export class TasksPageComponent {
   readonly statusFilter = signal<RepoJobStatus | 'all'>('all');
   readonly typeFilter = signal<RepoJobType | 'all'>('all');
 
-  readonly filteredJobs = computed(() => this.jobs().filter((job) => {
+  readonly filteredJobs = computed(() => this.repoJobStore.jobs().filter((job) => {
     const statusMatches = this.statusFilter() === 'all' || job.status === this.statusFilter();
     const typeMatches = this.typeFilter() === 'all' || job.type === this.typeFilter();
     return statusMatches && typeMatches;
@@ -705,33 +706,16 @@ export class TasksPageComponent {
   }
 
   async refresh(showLoading = true): Promise<void> {
-    if (showLoading) {
-      this.loading.set(true);
-    }
     this.error.set(null);
     this.info.set(null);
 
-    try {
-      const [jobsResponse, statsResponse] = await Promise.all([
-        this.repoJobs.listJobs(),
-        this.repoJobs.getStats(),
-      ]);
-
-      if (jobsResponse.success && Array.isArray(jobsResponse.data)) {
-        this.jobs.set(jobsResponse.data);
-      }
-      if (statsResponse.success && statsResponse.data) {
-        this.stats.set(statsResponse.data);
-      }
-      await this.refreshRepoInfo();
-      await this.refreshPreflight();
-    } catch (error) {
-      this.error.set((error as Error).message);
-    } finally {
-      if (showLoading) {
-        this.loading.set(false);
-      }
+    const success = await this.repoJobStore.refresh(showLoading);
+    if (!success) {
+      this.error.set(this.repoJobStore.error() ?? 'Failed to load background jobs.');
     }
+
+    await this.refreshRepoInfo();
+    await this.refreshPreflight();
   }
 
   async submit(): Promise<void> {
@@ -778,29 +762,15 @@ export class TasksPageComponent {
   }
 
   async rerun(jobId: string): Promise<void> {
-    try {
-      this.info.set(null);
-      const response = await this.repoJobs.rerunJob(jobId);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to rerun background job');
-      }
-      await this.refresh(false);
-    } catch (error) {
-      this.error.set((error as Error).message);
-    }
+    this.info.set(null);
+    const success = await this.repoJobStore.rerun(jobId);
+    this.error.set(success ? null : (this.repoJobStore.error() ?? 'Failed to rerun background job.'));
   }
 
   async cancel(jobId: string): Promise<void> {
-    try {
-      this.info.set(null);
-      const response = await this.repoJobs.cancelJob(jobId);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to cancel background job');
-      }
-      await this.refresh(false);
-    } catch (error) {
-      this.error.set((error as Error).message);
-    }
+    this.info.set(null);
+    const success = await this.repoJobStore.cancel(jobId);
+    this.error.set(success ? null : (this.repoJobStore.error() ?? 'Failed to cancel background job.'));
   }
 
   onWorkingDirectoryChange(): void {

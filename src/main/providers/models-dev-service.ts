@@ -57,9 +57,44 @@ export class ModelsDevService {
   private entries: ModelsDevEntry[] = [];
   /** Guard so the committed offline snapshot is only seeded once. */
   private offlineSnapshotLoaded = false;
+  /** Periodic-refresh interval handle; null when not started. */
+  private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(ttlMs = DEFAULT_TTL_MS) {
     this.ttlMs = ttlMs;
+  }
+
+  /**
+   * Begin periodic refresh so a long-running instance picks up models published
+   * upstream after launch (the reported "Sonnet 5 never appears" gap: without
+   * this, {@link refresh} only ran once at startup). Fires an immediate
+   * TTL-guarded refresh — which coalesces with any other startup caller via the
+   * in-flight guard — then re-fetches every `intervalMs`.
+   *
+   * Idempotent: a second call while already running is a no-op, so only one
+   * interval ever exists regardless of how many bootstrap paths call it.
+   *
+   * Ticks force the refresh (bypassing the TTL) so cadence is governed solely by
+   * the interval: with `intervalMs === ttlMs`, an unforced tick landing a hair
+   * inside the TTL window would otherwise skip a whole cycle. The in-flight guard
+   * still prevents overlapping fetches.
+   */
+  start(intervalMs = DEFAULT_TTL_MS): void {
+    if (this.timer !== null) return;
+
+    void this.refresh();
+    this.timer = setInterval(() => {
+      void this.refresh(true);
+    }, intervalMs);
+    this.timer.unref?.();
+  }
+
+  /** Stop periodic refresh. Idempotent. */
+  stop(): void {
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   /**
@@ -302,5 +337,6 @@ export function getModelsDevService(): ModelsDevService {
 
 /** Test helper — reset the singleton between specs. */
 export function _resetModelsDevServiceForTesting(): void {
+  modelsDevService?.stop();
   modelsDevService = null;
 }

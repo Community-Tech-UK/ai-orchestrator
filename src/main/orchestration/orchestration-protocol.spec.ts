@@ -476,6 +476,42 @@ describe('parseOrchestratorCommands', () => {
     }
   });
 
+  it('recovers a create_automation command whose prompt contains raw newlines', () => {
+    // Regression: LLMs emit multi-line automation prompts with RAW (unescaped)
+    // newlines/tabs inside the JSON string. Strict JSON.parse rejects these
+    // ("Bad control character in string literal" / "Unterminated string"), which
+    // silently dropped the command so the automation was never created.
+    const rawJson =
+      '{"action":"create_automation","automation":' +
+      '{"name":"Realer server hourly watch",' +
+      '"schedule":{"type":"cron","expression":"0 * * * *","timezone":"UTC"},' +
+      '"action":{"prompt":"Line one.\nLine two with a\ttab.\n\nEnd of runbook."}}}';
+    const text = `${ORCHESTRATION_MARKER_START}\n${rawJson}\n${ORCHESTRATION_MARKER_END}`;
+
+    const command = parseFirst(text) as
+      | { action: string; automation: { name: string; action: { prompt: string } } }
+      | undefined;
+
+    expect(command?.action).toBe('create_automation');
+    expect(command?.automation.name).toBe('Realer server hourly watch');
+    expect(command?.automation.action.prompt).toBe(
+      'Line one.\nLine two with a\ttab.\n\nEnd of runbook.',
+    );
+  });
+
+  it('does not alter valid JSON when recovering control characters', () => {
+    const command = {
+      action: 'create_automation',
+      automation: {
+        name: 'Escaped prompt',
+        schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+        action: { prompt: 'Already escaped.\nSecond line.' },
+      },
+    };
+    // JSON.stringify escapes the newline properly; must round-trip unchanged.
+    expect(parseFirst(commandBlock(command))).toEqual(command);
+  });
+
   it('drops non-JSON marker payloads silently', () => {
     const text = `${ORCHESTRATION_MARKER_START}\nthis is not json\n${ORCHESTRATION_MARKER_END}`;
     expect(parseOrchestratorCommands(text)).toEqual([]);

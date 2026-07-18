@@ -272,6 +272,19 @@ export class LoopIpcService {
     return this.api.loopListRunsForChat(chatId, limit) as Promise<IpcResponse<{ runs: LoopRunSummaryPayload[] }>>;
   }
 
+  /** Bounded, newest-first recent loop runs across all chats (defaults to 100,
+   *  caps at 200 server-side). Powers the Workboard's global loop read model. */
+  async listRuns(limit = 100): Promise<IpcResponse<{ runs: LoopRunSummaryPayload[] }>> {
+    if (!this.api) return notInElectron();
+    const fn = (this.api as unknown as {
+      loopListRuns?: (limit?: number) => Promise<IpcResponse<{ runs: LoopRunSummaryPayload[] }>>;
+    }).loopListRuns;
+    if (typeof fn !== 'function') {
+      return { success: false, error: { message: 'list-runs bridge unavailable. Reload the app.' } };
+    }
+    return fn(limit);
+  }
+
   async getIterations(loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>> {
     if (!this.api) return notInElectron();
     return this.api.loopGetIterations(loopRunId, fromSeq, toSeq) as Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>>;

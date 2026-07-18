@@ -69,7 +69,7 @@ export type ControlSurfaceId =
   | 'channels'
   | 'remote-nodes'
   | 'ask-council'
-  | 'fleet'
+  | 'workboard'
   | 'compare-split';
 
 export interface ControlSurfaceItem {

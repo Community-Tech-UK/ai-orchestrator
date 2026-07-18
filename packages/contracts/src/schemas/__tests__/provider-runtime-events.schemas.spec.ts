@@ -225,6 +225,29 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
     });
   });
 
+  it('accepts the remote pid sentinel (-1) and a real pid (0) on spawned events', () => {
+    // Remote instances have no local pid; RemoteCliAdapter.spawn() emits -1.
+    for (const pid of [-1, 0, 4321]) {
+      expect(
+        ProviderRuntimeEventEnvelopeSchema.safeParse({
+          ...baseEnv,
+          event: { kind: 'spawned', pid },
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  it('rejects spawned pids below the sentinel or non-integer', () => {
+    for (const pid of [-2, -5, 1.5]) {
+      expect(
+        ProviderRuntimeEventEnvelopeSchema.safeParse({
+          ...baseEnv,
+          event: { kind: 'spawned', pid },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
   it('keeps the provider runtime kind freeze by rejecting api_diagnostics', () => {
     expect(() =>
       ProviderRuntimeEventEnvelopeSchema.parse({

@@ -22,6 +22,7 @@ import type {
   ProviderRuntimeEventRaw,
 } from '@contracts/types/provider-runtime-events';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
+import { getLogger } from '../logging/logger';
 import {
   observeAdapterRuntimeEvents,
   type AdapterRuntimeEventSource,
@@ -33,6 +34,8 @@ import {
   attachQuotaAutoRefresh,
   mapProviderTypeToQuotaId,
 } from '../core/system/provider-quota/quota-auto-refresh';
+
+const logger = getLogger('BaseProvider');
 
 /**
  * Base provider interface that all providers must implement.
@@ -78,8 +81,23 @@ export abstract class BaseProvider implements ProviderAdapter {
       ...(raw ? { raw } : {}),
       event,
     };
+    // Defense (Fix B): a schema mismatch is logged, never thrown. A strict
+    // `.parse()` on this hot path turned a validation error into a synchronous
+    // throw back into the caller (e.g. an adapter's spawn()), killing the
+    // instance. Log and still emit so the event reaches subscribers.
     if (process.env['NODE_ENV'] !== 'production') {
-      ProviderRuntimeEventEnvelopeSchema.parse(envelope);
+      const validation = ProviderRuntimeEventEnvelopeSchema.safeParse(envelope);
+      if (!validation.success) {
+        logger.error('Provider runtime event failed schema validation (emitting anyway)', undefined, {
+          eventId: envelope.eventId,
+          instanceId: envelope.instanceId,
+          kind: envelope.event.kind,
+          issues: validation.error.issues.map((issue) => ({
+            path: issue.path.join('.'),
+            message: issue.message,
+          })),
+        });
+      }
     }
     this._events$.next(envelope);
   }

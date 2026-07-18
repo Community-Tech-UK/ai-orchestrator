@@ -251,37 +251,38 @@ export const LOGS_HELP: HelpEntry = {
   ],
 };
 
-export const FLEET_HELP: HelpEntry = {
+export const WORKBOARD_HELP: HelpEntry = {
   sections: [
     {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Shows all running instances grouped by attention zone: Needs You (errors or permission requests), Working (processing), and Idle/Done.',
+      body: 'One board that projects instances, loop runs, automation runs, and repository jobs into four attention lanes: Needs You, Working, Waiting, and Done / Idle. Related records collapse into a single card.',
     },
     {
       kind: 'list',
-      heading: 'Attention zones',
+      heading: 'Lanes',
       items: [
-        'Needs You: waiting for input or showing errors; expanded by default.',
-        'Working: actively processing or respawning.',
-        'Idle / Done: ready, terminated, or hibernated; collapsed by default.',
+        'Needs You: human input, permission, review, arbitration, or a failure needs attention.',
+        'Working: execution is actively progressing.',
+        'Waiting: queued, paused, hibernated, or rate-limited but resumable.',
+        'Done / Idle: clean terminal work (last 24h) and available idle instances.',
       ],
     },
     {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Check the Needs You zone first for anything urgent.',
-        'Click a card to select that instance and view its output.',
-        'Collapse zones you are not watching via the zone header.',
+        'Check the Needs You lane first for anything urgent.',
+        'Filter by workspace to focus on one project across every lane.',
+        'Click a card to open its detail pane; instance-backed work reuses the full transcript and controls.',
       ],
     },
     {
       kind: 'callout',
       variant: 'tip',
-      heading: 'Card details at a glance',
-      body: 'Each card shows the provider badge, status, working directory, and last activity time.',
+      heading: 'Cards at a glance',
+      body: 'Each card shows the source, status, workspace, update time, progress, and badges for any related records grouped into it.',
     },
   ],
 };

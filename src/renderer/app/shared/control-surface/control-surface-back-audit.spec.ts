@@ -36,6 +36,11 @@ function isExcluded(path: string): boolean {
   const rel = relative(featuresDirectory, path).split(sep).join('/');
   return rel.startsWith('setup/')
     || rel.startsWith('coming-soon/')
+    // The Workboard owns an intra-view board↔detail "Back to Workboard" control
+    // for its narrow single-pane layout. That is distinct from the Control
+    // Surface shell's back-to-dashboard control this audit guards, so the
+    // feature legitimately carries its own Back.
+    || rel.startsWith('workboard/')
     || rel === 'settings/settings.component.ts';
 }
 

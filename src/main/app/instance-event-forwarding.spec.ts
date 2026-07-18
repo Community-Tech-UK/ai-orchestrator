@@ -280,6 +280,54 @@ describe('setupInstanceEventForwarding', () => {
     );
   });
 
+  it('forwards a schema-invalid envelope to the renderer instead of throwing (Fix B)', () => {
+    const mgr = buildManager();
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    // pid -2 is below the remote sentinel and fails schema validation. Before
+    // Fix B the strict .parse() threw synchronously back into the emitter; now
+    // it is logged and the event still forwards.
+    const invalid = {
+      ...makeEnvelope('output'),
+      event: { kind: 'spawned', pid: -2 },
+    } as unknown as ProviderRuntimeEventEnvelope;
+
+    expect(() => mgr.emit('provider:normalized-event', invalid)).not.toThrow();
+    expect(mockSendToRenderer).toHaveBeenCalledWith(
+      IPC_CHANNELS.PROVIDER_RUNTIME_EVENT,
+      expect.objectContaining({ instanceId: 'inst-1' }),
+    );
+    expect(mockTraceSink.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceId: 'inst-1' }),
+    );
+  });
+
+  it('accepts the remote spawned pid sentinel (-1) on the hot path', () => {
+    const mgr = buildManager();
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    const remoteSpawned = {
+      ...makeEnvelope('output'),
+      event: { kind: 'spawned', pid: -1 },
+    } as unknown as ProviderRuntimeEventEnvelope;
+
+    expect(() => mgr.emit('provider:normalized-event', remoteSpawned)).not.toThrow();
+    expect(mockSendToRenderer).toHaveBeenCalledWith(
+      IPC_CHANNELS.PROVIDER_RUNTIME_EVENT,
+      expect.objectContaining({ instanceId: 'inst-1' }),
+    );
+  });
+
   it('forwards discarded reviews as a terminal renderer event', () => {
     const mgr = buildManager();
     setupInstanceEventForwarding({

@@ -45,7 +45,7 @@ import {
 import {
   COMPARE_SPLIT_HELP,
   COST_HELP,
-  FLEET_HELP,
+  WORKBOARD_HELP,
   LOGS_HELP,
   REPLAY_HELP,
   SECURITY_HELP,
@@ -120,6 +120,6 @@ export const CONTROL_SURFACE_HELP: Record<ControlSurfaceId, HelpEntry> = {
   'channels': CHANNELS_HELP,
   'remote-nodes': REMOTE_NODES_SURFACE_HELP,
   'ask-council': ASK_COUNCIL_HELP,
-  'fleet': FLEET_HELP,
+  'workboard': WORKBOARD_HELP,
   'compare-split': COMPARE_SPLIT_HELP,
 };

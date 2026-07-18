@@ -113,6 +113,8 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_GET_STATE, { loopRunId }),
     loopListRunsForChat: (chatId: string, limit?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_LIST_RUNS_FOR_CHAT, { chatId, limit }),
+    loopListRuns: (limit?: number): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_LIST_RUNS, { limit }),
     loopGetIterations: (loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_ITERATIONS, { loopRunId, fromSeq, toSeq }),
     verificationRunsList: (params: { loopRunId?: string; instanceId?: string }): Promise<IpcResponse> =>

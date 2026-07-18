@@ -110,7 +110,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'channels', path: '/channels', label: 'Discord & WhatsApp', title: 'Discord & WhatsApp', subtitle: 'Connect external messaging channels.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'remote-nodes', path: '/remote-nodes', label: 'Remote Nodes', subtitle: 'Pair and monitor remote worker nodes.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'ask-council', path: '/ask-council', label: 'Ask Council', subtitle: 'Compare answers across multiple providers.', group: 'agents', kind: 'workflow', layout: 'wide' }),
-  surface({ id: 'fleet', path: '/fleet', label: 'Fleet Dashboard', subtitle: 'Monitor attention zones across the agent fleet.', group: 'monitoring', kind: 'diagnostic', layout: 'wide', dashboard: true }),
+  surface({ id: 'workboard', path: '/work', label: 'Workboard', subtitle: 'See what needs you across instances, loops, automations, and jobs.', group: 'automation', kind: 'view', layout: 'fullBleed', dashboard: true }),
   surface({ id: 'compare-split', path: '/compare/split', label: 'Split Compare', subtitle: 'Compare two sessions side by side.', group: 'monitoring', kind: 'tool', layout: 'fullBleed' }),
 ];
 

@@ -73,7 +73,8 @@ const ALLOWLIST: Record<string, number> = {
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
   // Raised 807 -> 864 (Fable WS6 loopRecipe/maxTurnsPerIteration/singleLoopOverride
   // + WS7 scope-assessment + WS8 ledger-convergence schemas).
-  'packages/contracts/src/schemas/loop.schemas.ts': 874,
+  // Raised 874 -> 885 (Workboard: LoopRunSummary.workspaceCwd + LoopListRunsPayloadSchema).
+  'packages/contracts/src/schemas/loop.schemas.ts': 885,
   // Raised 1788 -> 1803 for the provider swap fields on the change-model and
   // state-update payloads (provider + pendingModelChange round-trip).
   'packages/contracts/src/types/transport.types.ts': 1803,
@@ -163,7 +164,7 @@ const ALLOWLIST: Record<string, number> = {
   // Added 2026-07-16 at 794 (Fable WS6 LOOP_LIST_RECIPES + WS7 LOOP_ASSESS_SCOPE
   // read-only endpoints and the LOOP_START scope guard). Re-tighten after the
   // loop-handler split.
-  'src/main/ipc/handlers/loop-handlers.ts': 794,
+  'src/main/ipc/handlers/loop-handlers.ts': 805,
   'src/main/ipc/handlers/mcp-handlers.ts': 925,
   'src/main/ipc/handlers/session-handlers.ts': 1045,
   'src/main/ipc/handlers/vcs-handlers.ts': 992,
@@ -234,7 +235,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/loop-coordinator.ts': 3871,
   // Re-tightened after extracting loop-completed-plan-helpers.ts.
   'src/main/orchestration/loop-completion-detector.ts': 806,
-  'src/main/orchestration/loop-store.ts': 767,
+  'src/main/orchestration/loop-store.ts': 790,
   'src/main/orchestration/loop-progress-detector.ts': 769,
   // Added 2026-07-16 at 714 (Fable WS6 Task 3: planStageContext threaded through
   // buildPrompt/buildReviewDrivenPrompt; recipe stage-work now resolves via
@@ -293,7 +294,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/state/instance/instance.store.ts': 775,
   // Added 2026-07-16 at 710 (Fable WS6 recipe picker options + WS6 maxTurns/
   // allowUnbounded loop-config plumbing). Re-tighten after a store split.
-  'src/renderer/app/core/state/loop.store.ts': 710,
+  'src/renderer/app/core/state/loop.store.ts': 751,
   'src/renderer/app/core/state/source-control.store.ts': 976,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,

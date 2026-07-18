@@ -104,12 +104,14 @@ interface RunSummaryRow {
 function rowToRunSummary(row: RunSummaryRow): LoopRunSummary {
   let initialPrompt = '';
   let iterationPrompt: string | null = null;
+  let workspaceCwd = '';
   try {
     const parsed = JSON.parse(row.config_json) as Partial<LoopConfig>;
     if (typeof parsed.initialPrompt === 'string') initialPrompt = parsed.initialPrompt;
     if (typeof parsed.iterationPrompt === 'string' && parsed.iterationPrompt.length > 0) {
       iterationPrompt = parsed.iterationPrompt;
     }
+    if (typeof parsed.workspaceCwd === 'string') workspaceCwd = parsed.workspaceCwd;
   } catch (err) {
     logger.warn('rowToRunSummary: failed to parse config_json', {
       loopRunId: row.id,
@@ -126,6 +128,7 @@ function rowToRunSummary(row: RunSummaryRow): LoopRunSummary {
     startedAt: row.started_at,
     endedAt: row.ended_at,
     endReason: row.end_reason,
+    workspaceCwd,
     initialPrompt,
     iterationPrompt,
   };
@@ -419,6 +422,26 @@ export class LoopStore {
         LIMIT ?
       `)
       .all<RunSummaryRow>(chatId, limit);
+    return rows.map(rowToRunSummary);
+  }
+
+  /**
+   * Bounded, newest-first list of recent loop runs across all chats. Powers the
+   * Workboard's global recovery of active and recently-terminal loop items after
+   * an app reload. Uses the same summary columns as {@link listRunsForChat}, so
+   * the workspace is recovered from each run's persisted `config_json` blob
+   * without a database migration. Defaults to 100; callers may request up to 200.
+   */
+  listRuns(limit = 100): LoopRunSummary[] {
+    const rows = this.db
+      .prepare(`
+        SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents,
+               started_at, ended_at, end_reason, config_json
+        FROM loop_runs
+        ORDER BY started_at DESC
+        LIMIT ?
+      `)
+      .all<RunSummaryRow>(limit);
     return rows.map(rowToRunSummary);
   }
 

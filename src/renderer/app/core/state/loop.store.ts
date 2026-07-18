@@ -24,7 +24,14 @@ import {
   isTerminalLoopStatePayload,
 } from './loop-state-status';
 import { snapshotLastIteration } from './loop-store-summary';
+import { loopStateToRunSummary, upsertRecentRun } from './loop-store-recent-runs';
 import { followUpDrainedActivity, steeringDowngradedActivity } from './loop-store-task18-activity';
+
+/** Discriminated result of a recent-run refresh. On error the store preserves
+ *  the prior list so the Workboard keeps showing what it already held. */
+export type RefreshRecentRunsResult =
+  | { ok: true; runs: LoopRunSummaryPayload[] }
+  | { ok: false; error: string };
 
 /**
  * One active loop per chat in v1. The store holds:
@@ -56,6 +63,10 @@ export class LoopStore {
   private summaryByChat = signal<Map<string, LoopFinalSummary | null>>(new Map());
   /** Map of chatId → recent runs list (for history view if shown). */
   private runsByChat = signal<Map<string, LoopRunSummaryPayload[]>>(new Map());
+  /** Global newest-first recent loop runs across all chats. Populated by
+   *  `refreshRecentRuns()` and kept live by upserting each state-change event.
+   *  Powers the Workboard's loop read model. */
+  private recentRunItems = signal<LoopRunSummaryPayload[]>([]);
   /** Map of loopRunId → persisted iteration records. */
   private iterationsByLoop = signal<Map<string, LoopIterationPayload[]>>(new Map());
   /** Map of loopRunId → currently running iteration. */
@@ -85,6 +96,9 @@ export class LoopStore {
 
   runsForChat = (chatId: string) =>
     computed(() => this.runsByChat().get(chatId) ?? []);
+
+  /** Global newest-first recent loop runs across all chats (Workboard read model). */
+  readonly recentRuns = this.recentRunItems.asReadonly();
 
   iterationsForLoop = (loopRunId: string) =>
     computed(() => this.iterationsByLoop().get(loopRunId) ?? []);
@@ -521,6 +535,22 @@ export class LoopStore {
     return { ok: true };
   }
 
+  /**
+   * Refresh the global recent-run list from the bounded `LOOP_LIST_RUNS` path.
+   * Returns a discriminated result so the Workboard can surface a source-specific
+   * error and Retry action. On failure the prior list is preserved (never
+   * cleared) so background cards stay visible.
+   */
+  async refreshRecentRuns(limit = 100): Promise<RefreshRecentRunsResult> {
+    const res = await this.ipc.listRuns(limit);
+    if (res.success && res.data?.runs) {
+      const runs = [...res.data.runs].sort((a, b) => b.startedAt - a.startedAt);
+      this.recentRunItems.set(runs);
+      return { ok: true, runs };
+    }
+    return { ok: false, error: res.error?.message ?? 'Failed to load recent loop runs' };
+  }
+
   async refreshHistory(chatId: string, limit = 25): Promise<void> {
     const r = await this.ipc.listRunsForChat(chatId, limit);
     if (r.success && r.data?.runs) {
@@ -557,6 +587,11 @@ export class LoopStore {
     this.activeByChat.set(map);
   }
 
+  /** Upsert a live loop state into the global recent-run projection. */
+  private upsertRecentRun(state: LoopStatePayload): void {
+    this.recentRunItems.update((current) => upsertRecentRun(current, loopStateToRunSummary(state)));
+  }
+
   private clearActive(chatId: string): void {
     const current = this.activeByChat();
     if (!current.has(chatId)) return; // already cleared — no-op
@@ -566,6 +601,12 @@ export class LoopStore {
   }
 
   private applyState(state: LoopStatePayload): void {
+    // Keep the global recent-run list live BEFORE the active/terminal branch so
+    // both active and terminal transitions of the run stay visible on the
+    // Workboard between explicit refreshes. This is a passive projection only —
+    // it never touches instance or Workboard selection.
+    this.upsertRecentRun(state);
+
     if (isTerminalLoopStatePayload(state)) {
       // The loop is over — clear any lingering paused-no-progress / claimed-failed
       // banner now. Otherwise the orange bar stays on screen with buttons

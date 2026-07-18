@@ -1,0 +1,167 @@
+:host {
+  display: block;
+}
+
+.wb-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 6px);
+  width: 100%;
+  padding: var(--space-3, 10px) var(--space-3, 12px);
+  border-radius: var(--radius-md, 8px);
+  background: var(--card-bg, var(--bg-secondary));
+  border: 1px solid var(--card-border, var(--border-color));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    background: var(--card-bg-hover, var(--bg-hover));
+    border-color: var(--border-strong, var(--border-color));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus, var(--primary-color));
+    outline-offset: 2px;
+  }
+}
+
+/* Lane accents — distinguishable by a left border marker, not colour alone. */
+.wb-card-lane-needs-you {
+  border-left: 3px solid var(--status-error, var(--error-color));
+}
+.wb-card-lane-working {
+  border-left: 3px solid var(--status-running, var(--primary-color));
+}
+.wb-card-lane-waiting {
+  border-left: 3px solid var(--status-warning, var(--status-idle));
+}
+.wb-card-lane-done {
+  border-left: 3px solid var(--border-strong, var(--border-color));
+}
+
+.wb-card-selected {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 1px var(--primary-color);
+  background: var(--bg-selected, var(--card-bg-hover));
+}
+
+.wb-card-top,
+.wb-card-mid,
+.wb-card-bottom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 6px);
+  min-width: 0;
+}
+
+.wb-card-top {
+  justify-content: space-between;
+}
+
+.wb-card-title {
+  font-size: var(--text-sm, 13px);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.wb-card-source {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs, 4px);
+  flex-shrink: 0;
+  background: var(--pill-accent-bg, var(--bg-tertiary));
+  color: var(--pill-accent-fg, var(--text-secondary));
+  border: 1px solid var(--pill-accent-border, var(--border-subtle));
+}
+
+.wb-card-status {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--radius-full, 999px);
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-status-needs-you {
+  background: var(--status-error-bg, var(--error-bg));
+  color: var(--status-error, var(--error-color));
+  border: 1px solid var(--status-error-border, var(--error-border));
+}
+.wb-status-working {
+  background: var(--status-running-bg, var(--info-bg));
+  color: var(--status-running, var(--info-color));
+  border: 1px solid var(--status-running-border, var(--info-border));
+}
+.wb-status-waiting {
+  background: var(--status-warning-bg, var(--info-bg));
+  color: var(--status-warning, var(--status-idle));
+  border: 1px solid var(--status-warning-border, var(--border-subtle));
+}
+.wb-status-done {
+  background: var(--status-idle-bg, var(--bg-tertiary));
+  color: var(--status-idle, var(--text-muted));
+  border: 1px solid var(--status-idle-border, var(--border-subtle));
+}
+
+.wb-card-detail,
+.wb-card-progress {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-card-dir {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.wb-card-time {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.wb-card-related {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wb-card-related-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs, 4px);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle, var(--border-color));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-card {
+    transition: none;
+  }
+}

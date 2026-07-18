@@ -244,6 +244,65 @@ describe('WorkerEmulatorManager', () => {
     expect(children[0]?.kill).toHaveBeenCalledTimes(1);
   });
 
+  it('never passes -wipe-data on launch or cold-boot retry (protects emulator data)', async () => {
+    const children: FakeChild[] = [];
+    const spawnProcess = vi.fn<(...args: unknown[]) => ChildProcess>(() => {
+      const child = new FakeChild();
+      children.push(child);
+      return child as unknown as ChildProcess;
+    });
+    let waitForDeviceCalls = 0;
+    const execFileProcess = vi.fn((command, args, options, callback) => {
+      void command;
+      void options;
+      const adbArgs = args as string[];
+      if (adbArgs.includes('wait-for-device')) {
+        waitForDeviceCalls += 1;
+        queueMicrotask(() => {
+          // Fail the first boot to force the cold-boot retry path.
+          callback(waitForDeviceCalls === 1 ? new Error('boot failed') : null, '', '');
+        });
+        return new FakeChild() as unknown as ChildProcess;
+      }
+      queueMicrotask(() => callback(null, '1\n', ''));
+      return new FakeChild() as unknown as ChildProcess;
+    });
+    const manager = new WorkerEmulatorManager({
+      config: baseConfig,
+      spawnProcess: spawnProcess as unknown as typeof spawn,
+      execFileProcess: execFileProcess as unknown as typeof execFile,
+      statePath: path.join(os.tmpdir(), `aio-emulator-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`),
+      canListenPort: async () => true,
+    });
+
+    await manager.ensureRunning();
+
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+    for (const call of spawnProcess.mock.calls) {
+      expect(call?.[1]).not.toContain('-wipe-data');
+    }
+  });
+
+  it('suffixes adb.exe / emulator.exe when running on win32', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    try {
+      const { manager, spawnProcess, execFileProcess } = makeManager();
+
+      await manager.ensureRunning();
+
+      const [emulatorCommand] = spawnProcess.mock.calls[0] as [string, string[]];
+      expect(emulatorCommand.endsWith(`emulator${path.sep}emulator.exe`)).toBe(true);
+      expect(execFileProcess).toHaveBeenCalledWith(
+        expect.stringContaining('adb.exe'),
+        expect.arrayContaining(['wait-for-device']),
+        expect.any(Object),
+        expect.any(Function),
+      );
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
   it('cleans up only persisted owned emulator processes on startup', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-emulator-state-'));
     const statePath = path.join(tempDir, 'emulators.json');

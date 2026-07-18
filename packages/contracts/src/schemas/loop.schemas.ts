@@ -679,6 +679,10 @@ export const LoopRunSummarySchema = z.object({
   startedAt: z.number().int(),
   endedAt: z.number().int().nullable(),
   endReason: z.string().nullable(),
+  /** Canonical workspace the loop ran in, recovered from the persisted loop
+   *  config rather than a dedicated column. Empty string when the config blob
+   *  is missing/unparseable. Powers the Workboard's workspace grouping/filter. */
+  workspaceCwd: z.string(),
   /** The goal/ask the loop was started with (iteration 0 prompt). Surfaced
    *  so the renderer can let users copy/inspect/reattempt past prompts even
    *  after an app reload, without needing to re-open the original config. */
@@ -766,6 +770,12 @@ export const LoopInterveneePayloadSchema = z.object({
 
 export const LoopListByChatPayloadSchema = z.object({
   chatId: z.string().min(1),
+  limit: z.number().int().positive().max(200).optional(),
+});
+
+/** Bounded global recent-loop list request. Omitted limit defaults to 100 in
+ *  the store; the schema caps callers at 200 (see the Workboard read model). */
+export const LoopListRunsPayloadSchema = z.object({
   limit: z.number().int().positive().max(200).optional(),
 });
 
@@ -863,6 +873,7 @@ export type LoopAttachment = z.infer<typeof LoopAttachmentSchema>;
 export type LoopByIdPayload = z.infer<typeof LoopByIdPayloadSchema>;
 export type LoopInterveneePayload = z.infer<typeof LoopInterveneePayloadSchema>;
 export type LoopListByChatPayload = z.infer<typeof LoopListByChatPayloadSchema>;
+export type LoopListRunsPayload = z.infer<typeof LoopListRunsPayloadSchema>;
 export type LoopGetIterationsPayload = z.infer<typeof LoopGetIterationsPayloadSchema>;
 export type VerificationRunsListPayload = z.infer<typeof VerificationRunsListPayloadSchema>;
 export type LoopInferVerifyPayload = z.infer<typeof LoopInferVerifyPayloadSchema>;

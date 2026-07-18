@@ -119,7 +119,7 @@ Children are auto-routed by complexity. Specify \`model\` to override.
 
 ### Commands
 
-Emit each command as one valid JSON object between the markers, on its own lines. Use no code fences and put no commentary inside the markers. Complete example:
+Emit each command as one valid JSON object between the markers, on its own lines. Use no code fences and put no commentary inside the markers. Every string value must be valid JSON: escape newlines as \`\\n\` and tabs as \`\\t\` — never put a raw line break inside a string (a multi-line \`prompt\` on real lines is invalid JSON and the command is dropped). Complete example:
 ${ORCHESTRATION_MARKER_START}
 {"action":"get_children"}
 ${ORCHESTRATION_MARKER_END}
@@ -154,6 +154,7 @@ When the user asks for recurring or deferred work — for example "every morning
 - If the cadence is ambiguous ("keep doing this", "on a loop" without an interval), ask a clarifying question with \`request_user_action\` before creating anything.
 - If \`automation.action.workingDirectory\` is omitted, the current session directory is used.
 - Keep the automation prompt self-contained: include exactly what should happen each run, how to report results, and any relevant project path.
+- The \`prompt\` is often long and multi-line. Emit it as a single JSON string with newlines escaped as \`\\n\` (and tabs as \`\\t\`); a raw line break inside the string is invalid JSON and silently drops the whole automation.
 - Default to \`missedRunPolicy: "notify"\` and \`concurrencyPolicy: "skip"\` unless the user asks otherwise.
 
 Example:
@@ -258,7 +259,7 @@ ${ORCHESTRATION_MARKER_END}
  * surfaced exactly when scheduling intent appears. This keeps the steering in front
  * of the model at the moment of need.
  */
-export const SCHEDULING_INTENT_REMINDER = `> **Reminder — scheduling guidance.** *If* the user is asking to schedule recurring or deferred work, create it as a **Harness native automation** with the \`create_automation\` orchestrator command. Do **NOT** use the host CLI's \`/schedule\` skill, \`CronCreate\`, or any cloud-routine tool; those run in a sandbox without the browser or logged-in sessions and are not manageable in Harness. Harness automations run locally and inherit this chat's tools. Minimal shape (fill in the schedule and prompt, then emit without code fences):
+export const SCHEDULING_INTENT_REMINDER = `> **Reminder — scheduling guidance.** *If* the user is asking to schedule recurring or deferred work, create it as a **Harness native automation** with the \`create_automation\` orchestrator command. Do **NOT** use the host CLI's \`/schedule\` skill, \`CronCreate\`, or any cloud-routine tool; those run in a sandbox without the browser or logged-in sessions and are not manageable in Harness. Harness automations run locally and inherit this chat's tools. Minimal shape (fill in the schedule and prompt, then emit without code fences — escape any newline in \`prompt\` as \`\\n\`, never a raw line break):
 ${ORCHESTRATION_MARKER_START}
 {"action":"create_automation","automation":{"name":"Name","schedule":{"type":"cron","expression":"0 9 * * *","timezone":"UTC"},"action":{"prompt":"Self-contained task"}}}
 ${ORCHESTRATION_MARKER_END}

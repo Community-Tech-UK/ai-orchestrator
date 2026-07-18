@@ -198,14 +198,24 @@ export class RemoteCliAdapter extends EventEmitter {
         instanceId: this.remoteInstanceId,
       });
       this.markActivity();
-      this.emit('spawned', -1);
-      return -1; // No local PID for remote instances
     } catch (err) {
-      // Spawn failed — clean up listeners to prevent memory leak
+      // The spawn RPC itself failed — the worker never acknowledged the child,
+      // so reset the adapter and rethrow. A later rollback terminate() is then a
+      // no-op (correct: there is no remote child to kill).
       this.remoteInstanceId = null;
       this.detachRegistryListeners();
       throw err;
     }
+
+    // Fix C: emit OUTSIDE the try/catch. Once the worker has acknowledged the
+    // spawn, `remoteInstanceId` must stay set until terminate() clears it — the
+    // invariant that lets a rollback's adapter.terminate() reach the worker. A
+    // throwing `spawned` listener (e.g. downstream strict schema validation on
+    // the remote pid=-1 sentinel) previously landed in the catch above, nulled
+    // `remoteInstanceId`, and orphaned the still-running remote child. Keeping
+    // the emit here means a throwing listener no longer resets the adapter.
+    this.emit('spawned', -1);
+    return -1; // No local PID for remote instances
   }
 
   async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
