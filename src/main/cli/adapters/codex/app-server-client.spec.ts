@@ -148,7 +148,12 @@ describe('socket broker transport lifecycle', () => {
         );
         // Attach the rejection expectation BEFORE the disconnect so the
         // rejection is never unhandled.
-        const rejection = expect(inFlight).rejects.toThrow(/closed|Connection/i);
+        const rejection = expect(inFlight).rejects.toMatchObject({
+          name: 'CodexAppServerRuntimeError',
+          kind: 'transport-closed',
+          recoverability: 'retry-thread',
+          method: 'thread/start',
+        });
         broker.connection().destroy();
 
         await rejection;

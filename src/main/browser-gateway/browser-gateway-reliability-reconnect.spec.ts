@@ -28,14 +28,17 @@ type PageState = 'healthy' | 'disconnected_banner' | 'save_failing';
 
 describe('browser-gateway reconnect-mid-flow reliability', () => {
   let journalDir: string;
+  let journal: BrowserWriteJournal | null;
 
   beforeEach(async () => {
     journalDir = await fs.mkdtemp(path.join(os.tmpdir(), 'bg-reliability-'));
+    journal = null;
     BrowserReliabilityEvents._resetForTesting();
     McpServer._resetForTesting();
   });
 
   afterEach(async () => {
+    await journal?.flushPending();
     await fs.rm(journalDir, { recursive: true, force: true });
     McpServer._resetForTesting();
   });
@@ -52,7 +55,7 @@ describe('browser-gateway reconnect-mid-flow reliability', () => {
       now: () => now,
     });
     const sentinel = new BrowserTargetPersistenceSentinel({ now: () => now });
-    const journal = new BrowserWriteJournal({ rootDir: journalDir, now: () => now });
+    journal = new BrowserWriteJournal({ rootDir: journalDir, now: () => now });
 
     // Fake extension: mutations succeed at the CDP level regardless of page
     // state (the silent-loss failure mode); the sentinel's evaluate sees the
