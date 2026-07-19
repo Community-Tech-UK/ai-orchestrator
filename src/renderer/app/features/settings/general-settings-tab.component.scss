@@ -4,7 +4,7 @@
 
 .default-model {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-lg);
   margin-bottom: var(--spacing-md);
@@ -12,6 +12,7 @@
 }
 
 .default-model__info {
+  flex: 1 1 320px;
   min-width: 0;
 }
 
@@ -30,7 +31,8 @@
 }
 
 .default-model__control {
-  flex: 0 0 auto;
+  flex: 0 1 360px;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -70,8 +72,12 @@
 }
 
 .default-model__hint {
+  display: block;
+  max-width: 360px;
   color: var(--text-secondary);
   font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  text-align: right;
 }
 
 @media (max-width: 760px) {
@@ -82,5 +88,9 @@
 
   .default-model__control {
     justify-content: flex-start;
+  }
+
+  .default-model__hint {
+    text-align: left;
   }
 }
