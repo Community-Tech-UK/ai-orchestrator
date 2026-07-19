@@ -16,6 +16,11 @@ const CASES = [
   ['claude', 'tool-use-bash'],
   ['codex', 'basic-conversation'],
   ['codex', 'tool-use-bash'],
+  // `antigravity` is the live Google-backed provider (see BuiltInProviderName in
+  // packages/contracts/src/types/provider-runtime-events.ts). `gemini` is kept as a
+  // deprecated back-compat fixture — persisted historical data and older remote nodes
+  // may still replay it — not as live coverage.
+  ['antigravity', 'basic-conversation'],
   ['gemini', 'basic-conversation'],
   ['copilot', 'basic-conversation'],
 ] as const;

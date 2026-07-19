@@ -44,9 +44,25 @@ vi.mock('../session/session-continuity', () => ({
   }),
 }));
 
+// LT-004 tests below drive a real CodexCliAdapter through app-server mode.
+// Keep all real exports; only stub the process-tree killer and the browser
+// approval store lookup so nothing in that codepath touches a real process
+// or real approval state (mirrors codex-cli-adapter.app-server.spec.ts).
+const listBrowserApprovalRequestsMock = vi.hoisted(() => vi.fn(() => []));
+vi.mock('../cli/adapters/codex/app-server-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../cli/adapters/codex/app-server-client')>();
+  return { ...actual, terminateProcessTree: vi.fn() };
+});
+vi.mock('../browser-gateway/browser-approval-store', () => ({
+  getBrowserApprovalStore: () => ({
+    listRequests: listBrowserApprovalRequestsMock,
+  }),
+}));
+
 import { InstanceCommunicationManager } from './instance-communication';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
+import { CodexCliAdapter } from '../cli/adapters/codex-cli-adapter';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getCostTracker } from '../core/system/cost-tracker';
 import { getTokenCounter, TokenCounter } from '../rlm/token-counter';
@@ -1338,6 +1354,137 @@ describe('InstanceCommunicationManager', () => {
 
       expect(mockWriteThroughIdentity).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('LT-004: Codex app-server exit classification', () => {
+  // Reproduces the live-test defect at the instance-communication integration
+  // level: a resident Codex app-server process dying was logged as "Ignoring
+  // per-turn process exit for stateless exec adapter" and skipped recovery
+  // entirely, because the exit-time classification read state that the
+  // adapter had already reset to its non-resident value. These tests drive a
+  // real CodexCliAdapter into app-server mode, crash its app-server
+  // connection, and assert the exit handler now takes the unexpected-exit
+  // (or interrupted-exit) recovery branch instead of the early
+  // stateless-exec-adapter return.
+  let instance: Instance;
+  let adapters: Map<string, CliAdapter>;
+  let queueUpdate: ReturnType<typeof vi.fn>;
+  let onUnexpectedExit: ReturnType<typeof vi.fn>;
+  let onInterruptedExit: ReturnType<typeof vi.fn>;
+  let manager: InstanceCommunicationManager;
+
+  function buildInstance(status: Instance['status']): Instance {
+    const built = createInstance(status);
+    // canAutoRespawn requires conversation worth preserving.
+    built.outputBuffer = [createMessage('user', 'do the thing')];
+    return built;
+  }
+
+  beforeEach(() => {
+    adapters = new Map();
+    queueUpdate = vi.fn();
+    onUnexpectedExit = vi.fn().mockResolvedValue(undefined);
+    onInterruptedExit = vi.fn().mockResolvedValue(undefined);
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, adapter) => adapters.set(id, adapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit,
+      onUnexpectedExit,
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+  });
+
+  interface FakeAppServerClient {
+    request: ReturnType<typeof vi.fn>;
+    exitPromise: Promise<void>;
+    getExitError(): Error | null;
+    subscribeNotifications: ReturnType<typeof vi.fn>;
+  }
+
+  /** Drives a real CodexCliAdapter into app-server mode and returns a
+   * `crash()` helper that fails its app-server connection, mirroring what
+   * happens when the resident process's verified PID is killed. */
+  async function spawnResidentCodexAdapter(): Promise<{
+    adapter: CodexCliAdapter;
+    crash(error: Error | null): Promise<void>;
+  }> {
+    const adapter = new CodexCliAdapter();
+    let resolveExit!: () => void;
+    let exitError: Error | null = null;
+    const exitPromise = new Promise<void>((resolve) => {
+      resolveExit = resolve;
+    });
+    const client: FakeAppServerClient = {
+      request: vi.fn(async () => ({ threadId: 'thread-lt004-ic' })),
+      exitPromise,
+      getExitError: () => exitError,
+      subscribeNotifications: vi.fn(() => () => {}),
+    };
+    vi.spyOn(
+      adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },
+      'connectAppServer',
+    ).mockResolvedValue(client);
+
+    await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+    (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+    expect(adapter.isAppServerMode()).toBe(true);
+
+    return {
+      adapter,
+      async crash(error) {
+        exitError = error;
+        resolveExit();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      },
+    };
+  }
+
+  it('routes an app-server exit while busy through unexpected-exit recovery instead of the stateless-exec ignore path', async () => {
+    instance = buildInstance('busy');
+    const { adapter, crash } = await spawnResidentCodexAdapter();
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+
+    await crash(new Error('codex app-server crashed'));
+
+    expect(onUnexpectedExit).toHaveBeenCalledWith(instance.id);
+    expect(onInterruptedExit).not.toHaveBeenCalled();
+    expect(instance.status).toBe('respawning');
+  });
+
+  it('routes an app-server exit while idle through unexpected-exit recovery instead of the stateless-exec ignore path', async () => {
+    instance = buildInstance('idle');
+    const { adapter, crash } = await spawnResidentCodexAdapter();
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+
+    await crash(new Error('codex app-server crashed'));
+
+    expect(onUnexpectedExit).toHaveBeenCalledWith(instance.id);
+    expect(onInterruptedExit).not.toHaveBeenCalled();
+    expect(instance.status).toBe('respawning');
+  });
+
+  it('routes an app-server exit through the interrupted-instance recovery path, not the generic unexpected-exit path, when an interrupt is in flight', async () => {
+    instance = buildInstance('busy');
+    const { adapter, crash } = await spawnResidentCodexAdapter();
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    manager.markInterrupted(instance.id);
+
+    await crash(new Error('codex app-server crashed'));
+
+    expect(onInterruptedExit).toHaveBeenCalledWith(instance.id);
+    expect(onUnexpectedExit).not.toHaveBeenCalled();
   });
 });
 

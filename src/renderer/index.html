@@ -6,7 +6,17 @@
   <base href="./">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.openai.com wss://api.openai.com stun: turn:; media-src 'self' blob:;">
+  <!--
+    The doc-review sha256 entry allow-lists exactly one known, authored inline script: the
+    review-artifact runtime embedded verbatim (byte-for-byte, no template substitution) in
+    src/main/doc-review/assets/artifact-template.html. It runs inside a sandboxed `srcdoc`
+    iframe with no `allow-same-origin` (see doc-review-viewer.component.ts), which inherits
+    this policy instead of getting its own origin. It does not grant 'unsafe-inline' generally
+    and does not authorize any other inline script, in this document or any frame.
+    src/main/doc-review/artifact-runtime-csp-hash.spec.ts recomputes the hash from the tracked
+    template and fails if this value drifts out of sync with the runtime script's source.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-yx4kjyTOVHK4OxrRqPVdFnG7y42LuQ7CP65Gl8gIFTo='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.openai.com wss://api.openai.com stun: turn:; media-src 'self' blob:;">
   <link rel="icon" type="image/x-icon" href="assets/icons/favicon.ico">
 </head>
 <body>

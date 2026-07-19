@@ -193,6 +193,7 @@ export const CLAUDE_PINNED_MODELS = {
   OPUS_46: 'claude-opus-4-6-20260401',
   OPUS_45: 'claude-opus-4-5-20250918',
   OPUS_4: 'claude-opus-4-20250514',
+  SONNET_5: 'claude-sonnet-5',
   SONNET_46: 'claude-sonnet-4-6-20260401',
   SONNET_45: 'claude-sonnet-4-5-20250929',
   SONNET_4: 'claude-sonnet-4-20250514',
@@ -337,6 +338,10 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   [CLAUDE_MODELS.HAIKU]: { input: 1.0, output: 5.0 },
   // Claude models (full IDs for API-level pricing lookups)
   'claude-fable-5': { input: 10.0, output: 50.0 },
+  // Introductory pricing through 2026-08-31; reverts to 3.0/15.0 on 2026-09-01.
+  // Live models.dev overlay takes precedence at runtime, so the switch is picked
+  // up automatically — this static value is just the offline fallback.
+  'claude-sonnet-5': { input: 2.0, output: 10.0 },
   'claude-sonnet-4-6-20260401': { input: 3.0, output: 15.0 },
   'claude-opus-4-6-20260401': { input: 5.0, output: 25.0 },
   'claude-haiku-4-6-20260401': { input: 1.0, output: 5.0 },
@@ -423,6 +428,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: CLAUDE_PINNED_MODELS.OPUS_4, name: 'Opus 4', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_MODELS.SONNET, name: 'Sonnet latest', tier: 'balanced', pinned: true, family: 'Sonnet' },
     { id: CLAUDE_MODELS.SONNET_1M, name: 'Sonnet latest, 1M', tier: 'balanced', pinned: true, family: 'Sonnet' },
+    { id: CLAUDE_PINNED_MODELS.SONNET_5, name: 'Sonnet 5', tier: 'balanced', family: 'Sonnet' },
     { id: CLAUDE_PINNED_MODELS.SONNET_46, name: 'Sonnet 4.6', tier: 'balanced', family: 'Sonnet' },
     { id: CLAUDE_PINNED_MODELS.SONNET_45, name: 'Sonnet 4.5', tier: 'balanced', family: 'Sonnet' },
     { id: CLAUDE_PINNED_MODELS.SONNET_4, name: 'Sonnet 4', tier: 'balanced', family: 'Sonnet' },

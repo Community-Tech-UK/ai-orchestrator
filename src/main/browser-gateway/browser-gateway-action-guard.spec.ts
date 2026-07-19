@@ -6,6 +6,7 @@ import type {
 import {
   BrowserGatewayActionGuard,
   type BrowserGatewayActionGuardOptions,
+  type BrowserGatewayPreparedMutation,
 } from './browser-gateway-action-guard';
 import {
   CAPTCHA_CHALLENGE_REASON,
@@ -169,5 +170,115 @@ describe('BrowserGatewayActionGuard legal-declaration auto-fire', () => {
     expect(result).not.toHaveBeenCalledWith(
       expect.objectContaining({ reason: 'legal_declaration_auto_fired' }),
     );
+  });
+});
+
+describe('BrowserGatewayActionGuard existing-tab grant scope (LT-001 regression)', () => {
+  // Existing-tab grants are deliberately stored node-scoped (profileId
+  // omitted, nodeId set to 'local'/remote id) because the tab's own
+  // profileId is per-attachment/ephemeral — see browser-grant-scope.ts and
+  // browser-grant-store.ts's `profile_id IS NULL AND node_id = ?` query.
+  const EXISTING_TAB_PROFILE_ID = 'existing-tab:t1';
+  const EXISTING_TAB_TARGET_ID = 't1';
+  const EXISTING_TAB_GRANT: BrowserPermissionGrant = {
+    id: 'g-existing-tab',
+    mode: 'session',
+    instanceId: 'i1',
+    provider: 'orchestrator',
+    nodeId: 'local',
+    allowedOrigins: [{ scheme: 'https', hostPattern: 'portal.example.gov.uk', includeSubdomains: false }],
+    allowedActionClasses: ['input'],
+    allowExternalNavigation: false,
+    autonomous: false,
+    requestedBy: 'i1',
+    decidedBy: 'user',
+    decision: 'allow',
+    expiresAt: 4_102_444_800_000, // year 2100
+    createdAt: 0,
+  };
+  const REQUEST = {
+    instanceId: 'i1',
+    provider: 'orchestrator',
+    profileId: EXISTING_TAB_PROFILE_ID,
+    targetId: EXISTING_TAB_TARGET_ID,
+  };
+
+  function makeExistingTabGuard(grants: BrowserPermissionGrant[]) {
+    const listGrants = vi.fn(() => grants);
+    const attachment: BrowserExistingTabAttachment = {
+      profileId: EXISTING_TAB_PROFILE_ID,
+      targetId: EXISTING_TAB_TARGET_ID,
+      tabId: 1,
+      windowId: 1,
+      url: 'https://portal.example.gov.uk/apply',
+      origin: 'https://portal.example.gov.uk',
+      allowedOrigins: [{ scheme: 'https', hostPattern: 'portal.example.gov.uk', includeSubdomains: false }],
+      attachedAt: 0,
+      updatedAt: 0,
+    };
+    const result = vi.fn(
+      <T>(params: BrowserGatewayResultInput<T>) => params as unknown as BrowserGatewayResult<T>,
+    );
+    const options: BrowserGatewayActionGuardOptions = {
+      profileStore: { getProfile: vi.fn(() => undefined) } as unknown as BrowserGatewayActionGuardOptions['profileStore'],
+      targetRegistry: { listTargets: vi.fn(() => []) } as unknown as BrowserGatewayActionGuardOptions['targetRegistry'],
+      driver: { refreshTarget: vi.fn(), inspectElement: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['driver'],
+      extensionTabStore: { getTab: vi.fn(() => attachment) } as unknown as BrowserGatewayActionGuardOptions['extensionTabStore'],
+      grantStore: { listGrants, createGrant: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['grantStore'],
+      approvalStore: {
+        createRequest: vi.fn((input: Record<string, unknown>) => ({ ...input, requestId: 'req-1' })),
+        resolveRequest: vi.fn(),
+      } as unknown as BrowserGatewayActionGuardOptions['approvalStore'],
+      autoApproveRequests: () => false,
+      result: result as unknown as BrowserGatewayActionGuardOptions['result'],
+    };
+    return { guard: new BrowserGatewayActionGuard(options), listGrants };
+  }
+
+  it('matches an approved existing-tab session grant on the immediately retried input action', async () => {
+    const { guard, listGrants } = makeExistingTabGuard([EXISTING_TAB_GRANT]);
+
+    const prepared = await guard.prepareMutatingAction(
+      REQUEST,
+      'type into field',
+      'browser.type',
+      '#field',
+      'harmless field',
+      { actionClass: 'input', hardStop: false },
+    );
+    expect((prepared as { grant?: { id: string } }).grant?.id).toBe('g-existing-tab');
+
+    const recheck = guard.recheckPreparedGrant(
+      REQUEST,
+      'type',
+      'browser.type',
+      prepared as BrowserGatewayPreparedMutation,
+    );
+
+    // Before the fix, recheckPreparedGrant never scoped its lookup to the
+    // node, so it could never re-find the just-matched existing-tab grant
+    // and always re-prompted the user instead of proceeding (LT-001).
+    expect(recheck).toBeNull();
+    expect(listGrants).toHaveBeenLastCalledWith(
+      expect.objectContaining({ profileId: EXISTING_TAB_PROFILE_ID, nodeId: 'local' }),
+    );
+  });
+
+  it('does not broaden an existing-tab grant to a different node scope', async () => {
+    const remoteGrant: BrowserPermissionGrant = { ...EXISTING_TAB_GRANT, id: 'g-remote', nodeId: 'remote-node-1' };
+    const { guard } = makeExistingTabGuard([remoteGrant]);
+
+    const prepared: BrowserGatewayPreparedMutation = {
+      grant: remoteGrant,
+      actionClass: 'input',
+      origin: 'https://portal.example.gov.uk',
+      url: 'https://portal.example.gov.uk/apply',
+    };
+
+    const recheck = guard.recheckPreparedGrant(REQUEST, 'type', 'browser.type', prepared);
+
+    // REQUEST's profileId ('existing-tab:t1') derives node scope 'local',
+    // which must never match a grant scoped to a different remote node.
+    expect(recheck).not.toBeNull();
   });
 });

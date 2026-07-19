@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { DocReviewIpcService } from '../../core/services/ipc/doc-review-ipc.service';
 import { DocReviewStore } from './doc-review.store';
+import { DocReviewDraftService, type DocReviewDraft } from './doc-review-draft.service';
 import { DocReviewViewerComponent } from './doc-review-viewer.component';
 import {
   DocReviewDecisionBarComponent,
@@ -92,7 +93,7 @@ import type {
             <div class="actions">
               <button type="button" (click)="store.openExternal(session.id)">Open in browser</button>
               @if (session.status === 'pending') {
-                <button type="button" class="danger" (click)="store.dismiss(session.id)">Dismiss</button>
+                <button type="button" class="danger" (click)="onDismiss(session)">Dismiss</button>
               }
             </div>
           </header>
@@ -116,8 +117,8 @@ import type {
                 [overall]="overall()"
                 [general]="general()"
                 [busy]="store.busy()"
-                (overallChange)="overall.set($event)"
-                (generalChange)="general.set($event)"
+                (overallChange)="onOverallChange($event)"
+                (generalChange)="onGeneralChange($event)"
                 (submitted)="onSubmit(session)"
               />
             } @else {
@@ -185,6 +186,7 @@ import type {
 export class DocReviewPageComponent {
   readonly store = inject(DocReviewStore);
   private readonly ipc = inject(DocReviewIpcService);
+  private readonly drafts = inject(DocReviewDraftService);
 
   readonly pending = this.store.pending;
   readonly decided = this.store.decided;
@@ -214,6 +216,9 @@ export class DocReviewPageComponent {
   /** Monotonic token so a slow artifact load for a stale selection is ignored. */
   private loadToken = 0;
 
+  /** The just-selected pending review's saved draft, consumed once by the next `onReady`. */
+  private pendingDraft: DocReviewDraft | null = null;
+
   private readonly selectedIdForEffect = computed(() => this.store.selected()?.id ?? null);
 
   constructor() {
@@ -226,25 +231,31 @@ export class DocReviewPageComponent {
   }
 
   onReady(items: DocReviewItemInfo[]): void {
-    this.itemStates.set(items.map((info) => ({
-      info,
-      decision: null,
-      comment: '',
-      choice: null,
-      choices: [],
-    })));
+    const draftItems = new Map((this.pendingDraft?.items ?? []).map((item) => [item.itemId, item]));
+    this.itemStates.set(items.map((info) => {
+      const draft = draftItems.get(info.id);
+      return {
+        info,
+        decision: draft?.decision ?? null,
+        comment: draft?.comment ?? '',
+        choice: draft?.choice ?? null,
+        choices: draft?.choices ?? [],
+      };
+    }));
   }
 
   onDecision(message: DocReviewDecisionMessage): void {
     this.itemStates.update((states) =>
       states.map((s) => (s.info.id === message.itemId ? { ...s, decision: message.decision } : s)),
     );
+    this.persistDraft();
   }
 
   onComment(message: DocReviewCommentMessage): void {
     this.itemStates.update((states) =>
       states.map((s) => (s.info.id === message.itemId ? { ...s, comment: message.comment } : s)),
     );
+    this.persistDraft();
   }
 
   onChoice(message: DocReviewChoiceMessage): void {
@@ -253,12 +264,29 @@ export class DocReviewPageComponent {
         ? { ...s, choice: message.choice, choices: message.choices }
         : s)),
     );
+    this.persistDraft();
+  }
+
+  onOverallChange(value: DocReviewOverall): void {
+    this.overall.set(value);
+    this.persistDraft();
+  }
+
+  onGeneralChange(value: string): void {
+    this.general.set(value);
+    this.persistDraft();
   }
 
   async onSubmit(session: DocReviewSession): Promise<void> {
     const overall = this.overall();
     if (!overall) return;
-    await this.store.submit(session.id, overall, toItemDecisions(this.itemStates()), this.general() || undefined);
+    const submitted = await this.store.submit(session.id, overall, toItemDecisions(this.itemStates()), this.general() || undefined);
+    if (submitted) this.drafts.clear(session.id);
+  }
+
+  async onDismiss(session: DocReviewSession): Promise<void> {
+    const dismissed = await this.store.dismiss(session.id);
+    if (dismissed) this.drafts.clear(session.id);
   }
 
   async retryDelivery(session: DocReviewSession): Promise<void> {
@@ -295,9 +323,32 @@ export class DocReviewPageComponent {
 
   private resetDecisionState(): void {
     this.itemStates.set([]);
-    this.overall.set(null);
-    this.general.set('');
     this.artifactError.set(null);
+    const session = this.store.selected();
+    // Only pending reviews have a resumable draft; a decided review's artifact should reflect
+    // its actual outcome, not a leftover in-progress draft (LT-003).
+    this.pendingDraft = session && session.status === 'pending' ? this.drafts.load(session.id) : null;
+    this.overall.set(this.pendingDraft?.overall ?? null);
+    this.general.set(this.pendingDraft?.general ?? '');
+  }
+
+  /** Isolated by review id (store.selected().id) and only while the review is still pending. */
+  private persistDraft(): void {
+    const session = this.store.selected();
+    if (!session || session.status !== 'pending') return;
+    const states = this.itemStates();
+    if (states.length === 0) return;
+    this.drafts.save(session.id, {
+      overall: this.overall(),
+      general: this.general(),
+      items: states.map((s) => ({
+        itemId: s.info.id,
+        decision: s.decision,
+        comment: s.comment,
+        choice: s.choice,
+        choices: s.choices,
+      })),
+    });
   }
 
   private async loadArtifact(reviewId: string): Promise<void> {

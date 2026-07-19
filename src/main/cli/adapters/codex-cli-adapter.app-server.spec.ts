@@ -24,6 +24,8 @@ import type {
 } from './codex/context-pressure-diagnostics';
 import { createMockProcess } from './codex-cli-adapter.test-helpers';
 import { getLogger } from '../../logging/logger';
+import type { CliAdapter } from './adapter-factory';
+import { isStatelessExecAdapter } from '../../instance/instance-communication-adapter-helpers';
 
 // These tests drive the adapter through real PassThrough streams and real
 // `setTimeout`-scheduled process output rather than fake timers, so the default
@@ -1667,6 +1669,111 @@ describe('CodexCliAdapter', () => {
 
       const nan = appServerAdapter({ lastTurnTokens: Number.NaN, codexReportedContextWindow: 200_000 });
       expect(nan.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'invalid-sample' });
+    });
+  });
+
+  // ─── LT-004: app-server exit classification ────────────────
+  //
+  // Reproduces the live-test defect: killing a resident Codex app-server
+  // process logged "Ignoring per-turn process exit for stateless exec
+  // adapter" and skipped recovery entirely. Root cause: the adapter reset
+  // `useAppServer` (and therefore `getAdapterCapabilities().residentSession`
+  // / `getRuntimeCapabilities().supportsNativeCompaction`) to its
+  // no-longer-resident value BEFORE emitting 'exit', so
+  // instance-communication.ts's synchronous `isStatelessExecAdapter()`
+  // check read the already-reset state and misclassified a genuine resident
+  // crash as an exec-mode adapter's normal per-turn exit.
+  describe('LT-004: app-server exit classification', () => {
+    interface FakeAppServerClient {
+      request: Mock<(method: string, params?: Record<string, unknown>) => Promise<{ threadId: string }>>;
+      exitPromise: Promise<void>;
+      getExitError(): Error | null;
+      subscribeNotifications: Mock<(handler: (n: SyntheticNotification) => void) => () => void>;
+    }
+
+    async function buildResidentAppServerAdapter(): Promise<{
+      adapter: CodexCliAdapter;
+      crash(error: Error | null): Promise<void>;
+    }> {
+      const adapter = new CodexCliAdapter();
+      let resolveExit!: () => void;
+      let exitError: Error | null = null;
+      const exitPromise = new Promise<void>((resolve) => {
+        resolveExit = resolve;
+      });
+      const client: FakeAppServerClient = {
+        request: vi.fn(async () => ({ threadId: 'thread-lt004' })),
+        exitPromise,
+        getExitError: () => exitError,
+        subscribeNotifications: vi.fn(() => () => {}),
+      };
+      vi.spyOn(
+        adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },
+        'connectAppServer',
+      ).mockResolvedValue(client);
+
+      await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
+      // spawn() normally flips isSpawned/useAppServer=true once app-server
+      // init resolves; calling initAppServerMode() directly here (to avoid
+      // driving the full spawn()/checkStatus() path) skips that, so the test
+      // sets both directly to reach the same post-init state spawn() would
+      // have reached before the process later crashes.
+      (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+
+      return {
+        adapter,
+        async crash(error) {
+          exitError = error;
+          resolveExit();
+          // Flush the microtask chain: client.exitPromise.then(...) inside
+          // CodexAppServerThreadRuntime.attach() must run before the
+          // onExit callback (and therefore the adapter's 'exit' emit) fires.
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        },
+      };
+    }
+
+    it('still reports an active resident session to synchronous exit listeners when the app-server connection has just failed', async () => {
+      const { adapter, crash } = await buildResidentAppServerAdapter();
+      expect(adapter.isAppServerMode()).toBe(true);
+
+      let residentAtExit: boolean | undefined;
+      let nativeCompactionAtExit: boolean | undefined;
+      adapter.on('exit', () => {
+        residentAtExit = adapter.getAdapterCapabilities().residentSession;
+        nativeCompactionAtExit = adapter.getRuntimeCapabilities().supportsNativeCompaction;
+      });
+
+      await crash(new Error('codex app-server crashed'));
+
+      expect(residentAtExit).toBe(true);
+      expect(nativeCompactionAtExit).toBe(true);
+      // After the exit listeners have run, the adapter correctly reports it
+      // is no longer resident/app-server for anything that queries it later.
+      expect(adapter.getAdapterCapabilities().residentSession).toBe(false);
+      expect(adapter.isAppServerMode()).toBe(false);
+    });
+
+    it('is never classified as a stateless exec adapter by isStatelessExecAdapter while its exit listeners run', async () => {
+      const { adapter, crash } = await buildResidentAppServerAdapter();
+
+      let classifiedAsStatelessAtExit: boolean | undefined;
+      adapter.on('exit', () => {
+        classifiedAsStatelessAtExit = isStatelessExecAdapter(adapter as unknown as CliAdapter);
+      });
+
+      await crash(new Error('codex app-server crashed'));
+
+      expect(classifiedAsStatelessAtExit).toBe(false);
+    });
+
+    it('regression: an adapter that never entered app-server mode is still classified as a stateless exec adapter', () => {
+      const adapter = new CodexCliAdapter();
+      expect((adapter as unknown as { useAppServer: boolean }).useAppServer).toBe(false);
+      expect(isStatelessExecAdapter(adapter as unknown as CliAdapter)).toBe(true);
     });
   });
 });

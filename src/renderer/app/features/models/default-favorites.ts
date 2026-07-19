@@ -26,5 +26,6 @@ import {
 export const DEFAULT_FAVORITE_MODEL_KEYS: readonly string[] = [
   `claude:${CLAUDE_PINNED_MODELS.FABLE_5}`, // Fable 5
   `claude:${CLAUDE_MODELS.OPUS_1M}`, // Opus latest, 1M
+  `claude:${CLAUDE_PINNED_MODELS.SONNET_5}`, // Sonnet 5
   `codex:${OPENAI_MODELS.GPT56_SOL}`, // GPT-5.6 Sol
 ];

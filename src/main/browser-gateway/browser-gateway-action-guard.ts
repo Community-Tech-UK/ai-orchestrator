@@ -352,14 +352,21 @@ export class BrowserGatewayActionGuard {
     toolName: string,
     prepared: BrowserGatewayPreparedMutation,
   ): BrowserGatewayResult<null> | null {
+    // Existing-tab grants are stored node-scoped (profileId omitted, nodeId
+    // set) because the tab's own profileId is per-attachment/ephemeral — see
+    // browser-grant-scope.ts. Without this, an approved existing-tab grant
+    // could never be found here and every retry re-prompted the user (LT-001).
+    const nodeId = existingTabGrantNodeId(request.profileId);
     const grants = this.grantStore.listGrants({
       instanceId: request.instanceId,
       profileId: request.profileId,
+      nodeId,
     });
     const match = findMatchingBrowserGrant({
       grants,
       instanceId: request.instanceId ?? '',
       provider: providerFromContext(request.provider),
+      nodeId,
       profileId: request.profileId,
       targetId: request.targetId,
       origin: prepared.origin,

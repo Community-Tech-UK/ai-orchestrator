@@ -154,14 +154,28 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       (notification) => this.handleIdleAppServerNotification(notification),
       (exitError) => {
         if (!this.isSpawned) return;
-        this.handleAppServerRuntimeExit(exitError);
         const code = exitError ? 1 : 0;
         logger.warn('App-server process exited, forwarding to adapter exit event', {
           threadId: this.getAppServerThreadId(),
           hasError: !!exitError,
           error: exitError?.message,
         });
+        // LT-004: emit 'exit' BEFORE resetting useAppServer/spawnMode.
+        // instance-communication.ts classifies this exit synchronously inside
+        // its 'exit' listener via isStatelessExecAdapter(), which reads
+        // getAdapterCapabilities().residentSession / getRuntimeCapabilities()
+        // — both derived from `useAppServer`. If that flag were already reset
+        // to false here, a genuine resident app-server death would report
+        // itself as a non-resident adapter and get misread as a stateless
+        // exec-mode adapter's normal per-turn exit, so the exit handler would
+        // silently return instead of routing into unexpected-exit/interrupt
+        // recovery. getPid()/isRunning() already reflect "not running" via
+        // appServerRuntime's connectionPhase (set to 'closed'/'failed' before
+        // this callback fires), so deferring the useAppServer/spawnMode reset
+        // until after the listeners have run does not hide the process death
+        // from anything else that queries the adapter.
         this.emit('exit', code, null);
+        this.handleAppServerRuntimeExit(exitError);
       },
     );
   }

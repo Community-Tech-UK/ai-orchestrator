@@ -45,6 +45,10 @@ npm-debug.log*
 benchmarks/orchestrator-benchmark/results/
 benchmarks/orchestrator-benchmark/dist/
 
+# WS16 local-personal retrieval queries (references the operator's own real
+# stores/repo content — never commit; see docs/testing.md WS16).
+benchmarks/retrieval/local-queries.jsonl
+
 # Git worktrees
 .worktrees/
 .superpowers/

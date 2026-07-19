@@ -26,7 +26,8 @@ import type { CorpusDoc, LabeledQuery, RetrievalDataset } from './dataset';
 import { splitQueries, validateDataset } from './dataset';
 import { buildRetrievalReport, type QueryEvaluation, type RetrievalReport } from './metrics';
 
-const FIXTURE_WORKSPACE = '/retrieval-eval/fixture-workspace';
+/** Exported so other fixture builders (e.g. the local-suite spec) can reuse `seedFixtureCasStore` with matching lookup paths. */
+export const FIXTURE_WORKSPACE = '/retrieval-eval/fixture-workspace';
 const FIXTURE_WORKSPACE_HASH = 'retrieval-eval-fixture';
 const TOP_K = 10;
 

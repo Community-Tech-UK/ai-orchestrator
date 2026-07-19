@@ -110,6 +110,14 @@ describe('provider model lists', () => {
     expect(MODEL_PRICING[CLAUDE_PINNED_MODELS.OPUS_48]).toEqual({ input: 5.0, output: 25.0 });
   });
 
+  it('exposes Sonnet 5 as an explicit curated Claude model', () => {
+    const claudeModels = PROVIDER_MODEL_LIST['claude'].map((model) => model.id);
+
+    expect(CLAUDE_PINNED_MODELS.SONNET_5).toBe('claude-sonnet-5');
+    expect(claudeModels).toContain(CLAUDE_PINNED_MODELS.SONNET_5);
+    expect(MODEL_PRICING[CLAUDE_PINNED_MODELS.SONNET_5]).toEqual({ input: 2.0, output: 10.0 });
+  });
+
   it('exposes Claude Fable 5 as an explicit Claude model', () => {
     const claudeModels = PROVIDER_MODEL_LIST['claude'].map((model) => model.id);
     const pinned = CLAUDE_PINNED_MODELS as Record<string, string>;

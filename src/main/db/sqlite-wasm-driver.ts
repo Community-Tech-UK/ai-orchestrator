@@ -10,6 +10,7 @@
  * child_process execution.
  */
 
+import { readFileSync } from 'node:fs';
 import sqlite3InitModule, {
   type Sqlite3Static,
   type Database as OO1Database,
@@ -265,4 +266,77 @@ export function createSqliteWasmDatabase(
   // 'ct' would print every statement to the console, flooding test output.
   const db = new sqlite3.oo1.DB(':memory:', 'c');
   return new SqliteWasmDriver(db);
+}
+
+/**
+ * Open an on-disk SQLite file (e.g. a real production `codemem.sqlite` or
+ * `rlm.db`) as a genuinely READ-ONLY database, without requiring the native
+ * `better-sqlite3` addon — the addon is compiled against Electron's Node ABI
+ * and cannot load under plain Node (`tsx`, `vitest`); see
+ * `better-sqlite3-driver.ts`'s header comment.
+ *
+ * Implementation: read the file's bytes and load them into a private WASM
+ * heap via `sqlite3_deserialize` with `SQLITE_DESERIALIZE_READONLY`. This is
+ * SQLite's own read-only enforcement (any write throws `SQLITE_READONLY` at
+ * the engine level) — not merely "callers never call `.run()`" — and it is
+ * structurally incapable of mutating the source file: the loaded database
+ * lives entirely in a detached in-memory image that is never serialized back
+ * to `filePath`.
+ *
+ * Throws if the file is missing, unreadable, or not a valid SQLite database.
+ *
+ * Known limitation: `sqlite3_deserialize` requires the whole file resident in
+ * the WASM heap, which is capped at 2 GiB (32-bit linear memory). A store at
+ * or above that size throws here (message contains "greater than 2 GiB");
+ * callers should surface that as a real, distinct failure — not silently
+ * treat it as "missing" or "corrupt".
+ */
+export function openSqliteWasmFileReadOnly(filePath: string): SqliteDriver {
+  if (!sqlite3) {
+    throw new Error('sqlite-wasm not initialized — call initSqliteWasm() first');
+  }
+  const bytes = readFileSync(filePath);
+  const db = new sqlite3.oo1.DB(':memory:', 'c');
+  const ptr = sqlite3.wasm.allocFromTypedArray(new Uint8Array(bytes));
+  const rc = sqlite3.capi.sqlite3_deserialize(
+    db,
+    'main',
+    ptr,
+    bytes.length,
+    bytes.length,
+    sqlite3.capi.SQLITE_DESERIALIZE_READONLY | sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE,
+  );
+  if (rc !== sqlite3.capi.SQLITE_OK) {
+    db.close();
+    throw new Error(
+      `Failed to load "${filePath}" as a read-only SQLite database (sqlite3_deserialize rc=${rc})`,
+    );
+  }
+  return new SqliteWasmDriver(db);
+}
+
+/**
+ * Test-fixture helper: an in-memory driver plus a way to export its exact
+ * SQLite bytes. Lets specs build a fixture using REAL production schema/seed
+ * code (e.g. `migrate()` + `CasStore`, same as `synthetic-suite.ts`'s
+ * `seedFixtureCasStore`) and then write it to disk for
+ * `openSqliteWasmFileReadOnly` to read back — without depending on the native
+ * `better-sqlite3` addon (ABI-mismatched under plain Node/vitest). Not used
+ * by any production code path — tests only.
+ */
+export function createSqliteWasmDatabaseWithExport(): {
+  driver: SqliteDriver;
+  exportBytes: () => Uint8Array;
+} {
+  if (!sqlite3) {
+    throw new Error('sqlite-wasm not initialized — call initSqliteWasm() first');
+  }
+  const db = new sqlite3.oo1.DB(':memory:', 'c');
+  return {
+    driver: new SqliteWasmDriver(db),
+    exportBytes: () => {
+      if (!sqlite3) throw new Error('sqlite-wasm not initialized');
+      return sqlite3.capi.sqlite3_js_db_export(db);
+    },
+  };
 }
