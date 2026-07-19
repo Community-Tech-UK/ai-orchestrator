@@ -25,6 +25,7 @@ import type {
 } from '../mcp/orchestrator-automation-tools';
 import { computeNextFireAt } from './automation-schedule';
 import { validateCronExpression } from './automation-schedule';
+import { findEquivalentAutomation } from './automation-equivalence';
 import type { AutomationStore } from './automation-store';
 import type { AutomationEventMap } from './automation-events';
 
@@ -165,6 +166,24 @@ export function createAutomationToolImplementations(
           provider: args.provider,
         },
       };
+
+      // Idempotency: agents re-issue create_automation for the same recurring
+      // check with a reworded name, piling up near-identical shells. If an
+      // equivalent active automation already exists (same workspace + schedule +
+      // prompt + provider), reuse it so its run history keeps accumulating as one
+      // running tally instead of fragmenting across duplicate shells.
+      const existing = findEquivalentAutomation(await store.list(), input);
+      if (existing) {
+        return {
+          id: existing.id,
+          name: existing.name,
+          scheduleSummary: scheduleSummaryOf(existing.schedule),
+          nextRunAt: existing.nextFireAt,
+          enabled: existing.enabled,
+          workingDirectory: existing.action.workingDirectory,
+          reused: true,
+        };
+      }
 
       const automation = await deps.createWithScheduling(input);
       if (!automation) {

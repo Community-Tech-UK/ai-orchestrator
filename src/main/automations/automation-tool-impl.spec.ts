@@ -267,6 +267,59 @@ describe('createAutomationToolImplementations', () => {
         noCwd.createAutomation({ name: 'X', prompt: 'do', cron: '0 9 * * *' }, undefined),
       ).rejects.toThrow(/workingDirectory/);
     });
+
+    it('reuses an equivalent active automation instead of creating a duplicate', async () => {
+      const first = await impls.createAutomation(
+        { name: 'Realer server hourly watch', prompt: 'Check server', cron: '0 * * * *' },
+        { callerInstanceId: 'chat-1' },
+      );
+      createWithScheduling.mockClear();
+
+      // Same workspace + schedule + prompt, only the name reworded.
+      const second = await impls.createAutomation(
+        { name: 'Realer Minecraft hourly server watch', prompt: 'Check server', cron: '0 * * * *' },
+        { callerInstanceId: 'chat-1' },
+      );
+
+      expect(second.id).toBe(first.id);
+      expect(second.reused).toBe(true);
+      expect(createWithScheduling).not.toHaveBeenCalled();
+      expect((await store.list()).length).toBe(1);
+    });
+
+    it('creates a distinct automation when the prompt differs', async () => {
+      await impls.createAutomation(
+        { name: 'A', prompt: 'Check server', cron: '0 * * * *' },
+        { callerInstanceId: 'chat-1' },
+      );
+      createWithScheduling.mockClear();
+
+      const second = await impls.createAutomation(
+        { name: 'B', prompt: 'A genuinely different task', cron: '0 * * * *' },
+        { callerInstanceId: 'chat-1' },
+      );
+
+      expect(second.reused).toBeUndefined();
+      expect(createWithScheduling).toHaveBeenCalledOnce();
+      expect((await store.list()).length).toBe(2);
+    });
+
+    it('creates a distinct automation when the provider differs', async () => {
+      await impls.createAutomation(
+        { name: 'A', prompt: 'Check server', cron: '0 * * * *' },
+        { callerInstanceId: 'chat-1' },
+      );
+      createWithScheduling.mockClear();
+
+      const second = await impls.createAutomation(
+        { name: 'A', prompt: 'Check server', cron: '0 * * * *', provider: 'codex' },
+        { callerInstanceId: 'chat-1' },
+      );
+
+      expect(second.reused).toBeUndefined();
+      expect(createWithScheduling).toHaveBeenCalledOnce();
+      expect((await store.list()).length).toBe(2);
+    });
   });
 
   describe('listAutomations', () => {

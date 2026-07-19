@@ -66,6 +66,12 @@ export interface CreateAutomationResult {
   nextRunAt: number | null;
   enabled: boolean;
   workingDirectory: string;
+  /**
+   * True when an equivalent active automation already existed and was reused
+   * instead of creating a duplicate (same workspace + schedule + prompt +
+   * provider). Absent/false on a genuine create.
+   */
+  reused?: boolean;
 }
 
 /**
