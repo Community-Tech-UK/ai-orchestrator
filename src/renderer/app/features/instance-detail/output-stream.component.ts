@@ -37,6 +37,11 @@ import { DisplayItemProcessor, DisplayItem } from './display-item-processor.serv
 import { ExpansionStateService } from './expansion-state.service';
 import { PlanUpdateCardComponent } from './plan-update-card.component';
 import { ContextMenuComponent, ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
+import {
+  buildFileMenuItems,
+  getSelectedTextInItem,
+  withSelectionItem,
+} from './output-stream-context-menu';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { MessageFormatService } from './message-format.service';
 import { OutputScrollService } from './output-scroll.service';
@@ -1168,13 +1173,17 @@ export class OutputStreamComponent {
     event.preventDefault();
     event.stopPropagation();
     const linkedFileTarget = this.getLinkedFileTargetFromEvent(event);
-    if (linkedFileTarget) {
-      this.showContextMenu(event, this.buildFileContextMenuItems(linkedFileTarget));
-      return;
-    }
-
-    const menuItems = this.buildContextMenuItems(item);
-    this.showContextMenu(event, menuItems);
+    const menuItems = linkedFileTarget
+      ? this.buildFileContextMenuItems(linkedFileTarget)
+      : this.buildContextMenuItems(item);
+    const selectedText = getSelectedTextInItem(event.target, window.getSelection());
+    this.showContextMenu(
+      event,
+      withSelectionItem(selectedText, menuItems, (text) => {
+        void this.copyPlainText(text, 'selection');
+        this.closeContextMenu();
+      }),
+    );
   }
 
   private showContextMenu(event: MouseEvent, items: ContextMenuItem[]): void {
@@ -1205,25 +1214,11 @@ export class OutputStreamComponent {
   }
 
   private buildFileContextMenuItems(target: LinkedFileTarget): ContextMenuItem[] {
-    return [
-      {
-        id: 'copy-file-path',
-        label: 'Copy path',
-        action: () => void this.copyLinkedFilePath(target),
-      },
-      {
-        id: 'copy-file',
-        label: 'Copy file',
-        disabled: !target.canUseLocalFileActions,
-        action: () => void this.copyLinkedFile(target),
-      },
-      {
-        id: 'open-file-manager',
-        label: `Open in ${getSystemFileManagerLabel()}`,
-        disabled: !target.canUseLocalFileActions,
-        action: () => void this.openLinkedFileInFileManager(target),
-      },
-    ];
+    return buildFileMenuItems(target, getSystemFileManagerLabel(), {
+      copyPath: () => void this.copyPlainText(target.displayPath, 'path'),
+      copyFile: () => void this.runLinkedFileAction(target, 'copy'),
+      openInFileManager: () => void this.runLinkedFileAction(target, 'reveal'),
+    });
   }
 
   private buildContextMenuItems(item: DisplayItem): ContextMenuItem[] {
@@ -1285,32 +1280,29 @@ export class OutputStreamComponent {
     });
   }
 
-  private async copyLinkedFilePath(target: LinkedFileTarget): Promise<void> {
-    const result = await this.clipboard.copyText(target.displayPath, { label: 'path' });
+  /** Copy plain text to the clipboard, logging (but not surfacing) a failure. */
+  private async copyPlainText(text: string, label: string): Promise<void> {
+    const result = await this.clipboard.copyText(text, { label });
     if (!result.ok) {
-      console.error('Failed to copy linked file path:', result.reason, result.cause);
+      console.error(`Failed to copy ${label}:`, result.reason, result.cause);
     }
   }
 
-  private async copyLinkedFile(target: LinkedFileTarget): Promise<void> {
+  /** Run a local-only file action on a linked path, logging (but not surfacing) a failure. */
+  private async runLinkedFileAction(
+    target: LinkedFileTarget,
+    verb: 'copy' | 'reveal',
+  ): Promise<void> {
     if (!target.canUseLocalFileActions) {
       return;
     }
 
-    const response = await this.fileIpc.copyFileToClipboard(target.resolvedPath);
+    const response =
+      verb === 'copy'
+        ? await this.fileIpc.copyFileToClipboard(target.resolvedPath)
+        : await this.fileIpc.revealFile(target.resolvedPath);
     if (!response.success) {
-      console.error('Failed to copy linked file:', response.error?.message ?? 'Unknown error');
-    }
-  }
-
-  private async openLinkedFileInFileManager(target: LinkedFileTarget): Promise<void> {
-    if (!target.canUseLocalFileActions) {
-      return;
-    }
-
-    const response = await this.fileIpc.revealFile(target.resolvedPath);
-    if (!response.success) {
-      console.error('Failed to reveal linked file:', response.error?.message ?? 'Unknown error');
+      console.error(`Failed to ${verb} linked file:`, response.error?.message ?? 'Unknown error');
     }
   }
 
