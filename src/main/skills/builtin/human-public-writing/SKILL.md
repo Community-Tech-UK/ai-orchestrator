@@ -1,7 +1,7 @@
 ---
 name: human-public-writing
 description: Use when writing or editing public-facing prose such as external emails, blog posts, website copy, social posts, press copy, or when the user says use my tone, match my tone, use my voice, sound like me, avoid AI tells, em dash, or emdash.
-triggers: ["use my tone", "match my tone", "use my voice", "sound like me", "public-facing writing", "public facing", "external email", "write this email", "draft email", "blog post", "website copy", "social post", "press release", "avoid AI", "AI tells", "em dash", "emdash"]
+triggers: ["use my tone", "match my tone", "use my voice", "sound like me", "public-facing writing", "public facing copy", "public facing email", "external email", "write this email", "draft email", "blog post", "website copy", "social post", "press release", "avoid AI", "AI tells", "em dash", "emdash"]
 version: 1.0.0
 category: writing
 effort: low

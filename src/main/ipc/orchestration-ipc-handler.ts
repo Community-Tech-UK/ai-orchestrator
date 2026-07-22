@@ -50,6 +50,8 @@ import { getWorkflowManager, WorkflowTransitionDenied } from '../workflows/workf
 import { getHookEngine } from '../hooks/hook-engine';
 import { getHookManager } from '../hooks/hook-manager';
 import { getSkillRegistry } from '../skills/skill-registry';
+import { getSkillAttribution } from '../skills/skill-attribution-service';
+import { resolveSkillSource } from '../memory/skills-loader';
 import {
   builtInReviewAgents,
   getReviewAgentById
@@ -1176,7 +1178,29 @@ export function registerOrchestrationHandlers(instanceManager: InstanceManager):
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(SkillsLoadPayloadSchema, payload, 'SKILLS_LOAD');
+        const bundle = getSkillRegistry().getSkill(validated.skillId);
+        const skillSource = resolveSkillSource(bundle?.path);
+        if (bundle) {
+          const mode = getSkillAttribution().getEffectiveMode(bundle.metadata.name, skillSource);
+          if (mode === 'disabled') {
+            return {
+              success: false,
+              error: {
+                code: 'SKILL_DISABLED',
+                message: `Skill is disabled by its control setting: ${bundle.metadata.name}`,
+                timestamp: Date.now()
+              }
+            };
+          }
+        }
         const loaded = await getSkillRegistry().loadSkill(validated.skillId);
+        getSkillAttribution().recordActivation({
+          skillName: loaded.bundle.metadata.name,
+          skillSource,
+          matchedBy: 'explicit',
+          tokensInjected: loaded.tokenEstimate ?? 0,
+          autoSelected: false,
+        });
         return { success: true, data: serializeLoadedSkill(loaded) };
       } catch (error) {
         return {

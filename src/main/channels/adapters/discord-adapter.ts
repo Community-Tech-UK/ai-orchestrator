@@ -864,6 +864,18 @@ export class DiscordAdapter extends BaseChannelAdapter {
         return this.withArg('/stop', arg);
       case 'continue':
         return this.withArg('/continue', arg);
+      case 'approve':
+        return this.withArg('/approve', arg);
+      case 'reject':
+        return this.withArg('/reject', arg);
+      case 'answer': {
+        // custom_id is `orch:answer:<enc(requestId)>~<enc(optionId)>`.
+        const [encRequestId, encOptionId = ''] = rawArg.split('~');
+        const requestId = decodeURIComponent(encRequestId);
+        const optionId = decodeURIComponent(encOptionId);
+        if (!requestId) return '';
+        return optionId ? `/answer ${requestId} ${optionId}` : `/answer ${requestId}`;
+      }
       default:
         return '';
     }

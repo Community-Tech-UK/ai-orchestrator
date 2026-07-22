@@ -20,6 +20,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import { getLogger } from '../logging/logger';
@@ -49,6 +50,7 @@ import { ChannelAccessPolicyStore } from './channel-access-policy-store';
 import { ChannelRouteStore, type SavedChannelRoutePin } from './channel-route-store';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { buildChannelMessagePrompt } from './channel-message-prompt';
+import { ChannelPromptBridge, type WatchingChat } from './channel-prompt-bridge';
 
 const logger = getLogger('ChannelMessageRouter');
 
@@ -104,6 +106,8 @@ interface KnownChannelInstance {
 }
 
 interface OutputStreamTracker {
+  /** The instance whose output this tracker relays (also encoded in the map key). */
+  instanceId: string;
   content: string;
   suppressedContent: string;
   flushCount: number;
@@ -172,6 +176,8 @@ export class ChannelMessageRouter {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _instanceManagerOverride: any = null;
   private resolvedRouteStore: ChannelRouteStore | null | undefined;
+  /** Surfaces agent approval/question prompts to watching channel chats (backlog #1). */
+  private promptBridge: ChannelPromptBridge | null = null;
 
   constructor(
     private channelManager: ChannelManager,
@@ -191,6 +197,12 @@ export class ChannelMessageRouter {
         });
       }
     });
+    this.promptBridge = new ChannelPromptBridge({
+      getInstanceManager: () => this.getInstanceManager(),
+      getChannelManager: () => this.channelManager,
+      getWatchingChats: (instanceId: string) => this.getWatchingChatsForInstance(instanceId),
+    });
+    this.promptBridge.start();
     logger.info('Channel message router started');
   }
 
@@ -199,6 +211,8 @@ export class ChannelMessageRouter {
       this.unsubscribe();
       this.unsubscribe = null;
     }
+    this.promptBridge?.stop();
+    this.promptBridge = null;
     const im = this.getInstanceManager();
     for (const [bufferKey, tracker] of this.outputStreams) {
       if (tracker.timer) {
@@ -419,6 +433,45 @@ export class ChannelMessageRouter {
   private getProjectKey(workingDirectory: string | null | undefined): string {
     const normalized = (workingDirectory ?? '').trim();
     return normalized ? normalized.toLowerCase() : NO_PROJECT_KEY;
+  }
+
+  /**
+   * Pick a safe working directory for a context-less new session (a bare DM,
+   * `/new` with no project, or a `/run-on` node with no allowed dirs).
+   *
+   * `process.cwd()` resolves to the filesystem root (`/`) for the packaged app,
+   * which spawned yolo-mode agents rooted at `/` and triggered whole-filesystem
+   * repo-map scans (stack overflow, ~36s spawns). Prefer the most-recent
+   * existing project directory the user has actually worked in, then fall back
+   * to the home directory. Never returns the filesystem root or an empty path.
+   */
+  private async resolveDefaultWorkingDirectory(): Promise<string> {
+    try {
+      const recent = await getRecentDirectoriesManager().getDirectories({ sortBy: 'lastAccessed' });
+      for (const entry of recent) {
+        const dir = (entry.path || '').trim();
+        if (dir && this.isSafeWorkingDirectory(dir) && this.directoryExists(dir)) {
+          return dir;
+        }
+      }
+    } catch {
+      // Ignore recent-directory failures; the home-dir fallback is always safe.
+    }
+    return os.homedir();
+  }
+
+  /** A working directory is safe if it is not the filesystem root. */
+  private isSafeWorkingDirectory(dir: string): boolean {
+    const resolved = path.resolve(dir);
+    return resolved !== path.parse(resolved).root;
+  }
+
+  private directoryExists(dir: string): boolean {
+    try {
+      return fs.statSync(dir).isDirectory();
+    } catch {
+      return false;
+    }
   }
 
   private getProjectLabel(workingDirectory: string | null | undefined, fallbackLabel?: string): string {
@@ -1523,6 +1576,9 @@ export class ChannelMessageRouter {
       'Thread replies continue the same instance.',
       'In DMs, your instance is remembered until you `/switch`.',
       'Pinned channels route all messages to the pinned project or instance.',
+      '',
+      '**Approvals:**',
+      'When an agent needs approval or asks a question, the bot posts it here — tap a button or reply **yes**/**no** (or your answer) to send it back.',
     ];
     await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
   }
@@ -1565,7 +1621,7 @@ export class ChannelMessageRouter {
       }
     }
 
-    const workingDirectory = project?.workingDirectory || process.cwd();
+    const workingDirectory = project?.workingDirectory || (await this.resolveDefaultWorkingDirectory());
     const instanceId = await this.routeDefault(msg, prompt, adapter, workingDirectory);
 
     if (msg.isDM) {
@@ -1782,6 +1838,15 @@ export class ChannelMessageRouter {
         case 'offload':
           await this.handleOffloadCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
+        case 'approve':
+          await this.handlePromptDecisionCommand(effectiveMsg, intent.commandArgs || '', adapter, true);
+          return;
+        case 'reject':
+          await this.handlePromptDecisionCommand(effectiveMsg, intent.commandArgs || '', adapter, false);
+          return;
+        case 'answer':
+          await this.handlePromptAnswerCommand(effectiveMsg, intent.commandArgs || '', adapter);
+          return;
         default:
           await adapter.sendMessage(
             effectiveMsg.chatId,
@@ -1793,6 +1858,13 @@ export class ChannelMessageRouter {
     }
 
     this.clearPendingSelections(this.getPendingKey(effectiveMsg));
+
+    // 4b. If the agent is waiting on an approval/question in this chat, treat a
+    // plain reply here as the answer and route it back instead of starting a new
+    // turn.
+    if (this.promptBridge && (await this.promptBridge.tryResolveTextReply(effectiveMsg, adapter))) {
+      return;
+    }
 
     // 5. Save inbound message to persistence
     this.persistence.saveMessage({
@@ -1891,7 +1963,13 @@ export class ChannelMessageRouter {
             // Stale pin — instance gone
             this.clearDmPin(effectiveMsg.platform, effectiveMsg.senderId);
           }
-          instanceId = await this.routeDefault(effectiveMsg, intent.cleanContent, adapter, process.cwd(), inputAttachments);
+          instanceId = await this.routeDefault(
+            effectiveMsg,
+            intent.cleanContent,
+            adapter,
+            await this.resolveDefaultWorkingDirectory(),
+            inputAttachments,
+          );
           break;
         }
       }
@@ -2075,7 +2153,7 @@ export class ChannelMessageRouter {
 
     const im = this.getInstanceManager();
     const allowedDirs = node.capabilities?.workingDirectories ?? [];
-    const workingDirectory = allowedDirs[0] || process.cwd();
+    const workingDirectory = allowedDirs[0] || (await this.resolveDefaultWorkingDirectory());
     const instance = await im.createInstance({
       displayName: `${msg.platform}:${msg.senderName}`,
       workingDirectory,
@@ -2136,16 +2214,69 @@ export class ChannelMessageRouter {
     return target === 'android' ? 'Android' : 'Browser';
   }
 
+  /**
+   * Approve/deny a pending agent prompt (backlog #1). Driven by the Approve/Deny
+   * buttons the prompt bridge posts, which the adapter maps to `/approve <id>` /
+   * `/reject <id>`.
+   */
+  private async handlePromptDecisionCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+    approved: boolean,
+  ): Promise<void> {
+    const requestId = args.trim();
+    if (!requestId) {
+      await adapter.sendMessage(msg.chatId, 'No pending request specified.', { replyTo: msg.messageId });
+      return;
+    }
+    const resolved = await this.promptBridge?.resolveByRequestId(requestId, approved);
+    await adapter.sendMessage(
+      msg.chatId,
+      resolved
+        ? approved
+          ? 'Approved.'
+          : 'Denied.'
+        : 'That request is no longer waiting for a response.',
+      { replyTo: msg.messageId },
+    );
+  }
+
+  /**
+   * Answer a pending option/question prompt (backlog #1). Driven by the option
+   * buttons, mapped to `/answer <requestId> <optionId>`.
+   */
+  private async handlePromptAnswerCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const [requestId, ...rest] = args.trim().split(/\s+/);
+    const optionId = rest.join(' ').trim();
+    if (!requestId) {
+      await adapter.sendMessage(msg.chatId, 'No pending request specified.', { replyTo: msg.messageId });
+      return;
+    }
+    const resolved = await this.promptBridge?.resolveByRequestId(requestId, true, optionId || undefined);
+    await adapter.sendMessage(
+      msg.chatId,
+      resolved ? 'Answer sent to the agent.' : 'That request is no longer waiting for a response.',
+      { replyTo: msg.messageId },
+    );
+  }
+
   private async routeDefault(
     msg: InboundChannelMessage,
     content: string,
     adapter: BaseChannelAdapter,
-    workingDirectory = process.cwd(),
+    workingDirectory?: string,
     attachments: FileAttachment[] = [],
   ): Promise<string> {
     const im = this.getInstanceManager();
+    const resolvedWorkingDirectory =
+      (workingDirectory ?? '').trim() || (await this.resolveDefaultWorkingDirectory());
     try {
-      getRecentDirectoriesManager().addDirectory(workingDirectory);
+      getRecentDirectoriesManager().addDirectory(resolvedWorkingDirectory);
     } catch {
       // Ignore missing or inaccessible directories; instance creation will surface real failures.
     }
@@ -2162,7 +2293,7 @@ export class ChannelMessageRouter {
 
     const instance = await im.createInstance({
       displayName: `${msg.platform}:${msg.senderName}`,
-      workingDirectory,
+      workingDirectory: resolvedWorkingDirectory,
       initialPrompt: content ? buildChannelMessagePrompt(msg, content) : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
       yoloMode: true,
@@ -2347,6 +2478,26 @@ export class ChannelMessageRouter {
 
   // ============ Output streaming ============
 
+  /**
+   * Chats currently streaming an instance's output — the channels that should
+   * receive an approval/question prompt for it. Backs the prompt bridge's
+   * "who is watching this instance" lookup.
+   */
+  private getWatchingChatsForInstance(instanceId: string): WatchingChat[] {
+    const watchers: WatchingChat[] = [];
+    for (const tracker of this.outputStreams.values()) {
+      if (tracker.instanceId !== instanceId) continue;
+      const ctx = tracker.currentMsg;
+      watchers.push({
+        platform: ctx.platform,
+        chatId: ctx.chatId,
+        replyToMessageId: ctx.messageId,
+        isDM: ctx.isDM,
+      });
+    }
+    return watchers;
+  }
+
   private streamResults(
     msg: InboundChannelMessage,
     instanceId: string,
@@ -2370,6 +2521,7 @@ export class ChannelMessageRouter {
     }
 
     const tracker: OutputStreamTracker = {
+      instanceId,
       content: '',
       suppressedContent: '',
       flushCount: 0,

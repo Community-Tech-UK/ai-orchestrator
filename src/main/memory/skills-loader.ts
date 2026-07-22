@@ -9,8 +9,10 @@
 
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import * as path from 'path';
 import { EmbeddingService, getEmbeddingService } from '../rlm/embedding-service';
+import { getSkillAttribution } from '../skills/skill-attribution-service';
 import { SkillRegistry, getSkillRegistry } from '../skills/skill-registry';
 import type { SkillBundle, LoadedSkill } from '../../shared/types/skill.types';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
@@ -27,6 +29,12 @@ export interface SkillsLoaderConfig {
   similarityThreshold: number;
   maxResults: number;
   cacheEmbeddings: boolean;
+  /**
+   * Minimum confidence for phrase-trigger matches (slash commands bypass it).
+   * Confidence is trigger-length / message-length, so this gate drops triggers
+   * that appear only incidentally inside long prompts.
+   */
+  triggerMinConfidence: number;
   manifestPath?: string;
   skillsDir?: string;
 }
@@ -45,9 +53,25 @@ const DEFAULT_CONFIG: SkillsLoaderConfig = {
   similarityThreshold: 0.65, // Per plan: single threshold, no LLM fallback
   maxResults: 3, // Per plan: max 3 skills to avoid context bloat
   cacheEmbeddings: true,
+  triggerMinConfidence: 0.05, // Trigger must be >=5% of the message text
   manifestPath: '.claude/skills/skills.json',
   skillsDir: '.claude/skills',
 };
+
+/**
+ * Classify where a skill's content lives. Drives the control-mode default:
+ * builtins default to 'enabled', everything else to 'suggest-only' (D1a).
+ */
+export function resolveSkillSource(fsPath: string | undefined): 'builtin' | 'global' | 'project' {
+  if (!fsPath) return 'project';
+  const normalized = fsPath.split(path.sep).join('/');
+  if (normalized.includes('/skills/builtin/')) return 'builtin';
+  const home = os.homedir().split(path.sep).join('/');
+  for (const dir of ['.agents/skills', '.claude/skills', '.codex/skills']) {
+    if (normalized.startsWith(`${home}/${dir}/`)) return 'global';
+  }
+  return 'project';
+}
 
 // ============ Skills Loader Class ============
 
@@ -61,6 +85,11 @@ export class SkillsLoader extends EventEmitter {
 
   // Skill manifest entries (from skills.json)
   private manifestSkills: Map<string, SkillManifestEntry> = new Map();
+
+  // Names the user explicitly declared (skills.json manifest or registerSkill).
+  // These are an explicit opt-in, so they default to 'enabled' rather than the
+  // 'suggest-only' default applied to newly discovered non-builtin skills.
+  private explicitlyDeclaredNames = new Set<string>();
 
   // Cached embeddings for skill descriptions
   private descriptionEmbeddings: Map<string, number[]> = new Map();
@@ -179,6 +208,7 @@ export class SkillsLoader extends EventEmitter {
       this.manifestSkills.clear();
       for (const entry of manifest.skills) {
         this.manifestSkills.set(entry.name, entry);
+        this.explicitlyDeclaredNames.add(entry.name);
       }
 
       this.stats.totalSkills = this.manifestSkills.size;
@@ -234,6 +264,23 @@ export class SkillsLoader extends EventEmitter {
     this.emit('embeddings:computed', { count: this.descriptionEmbeddings.size });
   }
 
+  /**
+   * The control mode to honour for a skill at selection time.
+   * An explicit control always wins; user-declared skills (manifest or
+   * registerSkill) default to 'enabled'; everything else falls back to the
+   * source-based default ('enabled' for builtins, 'suggest-only' otherwise).
+   */
+  private resolveModeFor(
+    name: string,
+    source: 'builtin' | 'global' | 'project'
+  ): 'enabled' | 'suggest-only' | 'disabled' {
+    const attribution = getSkillAttribution();
+    const control = attribution.getControl(name);
+    if (control) return control.mode;
+    if (this.explicitlyDeclaredNames.has(name)) return 'enabled';
+    return attribution.getEffectiveMode(name, source);
+  }
+
   // ============ Skill Detection ============
 
   /**
@@ -259,18 +306,32 @@ export class SkillsLoader extends EventEmitter {
     const triggerMatches = this.skillRegistry.matchTrigger(userMessage);
     for (const match of triggerMatches) {
       const entry = this.manifestSkills.get(match.skill.metadata.name);
-      if (entry && !seenNames.has(entry.name)) {
-        seenNames.add(entry.name);
+      if (!entry || seenNames.has(entry.name)) continue;
 
-        matched.push({
-          name: entry.name,
-          description: entry.description,
-          contentPath: entry.contentPath,
-          priority: entry.priority,
-          similarity: match.confidence,
-          source: 'trigger',
-        });
+      // Phrase triggers must clear the min-confidence gate so a trigger that
+      // appears only incidentally inside a long prompt does not inject.
+      // Slash commands are typed deliberately and always pass.
+      const isSlashTrigger = match.trigger.startsWith('/');
+      if (!isSlashTrigger && match.confidence < this.config.triggerMinConfidence) {
+        continue;
       }
+
+      const skillSource = resolveSkillSource(match.skill.path || entry.contentPath);
+      const mode = this.resolveModeFor(entry.name, skillSource);
+      if (mode === 'disabled') continue;
+
+      seenNames.add(entry.name);
+      matched.push({
+        name: entry.name,
+        description: entry.description,
+        contentPath: entry.contentPath,
+        priority: entry.priority,
+        similarity: match.confidence,
+        source: 'trigger',
+        matchedTrigger: match.trigger,
+        skillSource,
+        suggestOnly: mode === 'suggest-only',
+      });
     }
 
     // 2. Check embedding-based matches when semantic lookup is available.
@@ -288,6 +349,9 @@ export class SkillsLoader extends EventEmitter {
 
         if (similarity >= this.config.similarityThreshold) {
           const entry = this.manifestSkills.get(skillName)!;
+          const skillSource = resolveSkillSource(entry.contentPath);
+          const mode = this.resolveModeFor(entry.name, skillSource);
+          if (mode === 'disabled') continue;
           seenNames.add(skillName);
 
           matched.push({
@@ -297,6 +361,8 @@ export class SkillsLoader extends EventEmitter {
             priority: entry.priority,
             similarity,
             source: 'embedding',
+            skillSource,
+            suggestOnly: mode === 'suggest-only',
           });
         }
       }
@@ -362,9 +428,15 @@ export class SkillsLoader extends EventEmitter {
   async loadSkillsWithBudget(
     skills: DetectedSkill[],
     maxTokens: number
-  ): Promise<{ content: string[]; totalTokens: number; loaded: string[] }> {
+  ): Promise<{
+    content: string[];
+    totalTokens: number;
+    loaded: string[];
+    loadedDetails: { name: string; tokens: number }[];
+  }> {
     const content: string[] = [];
     const loaded: string[] = [];
+    const loadedDetails: { name: string; tokens: number }[] = [];
     let totalTokens = 0;
 
     // Sort by priority then similarity
@@ -375,6 +447,9 @@ export class SkillsLoader extends EventEmitter {
     });
 
     for (const skill of sorted) {
+      // Kill-switch enforcement: suggest-only skills are never injected.
+      if (skill.suggestOnly) continue;
+
       const skillContent = await this.loadSkillContent(skill);
       if (!skillContent) continue;
 
@@ -383,11 +458,12 @@ export class SkillsLoader extends EventEmitter {
       if (totalTokens + tokens <= maxTokens) {
         content.push(skillContent);
         loaded.push(skill.name);
+        loadedDetails.push({ name: skill.name, tokens });
         totalTokens += tokens;
       }
     }
 
-    return { content, totalTokens, loaded };
+    return { content, totalTokens, loaded, loadedDetails };
   }
 
   // ============ Skill Management ============
@@ -397,6 +473,7 @@ export class SkillsLoader extends EventEmitter {
    */
   registerSkill(entry: SkillManifestEntry): void {
     this.manifestSkills.set(entry.name, entry);
+    this.explicitlyDeclaredNames.add(entry.name);
     this.stats.totalSkills = this.manifestSkills.size;
 
     // Compute embedding if caching is enabled
@@ -418,6 +495,7 @@ export class SkillsLoader extends EventEmitter {
   unregisterSkill(skillName: string): boolean {
     const removed = this.manifestSkills.delete(skillName);
     if (removed) {
+      this.explicitlyDeclaredNames.delete(skillName);
       this.descriptionEmbeddings.delete(skillName);
       this.stats.totalSkills = this.manifestSkills.size;
       this.stats.cachedEmbeddings = this.descriptionEmbeddings.size;
@@ -456,6 +534,7 @@ export class SkillsLoader extends EventEmitter {
 
   clear(): void {
     this.manifestSkills.clear();
+    this.explicitlyDeclaredNames.clear();
     this.descriptionEmbeddings.clear();
     this.registryDiscoveryAttempted = false;
     this.registryDiscoveryPromise = null;

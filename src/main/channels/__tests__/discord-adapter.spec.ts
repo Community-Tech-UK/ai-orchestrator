@@ -167,10 +167,10 @@ function makeChatInputInteraction(overrides: Partial<MockInteraction> = {}): Moc
   };
 }
 
-function makeButtonInteraction(customId: string): MockInteraction {
+function makeButtonInteraction(customId: string, id = 'button-1'): MockInteraction {
   return {
     ...makeChatInputInteraction({
-      id: 'button-1',
+      id,
       customId,
       commandName: undefined,
     }),
@@ -580,6 +580,22 @@ describe('DiscordAdapter', () => {
 
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toBe('/revive sleep-1');
+  });
+
+  it('maps approval-prompt buttons to their commands', async () => {
+    await adapter.connect(makeConfig({ allowedSenders: ['user-1'] }));
+    const messages: InboundChannelMessage[] = [];
+    adapter.on('message', (msg: InboundChannelMessage) => messages.push(msg));
+
+    await capturedInteractionHandler!(makeButtonInteraction('orch:approve:req-1', 'btn-a'));
+    await capturedInteractionHandler!(makeButtonInteraction('orch:reject:req-1', 'btn-b'));
+    await capturedInteractionHandler!(makeButtonInteraction('orch:answer:uar-1~dev', 'btn-c'));
+
+    expect(messages.map((m) => m.content)).toEqual([
+      '/approve req-1',
+      '/reject req-1',
+      '/answer uar-1 dev',
+    ]);
   });
 
   it('emits autocomplete requests and forwards choices to Discord', async () => {

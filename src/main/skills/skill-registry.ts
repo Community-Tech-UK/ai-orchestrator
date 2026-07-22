@@ -16,6 +16,7 @@ import {
   removeSkillFrontmatter,
   estimateTokens,
   calculateMatchConfidence,
+  triggerMatchesText,
 } from '../../shared/types/skill.types';
 import { getLogger } from '../logging/logger';
 import { getSkillLoader } from './skill-loader';
@@ -233,7 +234,7 @@ export class SkillRegistry extends EventEmitter {
     const seenSkills = new Set<string>();
 
     for (const [trigger, skillIds] of this.triggerIndex) {
-      if (normalizedText.includes(trigger)) {
+      if (triggerMatchesText(trigger, normalizedText)) {
         for (const skillId of skillIds) {
           if (seenSkills.has(skillId)) continue;
           seenSkills.add(skillId);

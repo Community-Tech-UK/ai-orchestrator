@@ -47,6 +47,7 @@ import {
 } from './r1-memory-manager';
 import { RLMContextManager } from '../rlm/context-manager';
 import { SkillsLoader, getSkillsLoader } from './skills-loader';
+import { getSkillAttribution } from '../skills/skill-attribution-service';
 import { getHybridRetrievalManager } from './hybrid-retrieval';
 import { getProactiveSurfacer } from './proactive-surfacer';
 import { getCrossProjectLearner } from './cross-project-learner';
@@ -424,7 +425,11 @@ export class UnifiedMemoryController extends EventEmitter {
 
     // Skills fetching (embedding-based skill detection)
     if (types.includes('skills')) {
-      results.skills = await this.fetchSkills(query);
+      results.skills = await this.fetchSkills(query, {
+        instanceId: options?.instanceId,
+        sessionId: options?.sessionId,
+        turnKey: taskId,
+      });
     }
 
     const includeWakeContext =
@@ -753,23 +758,47 @@ export class UnifiedMemoryController extends EventEmitter {
   /**
    * Fetch relevant skills using embedding-based detection.
    * Returns skill content as strings for context injection.
+   *
+   * Every skill actually loaded here is recorded through the attribution
+   * service (fail-soft) — this is the injection seam for skill observability.
    */
-  private async fetchSkills(query: string): Promise<string[]> {
+  private async fetchSkills(
+    query: string,
+    attribution?: { instanceId?: string; sessionId?: string; turnKey?: string }
+  ): Promise<string[]> {
     try {
       const detectedSkills = await this.skillsLoader.detectRelevantSkills(query);
 
-      if (detectedSkills.length === 0) {
+      // Suggest-only skills are surfaced elsewhere; they never inject.
+      const injectable = detectedSkills.filter((skill) => !skill.suggestOnly);
+      if (injectable.length === 0) {
         return [];
       }
 
       // Load skill content with a reasonable budget (5000 tokens per skill max)
       const maxTokensPerSkill = 5000;
-      const totalBudget = maxTokensPerSkill * detectedSkills.length;
+      const totalBudget = maxTokensPerSkill * injectable.length;
 
-      const { content } = await this.skillsLoader.loadSkillsWithBudget(
-        detectedSkills,
+      const { content, loadedDetails } = await this.skillsLoader.loadSkillsWithBudget(
+        injectable,
         totalBudget
       );
+
+      for (const detail of loadedDetails ?? []) {
+        const skill = injectable.find((candidate) => candidate.name === detail.name);
+        getSkillAttribution().recordActivation({
+          skillName: detail.name,
+          skillSource: skill?.skillSource ?? 'project',
+          instanceId: attribution?.instanceId ?? null,
+          sessionId: attribution?.sessionId ?? null,
+          turnKey: attribution?.turnKey ?? null,
+          matchedBy: skill?.source === 'embedding' ? 'embedding' : 'trigger',
+          matchedTrigger: skill?.matchedTrigger ?? null,
+          matchScore: skill?.similarity ?? null,
+          tokensInjected: detail.tokens,
+          autoSelected: true,
+        });
+      }
 
       return content;
     } catch (error) {

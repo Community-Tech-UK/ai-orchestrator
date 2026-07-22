@@ -149,6 +149,22 @@ export const NotificationDeltaEventSchema = z.object({
   ]),
 }).strict();
 
+/** Push event: one skill activation was recorded (skill observability). */
+export const SkillActivationDeltaEventSchema = z.object({
+  id: z.string().min(1).max(500),
+  skillName: z.string().min(1).max(200),
+  skillSource: z.string().min(1).max(50),
+  instanceId: z.string().min(1).max(200).nullable(),
+  sessionId: z.string().min(1).max(200).nullable(),
+  turnKey: z.string().min(1).max(500).nullable(),
+  matchedBy: z.enum(['trigger', 'embedding', 'explicit']),
+  matchedTrigger: z.string().max(500).nullable(),
+  matchScore: z.number().nullable(),
+  tokensInjected: z.number().int().nonnegative(),
+  autoSelected: z.boolean(),
+  createdAt: z.number().int().nonnegative(),
+}).strict();
+
 // ============ Search Payloads ============
 
 export const SearchSemanticPayloadSchema = z.object({

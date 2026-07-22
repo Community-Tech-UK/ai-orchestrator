@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as os from 'os';
 import { EventEmitter } from 'events';
 import { ChannelMessageRouter } from '../channel-message-router';
 import type { ChannelManager, ChannelEvent } from '../channel-manager';
@@ -202,9 +203,17 @@ function makeMockPersistence() {
   };
 }
 
+function makeMockOrchestration() {
+  const em = new EventEmitter();
+  return Object.assign(em, {
+    respondToUserAction: vi.fn<(requestId: string, approved: boolean, selectedOption?: string) => void>(),
+  });
+}
+
 function makeMockInstanceManager() {
   const em = new EventEmitter();
   const getInstances = vi.fn(() => [] as MockInstanceRecord[]);
+  const orchestration = makeMockOrchestration();
   return Object.assign(em, {
     createInstance: vi.fn(async () => ({ id: 'inst-1' })),
     sendInput: vi.fn(async () => undefined),
@@ -219,6 +228,10 @@ function makeMockInstanceManager() {
       }
     }),
     interruptInstance: vi.fn(() => true),
+    // Prompt-bridge (backlog #1) seams — mirror the real InstanceManager surface.
+    resumeAfterDeferredPermission: vi.fn(async () => undefined),
+    clearPendingInputRequiredPermission: vi.fn(),
+    getOrchestrationHandler: vi.fn(() => orchestration),
   });
 }
 
@@ -1287,6 +1300,213 @@ describe('ChannelMessageRouter', () => {
 
     it('blocks paths with mixed case (case-insensitive check)', () => {
       expect(() => router.assertSendable('/app/.ENV')).toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // §2 — safe default working directory for context-less new instances
+  // -------------------------------------------------------------------------
+
+  describe('safe default working directory (§2)', () => {
+    it('never spawns a context-less instance at the filesystem root', async () => {
+      // No recent directories → fall back to the home dir, never process.cwd()
+      // (which is "/" for the packaged app and triggered whole-FS repo scans).
+      recentDirectoriesState.entries = [];
+
+      await router.handleInboundMessage(makeMessage({ content: 'hi' }));
+
+      const call = (instanceManager.createInstance.mock.calls[0] as unknown as [{ workingDirectory?: string }])?.[0];
+      expect(call?.workingDirectory).toBeTruthy();
+      expect(call?.workingDirectory).not.toBe('/');
+      expect(call?.workingDirectory).toBe(os.homedir());
+    });
+
+    it('prefers the most-recent existing project directory', async () => {
+      recentDirectoriesState.entries = [
+        { path: os.tmpdir(), displayName: 'tmp', lastAccessed: 2000 },
+        { path: '/nonexistent-xyz', displayName: 'gone', lastAccessed: 3000 },
+      ];
+
+      await router.handleInboundMessage(makeMessage({ content: 'hi' }));
+
+      const call = (instanceManager.createInstance.mock.calls[0] as unknown as [{ workingDirectory?: string }])?.[0];
+      // The non-existent (higher lastAccessed) entry is skipped; the existing
+      // tmp dir is chosen over the home-dir fallback.
+      expect(call?.workingDirectory).toBe(os.tmpdir());
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Backlog #1 — surface approval / question prompts to the channel
+  // -------------------------------------------------------------------------
+
+  describe('agent prompts (backlog #1)', () => {
+    async function routeInitialTurn(): Promise<void> {
+      instanceManager.getInstances.mockReturnValue([
+        { id: 'inst-1', status: 'busy', outputBuffer: [] },
+      ]);
+      router.start();
+      await router.handleInboundMessage(
+        makeMessage({ id: 'seed', chatId: 'c1', messageId: 'm1', content: 'do a thing' }),
+      );
+      adapter.sendMessage.mockClear();
+    }
+
+    it('posts a permission prompt to the chat watching the instance', async () => {
+      await routeInitialTurn();
+
+      instanceManager.emit('instance:input-required', {
+        instanceId: 'inst-1',
+        requestId: 'req-1',
+        prompt: 'Run rm -rf build?',
+        metadata: { tool_name: 'Bash' },
+      });
+      await Promise.resolve();
+
+      const promptSend = adapter.sendMessage.mock.calls.find(
+        (call) => typeof call[1] === 'string' && call[1].includes('needs approval'),
+      );
+      expect(promptSend).toBeDefined();
+      expect(promptSend?.[0]).toBe('c1');
+      const options = promptSend?.[2] as SendOptions | undefined;
+      expect(options?.actions?.map((a) => a.id)).toEqual([
+        'orch:approve:req-1',
+        'orch:reject:req-1',
+      ]);
+    });
+
+    it('does not post when no channel is watching the instance', async () => {
+      router.start();
+      adapter.sendMessage.mockClear();
+
+      instanceManager.emit('instance:input-required', {
+        instanceId: 'unknown-inst',
+        requestId: 'req-x',
+        prompt: 'proceed?',
+      });
+      await Promise.resolve();
+
+      expect(adapter.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('resumes the agent when the user approves via the button command', async () => {
+      await routeInitialTurn();
+      instanceManager.emit('instance:input-required', {
+        instanceId: 'inst-1',
+        requestId: 'req-1',
+        prompt: 'proceed?',
+        metadata: { tool_name: 'Bash' },
+      });
+      await Promise.resolve();
+
+      // The Approve button maps to `/approve req-1`.
+      await router.handleInboundMessage(
+        makeMessage({ id: 'btn', chatId: 'c1', messageId: 'b1', content: '/approve req-1' }),
+      );
+
+      expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', true);
+      expect(instanceManager.clearPendingInputRequiredPermission).toHaveBeenCalledWith('inst-1', 'req-1');
+    });
+
+    it('denies the agent when the user replies "no"', async () => {
+      await routeInitialTurn();
+      instanceManager.emit('instance:input-required', {
+        instanceId: 'inst-1',
+        requestId: 'req-1',
+        prompt: 'proceed?',
+        metadata: { tool_name: 'Bash' },
+      });
+      await Promise.resolve();
+
+      await router.handleInboundMessage(
+        makeMessage({ id: 'reply', chatId: 'c1', messageId: 'r1', content: 'no' }),
+      );
+
+      expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', false);
+      // A denied plain reply must not also be routed as a new turn.
+      expect(instanceManager.sendInput).not.toHaveBeenCalledWith(
+        'inst-1',
+        expect.stringContaining('no'),
+        expect.anything(),
+      );
+    });
+
+    it('routes a select_option answer back via respondToUserAction', async () => {
+      await routeInitialTurn();
+      const orchestration = instanceManager.getOrchestrationHandler();
+
+      orchestration.emit('user-action-request', {
+        id: 'uar-1',
+        instanceId: 'inst-1',
+        requestType: 'select_option',
+        title: 'Pick a branch',
+        message: 'Which branch?',
+        options: [
+          { id: 'main', label: 'main' },
+          { id: 'dev', label: 'dev' },
+        ],
+      });
+      await Promise.resolve();
+
+      const promptSend = adapter.sendMessage.mock.calls.find(
+        (call) => typeof call[1] === 'string' && call[1].includes('Pick a branch'),
+      );
+      expect(promptSend).toBeDefined();
+      const options = promptSend?.[2] as SendOptions | undefined;
+      expect(options?.actions?.[0]?.id).toBe('orch:answer:uar-1~main');
+
+      // The option button maps to `/answer uar-1 dev`.
+      await router.handleInboundMessage(
+        makeMessage({ id: 'ans', chatId: 'c1', messageId: 'a1', content: '/answer uar-1 dev' }),
+      );
+
+      expect(orchestration.respondToUserAction).toHaveBeenCalledWith('uar-1', true, 'dev');
+    });
+
+    it('forwards a free-text answer for an ask_questions prompt', async () => {
+      await routeInitialTurn();
+      const orchestration = instanceManager.getOrchestrationHandler();
+
+      orchestration.emit('user-action-request', {
+        id: 'uar-2',
+        instanceId: 'inst-1',
+        requestType: 'ask_questions',
+        title: 'Need details',
+        message: 'A couple of questions:',
+        questions: ['Which environment?', 'Deploy now?'],
+      });
+      await Promise.resolve();
+
+      await router.handleInboundMessage(
+        makeMessage({ id: 'free', chatId: 'c1', messageId: 'f1', content: 'staging, not yet' }),
+      );
+
+      expect(orchestration.respondToUserAction).toHaveBeenCalledWith('uar-2', true, 'staging, not yet');
+      // The free-text answer must not also start a fresh turn.
+      expect(instanceManager.createInstance).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears a pending prompt when the instance leaves the waiting state', async () => {
+      await routeInitialTurn();
+      instanceManager.emit('instance:input-required', {
+        instanceId: 'inst-1',
+        requestId: 'req-1',
+        prompt: 'proceed?',
+        metadata: { tool_name: 'Bash' },
+      });
+      await Promise.resolve();
+
+      // Answered elsewhere (mobile/renderer) → instance goes back to idle.
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+
+      // A subsequent plain reply must NOT be swallowed as an approval; it routes
+      // normally to the pinned instance instead.
+      instanceManager.resumeAfterDeferredPermission.mockClear();
+      await router.handleInboundMessage(
+        makeMessage({ id: 'later', chatId: 'c1', messageId: 'l1', content: 'yes' }),
+      );
+
+      expect(instanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
     });
   });
 });

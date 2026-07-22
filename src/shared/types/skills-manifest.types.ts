@@ -188,6 +188,22 @@ export interface DetectedSkill {
    * How the skill was detected
    */
   source: 'embedding' | 'trigger' | 'both';
+
+  /**
+   * The exact trigger string that matched (trigger-sourced detections only).
+   */
+  matchedTrigger?: string;
+
+  /**
+   * Where the skill's content lives (drives control-mode defaults).
+   */
+  skillSource?: 'builtin' | 'global' | 'project';
+
+  /**
+   * True when the skill's control mode is 'suggest-only': it may be surfaced
+   * as a suggestion but must never be auto-injected into a session.
+   */
+  suggestOnly?: boolean;
 }
 
 // ============ Helper Functions ============

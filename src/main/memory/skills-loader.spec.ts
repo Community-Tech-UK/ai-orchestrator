@@ -679,3 +679,107 @@ describe('SkillsLoader', () => {
     });
   });
 });
+
+// Appended by the skill-observability work (P1): kill-switch + trigger gate.
+import { SkillAttributionService, getSkillAttribution } from '../skills/skill-attribution-service';
+
+describe('SkillsLoader control modes and trigger gate', () => {
+  let loader2: SkillsLoader;
+
+  const registryBundle = (name: string, trigger: string) => ({
+    id: `skill-${name}`,
+    metadata: { name, description: `${name} description`, triggers: [trigger] },
+    corePath: `${name}.md`,
+    path: `/project/.claude/skills/${name}`,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    SkillsLoader.resetInstance();
+    SkillAttributionService._resetForTesting();
+    getSkillAttribution()._bindUnavailableForTesting();
+    loader2 = getSkillsLoader();
+
+    mockEmbed.mockResolvedValue({
+      embedding: [1, 0],
+      model: 'test',
+      tokens: 1,
+      cached: false,
+      provider: 'ollama',
+    });
+    mockCosineSimilarity.mockReturnValue(0.1); // embeddings never match here
+    mockListSkills.mockReturnValue([]);
+    mockDiscoverSkillsWithBuiltins.mockResolvedValue([]);
+
+    loader2.registerSkill({
+      name: 'angular',
+      description: 'Angular development patterns',
+      contentPath: '/project/.claude/skills/angular.md',
+      priority: 60,
+    });
+  });
+
+  afterEach(() => {
+    SkillsLoader.resetInstance();
+    SkillAttributionService._resetForTesting();
+  });
+
+  it('never returns a disabled skill from detection', async () => {
+    getSkillAttribution().setControl('angular', 'disabled');
+    mockMatchTrigger.mockReturnValue([
+      { skill: registryBundle('angular', 'angular patterns'), trigger: 'angular patterns', confidence: 0.6 },
+    ]);
+
+    const detected = await loader2.detectRelevantSkills('show me angular patterns');
+
+    expect(detected).toHaveLength(0);
+  });
+
+  it('marks suggest-only skills so they are never injected', async () => {
+    getSkillAttribution().setControl('angular', 'suggest-only');
+    mockMatchTrigger.mockReturnValue([
+      { skill: registryBundle('angular', 'angular patterns'), trigger: 'angular patterns', confidence: 0.6 },
+    ]);
+
+    const detected = await loader2.detectRelevantSkills('show me angular patterns');
+    expect(detected).toHaveLength(1);
+    expect(detected[0].suggestOnly).toBe(true);
+    expect(detected[0].matchedTrigger).toBe('angular patterns');
+
+    const result = await loader2.loadSkillsWithBudget(detected, 10_000);
+    expect(result.loaded).toHaveLength(0);
+    expect(result.loadedDetails).toHaveLength(0);
+  });
+
+  it('drops phrase triggers below the min-confidence gate but keeps slash commands', async () => {
+    mockMatchTrigger.mockReturnValue([
+      { skill: registryBundle('angular', 'angular patterns'), trigger: 'angular patterns', confidence: 0.01 },
+    ]);
+    expect(await loader2.detectRelevantSkills('long prompt...')).toHaveLength(0);
+
+    mockMatchTrigger.mockReturnValue([
+      { skill: registryBundle('angular', '/angular'), trigger: '/angular', confidence: 0.01 },
+    ]);
+    const slash = await loader2.detectRelevantSkills('/angular do the thing with much extra text');
+    expect(slash).toHaveLength(1);
+    expect(slash[0].matchedTrigger).toBe('/angular');
+  });
+
+  it('reports per-skill token details from budget loading', async () => {
+    mockReadFile.mockResolvedValue('x'.repeat(400));
+    const detected: DetectedSkill[] = [{
+      name: 'angular',
+      description: 'Angular development patterns',
+      contentPath: '/project/.claude/skills/angular.md',
+      priority: 60,
+      similarity: 0.9,
+      source: 'trigger',
+    }];
+
+    const result = await loader2.loadSkillsWithBudget(detected, 10_000);
+
+    expect(result.loadedDetails).toHaveLength(1);
+    expect(result.loadedDetails[0].name).toBe('angular');
+    expect(result.loadedDetails[0].tokens).toBeGreaterThan(0);
+  });
+});

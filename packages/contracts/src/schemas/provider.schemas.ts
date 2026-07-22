@@ -327,6 +327,25 @@ export const SkillsMatchPayloadSchema = z.object({
   text: z.string().min(1).max(1000000),
 });
 
+export const SkillsActivationsRecentPayloadSchema = z.object({
+  skillName: z.string().min(1).max(200).optional(),
+  instanceId: z.string().min(1).max(200).optional(),
+  since: z.number().int().nonnegative().optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict().optional();
+
+export const SkillsHealthSummaryPayloadSchema = z.object({
+  since: z.number().int().nonnegative().optional(),
+}).strict().optional();
+
+export const SkillControlModeSchema = z.enum(['enabled', 'suggest-only', 'disabled']);
+
+export const SkillsSetControlPayloadSchema = z.object({
+  skillName: z.string().min(1).max(200),
+  mode: SkillControlModeSchema,
+  reason: z.string().max(2000).optional(),
+}).strict();
+
 // ============ Unified Model Catalog Payloads ============
 
 /**

@@ -1,7 +1,7 @@
 ---
 name: android-release
 description: API-first Android Google Play release workflow. Use when releasing, uploading, staging, or preparing an Android build for Play Console, including Capacitor apps, versionCode bumps, signed AAB creation, Play Developer Publishing API uploads, tracks, rollout, listings, store images, tester lists, and Play-console browser fallback flows.
-triggers: ["/android-release", "android release", "play release", "google play release", "upload aab", "play api"]
+triggers: ["/android-release", "android release", "play release", "google play release", "upload aab", "play developer api"]
 category: release
 ---
 

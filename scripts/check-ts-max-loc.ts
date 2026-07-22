@@ -110,8 +110,14 @@ const ALLOWLIST: Record<string, number> = {
   // green; that work stream should refactor or re-tighten when it lands.
   'src/main/desktop-gateway/desktop-gateway-service.ts': 727,
   // Main process — channels
-  'src/main/channels/adapters/discord-adapter.ts': 965,
-  'src/main/channels/channel-message-router.ts': 2543,
+  // Raised 965 -> 976 for the approve/reject/answer button custom_id mappings
+  // (Discord approval-prompt parity, backlog #1).
+  'src/main/channels/adapters/discord-adapter.ts': 976,
+  // Raised 2543 -> 2741 for the Discord approval/question-prompt bridge wiring
+  // (backlog #1: safe default cwd resolver + prompt-bridge start/stop, watching-
+  // chat lookup, /approve /reject /answer handlers, text-reply hook). The prompt
+  // surfacing/resolution logic itself lives in channel-prompt-bridge.ts.
+  'src/main/channels/channel-message-router.ts': 2741,
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2160,
   'src/main/cli/adapters/base-cli-adapter.ts': 988,

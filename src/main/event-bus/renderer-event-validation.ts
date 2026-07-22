@@ -121,6 +121,7 @@ import {
   MemoryAlertEventSchema,
   MemoryStatsEventSchema,
   NotificationDeltaEventSchema,
+  SkillActivationDeltaEventSchema,
   StartupCapabilityReportEventSchema,
   UpdateStatusEventSchema,
 } from '@contracts/schemas/observability';
@@ -211,6 +212,7 @@ const RENDERER_EVENT_SCHEMAS = new Map<string, ZodType>([
   [IPC_CHANNELS.SETTINGS_CHANGED, SettingsChangedEventSchema],
   [IPC_CHANNELS.TODO_LIST_CHANGED, TodoListChangedEventSchema],
   [IPC_CHANNELS.NOTIFICATION_DELTA, NotificationDeltaEventSchema],
+  [IPC_CHANNELS.SKILLS_ACTIVATION_DELTA, SkillActivationDeltaEventSchema],
   [IPC_CHANNELS.RLM_STORAGE_MAINTENANCE_PROGRESS, RlmMaintenanceProgressEventSchema],
   [IPC_CHANNELS.WATCHER_FILE_CHANGED, WatcherFileChangedEventSchema],
   [IPC_CHANNELS.WATCHER_ERROR, WatcherErrorEventSchema],

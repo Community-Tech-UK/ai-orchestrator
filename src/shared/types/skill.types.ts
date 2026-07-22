@@ -142,6 +142,23 @@ export function estimateTokens(content: string): number {
   return sharedEstimateTokens(content);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Whether a trigger occurs in the (already lowercased) text.
+ *
+ * Slash-command triggers keep substring semantics (they are typed literally).
+ * Phrase triggers must match on word boundaries so a trigger like "play api"
+ * no longer fires inside unrelated words, and "test" cannot fire on "latest".
+ */
+export function triggerMatchesText(trigger: string, normalizedText: string): boolean {
+  if (trigger.startsWith('/')) return normalizedText.includes(trigger);
+  const pattern = new RegExp(`(?<![a-z0-9])${escapeRegExp(trigger)}(?![a-z0-9])`);
+  return pattern.test(normalizedText);
+}
+
 export function calculateMatchConfidence(trigger: string, text: string): number {
   const normalizedTrigger = trigger.toLowerCase().trim();
   const normalizedText = text.toLowerCase().trim();

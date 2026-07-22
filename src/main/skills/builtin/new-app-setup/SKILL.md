@@ -1,7 +1,7 @@
 ---
 name: new-app-setup
 description: Checkpointed browser workflow for first-time Apple App Store Connect and Google Play Console app setup. Use for creating new app records, Play Content rating, Data safety, app-content declarations, app access credentials, ASC app records, privacy nutrition labels, agreements/tax prompts, Resolution Center review replies, and console-only setup for a new white-label brand.
-triggers: ["/new-app-setup", "new app setup", "play console setup", "app store connect setup", "data safety", "content rating", "privacy nutrition labels"]
+triggers: ["/new-app-setup", "new app setup", "play console setup", "app store connect setup", "play data safety form", "play content rating questionnaire", "privacy nutrition labels"]
 category: release
 ---
 

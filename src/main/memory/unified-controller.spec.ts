@@ -48,6 +48,14 @@ vi.mock('./skills-loader', () => ({
   SkillsLoader: class {},
 }));
 
+const skillAttributionMock = {
+  recordActivation: vi.fn(),
+};
+
+vi.mock('../skills/skill-attribution-service', () => ({
+  getSkillAttribution: () => skillAttributionMock,
+}));
+
 vi.mock('./wake-context-builder', () => ({
   getWakeContextBuilder: () => wakeContextBuilderMock,
 }));
@@ -90,7 +98,7 @@ describe('UnifiedMemoryController hardening', () => {
     rlmContextMock.getStoreByInstance.mockReturnValue(null);
 
     skillsLoaderMock.detectRelevantSkills.mockResolvedValue([]);
-    skillsLoaderMock.loadSkillsWithBudget.mockResolvedValue({ content: [] });
+    skillsLoaderMock.loadSkillsWithBudget.mockResolvedValue({ content: [], loadedDetails: [] });
     wakeContextBuilderMock.getWakeUpText.mockReturnValue(
       'Identity: Orchestrator\n\nEssential Story: Maintain project continuity.'
     );
@@ -103,6 +111,60 @@ describe('UnifiedMemoryController hardening', () => {
 
   afterEach(() => {
     UnifiedMemoryController._resetForTesting();
+  });
+
+  it('records an attribution row per injected skill and never injects suggest-only skills', async () => {
+    const injectable = {
+      name: 'ui-audit',
+      description: 'Audit a web UI',
+      contentPath: '/app/src/main/skills/builtin/ui-audit/SKILL.md',
+      priority: 50,
+      similarity: 0.9,
+      source: 'trigger' as const,
+      matchedTrigger: '/ui-audit',
+      skillSource: 'builtin' as const,
+    };
+    const suggested = {
+      name: 'ui-ux-pro-max',
+      description: 'Huge design skill',
+      contentPath: '/home/user/.claude/skills/ui-ux-pro-max/SKILL.md',
+      priority: 50,
+      similarity: 0.7,
+      source: 'embedding' as const,
+      skillSource: 'global' as const,
+      suggestOnly: true,
+    };
+    skillsLoaderMock.detectRelevantSkills.mockResolvedValue([injectable, suggested]);
+    skillsLoaderMock.loadSkillsWithBudget.mockResolvedValue({
+      content: ['# ui-audit'],
+      totalTokens: 300,
+      loaded: ['ui-audit'],
+      loadedDetails: [{ name: 'ui-audit', tokens: 300 }],
+    });
+
+    const memory = getUnifiedMemory();
+    const result = await memory.retrieve('run /ui-audit please', 'task-77', {
+      types: ['skills'],
+      instanceId: 'inst-9',
+      sessionId: 'sess-9',
+    });
+
+    expect(result.skills).toEqual(['# ui-audit']);
+    // Only the injectable skill reaches the budget loader.
+    expect(skillsLoaderMock.loadSkillsWithBudget).toHaveBeenCalledWith([injectable], 5000);
+    expect(skillAttributionMock.recordActivation).toHaveBeenCalledTimes(1);
+    expect(skillAttributionMock.recordActivation).toHaveBeenCalledWith({
+      skillName: 'ui-audit',
+      skillSource: 'builtin',
+      instanceId: 'inst-9',
+      sessionId: 'sess-9',
+      turnKey: 'task-77',
+      matchedBy: 'trigger',
+      matchedTrigger: '/ui-audit',
+      matchScore: 0.9,
+      tokensInjected: 300,
+      autoSelected: true,
+    });
   });
 
   it('invalidates retrieval cache after new input is processed', async () => {

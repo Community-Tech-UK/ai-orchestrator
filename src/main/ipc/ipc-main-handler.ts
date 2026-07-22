@@ -107,6 +107,7 @@ import {
   registerCampaignHandlers,
   registerRlmMaintenanceHandlers,
   registerNotificationHandlers,
+  registerSkillAttributionHandlers,
   registerContextEvidenceHandlers,
 } from './handlers';
 import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
@@ -272,6 +273,7 @@ export class IpcMainHandler {
     registerWorkflowHandlers();
     registerDiagnosticsHandlers({ instanceManager: this.instanceManager });
     registerNotificationHandlers({ windowManager: this.windowManager });
+    registerSkillAttributionHandlers({ windowManager: this.windowManager });
     registerContextEvidenceHandlers({
       instanceManager: this.instanceManager,
       windowManager: this.windowManager,

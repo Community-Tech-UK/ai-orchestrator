@@ -129,6 +129,12 @@ export const ORCHESTRATION_CHANNELS = {
   SKILLS_LOAD_EXAMPLE: 'skills:load-example',
   SKILLS_MATCH: 'skills:match',
   SKILLS_GET_MEMORY: 'skills:get-memory',
+  SKILLS_ACTIVATIONS_RECENT: 'skills:activations-recent',
+  SKILLS_HEALTH_SUMMARY: 'skills:health-summary',
+  SKILLS_LIST_CONTROLS: 'skills:list-controls',
+  SKILLS_SET_CONTROL: 'skills:set-control',
+  /** Push event (main -> renderer): a skill activation was recorded. */
+  SKILLS_ACTIVATION_DELTA: 'skills:activation-delta',
 
   // User action requests (orchestrator -> user)
   USER_ACTION_REQUEST: 'user-action:request',
