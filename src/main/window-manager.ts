@@ -18,6 +18,20 @@ const logger = getLogger('WindowManager');
 const SAMPLE_DURATION_SECONDS = 5;
 const SAMPLE_INTERVAL_MS = 10;
 
+function resolveWindowIconPath(): string | undefined {
+  if (process.platform === 'darwin') {
+    return undefined;
+  }
+
+  const iconFileName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+  const candidates = [
+    path.join(process.resourcesPath, iconFileName),
+    path.join(__dirname, '../../build', iconFileName),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate));
+}
+
 export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
   private isDev: boolean;
@@ -42,6 +56,7 @@ export class WindowManager {
       minWidth: 800,
       minHeight: 600,
       title: 'Harness',
+      icon: resolveWindowIconPath(),
 
       // Native appearance - hiddenInset shows traffic lights, hides title
       titleBarStyle: isMac ? 'hiddenInset' : 'hidden',

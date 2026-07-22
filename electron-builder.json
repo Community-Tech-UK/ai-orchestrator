@@ -117,6 +117,7 @@
     ]
   },
   "win": {
+    "icon": "build/icon.ico",
     "target": [
       {
         "target": "nsis",
@@ -125,6 +126,10 @@
     ],
     "artifactName": "Harness-${version}-win-${arch}.${ext}",
     "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
       {
         "from": "resources/rtk/win32-${arch}/",
         "to": "rtk/win32-${arch}/",
