@@ -213,4 +213,68 @@ describe('IdleMonitor', () => {
     );
     expect(staleCall).toBeUndefined();
   });
+
+  // ---------------------------------------------------------------------------
+  // terminateIdleHalf age guard
+  //
+  // `idle` means "waiting for the next message", so a child between turns of
+  // active work is indistinguishable from an abandoned one without an age
+  // check. Reclaiming without one destroyed live sessions under memory pressure.
+  // ---------------------------------------------------------------------------
+
+  function makeIdleHalfMonitor(children: { id: string; idleForMs: number }[]) {
+    const terminateInstance = vi.fn(async () => undefined);
+    const now = Date.now();
+    const instances = children.map((c) => ({
+      id: c.id,
+      status: 'idle',
+      parentId: 'parent-1',
+      displayName: c.id,
+      lastActivity: now - c.idleForMs,
+    } as unknown as Instance));
+
+    const monitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 0 }),
+      getRecoveryEngine: () => ({} as unknown as RecoveryRecipeEngine),
+      getActivityDetectors: () => new Map(),
+      getInstance: (id: string) => instances.find((i) => i.id === id),
+      forEachInstance: vi.fn((cb: (instance: Instance, id: string) => void) => {
+        for (const i of instances) cb(i, i.id);
+      }),
+      getAdapter: vi.fn(),
+      queueUpdate: vi.fn(),
+      deleteAdapter: vi.fn(),
+      transitionState: vi.fn(),
+      terminateInstance,
+      hibernateInstance: vi.fn(async () => undefined),
+      dispatchRecovery: vi.fn(async () => undefined),
+    } as never);
+
+    return { monitor, terminateInstance };
+  }
+
+  it('terminateIdleHalf spares children that were active more recently than the guard', () => {
+    const { monitor, terminateInstance } = makeIdleHalfMonitor([
+      { id: 'just-sent-to', idleForMs: 1_000 },
+      { id: 'also-recent', idleForMs: 30_000 },
+    ]);
+
+    monitor.terminateIdleHalf();
+
+    expect(terminateInstance).not.toHaveBeenCalled();
+  });
+
+  it('terminateIdleHalf still reclaims genuinely stale children, oldest first', () => {
+    const { monitor, terminateInstance } = makeIdleHalfMonitor([
+      { id: 'recent', idleForMs: 1_000 },
+      { id: 'stale-oldest', idleForMs: 60 * 60 * 1000 },
+      { id: 'stale-newer', idleForMs: 10 * 60 * 1000 },
+    ]);
+
+    monitor.terminateIdleHalf();
+
+    // 2 stale candidates → ceil(2/2) = 1 terminated, the oldest.
+    expect(terminateInstance).toHaveBeenCalledTimes(1);
+    expect(terminateInstance).toHaveBeenCalledWith('stale-oldest', true);
+  });
 });

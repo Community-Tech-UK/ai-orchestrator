@@ -5,9 +5,12 @@ import {
   InstanceProviderLimitResumeNowPayloadSchema,
   InstanceProviderLimitCancelPayloadSchema,
   InstanceFailoverNowPayloadSchema,
+  InstanceAuthRepairRetryPayloadSchema,
+  InstanceAuthRepairCancelPayloadSchema,
 } from '@contracts/schemas/instance';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getInstanceProviderLimitHandler } from '../../instance/instance-provider-limit-handler';
+import { getInstanceAuthRepairHandler } from '../../instance/instance-auth-repair-handler';
 import type { InstanceManager } from '../../instance/instance-manager';
 
 /**
@@ -56,6 +59,56 @@ export function registerInstanceProviderLimitHandlers(deps: { instanceManager?: 
           success: false,
           error: {
             code: 'PROVIDER_LIMIT_CANCEL_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  // In-session auth repair — banner actions for a session the provider signed
+  // out. Retry re-probes and resumes; cancel just dismisses.
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_AUTH_REPAIR_RETRY,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          InstanceAuthRepairRetryPayloadSchema,
+          payload,
+          'INSTANCE_AUTH_REPAIR_RETRY',
+        );
+        const outcome = await getInstanceAuthRepairHandler().retryNow(validated.instanceId);
+        return { success: true, data: outcome };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'AUTH_REPAIR_RETRY_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_AUTH_REPAIR_CANCEL,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          InstanceAuthRepairCancelPayloadSchema,
+          payload,
+          'INSTANCE_AUTH_REPAIR_CANCEL',
+        );
+        const cancelled = getInstanceAuthRepairHandler().cancel(validated.instanceId);
+        return { success: true, data: { cancelled } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'AUTH_REPAIR_CANCEL_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

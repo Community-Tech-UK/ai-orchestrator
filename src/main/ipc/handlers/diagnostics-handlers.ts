@@ -2,6 +2,7 @@ import { ipcMain, shell } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
+import { broadcastStartupCapabilities } from '../../bootstrap/startup-capability-broadcast';
 import { getCliUpdatePollService, type CliUpdatePollService } from '../../cli/cli-update-poll-service';
 import { getDoctorService } from '../../diagnostics/doctor-service';
 import { getInstructionDiagnosticsService } from '../../diagnostics/instruction-diagnostics-service';
@@ -52,10 +53,17 @@ export function registerDiagnosticsHandlers(deps: DiagnosticsHandlerDependencies
     validatedHandler(
       IPC_CHANNELS.DIAGNOSTICS_GET_DOCTOR_REPORT,
       DoctorReportPayloadSchema,
-      async (payload): Promise<IpcResponse> => ({
-        success: true,
-        data: await getDoctorService().getReport(payload),
-      }),
+      async (payload): Promise<IpcResponse> => {
+        const report = await getDoctorService().getReport(payload);
+        // A forced report re-probes startup capabilities, so push the fresh
+        // result to the title-bar chip / degraded banner too — otherwise
+        // "Refresh" fixes the Doctor panel but leaves the banner stale until
+        // the next app restart.
+        if (payload.force && report.startupCapabilities) {
+          broadcastStartupCapabilities(report.startupCapabilities);
+        }
+        return { success: true, data: report };
+      },
     ),
   );
 

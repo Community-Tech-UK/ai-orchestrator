@@ -502,6 +502,7 @@ export function createInitializationSteps(
       fn: () => {
         getResourceGovernor().start({
           getInstanceManager: () => instanceManager,
+          getDiagnosticsDir: () => path.join(app.getPath('userData'), 'diagnostics'),
         });
         const longRunGovernor = new LongRunResourceGovernor({
           warnRssBytes: 12 * 1024 * 1024 * 1024,

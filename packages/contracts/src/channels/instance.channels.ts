@@ -26,6 +26,10 @@ export const INSTANCE_CHANNELS = {
   /** Cancel a provider-limit park so the session won't auto-resume. */
   INSTANCE_PROVIDER_LIMIT_CANCEL: 'instance:provider-limit-cancel',
   INSTANCE_FAILOVER_NOW: 'instance:failover-now',
+  /** Re-probe provider auth for a signed-out session and resume if it is back. */
+  INSTANCE_AUTH_REPAIR_RETRY: 'instance:auth-repair-retry',
+  /** Dismiss the signed-out banner and stop watching for a sign-in. */
+  INSTANCE_AUTH_REPAIR_CANCEL: 'instance:auth-repair-cancel',
   INSTANCE_HARDENED_ALLOW_PATH: 'instance:hardened-allow-path',
   INSTANCE_STATE_UPDATE: 'instance:state-update',
   INSTANCE_BATCH_UPDATE: 'instance:batch-update',

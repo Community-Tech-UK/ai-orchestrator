@@ -17,6 +17,7 @@ import {
   signal,
 } from '@angular/core';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
+import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
@@ -50,6 +51,39 @@ import { formatQuotaParkCountdown } from './input-panel-formatters';
             (click)="onFailoverNow()"
           >Switch provider</button>
         }
+      </div>
+    }
+
+    <!-- Provider signed us out mid-session: sign in, then resume the lost turn -->
+    @if (authRequired(); as auth) {
+      <div class="quota-park-bar auth-required-bar" role="status" [title]="authDetail()">
+        <span class="quota-park-text">{{ authLabel() }}</span>
+        <button
+          type="button"
+          class="quota-park-btn"
+          title="Open a terminal running this provider's sign-in command"
+          [disabled]="authBusy()"
+          (click)="onSignIn(auth.provider)"
+        >Sign in</button>
+        <button
+          type="button"
+          class="quota-park-btn"
+          title="Check again and resume the interrupted turn"
+          [disabled]="authBusy()"
+          (click)="onAuthRetry()"
+        >{{ authBusy() ? 'Checking…' : 'Retry now' }}</button>
+        <button
+          type="button"
+          class="quota-park-btn quota-park-btn--secondary"
+          title="Dismiss this banner and stop watching for a sign-in"
+          [disabled]="authBusy()"
+          (click)="onAuthDismiss()"
+        >Dismiss</button>
+      </div>
+    }
+    @if (authNotice()) {
+      <div class="quota-park-bar auth-required-bar" role="status">
+        <span class="quota-park-text">{{ authNotice() }}</span>
       </div>
     }
 
@@ -135,6 +169,14 @@ import { formatQuotaParkCountdown } from './input-panel-formatters';
       }
     }
 
+    .auth-required-bar {
+      cursor: default;
+
+      .quota-park-text {
+        flex: 1 1 auto;
+      }
+    }
+
     .hardened-denial-bar {
       cursor: default;
 
@@ -147,6 +189,7 @@ import { formatQuotaParkCountdown } from './input-panel-formatters';
 })
 export class ComposerBannersComponent {
   private instanceIpc = inject(InstanceIpcService);
+  private providerIpc = inject(ProviderIpcService);
   private instanceStore = inject(InstanceStore);
 
   instanceId = input.required<string>();
@@ -180,6 +223,81 @@ export class ComposerBannersComponent {
 
   onCancelProviderLimitPark(): void {
     void this.instanceIpc.providerLimitCancel(this.instanceId());
+  }
+
+  /**
+   * Signed-out banner. Unlike the quota park there is no countdown — the main
+   * process watches for the sign-in and resumes the interrupted turn itself;
+   * these buttons are the manual path.
+   */
+  readonly authRequired = computed(() => {
+    const wr = this.waitReason();
+    return wr?.kind === 'auth-required' ? wr : null;
+  });
+  readonly authBusy = signal(false);
+  readonly authNotice = signal<string | null>(null);
+
+  readonly authLabel = computed(() => {
+    const auth = this.authRequired();
+    return auth ? `Signed out of ${auth.provider} — sign in to resume this session.` : null;
+  });
+  readonly authDetail = computed(() => {
+    const auth = this.authRequired();
+    if (!auth) return '';
+    return `The ${auth.provider} credentials expired during this session. Sign in and the interrupted turn is re-sent automatically; "Retry now" checks immediately.`;
+  });
+
+  async onSignIn(provider: string): Promise<void> {
+    this.authNotice.set(null);
+    this.authBusy.set(true);
+    try {
+      const response = await this.providerIpc.runProviderLogin(provider);
+      if (!response.success) {
+        this.authNotice.set(response.error?.message ?? 'Could not open a sign-in terminal.');
+        return;
+      }
+      const data = response.data as { command: string; terminal: string } | undefined;
+      this.authNotice.set(
+        data
+          ? `${data.terminal} opened running \`${data.command}\`. This session resumes on its own once you finish.`
+          : 'Sign-in terminal opened. This session resumes on its own once you finish.',
+      );
+    } finally {
+      this.authBusy.set(false);
+    }
+  }
+
+  async onAuthRetry(): Promise<void> {
+    this.authNotice.set(null);
+    this.authBusy.set(true);
+    try {
+      const response = await this.instanceIpc.authRepairRetry(this.instanceId());
+      if (!response.success) {
+        this.authNotice.set(response.error?.message ?? 'Could not check the sign-in status.');
+        return;
+      }
+      const outcome = response.data as { status: string; message?: string } | undefined;
+      switch (outcome?.status) {
+        case 'resumed':
+          // The banner disappears with the waitReason; no notice needed.
+          break;
+        case 'still-signed-out':
+          this.authNotice.set('Still signed out — finish signing in, then try again.');
+          break;
+        case 'unknown':
+          this.authNotice.set(outcome.message ?? 'Could not read the provider auth status.');
+          break;
+        default:
+          this.authNotice.set(null);
+      }
+    } finally {
+      this.authBusy.set(false);
+    }
+  }
+
+  onAuthDismiss(): void {
+    this.authNotice.set(null);
+    void this.instanceIpc.authRepairCancel(this.instanceId());
   }
 
   /** WS7 Phase B — offer a provider switch while parked, when fallbacks exist. */

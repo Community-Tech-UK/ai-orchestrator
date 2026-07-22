@@ -31,9 +31,11 @@ import {
   PluginsLoadPayloadSchema,
   PluginsUninstallPayloadSchema,
   PluginsUnloadPayloadSchema,
+  ProviderRunLoginPayloadSchema,
   ProviderStatusPayloadSchema,
   ProviderUpdateConfigPayloadSchema,
 } from '@contracts/schemas/provider';
+import { launchProviderLogin } from '../../providers/provider-login-launcher';
 
 interface RegisterProviderHandlersDeps {
   windowManager: WindowManager;
@@ -162,6 +164,40 @@ export function registerProviderHandlers(
           success: false,
           error: {
             code: 'PROVIDER_UPDATE_CONFIG_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Open a terminal running the provider's interactive sign-in command.
+  // Provider logins need a TTY and a browser round-trip, so the app hands the
+  // user a ready-to-go terminal instead of asking them to recall the command.
+  ipcMain.handle(
+    IPC_CHANNELS.PROVIDER_RUN_LOGIN,
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const authError = deps.ensureAuthorized(
+          event,
+          IPC_CHANNELS.PROVIDER_RUN_LOGIN,
+          payload
+        );
+        if (authError) return authError;
+        const validated = validateIpcPayload(ProviderRunLoginPayloadSchema, payload, 'PROVIDER_RUN_LOGIN');
+        return {
+          success: true,
+          data: await launchProviderLogin(validated.provider),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'PROVIDER_RUN_LOGIN_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

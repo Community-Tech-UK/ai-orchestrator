@@ -4,7 +4,17 @@
  *
  * Actions:
  *  - warning  → request GC
- *  - critical → terminate idle instances
+ *  - critical → reclaim the longest-idle instances (hibernate, or terminate
+ *               when there is no conversation to preserve)
+ *
+ * Reclamation policy exists because `idle` is a weak signal: it means "alive
+ * and waiting for the next user message", which describes every healthy
+ * session the user is not currently watching. Reclaiming on that signal alone
+ * destroys the user's working set. So a candidate must additionally be:
+ *   - idle for at least `idleThresholdMs` (never the session just typed into), and
+ *   - within the `maxReclaimsPerCriticalEpisode` oldest candidates.
+ * Instances holding a conversation are hibernated rather than terminated, so
+ * they stay in the session list and can be woken with their work intact.
  */
 
 import { EventEmitter } from 'events';
@@ -18,14 +28,26 @@ export interface ResourceGovernorConfig {
   maxInstanceMemoryMB: number;
   /** Legacy setting retained for config compatibility. Memory pressure no longer blocks instance creation. */
   creationPausedAtPressure: MemoryPressureLevel;
-  /** Automatically terminate idle instances at critical pressure (default: true) */
+  /** Automatically reclaim idle instances at critical pressure (default: true) */
   terminateIdleAtCritical: boolean;
-  /** Legacy idle threshold retained for config compatibility; critical cleanup terminates all idle instances immediately. */
+  /**
+   * Minimum continuous idle time before an instance may be reclaimed under
+   * memory pressure (default: 5 minutes). Guards the user's live session:
+   * anything more recent than this is never a candidate.
+   */
   idleThresholdMs: number;
   /** Request GC when memory warning fires (default: true) */
   gcOnWarning: boolean;
   /** Hard cap on total running instances (default: 50) */
   maxTotalInstances: number;
+  /**
+   * Maximum instances reclaimed per critical episode (default: 3). Reclaiming
+   * frees memory asynchronously — the child process has to exit and the heap
+   * has to be collected — so a single sweep cannot measure its own effect.
+   * Reclaiming a bounded number and re-evaluating on the next sample beats
+   * emptying the whole session list on one reading.
+   */
+  maxReclaimsPerCriticalEpisode: number;
 }
 
 const DEFAULT_CONFIG: ResourceGovernorConfig = {
@@ -35,7 +57,16 @@ const DEFAULT_CONFIG: ResourceGovernorConfig = {
   idleThresholdMs: 5 * 60 * 1000,
   gcOnWarning: true,
   maxTotalInstances: 50,
+  maxReclaimsPerCriticalEpisode: 3,
 };
+
+/** User-facing notices left in the transcript so a reclaim is never silent. */
+const HIBERNATE_NOTICE =
+  'This session was hibernated automatically to free memory after it had been '
+  + 'idle for a while. Nothing was lost — send a message to wake it and continue.';
+const TERMINATE_NOTICE =
+  'This session was closed automatically to free memory after it had been idle '
+  + 'for a while with no conversation to preserve.';
 
 /** Subset of MemoryMonitor used by the governor (allows injection in tests) */
 interface MemoryMonitorLike {
@@ -45,12 +76,22 @@ interface MemoryMonitorLike {
   getPressureLevel(): MemoryPressureLevel;
 }
 
+/** An idle instance the governor may reclaim. */
+interface IdleInstanceLike {
+  id: string;
+  lastActivity: number;
+  displayName?: string;
+  hasConversation?: boolean;
+}
+
 /** Subset of InstanceManager used by the governor (allows injection in tests) */
 interface InstanceManagerLike {
   on(event: string, listener: (...args: unknown[]) => void): void;
   getInstanceCount(): number;
-  getIdleInstances(thresholdMs: number): { id: string; lastActivity: number }[];
+  getIdleInstances(thresholdMs: number): IdleInstanceLike[];
   terminateInstance(id: string, graceful?: boolean): Promise<void>;
+  hibernateInstance?(id: string): Promise<void>;
+  emitSystemMessage?(id: string, content: string, metadata?: Record<string, unknown>): void;
 }
 
 export interface GovernorDependencies {
@@ -61,6 +102,12 @@ export interface GovernorDependencies {
     warn(msg: string, data?: Record<string, unknown>): void;
     error(msg: string, err?: Error, data?: Record<string, unknown>): void;
   };
+  /**
+   * Where to write an opt-in heap snapshot at critical pressure. Injected
+   * rather than resolved here so this module stays free of an `electron`
+   * import (worker/test contexts cannot load it).
+   */
+  getDiagnosticsDir?(): string;
 }
 
 const defaultDeps: GovernorDependencies = {
@@ -83,6 +130,7 @@ export class ResourceGovernor extends EventEmitter {
   private deps: GovernorDependencies;
   private readonly logger;
   private creationPaused = false;
+  private heapSnapshotCaptured = false;
 
   // Bound event handlers kept as instance fields so we can remove them later
   private readonly boundOnWarning = (stats: MemoryStats) => this.handleWarning(stats);
@@ -220,29 +268,135 @@ export class ResourceGovernor extends EventEmitter {
   }
 
   private handleCritical(stats: MemoryStats): void {
-    this.logger.error('Memory critical — terminating idle instances', undefined, { heapUsedMB: stats.heapUsedMB });
+    this.logger.error('Memory critical — reclaiming idle instances', undefined, { heapUsedMB: stats.heapUsedMB });
+
+    // Pressure events fire only on level *change*, so a normal→critical or
+    // warning→critical transition never runs handleWarning. Collect here too,
+    // otherwise the cheapest remedy is skipped exactly when it matters most.
+    if (this.config.gcOnWarning) {
+      this.deps.getMemoryMonitor().requestGC();
+    }
+
+    this.maybeCaptureHeapSnapshot();
 
     if (this.config.terminateIdleAtCritical) {
       try {
         const instanceManager = this.deps.getInstanceManager();
-        const idle = instanceManager.getIdleInstances(0);
-        for (const inst of idle) {
-          this.logger.warn('Terminating idle instance due to memory pressure', { instanceId: inst.id });
-          instanceManager.terminateInstance(inst.id, true).catch((err: unknown) => {
-            this.logger.error(
-              'Failed to terminate idle instance',
-              err instanceof Error ? err : undefined,
-              { instanceId: inst.id }
-            );
+        const candidates = this.selectReclaimCandidates(instanceManager);
+
+        if (candidates.length === 0) {
+          // Deliberate no-op: every live session is in active use. Riding out
+          // high memory for another sample beats destroying the user's work,
+          // and the GC request above is the remedy that actually applies here.
+          this.logger.warn('Memory critical but no instance is idle enough to reclaim', {
+            idleThresholdMs: this.config.idleThresholdMs,
           });
+        } else {
+          for (const inst of candidates) {
+            void this.reclaimInstance(instanceManager, inst);
+          }
+          this.emit('instances:terminated', { count: candidates.length, reason: 'memory-critical' });
         }
-        this.emit('instances:terminated', { count: idle.length, reason: 'memory-critical' });
       } catch {
         // InstanceManager may not be wired yet
       }
     }
 
     this.emit('memory:critical-recovery', { stats });
+  }
+
+  /**
+   * Write a heap snapshot at critical pressure — the exact moment worth
+   * capturing — when `HARNESS_HEAP_SNAPSHOT_ON_CRITICAL=1`.
+   *
+   * Opt-in and once per process: the write pauses the isolate for seconds at a
+   * multi-GB heap and produces a file about the size of the heap, so it must
+   * never fire unattended or repeatedly.
+   */
+  private maybeCaptureHeapSnapshot(): void {
+    if (this.heapSnapshotCaptured) return;
+    if (process.env['HARNESS_HEAP_SNAPSHOT_ON_CRITICAL'] !== '1') return;
+    if (!this.deps.getDiagnosticsDir) return;
+
+    this.heapSnapshotCaptured = true;
+    try {
+      // Required lazily so the diagnostic never loads on the common path.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { writeHeapSnapshot } = require('../diagnostics/heap-snapshot') as typeof import('../diagnostics/heap-snapshot');
+      const result = writeHeapSnapshot(this.deps.getDiagnosticsDir());
+      this.logger.warn('Captured heap snapshot at critical memory', {
+        filePath: result.filePath,
+        durationMs: result.durationMs,
+      });
+    } catch (err: unknown) {
+      this.logger.error(
+        'Failed to capture heap snapshot',
+        err instanceof Error ? err : undefined,
+      );
+    }
+  }
+
+  /**
+   * Longest-idle instances eligible for reclamation, capped per episode.
+   * InstanceManager already returns oldest-first, but the sort is repeated here
+   * so the cap stays correct against any other implementation of the interface.
+   */
+  private selectReclaimCandidates(instanceManager: InstanceManagerLike): IdleInstanceLike[] {
+    const threshold = Math.max(0, this.config.idleThresholdMs);
+    const cap = Math.max(0, this.config.maxReclaimsPerCriticalEpisode);
+
+    return instanceManager
+      .getIdleInstances(threshold)
+      .slice()
+      .sort((a, b) => a.lastActivity - b.lastActivity)
+      .slice(0, cap);
+  }
+
+  /**
+   * Reclaim one instance, preferring hibernation so the session survives.
+   * The transcript notice is emitted first so it is persisted by the
+   * hibernate/terminate path and the user can see what happened and why.
+   */
+  private async reclaimInstance(
+    instanceManager: InstanceManagerLike,
+    inst: IdleInstanceLike,
+  ): Promise<void> {
+    const canHibernate = inst.hasConversation === true
+      && typeof instanceManager.hibernateInstance === 'function';
+    const idleMs = Math.max(0, Date.now() - inst.lastActivity);
+
+    try {
+      instanceManager.emitSystemMessage?.(
+        inst.id,
+        canHibernate ? HIBERNATE_NOTICE : TERMINATE_NOTICE,
+        { reason: 'memory-critical', idleMs },
+      );
+    } catch {
+      // A missing transcript must never block the reclaim itself.
+    }
+
+    this.logger.warn(
+      canHibernate
+        ? 'Hibernating idle instance due to memory pressure'
+        : 'Terminating idle instance due to memory pressure',
+      { instanceId: inst.id, displayName: inst.displayName, idleMs },
+    );
+
+    try {
+      if (canHibernate) {
+        await instanceManager.hibernateInstance!(inst.id);
+      } else {
+        await instanceManager.terminateInstance(inst.id, true);
+      }
+    } catch (err: unknown) {
+      // Do not escalate a failed hibernate into a terminate — that would
+      // destroy the work hibernation was chosen to protect.
+      this.logger.error(
+        canHibernate ? 'Failed to hibernate idle instance' : 'Failed to terminate idle instance',
+        err instanceof Error ? err : undefined,
+        { instanceId: inst.id },
+      );
+    }
   }
 
   private handleNormal(): void {

@@ -4,9 +4,13 @@ import type { DoctorReport } from '../../../shared/types/diagnostics.types';
 const {
   diagnoseProvider,
   getProviderConfigs,
+  capabilityGetLastReport,
+  capabilityRun,
 } = vi.hoisted(() => ({
   diagnoseProvider: vi.fn(),
   getProviderConfigs: vi.fn(),
+  capabilityGetLastReport: vi.fn(),
+  capabilityRun: vi.fn(),
 }));
 
 vi.mock('../../commands/command-manager', () => ({
@@ -30,12 +34,8 @@ vi.mock('../../logging/logger', () => ({
 
 vi.mock('../../bootstrap/capability-probe', () => ({
   getCapabilityProbe: () => ({
-    getLastReport: vi.fn(() => null),
-    run: vi.fn(async () => ({
-      status: 'ready',
-      generatedAt: 1,
-      checks: [],
-    })),
+    getLastReport: capabilityGetLastReport,
+    run: capabilityRun,
   }),
 }));
 
@@ -112,6 +112,49 @@ describe('DoctorService', () => {
     }));
     getProviderConfigs.mockReset();
     getProviderConfigs.mockReturnValue([]);
+    capabilityGetLastReport.mockReset();
+    capabilityGetLastReport.mockReturnValue(null);
+    capabilityRun.mockReset();
+    capabilityRun.mockResolvedValue({ status: 'ready', generatedAt: 1, checks: [] });
+  });
+
+  it('re-probes startup capabilities on a forced report instead of replaying the boot snapshot', async () => {
+    // Regression: pressing Doctor "Refresh" after fixing something outside the
+    // app (e.g. `claude auth login`) kept showing the boot-time degraded
+    // report until the app was restarted.
+    const staleReport = {
+      status: 'degraded' as const,
+      generatedAt: 1,
+      checks: [
+        {
+          id: 'provider.claude',
+          label: 'Claude Code CLI',
+          category: 'provider' as const,
+          status: 'degraded' as const,
+          critical: false,
+          summary: 'Unable to read Claude CLI auth status',
+        },
+      ],
+    };
+    capabilityGetLastReport.mockReturnValue(staleReport);
+    capabilityRun.mockResolvedValue({ status: 'ready', generatedAt: 2, checks: [] });
+
+    const service = new DoctorService();
+    const report = await service.getReport({ force: true });
+
+    expect(capabilityRun).toHaveBeenCalledWith({ force: true });
+    expect(report.startupCapabilities).toMatchObject({ status: 'ready', generatedAt: 2 });
+  });
+
+  it('reuses the cached startup report for an unforced report', async () => {
+    const bootReport = { status: 'ready' as const, generatedAt: 1, checks: [] };
+    capabilityGetLastReport.mockReturnValue(bootReport);
+
+    const service = new DoctorService();
+    const report = await service.getReport();
+
+    expect(capabilityRun).not.toHaveBeenCalled();
+    expect(report.startupCapabilities).toBe(bootReport);
   });
 
   it('maps startup checks to Doctor sections', () => {

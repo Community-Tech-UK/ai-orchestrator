@@ -50,6 +50,7 @@ import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 import { detectCompletionProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
+import { detectAuthFailureSignal } from './instance-auth-failure-detection';
 import {
   applyPlanModeTurnHint,
   shouldSkipKnownProviderLimitDispatch,
@@ -555,6 +556,24 @@ export class InstanceCommunicationManager extends EventEmitter {
     );
   }
 
+  /**
+   * Flags a failed turn whose text reads as a provider sign-out, so the
+   * auth-repair handler can confirm it with a live probe and offer a repair.
+   * Purely additive: the caller still surfaces the error and still errors the
+   * instance, so a false positive costs a stray banner, never a swallowed
+   * failure.
+   */
+  private reportAuthFailureTurn(instanceId: string, errorMessage: string): void {
+    if (!this.deps.onAuthFailureTurn) return;
+    const signal = detectAuthFailureSignal(errorMessage);
+    if (!signal) return;
+    this.deps.onAuthFailureTurn({
+      instanceId,
+      reason: signal.reason,
+      resumePrompt: this.lastSentMessages.get(instanceId)?.message ?? null,
+    });
+  }
+
   // ============================================
   // Message Sending
   // ============================================
@@ -949,6 +968,8 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
         return;
       }
+
+      this.reportAuthFailureTurn(instanceId, errorMsg);
 
       throw sendError;
     }
@@ -1885,6 +1906,11 @@ export class InstanceCommunicationManager extends EventEmitter {
           return;
         }
       }
+
+      // Provider sign-out mid-session: attach the repair affordance. The error
+      // below is still surfaced and the instance still errors — this only adds
+      // the auth-required waitReason and the sign-in watcher.
+      this.reportAuthFailureTurn(instanceId, errorMessage);
 
       // Add error message to output buffer so user sees it in the UI
       const errorContent = error instanceof Error ? error.message : String(error);

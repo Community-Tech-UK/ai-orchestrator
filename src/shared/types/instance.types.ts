@@ -101,23 +101,22 @@ export interface PlanModeConfig {
 // Core Types
 // ============================================
 
+import type { InstanceWaitReason } from './instance-wait-reason.types';
+export type { InstanceWaitReason };
+
 /**
- * Why an instance is currently waiting, surfaced to the renderer so a long
- * silent spinner always has a reason (and, where known, a deadline/ETA). The
- * status alone can't express "waiting for a provider slot until T" or
- * "backing off, retry at T" — this union fills that gap (plan §4.G / E1/E2/D7).
- * `startedAt`/`deadlineAt`/`resumeAt`/`retryAt` are epoch-ms timestamps.
+ * An idle instance offered to memory-pressure reclamation.
+ *
+ * `hasConversation` is the hibernate/terminate switch: instances holding user
+ * work are hibernated (recoverable — the session stays in the list and can be
+ * woken), and only empty ones are terminated.
  */
-export type InstanceWaitReason =
-  | { kind: 'provider-slot'; provider: string; startedAt: number; deadlineAt?: number }
-  | { kind: 'interrupt-ack'; startedAt: number; deadlineAt?: number; attempt: number }
-  | { kind: 'terminating'; force: boolean; startedAt: number; deadlineAt?: number }
-  | { kind: 'respawning'; strategy: 'native-resume' | 'fresh-replay'; startedAt: number }
-  | { kind: 'resume-proof'; provider: string; sessionId?: string; startedAt: number; deadlineAt?: number }
-  | { kind: 'remote-heartbeat'; nodeId: string; remoteTurnId?: string; staleForMs: number }
-  | { kind: 'mutex'; operation: string; owner?: string; startedAt: number }
-  | { kind: 'quota-park'; provider: string; resumeAt: number }
-  | { kind: 'backoff'; attempt: number; retryAt: number };
+export interface IdleInstanceInfo {
+  id: string;
+  lastActivity: number;
+  displayName: string;
+  hasConversation: boolean;
+}
 
 export interface ContextUsage {
   /** Current context-window occupancy (tokens used in the latest API call). */

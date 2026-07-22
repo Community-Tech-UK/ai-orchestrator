@@ -134,6 +134,21 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     },
 
     /**
+     * Re-probe provider auth for a signed-out session; resumes the interrupted
+     * turn when the user has signed back in.
+     */
+    authRepairRetry: (payload: { instanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_AUTH_REPAIR_RETRY, payload);
+    },
+
+    /**
+     * Dismiss the signed-out banner and stop watching for a sign-in.
+     */
+    authRepairCancel: (payload: { instanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_AUTH_REPAIR_CANCEL, payload);
+    },
+
+    /**
      * WS7 Phase B — switch a session to the next eligible fallback provider now
      * (quota-park banner action).
      */

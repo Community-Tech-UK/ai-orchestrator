@@ -1958,6 +1958,67 @@ describe('provider-limit park on thrown sendInput errors', () => {
     expect(instance.status).toBe('busy');
   });
 
+  it('reports an auth-shaped thrown error for repair while still rethrowing it', async () => {
+    // In-session auth repair is additive: the caller must still see the error
+    // (the transcript keeps it, the instance still errors) — the report only
+    // lets the repair handler attach the banner and watch for a sign-in.
+    const adapter = new FakeAdapter('claude-cli');
+    adapter.sendInput.mockRejectedValue(
+      new Error('Failed to authenticate: OAuth session expired and could not be refreshed'),
+    );
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'busy';
+
+    const onProviderLimitTurn = vi.fn().mockReturnValue('skipped');
+    const onAuthFailureTurn = vi.fn();
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => { adapters.set(id, a); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      onProviderLimitTurn,
+      onAuthFailureTurn,
+    });
+
+    await expect(manager.sendInput(instance.id, 'keep going')).rejects.toThrow(/OAuth session expired/);
+
+    expect(onAuthFailureTurn).toHaveBeenCalledTimes(1);
+    expect(onAuthFailureTurn.mock.calls[0][0]).toMatchObject({
+      instanceId: instance.id,
+      resumePrompt: 'keep going',
+    });
+  });
+
+  it('does not report an ordinary thrown failure as an auth failure', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapter.sendInput.mockRejectedValue(new Error('Process exited unexpectedly with code 143'));
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'busy';
+
+    const onAuthFailureTurn = vi.fn();
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => { adapters.set(id, a); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      onAuthFailureTurn,
+    });
+
+    await expect(manager.sendInput(instance.id, 'keep going')).rejects.toThrow(/exited unexpectedly/);
+
+    expect(onAuthFailureTurn).not.toHaveBeenCalled();
+  });
+
   it('leaves the thrown-overflow compaction path untouched when both are wired', async () => {
     const adapter = new FakeAdapter('gemini-cli');
     adapter.sendInput

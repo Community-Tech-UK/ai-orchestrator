@@ -180,7 +180,7 @@ export class EmbeddingService extends EventEmitter {
   /**
    * Calculate cosine similarity between two embeddings
    */
-  cosineSimilarity(a: number[], b: number[]): number {
+  cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number {
     if (a.length !== b.length) {
       throw new Error(`Dimension mismatch: ${a.length} vs ${b.length}`);
     }
@@ -207,8 +207,8 @@ export class EmbeddingService extends EventEmitter {
    * Find most similar embeddings
    */
   findSimilar(
-    queryEmbedding: number[],
-    candidates: { id: string; embedding: number[] }[],
+    queryEmbedding: ArrayLike<number>,
+    candidates: { id: string; embedding: ArrayLike<number> }[],
     topK = 10,
     minSimilarity = 0.5
   ): { id: string; similarity: number }[] {

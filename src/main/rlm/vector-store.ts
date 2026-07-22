@@ -11,13 +11,32 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('VectorStore');
 
+/**
+ * A cached vector.
+ *
+ * `embedding` is a `Float32Array`, not `number[]` — boxed doubles cost twice the
+ * heap for identical maths.
+ *
+ * `contentPreview` and `metadata` are NOT cached. They are dead weight during
+ * ranking (only `embedding` is read) and together accounted for ~300–500 MB
+ * across a 238k-vector corpus, so they are hydrated from SQLite for the top-K
+ * results only. See {@link VectorStore.hydrate}.
+ */
 export interface VectorEntry {
   id: string;
   sectionId: string;
   storeId: string;
-  embedding: number[];
+  embedding: Float32Array;
   contentPreview: string;
   metadata?: Record<string, unknown>;
+}
+
+/** The slim shape actually retained in the hot cache. */
+interface CachedVector {
+  id: string;
+  sectionId: string;
+  storeId: string;
+  embedding: Float32Array;
 }
 
 export interface VectorSearchResult {
@@ -30,6 +49,13 @@ export interface VectorStoreConfig {
   minSimilarity: number;
   defaultTopK: number;
   indexBatchSize: number;
+  /**
+   * How many stores may be resident at once. Stores load on first use and the
+   * least-recently-used are evicted past this cap, so a long-lived process
+   * holds the working set rather than every store ever created (1,306 of them
+   * on a real profile).
+   */
+  maxResidentStores: number;
 }
 
 const DEFAULT_CONFIG: VectorStoreConfig = {
@@ -37,6 +63,7 @@ const DEFAULT_CONFIG: VectorStoreConfig = {
   minSimilarity: 0.5,
   defaultTopK: 10,
   indexBatchSize: 50,
+  maxResidentStores: 24,
 };
 
 export class VectorStore extends EventEmitter {
@@ -45,16 +72,20 @@ export class VectorStore extends EventEmitter {
   private embeddingService: EmbeddingService;
   private config: VectorStoreConfig;
 
-  // In-memory cache for fast similarity search
-  private vectorCache = new Map<string, VectorEntry>();
+  // In-memory cache for fast similarity search. Populated per store on demand.
+  private vectorCache = new Map<string, CachedVector>();
   private storeVectorIds = new Map<string, Set<string>>();
+  /** Resident store ids in least-recently-used order (front = coldest). */
+  private residentStores: string[] = [];
 
   private constructor(config: Partial<VectorStoreConfig> = {}) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.db = getRLMDatabase();
     this.embeddingService = getEmbeddingService();
-    this.loadFromPersistence();
+    // Deliberately NOT loading every store here. The eager load pulled all
+    // 238k vectors of all 1,306 stores into the main-process heap at boot
+    // (~1.1-1.3 GB) and was the single largest retainer in the process.
   }
 
   static getInstance(config?: Partial<VectorStoreConfig>): VectorStore {
@@ -80,41 +111,102 @@ export class VectorStore extends EventEmitter {
   }
 
   /**
-   * Load vectors from database into memory cache
+   * Make one store's vectors resident, loading from SQLite on first use and
+   * evicting the least-recently-used store once the cap is exceeded.
+   *
+   * Only the embedding is retained — preview and metadata are fetched later for
+   * the handful of rows that actually win the ranking.
    */
-  private loadFromPersistence(): void {
+  private ensureStoreLoaded(storeId: string): void {
+    if (this.storeVectorIds.has(storeId)) {
+      this.touchStore(storeId);
+      return;
+    }
+
+    const storeVectors = new Set<string>();
     try {
-      const stores = this.db.listStores();
+      for (const row of this.db.getVectors(storeId)) {
+        this.vectorCache.set(row.id, {
+          id: row.id,
+          sectionId: row.section_id,
+          storeId: row.store_id,
+          embedding: this.db.bufferToEmbedding(row.embedding),
+        });
+        storeVectors.add(row.id);
+      }
+    } catch (error) {
+      logger.error('Failed to load store vectors', error instanceof Error ? error : undefined, { storeId });
+      this.emit('error', { operation: 'load', error });
+      return;
+    }
 
-      for (const store of stores) {
-        const vectorRows = this.db.getVectors(store.id);
-        const storeVectors = new Set<string>();
+    this.storeVectorIds.set(storeId, storeVectors);
+    this.touchStore(storeId);
+    this.evictColdStores();
 
-        for (const row of vectorRows) {
-          const entry: VectorEntry = {
-            id: row.id,
-            sectionId: row.section_id,
-            storeId: row.store_id,
-            embedding: this.db.bufferToEmbedding(row.embedding),
-            contentPreview: row.content_preview || '',
-            metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
-          };
+    this.emit('store:loaded', { storeId, vectors: storeVectors.size });
+  }
 
-          this.vectorCache.set(entry.id, entry);
-          storeVectors.add(entry.id);
+  /** Mark a store as most-recently-used. */
+  private touchStore(storeId: string): void {
+    const at = this.residentStores.indexOf(storeId);
+    if (at >= 0) this.residentStores.splice(at, 1);
+    this.residentStores.push(storeId);
+  }
+
+  /** Drop least-recently-used stores until within `maxResidentStores`. */
+  private evictColdStores(): void {
+    const cap = Math.max(1, this.config.maxResidentStores);
+    while (this.residentStores.length > cap) {
+      const coldest = this.residentStores.shift();
+      if (coldest === undefined) break;
+      this.evictStore(coldest);
+    }
+  }
+
+  /** Release a store's vectors from memory. Persistence is untouched. */
+  private evictStore(storeId: string): void {
+    const ids = this.storeVectorIds.get(storeId);
+    if (!ids) return;
+    for (const id of ids) this.vectorCache.delete(id);
+    this.storeVectorIds.delete(storeId);
+    this.emit('store:evicted', { storeId, vectors: ids.size });
+  }
+
+  /**
+   * Attach preview/metadata to ranked matches by reading the rows back from
+   * SQLite. Called for the top-K only, which is why those fields need not sit
+   * in the hot cache.
+   */
+  private hydrate(matches: { id: string; similarity: number }[]): VectorSearchResult[] {
+    const results: VectorSearchResult[] = [];
+
+    for (const match of matches) {
+      const cached = this.vectorCache.get(match.id);
+      if (!cached) continue;
+
+      let contentPreview = '';
+      let metadata: Record<string, unknown> | undefined;
+      try {
+        const row = this.db.getVectorBySectionId(cached.sectionId);
+        if (row) {
+          contentPreview = row.content_preview || '';
+          metadata = row.metadata_json ? JSON.parse(row.metadata_json) : undefined;
         }
-
-        this.storeVectorIds.set(store.id, storeVectors);
+      } catch (error) {
+        logger.warn('Failed to hydrate vector row', {
+          sectionId: cached.sectionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
-      this.emit('loaded', {
-        stores: stores.length,
-        vectors: this.vectorCache.size,
+      results.push({
+        entry: { ...cached, contentPreview, metadata },
+        similarity: match.similarity,
       });
-    } catch (error) {
-      logger.error('Failed to load from persistence', error instanceof Error ? error : undefined);
-      this.emit('error', { operation: 'load', error });
     }
+
+    return results;
   }
 
   /**
@@ -133,7 +225,7 @@ export class VectorStore extends EventEmitter {
       id: `vec-${storeId}-${sectionId}`,
       sectionId,
       storeId,
-      embedding: embeddingResult.embedding,
+      embedding: Float32Array.from(embeddingResult.embedding),
       contentPreview: content.substring(0, 500),
       metadata: {
         ...metadata,
@@ -142,14 +234,26 @@ export class VectorStore extends EventEmitter {
       },
     };
 
-    // Add to memory cache
-    this.vectorCache.set(entry.id, entry);
+    // Load the store's existing vectors FIRST. Without this, adding to a
+    // non-resident store would register a residency entry holding only the new
+    // id — the store would then look loaded, and the next search would rank
+    // against that single vector instead of the whole store.
+    this.ensureStoreLoaded(storeId);
+
+    // Cache the slim projection only; preview/metadata live in SQLite.
+    this.vectorCache.set(entry.id, {
+      id: entry.id,
+      sectionId: entry.sectionId,
+      storeId: entry.storeId,
+      embedding: entry.embedding,
+    });
 
     // Track by store
     if (!this.storeVectorIds.has(storeId)) {
       this.storeVectorIds.set(storeId, new Set());
     }
     this.storeVectorIds.get(storeId)!.add(entry.id);
+    this.touchStore(storeId);
 
     // Persist to database — ensure FK parents exist first
     try {
@@ -176,28 +280,24 @@ export class VectorStore extends EventEmitter {
    * Remove a section from the vector store
    */
   removeSection(sectionId: string): void {
-    // Find the entry by sectionId
+    // Drop from the cache if this section's store happens to be resident.
     for (const [id, entry] of this.vectorCache) {
       if (entry.sectionId === sectionId) {
         this.vectorCache.delete(id);
-
-        // Remove from store tracking
-        const storeVectors = this.storeVectorIds.get(entry.storeId);
-        if (storeVectors) {
-          storeVectors.delete(id);
-        }
-
-        // Remove from database
-        try {
-          this.db.deleteVector(sectionId);
-        } catch (error) {
-          logger.error('Failed to delete vector', error instanceof Error ? error : undefined);
-        }
-
-        this.emit('section:removed', { sectionId });
-        return;
+        this.storeVectorIds.get(entry.storeId)?.delete(id);
+        break;
       }
     }
+
+    // Delete from the database unconditionally. Residency is a caching detail;
+    // a removal must not become a no-op just because the store is not loaded.
+    try {
+      this.db.deleteVector(sectionId);
+    } catch (error) {
+      logger.error('Failed to delete vector', error instanceof Error ? error : undefined);
+    }
+
+    this.emit('section:removed', { sectionId });
   }
 
   /**
@@ -217,14 +317,16 @@ export class VectorStore extends EventEmitter {
     // Generate query embedding
     const queryResult = await this.embeddingService.embed(query);
 
-    // Get vectors for this store
+    // Make this store resident (no-op when already loaded).
+    this.ensureStoreLoaded(storeId);
+
     const storeVectors = this.storeVectorIds.get(storeId);
     if (!storeVectors || storeVectors.size === 0) {
       return [];
     }
 
     // Calculate similarities
-    const candidates: { id: string; embedding: number[] }[] = [];
+    const candidates: { id: string; embedding: ArrayLike<number> }[] = [];
     for (const vectorId of storeVectors) {
       const entry = this.vectorCache.get(vectorId);
       if (entry) {
@@ -239,17 +341,7 @@ export class VectorStore extends EventEmitter {
       minSimilarity
     );
 
-    // Build results with full entry data
-    const results: VectorSearchResult[] = [];
-    for (const match of similar) {
-      const entry = this.vectorCache.get(match.id);
-      if (entry) {
-        results.push({
-          entry,
-          similarity: match.similarity,
-        });
-      }
-    }
+    const results = this.hydrate(similar);
 
     this.emit('search:completed', {
       storeId,
@@ -277,8 +369,19 @@ export class VectorStore extends EventEmitter {
     // Generate query embedding
     const queryResult = await this.embeddingService.embed(query);
 
-    // Get all candidates or filter by storeIds
-    const candidates: { id: string; embedding: number[] }[] = [];
+    // Explicit stores are loaded on demand; without them this searches only
+    // what is already resident. Sweeping every store would re-create the
+    // load-the-whole-corpus behaviour this cache exists to avoid.
+    //
+    // Caveat: asking for more stores than `maxResidentStores` evicts the
+    // earliest ones before ranking, so results cover only the last N requested.
+    // Left as-is because nothing in production calls this; raise the cap for
+    // the call if that ever changes.
+    if (options?.storeIds) {
+      for (const storeId of options.storeIds) this.ensureStoreLoaded(storeId);
+    }
+
+    const candidates: { id: string; embedding: ArrayLike<number> }[] = [];
 
     for (const [storeId, vectorIds] of this.storeVectorIds) {
       if (options?.storeIds && !options.storeIds.includes(storeId)) {
@@ -300,19 +403,7 @@ export class VectorStore extends EventEmitter {
       minSimilarity
     );
 
-    // Build results
-    const results: VectorSearchResult[] = [];
-    for (const match of similar) {
-      const entry = this.vectorCache.get(match.id);
-      if (entry) {
-        results.push({
-          entry,
-          similarity: match.similarity,
-        });
-      }
-    }
-
-    return results;
+    return this.hydrate(similar);
   }
 
   /**
@@ -325,6 +416,9 @@ export class VectorStore extends EventEmitter {
     let indexed = 0;
     let skipped = 0;
 
+    // Without this the store may not be resident, every section would look
+    // un-indexed, and the whole store would be needlessly re-embedded.
+    this.ensureStoreLoaded(storeId);
     const existing = this.storeVectorIds.get(storeId) || new Set();
 
     for (const section of sections) {
@@ -361,6 +455,9 @@ export class VectorStore extends EventEmitter {
    * Clear all vectors for a store
    */
   clearStore(storeId: string): void {
+    // Load first: an unloaded store still has rows on disk, and clearing must
+    // delete those rather than silently no-op because nothing is resident.
+    this.ensureStoreLoaded(storeId);
     const storeVectors = this.storeVectorIds.get(storeId);
     if (!storeVectors) return;
 
@@ -377,16 +474,24 @@ export class VectorStore extends EventEmitter {
     }
 
     this.storeVectorIds.delete(storeId);
+    const at = this.residentStores.indexOf(storeId);
+    if (at >= 0) this.residentStores.splice(at, 1);
     this.emit('store:cleared', { storeId });
   }
 
   /**
    * Get vector store statistics
    */
+  /**
+   * Cache occupancy. These are **resident** counts, not corpus totals — with
+   * per-store residency the cache holds the working set, not everything on disk.
+   */
   getStats(): {
     totalVectors: number;
     storeCount: number;
     storeStats: { storeId: string; vectorCount: number }[];
+    residentStores: number;
+    maxResidentStores: number;
   } {
     const storeStats: { storeId: string; vectorCount: number }[] = [];
 
@@ -398,6 +503,8 @@ export class VectorStore extends EventEmitter {
       totalVectors: this.vectorCache.size,
       storeCount: this.storeVectorIds.size,
       storeStats,
+      residentStores: this.residentStores.length,
+      maxResidentStores: this.config.maxResidentStores,
     };
   }
 
@@ -405,20 +512,42 @@ export class VectorStore extends EventEmitter {
    * Get entry by section ID
    */
   getEntry(sectionId: string): VectorEntry | undefined {
-    for (const entry of this.vectorCache.values()) {
-      if (entry.sectionId === sectionId) {
-        return entry;
-      }
+    // Answer from the database rather than the cache: with per-store residency
+    // a cache miss means "not loaded", not "not indexed".
+    try {
+      const row = this.db.getVectorBySectionId(sectionId);
+      if (!row) return undefined;
+      return {
+        id: row.id,
+        sectionId: row.section_id,
+        storeId: row.store_id,
+        embedding: this.db.bufferToEmbedding(row.embedding),
+        contentPreview: row.content_preview || '',
+        metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
+      };
+    } catch (error) {
+      logger.warn('Failed to read vector entry', {
+        sectionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
     }
-    return undefined;
   }
 
   /**
-   * Check if a section is indexed
+   * Check if a section is indexed.
+   * Resident stores answer from memory; otherwise fall through to the database.
    */
   isIndexed(storeId: string, sectionId: string): boolean {
     const vectorId = `vec-${storeId}-${sectionId}`;
-    return this.vectorCache.has(vectorId);
+    if (this.vectorCache.has(vectorId)) return true;
+    if (this.storeVectorIds.has(storeId)) return false;
+
+    try {
+      return this.db.getVectorBySectionId(sectionId) !== null;
+    } catch {
+      return false;
+    }
   }
 
   // ============================================

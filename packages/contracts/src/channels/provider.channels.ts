@@ -9,6 +9,7 @@ export const PROVIDER_CHANNELS = {
   PROVIDER_STATUS_ALL: 'provider:status-all',
   PROVIDER_UPDATE_CONFIG: 'provider:update-config',
   PROVIDER_LIST_MODELS: 'provider:list-models',
+  PROVIDER_RUN_LOGIN: 'provider:run-login',
 
   // CLI detection
   CLI_DETECT_ALL: 'cli:detect-all',

@@ -232,6 +232,15 @@ export class ProviderIpcService {
   }
 
   /**
+   * Open a terminal running this provider's interactive sign-in command.
+   * The login itself is interactive, so the app can only launch it.
+   */
+  async runProviderLogin(provider: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runProviderLogin(provider);
+  }
+
+  /**
    * Update provider configuration
    */
   async updateProviderConfig(providerType: string, config: Record<string, unknown>): Promise<IpcResponse> {

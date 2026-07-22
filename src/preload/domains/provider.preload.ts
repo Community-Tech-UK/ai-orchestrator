@@ -124,6 +124,15 @@ export function createProviderDomain(
     },
 
     /**
+     * Open a terminal running the provider's interactive sign-in command.
+     * The renderer sends only the provider id; the main process owns the
+     * command table.
+     */
+    runProviderLogin: (provider: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PROVIDER_RUN_LOGIN, withAuth({ provider }));
+    },
+
+    /**
      * Update provider configuration
      */
     updateProviderConfig: (

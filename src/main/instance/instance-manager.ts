@@ -38,6 +38,7 @@ import type {
   ExportedSession,
   FileAttachment,
   ForkConfig,
+  IdleInstanceInfo,
   OutputMessage,
   RuntimeChangeRequest
 } from '../../shared/types/instance.types';
@@ -92,6 +93,8 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
 import { createProviderLimitCommunicationCallbacks } from './instance-provider-limit-runtime';
+import { createAuthRepairCommunicationCallbacks } from './instance-auth-repair-runtime';
+import { getInstanceAuthRepairHandler } from './instance-auth-repair-handler';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
@@ -371,6 +374,7 @@ export class InstanceManager extends EventEmitter {
       // .hasActiveWork(id)`, already used by StuckProcessDetector above) before
       // it fires.
       ...createProviderLimitCommunicationCallbacks((id) => this.state.getInstance(id)),
+      ...createAuthRepairCommunicationCallbacks((id) => this.state.getInstance(id)),
       clearProviderLimitAfterSuccessfulTurn: getProviderLimitLedgerPort().clearAfterSuccessfulTurn,
       createSnapshot: (id, name, desc, trigger) => {
         try {
@@ -450,6 +454,40 @@ export class InstanceManager extends EventEmitter {
         return inst ? { provider: inst.provider, model: inst.currentModel ?? null } : null;
       },
       isResumable: (id) => { const inst = this.state.getInstance(id); return !!inst && inst.status !== 'terminated' && inst.status !== 'failed'; },
+    });
+
+    // In-session auth repair: a turn that failed because the provider signed us
+    // out gets a repair banner and resumes itself once the user signs back in.
+    getInstanceAuthRepairHandler().configure({
+      setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
+      revive: async (id) => {
+        // The failed turn errored the instance, so the adapter is gone —
+        // revival restores the thread (native resume where possible) before
+        // anything can be re-sent to it.
+        const { SessionRevivalService } = await import('../session/session-revival-service');
+        const result = await new SessionRevivalService(this).revive({
+          instanceId: id,
+          reviveIfArchived: true,
+          reason: 'thread-wakeup',
+        });
+        if (result.status === 'failed' || !result.instanceId) {
+          logger.warn('Auth-repair revival failed', {
+            instanceId: id,
+            failureCode: result.failureCode,
+            error: result.error,
+          });
+          return null;
+        }
+        return result.instanceId;
+      },
+      resendInput: (id, prompt) => {
+        void this.sendInput(id, prompt).catch((err) =>
+          logger.warn('Auth-repair resume re-send failed', {
+            instanceId: id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      },
     });
 
     // Lifecycle manager needs dependencies
@@ -1235,11 +1273,19 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  getIdleInstances(thresholdMs: number): { id: string; lastActivity: number }[] {
+  /**
+   * Instances idle >= `thresholdMs`, oldest first. `idle` means "awaiting the next
+   * message", so reclaimers MUST pass a real threshold; 0 picks the live session.
+   */
+  getIdleInstances(thresholdMs: number): IdleInstanceInfo[] {
     const now = Date.now();
     return this.state.getAllInstances()
       .filter(i => i.status === 'idle' && (now - i.lastActivity) >= thresholdMs)
-      .map(i => ({ id: i.id, lastActivity: i.lastActivity }));
+      .map(i => ({
+        id: i.id, lastActivity: i.lastActivity, displayName: i.displayName,
+        hasConversation: i.outputBuffer.some(msg => msg.type === 'user'),
+      }))
+      .sort((a, b) => a.lastActivity - b.lastActivity);
   }
 
   serializeForIpc(instance: Instance): Record<string, unknown> {
@@ -1564,6 +1610,10 @@ export class InstanceManager extends EventEmitter {
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+
+    // Stamp activity BEFORE any await: the send can park for seconds on init
+    // waits, and a reclaimer sampling mid-send must not cull a live session.
+    instance.lastActivity = Date.now();
 
     if (getPauseCoordinator().isPaused()) {
       throw new OrchestratorPausedError('Instance input refused while orchestrator is paused');

@@ -34,9 +34,8 @@ async function execFileAsync(
   });
 }
 
-export async function getClaudeCliAuthStatus(): Promise<ClaudeCliAuthStatus | null> {
+function parseAuthStatus(stdout: string): ClaudeCliAuthStatus | null {
   try {
-    const { stdout } = await execFileAsync('claude', ['auth', 'status']);
     const parsed = JSON.parse(stdout) as Partial<ClaudeCliAuthStatus>;
 
     if (typeof parsed !== 'object' || parsed === null || typeof parsed.loggedIn !== 'boolean') {
@@ -54,12 +53,47 @@ export async function getClaudeCliAuthStatus(): Promise<ClaudeCliAuthStatus | nu
   }
 }
 
+interface ClaudeCliAuthRead {
+  status: ClaudeCliAuthStatus | null;
+  /** Short, non-secret explanation of why the status could not be read. */
+  reason?: string;
+}
+
+/**
+ * Reads `claude auth status`. A non-zero exit is not automatically a probe
+ * failure — the CLI may still have printed a valid `{"loggedIn": false}`
+ * payload — so the error path re-parses stdout before giving up, and reports
+ * *why* it gave up rather than a bare "unable to read".
+ */
+async function readClaudeCliAuthStatus(): Promise<ClaudeCliAuthRead> {
+  try {
+    const { stdout } = await execFileAsync('claude', ['auth', 'status']);
+    const status = parseAuthStatus(stdout);
+    return status
+      ? { status }
+      : { status: null, reason: 'unexpected output from `claude auth status`' };
+  } catch (error) {
+    const failure = error as Error & { stdout?: string };
+    const status = parseAuthStatus(failure.stdout ?? '');
+    if (status) {
+      return { status };
+    }
+    return { status: null, reason: failure.message || 'the CLI could not be run' };
+  }
+}
+
+export async function getClaudeCliAuthStatus(): Promise<ClaudeCliAuthStatus | null> {
+  return (await readClaudeCliAuthStatus()).status;
+}
+
 export async function checkClaudeCliAuthentication(): Promise<ClaudeCliAuthCheckResult> {
-  const authStatus = await getClaudeCliAuthStatus();
+  const { status: authStatus, reason } = await readClaudeCliAuthStatus();
   if (!authStatus) {
     return {
       authenticated: false,
-      message: 'Unable to read Claude CLI auth status',
+      message: reason
+        ? `Unable to read Claude CLI auth status — ${reason}`
+        : 'Unable to read Claude CLI auth status',
     };
   }
 

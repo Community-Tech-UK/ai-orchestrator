@@ -14,6 +14,14 @@ export const ProviderStatusPayloadSchema = z.object({
   forceRefresh: z.boolean().optional(),
 });
 
+/**
+ * Sign-in launch request. Only the provider id crosses IPC — the main process
+ * maps it to a fixed login command, so no caller string reaches a shell.
+ */
+export const ProviderRunLoginPayloadSchema = z.object({
+  provider: z.string().min(1).max(50),
+});
+
 export const ProviderUpdateConfigPayloadSchema = z.object({
   providerType: z.string().min(1).max(50),
   config: z.record(z.string(), z.unknown()),

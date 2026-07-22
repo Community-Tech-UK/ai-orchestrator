@@ -162,6 +162,21 @@ export class InstanceIpcService {
     return this.api.providerLimitCancel({ instanceId });
   }
 
+  /**
+   * Re-probe provider auth for a session the provider signed out. Resumes the
+   * interrupted turn when the user has signed back in.
+   */
+  async authRepairRetry(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.authRepairRetry({ instanceId });
+  }
+
+  /** Dismiss the signed-out banner and stop watching for a sign-in. */
+  async authRepairCancel(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.authRepairCancel({ instanceId });
+  }
+
   /** WS7 Phase B — switch a parked session to its next fallback provider now. */
   async instanceFailoverNow(instanceId: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };

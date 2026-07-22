@@ -14,6 +14,7 @@ import { emitPluginHook } from '../../plugins/hook-emitter';
 import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
 import { deleteTurnSupervisor } from '../../session/session-turn-supervisor';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
+import { getInstanceAuthRepairHandler } from '../instance-auth-repair-handler';
 import { deleteCircuitBreaker } from './respawn-circuit-breaker';
 import { mergeSessionBranchToMain } from './session-branch-merge';
 
@@ -98,6 +99,9 @@ export class InstanceTerminationCoordinator {
     getInstanceProviderLimitHandler().release(instanceId, {
       preserveDurableResume: options.preserveDurableProviderResume,
     });
+    // Same reasoning for an auth-blocked instance: it holds a polling interval
+    // and a Map entry keyed by this id.
+    getInstanceAuthRepairHandler().forget(instanceId);
 
     if (adapter) {
       // §4.G/E1: a graceful terminate can sit in a SIGTERM→SIGKILL wait for up

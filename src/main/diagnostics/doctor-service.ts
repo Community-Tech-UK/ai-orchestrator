@@ -104,7 +104,7 @@ export class DoctorService {
       instructionDiagnostics,
       commandDiagnostics,
     ] = await Promise.all([
-      this.getStartupCapabilities(),
+      this.getStartupCapabilities(Boolean(options.force)),
       this.getProviderDiagnoses(),
       this.getCliHealth(Boolean(options.force)),
       this.getBrowserAutomationHealth(),
@@ -262,8 +262,20 @@ export class DoctorService {
     }
   }
 
-  private async getStartupCapabilities(): Promise<DoctorReport['startupCapabilities']> {
+  /**
+   * Startup capabilities for the Doctor report.
+   *
+   * A forced report (the Doctor "Refresh" button) MUST re-run the probe rather
+   * than replay the boot-time snapshot: the whole point of pressing Refresh is
+   * that the user just fixed something outside the app — installed a CLI, ran
+   * `claude auth login` in a terminal — and wants the app to notice without a
+   * restart.
+   */
+  private async getStartupCapabilities(force: boolean): Promise<DoctorReport['startupCapabilities']> {
     try {
+      if (force) {
+        return await getCapabilityProbe().run({ force: true });
+      }
       return getCapabilityProbe().getLastReport() ?? await getCapabilityProbe().run();
     } catch (error) {
       logger.warn('Startup capability diagnostics failed', { error: String(error) });

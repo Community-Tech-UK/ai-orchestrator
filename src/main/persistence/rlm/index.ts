@@ -79,7 +79,10 @@ export {
   getVectors,
   getVectorBySectionId,
   deleteVector,
-  bufferToEmbedding
+  bufferToEmbedding,
+  pruneVectorsOlderThan,
+  type EmbeddingVector,
+  type VectorRetentionReport
 } from './rlm-vectors';
 
 // Compaction marker operations

@@ -60,6 +60,7 @@ export function formatWaitReasonLabel(wr: InstanceWaitReason | undefined): strin
     case 'interrupt-ack': return 'Held — waiting for interrupt acknowledgement';
     case 'backoff': return `Held — backing off (attempt ${wr.attempt})`;
     case 'quota-park': return `Held — provider quota limit (${wr.provider})`;
+    case 'auth-required': return `Held — signed out of ${wr.provider}`;
     case 'provider-slot': return `Held — waiting for provider slot (${wr.provider})`;
     case 'resume-proof': return 'Held — verifying resume';
     case 'remote-heartbeat': return 'Held — remote worker unresponsive';

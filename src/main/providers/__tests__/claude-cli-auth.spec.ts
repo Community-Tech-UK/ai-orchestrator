@@ -103,12 +103,53 @@ describe('claude-cli-auth', () => {
     });
   });
 
-  it('returns a failure result when auth status cannot be read', async () => {
+  it('returns a failure result naming the reason when auth status cannot be read', async () => {
     mockExecFileSuccess('not-json');
 
     await expect(checkClaudeCliAuthentication()).resolves.toEqual({
       authenticated: false,
-      message: 'Unable to read Claude CLI auth status',
+      message: 'Unable to read Claude CLI auth status — unexpected output from `claude auth status`',
+    });
+  });
+
+  it('surfaces the spawn failure reason when the CLI cannot be run', async () => {
+    execFileMock.mockImplementation(
+      (
+        _file: string,
+        _args: string[],
+        _options: { timeout: number },
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callback(new Error('spawn claude ENOENT'), '', '');
+        return {} as ReturnType<typeof execFileMock>;
+      }
+    );
+
+    await expect(checkClaudeCliAuthentication()).resolves.toEqual({
+      authenticated: false,
+      message: 'Unable to read Claude CLI auth status — spawn claude ENOENT',
+    });
+  });
+
+  it('still reads a logged-out payload when the CLI exits non-zero', async () => {
+    execFileMock.mockImplementation(
+      (
+        _file: string,
+        _args: string[],
+        _options: { timeout: number },
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        const error = Object.assign(new Error('Command failed'), {
+          stdout: JSON.stringify({ loggedIn: false, authMethod: 'claude.ai' }),
+        });
+        callback(error, error.stdout, '');
+        return {} as ReturnType<typeof execFileMock>;
+      }
+    );
+
+    await expect(checkClaudeCliAuthentication()).resolves.toMatchObject({
+      authenticated: false,
+      message: 'Claude CLI is not logged in',
     });
   });
 

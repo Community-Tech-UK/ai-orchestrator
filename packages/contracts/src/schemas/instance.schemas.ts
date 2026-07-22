@@ -381,6 +381,16 @@ export const InstanceProviderLimitCancelPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
 });
 
+/** In-session auth repair: re-probe the provider and resume if signed back in. */
+export const InstanceAuthRepairRetryPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+/** In-session auth repair: dismiss the banner and stop watching for sign-in. */
+export const InstanceAuthRepairCancelPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
 export const InstanceRestartPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
 });

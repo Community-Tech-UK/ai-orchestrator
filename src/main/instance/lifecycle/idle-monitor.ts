@@ -44,6 +44,13 @@ const DEFAULT_INTERVAL_MS = 60_000;
  */
 const REMOTE_HEARTBEAT_STALE_MS = 120_000;
 
+/**
+ * Minimum idle time before memory pressure may terminate a child instance.
+ * Mirrors ResourceGovernor's `idleThresholdMs` so both reclaim paths agree on
+ * what "idle enough to sacrifice" means.
+ */
+const MEMORY_PRESSURE_MIN_IDLE_MS = 5 * 60 * 1000;
+
 type QueueUpdate = (
   instanceId: string,
   status: InstanceStatus,
@@ -328,14 +335,32 @@ export class IdleMonitor {
   /**
    * Terminate half of the child idle instances, oldest-first.
    * Called from memory-pressure handlers.
+   *
+   * `idle` only means "waiting for the next message", so a child that is
+   * between turns of active work looks identical to an abandoned one. The age
+   * guard is what separates them: anything active more recently than
+   * MEMORY_PRESSURE_MIN_IDLE_MS is never a candidate, no matter how much
+   * pressure the process is under.
    */
   terminateIdleHalf(): void {
+    const now = Date.now();
     const idleInstances: Instance[] = [];
     this.deps.forEachInstance((instance) => {
-      if (instance.status === 'idle' && instance.parentId) {
+      if (
+        instance.status === 'idle'
+        && instance.parentId
+        && now - instance.lastActivity >= MEMORY_PRESSURE_MIN_IDLE_MS
+      ) {
         idleInstances.push(instance);
       }
     });
+
+    if (idleInstances.length === 0) {
+      logger.info('Memory pressure: no child instance idle long enough to terminate', {
+        minIdleMs: MEMORY_PRESSURE_MIN_IDLE_MS,
+      });
+      return;
+    }
 
     idleInstances.sort((a, b) => a.lastActivity - b.lastActivity);
 

@@ -410,7 +410,7 @@ export class RLMDatabase extends EventEmitter {
     id: string;
     storeId: string;
     sectionId: string;
-    embedding: number[];
+    embedding: vectors.EmbeddingVector;
     contentPreview?: string;
     metadata?: Record<string, unknown>;
   }): void {
@@ -429,8 +429,19 @@ export class RLMDatabase extends EventEmitter {
     vectors.deleteVector(this.db, sectionId);
   }
 
-  bufferToEmbedding(buffer: Buffer): number[] {
+  bufferToEmbedding(buffer: Buffer): Float32Array {
     return vectors.bufferToEmbedding(buffer);
+  }
+
+  /**
+   * Report (and, only with `apply`, delete) vectors older than `cutoff`.
+   * Reporting-only by default — see {@link vectors.pruneVectorsOlderThan}.
+   */
+  pruneVectorsOlderThan(
+    cutoff: number,
+    options: { apply?: boolean } = {}
+  ): vectors.VectorRetentionReport {
+    return vectors.pruneVectorsOlderThan(this.db, cutoff, options);
   }
 
   // ============================================

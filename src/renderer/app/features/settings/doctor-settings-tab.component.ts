@@ -102,6 +102,13 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                         <strong>{{ check.label }}</strong>
                         <span>{{ check.status }}</span>
                         <p>{{ check.summary }}</p>
+                        @if (isProviderCheck(check.id) && check.status !== 'ready') {
+                          <button
+                            type="button"
+                            class="btn btn-secondary"
+                            (click)="selectSection('provider-health')"
+                          >Open Provider Health to fix</button>
+                        }
                       </div>
                     }
                   </div>
@@ -112,6 +119,12 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
 
               @case ('provider-health') {
                 <h4>Provider Health</h4>
+                @if (loginNotice(); as notice) {
+                  <p class="status-line" data-status="ready">{{ notice }}</p>
+                }
+                @if (loginError(); as error) {
+                  <div class="error-banner">{{ error }}</div>
+                }
                 <div class="list">
                   @for (diagnosis of report.providerDiagnoses; track diagnosis.provider) {
                     <div class="diagnostic-row" [attr.data-status]="diagnosis.overall">
@@ -137,6 +150,17 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                               @if (action.command) {
                                 <div class="repair-command">
                                   <code>{{ action.command }}</code>
+                                  @if (canSignIn(diagnosis.provider, action.kind)) {
+                                    <button
+                                      type="button"
+                                      class="copy-btn"
+                                      title="Opens a terminal already running the sign-in command"
+                                      (click)="signIn(diagnosis.provider)"
+                                      [disabled]="signingInProvider() !== null"
+                                    >
+                                      {{ signingInProvider() === diagnosis.provider ? 'Opening…' : 'Sign in' }}
+                                    </button>
+                                  }
                                   <button
                                     type="button"
                                     class="copy-btn"
@@ -298,6 +322,10 @@ export class DoctorSettingsTabComponent implements OnInit {
   readonly lastExport = signal<OperatorArtifactExportResult | null>(null);
   /** The repair command most recently copied to the clipboard (for button feedback). */
   readonly copiedCommand = signal<string | null>(null);
+  /** Provider whose sign-in terminal is currently being launched. */
+  readonly signingInProvider = signal<string | null>(null);
+  readonly loginNotice = signal<string | null>(null);
+  readonly loginError = signal<string | null>(null);
   readonly workingDirectory = computed(() => {
     const configured = this.settings.get('defaultWorkingDirectory');
     return configured.trim() ? configured : undefined;
@@ -333,6 +361,63 @@ export class DoctorSettingsTabComponent implements OnInit {
     } catch {
       // Clipboard may be unavailable (permissions); the command stays visible
       // for manual selection, so this is a non-fatal best-effort.
+    }
+  }
+
+  /**
+   * Startup checks for a provider CLI. Their repair steps (sign-in, install,
+   * shadow-install cleanup) live in Provider Health, so a failing row links
+   * there rather than repeating the actions.
+   */
+  isProviderCheck(checkId: string): boolean {
+    return checkId.startsWith('provider.') && checkId !== 'provider.any';
+  }
+
+  /** Auth failures are the repair kinds a one-click sign-in can actually fix. */
+  isAuthRepair(kind: string): boolean {
+    return kind === 'auth_missing' || kind === 'auth_expired';
+  }
+
+  /**
+   * Plugin providers own their own auth flow, so the main process has no login
+   * command for them — don't offer a button that can only fail.
+   */
+  canSignIn(provider: string, kind: string): boolean {
+    return this.isAuthRepair(kind) && !provider.startsWith('plugin:');
+  }
+
+  /**
+   * Opens a terminal already running the provider's sign-in command. The login
+   * itself is interactive (browser round-trip, TTY prompts), so the app cannot
+   * complete it — once the user has, Refresh re-probes and clears the warning
+   * without an app restart.
+   */
+  async signIn(provider: string): Promise<void> {
+    this.loginNotice.set(null);
+    this.loginError.set(null);
+    const api = this.ipc.getApi();
+    if (!api?.runProviderLogin) {
+      this.loginError.set('Sign-in launcher is unavailable.');
+      return;
+    }
+
+    this.signingInProvider.set(provider);
+    try {
+      const response = await api.runProviderLogin(provider);
+      if (!response.success) {
+        this.loginError.set(response.error?.message ?? 'Failed to open a sign-in terminal.');
+        return;
+      }
+      const data = response.data as { command: string; terminal: string; hint?: string };
+      this.loginNotice.set(
+        `${data.terminal} opened running \`${data.command}\`. ${data.hint ?? ''} Finish signing in there, then press Refresh.`
+          .replace(/\s+/g, ' ')
+          .trim(),
+      );
+    } catch (error) {
+      this.loginError.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.signingInProvider.set(null);
     }
   }
 

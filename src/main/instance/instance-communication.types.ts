@@ -91,6 +91,18 @@ export interface CommunicationDependencies {
     resumePrompt: string | null;
   }) => 'parked' | 'already-parked' | 'skipped';
   /**
+   * Invoked when a turn fails with provider-credential phrasing (an expired
+   * OAuth session, a rejected API key). Fire-and-forget: the error still
+   * reaches the transcript and the instance still errors — this only lets the
+   * auth-repair handler confirm the sign-out with a live probe, attach the
+   * `auth-required` waitReason, and watch for the user signing back in.
+   */
+  onAuthFailureTurn?: (params: {
+    instanceId: string;
+    reason: string;
+    resumePrompt: string | null;
+  }) => void;
+  /**
    * Consults the durable provider-limit ledger before a new adapter dispatch.
    * A known active gate is parked before it can consume another provider turn.
    */

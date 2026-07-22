@@ -40,12 +40,18 @@ export class CapabilityProbe {
     this.instance = null;
   }
 
-  async run(): Promise<StartupCapabilityReport> {
+  /**
+   * Re-runs every startup check. `force` additionally bypasses the CLI
+   * detection cache — required when the user has just changed something
+   * outside the app (installed a CLI, ran `claude auth login` in a terminal)
+   * and asked the Doctor to re-check.
+   */
+  async run(options: { force?: boolean } = {}): Promise<StartupCapabilityReport> {
     const generatedAt = Date.now();
     const checks: StartupCapabilityCheck[] = [];
 
     checks.push(await this.probeNativeDatabase());
-    checks.push(...await this.probeProviders());
+    checks.push(...await this.probeProviders(options.force ?? false));
     checks.push(await this.probeRemoteNodes());
     checks.push(await this.probeBrowserAutomation());
     checks.push(await this.probeSandbox());
@@ -127,8 +133,8 @@ export class CapabilityProbe {
     }
   }
 
-  private async probeProviders(): Promise<StartupCapabilityCheck[]> {
-    const detection = await getCliDetectionService().detectAll();
+  private async probeProviders(forceRefresh = false): Promise<StartupCapabilityCheck[]> {
+    const detection = await getCliDetectionService().detectAll(forceRefresh);
     const available = new Set(detection.available.map((cli) => cli.name));
     const doctor = getProviderDoctor();
 

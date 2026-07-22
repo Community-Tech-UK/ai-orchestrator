@@ -111,8 +111,10 @@ export class InstanceHeaderComponent implements OnInit {
         const secsLeft = Math.max(0, Math.round((wr.retryAt - Date.now()) / 1000));
         return secsLeft > 0 ? `Backing off — retry in ${secsLeft}s` : 'Retrying…';
       }
-      // 'quota-park' renders as a banner above the composer (input-panel), not here.
+      // 'quota-park' and 'auth-required' render as banners above the composer
+      // (input-panel), not here.
       case 'quota-park':
+      case 'auth-required':
         return null;
       case 'provider-slot':
         return `Waiting for ${wr.provider} slot…`;
@@ -141,6 +143,8 @@ export class InstanceHeaderComponent implements OnInit {
         return `Attempt ${wr.attempt}, retry at ${new Date(wr.retryAt).toLocaleTimeString()}`;
       case 'quota-park':
         return `Provider: ${wr.provider}, resumes at ${new Date(wr.resumeAt).toLocaleTimeString()}`;
+      case 'auth-required':
+        return `Signed out of ${wr.provider} since ${new Date(wr.since).toLocaleTimeString()}`;
       case 'provider-slot':
         return `Provider: ${wr.provider}`;
       case 'resume-proof':

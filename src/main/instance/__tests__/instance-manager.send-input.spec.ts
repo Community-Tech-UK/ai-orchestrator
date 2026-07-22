@@ -1037,6 +1037,52 @@ describe('InstanceManager', () => {
     }
   });
 
+  describe('getIdleInstances', () => {
+    it('honours the age threshold instead of returning every idle session', async () => {
+      const fresh = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      const stale = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+
+      fresh.status = 'idle';
+      stale.status = 'idle';
+      fresh.lastActivity = Date.now() - 1_000;
+      stale.lastActivity = Date.now() - 60 * 60 * 1000;
+
+      const ids = manager.getIdleInstances(5 * 60 * 1000).map((i) => i.id);
+      expect(ids).toContain(stale.id);
+      expect(ids).not.toContain(fresh.id);
+    });
+
+    it('returns candidates oldest-activity-first', async () => {
+      const a = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      const b = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+
+      a.status = 'idle';
+      b.status = 'idle';
+      a.lastActivity = Date.now() - 10 * 60 * 1000;
+      b.lastActivity = Date.now() - 90 * 60 * 1000;
+
+      expect(manager.getIdleInstances(60_000).map((i) => i.id)).toEqual([b.id, a.id]);
+    });
+
+    it('flags instances holding user messages so callers can hibernate instead of terminate', async () => {
+      const withWork = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      const empty = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+
+      for (const inst of [withWork, empty]) {
+        inst.status = 'idle';
+        inst.lastActivity = Date.now() - 60 * 60 * 1000;
+        inst.outputBuffer = [];
+      }
+      withWork.outputBuffer = [
+        { id: 'm1', timestamp: Date.now(), type: 'user', content: 'deploy please' },
+      ] as typeof withWork.outputBuffer;
+
+      const byId = new Map(manager.getIdleInstances(60_000).map((i) => [i.id, i]));
+      expect(byId.get(withWork.id)?.hasConversation).toBe(true);
+      expect(byId.get(empty.id)?.hasConversation).toBe(false);
+    });
+  });
+
   describe('sendInput', () => {
     it('throws for non-existent instance', async () => {
       await expect(
@@ -1148,6 +1194,25 @@ describe('InstanceManager', () => {
 
       const updated = manager.getInstance(instance.id);
       expect(updated?.lastActivity).toBeGreaterThanOrEqual(before);
+    });
+
+    it('stamps lastActivity before the send parks, so a reclaimer cannot see it as idle', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+
+      // Park the send inside the init wait. lastActivity used to be stamped
+      // only after these awaits, so a memory-pressure sweep sampling mid-send
+      // saw a stale timestamp and reclaimed a session the user had just used.
+      instance.readyPromise = new Promise<void>(() => { /* never settles */ });
+      instance.contextUsage = { used: 0, total: 200_000, percentage: 0 };
+      const staleAt = Date.now() - 60 * 60 * 1000;
+      instance.lastActivity = staleAt;
+
+      void manager.sendInput(instance.id, 'live message').catch(() => { /* parked */ });
+      await Promise.resolve();
+
+      expect(manager.getInstance(instance.id)?.lastActivity).toBeGreaterThan(staleAt);
+      expect(manager.getIdleInstances(5 * 60 * 1000).map((i) => i.id)).not.toContain(instance.id);
     });
 
     it('records sent prompts in main-process prompt history', async () => {
