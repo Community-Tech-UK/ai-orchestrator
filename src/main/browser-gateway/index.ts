@@ -9,6 +9,7 @@ import {
 } from './browser-gateway-rpc-server';
 import { prepareBrowserExtensionNativeHostRuntime } from './browser-extension-native-runtime';
 import { setBrowserGatewayMcpBridgeAvailabilityProvider } from './browser-health-service';
+import { setBrowserLocalExtensionUserDataPathProvider } from './browser-local-extension-health';
 import * as fs from 'node:fs';
 import { CredentialVault } from './browser-credential-vault';
 import { createBwRunner } from './browser-bw-runner';
@@ -147,6 +148,12 @@ function buildEmailCodeReader(): Pick<BrowserGatewayServiceOptions, 'emailCodeRe
 export async function initializeBrowserGatewayRuntime(
   options: BrowserGatewayRuntimeOptions = {},
 ): Promise<void> {
+  // Point the local-extension probe at the same user-data path the native-host
+  // installer writes to, so health, freshness prechecks and list_targets all
+  // inspect the files this install actually owns.
+  setBrowserLocalExtensionUserDataPathProvider(
+    () => options.userDataPath ?? app.getPath('userData'),
+  );
   const credentials = buildCredentialServices();
   // Operator-owned full-autonomy bootstrap: provision managed profiles,
   // standing credential authorizations, and campaigns from the config file,

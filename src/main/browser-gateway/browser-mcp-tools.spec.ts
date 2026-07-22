@@ -4,6 +4,7 @@ import { createBrowserMcpTools } from './browser-mcp-tools';
 
 const ALLOWED_TOOLS = [
   'browser.list_targets',
+  'browser.preflight_target',
   'browser.find_or_open',
   'browser.select_target',
   'browser.navigate',

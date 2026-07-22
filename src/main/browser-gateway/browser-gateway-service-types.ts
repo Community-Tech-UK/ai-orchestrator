@@ -13,6 +13,7 @@ import type { BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserHealthService } from './browser-health-service';
 import type { BrowserExtensionContactStateReader } from './browser-extension-contact-state';
+import type { BrowserLocalExtensionHealth } from './browser-local-extension-health';
 import type { BrowserProfileRegistry } from './browser-profile-registry';
 import type { BrowserProfileStore } from './browser-profile-store';
 import type { BrowserTargetRegistry } from './browser-target-registry';
@@ -60,6 +61,12 @@ export interface BrowserGatewayListTargetsRequest extends BrowserGatewayContext 
   nodeId?: string;
   computer?: string;
   refresh?: boolean;
+}
+
+export interface BrowserGatewayPreflightTargetRequest extends BrowserGatewayContext {
+  url: string;
+  nodeId?: string;
+  computer?: string;
 }
 
 export interface BrowserGatewayAuditLogRequest
@@ -197,6 +204,11 @@ export interface BrowserGatewayServiceOptions {
   >;
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionContactState?: BrowserExtensionContactStateReader;
+  /**
+   * Live health of the AIO host's own Chrome extension channel. Overridable so
+   * specs can drive the local-channel states without touching the filesystem.
+   */
+  localExtensionChannel?: () => BrowserLocalExtensionHealth;
   /**
    * Reliability hardening: app-signal persistence sentinel around shared-tab
    * mutations. `null` disables it (test fakes); undefined uses the singleton.

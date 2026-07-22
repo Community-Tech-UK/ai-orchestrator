@@ -562,6 +562,105 @@ describe('BrowserGatewayRpcServer', () => {
     expect(onExtensionDisconnected).toHaveBeenCalledWith('native_host_stdin_eof');
   });
 
+  it('records local extension contact and build evidence on every authenticated message', async () => {
+    const extensionCommandStore = {
+      pollCommand: vi.fn().mockResolvedValue(null),
+      resolveCommand: vi.fn(),
+      markReceived: vi.fn(),
+    };
+    const attachExistingTab = vi.fn().mockReturnValue({ ok: true });
+    const onExtensionContact = vi.fn();
+    const onExtensionDisconnected = vi.fn();
+    const server = new BrowserGatewayRpcServer({
+      service: { attachExistingTab },
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      extensionCommandStore,
+      onExtensionContact,
+      onExtensionDisconnected,
+      registerCleanup: vi.fn(),
+    } as unknown as ConstructorParameters<typeof BrowserGatewayRpcServer>[0] & {
+      extensionCommandStore: typeof extensionCommandStore;
+    });
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'native-token',
+        payload: { timeoutMs: 25, extensionVersion: '0.2.1', extensionStartedAt: 1234 },
+      },
+    });
+    expect(onExtensionContact).toHaveBeenNthCalledWith(1, {
+      extensionVersion: '0.2.1',
+      extensionStartedAt: 1234,
+    });
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'browser.extension_command_received',
+      params: {
+        extensionToken: 'native-token',
+        payload: { commandId: 'command-1', extensionVersion: '0.2.1' },
+      },
+    });
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'browser.extension_command_result',
+      params: {
+        extensionToken: 'native-token',
+        payload: { commandId: 'command-1', ok: true },
+      },
+    });
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'browser.extension_attach_tab',
+      params: {
+        extensionToken: 'native-token',
+        payload: { tabId: 42, windowId: 7, url: 'https://example.test/', title: 'Example' },
+      },
+    });
+
+    expect(onExtensionContact).toHaveBeenCalledTimes(4);
+    // A result message without build evidence must still count as contact.
+    expect(onExtensionContact).toHaveBeenNthCalledWith(3, {});
+
+    // A disconnect is not proof of liveness and must not record contact.
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'browser.extension_disconnected',
+      params: { extensionToken: 'native-token', payload: { reason: 'native_host_stdin_eof' } },
+    });
+    expect(onExtensionContact).toHaveBeenCalledTimes(4);
+    expect(onExtensionDisconnected).toHaveBeenCalledWith('native_host_stdin_eof');
+  });
+
+  it('does not record contact for extension RPC calls that fail authentication', async () => {
+    const onExtensionContact = vi.fn();
+    const server = new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      onExtensionContact,
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.extension_poll_command',
+        params: { extensionToken: 'wrong-token', payload: {} },
+      }),
+    ).rejects.toThrow();
+    expect(onExtensionContact).not.toHaveBeenCalled();
+  });
+
   it('rejects extension RPC calls with an invalid native-host token', async () => {
     const attachExistingTab = vi.fn();
     const server = new BrowserGatewayRpcServer({

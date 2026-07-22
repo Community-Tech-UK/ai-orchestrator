@@ -201,7 +201,10 @@ describe('BundledDarwinHelperClient', () => {
             name: 'Preview',
             bundleId: 'com.apple.Preview',
             pid: 42,
-            windows: [{ id: 99, title: 'Document' }],
+            windows: [
+              { id: 99, title: 'Document', frame: { x: 0, y: 0, width: 800, height: 600 } },
+              { id: 100, title: 'Second display' },
+            ],
           }],
         }),
         stderr: '',
@@ -220,7 +223,13 @@ describe('BundledDarwinHelperClient', () => {
       bundleId: 'com.apple.Preview',
       pid: 42,
       windowId: '99',
-      visibleWindowCount: 1,
+      visibleWindowCount: 2,
+      // Every visible window is exposed, front-most first, so a caller can
+      // target a specific window of a multi-window app.
+      windows: [
+        { windowId: '99', title: 'Document', bounds: { x: 0, y: 0, width: 800, height: 600 } },
+        { windowId: '100', title: 'Second display' },
+      ],
     }]);
   });
 

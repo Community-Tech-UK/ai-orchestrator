@@ -98,10 +98,23 @@ export interface DesktopAppDescriptor {
   bundleId?: string;
   executablePath?: string;
   pid?: number;
+  /** The app's frontmost visible window. */
   windowId?: string;
   visibleWindowCount: number;
+  /**
+   * Every visible window, front-most first. Needed to target a specific window
+   * of a multi-window app (and to tell windows on different monitors apart)
+   * rather than only whichever one happens to be in front.
+   */
+  windows?: DesktopWindowDescriptor[];
   policyStatus?: DesktopPolicyStatus;
   blockedReason?: string;
+}
+
+export interface DesktopWindowDescriptor {
+  windowId: string;
+  title?: string;
+  bounds?: DesktopRegion;
 }
 
 export interface DesktopRegion {
@@ -137,6 +150,12 @@ export interface DesktopAccessibilityNode {
   role: string;
   label?: string;
   value?: string;
+  /**
+   * Link destination (AXURL). Present only on link-like elements, and only from
+   * helper builds that report it — action classification therefore treats an
+   * absent url as "no navigation proof" rather than "not a link".
+   */
+  url?: string;
   bounds?: DesktopRegion;
   enabled?: boolean;
   focused?: boolean;
@@ -249,6 +268,33 @@ export interface DesktopActionResult {
   completedAt?: number;
 }
 
+/**
+ * Bring one already-observed window of an already-granted app to the front.
+ * A navigation prerequisite so a later input action can satisfy the driver's
+ * "target must be active" rule — NOT permission to mutate the app. Subsequent
+ * clicks/typing keep the normal action policy.
+ */
+export interface DesktopActivateWindowRequest {
+  appId: string;
+  observationToken: string;
+  /** Defaults to the window the observation was captured against. */
+  windowId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DesktopActivateWindowResult {
+  activated: boolean;
+  appId: string;
+  /** The window that is actually frontmost after activation, as verified. */
+  activeWindow?: DesktopWindowDescriptor;
+  /**
+   * Observation tokens are bound to the snapshot they were captured with, so
+   * activation deliberately mints none: re-observe the app after activating to
+   * get element handles for the window that is now in front.
+   */
+  reobserveRequired: true;
+}
+
 export interface DesktopWaitForResult {
   matched: boolean;
   explanation: string;
@@ -278,6 +324,8 @@ export interface DesktopElementCandidate {
   role: string;
   label?: string;
   value?: string;
+  /** Link destination (AXURL); see DesktopAccessibilityNode.url. */
+  url?: string;
   bounds?: DesktopRegion;
   enabled?: boolean;
   focused?: boolean;

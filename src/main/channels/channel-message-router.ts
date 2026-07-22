@@ -119,6 +119,13 @@ interface OutputStreamTracker {
    * recent user message instead of duplicating across stale trackers.
    */
   currentMsg: InboundChannelMessage;
+  /**
+   * Ids of assistant messages already relayed by the initial buffer replay (see
+   * `streamResults`). The live output handler skips these so a reply that was
+   * emitted before the listener attached is not sent a second time when a
+   * matching live event arrives.
+   */
+  relayedMessageIds: Set<string>;
 }
 
 /** Directories that must never be sent out via channel file sharing */
@@ -2077,7 +2084,7 @@ export class ChannelMessageRouter {
       forceNodeId: node.id,
     });
 
-    this.streamResults(msg, instance.id, adapter);
+    this.streamResults(msg, instance.id, adapter, { replayBufferedAssistant: true });
     await adapter.sendMessage(msg.chatId, `Running on **${node.name}**...`, { replyTo: msg.messageId });
   }
 
@@ -2162,9 +2169,11 @@ export class ChannelMessageRouter {
       ...(nodePlacement ? { nodePlacement } : {}),
     });
 
-    // Stream results back
+    // Stream results back. The listener attaches only after createInstance
+    // resolves — by which point a fast first turn may already have settled into
+    // the instance's outputBuffer — so replay any buffered assistant output.
     if (content || attachments.length > 0) {
-      this.streamResults(msg, instance.id, adapter);
+      this.streamResults(msg, instance.id, adapter, { replayBufferedAssistant: true });
     }
 
     return instance.id;
@@ -2210,14 +2219,16 @@ export class ChannelMessageRouter {
       await im.wakeInstance(instanceId);
     }
 
+    // Attach the output listener before delivering the prompt so the reply
+    // can't be emitted before we're listening. (This is an existing, ready
+    // instance, so there is no buffered first turn to replay.)
+    this.streamResults(msg, instanceId, adapter);
+
     if (attachments.length > 0) {
       await im.sendInput(instanceId, buildChannelMessagePrompt(msg, content), attachments);
     } else {
       await im.sendInput(instanceId, buildChannelMessagePrompt(msg, content));
     }
-
-    // Stream results back
-    this.streamResults(msg, instanceId, adapter);
   }
 
   private async routeBroadcast(
@@ -2249,12 +2260,14 @@ export class ChannelMessageRouter {
 
     for (const inst of activeInstances) {
       try {
+        // Attach before delivering the prompt so the reply can't race ahead of
+        // the listener. These are existing instances, so nothing to replay.
+        this.streamResults(msg, inst.id, adapter);
         if (attachments.length > 0) {
           await im.sendInput(inst.id, buildChannelMessagePrompt(msg, content), attachments);
         } else {
           await im.sendInput(inst.id, buildChannelMessagePrompt(msg, content));
         }
-        this.streamResults(msg, inst.id, adapter);
       } catch (err) {
         logger.warn('Failed to send broadcast to instance', { instanceId: inst.id, error: err });
       }
@@ -2338,6 +2351,7 @@ export class ChannelMessageRouter {
     msg: InboundChannelMessage,
     instanceId: string,
     adapter: BaseChannelAdapter,
+    options: { replayBufferedAssistant?: boolean } = {},
   ): void {
     const im = this.getInstanceManager();
     // Key by (platform, chatId, instanceId) — NOT by msg.id — so repeat user
@@ -2365,6 +2379,7 @@ export class ChannelMessageRouter {
       outputHandler: () => undefined,
       stateHandler: () => undefined,
       currentMsg: msg,
+      relayedMessageIds: new Set<string>(),
     };
 
     const cleanup = (): void => {
@@ -2486,6 +2501,11 @@ export class ChannelMessageRouter {
       // mobile channel into noise — drop them so the feed shows just answers.
       if (message.type !== 'assistant') return;
 
+      // Skip assistant messages already delivered by the initial buffer replay.
+      // Those turns settled before this listener attached (see the replay block
+      // below); a matching live event must not double-post them.
+      if (message.id && tracker.relayedMessageIds.has(message.id)) return;
+
       const content = message.content;
       if (!content) return;
 
@@ -2515,6 +2535,32 @@ export class ChannelMessageRouter {
     this.outputStreams.set(bufferKey, tracker);
     im.on('provider:normalized-event', tracker.outputHandler);
     im.on('instance:state-update', tracker.stateHandler);
+
+    // First-turn replay. For a freshly-created instance, `createInstance`
+    // resolves only after the first turn has settled, so the assistant reply is
+    // already sitting in the instance's outputBuffer by the time this listener
+    // attaches — the live handler above would never see it and the reply would
+    // silently never reach the channel. Drain any assistant output already
+    // buffered and relay it, recording ids so the live path de-dupes. This runs
+    // synchronously right after attach, so no live event can interleave.
+    //
+    // Only enabled on the new-instance path (routeDefault): a fresh instance's
+    // buffer contains just this turn. Existing-instance paths attach before
+    // sendInput instead, so they have nothing to replay and must not re-post
+    // prior conversation history.
+    if (options.replayBufferedAssistant) {
+      const buffered = im.getInstance?.(instanceId)?.outputBuffer ?? [];
+      let replayed = '';
+      for (const message of buffered) {
+        if (message.type !== 'assistant' || !message.content) continue;
+        replayed += message.content;
+        if (message.id) tracker.relayedMessageIds.add(message.id);
+      }
+      if (replayed) {
+        tracker.content += replayed;
+        scheduleFlush();
+      }
+    }
   }
 
   // ============ Utilities ============

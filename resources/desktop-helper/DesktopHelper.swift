@@ -3,7 +3,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-private let protocolVersion = "1.1.0"
+private let protocolVersion = "1.2.0"
 private let maxLineBytes = 1_048_576
 private let maxApps = 512
 private let maxWindowsPerApp = 128
@@ -330,6 +330,18 @@ private func axBoolean(_ element: AXUIElement, _ attribute: String) -> Bool? {
     (axAttribute(element, attribute) as? NSNumber)?.boolValue
 }
 
+/// AXURL arrives as an NSURL on most apps and as a plain string on some.
+/// Bounded like every other string we return.
+private func axURLString(_ element: AXUIElement) -> String? {
+    guard let value = axAttribute(element, kAXURLAttribute) else {
+        return nil
+    }
+    if let url = value as? NSURL, let absolute = url.absoluteString {
+        return boundedString(absolute)
+    }
+    return boundedString(value)
+}
+
 private func axPoint(_ value: AnyObject?) -> CGPoint? {
     guard let value, CFGetTypeID(value) == AXValueGetTypeID() else {
         return nil
@@ -390,6 +402,13 @@ private final class SnapshotBuilder {
             result["redacted"] = true
         } else if let value = safeAXValue(axAttribute(element, kAXValueAttribute)) {
             result["value"] = value
+        }
+        // Link destination. Lets the gateway distinguish a navigation link from
+        // a command control that merely has an action verb in its label, so a
+        // breadcrumb such as "Publish Tender Pack (Auto Invite)" is not blocked
+        // as a sensitive publish/invite action.
+        if let url = axURLString(element) {
+            result["url"] = url
         }
         if let enabled = axBoolean(element, kAXEnabledAttribute) {
             result["enabled"] = enabled
@@ -704,6 +723,112 @@ private func drag(_ payload: [String: Any]) throws {
     try postMouseEvent(type: .leftMouseUp, point: end, button: .left)
 }
 
+/// Bring one already-observed window of an already-granted app to the front.
+///
+/// A navigation prerequisite, not permission to mutate: it only ever raises a
+/// window of the app the caller already holds a grant for. It never enumerates
+/// or activates arbitrary processes, and it synthesizes no keystrokes — it uses
+/// the app activation API plus an AXRaise on the specific window, so a
+/// multi-window app on multiple monitors can be targeted precisely.
+private func activateWindow(_ payload: [String: Any]) throws -> [String: Any] {
+    try requireAccessibility()
+    let pid = try processID(for: payload)
+    let requestedID = try requestedWindowID(payload)
+
+    // The window must already be visible on screen; this cannot summon a
+    // minimized/closed window or one belonging to another process.
+    let windows = windowsByPID()[pid] ?? []
+    guard !windows.isEmpty else {
+        throw HelperFailure.targetNotFound
+    }
+    if let requestedID, !windows.contains(where: { ($0["id"] as? Int) == requestedID }) {
+        throw HelperFailure.targetNotFound
+    }
+
+    guard let app = NSRunningApplication(processIdentifier: pid) else {
+        throw HelperFailure.targetNotFound
+    }
+    app.activate(options: [])
+
+    if let requestedID,
+       let requestedFrame = windows.first(where: { ($0["id"] as? Int) == requestedID })?["frame"]
+           as? [String: Double] {
+        raiseAXWindow(pid: pid, frame: requestedFrame)
+    }
+
+    // Verify rather than assume: poll until the app is frontmost and (when a
+    // specific window was requested) that window is its front window.
+    let deadline = Date().addingTimeInterval(2.0)
+    while Date() < deadline {
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        let current = windowsByPID()[pid] ?? []
+        let frontWindowID = current.first?["id"] as? Int
+        if frontmost && (requestedID == nil || frontWindowID == requestedID) {
+            var result: [String: Any] = ["activated": true]
+            for (key, value) in activeWindowFields(current.first) {
+                result[key] = value
+            }
+            return result
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    throw HelperFailure.targetNotActive
+}
+
+private func activeWindowFields(_ window: [String: Any]?) -> [String: Any] {
+    guard let window else {
+        return [:]
+    }
+    var fields: [String: Any] = [:]
+    if let id = window["id"] as? Int {
+        fields["windowId"] = String(id)
+    }
+    if let title = window["title"] as? String {
+        fields["title"] = title
+    }
+    if let frame = window["frame"] {
+        fields["bounds"] = frame
+    }
+    return fields
+}
+
+/// Raise a specific window via the accessibility API so the right window of a
+/// multi-window app comes forward, not merely the app's last-focused one.
+///
+/// AXUIElement carries no public CGWindowID, so the AX window is matched to the
+/// CGWindowList entry by frame. Best-effort by design: if no AX window matches,
+/// plain app activation still ran and the caller's verification loop decides
+/// whether that was enough.
+private func raiseAXWindow(pid: pid_t, frame: [String: Double]) {
+    let appElement = AXUIElementCreateApplication(pid)
+    guard let rawWindows = axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement] else {
+        return
+    }
+    for window in rawWindows.prefix(maxWindowsPerApp) {
+        guard let position = axPoint(axAttribute(window, kAXPositionAttribute)),
+              let size = axSize(axAttribute(window, kAXSizeAttribute)),
+              framesMatch(CGRect(origin: position, size: size), frame) else {
+            continue
+        }
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+        return
+    }
+}
+
+/// One-point tolerance absorbs the rounding differences between the CoreGraphics
+/// window list and the accessibility API.
+private func framesMatch(_ rect: CGRect, _ frame: [String: Double]) -> Bool {
+    guard let x = frame["x"], let y = frame["y"],
+          let width = frame["width"], let height = frame["height"] else {
+        return false
+    }
+    return abs(rect.origin.x - x) <= 1
+        && abs(rect.origin.y - y) <= 1
+        && abs(rect.size.width - width) <= 1
+        && abs(rect.size.height - height) <= 1
+}
+
 private func execute(_ request: Request) throws -> [String: Any] {
     switch request.command {
     case "health":
@@ -735,6 +860,8 @@ private func execute(_ request: Request) throws -> [String: Any] {
         return listApplications()
     case "accessibilitySnapshot":
         return try accessibilitySnapshot(request.payload)
+    case "activateWindow":
+        return try activateWindow(request.payload)
     case "click":
         try click(request.payload)
     case "typeText":

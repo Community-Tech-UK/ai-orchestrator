@@ -4,8 +4,27 @@ import { parseSkillFrontmatter, parseSkillMetadata, validateSkillName } from '..
 import type { SkillDiagnostic } from '../../shared/types/diagnostics.types';
 import { getLogger } from '../logging/logger';
 import { getSkillRegistry } from '../skills/skill-registry';
+import {
+  checkSkillToolCapabilities,
+  describeSkillToolMismatch,
+} from '../skills/skill-tool-capability-check';
+import { createBrowserMcpTools } from '../browser-gateway/browser-mcp-tools';
+import { createDesktopMcpTools } from '../desktop-gateway/desktop-mcp-tools';
 
 const logger = getLogger('SkillDiagnosticsService');
+
+/**
+ * The managed MCP tools injected into agent sessions. Built from the same
+ * factories the forwarders register, so the diagnostic can never drift from the
+ * surface it is checking against.
+ */
+function defaultExposedToolNames(): string[] {
+  const noopClient = { call: async () => null };
+  return [
+    ...createBrowserMcpTools(noopClient).map((tool) => tool.name),
+    ...createDesktopMcpTools(noopClient).map((tool) => tool.name),
+  ];
+}
 
 interface SkillRegistryDiagnosticsView {
   listSkills(): SkillBundle[];
@@ -17,6 +36,8 @@ export class SkillDiagnosticsService {
 
   constructor(
     private readonly registry: SkillRegistryDiagnosticsView = getSkillRegistry(),
+    /** The managed tool surface agent sessions actually receive. */
+    private readonly exposedToolNames: () => string[] = defaultExposedToolNames,
   ) {}
 
   static getInstance(): SkillDiagnosticsService {
@@ -87,11 +108,34 @@ export class SkillDiagnosticsService {
     return diagnostics;
   }
 
+  /**
+   * Skill instructions that mandate a tool this build does not expose are
+   * unusable, and fail in a confusing way at runtime rather than at install
+   * time. Reported as an error with the managed alternative named.
+   */
+  private collectToolSurfaceDiagnostics(
+    skill: SkillBundle,
+    content: string,
+  ): SkillDiagnostic[] {
+    return checkSkillToolCapabilities({
+      skills: [{ bundle: skill, coreContent: content }],
+      exposedToolNames: this.exposedToolNames(),
+    }).map((mismatch) => ({
+      code: 'tool-surface-mismatch' as const,
+      severity: 'error' as const,
+      message: describeSkillToolMismatch(mismatch),
+      skillId: skill.id,
+      skillName: skill.metadata.name,
+      filePath: skill.corePath,
+    }));
+  }
+
   private async collectSkillFileDiagnostics(skill: SkillBundle): Promise<SkillDiagnostic[]> {
     const diagnostics: SkillDiagnostic[] = [];
 
     try {
       const content = await fs.readFile(skill.corePath, 'utf-8');
+      diagnostics.push(...this.collectToolSurfaceDiagnostics(skill, content));
       const metadata = parseSkillMetadata(content, skill.metadata.name);
       const nameOk = validateSkillName(metadata.name).ok;
       if (!parseSkillFrontmatter(content) || !nameOk || metadata.triggers.length === 0) {

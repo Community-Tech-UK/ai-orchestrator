@@ -7,12 +7,16 @@ import { app } from 'electron';
 import type {
   DesktopAccessibilitySnapshotRequest,
   DesktopAccessibilitySnapshotResult,
+  DesktopActivateWindowRequest,
+  DesktopActivateWindowResult,
   DesktopAppDescriptor,
   DesktopClickRequest,
   DesktopDragRequest,
   DesktopHotkeyRequest,
+  DesktopRegion,
   DesktopScrollRequest,
   DesktopTypeTextRequest,
+  DesktopWindowDescriptor,
 } from '../../../shared/types/desktop-gateway.types';
 import {
   DESKTOP_HELPER_MAX_LINE_BYTES,
@@ -57,6 +61,7 @@ interface RawHelperHealth {
 interface RawHelperWindow {
   id?: unknown;
   title?: unknown;
+  frame?: unknown;
 }
 
 interface RawHelperApp {
@@ -68,6 +73,13 @@ interface RawHelperApp {
 
 interface RawListAppsResult {
   apps?: unknown;
+}
+
+interface RawActivateWindowResult {
+  activated?: unknown;
+  windowId?: unknown;
+  title?: unknown;
+  bounds?: unknown;
 }
 
 export function resolveDesktopHelperPath(context: DesktopHelperPathContext): string {
@@ -176,6 +188,29 @@ export class BundledDarwinHelperClient implements DesktopHelperClient {
       throw new Error('computer_use_driver_failed');
     }
     return result;
+  }
+
+  async activateWindow(
+    request: DesktopActivateWindowRequest,
+  ): Promise<DesktopActivateWindowResult> {
+    const raw = await this.request<RawActivateWindowResult>('activateWindow', {
+      appId: request.appId,
+      ...(request.windowId ? { windowId: request.windowId } : {}),
+    });
+    if (!raw || typeof raw !== 'object' || raw.activated !== true) {
+      throw new Error('computer_use_driver_failed');
+    }
+    const activeWindow = mapWindow({
+      id: raw.windowId,
+      title: raw.title,
+      frame: raw.bounds,
+    });
+    return {
+      activated: true,
+      appId: request.appId,
+      ...(activeWindow ? { activeWindow } : {}),
+      reobserveRequired: true,
+    };
   }
 
   async click(request: DesktopClickRequest): Promise<void> {
@@ -336,8 +371,10 @@ function mapApp(raw: RawHelperApp): DesktopAppDescriptor | null {
   const windows = Array.isArray(raw.windows)
     ? raw.windows.slice(0, 256) as RawHelperWindow[]
     : [];
-  const firstWindowId = windows.find((window) =>
-    typeof window.id === 'number' || typeof window.id === 'string')?.id;
+  const mappedWindows = windows
+    .map(mapWindow)
+    .filter((window): window is DesktopWindowDescriptor => window !== null);
+  const firstWindowId = mappedWindows[0]?.windowId;
   return {
     appId: bundleId
       ? `darwin-app:${bundleId}`
@@ -346,9 +383,43 @@ function mapApp(raw: RawHelperApp): DesktopAppDescriptor | null {
     platform: 'darwin',
     ...(bundleId ? { bundleId } : {}),
     ...(pid ? { pid } : {}),
-    ...(firstWindowId !== undefined ? { windowId: String(firstWindowId) } : {}),
+    ...(firstWindowId !== undefined ? { windowId: firstWindowId } : {}),
     visibleWindowCount: windows.length,
+    ...(mappedWindows.length > 0 ? { windows: mappedWindows } : {}),
   };
+}
+
+/**
+ * Windows arrive front-most first from the helper's CGWindowList query; the
+ * order is preserved so callers can tell which window is already in front.
+ */
+function mapWindow(raw: RawHelperWindow): DesktopWindowDescriptor | null {
+  if (typeof raw.id !== 'number' && typeof raw.id !== 'string') {
+    return null;
+  }
+  const windowId = String(raw.id).trim();
+  if (!windowId) {
+    return null;
+  }
+  const bounds = mapRegion(raw.frame);
+  return {
+    windowId,
+    ...(typeof raw.title === 'string' && raw.title ? { title: raw.title } : {}),
+    ...(bounds ? { bounds } : {}),
+  };
+}
+
+function mapRegion(raw: unknown): DesktopRegion | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const source = raw as Record<string, unknown>;
+  const values = ['x', 'y', 'width', 'height'].map((key) => source[key]);
+  if (!values.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+    return null;
+  }
+  const [x, y, width, height] = values as number[];
+  return { x, y, width, height };
 }
 
 function mapHelperError(error: unknown): string {

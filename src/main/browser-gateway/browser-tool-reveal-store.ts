@@ -19,6 +19,8 @@ export interface BrowserReportedToolSurface {
   protocolVersion: number;
   surfaceHash: string;
   reportedAt: number;
+  /** Set when this forwarder failed to restore its revealed set on startup. */
+  revealRestoreFailed?: boolean;
 }
 
 export interface BrowserToolSurfaceParity {

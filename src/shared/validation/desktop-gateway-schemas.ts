@@ -61,6 +61,18 @@ export const DesktopAccessibilitySnapshotRequestSchema = z.object({
   roleFilters: z.array(z.string().trim().min(1).max(128)).max(50).optional(),
 }).strict();
 
+/**
+ * Window activation is not an input action: it carries no `sensitive` flag and
+ * no coordinates, only the app, a fresh observation token, and an optional
+ * target window (defaulting to the observed one).
+ */
+export const DesktopActivateWindowRequestSchema = z.object({
+  appId: appIdSchema,
+  observationToken: observationTokenSchema,
+  windowId: windowIdSchema.optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
 export const DesktopClickRequestSchema = DesktopInputBaseSchema.extend({
   elementUid: elementUidSchema.optional(),
   x: z.number().finite().optional(),

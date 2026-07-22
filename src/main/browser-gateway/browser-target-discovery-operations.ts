@@ -31,6 +31,7 @@ import { refreshBrowserExtensionInventory } from './browser-extension-inventory-
 import type {
   BrowserGatewayFindOrOpenRequest,
   BrowserGatewayListTargetsRequest,
+  BrowserGatewayPreflightTargetRequest,
 } from './browser-gateway-service-types';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { BrowserTargetRegistry } from './browser-target-registry';
@@ -41,8 +42,21 @@ import {
   resolveBrowserComputerTarget,
   type BrowserComputerTargetResolution,
 } from './browser-computer-target';
+import {
+  isLocalExtensionChannelProvablyDown,
+  type BrowserLocalExtensionHealth,
+} from './browser-local-extension-health';
+import {
+  selectBrowserTargetForUrl,
+  type BrowserTargetPreflightResult,
+} from './browser-target-preflight';
 
 interface BrowserTargetDiscoveryDeps {
+  /**
+   * Live health for the AIO host's own extension channel, so local requests get
+   * the same freshness precheck and channel honesty the node path already has.
+   */
+  localExtensionChannel: () => BrowserLocalExtensionHealth;
   targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
   driver: Pick<PuppeteerBrowserDriver, 'listTargets'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab' | 'listTabs'>;
@@ -102,11 +116,14 @@ export class BrowserTargetDiscoveryOperations {
       }))
       .map((target) => withRefreshFailureStaleFlag(target, refreshFailures))
       .map((target) => toAgentSafeTarget(target));
-    const refreshFailureSummary = describeInventoryRefreshFailures(
-      refreshFailures,
-      this.deps.extensionContactState,
-      targets,
-    );
+    const degradedSummary = [
+      describeInventoryRefreshFailures(
+        refreshFailures,
+        this.deps.extensionContactState,
+        targets,
+      ),
+      this.describeLocalChannelDegradation(computerTarget.target),
+    ].filter(Boolean).join('; ');
     return this.deps.result({
       context: request,
       profileId: request.profileId,
@@ -115,9 +132,104 @@ export class BrowserTargetDiscoveryOperations {
       actionClass: 'read',
       decision: 'allowed',
       outcome: 'succeeded',
-      summary: `Listed ${targets.length} browser targets${refreshFailureSummary ? ` (${refreshFailureSummary})` : ''}`,
-      ...(refreshFailureSummary ? { reason: refreshFailureSummary } : {}),
+      summary: `Listed ${targets.length} browser targets${degradedSummary ? ` (${degradedSummary})` : ''}`,
+      ...(degradedSummary ? { reason: degradedSummary } : {}),
       data: targets,
+    });
+  }
+
+  /**
+   * An empty target list must not read the same whether the local extension is
+   * absent, silent, or healthy-with-nothing-shared. Returns a degraded-channel
+   * sentence for the first two, and '' for a healthy channel so a legitimate
+   * "no tabs shared yet" stays a clean success.
+   *
+   * Stays quiet about a never-installed local extension unless the caller
+   * explicitly asked for the local computer — otherwise every listing on a
+   * machine that only uses worker nodes would carry a bogus warning.
+   */
+  private describeLocalChannelDegradation(
+    target: BrowserComputerTargetResolution,
+  ): string {
+    if (target.nodeId) {
+      return '';
+    }
+    const channel = this.deps.localExtensionChannel();
+    // 'unknown' means the probe could not run, not that anything is wrong.
+    if (channel.state === 'ready' || channel.state === 'unknown') {
+      return '';
+    }
+    if (!channel.installed && !target.localOnly) {
+      return '';
+    }
+    return `local extension channel is degraded (${channel.state}): ${channel.summary}`
+      + `${channel.remediation ? ` ${channel.remediation}` : ''}`;
+  }
+
+  /**
+   * Pick the best existing logged-in tab for a URL and explain every rejection.
+   * Read-only: it never opens, attaches to, or drives anything, so it is safe
+   * to run before deciding how to proceed.
+   */
+  async preflightTarget(
+    request: BrowserGatewayPreflightTargetRequest,
+  ): Promise<BrowserGatewayResult<BrowserTargetPreflightResult | null>> {
+    const url = request.url?.trim();
+    if (!url) {
+      return this.deps.result({
+        context: request,
+        action: 'preflight_target',
+        toolName: 'browser.preflight_target',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: 'url_required_for_preflight',
+        summary: 'A URL is required to select a Browser Gateway target',
+        data: null,
+      });
+    }
+    const computerTarget = resolveBrowserComputerTarget(request, {
+      connectedNodes: this.deps.getWorkerNodes(),
+      descriptors: this.deps.extensionTabStore.listTabs(),
+    });
+    if (!computerTarget.ok) {
+      return this.deps.result({
+        context: request,
+        action: 'preflight_target',
+        toolName: 'browser.preflight_target',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: computerTarget.reason,
+        summary: `Browser target preflight denied: ${computerTarget.reason}`,
+        url,
+        data: null,
+      });
+    }
+
+    const targets = this.deps.targetRegistry.listTargets()
+      .map((target) => withRemoteExtensionStaleFlag(target, {
+        extensionContactState: this.deps.extensionContactState,
+      }));
+    const preflight = selectBrowserTargetForUrl({
+      url,
+      targets,
+      requestedComputer: computerTarget.target,
+    });
+    const channelNote = this.describeLocalChannelDegradation(computerTarget.target);
+    return this.deps.result({
+      context: request,
+      ...(preflight.selected?.profileId ? { profileId: preflight.selected.profileId } : {}),
+      ...(preflight.selected ? { targetId: preflight.selected.targetId } : {}),
+      action: 'preflight_target',
+      toolName: 'browser.preflight_target',
+      actionClass: 'read',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      summary: preflight.summary,
+      ...(channelNote ? { reason: channelNote } : {}),
+      url,
+      data: preflight,
     });
   }
 
@@ -217,6 +329,11 @@ export class BrowserTargetDiscoveryOperations {
         titleHint,
       );
     }
+    // A provably-down local channel cannot confirm anything; refreshing would
+    // just burn the 90s undelivered-wait before reaching the same conclusion.
+    if (target.localOnly && isLocalExtensionChannelProvablyDown(this.deps.localExtensionChannel())) {
+      return null;
+    }
     const refreshStartedAt = Date.now();
     const failures = collectInventoryRefreshFailures(await refreshBrowserExtensionInventory({
       request: target.nodeId ? { ...request, nodeId: target.nodeId } : request,
@@ -287,6 +404,17 @@ export class BrowserTargetDiscoveryOperations {
       }));
     }
 
+    // Local mirror of the node precheck above. Without it a `computer: "local"`
+    // open burned the full 90s undelivered-wait against a channel that health
+    // already proved has no consumer, then failed with a generic
+    // `not_delivered`. Only fires when the channel is PROVABLY down (no
+    // registration / broken native-host chain) so a merely silent extension
+    // still gets the recovery wait it was designed for.
+    const localDownResult = this.localChannelDownResult(request, target, url);
+    if (localDownResult) {
+      return localDownResult;
+    }
+
     try {
       const result = await this.deps.extensionCommandStore.sendCommand({
         ...(target.nodeId ? { queueKey: browserExtensionQueueKeyForNode(target.nodeId) } : {}),
@@ -318,6 +446,38 @@ export class BrowserTargetDiscoveryOperations {
     } catch (error) {
       return this.openTabFailed(request, target, url, error);
     }
+  }
+
+  private localChannelDownResult(
+    request: BrowserGatewayFindOrOpenRequest,
+    target: BrowserComputerTargetResolution,
+    url: string,
+  ): BrowserGatewayResult<AgentSafeTarget | null> | null {
+    if (target.nodeId) {
+      return null;
+    }
+    const channel = this.deps.localExtensionChannel();
+    if (!isLocalExtensionChannelProvablyDown(channel)) {
+      return null;
+    }
+    // The agent-facing result carries `reason`, not `summary`, so the exact
+    // repair has to live in `reason` — same convention as
+    // `notDeliveredOpenTabMessage`.
+    const reason = `browser_local_extension_unreachable (${channel.state}: ${channel.summary}`
+      + `${channel.remediation ? ` ${channel.remediation}` : ''}`
+      + ' The open_tab command was NOT queued and did NOT run — safe to retry once repaired.)';
+    return this.deps.result({
+      context: request,
+      action: 'find_or_open',
+      toolName: 'browser.find_or_open',
+      actionClass: 'navigate',
+      decision: 'allowed',
+      outcome: 'failed',
+      reason,
+      summary: `Local Chrome extension channel is unreachable: ${channel.summary}`,
+      url,
+      data: null,
+    });
   }
 
   private async openTabFailed(

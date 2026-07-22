@@ -6,6 +6,7 @@ const UNTRUSTED_WARNING =
 
 const TOOL_NAMES = [
   'browser.list_targets',
+  'browser.preflight_target',
   'browser.find_or_open',
   'browser.select_target',
   'browser.navigate',
@@ -191,6 +192,14 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       description: 'Ask connected Browser Gateway extensions to re-send tab inventory before returning cached targets. Bounded to a short wait.',
     },
   }),
+  'browser.preflight_target': objectSchema({
+    url: {
+      ...stringProp,
+      description: 'The http(s) URL you intend to work on.',
+    },
+    nodeId: nodeIdProp,
+    computer: computerProp,
+  }, ['url']),
   'browser.find_or_open': objectSchema({
     url: {
       ...stringProp,

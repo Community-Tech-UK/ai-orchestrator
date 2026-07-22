@@ -21,7 +21,11 @@ import {
   type BrowserExtensionPollRequest,
   type BrowserExtensionQueuedCommand,
 } from './browser-extension-command-store';
-import { getBrowserExtensionContactState } from './browser-extension-contact-state';
+import {
+  BROWSER_LOCAL_EXTENSION_CHANNEL_ID,
+  getBrowserExtensionContactState,
+  type BrowserExtensionRuntimeRecord,
+} from './browser-extension-contact-state';
 import {
   handleUnattendedRpcMethod,
   isUnattendedRpcMethod,
@@ -69,6 +73,12 @@ export interface BrowserGatewayRpcServerOptions {
   toolRevealStore?: BrowserToolRevealStore;
   resolveCheckpointOwner?: (instanceId: string) => string;
   onExtensionDisconnected?: (reason: string) => void;
+  /**
+   * Called on every authenticated inbound message from the LOCAL Chrome
+   * extension (via the native host). Defaults to recording contact + build
+   * evidence against the reserved local channel id.
+   */
+  onExtensionContact?: (runtime: BrowserExtensionRuntimeRecord) => void;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
   extensionToken?: string;
@@ -100,6 +110,7 @@ export class BrowserGatewayRpcServer {
   private readonly toolRevealStore?: BrowserToolRevealStore;
   private readonly resolveCheckpointOwner: (instanceId: string) => string;
   private readonly onExtensionDisconnected: (reason: string) => void;
+  private readonly onExtensionContact: (runtime: BrowserExtensionRuntimeRecord) => void;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly extensionToken: string;
@@ -119,7 +130,14 @@ export class BrowserGatewayRpcServer {
     this.resolveCheckpointOwner = options.resolveCheckpointOwner ?? ((instanceId) => instanceId);
     this.onExtensionDisconnected = options.onExtensionDisconnected
       ?? ((reason: string) =>
-        getBrowserExtensionContactState().markExtensionDisconnect('local', reason));
+        getBrowserExtensionContactState()
+          .markExtensionDisconnect(BROWSER_LOCAL_EXTENSION_CHANNEL_ID, reason));
+    this.onExtensionContact = options.onExtensionContact
+      ?? ((runtime: BrowserExtensionRuntimeRecord) => {
+        const contactState = getBrowserExtensionContactState();
+        contactState.markExtensionContact(BROWSER_LOCAL_EXTENSION_CHANNEL_ID);
+        contactState.markExtensionRuntime(BROWSER_LOCAL_EXTENSION_CHANNEL_ID, runtime);
+      });
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.extensionToken = options.extensionToken ?? crypto.randomBytes(32).toString('hex');
@@ -247,6 +265,8 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('createProfile')(withContext);
       case 'browser.list_targets':
         return this.requireMethod('listTargets')(withContext);
+      case 'browser.preflight_target':
+        return this.requireMethod('preflightTarget')(withContext);
       case 'browser.find_or_open':
         return this.requireMethod('findOrOpen')(withContext);
       case 'browser.open_profile':
@@ -346,8 +366,19 @@ export class BrowserGatewayRpcServer {
     return this.toolRevealStore ?? getBrowserToolRevealStore();
   }
 
+  /**
+   * Every authenticated local-extension message is proof the channel is alive.
+   * Recorded against the reserved local channel id so `browser.health`,
+   * freshness prechecks and error messages can describe the local channel with
+   * the same fidelity as a worker node's.
+   */
+  private recordLocalExtensionContact(payload: Record<string, unknown>): void {
+    this.onExtensionContact(extensionRuntimeFromPayload(payload));
+  }
+
   private handleExtensionAttachTab(request: BrowserGatewayRpcRequest): unknown {
     const params = this.parseAuthorizedExtensionParams(request.params);
+    this.recordLocalExtensionContact(params.payload);
     const result = BrowserAttachExistingTabRequestSchema.safeParse(params.payload);
     if (!result.success) {
       throw new Error('Invalid browser gateway RPC payload');
@@ -363,6 +394,7 @@ export class BrowserGatewayRpcServer {
     request: BrowserGatewayRpcRequest,
   ): Promise<BrowserExtensionQueuedCommand | null> {
     const params = this.parseAuthorizedExtensionParams(request.params);
+    this.recordLocalExtensionContact(params.payload);
     return this.extensionCommandStore.pollCommand(
       this.validateExtensionPollPayload(params.payload),
     );
@@ -370,6 +402,7 @@ export class BrowserGatewayRpcServer {
 
   private handleExtensionCommandResult(request: BrowserGatewayRpcRequest): { ok: true } {
     const params = this.parseAuthorizedExtensionParams(request.params);
+    this.recordLocalExtensionContact(params.payload);
     this.extensionCommandStore.resolveCommand(
       this.validateExtensionCommandResultPayload(params.payload),
     );
@@ -378,11 +411,12 @@ export class BrowserGatewayRpcServer {
 
   private handleExtensionCommandReceived(request: BrowserGatewayRpcRequest): { ok: true } {
     const params = this.parseAuthorizedExtensionParams(request.params);
+    this.recordLocalExtensionContact(params.payload);
     const commandId = params.payload['commandId'];
     if (typeof commandId !== 'string' || !commandId) {
       throw new Error('Invalid browser gateway RPC payload');
     }
-    this.extensionCommandStore.markReceived('local', commandId);
+    this.extensionCommandStore.markReceived(BROWSER_LOCAL_EXTENSION_CHANNEL_ID, commandId);
     return { ok: true };
   }
 
@@ -607,6 +641,25 @@ export class BrowserGatewayRpcServer {
     }
     return method.bind(this.service) as (payload: Record<string, unknown>) => unknown;
   }
+}
+
+/**
+ * Pull the extension's self-reported build evidence off a native message
+ * payload. The native host stamps these onto poll/receipt/result messages
+ * (`withExtensionRuntimeEvidence`); attach_tab payloads carry neither, which is
+ * why both fields are optional.
+ */
+function extensionRuntimeFromPayload(
+  payload: Record<string, unknown>,
+): BrowserExtensionRuntimeRecord {
+  const extensionVersion = payload['extensionVersion'];
+  const extensionStartedAt = payload['extensionStartedAt'];
+  return {
+    ...(typeof extensionVersion === 'string' && extensionVersion ? { extensionVersion } : {}),
+    ...(typeof extensionStartedAt === 'number' && Number.isFinite(extensionStartedAt)
+      ? { extensionStartedAt }
+      : {}),
+  };
 }
 
 let browserGatewayRpcServer: BrowserGatewayRpcServer | null = null;

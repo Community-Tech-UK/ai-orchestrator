@@ -1,6 +1,22 @@
 export const BROWSER_EXTENSION_CONTACT_FRESH_MS = 90_000;
 
 /**
+ * Reserved channel id for the AIO host's OWN Chrome extension session. The
+ * local extension reaches the coordinator through the native host + unix
+ * socket rather than the worker relay, so it has no worker nodeId — but it is
+ * otherwise the same channel with the same freshness, queue and disconnect
+ * semantics. Keying it under a reserved id lets health, freshness prechecks and
+ * error messages treat local and remote identically instead of leaving local
+ * completely untracked (the failure mode where "no local extension installed",
+ * "installed but not polling" and "healthy, nothing shared" were all an
+ * indistinguishable empty list).
+ *
+ * Matches the command store's default queue key, so `queueKey` and channel id
+ * agree for the local channel.
+ */
+export const BROWSER_LOCAL_EXTENSION_CHANNEL_ID = 'local';
+
+/**
  * A contact gap larger than this is a channel outage worth counting: the
  * extension long-polls continuously (≤10s holds, 250ms idle re-poll), so a
  * >30s silence means the service worker slept, the native host dropped, or
@@ -22,6 +38,17 @@ export interface BrowserExtensionDisconnectRecord {
   reason: string;
 }
 
+/**
+ * Self-reported build evidence the extension stamps on every native message.
+ * Used for local/remote version-compatibility reporting in health; the remote
+ * path carries the same fields on the worker node's relay capabilities.
+ */
+export interface BrowserExtensionRuntimeRecord {
+  extensionVersion?: string;
+  /** Epoch ms the MV3 service worker started; changes on every SW restart. */
+  extensionStartedAt?: number;
+}
+
 /** Telemetry about observed channel outages, for tuning recovery budgets. */
 export interface BrowserExtensionContactGapStats {
   /** Contact gaps above the outage threshold since this node registered. */
@@ -40,6 +67,8 @@ export interface BrowserExtensionContactStateReader {
   getContactGapStats(nodeId: string): BrowserExtensionContactGapStats;
   /** Optional so lightweight fakes need not implement it. */
   getLastDisconnect?(nodeId: string): BrowserExtensionDisconnectRecord | undefined;
+  /** Optional so lightweight fakes need not implement it. */
+  getExtensionRuntime?(nodeId: string): BrowserExtensionRuntimeRecord | undefined;
 }
 
 export interface BrowserExtensionContactStateOptions {
@@ -54,6 +83,7 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
   private readonly lastContactAtByNode = new Map<string, number>();
   private readonly gapStatsByNode = new Map<string, BrowserExtensionContactGapStats>();
   private readonly lastDisconnectByNode = new Map<string, BrowserExtensionDisconnectRecord>();
+  private readonly runtimeByNode = new Map<string, BrowserExtensionRuntimeRecord>();
 
   constructor(options: BrowserExtensionContactStateOptions = {}) {
     this.now = options.now ?? Date.now;
@@ -106,10 +136,35 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
     return this.lastDisconnectByNode.get(nodeId);
   }
 
+  /**
+   * Record build evidence the extension stamped on a native message. Fields are
+   * merged, never cleared: an older message that omits `extensionVersion` must
+   * not erase a version we already learned.
+   */
+  markExtensionRuntime(nodeId: string, runtime: BrowserExtensionRuntimeRecord): void {
+    const previous = this.runtimeByNode.get(nodeId);
+    const merged: BrowserExtensionRuntimeRecord = {
+      ...previous,
+      ...(runtime.extensionVersion ? { extensionVersion: runtime.extensionVersion } : {}),
+      ...(runtime.extensionStartedAt !== undefined
+        ? { extensionStartedAt: runtime.extensionStartedAt }
+        : {}),
+    };
+    if (merged.extensionVersion === undefined && merged.extensionStartedAt === undefined) {
+      return;
+    }
+    this.runtimeByNode.set(nodeId, merged);
+  }
+
+  getExtensionRuntime(nodeId: string): BrowserExtensionRuntimeRecord | undefined {
+    return this.runtimeByNode.get(nodeId);
+  }
+
   forgetNode(nodeId: string): void {
     this.lastContactAtByNode.delete(nodeId);
     this.gapStatsByNode.delete(nodeId);
     this.lastDisconnectByNode.delete(nodeId);
+    this.runtimeByNode.delete(nodeId);
   }
 
   getLastExtensionContactAt(nodeId: string): number | undefined {

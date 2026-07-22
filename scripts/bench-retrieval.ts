@@ -18,14 +18,19 @@
  *                            user-data root instead (e.g. a specific
  *                            instance's directory, or a throwaway fixture
  *                            directory for manual verification).
+ *   --local-force-wasm       keep --local on the in-process WASM read-only
+ *                            driver (2 GiB store ceiling) instead of the
+ *                            native Electron-as-Node child.
  *
  * Exit code 1 on a regression vs. baseline so CI/`test:slow` can gate.
  */
 
+import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { SqliteDriver } from '../src/main/db/sqlite-driver';
 import { createSqliteWasmDatabase, initSqliteWasm, openSqliteWasmFileReadOnly } from '../src/main/db/sqlite-wasm-driver';
 import { parseJsonlDocs, parseJsonlQueries } from '../src/main/memory/retrieval-eval/dataset';
 import { runSyntheticSuite } from '../src/main/memory/retrieval-eval/synthetic-suite';
@@ -35,13 +40,24 @@ import {
   resolveActiveUserDataRoot,
   runLocalSuite,
   type LocalStoreOutcome,
+  type LocalSuiteResult,
 } from '../src/main/memory/retrieval-eval/local-suite';
+import {
+  LOCAL_CHILD_FLAG,
+  buildLocalChildArgs,
+  formatLocalChildResult,
+  parseLocalChildStdout,
+  planLocalDriver,
+  resolveElectronBinaryPath,
+} from '../src/main/memory/retrieval-eval/local-suite-driver';
 
 const BENCH_ROOT = join(__dirname, '../benchmarks/retrieval');
 const FIXTURES = join(BENCH_ROOT, 'fixtures');
 const BASELINE_PATH = join(BENCH_ROOT, 'baseline.json');
 const LOCAL_QUERIES_PATH = join(BENCH_ROOT, 'local-queries.jsonl');
 const REPO_ROOT = resolve(__dirname, '..');
+const SCRIPT_PATH = join(__dirname, 'bench-retrieval.ts');
+const TSX_CLI_PATH = join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
 function fmt(summary: MetricSummary): string {
   return `R@1=${summary.r1.toFixed(3)} R@5=${summary.r5.toFixed(3)} ` +
@@ -96,8 +112,8 @@ export function planBenchActions(args: ReadonlySet<string>): BenchActions {
   return { updateBaseline: false, checkRegression: true, runLocal: args.has('--local') };
 }
 
-async function runLocal(args: readonly string[]): Promise<void> {
-  console.log('\n[--local] local-personal suite (READ-ONLY, never committed)');
+/** Runs the local suite in this process with the given read-only driver. */
+function computeLocalResult(args: readonly string[], openReadOnly: (path: string) => SqliteDriver): LocalSuiteResult {
   const userDataOverride = parseArgValue(args, '--local-user-data=');
   const userDataRoot = userDataOverride
     ? resolve(userDataOverride)
@@ -106,14 +122,71 @@ async function runLocal(args: readonly string[]): Promise<void> {
       env: process.env,
       existsSync,
     });
-  const result = runLocalSuite({
+  return runLocalSuite({
     userDataRoot,
     existsSync,
-    openReadOnly: openSqliteWasmFileReadOnly,
+    openReadOnly,
     readFileSync: (path) => readFileSync(path, 'utf-8'),
     localQueriesPath: LOCAL_QUERIES_PATH,
     workspacePath: parseLocalWorkspaceArg(args),
   });
+}
+
+/**
+ * Re-runs the local suite inside a short-lived `ELECTRON_RUN_AS_NODE=1` child,
+ * where the native (ABI-matched, no 2 GiB ceiling) read-only driver loads.
+ * Throws on any spawn/exit/protocol failure so the caller can fall back
+ * loudly rather than silently reporting a store as unreadable.
+ */
+function runLocalInNativeChild(args: readonly string[], electronBinaryPath: string): LocalSuiteResult {
+  const child = spawnSync(
+    electronBinaryPath,
+    buildLocalChildArgs(TSX_CLI_PATH, SCRIPT_PATH, args),
+    {
+      cwd: REPO_ROOT,
+      encoding: 'utf-8',
+      maxBuffer: 32 * 1024 * 1024,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    },
+  );
+  if (child.error) throw child.error;
+  if (child.status !== 0) {
+    throw new Error(`Local-suite child exited with status ${child.status}: ${(child.stderr || '').trim() || '(no stderr)'}`);
+  }
+  return parseLocalChildStdout(child.stdout ?? '');
+}
+
+/** Child-process entry point: native driver, JSON result on stdout, nothing else run. */
+async function runLocalChild(args: readonly string[]): Promise<void> {
+  const { defaultDriverFactory } = await import('../src/main/db/better-sqlite3-driver');
+  const result = computeLocalResult(args, (path) => defaultDriverFactory(path, { readonly: true }));
+  process.stdout.write(`${formatLocalChildResult(result)}\n`);
+}
+
+async function runLocal(args: readonly string[]): Promise<void> {
+  console.log('\n[--local] local-personal suite (READ-ONLY, never committed)');
+  const electronBinaryPath = resolveElectronBinaryPath({
+    repoRoot: REPO_ROOT,
+    existsSync,
+    readFileSync: (path) => readFileSync(path, 'utf-8'),
+  });
+  const plan = planLocalDriver({ args: new Set(args), electronBinaryPath });
+  console.log(`  driver: ${plan.mode} — ${plan.reason}`);
+
+  let result: LocalSuiteResult;
+  if (plan.mode === 'native-child' && electronBinaryPath) {
+    try {
+      result = runLocalInNativeChild(args, electronBinaryPath);
+    } catch (error) {
+      console.warn(`  ⚠️  native child failed (${error instanceof Error ? error.message : String(error)});`);
+      console.warn('      falling back to the in-process WASM driver — stores above 2 GiB will report failed.');
+      await initSqliteWasm();
+      result = computeLocalResult(args, openSqliteWasmFileReadOnly);
+    }
+  } else {
+    await initSqliteWasm();
+    result = computeLocalResult(args, openSqliteWasmFileReadOnly);
+  }
 
   console.log(`  user-data root: ${result.userDataRoot ?? '(not found)'}`);
   printStoreOutcome(result.rlm);
@@ -128,8 +201,15 @@ async function runLocal(args: readonly string[]): Promise<void> {
 }
 
 export async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  if (argv.includes(LOCAL_CHILD_FLAG)) {
+    // Spawned by runLocalInNativeChild: run only the local suite, natively.
+    await runLocalChild(argv);
+    return;
+  }
+
   await initSqliteWasm();
-  const args = new Set(process.argv.slice(2));
+  const args = new Set(argv);
   const actions = planBenchActions(args);
   const dataset = {
     corpus: parseJsonlDocs(readFileSync(join(FIXTURES, 'corpus.jsonl'), 'utf-8')),
@@ -167,7 +247,7 @@ export async function main(): Promise<void> {
   }
 
   if (actions.runLocal) {
-    await runLocal(process.argv.slice(2));
+    await runLocal(argv);
   }
 }
 

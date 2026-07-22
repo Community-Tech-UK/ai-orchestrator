@@ -5,6 +5,8 @@ import type {
   DesktopAccessibilitySnapshotRequest,
   DesktopAccessibilitySnapshotResult,
   DesktopActionResult,
+  DesktopActivateWindowRequest,
+  DesktopActivateWindowResult,
   DesktopAppDescriptor,
   DesktopAuditEntry,
   DesktopClickRequest,
@@ -350,6 +352,17 @@ export class DesktopGatewayService {
       request.appId,
     );
     return allowed({ escalationId, status: 'recorded' });
+  }
+
+  /**
+   * Foreground a specific observed window of a granted app. Navigation
+   * prerequisite only — see DesktopInputController.activateWindow.
+   */
+  async activateWindow(
+    context: DesktopGatewayContext,
+    request: DesktopActivateWindowRequest,
+  ): Promise<DesktopGatewayResult<DesktopActivateWindowResult>> {
+    return this.inputController.activateWindow(context, request);
   }
 
   async click(

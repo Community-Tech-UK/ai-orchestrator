@@ -2,6 +2,8 @@ import type {
   DesktopAccessibilitySnapshotRequest,
   DesktopAccessibilitySnapshotResult,
   DesktopActionResult,
+  DesktopActivateWindowRequest,
+  DesktopActivateWindowResult,
   DesktopAppDescriptor,
   DesktopClickRequest,
   DesktopDragRequest,
@@ -31,6 +33,14 @@ export interface DesktopDriver {
   accessibilitySnapshot(
     request: DesktopAccessibilitySnapshotRequest,
   ): Promise<DesktopAccessibilitySnapshotResult>;
+  /**
+   * Bring one visible window of the given app to the front. Navigation only —
+   * the gateway still applies the normal action policy to whatever the caller
+   * does next.
+   */
+  activateWindow(
+    request: DesktopActivateWindowRequest,
+  ): Promise<DesktopActivateWindowResult>;
   click(request: DesktopClickRequest): Promise<DesktopActionResult>;
   typeText(request: DesktopTypeTextRequest): Promise<DesktopActionResult>;
   hotkey(request: DesktopHotkeyRequest): Promise<DesktopActionResult>;
@@ -83,6 +93,10 @@ export class UnsupportedDesktopDriver implements DesktopDriver {
 
   async accessibilitySnapshot(): Promise<DesktopAccessibilitySnapshotResult> {
     throw new Error('computer_use_missing_accessibility');
+  }
+
+  async activateWindow(): Promise<DesktopActivateWindowResult> {
+    throw new Error('computer_use_unavailable_platform');
   }
 
   async click(): Promise<DesktopActionResult> {

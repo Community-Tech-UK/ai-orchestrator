@@ -332,6 +332,262 @@ describe('DesktopGatewayService', () => {
     expect(driver.click).not.toHaveBeenCalled();
   });
 
+  describe('activate_window', () => {
+    const MULTI_WINDOW_APP: DesktopAppDescriptor = {
+      ...APP,
+      visibleWindowCount: 2,
+      windows: [
+        { windowId: 'window-1', title: 'Duolingo', bounds: { x: 0, y: 0, width: 800, height: 600 } },
+        {
+          windowId: 'window-2',
+          title: 'ProContract',
+          // A second monitor: negative origin, different size.
+          bounds: { x: -1920, y: 0, width: 1920, height: 1080 },
+        },
+      ],
+    };
+
+    async function observe(driver: DesktopDriver) {
+      const service = makeService({
+        allowedApps: [MULTI_WINDOW_APP.appId],
+        apps: [MULTI_WINDOW_APP],
+        driver,
+        requireApprovalForInput: false,
+      });
+      const snapshot = await service.accessibilitySnapshot(context(), {
+        appId: MULTI_WINDOW_APP.appId,
+      });
+      return { service, token: snapshot.data!.observationToken! };
+    }
+
+    it('activates a specific window on another monitor and verifies which is now active', async () => {
+      const driver = makeDriver({ apps: [MULTI_WINDOW_APP] });
+      const { service, token } = await observe(driver);
+
+      await expect(service.activateWindow(context(), {
+        appId: MULTI_WINDOW_APP.appId,
+        observationToken: token,
+        windowId: 'window-2',
+      })).resolves.toMatchObject({
+        decision: 'allowed',
+        outcome: 'ok',
+        data: {
+          activated: true,
+          appId: MULTI_WINDOW_APP.appId,
+          activeWindow: { windowId: 'window-2' },
+          // Tokens are bound to their snapshot, so the caller must re-observe.
+          reobserveRequired: true,
+        },
+      });
+      expect(driver.activateWindow).toHaveBeenCalledWith(expect.objectContaining({
+        appId: MULTI_WINDOW_APP.appId,
+        windowId: 'window-2',
+      }));
+    });
+
+    it('defaults to the observed window when no windowId is supplied', async () => {
+      const driver = makeDriver({ apps: [MULTI_WINDOW_APP] });
+      const { service, token } = await observe(driver);
+
+      await service.activateWindow(context(), {
+        appId: MULTI_WINDOW_APP.appId,
+        observationToken: token,
+      });
+
+      expect(driver.activateWindow).toHaveBeenCalledWith(expect.objectContaining({
+        windowId: 'window-1',
+      }));
+    });
+
+    it('refuses a window the granted app does not own', async () => {
+      const driver = makeDriver({ apps: [MULTI_WINDOW_APP] });
+      const { service, token } = await observe(driver);
+
+      await expect(service.activateWindow(context(), {
+        appId: MULTI_WINDOW_APP.appId,
+        observationToken: token,
+        windowId: 'window-belonging-to-another-app',
+      })).resolves.toMatchObject({
+        decision: 'denied',
+        reason: 'computer_use_target_not_found',
+      });
+      expect(driver.activateWindow).not.toHaveBeenCalled();
+    });
+
+    it('refuses a denied app outright', async () => {
+      const driver = makeDriver({ apps: [DENIED_APP] });
+      const service = makeService({
+        allowedApps: [DENIED_APP.appId],
+        deniedApps: [DENIED_APP.appId],
+        apps: [DENIED_APP],
+        driver,
+        requireApprovalForInput: false,
+      });
+
+      const result = await service.activateWindow(context(), {
+        appId: DENIED_APP.appId,
+        observationToken: 'obs_whatever',
+      });
+
+      expect(result.decision).toBe('denied');
+      expect(driver.activateWindow).not.toHaveBeenCalled();
+    });
+
+    it('requires an observation token that is still valid', async () => {
+      const driver = makeDriver({ apps: [MULTI_WINDOW_APP] });
+      const { service } = await observe(driver);
+
+      await expect(service.activateWindow(context(), {
+        appId: MULTI_WINDOW_APP.appId,
+        observationToken: 'obs_never-issued',
+      })).resolves.toMatchObject({
+        decision: 'denied',
+        reason: 'computer_use_stale_observation',
+      });
+      expect(driver.activateWindow).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a driver refusal rather than reporting success', async () => {
+      const driver = makeDriver({ apps: [MULTI_WINDOW_APP] });
+      (driver.activateWindow as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('computer_use_target_not_active'),
+      );
+      const { service, token } = await observe(driver);
+
+      await expect(service.activateWindow(context(), {
+        appId: MULTI_WINDOW_APP.appId,
+        observationToken: token,
+        windowId: 'window-2',
+      })).resolves.toMatchObject({
+        decision: 'denied',
+        outcome: 'failed',
+        reason: 'computer_use_target_not_active',
+      });
+    });
+  });
+
+  it('allows navigation links whose labels contain action verbs, and still gates real commands', async () => {
+    // The live ProContract breadcrumb: a plain link whose label contains
+    // "Publish" and "Invite". Substring classification blocked it and made the
+    // whole read-only journey impossible.
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-breadcrumb',
+          role: 'AXLink',
+          label: 'PA23 - 07A - Publish Tender Pack (Auto Invite)',
+          url: 'https://procontract.example/activities/PA23-07A',
+          bounds: { x: 10, y: 10, width: 300, height: 20 },
+        }, {
+          uid: 'ax-unsubscribe-link',
+          role: 'AXLink',
+          label: 'Unsubscribe from notifications',
+          url: 'https://procontract.example/account/unsubscribe',
+          bounds: { x: 10, y: 40, width: 300, height: 20 },
+        }, {
+          uid: 'ax-publish-button',
+          role: 'AXButton',
+          label: 'Publish tender pack',
+          bounds: { x: 10, y: 70, width: 300, height: 20 },
+        }, {
+          uid: 'ax-link-no-url',
+          role: 'AXLink',
+          label: 'Publish tender pack',
+          bounds: { x: 10, y: 100, width: 300, height: 20 },
+        }, {
+          uid: 'ax-js-link',
+          role: 'AXLink',
+          label: 'Publish tender pack',
+          url: 'javascript:doPublish()',
+          bounds: { x: 10, y: 130, width: 300, height: 20 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+    const token = snapshot.data!.observationToken!;
+    const clickUid = (elementUid: string) =>
+      service.click(context(), { appId: APP.appId, observationToken: token, elementUid });
+
+    await expect(clickUid('ax-breadcrumb')).resolves.toMatchObject({ decision: 'allowed' });
+
+    // A link is still gated when it performs the state change itself...
+    await expect(clickUid('ax-unsubscribe-link')).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    // ...and a command control never earns the navigation exemption...
+    await expect(clickUid('ax-publish-button')).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    // ...nor does a link with no destination to prove it navigates...
+    await expect(clickUid('ax-link-no-url')).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+    // ...nor one whose "destination" is arbitrary script.
+    await expect(clickUid('ax-js-link')).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+  });
+
+  it('keeps credential and payment controls blocked regardless of link semantics', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-card-link',
+          role: 'AXLink',
+          label: 'Card number help',
+          url: 'https://procontract.example/help/card-number',
+          bounds: { x: 10, y: 10, width: 200, height: 20 },
+        }, {
+          uid: 'ax-password-link',
+          role: 'AXLink',
+          label: 'Password reset',
+          url: 'https://procontract.example/account/password',
+          bounds: { x: 10, y: 40, width: 200, height: 20 },
+        }, {
+          // Harmless label, effectful destination.
+          uid: 'ax-sneaky-link',
+          role: 'AXLink',
+          label: 'Manage notifications',
+          url: 'https://procontract.example/account/unsubscribe?token=abc',
+          bounds: { x: 10, y: 70, width: 200, height: 20 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+    const token = snapshot.data!.observationToken!;
+
+    for (const elementUid of ['ax-card-link', 'ax-password-link', 'ax-sneaky-link']) {
+      await expect(service.click(context(), {
+        appId: APP.appId,
+        observationToken: token,
+        elementUid,
+      })).resolves.toMatchObject({
+        decision: 'denied',
+        reason: 'computer_use_sensitive_action_blocked',
+      });
+    }
+  });
+
   it('reclassifies an element handle center against the deepest observed child', async () => {
     const driver = makeDriver({
       apps: [APP],
@@ -949,6 +1205,12 @@ function makeDriver(options: {
       nodes: [],
       capturedAt: 1783468800000,
     }),
+    activateWindow: vi.fn(async (request) => ({
+      activated: true,
+      appId: request.appId,
+      activeWindow: { windowId: request.windowId ?? 'window-1', title: 'Activated' },
+      reobserveRequired: true as const,
+    })),
     click: vi.fn(async () => ({ status: 'ok' as const })),
     typeText: vi.fn(async () => ({ status: 'ok' as const })),
     hotkey: vi.fn(async () => ({ status: 'ok' as const })),

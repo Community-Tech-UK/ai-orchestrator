@@ -18,6 +18,7 @@ import {
   DesktopRevokeGrantRequestSchema,
   DesktopScrollRequestSchema,
   DesktopScreenshotRequestSchema,
+  DesktopActivateWindowRequestSchema,
   DesktopClickRequestSchema,
   DesktopDragRequestSchema,
   DesktopTypeTextRequestSchema,
@@ -152,6 +153,8 @@ export class DesktopGatewayRpcServer {
         return this.requireMethod('screenshot')(context, payload);
       case 'computer.accessibility_snapshot':
         return this.requireMethod('accessibilitySnapshot')(context, payload);
+      case 'computer.activate_window':
+        return this.requireMethod('activateWindow')(context, payload);
       case 'computer.click':
         return this.requireMethod('click')(context, payload);
       case 'computer.type_text':
@@ -289,6 +292,8 @@ export class DesktopGatewayRpcServer {
           return DesktopScreenshotRequestSchema;
         case 'computer.accessibility_snapshot':
           return DesktopAccessibilitySnapshotRequestSchema;
+        case 'computer.activate_window':
+          return DesktopActivateWindowRequestSchema;
         case 'computer.click':
           return DesktopClickRequestSchema;
         case 'computer.type_text':

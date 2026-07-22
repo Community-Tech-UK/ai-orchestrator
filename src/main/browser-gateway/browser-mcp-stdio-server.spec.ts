@@ -17,10 +17,11 @@ describe('fetchPreviouslyRevealedToolNames', () => {
         revealedNames: ['browser.evaluate', 'browser.wait_for'],
       }),
     };
-    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toEqual([
-      'browser.evaluate',
-      'browser.wait_for',
-    ]);
+    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toEqual({
+      names: ['browser.evaluate', 'browser.wait_for'],
+      restored: true,
+      attempts: 1,
+    });
     expect(client.call).toHaveBeenCalledWith('browser.tool_reveal_get', {});
   });
 
@@ -32,23 +33,46 @@ describe('fetchPreviouslyRevealedToolNames', () => {
         reason: 'browser_gateway_rpc_error',
       }),
     };
-    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toEqual([]);
+    // A well-formed answer, just not a reveal list: that IS an answer, so it
+    // must not be reported as a failed restore.
+    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toMatchObject({
+      names: [],
+      restored: true,
+    });
   });
 
-  it('never blocks startup on a hung parent', async () => {
+  it('reports a hung parent as a FAILED restore, not as "nothing was revealed"', async () => {
     const client: BrowserGatewayRpcClientLike = {
       call: vi.fn().mockReturnValue(new Promise(() => undefined)),
     };
-    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toEqual([]);
-  }, 5_000);
+    // The distinction that matters: conflating these two made a revealed tool
+    // silently vanish from a later execution cell with no diagnostic.
+    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toEqual({
+      names: [],
+      restored: false,
+      attempts: 3,
+    });
+  }, 20_000);
+
+  it('retries a transiently busy parent instead of dropping the revealed surface', async () => {
+    const call = vi.fn()
+      .mockRejectedValueOnce(new Error('parent busy'))
+      .mockResolvedValueOnce({ revealedNames: ['browser.health'] });
+    await expect(fetchPreviouslyRevealedToolNames({ call })).resolves.toEqual({
+      names: ['browser.health'],
+      restored: true,
+      attempts: 2,
+    });
+  }, 20_000);
 
   it('filters non-string entries defensively', async () => {
     const client: BrowserGatewayRpcClientLike = {
       call: vi.fn().mockResolvedValue({ revealedNames: ['browser.click', 42, null] }),
     };
-    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toEqual([
-      'browser.click',
-    ]);
+    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toMatchObject({
+      names: ['browser.click'],
+      restored: true,
+    });
   });
 });
 
@@ -65,6 +89,15 @@ describe('reportToolSurface', () => {
     expect(payload['revealedNames']).toEqual(['browser.evaluate']);
     expect(payload['protocolVersion']).toBe(BROWSER_GATEWAY_RPC_PROTOCOL_VERSION);
     expect(payload['surfaceHash']).toBe(computeBrowserToolSurfaceHash(expectedTools));
+    expect(payload['revealRestoreFailed']).toBeUndefined();
+  });
+
+  it('flags a failed reveal restore so browser.health can report the degradation', () => {
+    const call = vi.fn().mockResolvedValue({});
+    reportToolSurface({ call }, [], { revealRestoreFailed: true });
+
+    const [, payload] = call.mock.calls[0] as [string, Record<string, unknown>];
+    expect(payload['revealRestoreFailed']).toBe(true);
   });
 
   it('swallows report failures (fire-and-forget)', async () => {

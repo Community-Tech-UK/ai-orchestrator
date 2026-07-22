@@ -421,6 +421,21 @@ export type BrowserFindOrOpenRequest = z.infer<
   typeof BrowserFindOrOpenRequestSchema
 >;
 
+/**
+ * Read-only preflight: choose the best existing logged-in tab for a URL and
+ * explain why the alternatives were rejected.
+ */
+export const BrowserPreflightTargetRequestSchema = z
+  .object({
+    url: webUrlSchema,
+    nodeId: idSchema.optional(),
+    computer: z.string().min(1).max(120).optional(),
+  })
+  .strict();
+export type BrowserPreflightTargetRequest = z.infer<
+  typeof BrowserPreflightTargetRequestSchema
+>;
+
 export const BrowserTargetRequestSchema = z
   .object({
     profileId: idSchema,

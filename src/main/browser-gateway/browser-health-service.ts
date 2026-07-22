@@ -39,6 +39,14 @@ import {
   getBrowserToolRevealStore,
   type BrowserToolRevealStore,
 } from './browser-tool-reveal-store';
+import {
+  getBrowserLocalExtensionHealth,
+  type BrowserLocalExtensionHealth,
+} from './browser-local-extension-health';
+import {
+  getBrowserExtensionTabStore,
+  type BrowserExtensionTabStore,
+} from './browser-extension-tab-store';
 
 export type BrowserGatewayHealthStatus = 'ready' | 'partial' | 'missing';
 
@@ -81,6 +89,11 @@ export interface BrowserGatewayHealthReport {
   status: BrowserGatewayHealthStatus;
   checkedAt: number;
   chromeRuntime: BrowserChromeRuntimeHealth;
+  /**
+   * The AIO host's own Chrome extension session. Present on every report so
+   * "no local extension" is a stated fact rather than an absent field.
+   */
+  localExtension: BrowserLocalExtensionHealth;
   managedProfiles: {
     total: number;
     running: number;
@@ -134,6 +147,8 @@ export interface BrowserGatewayHealthReport {
     protocolVersion: number;
     reportedAt: number;
     schemaMatch: boolean;
+    /** The forwarder restarted and could not restore its revealed tool set. */
+    revealRestoreFailed?: boolean;
     toolParity: {
       reportedCount: number;
       expectedCount: number;
@@ -152,7 +167,11 @@ export interface BrowserHealthServiceOptions {
   extensionContactState?: BrowserExtensionContactStateReader;
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'describeQueue'>;
   toolRevealStore?: Pick<BrowserToolRevealStore, 'listSurfaces'>;
+  extensionTabStore?: Pick<BrowserExtensionTabStore, 'listTabs'>;
   reliabilityEvents?: Pick<BrowserReliabilityEvents, 'recent'>;
+  /** Overrides the whole local-extension probe (filesystem-backed by default). */
+  localExtensionHealth?: () => BrowserLocalExtensionHealth;
+  userDataPath?: string;
   expectedToolSurface?: () => { names: string[]; surfaceHash: string };
   mcpBridgeAvailable?: () => boolean;
   chromeRuntimeDetector?: () => Promise<BrowserChromeRuntimeHealth>;
@@ -224,7 +243,9 @@ export class BrowserHealthService {
   private readonly extensionContactState: BrowserExtensionContactStateReader;
   private readonly extensionCommandStore: Pick<BrowserExtensionCommandStore, 'describeQueue'>;
   private readonly toolRevealStore: Pick<BrowserToolRevealStore, 'listSurfaces'>;
+  private readonly extensionTabStore: Pick<BrowserExtensionTabStore, 'listTabs'>;
   private readonly reliabilityEvents: Pick<BrowserReliabilityEvents, 'recent'>;
+  private readonly localExtensionHealth: () => BrowserLocalExtensionHealth;
   private readonly expectedToolSurface: () => { names: string[]; surfaceHash: string };
   private readonly mcpBridgeAvailable: () => boolean;
   private readonly chromeRuntimeDetector: () => Promise<BrowserChromeRuntimeHealth>;
@@ -240,7 +261,17 @@ export class BrowserHealthService {
     this.extensionContactState = options.extensionContactState ?? getBrowserExtensionContactState();
     this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.toolRevealStore = options.toolRevealStore ?? getBrowserToolRevealStore();
+    this.extensionTabStore = options.extensionTabStore ?? getBrowserExtensionTabStore();
     this.reliabilityEvents = options.reliabilityEvents ?? getBrowserReliabilityEvents();
+    this.localExtensionHealth = options.localExtensionHealth
+      ?? (() => getBrowserLocalExtensionHealth({
+        ...(options.userDataPath ? { userDataPath: options.userDataPath } : {}),
+        extensionContactState: this.extensionContactState,
+        extensionCommandStore: this.extensionCommandStore,
+        countSharedLocalTabs: () =>
+          this.extensionTabStore.listTabs().filter((tab) => !tab.nodeId).length,
+        now: this.now,
+      }));
     this.expectedToolSurface = options.expectedToolSurface ?? expectedBrowserToolSurface;
     this.mcpBridgeAvailable =
       options.mcpBridgeAvailable ?? (() => defaultMcpBridgeAvailableProvider());
@@ -269,6 +300,7 @@ export class BrowserHealthService {
     const locked = profiles.filter((profile) => profile.status === 'locked').length;
     const errors = profiles.filter((profile) => profile.status === 'error').length;
     const bridgeAvailable = this.mcpBridgeAvailable();
+    const localExtension = this.localExtensionHealth();
     const remoteExtensions = this.getRemoteExtensionHealth();
     const expectedSurface = this.expectedToolSurface();
     const mcpSessions = this.toolRevealStore.listSurfaces().map(({ instanceId, surface }) => {
@@ -280,6 +312,7 @@ export class BrowserHealthService {
         schemaMatch:
           surface.protocolVersion === BROWSER_GATEWAY_RPC_PROTOCOL_VERSION
           && surface.surfaceHash === expectedSurface.surfaceHash,
+        ...(surface.revealRestoreFailed ? { revealRestoreFailed: true } : {}),
         toolParity: {
           reportedCount: surface.names.length,
           expectedCount: expectedSurface.names.length,
@@ -289,6 +322,13 @@ export class BrowserHealthService {
     });
     const warnings: string[] = [];
     for (const session of mcpSessions) {
+      if (session.revealRestoreFailed) {
+        warnings.push(
+          `Browser Gateway MCP bridge for instance ${session.instanceId} could not restore its `
+          + 'previously revealed tools after a reconnect; the tool list is smaller than before '
+          + '(all tools remain callable by name — re-run browser.tool_search to re-list them).',
+        );
+      }
       if (!session.schemaMatch || session.toolParity.missing.length > 0) {
         warnings.push(
           `Browser Gateway MCP bridge for instance ${session.instanceId} is contract-skewed `
@@ -314,6 +354,14 @@ export class BrowserHealthService {
         `${errors} Browser Gateway ${errors === 1 ? 'profile is' : 'profiles are'} in an error state.`,
       );
     }
+    // Only warn once the local extension has been set up. A machine that never
+    // installed it is not degraded, and warning there would teach agents to
+    // ignore the field entirely.
+    if (localExtension.installed && localExtension.state !== 'ready') {
+      warnings.push(
+        `${localExtension.summary}${localExtension.remediation ? ` ${localExtension.remediation}` : ''}`,
+      );
+    }
     for (const node of remoteExtensions.nodes) {
       if (!node.silent) {
         continue;
@@ -331,6 +379,7 @@ export class BrowserHealthService {
       status: chromeRuntime.available && bridgeAvailable ? 'ready' : 'partial',
       checkedAt: this.now(),
       chromeRuntime,
+      localExtension,
       managedProfiles: {
         total: profiles.length,
         running,

@@ -1,6 +1,8 @@
 import type {
   DesktopAccessibilitySnapshotRequest,
   DesktopAccessibilitySnapshotResult,
+  DesktopActivateWindowRequest,
+  DesktopActivateWindowResult,
   DesktopAppDescriptor,
   DesktopClickRequest,
   DesktopDragRequest,
@@ -9,7 +11,12 @@ import type {
   DesktopTypeTextRequest,
 } from '../../../shared/types/desktop-gateway.types';
 
-export const DESKTOP_HELPER_PROTOCOL_VERSION = '1.1.0';
+/**
+ * Bumped to 1.2.0 for the `activateWindow` command. The version is compared for
+ * strict equality on both sides, so the bundled helper binary and this build
+ * must ship together — `npm run build:desktop-helper` after pulling this change.
+ */
+export const DESKTOP_HELPER_PROTOCOL_VERSION = '1.2.0';
 export const DESKTOP_HELPER_MAX_LINE_BYTES = 1024 * 1024;
 
 export type DesktopHelperCommandName =
@@ -17,6 +24,7 @@ export type DesktopHelperCommandName =
   | 'requestAccessibility'
   | 'listApps'
   | 'accessibilitySnapshot'
+  | 'activateWindow'
   | 'click'
   | 'typeText'
   | 'hotkey'
@@ -53,6 +61,9 @@ export interface DesktopHelperClient {
   accessibilitySnapshot(
     request: DesktopAccessibilitySnapshotRequest,
   ): Promise<DesktopAccessibilitySnapshotResult>;
+  activateWindow(
+    request: DesktopActivateWindowRequest,
+  ): Promise<DesktopActivateWindowResult>;
   click(request: DesktopClickRequest): Promise<void>;
   typeText(request: DesktopTypeTextRequest): Promise<void>;
   hotkey(request: DesktopHotkeyRequest): Promise<void>;

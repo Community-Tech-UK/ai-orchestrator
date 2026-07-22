@@ -5555,12 +5555,12 @@
       "lines": 2659
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2560
+      "path": "src/main/channels/channel-message-router.ts",
+      "lines": 2590
     },
     {
-      "path": "src/main/channels/channel-message-router.ts",
-      "lines": 2544
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2580
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
@@ -5815,6 +5815,10 @@
       "lines": 1296
     },
     {
+      "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
+      "lines": 1293
+    },
+    {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
       "lines": 1291
     },
@@ -5895,6 +5899,10 @@
       "lines": 1231
     },
     {
+      "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
+      "lines": 1221
+    },
+    {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
       "lines": 1220
     },
@@ -5908,10 +5916,6 @@
     },
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
-      "lines": 1203
-    },
-    {
-      "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
       "lines": 1203
     },
     {
@@ -5949,6 +5953,10 @@
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1151
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
+      "lines": 1149
     },
     {
       "path": "docs/plans/completed/claude2_completed.md",
@@ -6025,10 +6033,6 @@
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
       "lines": 1056
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
-      "lines": 1050
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -6168,10 +6172,6 @@
     },
     {
       "path": "src/main/context/context-compactor.ts",
-      "lines": 959
-    },
-    {
-      "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
       "lines": 959
     },
     {

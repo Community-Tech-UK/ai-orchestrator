@@ -124,7 +124,9 @@ export type SkillDiagnosticCode =
   | 'unreadable-file'
   | 'missing-file'
   | 'duplicate-skill-name'
-  | 'duplicate-trigger';
+  | 'duplicate-trigger'
+  /** The skill mandates a tool this build does not expose to agent sessions. */
+  | 'tool-surface-mismatch';
 
 export interface SkillDiagnostic {
   code: SkillDiagnosticCode;

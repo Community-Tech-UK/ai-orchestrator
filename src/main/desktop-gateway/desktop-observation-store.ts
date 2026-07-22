@@ -244,6 +244,7 @@ function toCandidate(node: DesktopAccessibilityNode): DesktopElementCandidate {
     role: node.role,
     ...(node.label ? { label: node.label } : {}),
     ...(node.value !== undefined ? { value: node.value } : {}),
+    ...(node.url ? { url: node.url } : {}),
     ...(node.bounds ? { bounds: node.bounds } : {}),
     ...(node.enabled !== undefined ? { enabled: node.enabled } : {}),
     ...(node.focused !== undefined ? { focused: node.focused } : {}),

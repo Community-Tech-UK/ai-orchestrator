@@ -95,6 +95,7 @@ export function makeService(overrides: {
   };
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionContactState?: BrowserGatewayServiceOptions['extensionContactState'];
+  localExtensionChannel?: BrowserGatewayServiceOptions['localExtensionChannel'];
   persistenceSentinel?: BrowserGatewayServiceOptions['persistenceSentinel'];
   writeJournal?: BrowserGatewayServiceOptions['writeJournal'];
   credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
@@ -314,6 +315,19 @@ export function makeService(overrides: {
       }),
       getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
     },
+    // Default to a healthy local channel so existing specs keep their exact
+    // command sequences; local-channel specs override it explicitly.
+    localExtensionChannel: overrides.localExtensionChannel ?? (() => ({
+      channelId: 'local',
+      state: 'ready' as const,
+      installed: true,
+      registered: true,
+      polling: true,
+      queue: { queuedCount: 0, inFlightCount: 0, waitingPollerCount: 1 },
+      contactGaps: { gapCount: 0, longestGapMs: 0 },
+      sharedTabCount: 0,
+      summary: 'Local extension channel is polling (last contact 0s ago).',
+    })),
     auditStore,
     grantStore,
     approvalStore,
@@ -330,6 +344,18 @@ export function makeService(overrides: {
         checkedAt: 1,
         chromeRuntime: {
           available: true,
+        },
+        localExtension: {
+          channelId: 'local',
+          state: 'ready',
+          installed: true,
+          registered: true,
+          polling: true,
+          queue: { queuedCount: 0, inFlightCount: 0, waitingPollerCount: 0 },
+          contactGaps: { gapCount: 0, longestGapMs: 0 },
+          sharedTabCount: 0,
+          manifestPath: '/tmp/test-native-messaging/com.ai_orchestrator.browser_gateway.json',
+          summary: 'Local extension channel is polling (last contact 0s ago).',
         },
         managedProfiles: {
           total: profiles.length,

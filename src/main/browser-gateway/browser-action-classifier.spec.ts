@@ -220,4 +220,103 @@ describe('browser-action-classifier', () => {
       hardStop: true,
     });
   });
+
+  describe('navigation-link semantics', () => {
+    const link = (overrides: Record<string, unknown> = {}) => classifyBrowserAction({
+      toolName: 'browser.click',
+      elementContext: {
+        role: 'link',
+        attributes: { href: '/procurement/activities/PA23-07A' },
+        ...overrides,
+      },
+    });
+
+    it('does not treat a breadcrumb containing "Publish" and "Invite" as a submit', () => {
+      // The exact ProContract breadcrumb that blocked the live task.
+      expect(link({
+        accessibleName: 'PA23 - 07A - Publish Tender Pack (Auto Invite)',
+      })).toMatchObject({
+        actionClass: 'navigate',
+        hardStop: false,
+        reason: 'navigation_link_semantics',
+      });
+    });
+
+    it.each([
+      ['invite', 'Invite suppliers list'],
+      ['send', 'Sent messages'],
+      ['review', 'Review responses'],
+      ['publish', 'Published notices'],
+      ['price', 'Pricing schedule'],
+      ['security', 'Security questionnaire'],
+    ])('treats a navigation link containing "%s" as navigation', (_word, accessibleName) => {
+      expect(link({ accessibleName })).toMatchObject({ actionClass: 'navigate' });
+    });
+
+    it.each([
+      ['unsubscribe', 'Unsubscribe from notifications'],
+      ['withdraw', 'Withdraw interest'],
+      ['delete', 'Delete this response'],
+      ['remove', 'Remove supplier'],
+      ['revoke', 'Revoke access'],
+    ])('keeps a link containing "%s" gated', (_word, accessibleName) => {
+      const result = link({ accessibleName });
+      expect(result.actionClass).not.toBe('navigate');
+      expect(['submit', 'destructive']).toContain(result.actionClass);
+    });
+
+    it('keeps an effectful destination gated even when the label looks harmless', () => {
+      const result = link({
+        accessibleName: 'Manage notifications',
+        attributes: { href: '/account/unsubscribe?token=abc' },
+      });
+
+      expect(result.actionClass).not.toBe('navigate');
+    });
+
+    it('requires a real destination — a link with no href stays gated', () => {
+      const result = classifyBrowserAction({
+        toolName: 'browser.click',
+        elementContext: { role: 'link', accessibleName: 'Publish tender pack' },
+      });
+
+      expect(result).toMatchObject({ actionClass: 'submit' });
+    });
+
+    it('does not accept a javascript: href as navigation', () => {
+      expect(link({
+        accessibleName: 'Publish tender pack',
+        attributes: { href: 'javascript:doPublish()' },
+      })).toMatchObject({ actionClass: 'submit' });
+    });
+
+    it('does not downgrade a button that merely looks like a link', () => {
+      expect(classifyBrowserAction({
+        toolName: 'browser.click',
+        elementContext: {
+          role: 'button',
+          accessibleName: 'Publish tender pack',
+          attributes: { href: '/procurement/publish' },
+        },
+      })).toMatchObject({ actionClass: 'submit' });
+    });
+
+    it('does not downgrade a link that submits a form', () => {
+      expect(link({
+        accessibleName: 'Publish tender pack',
+        formAction: '/procurement/publish',
+      })).toMatchObject({ actionClass: 'submit' });
+    });
+
+    it('keeps credential and payment hard stops ahead of navigation semantics', () => {
+      expect(link({
+        accessibleName: 'Card number help',
+        nearbyText: 'card number',
+      })).toMatchObject({ actionClass: 'payment', hardStop: true });
+
+      expect(link({
+        accessibleName: 'Password help',
+      })).toMatchObject({ actionClass: 'credential', hardStop: true });
+    });
+  });
 });

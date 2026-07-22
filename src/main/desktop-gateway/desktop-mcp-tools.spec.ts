@@ -10,6 +10,7 @@ const TOOL_NAMES = [
   'computer.screenshot',
   'computer.accessibility_snapshot',
   'computer.query_elements',
+  'computer.activate_window',
   'computer.click',
   'computer.type_text',
   'computer.hotkey',

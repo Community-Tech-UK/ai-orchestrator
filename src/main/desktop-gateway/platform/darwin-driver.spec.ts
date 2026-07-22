@@ -39,6 +39,12 @@ function makeHelper(overrides: Partial<DesktopHelperClient> = {}): DesktopHelper
       nodes: [],
       capturedAt: 1,
     })),
+    activateWindow: vi.fn(async (request) => ({
+      activated: true,
+      appId: request.appId,
+      activeWindow: { windowId: request.windowId ?? 'window-1' },
+      reobserveRequired: true as const,
+    })),
     click: vi.fn(async () => undefined),
     typeText: vi.fn(async () => undefined),
     hotkey: vi.fn(async () => undefined),

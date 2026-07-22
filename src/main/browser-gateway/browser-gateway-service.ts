@@ -117,6 +117,10 @@ import {
   type BrowserExtensionContactStateReader,
 } from './browser-extension-contact-state';
 import {
+  getBrowserLocalExtensionHealth,
+  type BrowserLocalExtensionHealth,
+} from './browser-local-extension-health';
+import {
   isRemoteExtensionContactFresh,
   remoteExtensionContactSummary,
 } from './browser-extension-node-contact';
@@ -168,6 +172,7 @@ import type {
   BrowserGatewayFillSecretRequest,
   BrowserGatewayFindOrOpenRequest,
   BrowserGatewayListTargetsRequest,
+  BrowserGatewayPreflightTargetRequest,
   BrowserGatewayMutatingActionRequest,
   BrowserGatewayNavigateRequest,
   BrowserGatewayScreenshotRequest,
@@ -199,6 +204,7 @@ import {
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { stageBrowserUploadOnNode } from './browser-remote-upload-staging';
 import { BrowserTargetDiscoveryOperations } from './browser-target-discovery-operations';
+import type { BrowserTargetPreflightResult } from './browser-target-preflight';
 
 export type {
   BrowserGatewayAttachExistingTabRequest,
@@ -255,6 +261,7 @@ export class BrowserGatewayService {
   >;
   private readonly extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   private readonly extensionContactState: BrowserExtensionContactStateReader;
+  private readonly describeLocalExtensionChannel: () => BrowserLocalExtensionHealth;
   private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
@@ -284,6 +291,8 @@ export class BrowserGatewayService {
     this.extensionTabStore = options.extensionTabStore ?? getBrowserExtensionTabStore();
     this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.extensionContactState = options.extensionContactState ?? getBrowserExtensionContactState();
+    this.describeLocalExtensionChannel = options.localExtensionChannel
+      ?? (() => getBrowserLocalExtensionHealth());
     this.auditStore = options.auditStore ?? getBrowserAuditStore();
     this.grantStore = options.grantStore ?? getBrowserGrantStore();
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
@@ -324,6 +333,7 @@ export class BrowserGatewayService {
       reliabilityEvents: this.reliabilityEvents,
     });
     this.targetDiscoveryOperations = new BrowserTargetDiscoveryOperations({
+      localExtensionChannel: () => this.describeLocalExtensionChannel(),
       targetRegistry: this.targetRegistry,
       driver: this.driver,
       extensionTabStore: this.extensionTabStore,
@@ -624,6 +634,16 @@ export class BrowserGatewayService {
     request: BrowserGatewayListTargetsRequest = {},
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget>[]>> {
     return this.targetDiscoveryOperations.listTargets(request);
+  }
+
+  /**
+   * Select the best existing logged-in tab for a URL, explaining every
+   * rejection. Read-only; never opens or drives anything.
+   */
+  async preflightTarget(
+    request: BrowserGatewayPreflightTargetRequest,
+  ): Promise<BrowserGatewayResult<BrowserTargetPreflightResult | null>> {
+    return this.targetDiscoveryOperations.preflightTarget(request);
   }
 
   async findOrOpen(

@@ -1,6 +1,8 @@
 import type {
   DesktopAccessibilitySnapshotResult,
   DesktopActionResult,
+  DesktopActivateWindowRequest,
+  DesktopActivateWindowResult,
   DesktopAppDescriptor,
   DesktopAuditEntry,
   DesktopClickRequest,
@@ -16,6 +18,8 @@ import type {
   DesktopWaitForRequest,
   DesktopWaitForResult,
 } from '../../shared/types/desktop-gateway.types';
+import { isSensitiveObservedElement } from './desktop-action-classifier';
+import { activateObservedWindow } from './desktop-window-activation';
 import {
   grantAllowsInput,
   type DesktopPermissionGrant,
@@ -217,6 +221,24 @@ export class DesktopInputController {
       resolvedRequest,
       (boundRequest) => this.deps.driver.drag(boundRequest),
     );
+  }
+
+  /**
+   * Bring an already-observed window of an already-granted app to the front.
+   * Delegated so the policy rules live beside their own tests; see
+   * desktop-window-activation.ts for why each guard exists.
+   */
+  activateWindow(
+    context: DesktopGatewayContext,
+    request: DesktopActivateWindowRequest,
+  ): Promise<DesktopGatewayResult<DesktopActivateWindowResult>> {
+    return activateObservedWindow(context, request, {
+      driver: this.deps.driver,
+      requireObservableApp: this.deps.requireObservableApp,
+      validateObservationToken: this.deps.validateObservationToken,
+      getObservationWindowId: this.deps.getObservationWindowId,
+      audit: this.deps.audit,
+    });
   }
 
   async waitFor(
@@ -625,17 +647,6 @@ function isSecretLikeInput(request: DesktopInputActionRequest): boolean {
   const hasDigits = /\d/.test(text);
   const hasSymbols = /[^a-z0-9]/i.test(text);
   return text.length >= 48 && noWhitespace && hasLetters && hasDigits && hasSymbols;
-}
-
-function isSensitiveObservedElement(candidate: DesktopElementCandidate): boolean {
-  if (candidate.redacted) {
-    return true;
-  }
-  const description = [candidate.role, candidate.label, candidate.value]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  return /secure|password|passcode|credential|secret|api\s*key|access\s*token|credit\s*card|card\s*number|\bcvv\b|\bcvc\b|security\s*code|account\s*security|two[- ]?factor|\b2fa\b|payment|purchase|buy\s*now|place\s*order|delete|remove\s*account|send|post|publish|sign\s*in|log\s*in|login|submit|confirm|authorize|administrator|admin\s*prompt|elevat|keychain|wallet/.test(description);
 }
 
 function matchesWaitCondition(

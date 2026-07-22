@@ -18,34 +18,85 @@ import {
 
 const logger = getLogger('BrowserMcpStdioServer');
 
-const REVEAL_RESTORE_TIMEOUT_MS = 1_500;
+const REVEAL_RESTORE_ATTEMPT_TIMEOUT_MS = 2_000;
+const REVEAL_RESTORE_ATTEMPTS = 3;
+const REVEAL_RESTORE_RETRY_DELAY_MS = 250;
+
+export interface RevealRestoreOutcome {
+  names: string[];
+  /**
+   * False when the parent never answered. Distinguished from "answered with an
+   * empty list" so a silent transport failure can never masquerade as "nothing
+   * was revealed" — that mistranslation is what made a revealed tool vanish
+   * from a later execution cell with no diagnostic anywhere.
+   */
+  restored: boolean;
+  attempts: number;
+}
 
 /**
  * Ask the parent for the tool names this instance had already revealed before
- * a forwarder restart (reliability hardening: the MCP tool surface must be
- * identical across a reconnect). Degrades to [] fast — never blocks startup.
+ * a forwarder restart (the MCP tool surface must be identical across a
+ * reconnect).
+ *
+ * Retries within a bounded budget rather than degrading to [] after a single
+ * short race: the parent is an Electron main process that can easily be busy
+ * for longer than one 1.5s window at exactly the moment a forwarder restarts,
+ * and losing the race silently dropped the entire revealed surface.
  */
 export async function fetchPreviouslyRevealedToolNames(
   client: BrowserGatewayRpcClientLike,
-): Promise<string[]> {
-  const timeout = new Promise<null>((resolve) => {
-    setTimeout(() => resolve(null), REVEAL_RESTORE_TIMEOUT_MS).unref?.();
+): Promise<RevealRestoreOutcome> {
+  for (let attempt = 1; attempt <= REVEAL_RESTORE_ATTEMPTS; attempt += 1) {
+    const names = await attemptRevealRestore(client);
+    if (names) {
+      return { names, restored: true, attempts: attempt };
+    }
+    if (attempt < REVEAL_RESTORE_ATTEMPTS) {
+      await delay(REVEAL_RESTORE_RETRY_DELAY_MS);
+    }
+  }
+  return { names: [], restored: false, attempts: REVEAL_RESTORE_ATTEMPTS };
+}
+
+async function attemptRevealRestore(
+  client: BrowserGatewayRpcClientLike,
+): Promise<string[] | null> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), REVEAL_RESTORE_ATTEMPT_TIMEOUT_MS);
+    timer.unref?.();
   });
   try {
     const result = await Promise.race([
       client.call('browser.tool_reveal_get', {}),
       timeout,
     ]);
+    if (result === TIMED_OUT) {
+      return null;
+    }
     if (result && typeof result === 'object' && !Array.isArray(result)) {
       const names = (result as Record<string, unknown>)['revealedNames'];
       if (Array.isArray(names)) {
         return names.filter((name): name is string => typeof name === 'string');
       }
     }
+    // A well-formed answer in an unexpected shape is still an answer; treat it
+    // as "nothing revealed" rather than retrying forever.
+    return [];
   } catch {
-    // Fall through — parity is restored on the next reveal instead.
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
-  return [];
+}
+
+const TIMED_OUT = Symbol('reveal_restore_timeout');
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms).unref?.();
+  });
 }
 
 /**
@@ -55,6 +106,7 @@ export async function fetchPreviouslyRevealedToolNames(
 export function reportToolSurface(
   client: BrowserGatewayRpcClientLike,
   revealedNames: readonly string[],
+  options: { revealRestoreFailed?: boolean } = {},
 ): void {
   const tools = createBrowserMcpTools(client);
   void client
@@ -63,6 +115,7 @@ export function reportToolSurface(
       revealedNames: [...revealedNames],
       protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
       surfaceHash: computeBrowserToolSurfaceHash(tools),
+      ...(options.revealRestoreFailed ? { revealRestoreFailed: true } : {}),
     })
     .then((result) => {
       const parity = result && typeof result === 'object'
@@ -100,6 +153,7 @@ export async function runBrowserMcpForwarder(
   const server = McpServer.getInstance();
   const toolDeferral = process.env[BROWSER_TOOL_DEFERRAL_ENV] === '1';
   const revealedNames = new Set<string>();
+  let revealRestoreFailed = false;
   if (toolDeferral) {
     // WS9 deferral: list only the core set + search/describe; all tools stay
     // dispatchable. Reveals push a list_changed so the client re-lists.
@@ -119,15 +173,27 @@ export async function runBrowserMcpForwarder(
     // Restore the pre-restart surface BEFORE attaching the list_changed
     // notifier (no pre-initialize notification) and before the first
     // tools/list, so the client sees the same tool set as before the blip.
-    const restored = await fetchPreviouslyRevealedToolNames(client);
-    if (restored.length > 0) {
-      server.revealTools(restored);
-      for (const name of restored) {
+    const restore = await fetchPreviouslyRevealedToolNames(client);
+    revealRestoreFailed = !restore.restored;
+    if (restore.names.length > 0) {
+      server.revealTools(restore.names);
+      for (const name of restore.names) {
         revealedNames.add(name);
       }
       logger.info('Restored previously revealed browser tools', {
-        count: restored.length,
+        count: restore.names.length,
+        attempts: restore.attempts,
       });
+    }
+    if (revealRestoreFailed) {
+      // Loud, not silent: an unrestored surface is a real degradation that
+      // `browser.health` must be able to report. Every tool stays dispatchable
+      // regardless, so this costs visibility, never capability.
+      logger.warn(
+        'Could not restore previously revealed browser tools; the tool list may be '
+        + 'smaller than before this reconnect (all tools remain callable by name)',
+        { attempts: restore.attempts },
+      );
     }
     server.on('tools-list-changed', () => {
       stdout.write(
@@ -138,7 +204,7 @@ export async function runBrowserMcpForwarder(
     server.registerTools(createBrowserMcpTools(client));
   }
   server.start();
-  reportToolSurface(client, [...revealedNames]);
+  reportToolSurface(client, [...revealedNames], { revealRestoreFailed });
 
   const shutdown = (): void => {
     server.stop();

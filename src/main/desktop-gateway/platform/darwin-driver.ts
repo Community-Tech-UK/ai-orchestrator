@@ -2,6 +2,8 @@ import type {
   DesktopAccessibilitySnapshotRequest,
   DesktopAccessibilitySnapshotResult,
   DesktopActionResult,
+  DesktopActivateWindowRequest,
+  DesktopActivateWindowResult,
   DesktopAppDescriptor,
   DesktopCapabilityState,
   DesktopClickRequest,
@@ -193,6 +195,12 @@ export class DarwinDesktopDriver implements DesktopDriver {
     request: DesktopAccessibilitySnapshotRequest,
   ): Promise<DesktopAccessibilitySnapshotResult> {
     return this.helper.accessibilitySnapshot(request);
+  }
+
+  async activateWindow(
+    request: DesktopActivateWindowRequest,
+  ): Promise<DesktopActivateWindowResult> {
+    return this.helper.activateWindow(request);
   }
 
   async click(request: DesktopClickRequest): Promise<DesktopActionResult> {

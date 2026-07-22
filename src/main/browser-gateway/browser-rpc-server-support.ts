@@ -20,6 +20,7 @@ import {
   BrowserListAuditLogRequestSchema,
   BrowserListGrantsRequestSchema,
   BrowserListTargetsRequestSchema,
+  BrowserPreflightTargetRequestSchema,
   BrowserManualStepRequestSchema,
   BrowserNavigateRequestSchema,
   BrowserProfileRequestSchema,
@@ -124,6 +125,8 @@ function schemaForBrowserRpcMethod(method: string): ZodType | null {
       return BrowserProfileRequestSchema;
     case 'browser.list_targets':
       return BrowserListTargetsRequestSchema;
+    case 'browser.preflight_target':
+      return BrowserPreflightTargetRequestSchema;
     case 'browser.snapshot':
       return BrowserSnapshotRequestSchema;
     case 'browser.assert_persisted':
@@ -286,6 +289,11 @@ export function handleReportToolSurface(
     protocolVersion,
     surfaceHash,
     reportedAt: Date.now(),
+    // A forwarder that could not restore its revealed set after a reconnect is
+    // degraded (a smaller tool LIST, though every tool is still dispatchable).
+    // Recorded so browser.health can say so instead of silently listing fewer
+    // tools than the previous cell.
+    ...(payload['revealRestoreFailed'] === true ? { revealRestoreFailed: true } : {}),
   };
   store.recordSurface(instanceId, surface);
   const expected = expectedBrowserToolSurface();

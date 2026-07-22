@@ -125,6 +125,59 @@ const DESTRUCTIVE_WORDS = [
   'price',
   'security',
   'account settings',
+  // Opting out / withdrawing is an externally visible state change the other
+  // party sees, and is often not self-reversible (a withdrawn tender interest
+  // usually cannot be re-registered). These were previously unclassified and
+  // fell through to ordinary 'input', which let the single most consequential
+  // step of a portal journey run under a plain input grant.
+  'unsubscribe',
+  'opt out',
+  'opt-out',
+  'withdraw',
+  // Portals rarely say "unsubscribe". Stopping notifications is the same
+  // externally visible preference change under a friendlier label, and it was
+  // the exact wording of the live tender control.
+  'stop notifications',
+  'stop notification',
+  'turn off notifications',
+  'stop emails',
+  'stop receiving',
+  'unfollow',
+];
+
+/** Roles that are navigation controls rather than commands. */
+const NAVIGATION_ROLES = new Set(['link', 'a']);
+
+/**
+ * Words that keep a control gated even when it is demonstrably a plain
+ * navigation link. Portals routinely implement a real state change as a GET
+ * link — "unsubscribe", "withdraw interest", "remove" — so link semantics alone
+ * must never be enough to wave those through. Matched against the element's OWN
+ * name/text/destination, not its surroundings.
+ */
+const EFFECTFUL_LINK_WORDS = [
+  'unsubscribe',
+  'opt out',
+  'opt-out',
+  'withdraw',
+  'stop notifications',
+  'stop notification',
+  'turn off notifications',
+  'stop emails',
+  'stop receiving',
+  'unfollow',
+  'delete',
+  'remove',
+  'revoke',
+  'cancel',
+  'decline',
+  'reject',
+  'approve',
+  'accept',
+  'confirm',
+  'sign out',
+  'log out',
+  'logout',
 ];
 
 const SUBMIT_WORDS = [
@@ -186,6 +239,16 @@ export function classifyBrowserAction(
       hardStop: true,
       reason: LEGAL_DECLARATION_REASON,
     };
+  }
+
+  // Semantic gate before the keyword pass. A breadcrumb labelled
+  // "Publish Tender Pack (Auto Invite)" is a navigation link, not a publish or
+  // invite action — classifying it by substring made whole read-only journeys
+  // impossible. Runs AFTER every hard stop above, so a link sitting in a
+  // payment/credential context is still caught by context.
+  const navigation = navigationLinkClassification(input.elementContext);
+  if (navigation) {
+    return navigation;
   }
 
   const contextClass = classFromText(contextText);
@@ -277,6 +340,59 @@ export function classifyBrowserFillForm(
   }
 
   return strongest;
+}
+
+/**
+ * Classify an element as plain navigation when its OWN semantics prove it —
+ * link role plus a real destination and no form-submit context. Returns null
+ * (defer to the keyword classifier) whenever that proof is missing or the
+ * destination/name looks state-changing, so absence of evidence never
+ * downgrades a control.
+ */
+function navigationLinkClassification(
+  context?: BrowserElementContext,
+): BrowserActionClassification | null {
+  if (!context || !context.role || !NAVIGATION_ROLES.has(normalize(context.role).trim())) {
+    return null;
+  }
+  // A control that posts a form is a command regardless of its role.
+  if (context.formAction) {
+    return null;
+  }
+  const href = navigationDestination(context);
+  if (href === null) {
+    return null;
+  }
+  const ownText = normalize(
+    [context.accessibleName, context.visibleText, context.label, href].filter(Boolean).join(' '),
+  );
+  if (hasAny(ownText, EFFECTFUL_LINK_WORDS)) {
+    return null;
+  }
+  return {
+    actionClass: 'navigate',
+    hardStop: false,
+    reason: 'navigation_link_semantics',
+  };
+}
+
+/**
+ * The link's destination, or null when there is no navigable one. A
+ * `javascript:` href is an arbitrary command dressed as a link, so it never
+ * qualifies.
+ */
+function navigationDestination(context: BrowserElementContext): string | null {
+  const attributes = context.attributes ?? {};
+  const key = Object.keys(attributes).find((name) => name.toLowerCase() === 'href');
+  const href = key ? attributes[key]?.trim() : undefined;
+  if (!href) {
+    return null;
+  }
+  const lowered = href.toLowerCase();
+  if (lowered.startsWith('javascript:') || lowered.startsWith('data:')) {
+    return null;
+  }
+  return href;
 }
 
 function classFromText(text: string): BrowserActionClass | null {

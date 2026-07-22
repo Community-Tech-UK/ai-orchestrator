@@ -167,6 +167,7 @@ interface MockInstanceRecord {
   displayName?: string;
   workingDirectory?: string;
   lastActivity?: number;
+  outputBuffer?: { id?: string; type: string; content: string }[];
 }
 
 function makeMockAdapter() {
@@ -1101,6 +1102,95 @@ describe('ChannelMessageRouter', () => {
         (call) => typeof call[1] === 'string' && call[1].startsWith('Output is still streaming.'),
       );
       expect(suppressionSends).toHaveLength(1);
+    });
+
+    it('relays a first-turn reply already buffered before the listener attached', async () => {
+      // Regression (echo-back): for a freshly-created instance, createInstance
+      // resolves only after the first turn has settled, so the assistant reply
+      // is already in the outputBuffer and NO live provider:normalized-event
+      // arrives for it. The relay must drain the buffer on attach or the reply
+      // silently never reaches the channel.
+      vi.useFakeTimers();
+
+      instanceManager.getInstances.mockReturnValue([
+        {
+          id: 'inst-1',
+          status: 'idle',
+          outputBuffer: [
+            { id: 'a1', type: 'assistant', content: 'Hi James! 👋 What can I help you with today?' },
+          ],
+        },
+      ]);
+
+      await router.handleInboundMessage(makeMessage({ id: 'race-1', chatId: 'c1', messageId: 'dm1' }));
+
+      // No live event is emitted — only the buffered reply exists.
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        'Hi James! 👋 What can I help you with today?',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+
+    it('does not double-post a buffered reply when a matching live event also arrives', async () => {
+      vi.useFakeTimers();
+
+      instanceManager.getInstances.mockReturnValue([
+        {
+          id: 'inst-1',
+          status: 'busy',
+          outputBuffer: [{ id: 'a1', type: 'assistant', content: 'Buffered reply' }],
+        },
+      ]);
+
+      await router.handleInboundMessage(makeMessage({ id: 'dedup-1', chatId: 'c1', messageId: 'dm1' }));
+
+      // A live event carrying the SAME message id as the replayed one must be
+      // ignored so the reply is not posted twice.
+      instanceManager.emit('provider:normalized-event', {
+        eventId: 'inst-1-live',
+        seq: 1,
+        timestamp: 1000,
+        provider: 'claude',
+        instanceId: 'inst-1',
+        event: { kind: 'output', content: 'Buffered reply', messageType: 'assistant', messageId: 'a1' },
+      } as ProviderRuntimeEventEnvelope);
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      const replySends = adapter.sendMessage.mock.calls.filter((call) => call[1] === 'Buffered reply');
+      expect(replySends).toHaveLength(1);
+    });
+
+    it('does not replay prior history when routing to an existing instance', async () => {
+      // The existing-instance path attaches the listener before sendInput and
+      // must NOT drain the outputBuffer, or old conversation turns would be
+      // re-posted to the channel on every new message.
+      vi.useFakeTimers();
+
+      persistence.resolveInstanceByThread.mockReturnValue('inst-1');
+      instanceManager.getInstances.mockReturnValue([
+        {
+          id: 'inst-1',
+          status: 'idle',
+          outputBuffer: [{ id: 'old-1', type: 'assistant', content: 'stale prior answer' }],
+        },
+      ]);
+
+      await router.handleInboundMessage(makeMessage({
+        id: 'existing-1',
+        chatId: 'c1',
+        messageId: 'm1',
+        threadId: 'thread-existing',
+        content: 'follow up',
+      }));
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      const staleSends = adapter.sendMessage.mock.calls.filter((call) => call[1] === 'stale prior answer');
+      expect(staleSends).toHaveLength(0);
     });
   });
 
