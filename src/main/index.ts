@@ -62,6 +62,9 @@ app.setPath('userData', resolveHarnessUserDataPath({
 if (!app.isPackaged) {
   app.setName('Harness (Dev)');
 }
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.ai.orchestrator');
+}
 
 const logger = getLogger('App');
 
