@@ -212,9 +212,16 @@ describe('serve-review.mjs capture server', () => {
     let stderr = '';
     child.stderr.on('data', (chunk) => (stderr += chunk.toString()));
 
+    // Safety net only: the server rejects the relative --on-capture path and
+    // exits ~immediately, so this race resolves as soon as the child exits.
+    // The timeout must be generous enough to survive a loaded host (cold
+    // `node` start + module load can exceed a few hundred ms under CPU
+    // pressure) — otherwise this flakes with `exitCode === null` in the full
+    // suite while passing in isolation. A genuinely-hung process still fails
+    // here after the net.
     const exitCode = await Promise.race([
       new Promise<number | null>((resolve) => child.once('exit', resolve)),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
     ]);
 
     expect(exitCode).toBe(2);

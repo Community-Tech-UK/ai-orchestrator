@@ -64,6 +64,31 @@ describe('orchestrator settings MCP tools', () => {
     );
   });
 
+  it('ships safe Microsoft Graph calendar defaults and explicit tool policies', () => {
+    const defaults = DEFAULT_SETTINGS as unknown as Record<string, unknown>;
+    const policies = SETTINGS_TOOL_POLICY as unknown as Record<
+      string,
+      { tier: string; restartRequired: boolean }
+    >;
+
+    expect(defaults).toMatchObject({
+      graphClientId: 'fdbb0672-4089-48dc-bcc5-7121a331fcfc',
+      graphAuthority: 'https://login.microsoftonline.com/60b0a25e-b75d-4d9e-b797-1805ec311dfb',
+      graphScopesJson: JSON.stringify([
+        'Calendars.ReadWrite',
+        'offline_access',
+        'openid',
+        'profile',
+        'User.Read',
+      ]),
+      graphAgentWritableAccountsJson: JSON.stringify(['james@communitytech.co.uk']),
+    });
+    expect(policies['graphClientId']).toMatchObject({ tier: 'read-only' });
+    expect(policies['graphAuthority']).toMatchObject({ tier: 'read-only' });
+    expect(policies['graphScopesJson']).toMatchObject({ tier: 'read-only' });
+    expect(policies['graphAgentWritableAccountsJson']).toMatchObject({ tier: 'read-only' });
+  });
+
   it('redacts secret settings in list_settings and marks read-only keys unwritable', async () => {
     const { tool } = toolByName('list_settings', makeSettingsManager({
       remoteNodesEnrollmentToken: 'redaction-test-value',

@@ -129,6 +129,51 @@ describe('SkillAttributionService', () => {
     });
   });
 
+  it('flags recent activations for an instance when it errors, feeding precededErrors', () => {
+    const service = makeService(openMigratedDb());
+    service.recordActivation({
+      skillName: 'ui-audit',
+      skillSource: 'builtin',
+      instanceId: 'inst-err',
+      matchedBy: 'trigger',
+      tokensInjected: 100,
+      autoSelected: true,
+    });
+    service.recordActivation({
+      skillName: 'code-review',
+      skillSource: 'builtin',
+      instanceId: 'inst-ok',
+      matchedBy: 'trigger',
+      tokensInjected: 100,
+      autoSelected: true,
+    });
+
+    service.markErrorForInstance('inst-err');
+
+    const summary = service.getHealthSummary();
+    const errored = summary.find((entry) => entry.skillName === 'ui-audit');
+    const clean = summary.find((entry) => entry.skillName === 'code-review');
+    expect(errored?.precededErrors).toBe(1);
+    expect(clean?.precededErrors).toBe(0);
+  });
+
+  it('does not flag activations outside the correlation window', () => {
+    const service = makeService(openMigratedDb());
+    service.recordActivation({
+      skillName: 'ui-audit',
+      skillSource: 'builtin',
+      instanceId: 'inst-old',
+      matchedBy: 'trigger',
+      tokensInjected: 100,
+      autoSelected: true,
+    });
+
+    // Error "happens" an hour from now with a 10-minute window: too far ahead.
+    service.markErrorForInstance('inst-old', 10 * 60_000, Date.now() + 3_600_000);
+
+    expect(service.getHealthSummary()[0].precededErrors).toBe(0);
+  });
+
   it('persists controls and honours them over source defaults', () => {
     const service = makeService(openMigratedDb());
     expect(service.getEffectiveMode('ui-audit', 'builtin')).toBe('enabled');

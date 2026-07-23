@@ -639,9 +639,6 @@ export class InputPanelComponent implements OnDestroy {
   voiceProviderSummary = computed(() => this.voice.providerSummary());
   voiceMeterStyle = computed(() => `${Math.max(0.12, this.voice.audioLevel()).toFixed(3)}`);
 
-  // ViewChild for textarea
-  private textareaEl = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
-
   constructor() {
     this.registerComposerEditingKeybindings();
 
@@ -730,6 +727,13 @@ export class InputPanelComponent implements OnDestroy {
       }
     });
 
+    // Programmatic draft restoration must derive height just like user input.
+    effect(() => {
+      this.message();
+      const textarea = this.textareaRef()?.nativeElement;
+      if (textarea) this.scheduleTextareaResize(textarea);
+    });
+
     // Clean up preview URLs when files change
     effect(() => {
       const files = this.pendingFiles();
@@ -786,6 +790,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.textareaResizeTarget = null;
     for (const unsubscribe of this.composerEditingUnsubscribers.splice(0)) {
       unsubscribe();
     }
@@ -1039,18 +1044,20 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   private resizeScheduled = false;
+  private textareaResizeTarget: HTMLTextAreaElement | null = null;
   private scheduleTextareaResize(textarea: HTMLTextAreaElement): void {
+    this.textareaResizeTarget = textarea;
     if (this.resizeScheduled) return;
     this.resizeScheduled = true;
 
     requestAnimationFrame(() => {
       this.resizeScheduled = false;
+      const target = this.textareaResizeTarget;
+      this.textareaResizeTarget = null;
+      if (!target) return;
       const maxHeight = Math.min(window.innerHeight * 0.3, 220);
-      const newHeight = Math.min(textarea.scrollHeight, maxHeight);
-      if (textarea.style.height !== `${newHeight}px`) {
-        textarea.style.height = 'auto';
-        textarea.style.height = `${newHeight}px`;
-      }
+      target.style.height = 'auto';
+      target.style.height = `${Math.min(target.scrollHeight, maxHeight)}px`;
     });
   }
 
@@ -1489,7 +1496,7 @@ export class InputPanelComponent implements OnDestroy {
     this.persistComposerText(suggestion);
 
     // Update textarea value and resize
-    const el = this.textareaEl();
+    const el = this.textareaRef();
     if (el) {
       el.nativeElement.value = suggestion;
       this.scheduleTextareaResize(el.nativeElement);

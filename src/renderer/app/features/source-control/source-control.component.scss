@@ -338,15 +338,63 @@
 }
 
 .change-group {
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
-.change-group-title {
-  padding: 4px 16px 4px 28px;
-  font-family: var(--font-mono);
+/* VS Code–style section header — a clickable row that collapses the group. */
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 12px 4px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.group-header:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.group-chevron {
+  width: 12px;
+  flex-shrink: 0;
   font-size: 9px;
-  font-weight: 600;
   color: var(--text-muted);
+  text-align: center;
+}
+
+.group-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Rounded count pill, right-aligned in the header (VS Code badge look). */
+.group-badge {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
 }
 
 /* File row container — wraps chevron + row line + (optional) inline diff. */
@@ -361,7 +409,7 @@
 }
 
 .file-expand-chevron {
-  width: 16px;
+  width: 14px;
   height: 22px;
   flex-shrink: 0;
   display: inline-flex;
@@ -372,9 +420,21 @@
   cursor: pointer;
   color: var(--text-muted);
   font-size: 9px;
-  margin-left: 12px;
+  margin-left: 10px;
   border-radius: 3px;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  /* VS Code keeps rows clean — the inline-diff chevron (an AIO extra) is
+     hidden until the row is hovered/focused or its diff is expanded. */
+  opacity: 0;
+  transition: opacity var(--transition-fast),
+              color var(--transition-fast),
+              background var(--transition-fast);
+}
+
+.file-row-line:hover .file-expand-chevron,
+.file-expand-chevron:focus,
+.file-expand-chevron:focus-visible,
+.file-expand-chevron[aria-expanded="true"] {
+  opacity: 1;
 }
 
 .file-expand-chevron:hover {
@@ -388,25 +448,27 @@
 
 /* Invisible spacer for untracked rows so they line up with chevron'd rows. */
 .file-expand-chevron-spacer {
-  width: 16px;
+  width: 14px;
   height: 22px;
   flex-shrink: 0;
-  margin-left: 12px;
+  margin-left: 10px;
   display: inline-block;
 }
 
 .file-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 10px 4px 12px;
+  gap: 6px;
+  padding: 2px 6px 2px 4px;
+  min-height: 22px;
   flex: 1;
   min-width: 0;
   background: transparent;
   border: none;
   text-align: left;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  /* VS Code uses the UI font in the SCM list, not a monospace row font. */
+  font-family: var(--font-body);
+  font-size: 13px;
   color: var(--text-secondary);
   cursor: default;
 }
@@ -429,39 +491,56 @@
   color: var(--text-primary);
 }
 
-.status-badge {
-  width: 14px;
-  height: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  font-weight: 700;
-  border-radius: 3px;
+/* Trailing status letter (VS Code style) — a plain coloured letter at the
+   row end, no background chip. Sits after the hover action buttons. */
+.status-letter {
   flex-shrink: 0;
+  width: 16px;
+  margin-right: 8px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
-.status-modified  { background: rgba(225, 180, 0, 0.18);  color: #e1b400; }
-.status-added     { background: rgba(40, 200, 80, 0.18);  color: #28c850; }
-.status-deleted   { background: rgba(232, 80, 80, 0.18);  color: #e85050; }
-.status-renamed   { background: rgba(91, 141, 191, 0.18); color: #5b8dbf; }
-.status-copied    { background: rgba(91, 141, 191, 0.18); color: #5b8dbf; }
-.status-untracked { background: rgba(160, 160, 160, 0.18); color: #a0a0a0; }
-.status-ignored   { background: rgba(120, 120, 120, 0.12); color: #888; }
+/* Per-status colours — VS Code git-decoration palette (see _theme.scss). */
+.status-letter.status-modified  { color: var(--scm-modified); }
+.status-letter.status-added     { color: var(--scm-added); }
+.status-letter.status-deleted   { color: var(--scm-deleted); }
+.status-letter.status-renamed   { color: var(--scm-renamed); }
+.status-letter.status-copied    { color: var(--scm-renamed); }
+.status-letter.status-untracked { color: var(--scm-untracked); }
+.status-letter.status-ignored   { color: var(--scm-ignored); }
 
 .file-name {
   flex: 0 0 auto;
-  max-width: 50%;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-primary);
+}
+
+/* Filename tinted with the git status colour (VS Code behaviour). */
+.file-name.status-modified  { color: var(--scm-modified); }
+.file-name.status-added     { color: var(--scm-added); }
+.file-name.status-deleted   { color: var(--scm-deleted); }
+.file-name.status-renamed   { color: var(--scm-renamed); }
+.file-name.status-copied    { color: var(--scm-renamed); }
+.file-name.status-untracked { color: var(--scm-untracked); }
+.file-name.status-ignored   { color: var(--scm-ignored); }
+
+/* Deleted files render struck through (VS Code behaviour). */
+.file-name.deleted {
+  text-decoration: line-through;
 }
 
 .file-dir {
   flex: 1;
   color: var(--text-muted);
   opacity: 0.7;
-  font-size: 10px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -507,11 +586,11 @@
 }
 
 .file-action-stage:hover:not(:disabled) {
-  color: #28c850;
+  color: var(--scm-added);
 }
 
 .file-action-unstage:hover:not(:disabled) {
-  color: #e85050;
+  color: var(--scm-deleted);
 }
 
 /* Phase 2d item 8 — discard button. Warning color signals the
@@ -519,8 +598,8 @@
    paths through git restore --source=HEAD --staged --worktree, and
    untracked paths through shell.trashItem (recoverable from Trash). */
 .file-action-discard:hover:not(:disabled) {
-  color: #e85050;
-  border-color: rgba(232, 80, 80, 0.4);
+  color: var(--scm-deleted);
+  border-color: color-mix(in srgb, var(--scm-deleted) 40%, transparent);
 }
 
 .file-action:disabled {
@@ -533,7 +612,7 @@
 .change-group-actions {
   display: flex;
   justify-content: flex-end;
-  padding: 4px 12px 4px 28px;
+  padding: 4px 12px 6px 24px;
 }
 
 .group-action {

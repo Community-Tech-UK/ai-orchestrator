@@ -2,6 +2,34 @@ import type { SettingMetadata } from './settings-metadata.types';
 
 export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   {
+    key: 'graphClientId',
+    label: 'Microsoft Graph application ID',
+    description: 'Public client application ID used for delegated Microsoft calendar access. The current registration is single-tenant; no client secret is stored.',
+    type: 'string',
+    category: 'mcp',
+  },
+  {
+    key: 'graphAuthority',
+    label: 'Microsoft Graph authority',
+    description: 'Microsoft identity authority for delegated calendar access. The current single-tenant app requires its tenant-specific authority; use /common only after enabling multitenant and personal accounts in Entra.',
+    type: 'string',
+    category: 'mcp',
+  },
+  {
+    key: 'graphScopesJson',
+    label: 'Microsoft Graph scopes',
+    description: 'JSON array of delegated permissions requested during Microsoft calendar consent.',
+    type: 'json',
+    category: 'mcp',
+  },
+  {
+    key: 'graphAgentWritableAccountsJson',
+    label: 'Agent-writable Microsoft calendars',
+    description: 'JSON array of connected account emails agents may create, update, or delete events on. Other connected accounts remain read-only.',
+    type: 'json',
+    category: 'mcp',
+  },
+  {
     key: 'mcpCleanupBackupsOnQuit',
     label: 'Delete MCP config backups on quit',
     description: 'When the app quits, remove the ".orc.bak" safety copies it makes before editing a provider\'s MCP config file.',
@@ -75,6 +103,13 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
     key: 'notifyOnAgentCompletion',
     label: 'Notify when an agent finishes',
     description: 'Show a desktop notification when an agent goes from busy to idle (only when this window is not focused).',
+    type: 'boolean',
+    category: 'general',
+  },
+  {
+    key: 'channelToolHeartbeat',
+    label: 'Chat bot: heartbeat on long turns',
+    description: 'Post an occasional throttled "still working…" line to Discord/WhatsApp while an agent runs a long, silent turn. Off keeps channels quiet.',
     type: 'boolean',
     category: 'general',
   },

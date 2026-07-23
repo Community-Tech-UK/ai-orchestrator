@@ -273,7 +273,10 @@ export class IpcMainHandler {
     registerWorkflowHandlers();
     registerDiagnosticsHandlers({ instanceManager: this.instanceManager });
     registerNotificationHandlers({ windowManager: this.windowManager });
-    registerSkillAttributionHandlers({ windowManager: this.windowManager });
+    registerSkillAttributionHandlers({
+      windowManager: this.windowManager,
+      instanceEvents: this.instanceManager,
+    });
     registerContextEvidenceHandlers({
       instanceManager: this.instanceManager,
       windowManager: this.windowManager,

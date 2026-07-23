@@ -61,6 +61,7 @@ export class AutomationStore implements OnDestroy {
   private _loading = signal(false);
   private _preflightLoading = signal(false);
   private _error = signal<string | null>(null);
+  private preflightRequestSequence = 0;
 
   automations = this._automations.asReadonly();
   runs = this._runs.asReadonly();
@@ -141,10 +142,14 @@ export class AutomationStore implements OnDestroy {
   }
 
   async runPreflight(input: AutomationPreflightRequest): Promise<AutomationPreflightReport | null> {
+    const requestSequence = ++this.preflightRequestSequence;
     this._preflightLoading.set(true);
     this._error.set(null);
     try {
       const response = await this.ipc.preflight(input);
+      if (requestSequence !== this.preflightRequestSequence) {
+        return null;
+      }
       if (!response.success) {
         this._error.set(response.error?.message ?? 'Failed to run automation preflight');
         return null;
@@ -153,11 +158,15 @@ export class AutomationStore implements OnDestroy {
       this._preflight.set(report);
       return report;
     } finally {
-      this._preflightLoading.set(false);
+      if (requestSequence === this.preflightRequestSequence) {
+        this._preflightLoading.set(false);
+      }
     }
   }
 
   clearPreflight(): void {
+    this.preflightRequestSequence += 1;
+    this._preflightLoading.set(false);
     this._preflight.set(null);
   }
 

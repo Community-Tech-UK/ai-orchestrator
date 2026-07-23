@@ -27,7 +27,7 @@
  *      auxiliaryLlmUseLocalhostOllama is false. (Worker-node models advertised
  *      only via the running app's heartbeat are NOT visible here — add the box
  *      as a manual endpoint, or use AIO_AUX_LLM_URL.)
- *   3. default http://127.0.0.1:11434
+ *   3. default http://127.0.0.1:11434 only when no app settings file exists
  * Auto-selected endpoints (from settings) are filtered to on-box/LAN hosts and
  * non-cloud models. AIO_AUX_LLM_URL is an explicit override and is honored as-is,
  * but the cost label stays honest (see stage A note above). Cloud-proxied Ollama
@@ -286,7 +286,7 @@ function candidateBaseUrls() {
     if (settings.auxiliaryLlmUseLocalhostOllama !== false) add('http://127.0.0.1:11434');
   }
 
-  if (out.length === 0) add('http://127.0.0.1:11434');
+  if (!settings) add('http://127.0.0.1:11434');
   return out;
 }
 

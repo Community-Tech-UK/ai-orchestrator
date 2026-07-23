@@ -10,6 +10,7 @@ import { PerfInstrumentationService } from './core/services/perf-instrumentation
 import { StressFixturesService } from './core/services/stress-fixtures.service';
 import { WorkspaceBenchService, type WorkspaceBenchmarkHarness, type BenchmarkPresetName } from './core/services/workspace-bench.service';
 import { UsageStore } from './core/state/usage.store';
+import { SkillStore } from './core/state/skill.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
 import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
@@ -102,6 +103,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private workspaceBench = inject(WorkspaceBenchService);
   private usageStore = inject(UsageStore);
   private promptHistoryStore = inject(PromptHistoryStore);
+  private skillStore = inject(SkillStore);
   protected readonly settingsStore = inject(SettingsStore);
   protected readonly pauseStore = inject(PauseStore);
   private pauseRendererController = inject(PauseRendererController);
@@ -227,6 +229,7 @@ export class AppComponent implements OnInit, OnDestroy {
     // the Remote Terminal toggle on a connected worker. initialize() is idempotent.
     void this.remoteNodeStore.initialize();
     void this.appUpdateStore.init();
+    this.skillStore.initObservability();
 
     this.ipcService.onStartupCapabilities((report) => {
       this.startupCapabilities.set(report);

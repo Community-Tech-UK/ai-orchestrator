@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 import { detectAndroidIntent } from '../channels/android-intent';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
 import { buildReadNodeOutputResult } from '../mcp/orchestrator-tools';
-import { defaultOperatorDbPath } from '../operator/operator-database';
+import { defaultOperatorDbPath, getOperatorDatabase } from '../operator/operator-database';
+import { GraphAuthManager } from '../graph/graph-auth';
+import { GraphClient } from '../graph/graph-client';
+import { GraphTokenStore } from '../graph/graph-token-store';
+import { getMcpSecretStorage } from '../mcp/secret-storage';
 import {
   getWorkerNodeConnectionServer,
   getRemoteNodeRosterService,
@@ -110,6 +115,54 @@ function assertNodeSatisfiesPlacement(
   }
 }
 
+function parseNonEmptyStringArray(json: string, fallback: readonly string[]): string[] {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [...fallback];
+    const values = parsed
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (values.length !== parsed.length) return [...fallback];
+    return [...new Set(values)];
+  } catch {
+    return [...fallback];
+  }
+}
+
+function safeCalendarApprovalLabel(value: unknown): string {
+  return String(value ?? '')
+    .replace(/[\r\n\t\u0000-\u001f\u007f]+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
+function presentGraphDeviceCode(message: string): void {
+  // This fallback is reached only when Electron cannot open the system browser.
+  // Keep the short-lived code in an operator-visible dialog, never in logs.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { dialog } = require('electron') as {
+    dialog: {
+      showMessageBox(options: {
+        type: 'info';
+        title: string;
+        message: string;
+        detail: string;
+        buttons: string[];
+      }): Promise<unknown>;
+    };
+  };
+  void dialog.showMessageBox({
+    type: 'info',
+    title: 'Microsoft calendar sign-in',
+    message: 'Complete Microsoft sign-in in another browser or device.',
+    detail: message,
+    buttons: ['OK'],
+  }).catch(() => {
+    logger.warn('Unable to display Microsoft device-code sign-in instructions');
+  });
+}
+
 /**
  * Creates the "Orchestrator-tools RPC server" initialization step.
  *
@@ -164,6 +217,31 @@ export function createOrchestratorToolsStep(
             ? instanceManager.getInstance(callerInstanceId)?.workingDirectory
             : undefined,
       });
+      const graphSettings = getSettingsManager().getAll();
+      const graphTokenStore = new GraphTokenStore(
+        getOperatorDatabase().db,
+        getMcpSecretStorage(),
+      );
+      const graphAuthManager = new GraphAuthManager({
+        clientId: graphSettings.graphClientId,
+        authority: graphSettings.graphAuthority,
+        scopes: parseNonEmptyStringArray(
+          graphSettings.graphScopesJson,
+          parseNonEmptyStringArray(DEFAULT_SETTINGS.graphScopesJson, []),
+        ),
+        tokenStore: graphTokenStore,
+        deviceCodeCallback: presentGraphDeviceCode,
+      });
+      const graphClient = new GraphClient({ tokenProvider: graphAuthManager });
+      const calendarTools = {
+        authManager: graphAuthManager,
+        graphClient,
+        // Invalid policy must deny every write instead of restoring the default.
+        writableAccountEmails: parseNonEmptyStringArray(
+          graphSettings.graphAgentWritableAccountsJson,
+          [],
+        ),
+      };
       // Persisted review decisions are delivered through lifecycle policy, not a
       // bare sendInput side effect. A later idle/resume event drains queued work.
       const docReviewService = getDocReviewService();
@@ -224,6 +302,48 @@ export function createOrchestratorToolsStep(
             createdAt: Date.now(),
             timeoutMs: 5 * 60_000,
           });
+          return decision.granted && decision.decidedBy === 'user';
+        },
+        calendarTools,
+        authorizeCalendarMutation: async ({ instanceId, method, payload }) => {
+          const operation = method.slice('orchestrator_tools.graph_calendar_'.length);
+          const account = safeCalendarApprovalLabel(payload['account']);
+          const subject = safeCalendarApprovalLabel(payload['subject']);
+          const eventId = safeCalendarApprovalLabel(payload['eventId']);
+          const attendeeCount = Array.isArray(payload['attendees'])
+            ? payload['attendees'].length
+            : 0;
+          const notificationWarning = operation === 'create_event' && attendeeCount > 0
+            ? ' This may send attendee invitations.'
+            : operation === 'update_event'
+              ? ' This may send attendee updates.'
+              : operation === 'delete_event'
+                ? ' This may send attendee cancellation notices.'
+                : operation === 'connect'
+                  ? ' This opens the system browser for Microsoft consent.'
+                  : '';
+          const target = account ? ` for ${account}` : '';
+          const subjectLabel = subject ? `, subject ${subject}` : '';
+          const decision = await getPermissionRegistry().requestPermission({
+            id: `calendar_${randomUUID()}`,
+            instanceId,
+            action: operation === 'connect'
+              ? 'calendar_account_connect'
+              : 'calendar_mutation',
+            description: `Allow Microsoft calendar ${operation}${target}${subjectLabel}?${notificationWarning}`,
+            toolName: method.slice('orchestrator_tools.'.length),
+            details: {
+              operation,
+              account,
+              subject,
+              eventId,
+              attendeeCount,
+            },
+            createdAt: Date.now(),
+            timeoutMs: 5 * 60_000,
+          });
+          // Auto-approval is intentionally insufficient: every send requires a
+          // fresh, explicit operator decision.
           return decision.granted && decision.decidedBy === 'user';
         },
         // Backs the read-only `list_remote_nodes` MCP tool: expose only

@@ -59,7 +59,57 @@ export class SkillDiagnosticsService {
     diagnostics.push(...this.collectDuplicateTriggerDiagnostics(this.registry.getTriggerIndex(), skills));
 
     for (const skill of skills) {
+      diagnostics.push(...this.collectLintDiagnostics(skill));
       diagnostics.push(...await this.collectSkillFileDiagnostics(skill));
+    }
+
+    return diagnostics;
+  }
+
+  /**
+   * Static lint: cheap heuristics that catch the "silently bad skill" shapes —
+   * over-broad triggers, weak descriptions, and oversized cores.
+   */
+  private collectLintDiagnostics(skill: SkillBundle): SkillDiagnostic[] {
+    const diagnostics: SkillDiagnostic[] = [];
+    const { name, description, triggers, coreSize } = skill.metadata;
+
+    for (const trigger of triggers) {
+      if (trigger.startsWith('/')) continue; // slash commands are typed deliberately
+      const normalized = trigger.trim().toLowerCase();
+      const isSingleShortWord = !normalized.includes(' ') && normalized.length < 6;
+      if (isSingleShortWord) {
+        diagnostics.push({
+          code: 'over-broad-trigger',
+          severity: 'warning',
+          message: `${name} trigger "${trigger}" is a single short word and will fire on unrelated messages.`,
+          skillId: skill.id,
+          skillName: name,
+          trigger,
+        });
+      }
+    }
+
+    if (!description || description.trim().length < 40) {
+      diagnostics.push({
+        code: 'weak-description',
+        severity: 'warning',
+        message: `${name} has a description under 40 characters — too weak for semantic matching or review.`,
+        skillId: skill.id,
+        skillName: name,
+      });
+    }
+
+    const OVERSIZED_CORE_BYTES = 16_000; // ~4k tokens of always-injected content
+    if ((coreSize ?? 0) > OVERSIZED_CORE_BYTES) {
+      diagnostics.push({
+        code: 'oversized-core',
+        severity: 'warning',
+        message: `${name} core is ${Math.round((coreSize ?? 0) / 1000)}k chars (~${Math.round((coreSize ?? 0) / 4000)}k tokens) — it will tax the context budget on every activation.`,
+        skillId: skill.id,
+        skillName: name,
+        filePath: skill.corePath,
+      });
     }
 
     return diagnostics;
@@ -138,7 +188,9 @@ export class SkillDiagnosticsService {
       diagnostics.push(...this.collectToolSurfaceDiagnostics(skill, content));
       const metadata = parseSkillMetadata(content, skill.metadata.name);
       const nameOk = validateSkillName(metadata.name).ok;
-      if (!parseSkillFrontmatter(content) || !nameOk || metadata.triggers.length === 0) {
+      // Trigger-less skills are valid (embedding-only, suggest-only default) —
+      // only a missing frontmatter block or invalid name is a defect.
+      if (!parseSkillFrontmatter(content) || !nameOk) {
         diagnostics.push({
           code: 'invalid-frontmatter',
           severity: 'error',

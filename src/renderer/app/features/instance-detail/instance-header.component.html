@@ -245,6 +245,7 @@
               {{ activeSkillCount() }} skill{{ activeSkillCount() > 1 ? 's' : '' }}
             </span>
           }
+          <app-session-skills-badge [instanceId]="instance().id" />
           @if (enabledHookCount() > 0) {
             <span class="hooks-badge" [title]="enabledHooksTooltip()">
               {{ enabledHookCount() }} hook{{ enabledHookCount() > 1 ? 's' : '' }}

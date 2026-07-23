@@ -27,7 +27,10 @@ import {
 import { planCodexAppServerRecovery } from './codex/app-server-recovery-policy';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import type { ResumeCursor } from '../../session/session-continuity';
-import type { AppServerNotification, UserInput } from './codex/app-server-types';
+import type {
+  AppServerNotification,
+  UserInput,
+} from './codex/app-server-types';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { buildMessageWithFiles, processAttachments } from '../file-handler';
 import { supportsCodexInlineImage } from './codex/attachments';
@@ -35,7 +38,10 @@ import { startThreadWithRetry } from './codex/thread-start-retry';
 import { SERVICE_NAME } from './codex/app-server-types';
 import { recoverFromInputCap } from './codex/input-cap-recovery';
 import { CodexSessionScanner } from './codex/session-scanner';
-import { initializeCodexAppServer } from './codex/app-server-initializer';
+import {
+  initializeCodexAppServer,
+  resolveCodexAppServerApprovalPolicy,
+} from './codex/app-server-initializer';
 import {
   CodexContextPressureCollector,
   type CodexContextDiagnosticRecord,
@@ -47,6 +53,7 @@ import type {
   ProviderContextActionHandlerResult,
   ProviderContextExecutableAction,
 } from '../../context-evidence/provider-context-action-executor';
+import { CodexMcpElicitationBridge } from './codex/mcp-elicitation-bridge';
 
 const logger = getLogger('CodexCliAdapter');
 const contextDiagnosticsLogger = getLogger('CodexContextDiagnostics');
@@ -69,6 +76,10 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   protected readonly contextCostController: CodexContextCostController;
   private contextDiagnosticsSink: CodexContextDiagnosticSink | null;
   private contextDiagnosticsWarningLogged = false;
+  private readonly mcpElicitationBridge = new CodexMcpElicitationBridge({
+    onInputRequired: (payload) => this.emit('input_required', payload),
+    onStatus: (status) => this.emit('status', status as InstanceStatus),
+  });
   private contextActionProofRecorder: ((
     action: string,
     stage: 'requested' | 'acknowledged' | 'observed',
@@ -120,6 +131,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   protected async initAppServerMode(initEpoch?: number): Promise<void> {
     const cwd = this.cliConfig.workingDir || process.cwd();
     const client = await this.connectAppServer(cwd);
+    this.attachAppServerRequestHandler(client);
     client.setContextDiagnosticsCollector?.(this.contextDiagnostics);
     const result = await initializeCodexAppServer({
       client,
@@ -154,6 +166,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       (notification) => this.handleIdleAppServerNotification(notification),
       (exitError) => {
         if (!this.isSpawned) return;
+        this.mcpElicitationBridge.cancelAll();
         const code = exitError ? 1 : 0;
         logger.warn('App-server process exited, forwarding to adapter exit event', {
           threadId: this.getAppServerThreadId(),
@@ -215,6 +228,13 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   protected handleIdleAppServerNotification(notification: AppServerNotification): void {
+    if (notification.method === 'serverRequest/resolved') {
+      const requestId = notification.params['requestId'];
+      if (typeof requestId === 'number' || typeof requestId === 'string') {
+        this.mcpElicitationBridge.cancelRequest(requestId);
+      }
+      return;
+    }
     if (notification.method !== 'thread/compacted') return;
     const threadId = notification.params['threadId'];
     if (typeof threadId !== 'string' || threadId !== this.getAppServerThreadId()) return;
@@ -375,7 +395,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     const startResult = await startThreadWithRetry(this.appServerClient, {
       cwd,
       model: this.cliConfig.model || null,
-      approvalPolicy: 'never',
+      approvalPolicy: resolveCodexAppServerApprovalPolicy(this.cliConfig),
       sandbox: this.mapSandboxMode(),
       serviceName: SERVICE_NAME,
       ephemeral: this.cliConfig.ephemeral ?? false,
@@ -504,6 +524,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   override async terminate(graceful = true): Promise<void> {
+    this.mcpElicitationBridge.cancelAll();
     this.isSpawned = false;
     this.useAppServer = false;
     if (this.appServerRuntime.getClient()) {
@@ -536,9 +557,19 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       supportsForkSession: false,
       supportsNativeCompaction: this.useAppServer,
       selfManagedAutoCompaction: this.useAppServer,
-      supportsPermissionPrompts: false,
+      supportsPermissionPrompts: this.useAppServer,
       supportsDeferPermission: false,
     };
+  }
+
+  protected attachAppServerRequestHandler(
+    client: Pick<AppServerClient, 'setServerRequestHandler'>,
+  ): void {
+    client.setServerRequestHandler?.((request) => this.mcpElicitationBridge.handleRequest(request));
+  }
+
+  async sendRaw(response: string, permissionKey?: string): Promise<void> {
+    this.mcpElicitationBridge.respond(response, permissionKey);
   }
 
   override getContextCapabilities(): ProviderContextCapabilities {

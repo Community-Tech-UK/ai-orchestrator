@@ -28,6 +28,7 @@ import {
   getSkillHealthSummary,
   getSkillControl,
   listSkillControls,
+  markActivationsFollowedByError,
   upsertSkillControl,
   type ListSkillActivationsQuery,
   type SkillActivation,
@@ -176,6 +177,29 @@ export class SkillAttributionService extends EventEmitter {
         error: err instanceof Error ? err.message : String(err),
       });
       return [];
+    }
+  }
+
+  /**
+   * Correlation hook: an instance errored/failed — flag its recent activations
+   * so the health view can surface "activated shortly before an error".
+   */
+  markErrorForInstance(instanceId: string, windowMs = 10 * 60_000, errorAt = Date.now()): void {
+    const db = this.resolveDb();
+    if (!db) return;
+    try {
+      const flagged = markActivationsFollowedByError(db, instanceId, windowMs, errorAt);
+      if (flagged > 0) {
+        logger.info('Flagged skill activations preceding an instance error', {
+          instanceId,
+          flagged,
+        });
+      }
+    } catch (err) {
+      logger.warn('markErrorForInstance failed (fail-soft)', {
+        instanceId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

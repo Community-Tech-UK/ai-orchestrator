@@ -14,6 +14,7 @@ import {
 import { CommonModule } from '@angular/common';
 import type { SkillBundle, SkillMatch } from '../../../../shared/types/skill.types';
 import { SkillBrowserComponent } from './skill-browser.component';
+import { SkillHealthPanelComponent } from './skill-health-panel.component';
 import { OrchestrationIpcService } from '../../core/services/ipc/orchestration-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
@@ -34,7 +35,7 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
 @Component({
   selector: 'app-skills-page',
   standalone: true,
-  imports: [CommonModule, SkillBrowserComponent],
+  imports: [CommonModule, SkillBrowserComponent, SkillHealthPanelComponent],
   template: `
     <div class="skills-page">
       <div class="page-header">
@@ -83,6 +84,8 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
         </div>
 
         <div class="side-panel">
+          <app-skill-health-panel />
+
           <div class="panel-card">
             <div class="panel-title">Skill Matching</div>
             <textarea

@@ -117,7 +117,10 @@ const ALLOWLIST: Record<string, number> = {
   // (backlog #1: safe default cwd resolver + prompt-bridge start/stop, watching-
   // chat lookup, /approve /reject /answer handlers, text-reply hook). The prompt
   // surfacing/resolution logic itself lives in channel-prompt-bridge.ts.
-  'src/main/channels/channel-message-router.ts': 2741,
+  // Raised 2741 -> 2902 for mobile-parity backlog #2–#5 in the output stream:
+  // turn-completion reaction/DM ping, attachment relay wiring, tool heartbeat.
+  // Attachment temp-file handling lives in channel-attachment-relay.ts.
+  'src/main/channels/channel-message-router.ts': 2902,
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2160,
   'src/main/cli/adapters/base-cli-adapter.ts': 988,

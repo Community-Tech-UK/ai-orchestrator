@@ -23,6 +23,15 @@ Use when the user asks for a visual, UX, accessibility, or browser evidence audi
    `"$AIO_AXE_RUNNER" --browser-url "$AIO_BROWSER_URL" --page-url <url> --viewport <WxH> --tags wcag2a,wcag2aa`
 5. Report findings by severity with reproduction steps, viewport, screenshot path, and axe violation ids.
 
+## Design-drift signals (adapted from VibeCurb by Yu-369, MIT)
+
+While auditing, also flag patterns that make a UI read as AI-templated:
+- Body fonts (Inter/Roboto/Open Sans/Poppins/Arial/Helvetica) used as display/heading fonts; heading letter-spacing not negative (-0.03 to -0.05em expected); hero heading line-height >= 1.1.
+- Copy clichés "Elevate/Seamless/Unleash/Next-Gen/Revolutionize"; em dashes in copy; meta-labels like "SECTION 01".
+- Purple/blue AI-glow gradients; floating translucent blobs; pure #000/#FFF backgrounds (expect #0a0a0a / warm off-white); more than 3 hues per page.
+- Motion: entry sequences over 800ms; CSS keyword easings (ease/ease-in/ease-out/linear); animating layout properties instead of transform/opacity; missing prefers-reduced-motion.
+- Interaction: hover effects beyond a subtle lift + shadow; touch targets under 44px.
+
 ## Rules
 - Use browser tools for real page state instead of guessing from markup alone.
 - Check desktop and mobile layouts unless the user narrows scope.

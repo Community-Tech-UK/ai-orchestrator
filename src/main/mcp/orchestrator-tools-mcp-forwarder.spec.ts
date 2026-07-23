@@ -35,6 +35,14 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'postpone_automation',
       'request_doc_review',
       'get_doc_review_result',
+      'graph_calendar_connect',
+      'graph_calendar_status',
+      'graph_calendar_list_accounts',
+      'graph_calendar_list_calendars',
+      'graph_calendar_list_events',
+      'graph_calendar_create_event',
+      'graph_calendar_update_event',
+      'graph_calendar_delete_event',
       'build_release_operational_readiness_report',
       'build_ios_release_plan',
       'build_android_release_plan',
@@ -348,6 +356,25 @@ describe('createOrchestratorToolsForwarderTools', () => {
     expect(call).toHaveBeenCalledWith('orchestrator_tools.get_doc_review_result', {
       review_id: 'rev-1',
     });
+  });
+
+  it('forwards calendar invocations with canonical method names', async () => {
+    const call = vi.fn(async () => ({ events: [] }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (candidate) => candidate.name === 'graph_calendar_list_events',
+    );
+
+    const payload = {
+      accountKey: 'account-1',
+      start: '2026-07-23T00:00:00Z',
+      end: '2026-07-24T00:00:00Z',
+    };
+    await tool!.handler(payload);
+
+    expect(call).toHaveBeenCalledWith(
+      'orchestrator_tools.graph_calendar_list_events',
+      payload,
+    );
   });
 
   it('forwards create_automation invocations with the canonical method name', async () => {

@@ -87,5 +87,8 @@ mise.local.toml
 *.tmp.json
 _scratch/
 
+# playwright-cli scratch output (page snapshots + console logs, disposable)
+.playwright-cli/
+
 # Orphaned pre-migration JS copies
 cross-model-review-service.js

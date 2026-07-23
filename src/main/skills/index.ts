@@ -13,18 +13,11 @@ export type {
   SkillLoadLevel,
 } from './skill-loader';
 
-export { TriggerMatcher, getTriggerMatcher } from './trigger-matcher';
-export type {
-  TriggerMatch,
-  TriggerMatchOptions,
-} from './trigger-matcher';
-
-// Enhanced skill matching with auto-activation
-export { SkillMatcher } from './skill-matcher';
-export type {
-  SkillMatchContext,
-  SkillSuggestion,
-  CustomCommand,
-  IntentAnalysis,
-  AutoActivatePreferences,
-} from './skill-matcher';
+// The orphaned SkillMatcher/TriggerMatcher pair was deleted 2026-07-23 (spec
+// decision D3a): its blocklist/suggest-only/min-confidence concepts now live
+// on the REAL selection path — SkillAttributionService controls honoured by
+// SkillsLoader.detectRelevantSkills, and the min-confidence trigger gate.
+export {
+  SkillAttributionService,
+  getSkillAttribution,
+} from './skill-attribution-service';

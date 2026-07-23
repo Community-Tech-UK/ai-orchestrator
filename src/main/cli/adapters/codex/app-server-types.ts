@@ -12,7 +12,7 @@
 // ─── JSON-RPC Base Types ────────────────────────────────────────────────────
 
 export interface JsonRpcRequest {
-  id: number;
+  id: number | string;
   method: string;
   params: Record<string, unknown>;
 }
@@ -44,6 +44,8 @@ export interface ClientInfo {
 
 export interface InitializeCapabilities {
   experimentalApi: boolean;
+  /** Advertise support for OpenAI's extended MCP form elicitation envelope. */
+  mcpServerOpenaiFormElicitation?: boolean;
   /** Notification methods the client does NOT want to receive. */
   optOutNotificationMethods: string[];
 }
@@ -428,6 +430,7 @@ export type AppServerNotificationMethod =
   | 'item/reasoning/summaryTextDelta'
   | 'item/reasoning/summaryPartAdded'
   | 'item/reasoning/textDelta'
+  | 'serverRequest/resolved'
   | 'error';
 
 // ─── Method Map (for typed request/response) ────────────────────────────────
@@ -452,6 +455,9 @@ export type AppServerRequestParams<M extends AppServerMethod> = AppServerMethodM
 export type AppServerResponseResult<M extends AppServerMethod> = AppServerMethodMap[M]['result'];
 
 export type AppServerNotificationHandler = (message: AppServerNotification) => void;
+export type AppServerServerRequestHandler = (
+  request: JsonRpcRequest,
+) => Promise<unknown | undefined> | unknown | undefined;
 
 // ─── Turn Capture State ─────────────────────────────────────────────────────
 

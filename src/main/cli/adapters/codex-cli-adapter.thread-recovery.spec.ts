@@ -561,7 +561,15 @@ describe('CodexCliAdapter', () => {
 
         expect(requestSpy).toHaveBeenCalledWith('thread/start', expect.objectContaining({
           cwd: expect.any(String),
-          approvalPolicy: 'never',
+          approvalPolicy: {
+            granular: {
+              sandbox_approval: false,
+              rules: false,
+              skill_approval: false,
+              request_permissions: false,
+              mcp_elicitations: true,
+            },
+          },
         }));
         expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-fresh');
         expect((adapter as unknown as { sessionId: string }).sessionId).toBe('thread-fresh');

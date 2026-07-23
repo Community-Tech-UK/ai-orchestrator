@@ -51,6 +51,7 @@ import { ChannelRouteStore, type SavedChannelRoutePin } from './channel-route-st
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { buildChannelMessagePrompt } from './channel-message-prompt';
 import { ChannelPromptBridge, type WatchingChat } from './channel-prompt-bridge';
+import { relayAttachmentsToChannel } from './channel-attachment-relay';
 
 const logger = getLogger('ChannelMessageRouter');
 
@@ -130,12 +131,28 @@ interface OutputStreamTracker {
    * matching live event arrives.
    */
   relayedMessageIds: Set<string>;
+  /** Wall-clock ms when the current turn started (for completion timing, #2/#5). */
+  turnStartedAt: number;
+  /** Whether any assistant text was relayed this turn (gates the silent-DM ping, #5). */
+  sentContentThisTurn: boolean;
+  /** Message id the completion reaction was already applied to (once-per-turn guard, #2). */
+  reactedForMessageId: string | null;
+  /** Last time a tool-activity heartbeat was posted this turn (throttle, #4). */
+  lastHeartbeatAt: number;
+  /** Agent-produced attachments awaiting relay to the channel (#3). */
+  pendingAttachments: FileAttachment[];
+  /** Keys of attachments already relayed, so a re-flush doesn't re-send them (#3). */
+  sentAttachmentKeys: Set<string>;
 }
 
 /** Directories that must never be sent out via channel file sharing */
 const FORBIDDEN_PATHS = ['.env', 'credentials', 'tokens', 'secrets', '.ssh', 'access.json'];
 const MAX_CHANNEL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_LIVE_STREAM_FLUSHES = 3;
+/** Below this turn duration, a silent DM completion isn't worth a completion ping (#5). */
+const DM_COMPLETION_PING_MIN_MS = 20_000;
+/** Minimum gap between tool-activity heartbeats on a long turn (#4). */
+const TOOL_HEARTBEAT_INTERVAL_MS = 30_000;
 const NO_PROJECT_KEY = '__no_project__';
 const NO_PROJECT_LABEL = '(no project)';
 const ACTIVE_SESSION_STATUSES = new Set([
@@ -1977,12 +1994,9 @@ export class ChannelMessageRouter {
       // Update instance_id in persistence
       this.persistence.updateInstanceId(effectiveMsg.id, instanceId);
 
-      // React with completion
-      try {
-        await adapter.addReaction(effectiveMsg.chatId, effectiveMsg.messageId, '✅');
-      } catch {
-        // Ignore
-      }
+      // The ✅ "complete" reaction is now applied by the output stream when the
+      // instance actually finishes the turn (see finalizeTurn in streamResults),
+      // not here at delivery time — so ✅ means "answer ready", not "delivered".
     } catch (err) {
       logger.error('Error routing message', err instanceof Error ? err : new Error(String(err)));
       try {
@@ -2498,6 +2512,43 @@ export class ChannelMessageRouter {
     return watchers;
   }
 
+  /**
+   * #4 — post a throttled, opt-in "still working…" heartbeat while an agent runs
+   * a long, silent turn. Off unless `channelToolHeartbeat` is enabled; at most
+   * one line per {@link TOOL_HEARTBEAT_INTERVAL_MS} and never once the turn is
+   * finalizing.
+   */
+  private maybeSendToolHeartbeat(
+    tracker: OutputStreamTracker,
+    adapter: BaseChannelAdapter,
+    message: { metadata?: Record<string, unknown> },
+  ): void {
+    try {
+      if (getSettingsManager().get('channelToolHeartbeat') !== true) return;
+    } catch {
+      return;
+    }
+    if (tracker.pendingFinalization) return;
+    const now = Date.now();
+    if (now - tracker.lastHeartbeatAt < TOOL_HEARTBEAT_INTERVAL_MS) return;
+    tracker.lastHeartbeatAt = now;
+    const toolName = this.extractToolName(message);
+    const ctx = tracker.currentMsg;
+    const suffix = toolName ? ` (running ${toolName})` : '';
+    void adapter
+      .sendMessage(ctx.chatId, `🛠️ still working…${suffix}`, { replyTo: ctx.messageId })
+      .catch(() => undefined);
+  }
+
+  private extractToolName(message: { metadata?: Record<string, unknown> }): string | undefined {
+    const meta = message.metadata ?? {};
+    const name =
+      (typeof meta['tool_name'] === 'string' && meta['tool_name']) ||
+      (typeof meta['toolName'] === 'string' && meta['toolName']) ||
+      undefined;
+    return name || undefined;
+  }
+
   private streamResults(
     msg: InboundChannelMessage,
     instanceId: string,
@@ -2514,9 +2565,15 @@ export class ChannelMessageRouter {
     const existingTracker = this.outputStreams.get(bufferKey);
     if (existingTracker) {
       // Re-target streaming output at the latest user prompt and clear any
-      // pending finalization — fresh input means more output is incoming.
+      // pending finalization — fresh input means more output is incoming. Reset
+      // the per-turn completion/heartbeat state so the new turn is signalled on
+      // its own message.
       existingTracker.currentMsg = msg;
       existingTracker.pendingFinalization = false;
+      existingTracker.turnStartedAt = Date.now();
+      existingTracker.sentContentThisTurn = false;
+      existingTracker.reactedForMessageId = null;
+      existingTracker.lastHeartbeatAt = Date.now();
       return;
     }
 
@@ -2532,7 +2589,18 @@ export class ChannelMessageRouter {
       stateHandler: () => undefined,
       currentMsg: msg,
       relayedMessageIds: new Set<string>(),
+      turnStartedAt: Date.now(),
+      sentContentThisTurn: false,
+      reactedForMessageId: null,
+      lastHeartbeatAt: Date.now(),
+      pendingAttachments: [],
+      sentAttachmentKeys: new Set<string>(),
     };
+
+    // Terminal status captured for the current turn (drives the completion
+    // reaction / DM ping in finalizeTurn). Reset implicitly each turn: it is only
+    // read after the state handler sets it for this turn's terminal event.
+    let finalStatus: string | null = null;
 
     const cleanup = (): void => {
       if (tracker.timer) {
@@ -2544,6 +2612,44 @@ export class ChannelMessageRouter {
       this.outputStreams.delete(bufferKey);
     };
 
+    // #3 — relay any agent-produced attachments accumulated this turn as channel
+    // file uploads (deduped across flushes by sentAttachmentKeys).
+    const relayPendingAttachments = (): void => {
+      if (tracker.pendingAttachments.length === 0) return;
+      const ctx = tracker.currentMsg;
+      const toSend = tracker.pendingAttachments;
+      tracker.pendingAttachments = [];
+      void relayAttachmentsToChannel(adapter, ctx.chatId, toSend, tracker.sentAttachmentKeys).catch(
+        (err: unknown) => logger.warn('Attachment relay failed', { error: String(err) }),
+      );
+    };
+
+    // #2 / #5 — signal turn completion once per turn: a ✅ (or ⚠️ on failure)
+    // reaction on the triggering message, plus a completion ping for a long,
+    // silent DM turn that produced no text to notify on.
+    const finalizeTurn = (): void => {
+      const ctx = tracker.currentMsg;
+      if (tracker.reactedForMessageId === ctx.messageId) return;
+      tracker.reactedForMessageId = ctx.messageId;
+      const success = finalStatus === 'idle' || finalStatus === 'waiting_for_input';
+      void adapter.addReaction(ctx.chatId, ctx.messageId, success ? '✅' : '⚠️').catch(() => undefined);
+
+      if (
+        success &&
+        ctx.isDM &&
+        !tracker.sentContentThisTurn &&
+        Date.now() - tracker.turnStartedAt >= DM_COMPLETION_PING_MIN_MS &&
+        getSettingsManager().get('notifyOnAgentCompletion') !== false
+      ) {
+        const seconds = Math.round((Date.now() - tracker.turnStartedAt) / 1000);
+        const mins = Math.floor(seconds / 60);
+        const label = mins > 0 ? `${mins}m ${seconds % 60}s` : `${seconds}s`;
+        void adapter
+          .sendMessage(ctx.chatId, `✅ Finished (${label}).`, { replyTo: ctx.messageId })
+          .catch(() => undefined);
+      }
+    };
+
     const flush = (): void => {
       if (tracker.timer) {
         clearTimeout(tracker.timer);
@@ -2551,7 +2657,11 @@ export class ChannelMessageRouter {
       }
 
       if (!tracker.content && !tracker.suppressedContent) {
+        // No text this flush, but the turn may still have produced attachments
+        // to relay and/or be finalizing.
+        relayPendingAttachments();
         if (tracker.pendingFinalization) {
+          finalizeTurn();
           cleanup();
         }
         return;
@@ -2582,6 +2692,7 @@ export class ChannelMessageRouter {
 
       const isFirstFlush = tracker.flushCount === 0;
       tracker.flushCount += 1;
+      tracker.sentContentThisTurn = true;
       const shouldCleanupAfterSend = tracker.pendingFinalization;
 
       // In DMs the bot's global username can't be customised per machine, so
@@ -2629,9 +2740,13 @@ export class ChannelMessageRouter {
         logger.error('Failed to send output to channel', err instanceof Error ? err : new Error(String(err)));
       }).finally(() => {
         if (shouldCleanupAfterSend) {
+          finalizeTurn();
           cleanup();
         }
       });
+
+      // Relay any attachments after the text send is initiated (deduped).
+      relayPendingAttachments();
     };
 
     const scheduleFlush = (): void => {
@@ -2647,10 +2762,16 @@ export class ChannelMessageRouter {
       const message = toOutputMessageFromProviderEnvelope(envelope);
       if (!message) return;
 
+      // #4 — optional low-noise heartbeat on tool activity during a long turn.
+      if (message.type === 'tool_use') {
+        this.maybeSendToolHeartbeat(tracker, adapter, message);
+        return;
+      }
+
       // Only relay the agent's actual replies to the channel. Prompt echoes
-      // (`user`), tool invocations (`tool_use` → "Using tool: …"), tool output
-      // (`tool_result`), and system notices are internal chatter that turns a
-      // mobile channel into noise — drop them so the feed shows just answers.
+      // (`user`), tool output (`tool_result`), and system notices are internal
+      // chatter that turns a mobile channel into noise — drop them so the feed
+      // shows just answers.
       if (message.type !== 'assistant') return;
 
       // Skip assistant messages already delivered by the initial buffer replay.
@@ -2658,11 +2779,18 @@ export class ChannelMessageRouter {
       // below); a matching live event must not double-post them.
       if (message.id && tracker.relayedMessageIds.has(message.id)) return;
 
-      const content = message.content;
-      if (!content) return;
+      // #3 — capture any agent-produced attachments for relay.
+      if (message.attachments?.length) {
+        tracker.pendingAttachments.push(...message.attachments);
+      }
 
-      tracker.content += content;
-      scheduleFlush();
+      const content = message.content;
+      if (content) {
+        tracker.content += content;
+      }
+      if (content || tracker.pendingAttachments.length > 0) {
+        scheduleFlush();
+      }
     };
 
     tracker.stateHandler = (payload: { instanceId: string; status?: string }) => {
@@ -2678,6 +2806,7 @@ export class ChannelMessageRouter {
         return;
       }
 
+      finalStatus = payload.status;
       tracker.pendingFinalization = true;
       if (!tracker.timer) {
         scheduleFlush();
@@ -2687,6 +2816,11 @@ export class ChannelMessageRouter {
     this.outputStreams.set(bufferKey, tracker);
     im.on('provider:normalized-event', tracker.outputHandler);
     im.on('instance:state-update', tracker.stateHandler);
+
+    // Residual (first-turn race): a prompt raised during a brand-new instance's
+    // first turn arrived before this tracker existed, so the bridge buffered it
+    // with no watcher. Now that a chat is watching, flush any buffered prompt.
+    this.promptBridge?.onInstanceWatched(instanceId);
 
     // First-turn replay. For a freshly-created instance, `createInstance`
     // resolves only after the first turn has settled, so the assistant reply is
@@ -2701,16 +2835,43 @@ export class ChannelMessageRouter {
     // sendInput instead, so they have nothing to replay and must not re-post
     // prior conversation history.
     if (options.replayBufferedAssistant) {
-      const buffered = im.getInstance?.(instanceId)?.outputBuffer ?? [];
+      const instance = im.getInstance?.(instanceId);
+      const buffered = instance?.outputBuffer ?? [];
       let replayed = '';
       for (const message of buffered) {
-        if (message.type !== 'assistant' || !message.content) continue;
+        if (message.type !== 'assistant') continue;
+        if (message.attachments?.length) {
+          tracker.pendingAttachments.push(...message.attachments);
+        }
+        if (!message.content) continue;
         replayed += message.content;
         if (message.id) tracker.relayedMessageIds.add(message.id);
       }
       if (replayed) {
         tracker.content += replayed;
+      }
+      if (replayed || tracker.pendingAttachments.length > 0) {
         scheduleFlush();
+      }
+
+      // For a freshly-created instance, `createInstance` resolves only after the
+      // first turn has settled — so the instance may already be idle by the time
+      // we attach and no live state-update will follow. Finalize now so the
+      // completion signal (#2) still fires. Gated to the new-instance path:
+      // existing-instance paths attach *before* sendInput while the instance is
+      // idle from a prior turn, and must not finalize the turn that's coming.
+      const settledStatus = instance?.status;
+      if (
+        settledStatus === 'idle' ||
+        settledStatus === 'waiting_for_input' ||
+        settledStatus === 'error' ||
+        settledStatus === 'failed'
+      ) {
+        finalStatus = settledStatus;
+        tracker.pendingFinalization = true;
+        if (!tracker.timer) {
+          scheduleFlush();
+        }
       }
     }
   }

@@ -52,6 +52,10 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',
   'contextEvidenceModeByProvider',
+  'graphClientId',
+  'graphAuthority',
+  'graphScopesJson',
+  'graphAgentWritableAccountsJson',
 ]);
 const metadataByKey = new Map(SETTINGS_METADATA.map((metadata) => [metadata.key, metadata]));
 
@@ -359,6 +363,13 @@ export const SETTINGS_TOOL_POLICY = {
   mcpCleanupBackupsOnQuit: open(z.boolean()),
   mcpDisableProviderBackups: readOnly(),
   mcpAllowWorldWritableParent: readOnly(),
+  // Identity configuration and the calendar write allowlist are operator-owned.
+  // Agents may inspect them through status tools but cannot widen consent or
+  // authorize another calendar through the generic settings mutation surface.
+  graphClientId: readOnly(true),
+  graphAuthority: readOnly(true),
+  graphScopesJson: readOnly(true),
+  graphAgentWritableAccountsJson: readOnly(true),
   computerUseEnabled: readOnly(),
   computerUseAllowedAppsJson: readOnly(),
   computerUseDeniedAppsJson: readOnly(),
@@ -367,6 +378,7 @@ export const SETTINGS_TOOL_POLICY = {
   rtkEnabled: open(z.boolean(), true),
   rtkBundledOnly: open(z.boolean(), true),
   notifyOnAgentCompletion: open(z.boolean()),
+  channelToolHeartbeat: open(z.boolean()),
   notificationCooldownSeconds: open(z.number().finite().int().min(0).max(3600)),
   notificationQuietHoursEnabled: open(z.boolean()),
   notificationQuietHoursStartHour: open(z.number().finite().int().min(0).max(23)),

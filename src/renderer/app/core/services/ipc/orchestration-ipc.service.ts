@@ -734,4 +734,44 @@ export class OrchestrationIpcService {
     void _skillId;
     return this.invokeChannel('skills:get-memory');
   }
+
+  /**
+   * Recent skill activations (skill observability)
+   */
+  async skillsActivationsRecent(query?: {
+    skillName?: string;
+    instanceId?: string;
+    since?: number;
+    limit?: number;
+  }): Promise<IpcResponse> {
+    return this.invokeChannel('skills:activations-recent', query);
+  }
+
+  /**
+   * Per-skill health summary plus current controls
+   */
+  async skillsHealthSummary(since?: number): Promise<IpcResponse> {
+    return this.invokeChannel(
+      'skills:health-summary',
+      since === undefined ? undefined : { since }
+    );
+  }
+
+  /**
+   * List per-skill controls (kill-switch state)
+   */
+  async skillsListControls(): Promise<IpcResponse> {
+    return this.invokeChannel('skills:list-controls');
+  }
+
+  /**
+   * Set a per-skill control mode
+   */
+  async skillsSetControl(
+    skillName: string,
+    mode: 'enabled' | 'suggest-only' | 'disabled',
+    reason?: string
+  ): Promise<IpcResponse> {
+    return this.invokeChannel('skills:set-control', { skillName, mode, reason });
+  }
 }

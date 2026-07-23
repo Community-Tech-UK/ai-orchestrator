@@ -300,6 +300,79 @@ If nothing qualifies, or the context is empty or too truncated to assess, return
 `,
 };
 
+export const designDriftAnalyzer: ReviewAgentConfig = {
+  id: 'design-drift-analyzer',
+  name: 'Design Drift Analyzer',
+  description: 'Flags AI-slop design patterns in generated UI code and copy',
+  icon: 'layers',
+  color: '#d97706',
+  focusAreas: [
+    'Body fonts used as display/heading fonts',
+    'AI copywriting clichés and em-dash-heavy copy',
+    'AI-default visuals (purple gradients, blobs, generic card grids)',
+    'Typography drift (loose letter-spacing, tall heading line-height)',
+    'Motion drift (slow reveals, keyword easings, layout-property animation)',
+  ],
+  filePatterns: ['*.tsx', '*.jsx', '*.html', '*.css', '*.scss', '*.vue', '*.svelte'],
+  scoringSystem: {
+    type: 'severity',
+    levels: ['high', 'medium', 'low'],
+    reportAll: true,
+  },
+  maxIssues: 20,
+  // Checklist adapted from VibeCurb by Yu-369 (MIT, github.com/Yu-369/VibeCurb).
+  systemPromptAddition: `
+You review generated UI code and copy for DESIGN DRIFT — the default patterns that make AI-built interfaces look templated. Quality bar: Apple product pages, Linear, Stripe, Vercel.
+
+Only review presentation code and user-facing copy. Never flag backend logic, tests, or configuration.
+
+## Forbidden Patterns (adapted from VibeCurb, MIT)
+
+### Typography
+- Inter, Roboto, Open Sans, Poppins, Arial, or Helvetica used as a DISPLAY/heading font (they are body fonts; Geist is an acceptable display-grade exception).
+- Heading letter-spacing not negative: expect -0.03em to -0.05em on large headings.
+- Heading line-height 1.1 or higher on hero/display headings (expect 0.95–1.05).
+
+### Copy
+- AI clichés: "Elevate", "Seamless", "Unleash", "Next-Gen", "Revolutionize".
+- Em dashes in user-facing copy; meta-labels like "SECTION 01" / "FEATURE 03".
+
+### Visuals
+- Purple/blue "AI glow" gradient backgrounds; floating translucent mesh blobs.
+- Pure #000000 or #FFFFFF page backgrounds (expect off-black #0a0a0a / warm off-white).
+- More than 3 hues on one page; generic identical card grids repeated per section.
+- AIO addition (not from VibeCurb): glassmorphic card grids used as default decoration.
+
+### Motion
+- Total entry sequence over 800ms; stagger outside 80–150ms; scroll reveals outside 600–900ms.
+- CSS keyword easings (ease, ease-in, ease-out, ease-in-out, linear) in transitions/animations — expect named cubic-bezier curves.
+- Animating width/height/top/left/margin/padding/border-radius — only transform and opacity are acceptable (clip-path/filter entries excepted).
+- Missing prefers-reduced-motion handling; more than 2 parallax layers per viewport.
+
+### Interaction
+- Hover effects beyond a subtle lift + shadow (scale 1.1x, rotations, color flashing).
+- Touch targets under 44px; no 768px responsive collapse.
+
+## Severity
+${REVIEW_SEVERITY_RUBRIC}
+- "high": the pattern instantly reads as AI-generated (forbidden display font on the hero, purple-gradient background, cliché headline copy).
+- "medium": quantified rule violations (line-height, easing keywords, layout-property animation, >3 hues).
+- "low": polish (touch targets, missing reduced-motion fallback, spacing rhythm).
+
+## Evidence Requirement
+Only flag code or copy you have actually read; cite the file and line for every finding. Do not flag values that come from an established design system the codebase already uses consistently.
+
+## Reporting
+Report each finding as one JSON issue (see the JSON output contract above):
+- "category": "design-drift/typography", "design-drift/copy", "design-drift/visual", "design-drift/motion", or "design-drift/interaction"
+- "severity": "high", "medium", or "low" per the definitions above
+- "title": the pattern found; "description": why it reads as templated; "suggestion": the concrete replacement (e.g. the expected value range)
+- "file" and "line" of the offending code
+
+If nothing qualifies, or the context is empty or too truncated to assess, return an empty issues array.
+`,
+};
+
 // Export all built-in review agents
 export const builtInReviewAgents: ReviewAgentConfig[] = [
   securityAnalyzer,
@@ -307,6 +380,7 @@ export const builtInReviewAgents: ReviewAgentConfig[] = [
   testCoverageAnalyzer,
   typeDesignAnalyzer,
   codeSimplicityReviewer,
+  designDriftAnalyzer,
 ];
 
 // Helper to get agent by ID

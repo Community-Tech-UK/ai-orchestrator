@@ -31,12 +31,8 @@ export function registerInfrastructureBootstrap(): void {
     domain: 'infrastructure',
     failureMode: 'degraded',
     init: () => {
-      const { getTriggerMatcher } = require('../skills/trigger-matcher') as typeof import('../skills/trigger-matcher');
-      const { getSkillMatcher } = require('../skills/skill-matcher') as typeof import('../skills/skill-matcher');
       const { getEnhancedHookExecutor } = require('../hooks/enhanced-hook-executor') as typeof import('../hooks/enhanced-hook-executor');
 
-      getTriggerMatcher();
-      getSkillMatcher();
       getEnhancedHookExecutor();
     },
   });

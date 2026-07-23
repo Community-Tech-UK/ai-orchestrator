@@ -71,12 +71,17 @@ import {
 import type { OrchestratorEvidenceToolContext } from './orchestrator-evidence-tools';
 import { EVIDENCE_RPC_SPECS } from './orchestrator-tools-rpc-evidence';
 import { createOrchestratorToolsSocketPath } from './orchestrator-tools-socket-path';
+import type { CalendarToolDependencies } from './orchestrator-calendar-tools';
+import {
+  CALENDAR_READ_RPC_SPECS,
+  CALENDAR_TOOL_NAMES,
+} from './orchestrator-tools-rpc-calendar';
 
 const logger = getLogger('OrchestratorToolsRpcServer');
 
 /** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...CALENDAR_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
 ]);
 
@@ -99,6 +104,15 @@ export interface ReleaseMutationAuthorizationRequest {
   instanceId: string;
   method: 'orchestrator_tools.execute_android_play_release'
     | 'orchestrator_tools.execute_ios_asc_finalization';
+  payload: Record<string, unknown>;
+}
+
+export interface CalendarMutationAuthorizationRequest {
+  instanceId: string;
+  method: 'orchestrator_tools.graph_calendar_connect'
+    | 'orchestrator_tools.graph_calendar_create_event'
+    | 'orchestrator_tools.graph_calendar_update_event'
+    | 'orchestrator_tools.graph_calendar_delete_event';
   payload: Record<string, unknown>;
 }
 
@@ -150,6 +164,10 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   authorizeReleaseMutation?: (
     request: ReleaseMutationAuthorizationRequest,
   ) => Promise<boolean>;
+  calendarTools?: CalendarToolDependencies;
+  authorizeCalendarMutation?: (
+    request: CalendarMutationAuthorizationRequest,
+  ) => Promise<boolean>;
   toolFactory?: (deps: OrchestratorToolRuntimeContext) => McpServerToolDefinition[];
 }
 
@@ -180,6 +198,10 @@ export class OrchestratorToolsRpcServer {
   >;
   private readonly authorizeReleaseMutation: NonNullable<
     OrchestratorToolsRpcServerOptions['authorizeReleaseMutation']
+  >;
+  private readonly calendarTools: CalendarToolDependencies;
+  private readonly authorizeCalendarMutation: NonNullable<
+    OrchestratorToolsRpcServerOptions['authorizeCalendarMutation']
   >;
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
@@ -224,6 +246,8 @@ export class OrchestratorToolsRpcServer {
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
     this.resolveContextEvidence = options.resolveContextEvidence ?? (() => null);
     this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
+    this.calendarTools = options.calendarTools ?? {};
+    this.authorizeCalendarMutation = options.authorizeCalendarMutation ?? (async () => false);
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
     const register = options.registerCleanup ?? registerGlobalCleanup;
@@ -287,6 +311,10 @@ export class OrchestratorToolsRpcServer {
     const evidenceSpec = EVIDENCE_RPC_SPECS.find((spec) => spec.method === request.method);
     if (evidenceSpec) {
       return this.dispatchValidatedTool(evidenceSpec.toolName, evidenceSpec.schema, params);
+    }
+    const calendarReadSpec = CALENDAR_READ_RPC_SPECS.find((spec) => spec.method === request.method);
+    if (calendarReadSpec) {
+      return this.dispatchValidatedTool(calendarReadSpec.toolName, calendarReadSpec.schema, params);
     }
 
     switch (request.method) {
@@ -465,6 +493,20 @@ export class OrchestratorToolsRpcServer {
         }
         return this.dispatchSameNameTool(request.method, params);
       }
+      case 'orchestrator_tools.graph_calendar_connect':
+      case 'orchestrator_tools.graph_calendar_create_event':
+      case 'orchestrator_tools.graph_calendar_update_event':
+      case 'orchestrator_tools.graph_calendar_delete_event': {
+        const authorized = await this.authorizeCalendarMutation({
+          instanceId: params.instanceId,
+          method: request.method,
+          payload: params.payload,
+        });
+        if (!authorized) {
+          throw new Error('calendar_operator_authorization_required');
+        }
+        return this.dispatchSameNameTool(request.method, params);
+      }
       default:
         throw new Error(`Unknown orchestrator-tools RPC method: ${request.method}`);
     }
@@ -622,6 +664,7 @@ export class OrchestratorToolsRpcServer {
         postponeAutomation: this.postponeAutomation,
         requestDocReview: this.requestDocReview,
         getDocReviewResult: this.getDocReviewResult,
+        calendarTools: this.calendarTools,
         contextEvidence: this.resolveContextEvidence(instanceId),
       }));
     }
@@ -648,6 +691,7 @@ export class OrchestratorToolsRpcServer {
       postponeAutomation: this.postponeAutomation,
       requestDocReview: this.requestDocReview,
       getDocReviewResult: this.getDocReviewResult,
+      calendarTools: this.calendarTools,
       contextEvidence: this.resolveContextEvidence(instanceId),
     }));
   }

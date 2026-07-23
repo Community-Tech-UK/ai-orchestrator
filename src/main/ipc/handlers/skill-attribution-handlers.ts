@@ -24,7 +24,18 @@ import { validatedHandler, type IpcResponse } from '../validated-handler';
 interface SkillAttributionHandlerDependencies {
   windowManager: WindowManager;
   attributionService?: SkillAttributionService;
+  /**
+   * EventEmitter-compatible source of `instance:state-changed` events
+   * (the InstanceManager in production). Used for the error-correlation flag.
+   */
+  instanceEvents?: {
+    on(event: string, listener: (payload: unknown) => void): unknown;
+    off(event: string, listener: (payload: unknown) => void): unknown;
+  };
 }
+
+/** Statuses that count as "the instance hit an error" for correlation. */
+const ERROR_STATUSES = new Set(['failed', 'error']);
 
 let activeCleanup: (() => void) | null = null;
 
@@ -40,6 +51,13 @@ export function registerSkillAttributionHandlers(
     dependencies.windowManager.sendToRenderer(IPC_CHANNELS.SKILLS_ACTIVATION_DELTA, activation);
   };
   attribution.on('activation', onActivation);
+
+  const onInstanceStateChanged = (payload: unknown) => {
+    const event = payload as { instanceId?: string; status?: string; timestamp?: number };
+    if (!event?.instanceId || !event.status || !ERROR_STATUSES.has(event.status)) return;
+    attribution.markErrorForInstance(event.instanceId, undefined, event.timestamp ?? Date.now());
+  };
+  dependencies.instanceEvents?.on('instance:state-changed', onInstanceStateChanged);
 
   ipcMain.handle(
     IPC_CHANNELS.SKILLS_ACTIVATIONS_RECENT,
@@ -102,6 +120,7 @@ export function registerSkillAttributionHandlers(
     acceptingDeltas = false;
     if (activeCleanup === cleanup) activeCleanup = null;
     attribution.off('activation', onActivation);
+    dependencies.instanceEvents?.off('instance:state-changed', onInstanceStateChanged);
     ipcMain.removeHandler(IPC_CHANNELS.SKILLS_ACTIVATIONS_RECENT);
     ipcMain.removeHandler(IPC_CHANNELS.SKILLS_HEALTH_SUMMARY);
     ipcMain.removeHandler(IPC_CHANNELS.SKILLS_LIST_CONTROLS);

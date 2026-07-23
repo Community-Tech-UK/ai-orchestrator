@@ -7,6 +7,7 @@ import { isRecoverableThreadResumeError } from './exec-error-classifier';
 import { resumeThreadWithRetry } from './thread-resume-retry';
 import { startThreadWithRetry } from './thread-start-retry';
 import { SERVICE_NAME } from './app-server-types';
+import type { CodexAskForApproval } from './app-server-types';
 import type { CodexSessionScanner } from './session-scanner';
 
 const logger = getLogger('CodexCliAdapter');
@@ -30,6 +31,25 @@ export interface CodexAppServerInitializationOptions {
   shouldResume: boolean;
 }
 
+/**
+ * Preserve Harness's fail-closed command/file behavior while allowing MCP
+ * approval elicitations to reach the interactive app-server client.
+ */
+export function resolveCodexAppServerApprovalPolicy(
+  config: Pick<CodexCliConfig, 'approvalMode'>,
+): CodexAskForApproval {
+  if (config.approvalMode === 'full-auto') return 'never';
+  return {
+    granular: {
+      sandbox_approval: false,
+      rules: false,
+      skill_approval: false,
+      request_permissions: false,
+      mcp_elicitations: true,
+    },
+  };
+}
+
 /** Resolves or creates a Codex thread without mutating adapter state. */
 export async function initializeCodexAppServer(
   options: CodexAppServerInitializationOptions,
@@ -45,7 +65,7 @@ export async function initializeCodexAppServer(
     sessionScanner,
     shouldResume,
   } = options;
-  const approvalPolicy = 'never';
+  const approvalPolicy = resolveCodexAppServerApprovalPolicy(config);
   const requestedResumeSessionId = shouldResume ? sessionId ?? undefined : undefined;
   const resumeRequested = shouldResume;
   const hasSpecificResumeTarget = Boolean(requestedResumeSessionId);

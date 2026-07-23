@@ -1,0 +1,37 @@
+/**
+ * File-type icon font (VS Code's Seti default icon theme).
+ *
+ * Global on purpose: the `@font-face` must be registered once for every
+ * consumer of `<app-file-icon>` (the base `.file-icon` class is here too, so a
+ * single registration serves the whole app). The woff is vendored under
+ * `src/renderer/assets/icons/seti/` (MIT — see the LICENSE.md beside it) and
+ * copied to `/assets` by the build's assets glob; the URL is root-relative to
+ * the app base href (`./`), matching the favicon convention in index.html.
+ */
+
+@font-face {
+  font-family: 'seti';
+  src: url('../assets/icons/seti/seti.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+.file-icon {
+  font-family: 'seti';
+  font-size: 16px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  // Seti glyphs are single Private-Use-Area code points; never ligate or
+  // kern them.
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'clig' 0;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}

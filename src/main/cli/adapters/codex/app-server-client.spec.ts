@@ -22,6 +22,11 @@ function createClientDispatchHarness() {
     isRunning(): boolean;
     setContextDiagnosticsCollector(collector: CodexContextPressureCollector | null): void;
     setNotificationHandler(handler: ((notification: { method: string; params: Record<string, unknown> }) => void) | null): void;
+    setServerRequestHandler(handler: ((request: {
+      id: number | string;
+      method: string;
+      params: Record<string, unknown>;
+    }) => Promise<unknown>) | null): void;
     subscribeNotifications(handler: (notification: { method: string; params: Record<string, unknown> }) => void): () => void;
   };
 }
@@ -31,6 +36,11 @@ function createWritableClientDispatchHarness() {
     AppServerClientBase?: new (cwd: string, transport: 'direct' | 'broker') => {
       initialize(clientInfo?: unknown, capabilities?: unknown): Promise<void>;
       request(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
+      setServerRequestHandler(handler: ((request: {
+        id: number | string;
+        method: string;
+        params: Record<string, unknown>;
+      }) => Promise<unknown>) | null): void;
     };
   }).AppServerClientBase;
   expect(Base).toBeTypeOf('function');
@@ -190,12 +200,55 @@ describe('app-server JSON-RPC routing', () => {
       params: {
         capabilities: {
           experimentalApi: true,
+          mcpServerOpenaiFormElicitation: true,
         },
       },
     });
 
     client.dispatch(JSON.stringify({ id: requestId, result: {} }));
     await initialize;
+  });
+
+  it('round-trips a supported server request through the registered client handler', async () => {
+    const client = createWritableClientDispatchHarness();
+    const handler = vi.fn().mockResolvedValue({
+      action: 'accept',
+      content: null,
+      _meta: null,
+    });
+    client.setServerRequestHandler(handler);
+
+    client.dispatch(JSON.stringify({
+      id: 'mcp-request-77',
+      method: 'mcpServer/elicitation/request',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        serverName: 'orchestrator',
+        mode: 'openai/form',
+        message: 'Allow this MCP tool call?',
+        requestedSchema: { type: 'object', properties: {} },
+      },
+    }));
+
+    await vi.waitFor(() => {
+      expect(handler).toHaveBeenCalledWith({
+        id: 'mcp-request-77',
+        method: 'mcpServer/elicitation/request',
+        params: expect.objectContaining({
+          threadId: 'thread-1',
+          serverName: 'orchestrator',
+        }),
+      });
+      expect(client.sent).toEqual([{
+        id: 'mcp-request-77',
+        result: {
+          action: 'accept',
+          content: null,
+          _meta: null,
+        },
+      }]);
+    });
   });
 
   it('responds to an unsupported server request instead of misclassifying it as a response', () => {

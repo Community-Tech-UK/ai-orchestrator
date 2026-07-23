@@ -4,7 +4,18 @@
 
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { OrchestrationIpcService } from '../services/ipc/orchestration-ipc.service';
+import { ElectronIpcService } from '../services/ipc/electron-ipc.service';
+import { ToastService } from '../services/toast.service';
 import type { SkillBundle, SkillMatch } from '../../../../shared/types/skill.types';
+import type {
+  SkillActivationRecord,
+  SkillControlMode,
+  SkillControlRecord,
+} from '../../../../shared/types/skill-observability.types';
+
+const MAX_ACTIVATION_RECORDS = 300;
+/** Suppress repeat activation toasts for the same skill+instance within this window. */
+const TOAST_COOLDOWN_MS = 5 * 60_000;
 
 export interface SkillCommand {
   id: string;
@@ -19,6 +30,8 @@ export interface SkillCommand {
 @Injectable({ providedIn: 'root' })
 export class SkillStore {
   private ipcService = inject(OrchestrationIpcService);
+  private electronIpc = inject(ElectronIpcService);
+  private toast = inject(ToastService);
 
   // State
   private _skills = signal<SkillBundle[]>([]);
@@ -26,11 +39,20 @@ export class SkillStore {
   private _error = signal<string | null>(null);
   private _activeSkills = signal<Set<string>>(new Set());
 
+  // Observability state
+  private _activations = signal<readonly SkillActivationRecord[]>([]);
+  private _controls = signal<ReadonlyMap<string, SkillControlRecord>>(new Map());
+  private unsubscribeDelta: (() => void) | null = null;
+  private observabilityInitialized = false;
+  private lastToastAt = new Map<string, number>();
+
   // Selectors
   skills = this._skills.asReadonly();
   loading = this._loading.asReadonly();
   error = this._error.asReadonly();
   activeSkills = this._activeSkills.asReadonly();
+  activations = this._activations.asReadonly();
+  controls = this._controls.asReadonly();
 
   /**
    * Get skills formatted as commands for the command palette
@@ -53,6 +75,95 @@ export class SkillStore {
    * Get count of active skills
    */
   activeSkillCount = computed(() => this._activeSkills().size);
+
+  // ============ Observability (activation feed + kill-switch) ============
+
+  /**
+   * Start the live activation feed. Idempotent; call once at app startup.
+   */
+  initObservability(): void {
+    if (this.observabilityInitialized) return;
+    this.observabilityInitialized = true;
+    const api = this.electronIpc.getApi();
+    if (api?.onSkillActivationDelta) {
+      this.unsubscribeDelta = api.onSkillActivationDelta((raw) => {
+        this.onActivationDelta(raw as SkillActivationRecord);
+      });
+    }
+    void this.refreshActivations();
+    void this.refreshControls();
+  }
+
+  disposeObservability(): void {
+    this.unsubscribeDelta?.();
+    this.unsubscribeDelta = null;
+    this.observabilityInitialized = false;
+  }
+
+  private onActivationDelta(activation: SkillActivationRecord): void {
+    this._activations.update((list) =>
+      [activation, ...list].slice(0, MAX_ACTIVATION_RECORDS)
+    );
+    if (!activation.autoSelected) return; // explicit loads need no announcement
+
+    const cooldownKey = `${activation.skillName}::${activation.instanceId ?? ''}`;
+    const now = Date.now();
+    const last = this.lastToastAt.get(cooldownKey) ?? 0;
+    if (now - last < TOAST_COOLDOWN_MS) return;
+    this.lastToastAt.set(cooldownKey, now);
+
+    const reason = activation.matchedTrigger
+      ? `matched "${activation.matchedTrigger}"`
+      : `semantic match ${activation.matchScore !== null ? activation.matchScore.toFixed(2) : ''}`.trim();
+    this.toast.show(`Skill ${activation.skillName} activated — ${reason}`);
+  }
+
+  /** Activations recorded for one instance's current session, newest first. */
+  activationsForInstance(instanceId: string): SkillActivationRecord[] {
+    return this._activations().filter((a) => a.instanceId === instanceId);
+  }
+
+  async refreshActivations(): Promise<void> {
+    const response = await this.ipcService.skillsActivationsRecent({ limit: MAX_ACTIVATION_RECORDS });
+    if (response.success && Array.isArray(response.data)) {
+      this._activations.set(response.data as SkillActivationRecord[]);
+    }
+  }
+
+  async refreshControls(): Promise<void> {
+    const response = await this.ipcService.skillsListControls();
+    if (response.success && Array.isArray(response.data)) {
+      const map = new Map<string, SkillControlRecord>();
+      for (const control of response.data as SkillControlRecord[]) {
+        map.set(control.skillName, control);
+      }
+      this._controls.set(map);
+    }
+  }
+
+  /** The persisted control mode for a skill, if one has been set. */
+  controlModeFor(skillName: string): SkillControlMode | null {
+    return this._controls().get(skillName)?.mode ?? null;
+  }
+
+  async setSkillControl(
+    skillName: string,
+    mode: SkillControlMode,
+    reason?: string
+  ): Promise<boolean> {
+    const response = await this.ipcService.skillsSetControl(skillName, mode, reason);
+    if (!response.success) {
+      this.toast.show(`Could not update skill "${skillName}"`, 'error');
+      return false;
+    }
+    const control = response.data as SkillControlRecord;
+    this._controls.update((map) => {
+      const next = new Map(map);
+      next.set(control.skillName, control);
+      return next;
+    });
+    return true;
+  }
 
   /**
    * Discover and load available skills

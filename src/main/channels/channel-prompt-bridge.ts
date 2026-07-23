@@ -94,8 +94,20 @@ interface PendingChannelPrompt {
   createdAt: number;
 }
 
+/** A rendered prompt awaiting a watching chat (buffered to close the first-turn race). */
+interface PromptSpec {
+  base: Omit<PendingChannelPrompt, 'platform' | 'chatIds' | 'postedMessages' | 'createdAt'>;
+  body: string;
+  actions: ChannelMessageAction[];
+}
+
+/** Backstop so buffered-but-never-watched prompts can't grow unbounded. */
+const MAX_BUFFERED_INSTANCES = 200;
+
 export class ChannelPromptBridge {
   private readonly prompts = new Map<string, PendingChannelPrompt>();
+  /** Prompts raised before any chat was watching the instance (first-turn race). */
+  private readonly bufferedByInstance = new Map<string, PromptSpec[]>();
   private orchestration: PromptBridgeOrchestration | null = null;
   private started = false;
 
@@ -139,6 +151,7 @@ export class ChannelPromptBridge {
     this.orchestration?.removeListener('user-action-request', this.onUserAction);
     this.orchestration = null;
     this.prompts.clear();
+    this.bufferedByInstance.clear();
     this.started = false;
   }
 
@@ -156,9 +169,6 @@ export class ChannelPromptBridge {
     if (!p?.instanceId || !p?.requestId) return;
     if (this.prompts.has(p.requestId)) return;
 
-    const watchers = this.deps.getWatchingChats(p.instanceId);
-    if (watchers.length === 0) return; // No channel is watching — mobile/renderer handle it.
-
     const meta = p.metadata ?? {};
     const toolName =
       (typeof meta['tool_name'] === 'string' && meta['tool_name']) ||
@@ -168,17 +178,16 @@ export class ChannelPromptBridge {
     const detail = p.prompt?.trim() || (toolName ? `Allow \`${toolName}\` to run?` : 'An action needs your approval.');
     const body = `⚠️ ${title}\n${detail}\n\nReply **yes** / **no**, or use the buttons below.`;
 
-    this.postPrompt(
-      {
+    this.deliverOrBuffer(p.instanceId, {
+      base: {
         requestId: p.requestId,
         instanceId: p.instanceId,
         kind: 'permission',
         expectsText: false,
       },
-      watchers,
       body,
-      this.approveDenyActions(p.requestId),
-    );
+      actions: this.approveDenyActions(p.requestId),
+    });
   }
 
   private handleUserAction(request: unknown): void {
@@ -193,9 +202,6 @@ export class ChannelPromptBridge {
     };
     if (!r?.id || !r?.instanceId) return;
     if (this.prompts.has(r.id)) return;
-
-    const watchers = this.deps.getWatchingChats(r.instanceId);
-    if (watchers.length === 0) return;
 
     const requestType = typeof r.requestType === 'string' ? r.requestType : undefined;
     const options: PromptOption[] = Array.isArray(r.options)
@@ -232,8 +238,8 @@ export class ChannelPromptBridge {
       actions = this.approveDenyActions(r.id);
     }
 
-    this.postPrompt(
-      {
+    this.deliverOrBuffer(r.instanceId, {
+      base: {
         requestId: r.id,
         instanceId: r.instanceId,
         kind: 'user-action',
@@ -241,20 +247,55 @@ export class ChannelPromptBridge {
         expectsText,
         options: options.length > 0 ? options : undefined,
       },
-      watchers,
-      lines.join('\n'),
+      body: lines.join('\n'),
       actions,
-    );
+    });
   }
 
   private handleStateUpdate(payload: unknown): void {
     const u = payload as { instanceId?: string; status?: string };
     if (!u?.instanceId || !u?.status) return;
     if (WAITING_STATUSES.has(u.status)) return;
-    // The instance moved out of a waiting status: any pending prompt for it was
-    // answered elsewhere or superseded. Drop it so a later message in the same
-    // chat isn't misread as an answer.
+    // The instance moved out of a waiting status: any pending (or buffered)
+    // prompt for it was answered elsewhere or superseded. Drop it so a later
+    // message in the same chat isn't misread as an answer.
     this.clearForInstance(u.instanceId);
+  }
+
+  /**
+   * Post the prompt to the chats watching the instance now, or buffer it until a
+   * chat starts watching (first-turn race: on a brand-new instance the output
+   * tracker — and thus the watcher — doesn't exist until `createInstance`
+   * resolves, which is after the turn that raised the prompt). `onInstanceWatched`
+   * flushes the buffer; `clearForInstance` evicts it if the instance stops
+   * waiting first.
+   */
+  private deliverOrBuffer(instanceId: string, spec: PromptSpec): void {
+    const watchers = this.deps.getWatchingChats(instanceId);
+    if (watchers.length > 0) {
+      this.postPrompt(spec.base, watchers, spec.body, spec.actions);
+      return;
+    }
+    if (this.bufferedByInstance.size >= MAX_BUFFERED_INSTANCES && !this.bufferedByInstance.has(instanceId)) {
+      return;
+    }
+    const list = this.bufferedByInstance.get(instanceId) ?? [];
+    if (list.some((s) => s.base.requestId === spec.base.requestId)) return;
+    list.push(spec);
+    this.bufferedByInstance.set(instanceId, list);
+  }
+
+  /** Flush any prompts buffered for an instance now that a chat is watching it. */
+  onInstanceWatched(instanceId: string): void {
+    const specs = this.bufferedByInstance.get(instanceId);
+    if (!specs || specs.length === 0) return;
+    const watchers = this.deps.getWatchingChats(instanceId);
+    if (watchers.length === 0) return;
+    this.bufferedByInstance.delete(instanceId);
+    for (const spec of specs) {
+      if (this.prompts.has(spec.base.requestId)) continue;
+      this.postPrompt(spec.base, watchers, spec.body, spec.actions);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -393,6 +434,7 @@ export class ChannelPromptBridge {
         this.prompts.delete(requestId);
       }
     }
+    this.bufferedByInstance.delete(instanceId);
   }
 
   private approveDenyActions(requestId: string): ChannelMessageAction[] {

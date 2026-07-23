@@ -34,6 +34,8 @@ const {
   remoteNodeConfigState,
   updateRemoteNodeConfigMock,
   settingsSetMock,
+  settingsState,
+  settingsGetMock,
   recentDirectoriesState,
   addRecentDirectoryMock,
   hibernatedInstancesState,
@@ -49,6 +51,11 @@ const {
     Object.assign(remoteNodeConfigState, partial);
   });
   const settingsSetMock = vi.fn();
+  const settingsState = {
+    notifyOnAgentCompletion: true,
+    channelToolHeartbeat: false,
+  };
+  const settingsGetMock = vi.fn((key: string) => (settingsState as Record<string, unknown>)[key]);
   const recentDirectoriesState = {
     entries: [] as {
       path: string;
@@ -82,6 +89,8 @@ const {
     remoteNodeConfigState,
     updateRemoteNodeConfigMock,
     settingsSetMock,
+    settingsState,
+    settingsGetMock,
     recentDirectoriesState,
     addRecentDirectoryMock,
     hibernatedInstancesState,
@@ -97,6 +106,7 @@ vi.mock('../../remote-node/remote-node-config', () => ({
 vi.mock('../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     set: settingsSetMock,
+    get: settingsGetMock,
   }),
 }));
 
@@ -162,6 +172,38 @@ function makeSentMessage(overrides: Partial<SentMessage> = {}): SentMessage {
   return { messageId: 'sent-1', chatId: 'chat-1', timestamp: Date.now(), ...overrides };
 }
 
+function makeEnvelope(
+  instanceId: string,
+  event: {
+    content?: string;
+    messageType?: string;
+    messageId?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    attachments?: any[];
+    metadata?: Record<string, unknown>;
+  },
+): ProviderRuntimeEventEnvelope {
+  return {
+    eventId: `${instanceId}-${event.messageId ?? event.messageType ?? 'evt'}`,
+    seq: 0,
+    timestamp: 1000,
+    provider: 'claude',
+    instanceId,
+    event: {
+      kind: 'output',
+      content: event.content ?? '',
+      messageType: event.messageType ?? 'assistant',
+      ...(event.messageId ? { messageId: event.messageId } : {}),
+      ...(event.attachments ? { attachments: event.attachments } : {}),
+      ...(event.metadata ? { metadata: event.metadata } : {}),
+    },
+  } as ProviderRuntimeEventEnvelope;
+}
+
+function dataUrl(text: string): string {
+  return `data:text/plain;base64,${Buffer.from(text).toString('base64')}`;
+}
+
 interface MockInstanceRecord {
   id: string;
   status: string;
@@ -185,7 +227,9 @@ function makeMockAdapter() {
       async () => makeSentMessage(),
     ),
     addReaction: vi.fn(async () => undefined),
-    sendFile: vi.fn(async () => makeSentMessage()),
+    sendFile: vi.fn<(chatId: string, filePath: string, caption?: string) => Promise<SentMessage>>(
+      async () => makeSentMessage(),
+    ),
     editMessage: vi.fn(async () => undefined),
     getAccessPolicy: vi.fn(() => accessPolicy),
     setAccessPolicy: vi.fn((nextPolicy: AccessPolicy) => {
@@ -296,6 +340,9 @@ describe('ChannelMessageRouter', () => {
     remoteNodeConfigState.maxRemoteInstances = 20;
     updateRemoteNodeConfigMock.mockClear();
     settingsSetMock.mockClear();
+    settingsGetMock.mockClear();
+    settingsState.notifyOnAgentCompletion = true;
+    settingsState.channelToolHeartbeat = false;
     recentDirectoriesState.entries = [];
     addRecentDirectoryMock.mockClear();
     hibernatedInstancesState.entries = [];
@@ -455,10 +502,19 @@ describe('ChannelMessageRouter', () => {
       );
     });
 
-    it('adds eyes reaction on receipt and check reaction on completion', async () => {
+    it('adds eyes reaction on receipt and check reaction only when the turn completes', async () => {
+      vi.useFakeTimers();
+      instanceManager.getInstances.mockReturnValue([{ id: 'inst-1', status: 'busy', outputBuffer: [] }]);
       const msg = makeMessage({ chatId: 'c1', messageId: 'dm1' });
       await router.handleInboundMessage(msg);
+
+      // 👀 on receipt, but no ✅ yet — the turn hasn't finished.
       expect(adapter.addReaction).toHaveBeenCalledWith('c1', 'dm1', '👀');
+      expect(adapter.addReaction).not.toHaveBeenCalledWith('c1', 'dm1', '✅');
+
+      // ✅ means "answer ready": fires when the instance goes idle.
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+      await vi.advanceTimersByTimeAsync(2000);
       expect(adapter.addReaction).toHaveBeenCalledWith('c1', 'dm1', '✅');
     });
   });
@@ -1507,6 +1563,201 @@ describe('ChannelMessageRouter', () => {
       );
 
       expect(instanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Mobile-parity streaming (#2 completion, #3 attachments, #4 heartbeat,
+  // #5 DM ping) + first-turn prompt race (residual)
+  // -------------------------------------------------------------------------
+
+  describe('mobile-parity streaming', () => {
+    async function routeTurn(status = 'busy'): Promise<void> {
+      instanceManager.getInstances.mockReturnValue([{ id: 'inst-1', status, outputBuffer: [] }]);
+      await router.handleInboundMessage(
+        makeMessage({ id: 'seed', chatId: 'c1', messageId: 'm1', content: 'do work' }),
+      );
+    }
+
+    it('marks a failed turn with a warning reaction, not ✅ (#2)', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'failed' });
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(adapter.addReaction).toHaveBeenCalledWith('c1', 'm1', '⚠️');
+      expect(adapter.addReaction).not.toHaveBeenCalledWith('c1', 'm1', '✅');
+    });
+
+    it('finalizes with ✅ when a freshly-created instance is already idle at attach (#2)', async () => {
+      vi.useFakeTimers();
+      // getInstance('inst-1') reports idle — the first turn settled before attach.
+      instanceManager.getInstances.mockReturnValue([{ id: 'inst-1', status: 'idle', outputBuffer: [] }]);
+      await router.handleInboundMessage(
+        makeMessage({ id: 'seed', chatId: 'c1', messageId: 'm1', content: 'do work' }),
+      );
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(adapter.addReaction).toHaveBeenCalledWith('c1', 'm1', '✅');
+    });
+
+    it('relays agent-produced attachments as channel files (#3)', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', {
+          content: 'Here is the chart',
+          messageId: 'a1',
+          attachments: [{ name: 'chart.txt', type: 'text/plain', size: 2, data: dataUrl('hi') }],
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(adapter.sendFile).toHaveBeenCalledTimes(1);
+      expect(adapter.sendFile.mock.calls[0][0]).toBe('c1');
+    });
+
+    it('does not relay the same attachment twice across flushes (#3)', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+
+      const attachment = { name: 'a.txt', type: 'text/plain', size: 2, data: dataUrl('hi') };
+      for (let i = 0; i < 2; i++) {
+        instanceManager.emit(
+          'provider:normalized-event',
+          makeEnvelope('inst-1', { content: `chunk ${i} `, messageId: `a${i}`, attachments: [attachment] }),
+        );
+        await vi.advanceTimersByTimeAsync(2000);
+      }
+
+      expect(adapter.sendFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('posts an opt-in tool heartbeat only after the throttle interval (#4)', async () => {
+      vi.useFakeTimers();
+      settingsState.channelToolHeartbeat = true;
+      await routeTurn();
+
+      // Immediately: within the throttle window → no heartbeat.
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { messageType: 'tool_use', metadata: { tool_name: 'Bash' } }),
+      );
+      expect(adapter.sendMessage).not.toHaveBeenCalledWith(
+        'c1',
+        expect.stringContaining('still working'),
+        expect.anything(),
+      );
+
+      // After 31s of activity → one heartbeat line.
+      await vi.advanceTimersByTimeAsync(31_000);
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { messageType: 'tool_use', metadata: { tool_name: 'Bash' } }),
+      );
+
+      const heartbeat = adapter.sendMessage.mock.calls.find(
+        (c) => typeof c[1] === 'string' && c[1].includes('still working'),
+      );
+      expect(heartbeat?.[1]).toContain('running Bash');
+    });
+
+    it('does not post a heartbeat when the setting is off (#4)', async () => {
+      vi.useFakeTimers();
+      settingsState.channelToolHeartbeat = false;
+      await routeTurn();
+
+      await vi.advanceTimersByTimeAsync(31_000);
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { messageType: 'tool_use', metadata: { tool_name: 'Bash' } }),
+      );
+
+      expect(adapter.sendMessage).not.toHaveBeenCalledWith(
+        'c1',
+        expect.stringContaining('still working'),
+        expect.anything(),
+      );
+    });
+
+    it('sends a completion ping for a long, silent DM turn (#5)', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+
+      await vi.advanceTimersByTimeAsync(25_000); // exceed DM_COMPLETION_PING_MIN_MS
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+      await vi.advanceTimersByTimeAsync(2000);
+
+      const ping = adapter.sendMessage.mock.calls.find(
+        (c) => typeof c[1] === 'string' && c[1].startsWith('✅ Finished'),
+      );
+      expect(ping).toBeDefined();
+    });
+
+    it('does not send a completion ping when the turn produced text (#5)', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+
+      await vi.advanceTimersByTimeAsync(25_000);
+      // The turn produced an assistant reply → the reply message is the notification.
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { content: 'done', messageId: 'a1' }),
+      );
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+      await vi.advanceTimersByTimeAsync(2000);
+
+      const ping = adapter.sendMessage.mock.calls.find(
+        (c) => typeof c[1] === 'string' && c[1].startsWith('✅ Finished'),
+      );
+      expect(ping).toBeUndefined();
+    });
+
+    it('does not ping for a short silent DM turn (#5)', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+
+      await vi.advanceTimersByTimeAsync(2000); // well under the threshold
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+      await vi.advanceTimersByTimeAsync(2000);
+
+      const ping = adapter.sendMessage.mock.calls.find(
+        (c) => typeof c[1] === 'string' && c[1].startsWith('✅ Finished'),
+      );
+      expect(ping).toBeUndefined();
+    });
+
+    it('buffers a prompt raised before a watcher exists and posts it on attach (residual)', async () => {
+      router.start();
+
+      // A permission prompt arrives during the first turn — no chat is watching
+      // inst-1 yet, so nothing is posted.
+      instanceManager.emit('instance:input-required', {
+        instanceId: 'inst-1',
+        requestId: 'req-early',
+        prompt: 'proceed?',
+        metadata: { tool_name: 'Bash' },
+      });
+      await Promise.resolve();
+      expect(adapter.sendMessage).not.toHaveBeenCalledWith(
+        'c1',
+        expect.stringContaining('needs approval'),
+        expect.anything(),
+      );
+
+      // Now the instance's output tracker attaches (createInstance resolved) →
+      // the buffered prompt is flushed to the watching chat.
+      instanceManager.getInstances.mockReturnValue([{ id: 'inst-1', status: 'busy', outputBuffer: [] }]);
+      await router.handleInboundMessage(
+        makeMessage({ id: 'seed', chatId: 'c1', messageId: 'm1', content: 'do work' }),
+      );
+
+      const promptSend = adapter.sendMessage.mock.calls.find(
+        (c) => typeof c[1] === 'string' && c[1].includes('needs approval'),
+      );
+      expect(promptSend?.[0]).toBe('c1');
     });
   });
 });

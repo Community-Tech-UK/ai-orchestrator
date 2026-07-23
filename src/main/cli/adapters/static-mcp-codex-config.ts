@@ -28,6 +28,10 @@ const DEDICATED_CODEX_BRIDGE_SERVERS = new Set([
   'mobile-mcp',
   'maestro',
 ]);
+const ORCHESTRATOR_SELF_MANAGEMENT_TOOL_APPROVALS = {
+  list_automations: 'approve',
+  update_automation: 'approve',
+} as const;
 
 interface JsonMcpServer {
   command?: string;
@@ -74,6 +78,18 @@ function toCodexServer(server: JsonMcpServer): CodexTomlServer {
         : {}),
     ...(toolTimeoutSec !== undefined ? { toolTimeoutSec } : {}),
   };
+}
+
+function isHarnessOrchestratorBridge(name: string, server: JsonMcpServer): boolean {
+  const commandName = server.command ? basename(server.command).toLowerCase() : '';
+  return (
+    name === 'orchestrator' &&
+    (commandName === 'aio-mcp' || commandName === 'aio-mcp.exe') &&
+    server.args?.length === 1 &&
+    server.args[0] === 'orchestrator-tools' &&
+    Boolean(server.env?.['AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET']) &&
+    Boolean(server.env?.['AI_ORCHESTRATOR_INSTANCE_ID'])
+  );
 }
 
 /**
@@ -156,7 +172,13 @@ export function buildInlineMcpServersCodexConfigToml(
       if (DEDICATED_CODEX_BRIDGE_SERVERS.has(name)) {
         continue;
       }
-      toml = editor.upsertMcpServer(toml, name, toCodexServer(server));
+      const codexServer = toCodexServer(server);
+      if (isHarnessOrchestratorBridge(name, server)) {
+        codexServer.toolApprovalModes = {
+          ...ORCHESTRATOR_SELF_MANAGEMENT_TOOL_APPROVALS,
+        };
+      }
+      toml = editor.upsertMcpServer(toml, name, codexServer);
     }
   }
 

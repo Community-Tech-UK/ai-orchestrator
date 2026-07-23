@@ -467,8 +467,17 @@ export class AutomationsPageComponent {
 
   async save(): Promise<void> {
     const model = this.form();
-    const report = await this.runPreflightForForm();
+    this.closeOverlay();
+
+    let report: AutomationPreflightReport | null;
+    try {
+      report = await this.runPreflightForForm();
+    } catch (error) {
+      this.restoreFormOverlay();
+      throw error;
+    }
     if (!report?.okToSave) {
+      this.restoreFormOverlay();
       return;
     }
 
@@ -487,30 +496,42 @@ export class AutomationsPageComponent {
     };
     const trigger = formToTrigger(model);
 
-    const ok = model.id
-      ? await this.store.update(model.id, {
-          name: model.name,
-          description: model.description || undefined,
-          enabled: model.enabled,
-          schedule,
-          trigger,
-          missedRunPolicy: model.missedRunPolicy,
-          concurrencyPolicy: model.concurrencyPolicy,
-          action,
-        })
-      : await this.store.create({
-          name: model.name,
-          description: model.description || undefined,
-          enabled: model.enabled,
-          schedule,
-          trigger,
-          missedRunPolicy: model.missedRunPolicy,
-          concurrencyPolicy: model.concurrencyPolicy,
-          action,
-        });
+    let ok: boolean;
+    try {
+      ok = model.id
+        ? await this.store.update(model.id, {
+            name: model.name,
+            description: model.description || undefined,
+            enabled: model.enabled,
+            schedule,
+            trigger,
+            missedRunPolicy: model.missedRunPolicy,
+            concurrencyPolicy: model.concurrencyPolicy,
+            action,
+          })
+        : await this.store.create({
+            name: model.name,
+            description: model.description || undefined,
+            enabled: model.enabled,
+            schedule,
+            trigger,
+            missedRunPolicy: model.missedRunPolicy,
+            concurrencyPolicy: model.concurrencyPolicy,
+            action,
+          });
+    } catch (error) {
+      this.restoreFormOverlay();
+      throw error;
+    }
 
-    if (ok) {
-      this.closeOverlay();
+    if (!ok) {
+      this.restoreFormOverlay();
+    }
+  }
+
+  private restoreFormOverlay(): void {
+    if (this.overlay() === null) {
+      this.overlay.set('form');
     }
   }
 

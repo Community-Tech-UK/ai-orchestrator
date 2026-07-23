@@ -123,6 +123,47 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Decision A');
   });
 
+  it('renders a Codex MCP elicitation as an actionable permission prompt', async () => {
+    currentInstanceId.set('inst-a');
+    fakeInstanceStore.getInstance.mockReturnValue({ yoloMode: false });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'codex_mcp_elicitation:mcp-1',
+      prompt: 'Allow update_automation?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'codex_mcp_approval',
+        serverName: 'orchestrator',
+        toolName: 'update_automation',
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fixture.nativeElement.textContent).toContain('Permission Required');
+    expect(fixture.nativeElement.textContent).toContain('Allow update_automation?');
+    expect(fixture.nativeElement.querySelector('.question-input')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.scope-select')).toBeNull();
+
+    const approve = fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement;
+    approve.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith(
+      'inst-a',
+      'codex_mcp_elicitation:mcp-1',
+      expect.stringContaining('Permission granted'),
+      undefined,
+      'allow',
+      'once',
+      undefined,
+    );
+  });
+
   it('ignores live user-action requests for non-selected instances', async () => {
     currentInstanceId.set('inst-a');
     fixture.detectChanges();

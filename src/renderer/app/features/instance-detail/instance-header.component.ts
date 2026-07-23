@@ -24,6 +24,7 @@ import { CompactModelPickerComponent } from '../models/compact-model-picker.comp
 import { DEFAULT_INSTANCE_PROVIDERS, PROVIDER_MENU_LABELS } from '../models/provider-menu.constants';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { SkillStore } from '../../core/state/skill.store';
+import { SessionSkillsBadgeComponent } from './session-skills-badge.component';
 import { HookStore } from '../../core/state/hook.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
@@ -43,7 +44,7 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent],
   templateUrl: './instance-header.component.html',
   styleUrl: './instance-header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

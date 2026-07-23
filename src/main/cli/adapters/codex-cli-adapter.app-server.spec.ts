@@ -167,6 +167,68 @@ describe('CodexCliAdapter', () => {
 
   // ─── New tests for app-server hardening (Phase 2/3) ────────────────
 
+  describe('MCP elicitation approvals', () => {
+    it('surfaces an MCP tool approval and round-trips the user decision', async () => {
+      const adapter = new CodexCliAdapter({ approvalMode: 'suggest' });
+      let requestHandler: ((request: {
+        id: number | string;
+        method: string;
+        params: Record<string, unknown>;
+      }) => Promise<unknown>) | null = null;
+      const client = {
+        setServerRequestHandler: vi.fn((handler: typeof requestHandler) => {
+          requestHandler = handler;
+        }),
+      };
+      const inputRequired = vi.fn();
+      adapter.on('input_required', inputRequired);
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+
+      (adapter as unknown as {
+        attachAppServerRequestHandler(target: typeof client): void;
+      }).attachAppServerRequestHandler(client);
+
+      expect(requestHandler).not.toBeNull();
+      const response = requestHandler!({
+        id: 'mcp-approval-1',
+        method: 'mcpServer/elicitation/request',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          serverName: 'orchestrator',
+          mode: 'openai/form',
+          message: 'Allow update_automation?',
+          requestedSchema: { type: 'object', properties: {} },
+          _meta: {
+            codex_approval_kind: 'mcp_tool_call',
+            tool_name: 'update_automation',
+          },
+        },
+      });
+
+      expect(inputRequired).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'codex_mcp_elicitation:mcp-approval-1',
+        prompt: expect.stringContaining('Allow update_automation?'),
+        metadata: expect.objectContaining({
+          type: 'codex_mcp_approval',
+          serverName: 'orchestrator',
+          toolName: 'update_automation',
+        }),
+      }));
+      expect(adapter.getRuntimeCapabilities().supportsPermissionPrompts).toBe(true);
+
+      await (adapter as unknown as {
+        sendRaw(value: string, permissionKey?: string): Promise<void>;
+      }).sendRaw('Permission granted. Please proceed with the operation.');
+
+      await expect(response).resolves.toEqual({
+        action: 'accept',
+        content: null,
+        _meta: null,
+      });
+    });
+  });
+
   describe('scoped app-server notification routing', () => {
     it('keeps the permanent compaction observer active during and after a turn subscription', async () => {
       const client = createSyntheticTurnClient([

@@ -105,191 +105,191 @@
                   } @else if (repo.status) {
                     <!-- Phase 2d items 9–11 — toolbar (commit, sync, branch) -->
                     <app-source-control-repo-actions [repo]="repo" />
+
                     @if (repo.status.staged.length > 0) {
                       <div class="change-group">
-                        <div class="change-group-title">Staged ({{ repo.status.staged.length }})</div>
-                        @for (file of repo.status.staged; track file.path) {
-                          <div class="file-row-container">
-                            <div class="file-row-line">
-                              <button
-                                type="button"
-                                class="file-expand-chevron"
-                                [attr.aria-expanded]="store.isFileExpanded(repo.absolutePath, file.path, true)"
-                                [attr.aria-label]="store.isFileExpanded(repo.absolutePath, file.path, true) ? 'Collapse diff' : 'Expand diff inline'"
-                                (click)="store.toggleFileExpansion(repo.absolutePath, file.path, true)"
-                              >{{ store.isFileExpanded(repo.absolutePath, file.path, true) ? '▾' : '▸' }}</button>
-                              <button
-                                type="button"
-                                class="file-row file-row-clickable"
-                                [class.selected]="isSelected(repo, file.path)"
-                                draggable="true"
-                                (dragstart)="onFileDragStart($event, repo, file.path)"
-                                (click)="onFileRowClick($event, repo, file.path, { file: file, staged: true })"
-                                [title]="file.path + ' — click to open diff · ⌘/⇧-click to multi-select · drag to attach'"
-                              >
+                        <button
+                          type="button"
+                          class="group-header"
+                          [attr.aria-expanded]="!isGroupCollapsed(repo, 'staged')"
+                          (click)="toggleGroup(repo, 'staged')"
+                        >
+                          <span class="group-chevron" aria-hidden="true">{{ isGroupCollapsed(repo, 'staged') ? '▸' : '▾' }}</span>
+                          <span class="group-title">Staged Changes</span>
+                          <span class="group-badge">{{ repo.status.staged.length }}</span>
+                        </button>
+                        @if (!isGroupCollapsed(repo, 'staged')) {
+                          @for (file of repo.status.staged; track file.path) {
+                            <div class="file-row-container">
+                              <div class="file-row-line">
+                                <button
+                                  type="button"
+                                  class="file-expand-chevron"
+                                  [attr.aria-expanded]="store.isFileExpanded(repo.absolutePath, file.path, true)"
+                                  [attr.aria-label]="store.isFileExpanded(repo.absolutePath, file.path, true) ? 'Collapse diff' : 'Expand diff inline'"
+                                  (click)="store.toggleFileExpansion(repo.absolutePath, file.path, true)"
+                                >{{ store.isFileExpanded(repo.absolutePath, file.path, true) ? '▾' : '▸' }}</button>
+                                <button
+                                  type="button"
+                                  class="file-row file-row-clickable"
+                                  [class.selected]="isSelected(repo, file.path)"
+                                  draggable="true"
+                                  (dragstart)="onFileDragStart($event, repo, file.path)"
+                                  (click)="onFileRowClick($event, repo, file.path, { file: file, staged: true })"
+                                  [title]="file.path + ' — click to open diff · ⌘/⇧-click to multi-select · drag to attach'"
+                                >
+                                  <app-file-icon [path]="file.path" />
+                                  <span
+                                    class="file-name"
+                                    [class]="'status-' + file.status"
+                                    [class.deleted]="file.status === 'deleted'"
+                                  >{{ fileBasename(file.path) }}</span>
+                                  <span class="file-dir">{{ fileDirname(file.path) }}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  class="file-action file-action-discard"
+                                  (click)="onDiscardFile(repo, file.path)"
+                                  [disabled]="isWriting(repo.absolutePath)"
+                                  title="Discard changes (revert to HEAD)"
+                                  [attr.aria-label]="'Discard ' + file.path"
+                                >⌫</button>
+                                <button
+                                  type="button"
+                                  class="file-action file-action-unstage"
+                                  (click)="onUnstageFile(repo.absolutePath, file.path)"
+                                  [disabled]="isWriting(repo.absolutePath)"
+                                  title="Unstage file (git restore --staged)"
+                                  [attr.aria-label]="'Unstage ' + file.path"
+                                >−</button>
                                 <span
-                                  class="status-badge"
+                                  class="status-letter"
                                   [class]="'status-' + file.status"
                                   [title]="statusLabel(file.status)"
-                                >{{ statusChar(file.status) }}</span>
-                                <span class="file-name">{{ fileBasename(file.path) }}</span>
-                                <span class="file-dir">{{ fileDirname(file.path) }}</span>
-                              </button>
-                              <button
-                                type="button"
-                                class="file-action file-action-discard"
-                                (click)="onDiscardFile(repo, file.path)"
-                                [disabled]="isWriting(repo.absolutePath)"
-                                title="Discard changes (revert to HEAD)"
-                                [attr.aria-label]="'Discard ' + file.path"
-                              >⌫</button>
-                              <button
-                                type="button"
-                                class="file-action file-action-unstage"
-                                (click)="onUnstageFile(repo.absolutePath, file.path)"
-                                [disabled]="isWriting(repo.absolutePath)"
-                                title="Unstage file (git restore --staged)"
-                                [attr.aria-label]="'Unstage ' + file.path"
-                              >−</button>
+                                >{{ statusLetter(file.status) }}</span>
+                              </div>
+                              @if (store.isFileExpanded(repo.absolutePath, file.path, true)) {
+                                <app-source-control-inline-diff
+                                  [workingDirectory]="repo.absolutePath"
+                                  [filePath]="file.path"
+                                  [staged]="true"
+                                />
+                              }
                             </div>
-                            @if (store.isFileExpanded(repo.absolutePath, file.path, true)) {
-                              <app-source-control-inline-diff
-                                [workingDirectory]="repo.absolutePath"
-                                [filePath]="file.path"
-                                [staged]="true"
-                              />
-                            }
+                          }
+                          <div class="change-group-actions">
+                            <button
+                              type="button"
+                              class="group-action"
+                              (click)="onUnstageAll(repo)"
+                              [disabled]="isWriting(repo.absolutePath)"
+                              title="Unstage all"
+                            >Unstage all</button>
                           </div>
                         }
-                        <div class="change-group-actions">
-                          <button
-                            type="button"
-                            class="group-action"
-                            (click)="onUnstageAll(repo)"
-                            [disabled]="isWriting(repo.absolutePath)"
-                            title="Unstage all"
-                          >Unstage all</button>
-                        </div>
                       </div>
                     }
 
-                    @if (repo.status.unstaged.length > 0) {
+                    @if (changesCount(repo) > 0) {
                       <div class="change-group">
-                        <div class="change-group-title">Changes ({{ repo.status.unstaged.length }})</div>
-                        @for (file of repo.status.unstaged; track file.path) {
-                          <div class="file-row-container">
-                            <div class="file-row-line">
-                              <button
-                                type="button"
-                                class="file-expand-chevron"
-                                [attr.aria-expanded]="store.isFileExpanded(repo.absolutePath, file.path, false)"
-                                [attr.aria-label]="store.isFileExpanded(repo.absolutePath, file.path, false) ? 'Collapse diff' : 'Expand diff inline'"
-                                (click)="store.toggleFileExpansion(repo.absolutePath, file.path, false)"
-                              >{{ store.isFileExpanded(repo.absolutePath, file.path, false) ? '▾' : '▸' }}</button>
-                              <button
-                                type="button"
-                                class="file-row file-row-clickable"
-                                [class.selected]="isSelected(repo, file.path)"
-                                draggable="true"
-                                (dragstart)="onFileDragStart($event, repo, file.path)"
-                                (click)="onFileRowClick($event, repo, file.path, { file: file, staged: false })"
-                                [title]="file.path + ' — click to open diff · ⌘/⇧-click to multi-select · drag to attach'"
-                              >
+                        <button
+                          type="button"
+                          class="group-header"
+                          [attr.aria-expanded]="!isGroupCollapsed(repo, 'changes')"
+                          (click)="toggleGroup(repo, 'changes')"
+                        >
+                          <span class="group-chevron" aria-hidden="true">{{ isGroupCollapsed(repo, 'changes') ? '▸' : '▾' }}</span>
+                          <span class="group-title">Changes</span>
+                          <span class="group-badge">{{ changesCount(repo) }}</span>
+                        </button>
+                        @if (!isGroupCollapsed(repo, 'changes')) {
+                          @for (file of changesRows(repo); track file.path) {
+                            <div class="file-row-container">
+                              <div class="file-row-line">
+                                @if (file.status === 'untracked') {
+                                  <!-- Untracked rows have no diff to expand;
+                                       spacer keeps them aligned with chevron'd rows. -->
+                                  <span class="file-expand-chevron-spacer" aria-hidden="true"></span>
+                                } @else {
+                                  <button
+                                    type="button"
+                                    class="file-expand-chevron"
+                                    [attr.aria-expanded]="store.isFileExpanded(repo.absolutePath, file.path, false)"
+                                    [attr.aria-label]="store.isFileExpanded(repo.absolutePath, file.path, false) ? 'Collapse diff' : 'Expand diff inline'"
+                                    (click)="store.toggleFileExpansion(repo.absolutePath, file.path, false)"
+                                  >{{ store.isFileExpanded(repo.absolutePath, file.path, false) ? '▾' : '▸' }}</button>
+                                }
+                                <button
+                                  type="button"
+                                  class="file-row file-row-clickable"
+                                  [class.selected]="isSelected(repo, file.path)"
+                                  draggable="true"
+                                  (dragstart)="onFileDragStart($event, repo, file.path)"
+                                  (click)="onFileRowClick($event, repo, file.path, file.status === 'untracked' ? null : { file: file, staged: false })"
+                                  [title]="file.status === 'untracked'
+                                    ? file.path + ' — ⌘/⇧-click to multi-select · drag to attach'
+                                    : file.path + ' — click to open diff · ⌘/⇧-click to multi-select · drag to attach'"
+                                >
+                                  <app-file-icon [path]="file.path" />
+                                  <span
+                                    class="file-name"
+                                    [class]="'status-' + file.status"
+                                    [class.deleted]="file.status === 'deleted'"
+                                  >{{ fileBasename(file.path) }}</span>
+                                  <span class="file-dir">{{ fileDirname(file.path) }}</span>
+                                </button>
+                                @if (file.status === 'untracked') {
+                                  <button
+                                    type="button"
+                                    class="file-action file-action-discard"
+                                    (click)="onDiscardUntracked(repo, file.path)"
+                                    [disabled]="isWriting(repo.absolutePath)"
+                                    title="Move to Trash (recoverable)"
+                                    [attr.aria-label]="'Trash ' + file.path"
+                                  >⌫</button>
+                                } @else {
+                                  <button
+                                    type="button"
+                                    class="file-action file-action-discard"
+                                    (click)="onDiscardFile(repo, file.path)"
+                                    [disabled]="isWriting(repo.absolutePath)"
+                                    title="Discard changes (revert to HEAD)"
+                                    [attr.aria-label]="'Discard ' + file.path"
+                                  >⌫</button>
+                                }
+                                <button
+                                  type="button"
+                                  class="file-action file-action-stage"
+                                  (click)="onStageFile(repo.absolutePath, file.path)"
+                                  [disabled]="isWriting(repo.absolutePath)"
+                                  title="Stage file (git add)"
+                                  [attr.aria-label]="'Stage ' + file.path"
+                                >+</button>
                                 <span
-                                  class="status-badge"
+                                  class="status-letter"
                                   [class]="'status-' + file.status"
                                   [title]="statusLabel(file.status)"
-                                >{{ statusChar(file.status) }}</span>
-                                <span class="file-name">{{ fileBasename(file.path) }}</span>
-                                <span class="file-dir">{{ fileDirname(file.path) }}</span>
-                              </button>
-                              <button
-                                type="button"
-                                class="file-action file-action-discard"
-                                (click)="onDiscardFile(repo, file.path)"
-                                [disabled]="isWriting(repo.absolutePath)"
-                                title="Discard changes (revert to HEAD)"
-                                [attr.aria-label]="'Discard ' + file.path"
-                              >⌫</button>
-                              <button
-                                type="button"
-                                class="file-action file-action-stage"
-                                (click)="onStageFile(repo.absolutePath, file.path)"
-                                [disabled]="isWriting(repo.absolutePath)"
-                                title="Stage file (git add)"
-                                [attr.aria-label]="'Stage ' + file.path"
-                              >+</button>
+                                >{{ statusLetter(file.status) }}</span>
+                              </div>
+                              @if (file.status !== 'untracked' && store.isFileExpanded(repo.absolutePath, file.path, false)) {
+                                <app-source-control-inline-diff
+                                  [workingDirectory]="repo.absolutePath"
+                                  [filePath]="file.path"
+                                  [staged]="false"
+                                />
+                              }
                             </div>
-                            @if (store.isFileExpanded(repo.absolutePath, file.path, false)) {
-                              <app-source-control-inline-diff
-                                [workingDirectory]="repo.absolutePath"
-                                [filePath]="file.path"
-                                [staged]="false"
-                              />
-                            }
+                          }
+                          <div class="change-group-actions">
+                            <button
+                              type="button"
+                              class="group-action"
+                              (click)="onStageAllChanges(repo)"
+                              [disabled]="isWriting(repo.absolutePath)"
+                              title="Stage all changes"
+                            >Stage all</button>
                           </div>
                         }
-                        <div class="change-group-actions">
-                          <button
-                            type="button"
-                            class="group-action"
-                            (click)="onStageAllUnstaged(repo)"
-                            [disabled]="isWriting(repo.absolutePath)"
-                            title="Stage all changes"
-                          >Stage all</button>
-                        </div>
-                      </div>
-                    }
-
-                    @if (repo.status.untracked.length > 0) {
-                      <div class="change-group">
-                        <div class="change-group-title">Untracked ({{ repo.status.untracked.length }})</div>
-                        @for (path of repo.status.untracked; track path) {
-                          <div class="file-row-line">
-                            <!-- Spacer keeps untracked rows aligned with
-                                 chevron'd staged/unstaged rows. Untracked
-                                 files have no diff to expand. -->
-                            <span class="file-expand-chevron-spacer" aria-hidden="true"></span>
-                            <button
-                              type="button"
-                              class="file-row file-row-clickable"
-                              [class.selected]="isSelected(repo, path)"
-                              draggable="true"
-                              (dragstart)="onFileDragStart($event, repo, path)"
-                              (click)="onFileRowClick($event, repo, path, null)"
-                              [title]="path + ' — ⌘/⇧-click to multi-select · drag to attach'"
-                            >
-                              <span class="status-badge status-untracked" title="Untracked">?</span>
-                              <span class="file-name">{{ fileBasename(path) }}</span>
-                              <span class="file-dir">{{ fileDirname(path) }}</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="file-action file-action-discard"
-                              (click)="onDiscardUntracked(repo, path)"
-                              [disabled]="isWriting(repo.absolutePath)"
-                              title="Move to Trash (recoverable)"
-                              [attr.aria-label]="'Trash ' + path"
-                            >⌫</button>
-                            <button
-                              type="button"
-                              class="file-action file-action-stage"
-                              (click)="onStageFile(repo.absolutePath, path)"
-                              [disabled]="isWriting(repo.absolutePath)"
-                              title="Stage file (git add)"
-                              [attr.aria-label]="'Stage ' + path"
-                            >+</button>
-                          </div>
-                        }
-                        <div class="change-group-actions">
-                          <button
-                            type="button"
-                            class="group-action"
-                            (click)="onStageAllUntracked(repo)"
-                            [disabled]="isWriting(repo.absolutePath)"
-                            title="Stage all untracked"
-                          >Stage all</button>
-                        </div>
                       </div>
                     }
                   }

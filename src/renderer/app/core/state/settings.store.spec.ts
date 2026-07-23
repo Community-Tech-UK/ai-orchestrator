@@ -128,6 +128,10 @@ describe('SettingsStore system theme listener', () => {
     expect(DEFAULT_SETTINGS.mcpDisableProviderBackups).toBe(false);
     expect(DEFAULT_SETTINGS.mcpAllowWorldWritableParent).toBe(false);
     expect(store.mcpSettings().map((setting) => setting.key)).toEqual([
+      'graphClientId',
+      'graphAuthority',
+      'graphScopesJson',
+      'graphAgentWritableAccountsJson',
       'mcpCleanupBackupsOnQuit',
       'mcpDisableProviderBackups',
       'mcpAllowWorldWritableParent',

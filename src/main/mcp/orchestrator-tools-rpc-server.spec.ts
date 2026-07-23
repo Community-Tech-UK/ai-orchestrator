@@ -454,6 +454,88 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(releaseHandler).not.toHaveBeenCalled();
   });
 
+  it('dispatches calendar reads through the validated read-only RPC specs', async () => {
+    const statusHandler = vi.fn(async () => ({ accounts: [] }));
+    const { server } = makeServer({
+      toolFactory: () => [{
+        name: 'graph_calendar_status',
+        description: 'test tool',
+        inputSchema: { type: 'object' },
+        handler: statusHandler,
+      }],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 161,
+      method: 'orchestrator_tools.graph_calendar_status',
+      params: { instanceId: KNOWN_INSTANCE, payload: {} },
+    });
+
+    expect(statusHandler).toHaveBeenCalledWith({});
+    expect(result).toEqual({ accounts: [] });
+  });
+
+  it('requires fresh operator authorization before creating a calendar event', async () => {
+    const createHandler = vi.fn(async () => ({ id: 'event-1' }));
+    const authorizeCalendarMutation = vi.fn(async () => true);
+    const { server } = makeServer({
+      authorizeCalendarMutation,
+      toolFactory: () => [{
+        name: 'graph_calendar_create_event',
+        description: 'test tool',
+        inputSchema: { type: 'object' },
+        handler: createHandler,
+      }],
+    } as never);
+    const payload = {
+      account: 'james@communitytech.co.uk',
+      subject: 'Calendar integration test',
+      start: { dateTime: '2026-07-23T10:00:00', timeZone: 'Europe/London' },
+      end: { dateTime: '2026-07-23T10:30:00', timeZone: 'Europe/London' },
+    };
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 162,
+      method: 'orchestrator_tools.graph_calendar_create_event',
+      params: { instanceId: KNOWN_INSTANCE, payload },
+    });
+
+    expect(authorizeCalendarMutation).toHaveBeenCalledWith({
+      instanceId: KNOWN_INSTANCE,
+      method: 'orchestrator_tools.graph_calendar_create_event',
+      payload,
+    });
+    expect(createHandler).toHaveBeenCalledWith(payload);
+  });
+
+  it.each([
+    ['orchestrator_tools.graph_calendar_connect', 'graph_calendar_connect', {}],
+    ['orchestrator_tools.graph_calendar_create_event', 'graph_calendar_create_event', { accountKey: 'account-1' }],
+    ['orchestrator_tools.graph_calendar_update_event', 'graph_calendar_update_event', { accountKey: 'account-1', eventId: 'event-1' }],
+    ['orchestrator_tools.graph_calendar_delete_event', 'graph_calendar_delete_event', { accountKey: 'account-1', eventId: 'event-1' }],
+  ])('blocks %s without fresh operator authorization', async (method, toolName, payload) => {
+    const handler = vi.fn();
+    const { server } = makeServer({
+      authorizeCalendarMutation: vi.fn(async () => false),
+      toolFactory: () => [{
+        name: toolName,
+        description: 'test tool',
+        inputSchema: { type: 'object' },
+        handler,
+      }],
+    } as never);
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 163,
+      method,
+      params: { instanceId: KNOWN_INSTANCE, payload },
+    })).rejects.toThrow('calendar_operator_authorization_required');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('dispatches release readiness report requests to the matching tool', async () => {
     const readinessHandler = vi.fn(async (args: unknown) => ({ ready: false, echoed: args }));
     const { server } = makeServer({

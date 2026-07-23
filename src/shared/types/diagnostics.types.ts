@@ -126,7 +126,13 @@ export type SkillDiagnosticCode =
   | 'duplicate-skill-name'
   | 'duplicate-trigger'
   /** The skill mandates a tool this build does not expose to agent sessions. */
-  | 'tool-surface-mismatch';
+  | 'tool-surface-mismatch'
+  /** A phrase trigger so short/generic it will fire on unrelated messages. */
+  | 'over-broad-trigger'
+  /** Description too short to support semantic matching or human review. */
+  | 'weak-description'
+  /** Core body large enough to meaningfully tax the context budget. */
+  | 'oversized-core';
 
 export interface SkillDiagnostic {
   code: SkillDiagnosticCode;

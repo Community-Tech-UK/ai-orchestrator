@@ -81,6 +81,19 @@
   --status-initializing: #8ca594;
 
   // ============================================
+  // GIT DECORATION COLORS (VS Code SCM palette)
+  // Used by the Source Control view for status letters and filename tints.
+  // Hard-wired to VS Code's dark-theme git-decoration colours (the app is
+  // currently dark-only) so the SCM view matches VS Code at a glance.
+  // ============================================
+  --scm-modified: #e2c08d;
+  --scm-added: #81b88b;
+  --scm-untracked: #73c991;
+  --scm-deleted: #c74e39;
+  --scm-renamed: #73c991;
+  --scm-ignored: #8c8c8c;
+
+  // ============================================
   // SEMANTIC STATUS TOKENS
   // Consistent color vocabulary for all agent/task/pipeline status states.
   // These alias the base status/semantic color tokens above so they adapt

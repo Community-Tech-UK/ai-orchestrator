@@ -10,7 +10,7 @@ import {
   ɵresolveComponentResources as resolveComponentResources,
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderType } from '../../core/services/provider-state.service';
 import type { HybridSearchOptions, HybridSearchResult } from '../../../../shared/types/codebase.types';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
@@ -175,9 +175,17 @@ describe('InputPanelComponent composer autocomplete integration', () => {
   let fixture: ComponentFixture<InputPanelComponent>;
   let component: InputPanelComponent;
   let codebaseSearch: ReturnType<typeof createCodebaseSearchMock>;
+  let draftService: ReturnType<typeof createDraftServiceMock>;
+  let animationFrameCallbacks: FrameRequestCallback[];
 
   beforeEach(async () => {
     codebaseSearch = createCodebaseSearchMock();
+    draftService = createDraftServiceMock();
+    animationFrameCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      animationFrameCallbacks.push(callback);
+      return animationFrameCallbacks.length;
+    }));
 
     TestBed.resetTestingModule();
     TestBed.overrideComponent(InputPanelComponent, {
@@ -203,7 +211,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
       imports: [InputPanelComponent],
       providers: [
         { provide: CommandStore, useValue: createCommandStoreMock() },
-        { provide: DraftService, useValue: createDraftServiceMock() },
+        { provide: DraftService, useValue: draftService },
         { provide: PromptSuggestionService, useValue: { getSuggestion: vi.fn(() => null) } },
         { provide: PerfInstrumentationService, useValue: { markComposerLatency: vi.fn(() => vi.fn()) } },
         { provide: ProviderStateService, useValue: createProviderStateMock() },
@@ -224,9 +232,90 @@ describe('InputPanelComponent composer autocomplete integration', () => {
 
     fixture = TestBed.createComponent(InputPanelComponent);
     component = fixture.componentInstance;
-    (component as unknown as { instanceId: () => string }).instanceId = () => 'inst-1';
-    (component as unknown as { workingDirectory: () => string | null }).workingDirectory = () => '/repo';
+    fixture.componentRef.setInput('instanceId', 'inst-1');
+    fixture.componentRef.setInput('workingDirectory', '/repo');
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('recalculates textarea height when restoring drafts across sessions', () => {
+    flushAnimationFrames();
+    const textarea = getTextarea();
+    const measuredFromHeights: string[] = [];
+    Object.defineProperty(textarea, 'scrollHeight', {
+      configurable: true,
+      get: () => {
+        measuredFromHeights.push(textarea.style.height);
+        return textarea.value ? 298 : 51;
+      },
+    });
+
+    draftService.drafts.set('inst-long', 'Long restored draft');
+    fixture.componentRef.setInput('instanceId', 'inst-long');
+    fixture.detectChanges();
+    flushAnimationFrames();
+
+    expect(textarea.value).toBe('Long restored draft');
+    expect(textarea.style.height).toBe('220px');
+    expect(measuredFromHeights.at(-1)).toBe('auto');
+
+    fixture.componentRef.setInput('instanceId', 'inst-short');
+    fixture.detectChanges();
+    flushAnimationFrames();
+
+    expect(textarea.value).toBe('');
+    expect(textarea.style.height).toBe('51px');
+    expect(measuredFromHeights.at(-1)).toBe('auto');
+  });
+
+  it('resizes the latest textarea when the composer remounts with a restored draft', () => {
+    flushAnimationFrames();
+    fixture.destroy();
+    draftService.drafts.set('inst-remounted', 'Restored after remount');
+
+    fixture = TestBed.createComponent(InputPanelComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('instanceId', 'inst-remounted');
+    fixture.componentRef.setInput('workingDirectory', '/repo');
+    fixture.detectChanges();
+
+    const textarea = getTextarea();
+    Object.defineProperty(textarea, 'scrollHeight', {
+      configurable: true,
+      value: 298,
+    });
+
+    expect(textarea.value).toBe('Restored after remount');
+    flushAnimationFrames();
+    expect(textarea.style.height).toBe('220px');
+  });
+
+  it('coalesces resize requests onto the latest textarea element', () => {
+    flushAnimationFrames();
+    const firstTextarea = document.createElement('textarea');
+    const latestTextarea = document.createElement('textarea');
+    Object.defineProperty(firstTextarea, 'scrollHeight', {
+      configurable: true,
+      value: 120,
+    });
+    Object.defineProperty(latestTextarea, 'scrollHeight', {
+      configurable: true,
+      value: 180,
+    });
+    const resize = component as unknown as {
+      scheduleTextareaResize(textarea: HTMLTextAreaElement): void;
+    };
+
+    resize.scheduleTextareaResize(firstTextarea);
+    resize.scheduleTextareaResize(latestTextarea);
+    expect(animationFrameCallbacks).toHaveLength(1);
+    flushAnimationFrames();
+
+    expect(firstTextarea.style.height).toBe('');
+    expect(latestTextarea.style.height).toBe('180px');
   });
 
   it('opens file suggestions backed by codebase search when typing an @ query', async () => {
@@ -318,6 +407,12 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     await Promise.resolve();
     fixture.detectChanges();
   }
+
+  function flushAnimationFrames(): void {
+    while (animationFrameCallbacks.length > 0) {
+      animationFrameCallbacks.shift()!(0);
+    }
+  }
 });
 
 function keydown(key: string): KeyboardEvent {
@@ -360,13 +455,23 @@ function createCommandStoreMock(): Partial<CommandStore> {
   };
 }
 
-function createDraftServiceMock(): Partial<DraftService> {
+function createDraftServiceMock() {
   const textVersion = signal(0);
+  const drafts = new Map<string, string>();
   return {
+    drafts,
     textVersion,
-    getDraft: vi.fn(() => ''),
-    setDraft: vi.fn(),
-    clearDraft: vi.fn(),
+    getDraft: vi.fn((contextKey: string) => drafts.get(contextKey) ?? ''),
+    setDraft: vi.fn((contextKey: string, value: string) => {
+      if (value) {
+        drafts.set(contextKey, value);
+      } else {
+        drafts.delete(contextKey);
+      }
+    }),
+    clearDraft: vi.fn((contextKey: string) => {
+      drafts.delete(contextKey);
+    }),
   };
 }
 

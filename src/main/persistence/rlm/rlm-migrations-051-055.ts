@@ -46,6 +46,7 @@ export const RLM_MIGRATIONS_051_055: Migration[] = [
         match_score REAL,
         tokens_injected INTEGER NOT NULL DEFAULT 0,
         auto_selected INTEGER NOT NULL DEFAULT 1,
+        followed_by_error INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       );
 

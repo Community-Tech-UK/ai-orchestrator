@@ -5548,6 +5548,10 @@
       "lines": 2952
     },
     {
+      "path": "src/main/channels/channel-message-router.ts",
+      "lines": 2903
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
       "lines": 2867
     },
@@ -5562,10 +5566,6 @@
     {
       "path": "src/main/instance/instance-manager.ts",
       "lines": 2824
-    },
-    {
-      "path": "src/main/channels/channel-message-router.ts",
-      "lines": 2742
     },
     {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
@@ -5660,6 +5660,10 @@
       "lines": 1867
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 1842
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
       "lines": 1830
     },
@@ -5680,12 +5684,12 @@
       "lines": 1795
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 1780
+      "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
+      "lines": 1764
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1730
+      "lines": 1737
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
@@ -5732,10 +5736,6 @@
       "lines": 1517
     },
     {
-      "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
-      "lines": 1513
-    },
-    {
       "path": "src/main/orchestration/orchestration-handler.ts",
       "lines": 1501
     },
@@ -5765,7 +5765,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.thread-recovery.spec.ts",
-      "lines": 1418
+      "lines": 1426
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
@@ -5912,6 +5912,10 @@
       "lines": 1239
     },
     {
+      "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
+      "lines": 1237
+    },
+    {
       "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
       "lines": 1236
     },
@@ -5970,10 +5974,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md",
       "lines": 1165
-    },
-    {
-      "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
-      "lines": 1155
     },
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
@@ -6152,11 +6152,19 @@
       "lines": 986
     },
     {
+      "path": "src/preload/domains/orchestration.preload.ts",
+      "lines": 981
+    },
+    {
       "path": "src/main/context-evidence/encrypted-evidence-blob-store.spec.ts",
       "lines": 980
     },
     {
       "path": "src/main/channels/adapters/discord-adapter.ts",
+      "lines": 977
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
       "lines": 977
     },
     {
@@ -6178,10 +6186,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-21-mcp-multi-provider-management-design.md",
       "lines": 969
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
-      "lines": 968
     },
     {
       "path": "src/renderer/app/features/debate/debate-visualization.component.ts",
@@ -6234,10 +6238,6 @@
     {
       "path": "docs/superpowers/plans/2026-06-05-auxiliary-local-model-routing_completed.md",
       "lines": 935
-    },
-    {
-      "path": "src/preload/domains/orchestration.preload.ts",
-      "lines": 932
     },
     {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
@@ -6390,6 +6390,10 @@
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
       "lines": 835
+    },
+    {
+      "path": "src/main/memory/skills-loader.spec.ts",
+      "lines": 831
     },
     {
       "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",

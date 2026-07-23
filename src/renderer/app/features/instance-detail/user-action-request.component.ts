@@ -167,7 +167,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         }
       }
 
-      const isPermissionPrompt = metadata?.type === 'permission_denial' || metadata?.type === 'deferred_permission';
+      const isPermissionPrompt =
+        metadata?.type === 'permission_denial'
+        || metadata?.type === 'deferred_permission'
+        || metadata?.type === 'codex_mcp_approval';
       const askQuestions =
         metadata?.type === 'ask_user_question'
           ? this.coerceAskQuestions((payload.metadata as Record<string, unknown> | undefined)?.['questions'])
@@ -339,7 +342,13 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   isPermissionRequest(request: UserActionRequest): boolean {
     return request.requestType === 'input_required' &&
       (request.permissionMetadata?.type === 'permission_denial' ||
-       request.permissionMetadata?.type === 'deferred_permission');
+       request.permissionMetadata?.type === 'deferred_permission' ||
+       request.permissionMetadata?.type === 'codex_mcp_approval');
+  }
+
+  supportsPermissionScope(request: UserActionRequest): boolean {
+    return request.permissionMetadata?.type === 'permission_denial'
+      || request.permissionMetadata?.type === 'deferred_permission';
   }
 
   isDeferredPermission(request: UserActionRequest): boolean {

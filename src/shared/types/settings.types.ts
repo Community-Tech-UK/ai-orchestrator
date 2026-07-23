@@ -503,6 +503,14 @@ export interface AppSettings extends DesktopComputerUseSettings {
   mcpCleanupBackupsOnQuit: boolean;
   mcpDisableProviderBackups: boolean;
   mcpAllowWorldWritableParent: boolean;
+  /** Microsoft public-client application id. Non-secret; empty disables Graph auth. */
+  graphClientId: string;
+  /** Microsoft identity authority used by delegated Graph authentication. */
+  graphAuthority: string;
+  /** JSON array of delegated Microsoft Graph scopes requested during consent. */
+  graphScopesJson: string;
+  /** JSON array of account emails agents may mutate; reads remain available to all connected accounts. */
+  graphAgentWritableAccountsJson: string;
   // RTK (Rust Token Killer) — compresses LLM-bound shell command output 60–90%.
   // See bigchange_rtk_integration.md for details. On by default; users can opt out
   // via the RTK Savings settings tab.
@@ -521,6 +529,12 @@ export interface AppSettings extends DesktopComputerUseSettings {
   notificationQuietHoursStartHour: number;
   /** Exclusive local-hour end for quiet hours (0–23). */
   notificationQuietHoursEndHour: number;
+  /**
+   * When true, the chat-channel bots (Discord/WhatsApp) post an occasional,
+   * throttled "still working…" heartbeat while an agent runs a long, silent
+   * turn full of tool calls. Off by default to keep channels quiet.
+   */
+  channelToolHeartbeat: boolean;
 
   // CLI Provider Updates
   /**

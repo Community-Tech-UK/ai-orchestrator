@@ -31,9 +31,11 @@ import type {
   AppServerNotificationHandler,
   AppServerRequestParams,
   AppServerResponseResult,
+  AppServerServerRequestHandler,
   CodexAppServerClientOptions,
   InitializeCapabilities,
   ClientInfo,
+  JsonRpcRequest,
   JsonRpcResponse,
 } from './app-server-types';
 import {
@@ -92,6 +94,7 @@ const DEFAULT_CAPABILITIES: InitializeCapabilities = {
   // Required by thread/resume.excludeTurns, which keeps resume responses
   // metadata-only instead of rehydrating large or interrupted turn history.
   experimentalApi: true,
+  mcpServerOpenaiFormElicitation: true,
   optOutNotificationMethods: DEFAULT_OPT_OUT_NOTIFICATIONS,
 };
 
@@ -117,6 +120,8 @@ export abstract class AppServerClientBase {
       error: error instanceof Error ? error.message : String(error),
     });
   });
+  private serverRequestHandler: AppServerServerRequestHandler | null = null;
+  private readonly activeServerRequests = new Set<string>();
   private contextDiagnosticsCollector: CodexContextPressureCollector | null = null;
   protected exitError: Error | null = null;
 
@@ -145,6 +150,7 @@ export abstract class AppServerClientBase {
   set notificationHandler(handler: AppServerNotificationHandler | null) { this.notificationHub.primary = handler; }
   setNotificationHandler(handler: AppServerNotificationHandler | null): void { this.notificationHub.primary = handler; }
   subscribeNotifications(handler: AppServerNotificationHandler): () => void { return this.notificationHub.subscribe(handler); }
+  setServerRequestHandler(handler: AppServerServerRequestHandler | null): void { this.serverRequestHandler = handler; }
   setContextDiagnosticsCollector(collector: CodexContextPressureCollector | null): void { this.contextDiagnosticsCollector = collector; }
 
   /** Sends a typed JSON-RPC request with method-specific timeout handling. */
@@ -251,10 +257,7 @@ export abstract class AppServerClientBase {
       && 'method' in message
       && typeof message['method'] === 'string'
     ) {
-      this.sendMessage({
-        id: message['id'],
-        error: { code: -32601, message: 'Method not supported by client' },
-      });
+      this.handleServerRequest(message as unknown as JsonRpcRequest);
       return;
     }
 
@@ -281,11 +284,56 @@ export abstract class AppServerClientBase {
     // Notification (no id field, has method)
     if ('method' in message && typeof message['method'] === 'string') {
       const notification = message as unknown as AppServerNotification;
+      if (notification.method === 'serverRequest/resolved') {
+        const requestId = notification.params?.['requestId'];
+        if (typeof requestId === 'number' || typeof requestId === 'string') {
+          this.activeServerRequests.delete(serverRequestKey(requestId));
+        }
+      }
       this.recordTransportContextDiagnostics(notification);
       this.notificationHub.dispatch(notification);
       return;
     }
 
+  }
+
+  private handleServerRequest(request: JsonRpcRequest): void {
+    const handler = this.serverRequestHandler;
+    if (!handler) {
+      this.sendUnsupportedServerRequest(request.id);
+      return;
+    }
+
+    const key = serverRequestKey(request.id);
+    this.activeServerRequests.add(key);
+    void Promise.resolve()
+      .then(() => handler(request))
+      .then((result) => {
+        if (!this.activeServerRequests.delete(key) || this.closed) return;
+        if (result === undefined) {
+          this.sendUnsupportedServerRequest(request.id);
+          return;
+        }
+        this.sendMessage({ id: request.id, result });
+      })
+      .catch((error) => {
+        if (!this.activeServerRequests.delete(key) || this.closed) return;
+        logger.warn('App-server request handler failed', {
+          method: request.method,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        this.sendMessage({
+          id: request.id,
+          error: { code: -32603, message: 'Client failed to handle server request' },
+        });
+      });
+  }
+
+  private sendUnsupportedServerRequest(id: number | string): void {
+    this.sendMessage({
+      id,
+      error: { code: -32601, message: 'Method not supported by client' },
+    });
   }
 
   private recordTransportContextDiagnostics(notification: AppServerNotification): void {
@@ -323,6 +371,7 @@ export abstract class AppServerClientBase {
     this.closed = true;
     this.exitError = error || null;
     this.lineParser.reset();
+    this.activeServerRequests.clear();
 
     for (const [id, pending] of this.pending) {
       if (pending.timer) clearTimeout(pending.timer);
@@ -336,6 +385,10 @@ export abstract class AppServerClientBase {
 
 function isJsonRpcRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function serverRequestKey(id: number | string): string {
+  return `${typeof id}:${String(id)}`;
 }
 
 

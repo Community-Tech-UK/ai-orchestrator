@@ -1,7 +1,72 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AutomationPreflightReport } from '../../../../shared/types/task-preflight.types';
 import { AutomationIpcService } from '../services/ipc/automation-ipc.service';
 import { AutomationStore } from './automation.store';
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function makePreflightReport(generatedAt = 1): AutomationPreflightReport {
+  return {
+    generatedAt,
+    workingDirectory: '/repo',
+    surface: 'automation',
+    taskType: 'automation',
+    instructionSummary: { projectRoot: '/repo', appliedLabels: [], warnings: [], sources: [] },
+    branchPolicy: {
+      state: 'fresh',
+      action: 'allow',
+      branch: 'main',
+      upstream: 'origin/main',
+      ahead: 0,
+      behind: 0,
+      summary: 'fresh',
+      recommendedRemediation: 'none',
+      requiresManualResolution: false,
+    },
+    filesystem: {
+      workingDirectory: '/repo',
+      canReadWorkingDirectory: true,
+      canWriteWorkingDirectory: true,
+      readPathCount: 1,
+      writePathCount: 1,
+      blockedPathCount: 0,
+      allowTempDir: true,
+      notes: [],
+    },
+    network: {
+      allowAllTraffic: true,
+      allowedDomainCount: 0,
+      blockedDomainCount: 0,
+      sampleAllowedDomains: [],
+      notes: [],
+    },
+    mcp: {
+      configuredCount: 0,
+      connectedCount: 0,
+      browserStatus: 'ready',
+      browserWarnings: [],
+      browserToolNames: [],
+      connectedServerNames: [],
+    },
+    permissions: { preset: 'ask', defaultAction: 'ask', predictions: [] },
+    blockers: [],
+    warnings: [],
+    recommendedLinks: [],
+    okToSave: true,
+    suggestedPermissionRules: [],
+    suggestedPromptEdits: [],
+  };
+}
 
 describe('AutomationStore thread wakeups', () => {
   const ipc = {
@@ -177,56 +242,7 @@ describe('AutomationStore thread wakeups', () => {
   });
 
   it('runs automation preflight and stores the latest report', async () => {
-    const report = {
-      generatedAt: 1,
-      workingDirectory: '/repo',
-      surface: 'automation',
-      taskType: 'automation',
-      instructionSummary: { projectRoot: '/repo', appliedLabels: [], warnings: [], sources: [] },
-      branchPolicy: {
-        state: 'fresh',
-        action: 'allow',
-        branch: 'main',
-        upstream: 'origin/main',
-        ahead: 0,
-        behind: 0,
-        summary: 'fresh',
-        recommendedRemediation: 'none',
-        requiresManualResolution: false,
-      },
-      filesystem: {
-        workingDirectory: '/repo',
-        canReadWorkingDirectory: true,
-        canWriteWorkingDirectory: true,
-        readPathCount: 1,
-        writePathCount: 1,
-        blockedPathCount: 0,
-        allowTempDir: true,
-        notes: [],
-      },
-      network: {
-        allowAllTraffic: true,
-        allowedDomainCount: 0,
-        blockedDomainCount: 0,
-        sampleAllowedDomains: [],
-        notes: [],
-      },
-      mcp: {
-        configuredCount: 0,
-        connectedCount: 0,
-        browserStatus: 'ready',
-        browserWarnings: [],
-        browserToolNames: [],
-        connectedServerNames: [],
-      },
-      permissions: { preset: 'ask', defaultAction: 'ask', predictions: [] },
-      blockers: [],
-      warnings: ['permission warning'],
-      recommendedLinks: [],
-      okToSave: true,
-      suggestedPermissionRules: [],
-      suggestedPromptEdits: [],
-    };
+    const report = { ...makePreflightReport(), warnings: ['permission warning'] };
     ipc.preflight.mockResolvedValue({ success: true, data: report });
     const store = TestBed.inject(AutomationStore);
 
@@ -245,5 +261,88 @@ describe('AutomationStore thread wakeups', () => {
     });
     expect(result).toBe(report);
     expect(store.preflight()).toBe(report);
+  });
+
+  it('invalidates an in-flight preflight when the form clears it', async () => {
+    const pending = deferred<{ success: true; data: AutomationPreflightReport }>();
+    const existingReport = makePreflightReport(1);
+    const staleReport = makePreflightReport();
+    ipc.preflight
+      .mockResolvedValueOnce({ success: true, data: existingReport })
+      .mockReturnValueOnce(pending.promise);
+    const store = TestBed.inject(AutomationStore);
+    await store.runPreflight({
+      workingDirectory: '/repo',
+      prompt: 'Existing report',
+    });
+    expect(store.preflight()).toBe(existingReport);
+
+    const resultPromise = store.runPreflight({
+      workingDirectory: '/repo',
+      prompt: 'Fix lint',
+    });
+    expect(store.preflightLoading()).toBe(true);
+
+    store.clearPreflight();
+    const loadingAfterClear = store.preflightLoading();
+    const reportAfterClear = store.preflight();
+
+    pending.resolve({ success: true, data: staleReport });
+
+    const result = await resultPromise;
+    expect(loadingAfterClear).toBe(false);
+    expect(reportAfterClear).toBeNull();
+    expect(result).toBeNull();
+    expect(store.preflight()).toBeNull();
+    expect(store.preflightLoading()).toBe(false);
+  });
+
+  it('keeps a newer preflight loading when an older request finishes first', async () => {
+    const first = deferred<{ success: true; data: AutomationPreflightReport }>();
+    const second = deferred<{ success: true; data: AutomationPreflightReport }>();
+    const freshReport = makePreflightReport(2);
+    ipc.preflight
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const store = TestBed.inject(AutomationStore);
+
+    const firstPromise = store.runPreflight({ workingDirectory: '/repo', prompt: 'First' });
+    const secondPromise = store.runPreflight({ workingDirectory: '/repo', prompt: 'Second' });
+
+    first.resolve({ success: true, data: makePreflightReport(1) });
+    const firstResult = await firstPromise;
+    const loadingAfterFirst = store.preflightLoading();
+    const reportAfterFirst = store.preflight();
+
+    second.resolve({ success: true, data: freshReport });
+    const secondResult = await secondPromise;
+    expect(firstResult).toBeNull();
+    expect(loadingAfterFirst).toBe(true);
+    expect(reportAfterFirst).toBeNull();
+    expect(secondResult).toBe(freshReport);
+    expect(store.preflightLoading()).toBe(false);
+    expect(store.preflight()).toBe(freshReport);
+  });
+
+  it('does not let an older late response overwrite the newest preflight report', async () => {
+    const first = deferred<{ success: true; data: AutomationPreflightReport }>();
+    const second = deferred<{ success: true; data: AutomationPreflightReport }>();
+    const freshReport = makePreflightReport(2);
+    ipc.preflight
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const store = TestBed.inject(AutomationStore);
+
+    const firstPromise = store.runPreflight({ workingDirectory: '/repo', prompt: 'First' });
+    const secondPromise = store.runPreflight({ workingDirectory: '/repo', prompt: 'Second' });
+
+    second.resolve({ success: true, data: freshReport });
+    await expect(secondPromise).resolves.toBe(freshReport);
+    expect(store.preflight()).toBe(freshReport);
+
+    first.resolve({ success: true, data: makePreflightReport(1) });
+    await expect(firstPromise).resolves.toBeNull();
+    expect(store.preflightLoading()).toBe(false);
+    expect(store.preflight()).toBe(freshReport);
   });
 });

@@ -783,3 +783,48 @@ describe('SkillsLoader control modes and trigger gate', () => {
     expect(result.loadedDetails[0].tokens).toBeGreaterThan(0);
   });
 });
+
+describe('SkillsLoader D1a defaults for registry-discovered skills', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    SkillsLoader.resetInstance();
+    SkillAttributionService._resetForTesting();
+    getSkillAttribution()._bindUnavailableForTesting();
+    mockDiscoverSkillsWithBuiltins.mockResolvedValue([]);
+    mockEmbed.mockRejectedValue(new Error('no embeddings in this test'));
+  });
+
+  afterEach(() => {
+    SkillsLoader.resetInstance();
+    SkillAttributionService._resetForTesting();
+  });
+
+  it('marks registry-synced (non-declared) global skills suggest-only by default', async () => {
+    const loader3 = getSkillsLoader();
+    const globalBundle = {
+      id: 'skill-ui-ux-pro-max',
+      metadata: {
+        name: 'ui-ux-pro-max',
+        description: 'Huge global design skill',
+        triggers: ['design intelligence'],
+      },
+      corePath: `${process.env['HOME']}/.claude/skills/ui-ux-pro-max/SKILL.md`,
+      path: `${process.env['HOME']}/.claude/skills/ui-ux-pro-max`,
+    };
+    mockListSkills.mockReturnValue([globalBundle]);
+    await loader3.syncWithRegistry();
+    mockMatchTrigger.mockReturnValue([
+      { skill: globalBundle, trigger: 'design intelligence', confidence: 0.6 },
+    ]);
+
+    const detected = await loader3.detectRelevantSkills('apply design intelligence here');
+
+    expect(detected).toHaveLength(1);
+    expect(detected[0].skillSource).toBe('global');
+    expect(detected[0].suggestOnly).toBe(true);
+
+    // And the injection loader refuses it.
+    const result = await loader3.loadSkillsWithBudget(detected, 10_000);
+    expect(result.loaded).toHaveLength(0);
+  });
+});

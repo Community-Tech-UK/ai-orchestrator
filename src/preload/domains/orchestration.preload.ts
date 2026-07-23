@@ -597,6 +597,55 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
       return ipcRenderer.invoke(ch.SKILLS_GET_MEMORY, { skillId });
     },
 
+    /**
+     * Recent skill activations (skill observability)
+     */
+    skillsActivationsRecent: (query?: {
+      skillName?: string;
+      instanceId?: string;
+      since?: number;
+      limit?: number;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_ACTIVATIONS_RECENT, query);
+    },
+
+    /**
+     * Per-skill health summary plus current controls
+     */
+    skillsHealthSummary: (since?: number): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(
+        ch.SKILLS_HEALTH_SUMMARY,
+        since === undefined ? undefined : { since }
+      );
+    },
+
+    /**
+     * List per-skill controls (kill-switch state)
+     */
+    skillsListControls: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_LIST_CONTROLS);
+    },
+
+    /**
+     * Set a per-skill control mode (enabled | suggest-only | disabled)
+     */
+    skillsSetControl: (
+      skillName: string,
+      mode: 'enabled' | 'suggest-only' | 'disabled',
+      reason?: string
+    ): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_SET_CONTROL, { skillName, mode, reason });
+    },
+
+    /**
+     * Listen for live skill-activation deltas
+     */
+    onSkillActivationDelta: (callback: (activation: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, activation: unknown) => callback(activation);
+      ipcRenderer.on(ch.SKILLS_ACTIVATION_DELTA, handler);
+      return () => ipcRenderer.removeListener(ch.SKILLS_ACTIVATION_DELTA, handler);
+    },
+
     // ============================================
     // Phase 7: Supervision (7.3)
     // ============================================

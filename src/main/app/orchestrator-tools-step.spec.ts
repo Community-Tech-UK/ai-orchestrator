@@ -14,7 +14,27 @@ const captured = vi.hoisted(() => ({
       extensionRelay?: { enabled: boolean };
     }) => Promise<unknown>;
     resolveContextEvidence?: (instanceId: string) => unknown;
+    calendarTools?: {
+      authManager?: unknown;
+      graphClient?: unknown;
+      writableAccountEmails?: readonly string[];
+    };
+    authorizeCalendarMutation?: (args: {
+      instanceId: string;
+      method: string;
+      payload: Record<string, unknown>;
+    }) => Promise<boolean>;
   },
+  settings: {
+    graphClientId: 'graph-client-id',
+    graphAuthority: 'https://login.microsoftonline.com/common',
+    graphScopesJson: '["Calendars.ReadWrite","User.Read"]',
+    graphAgentWritableAccountsJson: '["james@communitytech.co.uk"]',
+  } as Record<string, unknown>,
+  permissionRequest: vi.fn(),
+  graphAuthOptions: null as unknown,
+  graphClientOptions: null as unknown,
+  graphTokenStoreArgs: null as unknown,
   registry: {
     getAllNodes: vi.fn(),
     getNode: vi.fn(),
@@ -32,10 +52,11 @@ const captured = vi.hoisted(() => ({
 
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
-    get: vi.fn(() => 3),
+    get: vi.fn((key: string) => captured.settings[key] ?? 3),
     getAll: vi.fn(() => ({
       maxSpawnDepth: 3,
       maxTotalInstances: 20,
+      ...captured.settings,
     })),
   }),
 }));
@@ -49,6 +70,43 @@ vi.mock('../mcp/orchestrator-tools-rpc-server', () => ({
 
 vi.mock('../operator/operator-database', () => ({
   defaultOperatorDbPath: () => '/tmp/operator.db',
+  getOperatorDatabase: () => ({ db: { id: 'operator-db' } }),
+}));
+
+vi.mock('../mcp/secret-storage', () => ({
+  getMcpSecretStorage: () => ({ id: 'secret-storage' }),
+}));
+
+vi.mock('../graph/graph-token-store', () => ({
+  GraphTokenStore: class {
+    constructor(...args: unknown[]) {
+      captured.graphTokenStoreArgs = args;
+    }
+  },
+}));
+
+vi.mock('../graph/graph-auth', () => ({
+  GraphAuthManager: class {
+    constructor(options: unknown) {
+      captured.graphAuthOptions = options;
+    }
+
+    connectAccount = vi.fn();
+    listAccounts = vi.fn();
+    getAccessToken = vi.fn();
+  },
+}));
+
+vi.mock('../graph/graph-client', () => ({
+  GraphClient: class {
+    constructor(options: unknown) {
+      captured.graphClientOptions = options;
+    }
+  },
+}));
+
+vi.mock('../orchestration/permission-registry', () => ({
+  getPermissionRegistry: () => ({ requestPermission: captured.permissionRequest }),
 }));
 
 vi.mock('../remote-node', () => ({
@@ -102,7 +160,79 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     captured.initializeOptions = null;
+    captured.graphAuthOptions = null;
+    captured.graphClientOptions = null;
+    captured.graphTokenStoreArgs = null;
+    captured.settings = {
+      graphClientId: 'graph-client-id',
+      graphAuthority: 'https://login.microsoftonline.com/common',
+      graphScopesJson: '["Calendars.ReadWrite","User.Read"]',
+      graphAgentWritableAccountsJson: '["james@communitytech.co.uk"]',
+    };
+    captured.permissionRequest.mockResolvedValue({
+      requestId: 'permission-1',
+      granted: true,
+      decidedBy: 'user',
+      decidedAt: Date.now(),
+    });
     captured.roster.list.mockImplementation(() => captured.registry.getAllNodes());
+  });
+
+  it('injects Graph calendar dependencies and requires an explicit user decision per mutation', async () => {
+    await startStep();
+
+    expect(captured.graphTokenStoreArgs).toEqual([
+      { id: 'operator-db' },
+      { id: 'secret-storage' },
+    ]);
+    expect(captured.graphAuthOptions).toMatchObject({
+      clientId: 'graph-client-id',
+      authority: 'https://login.microsoftonline.com/common',
+      scopes: ['Calendars.ReadWrite', 'User.Read'],
+      deviceCodeCallback: expect.any(Function),
+    });
+    expect(captured.graphClientOptions).toMatchObject({
+      tokenProvider: captured.initializeOptions?.calendarTools?.authManager,
+    });
+    expect(captured.initializeOptions?.calendarTools?.writableAccountEmails).toEqual([
+      'james@communitytech.co.uk',
+    ]);
+
+    const request = {
+      instanceId: 'instance-1',
+      method: 'orchestrator_tools.graph_calendar_create_event',
+      payload: {
+        account: 'james@communitytech.co.uk',
+        subject: 'TEST - IGNORE',
+        attendees: [{ emailAddress: { address: 'invitee@example.com' } }],
+        body: { contentType: 'text', content: 'private content' },
+      },
+    };
+    await expect(
+      captured.initializeOptions?.authorizeCalendarMutation?.(request),
+    ).resolves.toBe(true);
+    expect(captured.permissionRequest).toHaveBeenCalledTimes(1);
+    const permission = captured.permissionRequest.mock.calls[0]?.[0];
+    expect(permission.description).toContain('may send attendee invitations');
+    expect(permission.description).not.toContain('private content');
+
+    captured.permissionRequest.mockResolvedValueOnce({
+      requestId: 'permission-2',
+      granted: true,
+      decidedBy: 'auto_approve',
+      decidedAt: Date.now(),
+    });
+    await expect(
+      captured.initializeOptions?.authorizeCalendarMutation?.(request),
+    ).resolves.toBe(false);
+  });
+
+  it('fails closed when the writable-account setting is malformed', async () => {
+    captured.settings['graphAgentWritableAccountsJson'] = 'not-json';
+
+    await startStep();
+
+    expect(captured.initializeOptions?.calendarTools?.writableAccountEmails).toEqual([]);
   });
 
   it('rejects update_node_config for a disconnected node before sending service RPC', async () => {

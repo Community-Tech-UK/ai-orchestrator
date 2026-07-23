@@ -51,6 +51,44 @@ describe('SkillDiagnosticsService', () => {
       ]),
     );
   });
+  it('lints over-broad triggers, weak descriptions, and oversized cores', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'skill-diag-'));
+    const corePath = join(tempDir, 'linty-SKILL.md');
+    await writeFile(corePath, [
+      '---',
+      'name: linty',
+      'description: short',
+      'triggers:',
+      '  - test',
+      '  - /linty',
+      '---',
+      'content',
+    ].join('\n'));
+
+    const skill = makeSkill('skill-linty', 'linty', corePath, []);
+    skill.metadata.description = 'short';
+    skill.metadata.triggers = ['test', '/linty'];
+    skill.metadata.coreSize = 20_000;
+
+    const service = new SkillDiagnosticsService({
+      listSkills: () => [skill],
+      getTriggerIndex: () => new Map<string, string[]>(),
+    });
+
+    const diagnostics = await service.collect();
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'over-broad-trigger', trigger: 'test' }),
+        expect.objectContaining({ code: 'weak-description', skillName: 'linty' }),
+        expect.objectContaining({ code: 'oversized-core', skillName: 'linty' }),
+      ]),
+    );
+    // Slash triggers are typed deliberately and must never be flagged.
+    expect(diagnostics.some(
+      (diag) => diag.code === 'over-broad-trigger' && diag.trigger === '/linty',
+    )).toBe(false);
+  });
 });
 
 function makeSkill(

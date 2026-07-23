@@ -6,6 +6,12 @@ const angular = require("angular-eslint");
 
 module.exports = defineConfig([
   {
+    // Committed-but-generated TS (e.g. file-icon-map.generated.ts) is produced
+    // by scripts and never hand-edited — exclude it from linting so generator
+    // output never has to satisfy style rules.
+    ignores: ["**/*.generated.ts"],
+  },
+  {
     files: ["**/*.ts"],
     extends: [
       eslint.configs.recommended,

@@ -48,5 +48,9 @@ export interface UserActionRequest {
     tool_input?: Record<string, unknown>;
     /** Session ID for deferred permission resume */
     session_id?: string;
+    /** Codex app-server MCP elicitation source. */
+    serverName?: string;
+    /** MCP tool requesting approval. */
+    toolName?: string;
   };
 }

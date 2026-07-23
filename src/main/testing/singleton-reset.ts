@@ -140,10 +140,9 @@ import { HookExecutor } from '../hooks/hook-executor';
 import { HookManager } from '../hooks/hook-manager';
 
 // Skills
+import { SkillAttributionService } from '../skills/skill-attribution-service';
 import { SkillLoader } from '../skills/skill-loader';
-import { SkillMatcher } from '../skills/skill-matcher';
 import { SkillRegistry } from '../skills/skill-registry';
-import { TriggerMatcher } from '../skills/trigger-matcher';
 
 // Security
 import { FilesystemPolicy } from '../security/filesystem-policy';
@@ -255,10 +254,9 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
   HookManager._resetForTesting();
 
   // Skills
+  SkillAttributionService._resetForTesting();
   SkillLoader._resetForTesting();
-  SkillMatcher._resetForTesting();
   SkillRegistry._resetForTesting();
-  TriggerMatcher._resetForTesting();
 
   // Security
   FilesystemPolicy._resetForTesting();

@@ -129,4 +129,26 @@ describe('buildInlineMcpServersCodexConfigToml', () => {
     expect(toml).toContain('[mcp_servers.orchestrator-tools]');
     expect(toml).toContain('startup_timeout_sec = 10');
   });
+
+  it('pre-approves Harness automation self-management tools for Codex sessions', () => {
+    const inline = JSON.stringify({
+      mcpServers: {
+        orchestrator: {
+          command: '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp',
+          args: ['orchestrator-tools'],
+          env: {
+            AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: '/tmp/harness/orchestrator-tools.sock',
+            AI_ORCHESTRATOR_INSTANCE_ID: 'instance-1',
+          },
+        },
+      },
+    });
+
+    const toml = buildInlineMcpServersCodexConfigToml([inline]) ?? '';
+
+    expect(toml).toContain('[mcp_servers.orchestrator.tools.list_automations]');
+    expect(toml).toContain('[mcp_servers.orchestrator.tools.update_automation]');
+    expect(toml.match(/approval_mode = "approve"/g)).toHaveLength(2);
+    expect(toml).not.toContain('[mcp_servers.orchestrator.tools.delete_automation]');
+  });
 });

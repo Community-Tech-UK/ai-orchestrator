@@ -10,6 +10,8 @@ export interface CodexTomlServer {
   description?: string;
   startupTimeoutSec?: number;
   toolTimeoutSec?: number;
+  /** Explicit Codex approval policy for selected tools on this server. */
+  toolApprovalModes?: Record<string, 'auto' | 'prompt' | 'approve'>;
 }
 
 interface Section {
@@ -183,9 +185,30 @@ export class CodexTomlEditor {
     if (entry.toolTimeoutSec !== undefined) {
       lines.push(`tool_timeout_sec = ${entry.toolTimeoutSec}`);
     }
+    this.appendToolApprovals(lines, sectionName, entry.toolApprovalModes);
     this.appendTable(lines, sectionName, 'headers', entry.headers);
     this.appendTable(lines, sectionName, 'env', entry.env);
     return lines.join('\n');
+  }
+
+  private appendToolApprovals(
+    lines: string[],
+    sectionName: string,
+    approvals: CodexTomlServer['toolApprovalModes'],
+  ): void {
+    if (!approvals) {
+      return;
+    }
+    for (const [toolName, approvalMode] of Object.entries(approvals)) {
+      const toolKey = /^[A-Za-z0-9_-]+$/.test(toolName)
+        ? toolName
+        : JSON.stringify(toolName);
+      lines.push(
+        '',
+        `[${sectionName}.tools.${toolKey}]`,
+        `approval_mode = ${JSON.stringify(approvalMode)}`,
+      );
+    }
   }
 
   private appendTable(

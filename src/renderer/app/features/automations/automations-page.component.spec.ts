@@ -248,6 +248,29 @@ describe('AutomationsPageComponent row actions', () => {
     );
   });
 
+  it('closes the edit window before preflight finishes', async () => {
+    let resolvePreflight: ((report: {
+      okToSave: boolean;
+      warnings: string[];
+      blockers: string[];
+    }) => void) | undefined;
+    store.runPreflight.mockImplementation(() => new Promise((resolve) => {
+      resolvePreflight = resolve;
+    }));
+    const component = fixture.componentInstance;
+    const automation = makeAutomation();
+    component.select(automation);
+    component.editSelected();
+
+    const savePromise = component.save();
+
+    expect(component.overlay()).toBeNull();
+
+    resolvePreflight?.({ okToSave: true, warnings: [], blockers: [] });
+    await savePromise;
+    expect(store.update).toHaveBeenCalledOnce();
+  });
+
   it('still blocks saving when preflight reports a real blocker', async () => {
     store.runPreflight.mockResolvedValue({
       okToSave: false,
@@ -262,6 +285,31 @@ describe('AutomationsPageComponent row actions', () => {
     await component.save();
 
     expect(store.update).not.toHaveBeenCalled();
+    expect(component.overlay()).toBe('form');
+  });
+
+  it('restores the edit window when persistence reports a failure', async () => {
+    store.update.mockResolvedValue(false);
+    const component = fixture.componentInstance;
+    const automation = makeAutomation();
+    component.select(automation);
+    component.editSelected();
+
+    await component.save();
+
+    expect(component.overlay()).toBe('form');
+  });
+
+  it('restores the edit window and propagates an unexpected save error', async () => {
+    store.runPreflight.mockRejectedValue(new Error('Preflight unavailable'));
+    const component = fixture.componentInstance;
+    const automation = makeAutomation();
+    component.select(automation);
+    component.editSelected();
+
+    await expect(component.save()).rejects.toThrow('Preflight unavailable');
+
+    expect(component.overlay()).toBe('form');
   });
 
   it('uses the full session provider list and adopts provider changes from the model picker', () => {

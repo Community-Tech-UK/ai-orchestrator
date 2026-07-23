@@ -42,7 +42,7 @@
             <div class="preview-thumbnail" [style.background-image]="'url(' + preview.previewUrl + ')'">
             </div>
             <div class="preview-info">
-              <span class="file-name">{{ preview.file.name }}</span>
+              <span class="file-name" [title]="preview.file.name">{{ preview.file.name }}</span>
               <span class="file-size">{{ preview.size }}</span>
             </div>
             <button
@@ -69,7 +69,7 @@
                 <path d="M14 2v6h6"/>
               </svg>
             </span>
-            <span class="file-name">{{ preview.file.name }}</span>
+            <span class="file-name" [title]="preview.file.name">{{ preview.file.name }}</span>
             <button
               class="file-remove"
               (click)="onRemoveFile(preview.file); $event.stopPropagation()"

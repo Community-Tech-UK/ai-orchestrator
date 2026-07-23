@@ -192,7 +192,7 @@
             </div>
           }
           <div class="request-actions">
-            @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
+            @if (request.requestType === 'input_required' && supportsPermissionScope(request)) {
               <select
                 class="scope-select"
                 [value]="getInputRequiredScope(request)"

@@ -71,6 +71,8 @@ export interface SkillHealthSummaryEntry {
   byTrigger: number;
   byEmbedding: number;
   byExplicit: number;
+  /** Activations followed by an instance error within the correlation window. */
+  precededErrors: number;
 }
 
 function toActivation(row: SkillActivationRow): SkillActivation {
@@ -191,6 +193,7 @@ export function getSkillHealthSummary(
     by_trigger: number;
     by_embedding: number;
     by_explicit: number;
+    preceded_errors: number;
   }
   const rows = db.prepare(`
     SELECT
@@ -200,7 +203,8 @@ export function getSkillHealthSummary(
       MAX(created_at) AS last_used_at,
       SUM(CASE WHEN matched_by = 'trigger' THEN 1 ELSE 0 END) AS by_trigger,
       SUM(CASE WHEN matched_by = 'embedding' THEN 1 ELSE 0 END) AS by_embedding,
-      SUM(CASE WHEN matched_by = 'explicit' THEN 1 ELSE 0 END) AS by_explicit
+      SUM(CASE WHEN matched_by = 'explicit' THEN 1 ELSE 0 END) AS by_explicit,
+      SUM(followed_by_error) AS preceded_errors
     FROM skill_activations
     ${where}
     GROUP BY skill_name
@@ -214,7 +218,29 @@ export function getSkillHealthSummary(
     byTrigger: row.by_trigger,
     byEmbedding: row.by_embedding,
     byExplicit: row.by_explicit,
+    precededErrors: row.preceded_errors,
   }));
+}
+
+/**
+ * Mark every recent activation for an instance as followed-by-error.
+ * Called when the instance errors/fails within the correlation window.
+ * This is correlation, not causation — the UI must label it as such.
+ */
+export function markActivationsFollowedByError(
+  db: SqliteDriver,
+  instanceId: string,
+  windowMs: number,
+  errorAt: number,
+): number {
+  const result = db.prepare(`
+    UPDATE skill_activations
+    SET followed_by_error = 1
+    WHERE instance_id = ?
+      AND followed_by_error = 0
+      AND created_at BETWEEN ? AND ?
+  `).run(instanceId, errorAt - windowMs, errorAt);
+  return result.changes;
 }
 
 /** Delete activation rows older than the cutoff; returns rows removed. */

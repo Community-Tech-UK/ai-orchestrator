@@ -164,10 +164,12 @@ export class SkillRegistry extends EventEmitter {
       return null;
     }
 
-    // Registry discovery requires at least one trigger (legacy contract).
+    // Trigger-less skills (the standard Anthropic SKILL.md format: name +
+    // description only) are valid: they are discoverable and embedding-only.
+    // Their control mode defaults to 'suggest-only' unless explicitly enabled
+    // (decision D1a), so making them visible never makes them auto-inject.
     if (metadata.triggers.length === 0) {
-      logger.warn('Invalid skill: missing or invalid frontmatter', { skillPath });
-      return null;
+      logger.info('Skill has no triggers; registering as embedding-only', { skillPath });
     }
 
     const ignoreMatcher = await createSkillIgnoreMatcher(skillPath);

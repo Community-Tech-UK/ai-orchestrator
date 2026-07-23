@@ -280,6 +280,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpCleanupBackupsOnQuit: true,
   mcpDisableProviderBackups: false,
   mcpAllowWorldWritableParent: false,
+  // The registered app is currently single-tenant, so Microsoft requires a
+  // tenant-specific authority (AADSTS50194 rejects /common for this audience).
+  graphClientId: 'fdbb0672-4089-48dc-bcc5-7121a331fcfc',
+  graphAuthority: 'https://login.microsoftonline.com/60b0a25e-b75d-4d9e-b797-1805ec311dfb',
+  graphScopesJson: JSON.stringify([
+    'Calendars.ReadWrite',
+    'offline_access',
+    'openid',
+    'profile',
+    'User.Read',
+  ]),
+  graphAgentWritableAccountsJson: JSON.stringify(['james@communitytech.co.uk']),
   ...DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS,
   // RTK
   rtkEnabled: true,
@@ -287,6 +299,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Notifications
   notifyOnAgentCompletion: true,
+  channelToolHeartbeat: false,
   notificationCooldownSeconds: 30,
   notificationQuietHoursEnabled: false,
   notificationQuietHoursStartHour: 22,

@@ -23,9 +23,11 @@ import {
 } from '@angular/core';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { SourceControlStore } from '../../core/state/source-control.store';
+import { FileIconComponent } from '../../shared/file-icons/file-icon.component';
 import { SourceControlDiffViewerComponent } from './source-control-diff-viewer.component';
 import { SourceControlInlineDiffComponent } from './source-control-inline-diff.component';
 import { SourceControlRepoActionsComponent } from './source-control-repo-actions.component';
+import { buildChangesRows, statusLetter } from './source-control-rows';
 import type {
   FileChange,
   FileChangeStatus,
@@ -37,6 +39,7 @@ import type {
   selector: 'app-source-control',
   standalone: true,
   imports: [
+    FileIconComponent,
     SourceControlDiffViewerComponent,
     SourceControlInlineDiffComponent,
     SourceControlRepoActionsComponent,
@@ -131,21 +134,55 @@ export class SourceControlComponent {
     return idx === -1 ? '' : filePath.slice(0, idx);
   }
 
-  statusChar(status: FileChangeStatus): string {
-    switch (status) {
-      case 'added': return 'A';
-      case 'modified': return 'M';
-      case 'deleted': return 'D';
-      case 'renamed': return 'R';
-      case 'copied': return 'C';
-      case 'untracked': return '?';
-      case 'ignored': return '!';
-      default: return '·';
-    }
+  /** VS Code–style trailing status letter (`M A D R C U !`). */
+  statusLetter(status: FileChangeStatus): string {
+    return statusLetter(status);
   }
 
   statusLabel(status: FileChangeStatus): string {
     return status.charAt(0).toUpperCase() + status.slice(1);
+  }
+
+  /**
+   * The merged "Changes" group: unstaged tracked changes + untracked files,
+   * name-sorted (VS Code behaviour). Untracked files become synthetic
+   * `FileChange` rows so the template renders them uniformly; behaviour still
+   * branches on `file.status === 'untracked'`, never on group membership.
+   */
+  changesRows(repo: RepoState): FileChange[] {
+    if (!repo.status) return [];
+    return buildChangesRows(repo.status);
+  }
+
+  /** Count for the "Changes" pill — unstaged + untracked. */
+  changesCount(repo: RepoState): number {
+    if (!repo.status) return 0;
+    return repo.status.unstaged.length + repo.status.untracked.length;
+  }
+
+  // -------------------------------------------------------------------------
+  // Section collapse — component-local, per repo + group. Default expanded;
+  // not persisted across restarts (matches the spec).
+  // -------------------------------------------------------------------------
+
+  private collapsedGroups = signal(new Set<string>());
+
+  private groupKey(repo: RepoState, group: 'staged' | 'changes'): string {
+    return `${repo.absolutePath}:${group}`;
+  }
+
+  isGroupCollapsed(repo: RepoState, group: 'staged' | 'changes'): boolean {
+    return this.collapsedGroups().has(this.groupKey(repo, group));
+  }
+
+  toggleGroup(repo: RepoState, group: 'staged' | 'changes'): void {
+    const key = this.groupKey(repo, group);
+    this.collapsedGroups.update((set) => {
+      const next = new Set(set);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -178,9 +215,15 @@ export class SourceControlComponent {
       if (!this.store.isRepoExpanded(repo.absolutePath)) continue;
       const status = repo.status;
       if (!status) continue;
-      for (const f of status.staged) out.push(this.toAbsolutePath(repo.absolutePath, f.path));
-      for (const f of status.unstaged) out.push(this.toAbsolutePath(repo.absolutePath, f.path));
-      for (const p of status.untracked) out.push(this.toAbsolutePath(repo.absolutePath, p));
+      // Match on-screen order: staged group first, then the merged Changes
+      // group (unstaged + untracked, name-sorted). Rows inside a collapsed
+      // group aren't rendered, so they don't participate in range selection.
+      if (!this.isGroupCollapsed(repo, 'staged')) {
+        for (const f of status.staged) out.push(this.toAbsolutePath(repo.absolutePath, f.path));
+      }
+      if (!this.isGroupCollapsed(repo, 'changes')) {
+        for (const f of this.changesRows(repo)) out.push(this.toAbsolutePath(repo.absolutePath, f.path));
+      }
     }
     return out;
   });
@@ -306,19 +349,15 @@ export class SourceControlComponent {
     void this.store.unstageFiles(repoPath, [filePath]);
   }
 
-  onStageAllUnstaged(repo: RepoState): void {
-    const status = repo.status;
-    if (!status) return;
-    const paths = status.unstaged.map(f => f.path);
+  /**
+   * "Stage all" on the merged Changes group — stages both unstaged tracked
+   * changes and untracked files (VS Code behaviour). Both go through
+   * `git add` via `stageFiles`.
+   */
+  onStageAllChanges(repo: RepoState): void {
+    const paths = this.changesRows(repo).map(f => f.path);
     if (paths.length === 0) return;
     void this.store.stageFiles(repo.absolutePath, paths);
-  }
-
-  onStageAllUntracked(repo: RepoState): void {
-    const status = repo.status;
-    if (!status) return;
-    if (status.untracked.length === 0) return;
-    void this.store.stageFiles(repo.absolutePath, [...status.untracked]);
   }
 
   onUnstageAll(repo: RepoState): void {

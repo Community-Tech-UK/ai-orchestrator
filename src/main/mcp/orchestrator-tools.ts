@@ -27,6 +27,7 @@ import {
   providerResultAfterCapture,
 } from './orchestrator-evidence-capture-result';
 import { resolveOrchestratorToolSourceContext } from './orchestrator-tool-source-context';
+import { createCalendarToolDefinitions, type CalendarToolDependencies } from './orchestrator-calendar-tools';
 
 const ProviderModelIdSchema = z.string().min(1).max(512);
 
@@ -363,6 +364,7 @@ export interface OrchestratorToolRuntimeContext extends FileTransferToolContext 
   postponeAutomation?: PostponeAutomationFn | null;
   requestDocReview?: RequestDocReviewFn | null;
   getDocReviewResult?: GetDocReviewResultFn | null;
+  calendarTools?: CalendarToolDependencies;
   releaseTools?: ReleaseToolDependencies;
   contextEvidence?: Omit<OrchestratorEvidenceToolContext, 'instanceId'> | null;
 }
@@ -717,6 +719,7 @@ export function createOrchestratorToolDefinitions(
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),
     ...createDocReviewToolDefinitions(context),
+    ...createCalendarToolDefinitions(context.calendarTools),
     ...createReleaseToolDefinitions(context.releaseTools),
     ...(context.contextEvidence && context.instanceId
       ? createOrchestratorEvidenceToolDefinitions({
