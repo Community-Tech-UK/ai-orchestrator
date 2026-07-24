@@ -198,6 +198,7 @@ export const SETTINGS_TOOL_POLICY = {
   defaultFastMode: open(z.boolean()),
   defaultFastModeByProvider: open(fastModeByProviderSchema),
   modelUsageByKey: open(modelUsageByKeySchema),
+  modelPickerFavorites: open(z.array(z.string().min(1).max(768)).max(50)),
   residentClaudeSession: readOnly(),
   // Rollout posture is a trusted operator decision. Agents may inspect it but
   // cannot silently advance a provider from off/shadow to enforce mid-run.

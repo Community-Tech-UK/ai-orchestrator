@@ -323,7 +323,7 @@ describe('AutomationRunner thread wakeups', () => {
       threadWakeupFactory,
       undefined,
       undefined,
-      () => ({ automationDefaultCli: 'claude', automationDefaultModel: 'opus[1m]' }),
+      () => ({ automationDefaultCli: 'claude', automationDefaultModel: 'opus[1m]', modelPickerFavorites: [] }),
     );
     runner.initialize(manager);
 
@@ -352,11 +352,49 @@ describe('AutomationRunner thread wakeups', () => {
       threadWakeupFactory,
       undefined,
       undefined,
-      () => ({ automationDefaultCli: 'claude', automationDefaultModel: 'opus[1m]' }),
+      () => ({ automationDefaultCli: 'claude', automationDefaultModel: 'opus[1m]', modelPickerFavorites: [] }),
     );
     runner.initialize(manager);
 
     await runner.dispatchRetryRun(retryRun);
+
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude',
+      modelOverride: 'opus[1m]',
+    }));
+  });
+
+  it('falls back to the favourite model for the provider when Auto and no default is set', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Do the thing', workingDirectory: '/repo/current', provider: 'claude' },
+    });
+    const run = makeRun();
+    run.configSnapshot = {
+      ...run.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Do the thing', workingDirectory: '/repo/current', provider: 'claude' },
+    };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    manager.createInstance.mockResolvedValue({ id: 'instance-fav', outputBuffer: [], status: 'working' });
+
+    const runner = new AutomationRunner(
+      store,
+      undefined,
+      () => 2_000,
+      threadWakeupFactory,
+      undefined,
+      undefined,
+      () => ({
+        automationDefaultCli: 'auto',
+        automationDefaultModel: '',
+        modelPickerFavorites: ['codex:gpt-5.6-sol', 'claude:opus[1m]'],
+      }),
+    );
+    runner.initialize(manager);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
 
     expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'claude',

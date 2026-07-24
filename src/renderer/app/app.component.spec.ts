@@ -16,6 +16,7 @@ import { PauseRendererController } from './core/state/pause/pause-renderer-contr
 import { PauseStore } from './core/state/pause/pause.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { SettingsStore } from './core/state/settings.store';
+import { ModelFavoritesService } from './features/models/model-favorites.service';
 import { UsageStore } from './core/state/usage.store';
 import { AppUpdateStore } from './core/state/app-update.store';
 import { IpcFacadeService } from './core/services/ipc';
@@ -110,6 +111,10 @@ async function setupAppComponent(platform = 'darwin'): Promise<{
       { provide: WorkspaceBenchService, useValue: {} },
       { provide: UsageStore, useValue: { init: vi.fn() } },
       { provide: PromptHistoryStore, useValue: { init: vi.fn() } },
+      {
+        provide: ModelFavoritesService,
+        useValue: { favorites: signal<string[]>([]).asReadonly(), writeFavorites: vi.fn() },
+      },
       { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
       {
         provide: SettingsStore,
@@ -181,6 +186,10 @@ describe('AppComponent startup banner', () => {
         { provide: WorkspaceBenchService, useValue: {} },
         { provide: UsageStore, useValue: { init: vi.fn() } },
         { provide: PromptHistoryStore, useValue: { init: vi.fn() } },
+        {
+          provide: ModelFavoritesService,
+          useValue: { favorites: signal<string[]>([]).asReadonly(), writeFavorites: vi.fn() },
+        },
         { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
         {
           provide: SettingsStore,

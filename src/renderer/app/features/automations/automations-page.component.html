@@ -375,8 +375,8 @@
                       <button
                         type="button"
                         class="model-choice__mode-btn"
-                        [class.is-active]="form().provider === 'auto'"
-                        [attr.aria-pressed]="form().provider === 'auto'"
+                        [class.is-active]="!isModelPinned()"
+                        [attr.aria-pressed]="!isModelPinned()"
                         (click)="useAutomaticModelSelection()"
                       >
                         Auto
@@ -384,15 +384,15 @@
                       <button
                         type="button"
                         class="model-choice__mode-btn"
-                        [class.is-active]="form().provider !== 'auto'"
-                        [attr.aria-pressed]="form().provider !== 'auto'"
+                        [class.is-active]="isModelPinned()"
+                        [attr.aria-pressed]="isModelPinned()"
                         (click)="pinModelSelection()"
                       >
                         Pinned
                       </button>
                     </div>
-                    @if (form().provider === 'auto') {
-                      <span class="hint">Uses the default automation model from Settings. If that is unset, it inherits your last-used model for the chosen provider.</span>
+                    @if (!isModelPinned()) {
+                      <span class="hint">Auto · currently {{ resolvedModelPreview().label }} ({{ resolvedModelPreview().source }}). Resolved at run time — reordering your model favourites redirects this automation on its next run.</span>
                     } @else {
                       <app-compact-model-picker
                         mode="pending-create"
@@ -406,7 +406,7 @@
                     <span>Agent</span>
                     <input name="agentId" [ngModel]="form().agentId" (ngModelChange)="patchForm({ agentId: $event })" />
                   </label>
-                  @if (form().provider === 'auto') {
+                  @if (!isModelPinned()) {
                     <label>
                       <span>Reasoning</span>
                       <select name="reasoningEffort" [ngModel]="form().reasoningEffort" (ngModelChange)="patchForm({ reasoningEffort: $event })">

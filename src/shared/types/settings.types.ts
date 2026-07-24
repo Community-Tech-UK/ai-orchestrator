@@ -94,6 +94,16 @@ export interface AppSettings extends DesktopComputerUseSettings {
   /** Hybrid picker usage memory (`provider:modelId` → count/lastUsedAt). */
   modelUsageByKey: Record<string, ModelUsageEntry>;
   /**
+   * Ordered `provider:modelId` favourite keys mirrored from the renderer model
+   * picker's ★ tab (source of truth stays localStorage for the picker UI; this
+   * is the copy the main-process automation runner can read). List order is
+   * priority order. An empty list means "no opinion" — automations fall through
+   * to today's provider/model resolution. Deliberately NOT seeded from
+   * `DEFAULT_FAVORITE_MODEL_KEYS` (whose first Claude entry is Fable 5) so an
+   * uncustomised install keeps exactly today's fallback semantics.
+   */
+  modelPickerFavorites: string[];
+  /**
    * Resident Claude interrupt via stdin `control_request` instead of SIGINT.
    * Default true so steering aborts the turn without respawning.
    */

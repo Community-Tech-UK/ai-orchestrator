@@ -360,6 +360,40 @@ describe('AutomationsPageComponent row actions', () => {
     expect(component.form().model).toBe('opus[1m]');
   });
 
+  it('shows a concrete-provider + empty-model automation as Auto (not Pinned), never a phantom pinned model', () => {
+    const component = fixture.componentInstance;
+    const automation = makeAutomation({
+      action: { prompt: 'Check the repo', workingDirectory: '/repo', provider: 'claude' },
+    });
+    automations.set([automation]);
+    component.select(automation);
+    component.editSelected();
+    fixture.detectChanges();
+
+    // The split is on whether a MODEL is pinned, not the provider. A concrete
+    // provider with no model is Auto (honest preview), not Pinned-with-phantom.
+    expect(component.isModelPinned()).toBe(false);
+    expect(fixture.nativeElement.querySelector('.model-choice .hint')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('app-compact-model-picker')).toBeNull();
+  });
+
+  it('preserves provider and leaves the model unpinned when saving an untouched claude+empty automation', async () => {
+    const component = fixture.componentInstance;
+    const automation = makeAutomation({
+      action: { prompt: 'Check the repo', workingDirectory: '/repo', provider: 'claude' },
+    });
+    automations.set([automation]);
+    component.select(automation);
+    component.editSelected();
+
+    await component.save();
+
+    expect(store.update).toHaveBeenCalledTimes(1);
+    const action = store.update.mock.calls[0][1].action as { provider?: string; model?: string };
+    expect(action.provider).toBe('claude');
+    expect(action.model).toBeUndefined();
+  });
+
   function findButton(label: string): HTMLButtonElement {
     const button = fixture.nativeElement.querySelector(
       `button[aria-label="${label}"]`,

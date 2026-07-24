@@ -12,6 +12,7 @@ import { WorkspaceBenchService, type WorkspaceBenchmarkHarness, type BenchmarkPr
 import { UsageStore } from './core/state/usage.store';
 import { SkillStore } from './core/state/skill.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
+import { ModelFavoritesService } from './features/models/model-favorites.service';
 import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
 import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
 import { TerminalDrawerComponent } from './features/terminal-drawer/terminal-drawer.component';
@@ -104,6 +105,9 @@ export class AppComponent implements OnInit, OnDestroy {
   private usageStore = inject(UsageStore);
   private promptHistoryStore = inject(PromptHistoryStore);
   private skillStore = inject(SkillStore);
+  // Eagerly constructed so the localStorage → modelPickerFavorites migration
+  // runs at boot even if the model picker is never opened this session.
+  private readonly modelFavorites = inject(ModelFavoritesService);
   protected readonly settingsStore = inject(SettingsStore);
   protected readonly pauseStore = inject(PauseStore);
   private pauseRendererController = inject(PauseRendererController);

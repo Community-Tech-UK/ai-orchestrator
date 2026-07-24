@@ -6081,7 +6081,7 @@
     },
     {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 1030
+      "lines": 1035
     },
     {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",

@@ -315,7 +315,8 @@ export function createAutomationToolDefinitions(
           provider: {
             type: 'string',
             enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
-            description: 'CLI provider to run with (defaults to the app default).',
+            description:
+              'CLI provider to run with (defaults to the app default). Omitting the model is a legitimate, supported state: an automation with no pinned model follows the user\'s favourite model for its provider, resolved at fire time, so reordering favourites redirects it on its next run. Only pin a model when the user explicitly wants that exact model every run.',
           },
           enabled: {
             type: 'boolean',
@@ -420,7 +421,8 @@ export function createAutomationToolDefinitions(
           },
           model: {
             type: 'string',
-            description: 'New model override for the spawned agent. Omit to leave unchanged.',
+            description:
+              'New model override for the spawned agent. Omit to leave unchanged. Leaving an automation with no pinned model is a supported state, not a trap: it then follows the user\'s favourite model for its provider, resolved at fire time (reordering favourites redirects it on its next run). Pin a model only when the user wants that exact model every run.',
           },
           reasoningEffort: {
             type: 'string',

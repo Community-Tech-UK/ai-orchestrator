@@ -281,4 +281,17 @@ describe('ModelPickerController', () => {
     expect(controller.selectedModelId()).toBe('gemini-3-pro-preview');
     expect(controller.selectedReasoningEffort()).toBeNull();
   });
+
+  it('substitutes the provider default for an empty pending model', () => {
+    const controller = TestBed.inject(ModelPickerController);
+    controller.setMode('pending-create');
+    controller.setSelection({ provider: 'claude', model: null, reasoning: null });
+    TestBed.tick();
+
+    // An unset model shows the provider's first catalog model so the chip is
+    // never blank. Hosts that must not display an unpersisted model (e.g. the
+    // automations editor) instead avoid rendering the picker until a model is
+    // pinned, rather than asking the picker to behave differently.
+    expect(controller.selectedModelId().length).toBeGreaterThan(0);
+  });
 });

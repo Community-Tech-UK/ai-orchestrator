@@ -15,6 +15,12 @@ import {
 import { NO_WORKSPACE_KEY } from '../../../../shared/utils/workspace-key';
 import { AutomationStore, type AutomationDraft } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
+import { ModelFavoritesService } from '../models/model-favorites.service';
+import {
+  computeAutomationModelPreview,
+  type AutomationModelPreview,
+} from './automation-model-preview';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
@@ -53,6 +59,8 @@ interface AutomationGroup {
 export class AutomationsPageComponent {
   private readonly instances = inject(InstanceStore);
   private readonly automationIpc = inject(AutomationIpcService);
+  private readonly settingsStore = inject(SettingsStore);
+  private readonly modelFavorites = inject(ModelFavoritesService);
   store = inject(AutomationStore);
 
   /** WS5: webhook routes for the trigger picker (loaded when the form opens). */
@@ -413,8 +421,18 @@ export class AutomationsPageComponent {
   ]);
 
   /**
+   * Whether the automation pins a concrete model. This — not the provider —
+   * drives the Auto/Pinned split: an empty model means "resolve at run time"
+   * (Auto, honest preview), a set model means "Pinned" (show the picker). Keying
+   * off the model keeps the picker's single existing behaviour (no per-host
+   * display flag) and means a legacy `provider: claude` + empty-model automation
+   * displays honestly as Auto without silently flipping its provider on save.
+   */
+  readonly isModelPinned = computed(() => this.form().model.trim().length > 0);
+
+  /**
    * Current picker selection derived from the form. The picker is only rendered
-   * for a pinned provider; Claude is a defensive fallback while the form is in
+   * for a pinned model; Claude is a defensive fallback while the form is in
    * automatic mode.
    */
   readonly modelPickerSelection = computed<PendingSelection>(() => {
@@ -428,18 +446,40 @@ export class AutomationsPageComponent {
     };
   });
 
+  /**
+   * The model an Auto automation would resolve to right now, plus its source —
+   * computed with the same resolver the runner uses so the hint is truthful.
+   */
+  readonly resolvedModelPreview = computed<AutomationModelPreview>(() => {
+    const form = this.form();
+    const settings = this.settingsStore.settings();
+    return computeAutomationModelPreview(
+      { provider: form.provider ?? 'auto', model: form.model },
+      {
+        automationDefaultCli: settings.automationDefaultCli,
+        automationDefaultModel: settings.automationDefaultModel,
+        modelPickerFavorites: this.modelFavorites.favorites(),
+      },
+    );
+  });
+
   useAutomaticModelSelection(): void {
     this.patchForm({ provider: 'auto', model: '', reasoningEffort: '' });
   }
 
   pinModelSelection(): void {
-    if (this.form().provider === 'auto') {
-      this.patchForm({
-        provider: 'claude',
-        model: getPrimaryModelForProvider('claude') ?? '',
-        reasoningEffort: '',
-      });
-    }
+    // Already pinned (has a concrete model) — nothing to seed.
+    if (this.isModelPinned()) return;
+    // Seed a concrete model so the picker never has to display an unpersisted
+    // one. Keep the current provider when it is concrete (e.g. a legacy
+    // claude+empty automation stays on claude); fall back to claude otherwise.
+    const current = this.form().provider;
+    const provider = current && current !== 'auto' ? current : 'claude';
+    this.patchForm({
+      provider,
+      model: getPrimaryModelForProvider(provider) ?? '',
+      reasoningEffort: '',
+    });
   }
 
   /**

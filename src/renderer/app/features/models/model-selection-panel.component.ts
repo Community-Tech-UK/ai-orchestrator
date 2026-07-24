@@ -29,6 +29,7 @@ import {
   orderProviderRowsByUsage,
 } from './model-usage-memory';
 import { ModelUsageMemoryService } from './model-usage-memory.service';
+import { ModelFavoritesService } from './model-favorites.service';
 import { DEFAULT_FAVORITE_MODEL_KEYS } from './default-favorites';
 
 type ActiveModelTab = 'favorites' | PickerProvider;
@@ -647,6 +648,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 export class ModelSelectionPanelComponent implements AfterViewInit {
   private readonly storedFavorites = loadFavoriteKeys();
   private readonly modelUsageMemory = inject(ModelUsageMemoryService);
+  private readonly modelFavorites = inject(ModelFavoritesService);
 
   protected readonly activeTab = signal<ActiveModelTab>('favorites');
   protected readonly searchTerm = signal('');
@@ -878,6 +880,9 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     this.customizedFavorites.set(true);
     this.favoriteKeys.set(ordered);
     persistFavoriteKeys(ordered);
+    // Mirror to the setting the main-process automation runner reads. The
+    // picker's own UI still reads localStorage; this keeps the two in step.
+    this.modelFavorites.writeFavorites(ordered);
   }
 
   protected onFavoriteKeydown(row: ModelPickerRow, event: KeyboardEvent): void {

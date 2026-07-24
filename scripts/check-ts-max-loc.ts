@@ -332,7 +332,10 @@ const ALLOWLIST: Record<string, number> = {
   // Added 2026-07-16 at 736 (Fable WS5 trigger picker, webhook filter rows,
   // and loop-action controls on the automation editor; pure mapping lives in
   // automation-form-model.ts). Re-tighten after a form-component split.
-  'src/renderer/app/features/automations/automations-page.component.ts': 736,
+  // Raised 736 -> 782 (2026-07-24): truthful Auto-mode model preview computed +
+  // SettingsStore/ModelFavoritesService injection; pure mapping lives in
+  // automation-model-preview.ts.
+  'src/renderer/app/features/automations/automations-page.component.ts': 782,
   'src/renderer/app/features/loop/loop-control.component.ts': 1074,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
