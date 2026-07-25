@@ -87,12 +87,12 @@ const JSON_RPC_INVALID_REQUEST = -32600;
  * Normalize an ACP `currentModelId` (attribute form) to a bare model id.
  *
  * Cursor reports models like `composer-2.5[fast=true]` or
- * `claude-opus-4-8[thinking=true,effort=high]`; strip the `[...]` attribute
+ * `claude-opus-5[thinking=true,effort=high]`; strip the `[...]` attribute
  * block. Cursor's Auto sentinel is reported as `default` — map it back to our
  * `auto` id. Returns undefined for empty/missing input.
  *
- * NOTE: the stripped form (`claude-opus-4-8`) intentionally does NOT always
- * equal a `--list-models` id (`claude-opus-4-8-thinking-high`); callers must
+ * NOTE: the stripped form (`claude-opus-5`) intentionally does NOT always
+ * equal a `--list-models` id (`claude-opus-5-thinking-high`); callers must
  * only apply it where that divergence is acceptable (see the cursor `model`
  * handler, which reconciles only the `auto` case).
  */

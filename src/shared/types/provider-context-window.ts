@@ -1,9 +1,10 @@
 /**
  * Return the expected context window for a provider + model combination.
  *
- * Claude Code CLI defaults to 200k for most models. Fable 5, Opus 4.6+, and
- * Sonnet 4.6+ natively expose 1M. For older models the `[1m]` suffix
- * requests the `context-1m-2025-08-07` beta header, which also yields 1M.
+ * Claude Code CLI defaults to 200k for most models. Fable 5, Opus 4.6+ (incl.
+ * Opus 5), and Sonnet 4.6+ (incl. Sonnet 5) natively expose 1M. For older
+ * models the `[1m]` suffix requests the `context-1m-2025-08-07` beta header,
+ * which also yields 1M.
  *
  * NOTE: Claude Code CLI has known bugs where it reports 200k even for
  * 1M-capable models (see GitHub issues #23432, #34083, #36649).  The
@@ -51,11 +52,17 @@ export function getProviderModelContextWindow(
   // Bare "opus" / "sonnet" resolve server-side to the latest (4.6+),
   // which has native 1M support.
   //
-  // Fable 5, Opus 4.8/4.7/4.6, and Sonnet 4.6 support 1M context at standard pricing.
+  // Fable 5, Opus 5, Opus 4.8/4.7/4.6, Sonnet 5, and Sonnet 4.6 support 1M
+  // context at standard pricing.
+  //
+  // 'opus-5' / 'sonnet-5' are safe substrings: the older dated ids spell the
+  // point release as 'opus-4-5' / 'sonnet-4-5', which never contains 'opus-5'.
   if (
     normalizedModel === 'opus' ||
     normalizedModel === 'sonnet' ||
     normalizedModel.includes('fable-5') ||
+    normalizedModel.includes('opus-5') ||
+    normalizedModel.includes('sonnet-5') ||
     normalizedModel.includes('opus-4-6') ||
     normalizedModel.includes('opus-4.6') ||
     normalizedModel.includes('opus-4-8') ||

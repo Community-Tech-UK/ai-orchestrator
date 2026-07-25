@@ -46,6 +46,22 @@ describe('buildInstanceRecord', () => {
     expect(instance.abortController).toBeInstanceOf(AbortController);
   });
 
+  it('copies the seeded output buffer so the instance never aliases the caller array', () => {
+    const seeded = [
+      { id: 'm1', timestamp: 1, type: 'user', content: 'earlier' },
+    ] as Instance['outputBuffer'];
+
+    const instance = buildInstanceRecord(
+      buildConfig({ provider: 'claude', initialOutputBuffer: seeded }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+    instance.outputBuffer.push({ id: 'm2', timestamp: 2, type: 'system', content: 'notice' } as never);
+
+    expect(instance.outputBuffer).toHaveLength(2);
+    expect(seeded).toHaveLength(1);
+  });
+
   it('marks a brand-new session as not-yet-persisted to block premature resume', () => {
     const instance = buildInstanceRecord(buildConfig({ provider: 'claude' }), buildAgent(), {
       defaultYoloMode: false,

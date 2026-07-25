@@ -46,9 +46,18 @@ describe('provider type helpers', () => {
     expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.HAIKU)).toBe(200000);
   });
 
+  // The 1M check for the 5 generation matches on the 'opus-5'/'sonnet-5'
+  // substring; the dated 4.5 ids spell it 'opus-4-5', so they must stay 200k.
+  it('does not mistake a pinned 4.5 id for the 5 generation', () => {
+    expect(getProviderModelContextWindow('claude-cli', 'claude-opus-4-5-20250918')).toBe(200000);
+    expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-4-5-20250929')).toBe(200000);
+  });
+
   it('returns 1M for 4.6+ models that natively support it', () => {
     expect(getProviderModelContextWindow('claude', 'claude-opus-4-6')).toBe(1000000);
     expect(getProviderModelContextWindow('claude', 'claude-opus-4-8')).toBe(1000000);
+    expect(getProviderModelContextWindow('claude', 'claude-opus-5')).toBe(1000000);
+    expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-5')).toBe(1000000);
     expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-4-6')).toBe(1000000);
     expect(getProviderModelContextWindow('claude-cli', 'claude-fable-5')).toBe(1000000);
   });
@@ -102,7 +111,20 @@ describe('provider model lists', () => {
     expect(claudeModels).toContain(CLAUDE_MODELS.OPUS_1M);
   });
 
-  it('exposes Opus 4.8 as the latest pinned Claude generation', () => {
+  it('exposes Opus 5 as the latest pinned Claude generation', () => {
+    const claudeModels = PROVIDER_MODEL_LIST['claude'].map((model) => model.id);
+
+    expect(CLAUDE_PINNED_MODELS.OPUS_5).toBe('claude-opus-5');
+    expect(claudeModels).toContain(CLAUDE_PINNED_MODELS.OPUS_5);
+    // Opus 5 is a drop-in upgrade at Opus 4.8's rate.
+    expect(MODEL_PRICING[CLAUDE_PINNED_MODELS.OPUS_5]).toEqual({ input: 5.0, output: 25.0 });
+    // Opus 5 must sort ahead of 4.8 in the picker's "Other versions" submenu.
+    expect(claudeModels.indexOf(CLAUDE_PINNED_MODELS.OPUS_5)).toBeLessThan(
+      claudeModels.indexOf(CLAUDE_PINNED_MODELS.OPUS_48),
+    );
+  });
+
+  it('keeps Opus 4.8 selectable as a previous generation', () => {
     const claudeModels = PROVIDER_MODEL_LIST['claude'].map((model) => model.id);
 
     expect(CLAUDE_PINNED_MODELS.OPUS_48).toBe('claude-opus-4-8');

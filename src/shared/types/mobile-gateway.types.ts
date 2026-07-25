@@ -130,7 +130,7 @@ export interface MobileSessionPlan {
   providerLabel: string;
   /** Resolved concrete model id, or null when the provider uses its built-in default. */
   model: string | null;
-  /** Human label for the model, e.g. 'Opus 4.8', or null for the provider default. */
+  /** Human label for the model, e.g. 'Opus 5', or null for the provider default. */
   modelLabel: string | null;
   /** Reasoning effort a fresh session runs at, or null when provider-decided. */
   reasoningEffort: ReasoningEffort | null;

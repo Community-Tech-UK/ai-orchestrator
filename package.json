@@ -88,7 +88,9 @@
     "review": "tsx src/main/cli-entrypoints/review-command.ts",
     "visual:qa": "node scripts/visual-qa-screenshots.mjs --all",
     "release:validate-tag": "node scripts/validate-release-tag.js",
-    "release:validate-assets": "node scripts/validate-release-assets.js"
+    "release:validate-assets": "node scripts/validate-release-assets.js",
+    "audit:production": "npm audit --package-lock-only --omit=dev --audit-level=high",
+    "audit:build": "node scripts/audit-build-dependencies.js && node scripts/verify-release-toolchain.js"
   },
   "keywords": [
     "ai",
@@ -103,6 +105,14 @@
   "author": "James",
   "license": "MIT",
   "overrides": {
+    "@discordjs/rest": {
+      "undici": "6.28.0"
+    },
+    "brace-expansion@^5": "5.0.8",
+    "discord.js": {
+      "undici": "6.28.0"
+    },
+    "tar": "7.5.22",
     "undici": "^7.8.0",
     "picomatch": "^4.0.4",
     "vite": "^7.3.2",
@@ -184,7 +194,7 @@
     "angular-eslint": "21.4.0",
     "concurrently": "^9.0.0",
     "electron": "^40.6.0",
-    "electron-builder": "^26.0.0",
+    "electron-builder": "^26.15.7",
     "esbuild": "^0.28.0",
     "eslint": "^9.39.1",
     "jsdom": "^27.4.0",

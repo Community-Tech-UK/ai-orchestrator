@@ -188,6 +188,7 @@ export const CLAUDE_MODELS = {
  */
 export const CLAUDE_PINNED_MODELS = {
   FABLE_5: 'claude-fable-5',
+  OPUS_5: 'claude-opus-5',
   OPUS_48: 'claude-opus-4-8',
   OPUS_47: 'claude-opus-4-7',
   OPUS_46: 'claude-opus-4-6-20260401',
@@ -249,6 +250,10 @@ export const COPILOT_MODELS = {
   CLAUDE_SONNET_46: 'claude-sonnet-4.6',
   CLAUDE_SONNET_45: 'claude-sonnet-4.5',
   CLAUDE_HAIKU_45: 'claude-haiku-4.5',
+  // Copilot switched to an undotted id for the 5 generation ('claude-opus-5'),
+  // unlike the dotted 4.x ids above. Verified against models.dev's
+  // github-copilot namespace.
+  CLAUDE_OPUS_5: 'claude-opus-5',
   CLAUDE_OPUS_48: 'claude-opus-4.8',
   CLAUDE_OPUS_47: 'claude-opus-4.7',
   CLAUDE_OPUS_46: 'claude-opus-4.6',
@@ -345,10 +350,14 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'claude-sonnet-4-6-20260401': { input: 3.0, output: 15.0 },
   'claude-opus-4-6-20260401': { input: 5.0, output: 25.0 },
   'claude-haiku-4-6-20260401': { input: 1.0, output: 5.0 },
-  // Claude Opus 4.7 (released 2026-04-16, bare-alias form — Anthropic
-  // dropped date suffixes from canonical IDs starting with 4.6).
-  // Pricing identical to Opus 4.6. Note: new tokenizer uses up to ~35%
-  // more tokens per char than 4.6, so effective cost may rise.
+  // Opus 4.6+ use the bare-alias form — Anthropic dropped date suffixes from
+  // canonical IDs starting with 4.6. Opus 4.5 through Opus 5 all share one
+  // rate (only the legacy Opus 4 above is priced differently); Opus 5 is a
+  // drop-in upgrade at Opus 4.8's pricing (verified against models.dev's
+  // anthropic namespace). Note: the 4.7-generation tokenizer
+  // (carried forward by 4.8 and Opus 5) uses up to ~35% more tokens per char
+  // than 4.6, so effective cost may rise even at an identical per-token rate.
+  'claude-opus-5': { input: 5.0, output: 25.0 },
   'claude-opus-4-8': { input: 5.0, output: 25.0 },
   'claude-opus-4-7': { input: 5.0, output: 25.0 },
   // Claude 4.5 models (previous generation)
@@ -421,6 +430,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus latest, 1M', tier: 'powerful', pinned: true, family: 'Opus' },
     { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.FABLE_5, name: 'Fable 5', tier: 'powerful', family: 'Fable' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_5, name: 'Opus 5', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_48, name: 'Opus 4.8', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_47, name: 'Opus 4.7', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_46, name: 'Opus 4.6', tier: 'powerful', family: 'Opus' },
@@ -465,6 +475,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // Order matters: getPrimaryModelForProvider returns [0]; the entry at index 0
     // must be pinned to satisfy the pinned-default invariant.
     { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful', pinned: true, family: 'Gemini' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_5, name: 'Claude Opus 5', tier: 'powerful', family: 'Claude' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_48, name: 'Claude Opus 4.8', tier: 'powerful', family: 'Claude' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_47, name: 'Claude Opus 4.7', tier: 'powerful', family: 'Claude' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_46, name: 'Claude Opus 4.6', tier: 'powerful', family: 'Claude' },
@@ -524,7 +535,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // cursor-models:generated:start
     { id: CURSOR_MODELS.AUTO, name: 'Auto (let Cursor pick)', tier: 'balanced', pinned: true, family: 'Auto' },
     { id: 'composer-2.5', name: 'Composer 2.5', tier: 'balanced', pinned: true, family: 'Composer' },
-    { id: 'claude-opus-4-8-thinking-high', name: 'Opus 4.8', tier: 'powerful', pinned: true, family: 'Claude' },
+    { id: 'claude-opus-5-thinking-high', name: 'Opus 5', tier: 'powerful', pinned: true, family: 'Claude' },
     { id: 'gpt-5.3-codex', name: 'Codex 5.3', tier: 'balanced', pinned: true, family: 'Codex' },
     { id: 'gpt-5.5-high', name: 'GPT 5.5 High', tier: 'balanced', pinned: true, family: 'GPT' },
     // cursor-models:generated:end

@@ -22,10 +22,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -77,15 +77,33 @@ jobs:
       # snapshot tracks an external source that publishes new models on its own
       # cadence, so an unrelated PR must not fail just because models.dev moved.
       # `--check` is fail-soft when models.dev is unreachable (exit 0). When this
-      # step shows red, run `npm run sync:model-catalog` and commit the refresh.
+      # step warns, run `npm run sync:model-catalog` and commit the refresh.
       - name: Check model-catalog snapshot drift
-        run: npm run sync:model-catalog -- --check
-        continue-on-error: true
+        run: >-
+          npm run sync:model-catalog -- --check ||
+          echo "::warning title=Model catalog drift::Run npm run sync:model-catalog and commit the refreshed snapshot."
 
-      # Block high-severity vulnerabilities in production dependencies.
-      - name: Security audit
-        run: npm audit --omit=dev --audit-level=high
-        continue-on-error: false
+  security:
+    name: Production Dependency Audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Audit production dependencies
+        run: npm run audit:production
+
+      - name: Audit build dependencies for critical findings
+        run: npm run audit:build
 
   test:
     name: Test (shard ${{ matrix.shard }}/4)
@@ -99,10 +117,10 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -125,10 +143,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -142,16 +160,16 @@ jobs:
   macos-smoke:
     name: macOS Native ABI Smoke
     runs-on: macos-latest
-    needs: [quality, test]
+    needs: [quality, security, test]
     timeout-minutes: 20
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: npm

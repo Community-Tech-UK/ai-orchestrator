@@ -25,6 +25,12 @@ describe('API Features Types', () => {
       expect(supportsPromptCaching('claude-opus-4-5-20251101')).toBe(true);
       expect(supportsPromptCaching('claude-haiku-4-5-20251001')).toBe(true);
       expect(supportsPromptCaching('claude-fable-5')).toBe(true);
+      expect(supportsPromptCaching('claude-opus-5')).toBe(true);
+      // Regression: Sonnet 5 was absent from PROMPT_CACHING_MODELS, and
+      // 'claude-sonnet-5' does not contain the 'claude-sonnet-4' prefix, so it
+      // reported no caching/context-editing support at all.
+      expect(supportsPromptCaching('claude-sonnet-5')).toBe(true);
+      expect(supportsContextEditing('claude-sonnet-5')).toBe(true);
     });
 
     it('should return true for model variants', () => {
@@ -59,7 +65,25 @@ describe('API Features Types', () => {
     });
 
     it('should return correct minimum tokens for Fable 5', () => {
-      expect(getMinCacheableTokens('claude-fable-5')).toBe(1024);
+      expect(getMinCacheableTokens('claude-fable-5')).toBe(512);
+    });
+
+    it('should return the halved 512 minimum for Opus 5', () => {
+      expect(getMinCacheableTokens('claude-opus-5')).toBe(512);
+    });
+
+    it('should return correct minimum tokens for Sonnet 5', () => {
+      expect(getMinCacheableTokens('claude-sonnet-5')).toBe(1024);
+    });
+
+    // Regression: every Opus 4.x key collapses to the 3-segment prefix
+    // 'claude-opus-4', so a pure substring scan returned the FIRST-listed 4.x
+    // entry's minimum (4096) for 4.7 and 4.8 alike, making their own table
+    // values unreachable. Exact ids must win.
+    it('should prefer an exact id over a colliding 3-segment prefix', () => {
+      expect(getMinCacheableTokens('claude-opus-4-8')).toBe(1024);
+      expect(getMinCacheableTokens('claude-opus-4-7')).toBe(2048);
+      expect(getMinCacheableTokens('claude-opus-4-5-20251101')).toBe(4096);
     });
 
     it('should return default for unknown models', () => {
@@ -148,10 +172,15 @@ describe('API Features Types', () => {
     it('should have PROMPT_CACHING_MODELS array', () => {
       expect(PROMPT_CACHING_MODELS.length).toBeGreaterThan(0);
       expect(PROMPT_CACHING_MODELS).toContain('claude-sonnet-4-5-20250929');
+      expect(PROMPT_CACHING_MODELS).toContain('claude-opus-5');
+      expect(PROMPT_CACHING_MODELS).toContain('claude-sonnet-5');
       expect(PROMPT_CACHING_MODELS).toContain('claude-opus-4-8');
       expect(PROMPT_CACHING_MODELS).toContain('claude-fable-5');
+      // The 5 generation halves the Opus-tier minimum to 512.
+      expect(MIN_CACHEABLE_TOKENS['claude-opus-5']).toBe(512);
+      expect(MIN_CACHEABLE_TOKENS['claude-fable-5']).toBe(512);
+      expect(MIN_CACHEABLE_TOKENS['claude-sonnet-5']).toBe(1024);
       expect(MIN_CACHEABLE_TOKENS['claude-opus-4-8']).toBe(1024);
-      expect(MIN_CACHEABLE_TOKENS['claude-fable-5']).toBe(1024);
     });
 
     it('should define CacheControl type correctly', () => {

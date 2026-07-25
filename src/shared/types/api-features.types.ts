@@ -202,8 +202,11 @@ export const PROMPT_CACHING_MODELS = [
   'claude-opus-4-6-20260401',
   'claude-sonnet-4-6-20260401',
   'claude-haiku-4-6-20260401',
-  // Opus 4.7 uses the undated alias form — Anthropic dropped date suffixes
-  // from canonical IDs starting with 4.6. See platform.claude.com/docs models overview.
+  // Opus 4.7+ and the 5 generation use the undated alias form — Anthropic
+  // dropped date suffixes from canonical IDs starting with 4.6.
+  // See platform.claude.com/docs models overview.
+  'claude-opus-5',
+  'claude-sonnet-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
 ] as const;
@@ -217,7 +220,11 @@ export const CONTEXT_EDITING_MODELS = PROMPT_CACHING_MODELS;
  * Minimum cacheable tokens by model
  */
 export const MIN_CACHEABLE_TOKENS: Record<string, number> = {
-  'claude-fable-5': 1024,
+  // The minimum is NOT monotonic across generations: the 5 generation halves
+  // the Opus-tier minimum to 512, while Opus 4.6/4.5 and Haiku 4.5 sit at 4096.
+  'claude-fable-5': 512,
+  'claude-opus-5': 512,
+  'claude-sonnet-5': 1024,
   'claude-opus-4-5-20251101': 4096,
   'claude-opus-4-1-20250805': 1024,
   'claude-opus-4-20250514': 1024,
@@ -227,10 +234,8 @@ export const MIN_CACHEABLE_TOKENS: Record<string, number> = {
   'claude-opus-4-6-20260401': 4096,
   'claude-sonnet-4-6-20260401': 1024,
   'claude-haiku-4-6-20260401': 4096,
-  // Opus 4.7 — Anthropic has not published an explicit minimum for 4.7.
-  // Carrying forward the Opus-tier default (4096) used by 4.5 and 4.6.
   'claude-opus-4-8': 1024,
-  'claude-opus-4-7': 4096,
+  'claude-opus-4-7': 2048,
 };
 
 // ============================================
@@ -264,6 +269,13 @@ export function getMinCacheableTokens(model: string): number {
   // Bare shorthand names — use conservative defaults for latest models
   if (lower === 'opus' || lower === 'haiku') return 4096;
   if (lower === 'sonnet') return 1024;
+  // An exact id wins over the substring scan below. Several table keys collapse
+  // to the same 3-segment prefix ('claude-opus-4-5-…' and 'claude-opus-4-8'
+  // both yield 'claude-opus-4'), so an unordered scan alone would return the
+  // first-listed Opus 4.x minimum for every later Opus 4.x model.
+  if (Object.hasOwn(MIN_CACHEABLE_TOKENS, model)) {
+    return MIN_CACHEABLE_TOKENS[model];
+  }
   for (const [key, value] of Object.entries(MIN_CACHEABLE_TOKENS)) {
     if (model.includes(key.split('-').slice(0, 3).join('-'))) {
       return value;

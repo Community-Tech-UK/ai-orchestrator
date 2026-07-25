@@ -1,0 +1,14 @@
+{
+  "name": "archiver",
+  "version": "7.0.1",
+  "description": "CommonJS compatibility entry point for Archiver 8",
+  "private": true,
+  "main": "index.cjs",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "archiver-modern": "npm:archiver@8.0.0"
+  }
+}

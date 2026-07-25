@@ -309,6 +309,42 @@ describe('HistoryRestoreCoordinator', () => {
       expect(fallbackConfig['provider']).toBe('codex');
     });
 
+    it('keeps the native session handle when the resume spawn fails for a local reason', async () => {
+      // Cold-start reality (2026-07-25): a stalled main event loop timed out
+      // `codex --version`, so background init rejected before the provider was
+      // ever asked about the archived thread. Blacklisting the handle here would
+      // permanently downgrade the thread to replay fallback.
+      loadConversation.mockResolvedValue(conversation({ provider: 'codex' }));
+      createInstance.mockImplementation(
+        async (config: { resume?: boolean; historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+          makeInstance({
+            id: config.resume ? 'native-instance' : 'fallback-instance',
+            historyThreadId: config.historyThreadId ?? 'history-thread',
+            outputBuffer: config.initialOutputBuffer ?? [],
+            readyPromise: config.resume
+              ? Promise.reject(new Error('Timeout checking Codex CLI'))
+              : Promise.resolve(),
+          }),
+      );
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('replay-fallback');
+      expect(markNativeResumeFailed).not.toHaveBeenCalled();
+      expect(terminateInstance).toHaveBeenCalledWith('native-instance', false);
+    });
+
+    it('emits exactly one restore-fallback notice', async () => {
+      loadConversation.mockResolvedValue(conversation({ nativeResumeFailedAt: Date.now() }));
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      const notices = result.restoredMessages.filter(
+        (message) => message.metadata?.['systemMessageKind'] === 'restore-fallback',
+      );
+      expect(notices).toHaveLength(1);
+    });
+
     it('skips the native rung entirely when the entry recorded a prior native-resume failure', async () => {
       loadConversation.mockResolvedValue(
         conversation({ nativeResumeFailedAt: Date.now() - 5_000 }),

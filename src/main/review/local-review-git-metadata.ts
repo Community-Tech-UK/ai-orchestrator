@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { copyFile, lstat, mkdtemp, open, realpath, rm } from 'node:fs/promises';
+import { copyFile, lstat, mkdtemp, open, realpath, rm, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -89,6 +89,38 @@ export function sameLocalReviewGitMetadata(
     && sameOptionalIdentity(left.indexIdentity, right.indexIdentity);
 }
 
+/**
+ * Stamp the snapshot with the source index's timestamps.
+ *
+ * `copyFile` gives the copy the CURRENT time. That mtime necessarily sits after
+ * every entry mtime cached inside the index, which switches off Git's
+ * "racily clean" protection: an entry is only re-read from disk when its cached
+ * mtime is >= the index's own mtime. With a freshly stamped snapshot no entry
+ * ever qualifies, so Git trusts its cached stat data outright.
+ *
+ * That silently loses working-tree edits. Git compares mtime at one-second
+ * granularity unless built with USE_NSEC (Apple/Homebrew builds are not), so a
+ * file rewritten within the same second as the last index write has a matching
+ * cached mtime; if the rewrite also left the byte size unchanged, the size
+ * check cannot break the tie either and `status`/`diff` report the file as
+ * unmodified. Restoring the original mtime puts those entries back inside the
+ * racy window, where Git re-reads content to decide.
+ *
+ * Best-effort: if the source index disappears between the copy and here, the
+ * snapshot simply keeps its own timestamps.
+ */
+async function preserveIndexTimestamps(
+  indexPath: string,
+  temporaryIndexPath: string,
+): Promise<void> {
+  try {
+    const source = await lstat(indexPath);
+    await utimes(temporaryIndexPath, source.atime, source.mtime);
+  } catch (error: unknown) {
+    if (!isMissing(error)) throw error;
+  }
+}
+
 export async function withLocalReviewGitIndexSnapshot<T>(
   indexPath: string,
   operation: (temporaryIndexPath: string) => Promise<T>,
@@ -96,9 +128,12 @@ export async function withLocalReviewGitIndexSnapshot<T>(
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), 'aio-review-index-'));
   const temporaryIndexPath = path.join(temporaryDirectory, 'index');
   try {
+    let copied = true;
     await copyFile(indexPath, temporaryIndexPath).catch((error: unknown) => {
       if (!isMissing(error)) throw error;
+      copied = false;
     });
+    if (copied) await preserveIndexTimestamps(indexPath, temporaryIndexPath);
     return await operation(temporaryIndexPath);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });

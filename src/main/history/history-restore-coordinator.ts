@@ -66,6 +66,20 @@ export interface HistoryRestoreCoordinatorResult {
 }
 
 /**
+ * Outcome of the native-resume rung.
+ *
+ * `session-dead` means the provider was reached and the resumed session did not
+ * survive — evidence that the archived handle is spent, so it gets blacklisted.
+ * `infrastructure` means the spawn never got that far (CLI detection timeout,
+ * spawn failure, cold-start starvation): nothing was learned about the handle,
+ * so it must be kept for the next attempt.
+ */
+type NativeResumeAttempt =
+  | { kind: 'restored'; result: HistoryRestoreCoordinatorResult }
+  | { kind: 'session-dead' }
+  | { kind: 'infrastructure'; error: string };
+
+/**
  * Restore-side hydration-ladder bottom rung (spec item 5): prefer the
  * handoff-document render of the archived transcript when the feature is ON;
  * fall through to the replay preamble otherwise (OFF ⇒ byte-identical).
@@ -189,7 +203,7 @@ export class HistoryRestoreCoordinator {
       (recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork');
 
     if (canAttemptNativeResume && nativeResumeSessionId) {
-      const native = await this.tryNativeResume({
+      const attempt = await this.tryNativeResume({
         instanceManager,
         workingDir,
         displayName,
@@ -204,16 +218,28 @@ export class HistoryRestoreCoordinator {
         restoreHardened,
         restoreNodeId,
       });
-      if (native) {
-        return native;
+      if (attempt.kind === 'restored') {
+        return attempt.result;
       }
 
-      try {
-        await this.history().markNativeResumeFailed(entryId);
-      } catch (error) {
-        logger.warn('History restore: failed to persist native resume failure state', {
+      if (attempt.kind === 'session-dead') {
+        try {
+          await this.history().markNativeResumeFailed(entryId);
+        } catch (error) {
+          logger.warn('History restore: failed to persist native resume failure state', {
+            entryId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } else {
+        // Do NOT blacklist the archived session handle: the failure was local
+        // (CLI detection timeout, spawn error, starved cold start), so the
+        // provider never got a chance to accept or reject it. Blacklisting here
+        // would permanently downgrade this thread to replay fallback because of
+        // a transient host hiccup.
+        logger.warn('History restore: keeping native session handle after an infrastructure failure', {
           entryId,
-          error: error instanceof Error ? error.message : String(error),
+          error: attempt.error,
         });
       }
     }
@@ -255,7 +281,7 @@ export class HistoryRestoreCoordinator {
     restoreBrowserToolsMode?: Instance['browserToolsMode'];
     restoreHardened?: boolean;
     restoreNodeId?: string;
-  }): Promise<HistoryRestoreCoordinatorResult | null> {
+  }): Promise<NativeResumeAttempt> {
     let resumeInstanceId: string | undefined;
     const postSpawnTimeoutMs = this.postSpawnTimeoutMs ?? (params.restoreNodeId ? 15_000 : 5_000);
 
@@ -281,8 +307,11 @@ export class HistoryRestoreCoordinator {
 
       try {
         await instance.readyPromise;
-      } catch {
-        throw new Error('Instance initialization failed during resume');
+      } catch (error) {
+        // Keep the underlying reason (e.g. "Timeout checking Codex CLI"): it is
+        // what tells a later reader whether the session or the host failed.
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`Instance initialization failed during resume: ${reason}`);
       }
 
       const resumeState = await this.waitForResumeState(
@@ -295,11 +324,14 @@ export class HistoryRestoreCoordinator {
 
         if (resumeState.confirmed) {
           return {
-            instanceId: instance.id,
-            restoredMessages: instance.outputBuffer,
-            restoreMode: 'native-resume',
-            sessionId: params.nativeResumeSessionId,
-            historyThreadId: params.historyThreadId,
+            kind: 'restored',
+            result: {
+              instanceId: instance.id,
+              restoredMessages: instance.outputBuffer,
+              restoreMode: 'native-resume',
+              sessionId: params.nativeResumeSessionId,
+              historyThreadId: params.historyThreadId,
+            },
           };
         }
 
@@ -312,20 +344,24 @@ export class HistoryRestoreCoordinator {
           params.instanceManager.queueContinuityPreamble(instance.id, preamble);
         }
         return {
-          instanceId: instance.id,
-          restoredMessages: instance.outputBuffer,
-          restoreMode: 'resume-unconfirmed',
-          sessionId: params.nativeResumeSessionId,
-          historyThreadId: params.historyThreadId,
+          kind: 'restored',
+          result: {
+            instanceId: instance.id,
+            restoredMessages: instance.outputBuffer,
+            restoreMode: 'resume-unconfirmed',
+            sessionId: params.nativeResumeSessionId,
+            historyThreadId: params.historyThreadId,
+          },
         };
       }
 
       await this.cleanupFailedNativeResume(params.instanceManager, instance);
-      return null;
+      return { kind: 'session-dead' };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       logger.warn('History restore: native resume attempt failed', {
         resumeInstanceId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
 
       if (resumeInstanceId) {
@@ -340,7 +376,7 @@ export class HistoryRestoreCoordinator {
           // Ignore cleanup errors.
         }
       }
-      return null;
+      return { kind: 'infrastructure', error: errorMessage };
     }
   }
 
@@ -443,7 +479,10 @@ export class HistoryRestoreCoordinator {
       isRestoredSession: true,
       historyThreadId: params.historyThreadId,
       sessionId: params.forkSessionId,
-      initialOutputBuffer: displayMessages,
+      // Copy: the restore notice is pushed onto the instance's buffer below, and
+      // `displayMessages` is still read when building `restoredMessages`. Sharing
+      // one array showed the notice twice in the renderer.
+      initialOutputBuffer: [...displayMessages],
       provider: params.restoreProvider,
       modelOverride: params.restoreModel,
       runtimeSummary: params.restoreRuntimeSummary,

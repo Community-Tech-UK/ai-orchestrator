@@ -22,7 +22,7 @@ import type { Instance, OutputMessage } from '../../shared/types/instance.types'
 import type { ConversationTurn } from '../context/context-compactor';
 import { generateLocalSummary } from '../context/context-local-summary';
 import { redactSecrets } from '../context/context-compaction-prompt';
-import { extractUnresolvedItems } from './replay-continuity';
+import { extractUnresolvedItems, truncateTranscriptContent } from './replay-continuity';
 import {
   extractFileOperationsFromTurns,
   summarizeFileOperations,
@@ -53,9 +53,13 @@ interface HandoffState {
   foldedTurnCount: number;
 }
 
+/**
+ * Shared with the replay preamble so both hydration paths keep the end of a
+ * turn — where the pending question or option list lives — instead of cutting
+ * it off at the head budget.
+ */
 function truncate(value: string, maxChars: number): string {
-  const normalized = value.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  return normalized.length <= maxChars ? normalized : `${normalized.slice(0, maxChars)}...[truncated]`;
+  return truncateTranscriptContent(value, maxChars);
 }
 
 function toConversationTurn(turn: HandoffTurn): ConversationTurn {

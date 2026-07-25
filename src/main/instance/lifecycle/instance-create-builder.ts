@@ -122,7 +122,10 @@ export function buildInstanceRecord(
     executionLocation: { type: 'local' },
     diffStats: undefined,
 
-    outputBuffer: config.initialOutputBuffer || [],
+    // Copy: the instance owns its buffer from here on. Aliasing the caller's
+    // array let later pushes (e.g. a restore-fallback notice) leak back into
+    // the array the caller still reads from, duplicating messages.
+    outputBuffer: config.initialOutputBuffer ? [...config.initialOutputBuffer] : [],
     outputBufferMaxSize: LIMITS.OUTPUT_BUFFER_MAX_SIZE,
 
     communicationTokens: new Map(),

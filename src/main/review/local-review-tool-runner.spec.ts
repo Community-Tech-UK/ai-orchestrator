@@ -13,6 +13,7 @@ import {
   stat,
   symlink,
   unlink,
+  utimes,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -604,6 +605,54 @@ describe('LocalReviewToolRunner', () => {
       expect(diff.content).not.toContain('.env');
       expect(diff.content).not.toContain('credentials.json');
       expect(diff.content).not.toContain('changed-but-still-denied');
+    }
+  });
+
+  // Regression: `workspace_status`/`workspace_diff` run Git against a COPY of
+  // .git/index. `copyFile` stamps that copy with the current time, which sits
+  // after every entry mtime cached inside it — that disables Git's racily-clean
+  // re-read, so Git trusts its cached stat data. A file rewritten within the
+  // same second as the last index write (Git compares mtime at one-second
+  // granularity unless built with USE_NSEC) and to the same byte length then
+  // matched on stat and was silently reported as unmodified: status listed only
+  // the untracked entry and diff came back EMPTY, both with ok:true and
+  // truncated:false. A reviewer asking "what changed?" got "nothing".
+  //
+  // This pins the exact condition rather than racing for it: the working-tree
+  // mtime is forced back to the value cached at `git add` time, so stat alone
+  // cannot distinguish the versions and only the racily-clean content re-read
+  // can. It fails whenever the snapshot stops inheriting the index's mtime.
+  it('detects a same-size edit made inside Git\'s racily-clean window', async () => {
+    const aPath = path.join(workspacePath, 'src', 'a.ts');
+    const original = 'export const value = 1;\n';
+    const edited = 'export const value = 2;\n';
+    expect(edited.length).toBe(original.length);
+
+    // Whole-second stamp: sub-second precision would let the size/mtime check
+    // off the hook on a filesystem Git reads at nanosecond precision.
+    const stamp = new Date(Math.floor((Date.now() - 5_000) / 1_000) * 1_000);
+    // `git add` re-stats the (already committed, unchanged) file, so the index
+    // caches `stamp` as its mtime; stamping the index file itself to the same
+    // second puts the entry at mtime >= index mtime, i.e. racily clean.
+    await writeFile(aPath, original);
+    await utimes(aPath, stamp, stamp);
+    await git(['add', '-f', 'src/a.ts']);
+    await utimes(path.join(workspacePath, '.git', 'index'), stamp, stamp);
+
+    await writeFile(aPath, edited);
+    await utimes(aPath, stamp, stamp);
+
+    const [status, diff] = await Promise.all([
+      runner.execute({ name: 'workspace_status', arguments: {} }),
+      runner.execute({ name: 'workspace_diff', arguments: {} }),
+    ]);
+
+    expect(status).toMatchObject({ ok: true });
+    expect(diff).toMatchObject({ ok: true });
+    if (status.ok) expect(status.content).toContain('src/a.ts');
+    if (diff.ok) {
+      expect(diff.content).toContain('diff --git a/src/a.ts b/src/a.ts');
+      expect(diff.content).toContain('+export const value = 2;');
     }
   });
 

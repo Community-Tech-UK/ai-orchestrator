@@ -41,6 +41,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  formatOpusName,
+  opusVersion,
+  pickNewest,
+} from './generate-cursor-models.versions';
+
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const TARGET_FILE = resolve(
   SCRIPT_DIR,
@@ -102,37 +108,6 @@ function parseModelIds(output: string): string[] {
 // Slot selection
 // ---------------------------------------------------------------------------
 
-/** Compare two `[major, minor]` tuples; returns >0 when `a` is newer. */
-function compareVersion(a: number[], b: number[]): number {
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    const diff = (a[i] ?? 0) - (b[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-/**
- * Pick the id with the newest version among `ids` for which `versionOf` returns
- * a non-null tuple. Deterministic: ties keep the first-seen id. Pure — the
- * label is derived from the winning id afterwards (never as an iteration
- * side-effect, which would capture the last match rather than the newest).
- */
-function pickNewest(
-  ids: string[],
-  versionOf: (id: string) => number[] | null,
-): string | null {
-  let best: { id: string; version: number[] } | null = null;
-  for (const id of ids) {
-    const version = versionOf(id);
-    if (!version) continue;
-    if (!best || compareVersion(version, best.version) > 0) {
-      best = { id, version };
-    }
-  }
-  return best?.id ?? null;
-}
-
 function selectComposer(ids: string[]): GeneratedEntry | null {
   const versionOf = (id: string): number[] | null => {
     const m = id.match(/^composer-(\d+)\.(\d+)$/);
@@ -149,12 +124,6 @@ function selectComposer(ids: string[]): GeneratedEntry | null {
   };
 }
 
-// Two Opus id shapes have shipped: `claude-opus-4-8-...` and `claude-4.6-opus-...`.
-function opusVersion(id: string): number[] | null {
-  const m = id.match(/opus-(\d+)-(\d+)/) ?? id.match(/(\d+)\.(\d+)-opus/);
-  return m ? [Number(m[1]), Number(m[2])] : null;
-}
-
 function selectClaudeOpus(ids: string[]): GeneratedEntry | null {
   const candidates = ids.filter(
     (id) =>
@@ -168,7 +137,7 @@ function selectClaudeOpus(ids: string[]): GeneratedEntry | null {
   const v = opusVersion(id)!;
   return {
     idExpr: quote(id),
-    name: `Opus ${v[0]}.${v[1]}`,
+    name: formatOpusName(v),
     tier: 'powerful',
     family: 'Claude',
   };

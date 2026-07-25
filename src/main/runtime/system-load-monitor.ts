@@ -198,6 +198,23 @@ export function getLoadWatchdogMultiplier(): number {
 }
 
 /**
+ * Throw-safe "is the host starved right now?" accessor for timeout call sites
+ * that need to decide whether an expired budget indicts the child or the host.
+ *
+ * Returns false under vitest for the same reason as
+ * {@link getLoadWatchdogMultiplier}: specs must not change behaviour based on
+ * how loaded the machine running them is.
+ */
+export function isRuntimeOverloadedNow(): boolean {
+  if (process.env['VITEST'] === 'true') return false;
+  try {
+    return getSystemLoadMonitor().isOverloaded();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Clamped, throw-safe variant of {@link getLoadWatchdogMultiplier} for direct
  * use at timeout call sites: always finite, >= 1, and capped so a diagnostics
  * glitch can never disable a watchdog entirely.
