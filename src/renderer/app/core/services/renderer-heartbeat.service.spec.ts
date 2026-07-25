@@ -3,9 +3,7 @@ import { HEARTBEAT_INTERVAL_MS, RendererHeartbeatService } from './renderer-hear
 
 interface HeartbeatWindow {
   electronAPI?: {
-    infrastructure?: {
-      rendererHeartbeat?: (payload: { seq: number; sentAt: number }) => void;
-    };
+    rendererHeartbeat?: (payload: { seq: number; sentAt: number }) => void;
   };
 }
 
@@ -17,9 +15,7 @@ describe('RendererHeartbeatService', () => {
     vi.useFakeTimers();
     sent = [];
     (window as unknown as HeartbeatWindow).electronAPI = {
-      infrastructure: {
-        rendererHeartbeat: (payload) => sent.push(payload),
-      },
+      rendererHeartbeat: (payload) => sent.push(payload),
     };
     service = new RendererHeartbeatService();
   });

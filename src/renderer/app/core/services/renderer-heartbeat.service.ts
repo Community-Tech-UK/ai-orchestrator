@@ -3,12 +3,14 @@ import { Injectable } from '@angular/core';
 /** Beat cadence. Main considers the renderer stalled after ~10s without one. */
 export const HEARTBEAT_INTERVAL_MS = 2_000;
 
-/** Window type that may have the Electron preload API. */
+/**
+ * Window type that may have the Electron preload API. The preload spreads every
+ * domain onto one flat `electronAPI` object (see `preload.ts`), so the heartbeat
+ * sender sits at the top level — not under an `infrastructure` namespace.
+ */
 interface HeartbeatWindow {
   electronAPI?: {
-    infrastructure?: {
-      rendererHeartbeat?: (payload: { seq: number; sentAt: number }) => void;
-    };
+    rendererHeartbeat?: (payload: { seq: number; sentAt: number }) => void;
   };
 }
 
@@ -26,7 +28,7 @@ export class RendererHeartbeatService {
 
   start(): void {
     if (this.timer) return;
-    const send = (window as unknown as HeartbeatWindow).electronAPI?.infrastructure?.rendererHeartbeat;
+    const send = (window as unknown as HeartbeatWindow).electronAPI?.rendererHeartbeat;
     if (typeof send !== 'function') return;
 
     const beat = () => send({ seq: this.seq++, sentAt: Date.now() });

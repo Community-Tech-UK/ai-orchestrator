@@ -5596,12 +5596,12 @@
       "lines": 2474
     },
     {
-      "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
-      "lines": 2372
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2394
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2358
+      "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
+      "lines": 2372
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
