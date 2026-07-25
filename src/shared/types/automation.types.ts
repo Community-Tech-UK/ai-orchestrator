@@ -56,10 +56,14 @@ export type AutomationSchedule =
  * one-shot instance turn ("issue in, worked branch out"). The prompt becomes
  * the loop goal (webhook payloads interpolate through the egress-gated
  * template first). WS6 verification-authority policy applies: an autonomous
- * implementation loop needs a real verify command, so it is required here.
+ * implementation loop needs a real verify command, enforced at dispatch.
  */
 export interface AutomationLoopAction {
-  /** Verification authority for autonomous completion (WS6 policy — required). */
+  /**
+   * Verification authority for autonomous completion (WS6 policy). Blank means
+   * "use whatever this working directory verifies with" — `prepareLoopStartConfig`
+   * resolves and records the workspace's own verifier when the loop starts.
+   */
   verifyCommand: string;
   /**
    * Run in an isolated per-run git worktree (default true — externally

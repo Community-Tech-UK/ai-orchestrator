@@ -29,7 +29,9 @@ import { assessLoopScope, type LoopScopeAssessment } from './loop-scope-assessme
 
 export interface CampaignPlanImportBaseLoop {
   /** Verify command copied into every node — the WS6 verification authority.
-   *  Required: workstream nodes are implementation loops. */
+   *  Required: workstream nodes are implementation loops. Callers that let the
+   *  user leave it blank resolve the workspace's own verifier first (see
+   *  `resolveLoopVerification`); this module stays pure and synchronous. */
   verifyCommand: string;
   provider?: LoopProvider;
   /** Per-node estimated cost cap in cents. Defaults to the WS6 $30 default. */
@@ -74,8 +76,9 @@ export function buildCampaignFromPlan(input: CampaignPlanImportInput): CampaignP
   const verifyCommand = input.baseLoop.verifyCommand.trim();
   if (!verifyCommand) {
     throw new Error(
-      'Campaign import needs a verify command: every workstream node is an '
-      + 'implementation loop and must carry a verification authority (WS6).',
+      'Campaign import needs a verify command and none was detected in this '
+      + 'workspace: every workstream node is an implementation loop and must '
+      + 'carry a verification authority (WS6).',
     );
   }
   const assessment = assessLoopScope(input.planText);

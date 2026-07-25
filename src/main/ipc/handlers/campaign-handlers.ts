@@ -17,6 +17,7 @@ import {
   buildCampaignFromPlan,
   computePlanSourceDigest,
 } from '../../orchestration/campaign-plan-import';
+import { resolveLoopVerification } from '../../orchestration/loop-verify-command';
 import { readUtf8FileHead } from '../../orchestration/bounded-file-read';
 import { isInsideOrEqual } from '../../util/path-helpers';
 import type { CampaignSpec } from '../../orchestration/campaign.types';
@@ -89,6 +90,15 @@ export function registerCampaignHandlers(deps: { windowManager: WindowManager })
           CampaignImportPlanPreviewPayloadSchema, payload, 'CAMPAIGN_IMPORT_PLAN_PREVIEW',
         );
         const planText = await readWorkspacePlan(validated.workspaceCwd, validated.planFile);
+        // Workstream nodes are implementation loops, so they need a verification
+        // authority. `buildCampaignFromPlan` is pure/sync, so resolve the
+        // workspace's own verifier here when the user left the field blank —
+        // same rule the loop start seam applies.
+        const verification = await resolveLoopVerification({
+          workspaceCwd: validated.workspaceCwd,
+          verifyCommand: validated.baseLoop.verifyCommand,
+          requireAuthority: true,
+        });
         // WS8: build ONLY — import never auto-starts. The renderer shows the
         // nodes, per-node caps, aggregate worst-case estimate, sequential
         // policy, and final gate before the user presses the start control.
@@ -96,7 +106,7 @@ export function registerCampaignHandlers(deps: { windowManager: WindowManager })
           workspaceCwd: validated.workspaceCwd,
           planFile: validated.planFile,
           planText,
-          baseLoop: validated.baseLoop,
+          baseLoop: { ...validated.baseLoop, verifyCommand: verification.verifyCommand },
           now: Date.now(),
         });
         return { success: true, data: result };

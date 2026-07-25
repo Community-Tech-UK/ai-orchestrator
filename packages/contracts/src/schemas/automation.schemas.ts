@@ -83,9 +83,12 @@ export const AutomationActionSchema = z.object({
   forceNodeId: z.string().uuid().optional(),
   attachments: z.array(AutomationFileAttachmentSchema).max(10).optional(),
   // WS5: spawn-loop action — the prompt becomes an autonomous loop goal.
-  // verifyCommand is required (WS6 verification-authority policy).
+  // verifyCommand may be blank: the WS6 verification-authority policy is
+  // enforced at dispatch, where `prepareLoopStartConfig` adopts the working
+  // directory's own verifier. A workspace with no verifier at all still fails
+  // the run with that policy error rather than being blocked at save time.
   loop: z.object({
-    verifyCommand: z.string().min(1).max(2000),
+    verifyCommand: z.string().max(2000),
     isolateWorkspace: z.boolean().optional(),
     maxIterations: z.number().int().min(1).max(1000).optional(),
     maxCostCents: z.number().int().min(1).max(1_000_000).optional(),

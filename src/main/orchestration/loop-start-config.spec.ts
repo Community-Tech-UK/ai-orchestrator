@@ -64,6 +64,33 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
     expect(prepared.completion?.mode).toBe('review-driven');
   });
 
+  it('WS6: adopts the workspace verifier for an implementation loop instead of refusing to start', async () => {
+    // The reported bug: the start panel displayed "auto-detected: npm run verify"
+    // while the policy refused the run for lacking a verification authority.
+    writeFileSync(join(workspace, 'package.json'), JSON.stringify({ scripts: { verify: 'npm test' } }));
+
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      initialPrompt: 'implement the widget',
+      completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', mode: undefined },
+    }));
+
+    // Resolved into the config — not just displayed — so the engine runs it and
+    // the persisted run config records what actually gated the run.
+    expect(prepared.completion?.verifyCommand).toBe('npm run verify');
+    expect(prepared.goalIntent).toBe('implementation');
+  });
+
+  it('WS6: an explicit verify command still wins over the detected one', async () => {
+    writeFileSync(join(workspace, 'package.json'), JSON.stringify({ scripts: { verify: 'npm test' } }));
+
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      initialPrompt: 'implement the widget',
+      completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: 'make check', mode: undefined },
+    }));
+
+    expect(prepared.completion?.verifyCommand).toBe('make check');
+  });
+
   it('WS6: REJECTS an implementation loop with no verify command and no operator-reviewed authority', async () => {
     await expect(
       prepareLoopStartConfig(mkConfig({

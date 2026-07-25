@@ -34,9 +34,17 @@ describe('formToTrigger', () => {
 });
 
 describe('formToLoopAction', () => {
-  it('returns undefined when the loop is off or has no verify authority', () => {
+  it('returns undefined only when the loop is off', () => {
     expect(formToLoopAction(emptyForm())).toBeUndefined();
-    expect(formToLoopAction({ ...emptyForm(), loopEnabled: true, loopVerifyCommand: '  ' })).toBeUndefined();
+  });
+
+  it('keeps the loop action when the verify command is blank (auto-detected at dispatch)', () => {
+    // A blank command used to make this return undefined, silently downgrading
+    // the automation to a one-shot turn with the loop toggle still switched on.
+    expect(formToLoopAction({ ...emptyForm(), loopEnabled: true, loopVerifyCommand: '  ' })).toEqual({
+      verifyCommand: '',
+      isolateWorkspace: true,
+    });
   });
 
   it('maps verify command, isolation, and numeric caps (ignoring blanks/garbage)', () => {

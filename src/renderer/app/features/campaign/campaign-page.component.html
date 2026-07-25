@@ -30,8 +30,8 @@
       <label>Plan file (workspace-relative)
         <input type="text" placeholder="docs/plans/my-plan.md" [ngModel]="importPlanFile()" (ngModelChange)="importPlanFile.set($event)" />
       </label>
-      <label>Verify command (copied into every node)
-        <input type="text" placeholder="npm test" [ngModel]="importVerifyCommand()" (ngModelChange)="importVerifyCommand.set($event)" />
+      <label>Verify command (copied into every node; blank = auto-detect from the workspace)
+        <input type="text" placeholder="Auto-detect" [ngModel]="importVerifyCommand()" (ngModelChange)="importVerifyCommand.set($event)" />
       </label>
       <button type="button" (click)="onImportPlanPreview()">Preview import</button>
     </div>

@@ -75,6 +75,33 @@ export interface MobileInstanceDto {
   isLooping?: boolean;
   /** 0–100 context window usage, when known. */
   contextPercentage?: number;
+  /**
+   * Messages the phone sent while the session was mid-turn, still waiting to be
+   * delivered. Omitted (not `[]`) when the queue is empty so the common snapshot
+   * stays small. Mirrors the desktop composer queue.
+   */
+  queuedMessages?: MobileQueuedMessageDto[];
+}
+
+/**
+ * One phone-sent message parked until the session can accept input again. The
+ * gateway holds these in memory (they do not survive a Harness restart) and
+ * delivers them in order on the next ready edge.
+ */
+export interface MobileQueuedMessageDto {
+  /** Stable id used to cancel the message (`DELETE /api/instances/:id/queue/:queueId`). */
+  id: string;
+  message: string;
+  hasAttachments: boolean;
+  enqueuedAt: number;
+  /** Delivery attempts made so far. */
+  attempts: number;
+  /**
+   * Set once delivery has failed too many times. The item stays at the head of
+   * the queue (so ordering is never silently reshuffled) and blocks the rest
+   * until the user cancels it.
+   */
+  error?: string;
 }
 
 export interface MobileModelDto {
@@ -248,6 +275,20 @@ export type MobileClientEvent =
 export interface MobileInputRequest {
   message: string;
   attachments?: MobileAttachmentDto[];
+}
+
+/**
+ * Response from POST /api/instances/:id/input. `queued` is true when the
+ * session was mid-turn (or paused) and the message was parked for delivery on
+ * the next ready edge instead of being sent immediately; `queueId` then
+ * identifies it for cancellation.
+ */
+export interface MobileInputResponse {
+  ok: true;
+  queued?: boolean;
+  queueId?: string;
+  /** True when an idempotency key matched an earlier request; nothing was sent. */
+  duplicate?: boolean;
 }
 
 /** Mirrors the main-process FileAttachment (base64 data URL). */

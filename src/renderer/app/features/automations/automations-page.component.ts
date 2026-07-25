@@ -577,10 +577,10 @@ export class AutomationsPageComponent {
 
   canSave(): boolean {
     const model = this.form();
-    // WS5: a webhook trigger needs a route; a loop action needs its verify
-    // authority (the WS6 policy would refuse the run at dispatch anyway).
+    // WS5: a webhook trigger needs a route. A loop action does NOT need a typed
+    // verify command — dispatch adopts the working directory's own verifier and
+    // fails the run with the WS6 policy error only when there is none at all.
     if (model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) return false;
-    if (model.loopEnabled && !model.loopVerifyCommand.trim()) return false;
     return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading());
   }
 

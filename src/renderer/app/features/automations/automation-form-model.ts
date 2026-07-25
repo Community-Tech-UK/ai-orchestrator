@@ -89,9 +89,15 @@ export function formToTrigger(model: AutomationFormModel):
   return { kind: 'schedule' };
 }
 
-/** Build the persisted loop action from the form, or undefined (WS5). */
+/**
+ * Build the persisted loop action from the form, or undefined (WS5).
+ *
+ * Keys off `loopEnabled` alone. Blank verify command means "auto-detect at
+ * dispatch" — treating it as "not a loop" silently downgraded the automation to
+ * a one-shot turn with the loop toggle still lit.
+ */
 export function formToLoopAction(model: AutomationFormModel): AutomationAction['loop'] {
-  if (!model.loopEnabled || !model.loopVerifyCommand.trim()) {
+  if (!model.loopEnabled) {
     return undefined;
   }
   const maxIterations = Number.parseInt(model.loopMaxIterations, 10);

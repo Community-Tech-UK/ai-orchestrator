@@ -201,7 +201,10 @@ const ALLOWLIST: Record<string, number> = {
   // which must share this handler's path/root/symlink write validations.
   'src/main/remote-node/node-filesystem-handler.ts': 760,
   // Main process — mobile gateway
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 1528,
+  // Raised 1528 -> 1585 for the queue-while-busy wiring (readiness gate on
+  // /input, drain on state/pause edges, snapshot exposure, cancel route). The
+  // queue itself lives in mobile-input-queue.ts.
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 1585,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,

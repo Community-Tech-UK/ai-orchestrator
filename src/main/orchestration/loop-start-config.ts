@@ -7,10 +7,12 @@
  *   1. goal intent is classified here (shared resolver, explicit intent wins)
  *      BEFORE validation, because the policy depends on it;
  *   2. an IMPLEMENTATION loop must carry a real verification authority — a
- *      non-empty verify command, or explicitly enabled operator-reviewed
- *      completion with a finite estimated cost cap. Investigation loops may
- *      use review/report authority. Cross-model review is corroboration, not
- *      the substitute authority for autonomous completion;
+ *      verify command (supplied by the caller, or the one this workspace
+ *      already exposes, resolved here via `resolveLoopVerification`), or
+ *      explicitly enabled operator-reviewed completion with a finite estimated
+ *      cost cap. Investigation loops may use review/report authority.
+ *      Cross-model review is corroboration, not the substitute authority for
+ *      autonomous completion;
  *   3. operator-reviewed loops require a non-null estimated usage cap — they
  *      sit paused awaiting a human Accept and get resumed repeatedly.
  * Validation happens in this main-process seam so IPC/programmatic callers
@@ -30,6 +32,7 @@ import {
 import type { LoopConfigInput } from '@contracts/schemas/loop';
 import { resolveLoopGoalIntent } from '../../shared/utils/loop-intent';
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
+import { resolveLoopVerification } from './loop-verify-command';
 
 const logger = getLogger('LoopStartConfig');
 
@@ -77,7 +80,6 @@ function finalizeStartConfig<
 export async function prepareLoopStartConfig(
   config: LoopStartConfigLike,
 ): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
-  const verifyCommand = config.completion?.verifyCommand?.trim() ?? '';
   const audit = prepareUserStartedAuditConfig(config);
   // WS6: classify goal intent BEFORE validation — the verification policy
   // depends on it, and this seam runs before `startLoop` derives intent.
@@ -98,24 +100,54 @@ export async function prepareLoopStartConfig(
   }
   // WS6 verification-authority policy: an IMPLEMENTATION loop cannot imply
   // autonomous completion without a real verification authority — it needs a
-  // machine verify command, or the explicitly operator-reviewed mode (whose
-  // finite-cap requirement is enforced above plus the finite default).
-  // Investigation loops may use review/report authority (their deliverable is
-  // a cited REPORT.md gated by the completion detector, not a build). Cross-
-  // model review remains corroboration, never the substitute authority.
-  if (
-    goalIntent.intent === 'implementation'
-    && !verifyCommand
-    && !config.completion?.allowOperatorReviewedCompletion
-  ) {
+  // verify command, or the explicitly operator-reviewed mode (whose finite-cap
+  // requirement is enforced above plus the finite default). Investigation loops
+  // may use review/report authority (their deliverable is a cited REPORT.md
+  // gated by the completion detector, not a build). Cross-model review remains
+  // corroboration, never the substitute authority.
+  //
+  // When the caller supplied no command, the workspace's OWN verifier counts:
+  // refusing to start a repo that exposes `npm run verify` — while the start
+  // panel displays that very command as "auto-detected" — was the policy
+  // demanding an answer the app already had.
+  const verification = await resolveLoopVerification({
+    workspaceCwd: config.workspaceCwd,
+    verifyCommand: config.completion?.verifyCommand,
+    allowOperatorReviewedCompletion: config.completion?.allowOperatorReviewedCompletion,
+    requireAuthority: goalIntent.intent === 'implementation',
+  });
+  if (goalIntent.intent === 'implementation' && verification.authority === 'none') {
     throw new Error(
-      'Implementation loops need a verification authority: set a verify command '
-      + '(tests/build/typecheck), or explicitly enable operator-reviewed completion '
-      + '(pauses for your sign-off; requires a finite estimated cost cap). '
-      + 'Cross-model review alone cannot confirm autonomous completion.',
+      'Implementation loops need a verification authority, and none was detected in '
+      + `${config.workspaceCwd}. Set a verify command (tests/build/typecheck), add a `
+      + '"verify"/"test"/"lint"/"typecheck" script to package.json, or explicitly enable '
+      + 'operator-reviewed completion (pauses for your sign-off; requires a finite '
+      + 'estimated cost cap). Cross-model review alone cannot confirm autonomous completion.',
     );
   }
+  if (verification.authority === 'inferred') {
+    logger.info('Adopted the workspace verifier as this loop\'s verification authority', {
+      workspaceCwd: config.workspaceCwd,
+      verifyCommand: verification.verifyCommand,
+      source: verification.inferredSource,
+    });
+  }
+  const verifyCommand = verification.verifyCommand;
   const resolvedGoalIntent = goalIntent.intent;
+  // Every return path writes the RESOLVED command back, so the engine runs it,
+  // the persisted run config records what actually gated the run, and
+  // `manualReviewOnly` is derived from the real value rather than the blank one
+  // the caller happened to send.
+  const completionFor = (
+    mode: 'review-driven' | 'gated',
+    extra?: Partial<LoopConfig['completion']>,
+  ): LoopConfig['completion'] => ({
+    ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
+    ...(config.completion ?? {}),
+    ...(extra ?? {}),
+    verifyCommand,
+    mode,
+  });
   // Completion mode. The default for user-started loops is 'review-driven':
   // the loop's engine is a fresh-eyes self-review that keeps fixing what it
   // finds until N consecutive clean passes — the proven manual workflow,
@@ -134,16 +166,13 @@ export async function prepareLoopStartConfig(
     logger.info('Defaulting loop completion to review-driven (fresh-eyes self-review)', {
       workspaceCwd: config.workspaceCwd,
       verifyCommand: verifyCommand || '(none)',
+      verificationAuthority: verification.authority,
     });
     return finalizeStartConfig({
       ...config,
       audit,
       goalIntent: resolvedGoalIntent,
-      completion: {
-        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
-        ...(config.completion ?? {}),
-        mode: 'review-driven',
-      },
+      completion: completionFor('review-driven'),
     });
   }
 
@@ -153,44 +182,31 @@ export async function prepareLoopStartConfig(
       ...config,
       audit,
       goalIntent: resolvedGoalIntent,
-      completion: {
-        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
-        ...(config.completion ?? {}),
-        mode: 'gated',
-      },
+      completion: completionFor('gated'),
     });
   }
 
-  // Gated, no verify command, not operator-reviewed. We deliberately do NOT
-  // infer/force a machine verify command (heavy, environment-fragile). The
-  // gated completion authority defaults to the fresh-eyes cross-model review;
-  // an explicit `crossModelReview: { enabled: false }` from the caller is
-  // honoured.
+  // Gated, with no verification command available at all — reachable only for
+  // investigation goals (implementation goals were resolved or refused above).
+  // The gated completion authority defaults to the fresh-eyes cross-model
+  // review; an explicit `crossModelReview: { enabled: false }` is honoured.
   if (config.completion?.crossModelReview !== undefined) {
     return finalizeStartConfig({
       ...config,
       audit,
       goalIntent: resolvedGoalIntent,
-      completion: {
-        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
-        ...config.completion,
-        mode: 'gated',
-      },
+      completion: completionFor('gated'),
     });
   }
 
-  logger.info('No verify command configured (gated mode) — defaulting completion gate to fresh-eyes cross-model review', {
+  logger.info('No verify command available (gated mode) — defaulting completion gate to fresh-eyes cross-model review', {
     workspaceCwd: config.workspaceCwd,
   });
   return finalizeStartConfig({
     ...config,
     audit,
-    completion: {
-      ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
-      ...(config.completion ?? {}),
-      mode: 'gated',
-      crossModelReview: defaultCrossModelReviewConfig(),
-    },
+    goalIntent: resolvedGoalIntent,
+    completion: completionFor('gated', { crossModelReview: defaultCrossModelReviewConfig() }),
   });
 }
 

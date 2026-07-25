@@ -241,6 +241,16 @@ export class GatewayClient {
     this._transcripts.set({ ...map, [instanceId]: next });
   }
 
+  /** Drop a transcript entry by id (used to retract an optimistic echo). */
+  private removeMessage(instanceId: string, messageId: string): void {
+    const map = this._transcripts();
+    const list = map[instanceId];
+    if (!list) return;
+    const next = list.filter((m) => m.id !== messageId);
+    if (next.length === list.length) return;
+    this._transcripts.set({ ...map, [instanceId]: next });
+  }
+
   private upsertPrompt(prompt: MobilePromptDto): void {
     const others = this._prompts().filter((p) => p.id !== prompt.id);
     this._prompts.set([...others, prompt]);
@@ -328,25 +338,56 @@ export class GatewayClient {
     }
   }
 
+  /**
+   * Send a message. When the session is mid-turn the host parks it instead
+   * (`queued`), and it goes out on the next ready edge.
+   *
+   * The optimistic echo is removed again unless the message really was sent:
+   * leaving it behind after a rejected send is what made a failed message look
+   * like it had been sent *and* left a copy in the composer.
+   */
   async sendInput(
     instanceId: string,
     message: string,
     attachments?: MobileAttachmentDto[],
-  ): Promise<void> {
-    // Optimistic echo so the user sees their message immediately.
+  ): Promise<{ queued: boolean }> {
+    const echoId = `${LOCAL_MESSAGE_ID_PREFIX}${Date.now()}`;
     this.appendMessage(instanceId, {
-      id: `${LOCAL_MESSAGE_ID_PREFIX}${Date.now()}`,
+      id: echoId,
       timestamp: Date.now(),
       type: 'user',
       content: message,
       hasAttachments: Boolean(attachments?.length),
     });
-    await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/input`, {
-      message,
-      attachments,
-    });
+    let result: { queued?: boolean };
+    try {
+      result = await this.request<{ queued?: boolean }>(
+        'POST',
+        `/api/instances/${encodeURIComponent(instanceId)}/input`,
+        { message, attachments },
+      );
+    } catch (err) {
+      this.removeMessage(instanceId, echoId);
+      throw err;
+    }
+    if (result?.queued) {
+      // The queue strip owns it now — it isn't in the transcript yet, and the
+      // host emits the real user bubble when it delivers.
+      this.removeMessage(instanceId, echoId);
+      return { queued: true };
+    }
     // Reconcile with the authoritative buffer (drops the optimistic temp id).
     void this.loadMessages(instanceId);
+    return { queued: false };
+  }
+
+  /** Cancel a parked message. Returns its text so the UI can restore the draft. */
+  async cancelQueued(instanceId: string, queueId: string): Promise<string> {
+    const result = await this.request<{ message?: string }>(
+      'DELETE',
+      `/api/instances/${encodeURIComponent(instanceId)}/queue/${encodeURIComponent(queueId)}`,
+    );
+    return result?.message ?? '';
   }
 
   async respond(instanceId: string, body: MobileRespondRequest): Promise<void> {
@@ -387,8 +428,16 @@ export class GatewayClient {
     this._prompts.set(this._prompts().filter((p) => p.requestId !== body.requestId));
   }
 
-  async interrupt(instanceId: string): Promise<void> {
-    await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/interrupt`);
+  /**
+   * Ask the host to stop the running turn. `accepted` is false when the session
+   * had nothing interruptible — the UI says so rather than looking like it worked.
+   */
+  async interrupt(instanceId: string): Promise<{ accepted: boolean }> {
+    const result = await this.request<{ accepted?: boolean }>(
+      'POST',
+      `/api/instances/${encodeURIComponent(instanceId)}/interrupt`,
+    );
+    return { accepted: result?.accepted !== false };
   }
 
   async terminate(instanceId: string, graceful = true): Promise<void> {

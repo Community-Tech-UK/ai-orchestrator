@@ -20,6 +20,19 @@ export interface MobileInstanceDto {
   /** True when this live session has an active Loop Mode run. */
   isLooping?: boolean;
   contextPercentage?: number;
+  /** Messages sent while the session was mid-turn, still waiting to go out. */
+  queuedMessages?: MobileQueuedMessageDto[];
+}
+
+/** One message parked by the host until the session can accept input again. */
+export interface MobileQueuedMessageDto {
+  id: string;
+  message: string;
+  hasAttachments: boolean;
+  enqueuedAt: number;
+  attempts: number;
+  /** Set when delivery failed repeatedly; the item blocks the queue until cancelled. */
+  error?: string;
 }
 
 export interface MobileModelDto {

@@ -1,0 +1,233 @@
+<section class="screen">
+  <app-mobile-header
+    class="conversation-header"
+    [title]="instance()?.displayName ?? 'Session'"
+    [subtitle]="headerSubtitle()"
+    [statusColor]="activityColor()"
+  >
+    <button
+      mobileHeaderLeading
+      class="mobile-icon-button"
+      type="button"
+      (click)="back()"
+      aria-label="Back to sessions"
+    >
+      <app-mobile-icon name="chevron-left" />
+    </button>
+    <button
+      mobileHeaderTrailing
+      class="mobile-icon-button"
+      type="button"
+      (click)="menuOpen.set(!menuOpen())"
+      aria-label="More session actions"
+      [attr.aria-expanded]="menuOpen()"
+    >
+      <app-mobile-icon name="more" />
+    </button>
+  </app-mobile-header>
+
+  @if (menuOpen()) {
+    <div class="popover">
+      <button (click)="rename()">Rename</button>
+      <button (click)="openModelSheet()" [disabled]="!online() || !instance()">Change model…</button>
+      <button (click)="interrupt(true)" [disabled]="!online()">
+        {{ stopping() ? 'Force-cancel (stop again)' : 'Stop (interrupt)' }}
+      </button>
+      <button class="danger" (click)="terminate()" [disabled]="!online()">Terminate</button>
+    </div>
+  }
+
+  <div class="scroll-wrap">
+    <div
+      #scrollEl
+      class="transcript"
+      appCodeCopy
+      (scroll)="onScroll()"
+      (touchstart)="onTouchStart()"
+      (touchend)="onTouchEnd()"
+      (touchcancel)="onTouchEnd()"
+    >
+      @for (item of displayItems(); track trackItem(item)) {
+        @if (item.kind === 'stamp') {
+          <div class="stamp">{{ item.label }}</div>
+        } @else if (item.kind === 'tools') {
+          <div class="tool-group">
+            <button
+              class="tool-toggle"
+              type="button"
+              (click)="toggleTools(item.id)"
+              [attr.aria-label]="toolGroupLabel(item)"
+              [attr.aria-expanded]="expandedTools().has(item.id)"
+            >
+              <app-mobile-icon
+                class="tool-caret"
+                [class.tool-caret--expanded]="expandedTools().has(item.id)"
+                name="chevron-down"
+              />
+              <app-mobile-icon name="tool" />
+              {{ item.items.length }} tool {{ item.items.length === 1 ? 'call' : 'calls' }}
+            </button>
+            @if (expandedTools().has(item.id)) {
+              @for (t of item.items; track t.id) {
+                <div class="tool-line">{{ toolLabel(t) }}</div>
+              }
+            }
+          </div>
+        } @else {
+          <div
+            class="msg"
+            [class]="'t-' + item.message.type"
+            [class.loop-output]="isLoopTranscriptMessage(item.message)"
+          >
+            <div
+              class="bubble markdown-body"
+              [class.loop-output]="isLoopTranscriptMessage(item.message)"
+              [innerHTML]="renderMarkdown(item.message.content)"
+            ></div>
+            @if (item.message.hasAttachments) {
+              <span class="attach-flag"><app-mobile-icon name="attachment" /> Photo attached</span>
+            }
+            @if (item.message.type !== 'system' && item.message.content) {
+              <app-copy-button [text]="item.message.content" />
+            }
+          </div>
+        }
+      } @empty {
+        <p class="muted center">{{ online() ? 'No messages yet.' : 'Connecting…' }}</p>
+      }
+      @if (working()) {
+        <div class="typing" role="status" aria-label="Agent is working">
+          <span></span><span></span><span></span>
+        </div>
+      }
+    </div>
+
+    @if (messages().length > 0) {
+      <div class="scroll-btns">
+        @if (!atTop()) {
+          <button class="scroll-btn" (click)="scrollToTop()" aria-label="Scroll to top">
+            <app-mobile-icon class="scroll-icon--up" name="chevron-down" />
+          </button>
+        }
+        @if (!atBottom()) {
+          <button
+            class="scroll-btn"
+            [class.new-output]="hasNewOutput()"
+            (click)="scrollToBottom()"
+            aria-label="Scroll to bottom"
+          >
+            @if (hasNewOutput()) {
+              <span class="pill-label">New output</span>
+            }
+            <app-mobile-icon name="chevron-down" />
+          </button>
+        }
+      </div>
+    }
+  </div>
+
+  @if (queued().length > 0) {
+    <app-composer-queue [messages]="queued()" (cancelMessage)="cancelQueued($event)" />
+  }
+
+  @if (notice(); as text) {
+    <p class="composer-notice" [class.error]="noticeIsError()" role="status">{{ text }}</p>
+  }
+
+  <form class="composer" (submit)="send($event)">
+    @if (attachments().length > 0) {
+      <div class="attach-strip" aria-label="Pending attachments">
+        @for (attachment of attachments(); track attachment) {
+          <div class="chip">
+            <img [src]="attachment.data" [alt]="attachment.name" />
+            <button
+              type="button"
+              class="chip-x"
+              (click)="removeAttachment(attachment)"
+              [attr.aria-label]="'Remove ' + attachment.name"
+            >
+              <app-mobile-icon name="close" />
+            </button>
+          </div>
+        }
+      </div>
+    }
+    <textarea
+      rows="1"
+      [ngModel]="draft()"
+      (ngModelChange)="draft.set($event)"
+      [ngModelOptions]="{ standalone: true }"
+      placeholder="Message…"
+      (keydown.enter)="onEnter($event)"
+      (paste)="onPaste($event)"
+    ></textarea>
+    <div class="composer-toolbar">
+      <div class="composer-toolbar__leading">
+        @if (canAttach) {
+          <button
+            type="button"
+            class="composer-tool"
+            (click)="pickImages()"
+            [disabled]="attachBusy() || sending()"
+            aria-label="Add photo"
+          >
+            <app-mobile-icon name="plus" />
+          </button>
+          <button
+            type="button"
+            class="composer-tool"
+            (click)="pasteImageFromClipboard()"
+            [disabled]="attachBusy() || sending()"
+            aria-label="Paste image from clipboard"
+          >
+            <app-mobile-icon name="clipboard" />
+          </button>
+        }
+      </div>
+      <span class="composer-status">{{ online() ? activityLabel() : 'Offline' }}</span>
+      @if (canDictate) {
+        <button
+          type="button"
+          class="composer-tool"
+          [class.composer-tool--listening]="listening()"
+          (click)="toggleDictation()"
+          [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'"
+        >
+          <app-mobile-icon name="microphone" />
+        </button>
+      }
+      @if (working()) {
+        <button
+          type="button"
+          class="composer-tool composer-tool--stop"
+          (click)="interrupt()"
+          [disabled]="!online() || interrupting() || stopping()"
+          [attr.aria-label]="stopping() ? 'Stopping' : 'Stop the agent'"
+        >
+          <app-mobile-icon name="stop" />
+        </button>
+      }
+      <button
+        type="submit"
+        class="send"
+        [disabled]="!online() || !canSend() || sending()"
+        [attr.aria-label]="sending() ? 'Sending message' : 'Send message'"
+      >
+        <app-mobile-icon name="arrow-up" />
+      </button>
+    </div>
+  </form>
+
+  @if (modelSheetOpen()) {
+    <app-model-sheet
+      [provider]="instance()?.provider ?? ''"
+      [models]="modelsForProvider()"
+      [selected]="instance()?.model"
+      [includeDefault]="false"
+      [loading]="modelsLoading() || changingModel()"
+      [error]="modelsError()"
+      (choose)="chooseModel($event)"
+      (dismiss)="modelSheetOpen.set(false)"
+    />
+  }
+</section>

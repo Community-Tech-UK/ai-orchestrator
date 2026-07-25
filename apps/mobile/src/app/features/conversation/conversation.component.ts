@@ -17,8 +17,18 @@ import { GatewayClient } from '../../core/gateway-client.service';
 import { HapticsService } from '../../core/haptics.service';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
 import { VoiceInputService } from '../../core/voice-input.service';
-import { displayStatusColor, displayStatusLabel, isWorkingOrLooping } from '../../core/status';
-import type { MobileAttachmentDto, MobileModelCatalog } from '../../core/models';
+import {
+  displayStatusColor,
+  displayStatusLabel,
+  isInterruptRecovery,
+  isWorkingOrLooping,
+} from '../../core/status';
+import type {
+  MobileAttachmentDto,
+  MobileModelCatalog,
+  MobileQueuedMessageDto,
+} from '../../core/models';
+import { ComposerQueueComponent } from './composer-queue.component';
 import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
@@ -32,6 +42,13 @@ import {
   type DisplayItem,
 } from '../../shared/transcript-items';
 
+/** How long a composer notice (queued / stopping / failed) stays on screen. */
+const NOTICE_TIMEOUT_MS = 6000;
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * One agent's live conversation: transcript (replayed history + live stream),
  * a status/context header, an input bar, and Stop/terminate controls. Approval
@@ -43,226 +60,14 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    ComposerQueueComponent,
     ModelSheetComponent,
     CopyButtonComponent,
     CodeCopyDirective,
     MobileHeaderComponent,
     MobileIconComponent,
   ],
-  template: `
-    <section class="screen">
-      <app-mobile-header
-        class="conversation-header"
-        [title]="instance()?.displayName ?? 'Session'"
-        [subtitle]="headerSubtitle()"
-        [statusColor]="activityColor()"
-      >
-        <button
-          mobileHeaderLeading
-          class="mobile-icon-button"
-          type="button"
-          (click)="back()"
-          aria-label="Back to sessions"
-        >
-          <app-mobile-icon name="chevron-left" />
-        </button>
-        <button
-          mobileHeaderTrailing
-          class="mobile-icon-button"
-          type="button"
-          (click)="menuOpen.set(!menuOpen())"
-          aria-label="More session actions"
-          [attr.aria-expanded]="menuOpen()"
-        >
-          <app-mobile-icon name="more" />
-        </button>
-      </app-mobile-header>
-
-      @if (menuOpen()) {
-        <div class="popover">
-          <button (click)="rename()">Rename</button>
-          <button (click)="openModelSheet()" [disabled]="!online() || !instance()">Change model…</button>
-          <button (click)="interrupt()" [disabled]="!online()">Stop (interrupt)</button>
-          <button class="danger" (click)="terminate()" [disabled]="!online()">Terminate</button>
-        </div>
-      }
-
-      <div class="scroll-wrap">
-        <div
-          #scrollEl
-          class="transcript"
-          appCodeCopy
-          (scroll)="onScroll()"
-          (touchstart)="onTouchStart()"
-          (touchend)="onTouchEnd()"
-          (touchcancel)="onTouchEnd()"
-        >
-          @for (item of displayItems(); track trackItem(item)) {
-            @if (item.kind === 'stamp') {
-              <div class="stamp">{{ item.label }}</div>
-            } @else if (item.kind === 'tools') {
-              <div class="tool-group">
-                <button
-                  class="tool-toggle"
-                  type="button"
-                  (click)="toggleTools(item.id)"
-                  [attr.aria-label]="toolGroupLabel(item)"
-                  [attr.aria-expanded]="expandedTools().has(item.id)"
-                >
-                  <app-mobile-icon
-                    class="tool-caret"
-                    [class.tool-caret--expanded]="expandedTools().has(item.id)"
-                    name="chevron-down"
-                  />
-                  <app-mobile-icon name="tool" />
-                  {{ item.items.length }} tool {{ item.items.length === 1 ? 'call' : 'calls' }}
-                </button>
-                @if (expandedTools().has(item.id)) {
-                  @for (t of item.items; track t.id) {
-                    <div class="tool-line">{{ toolLabel(t) }}</div>
-                  }
-                }
-              </div>
-            } @else {
-              <div
-                class="msg"
-                [class]="'t-' + item.message.type"
-                [class.loop-output]="isLoopTranscriptMessage(item.message)"
-              >
-                <div
-                  class="bubble markdown-body"
-                  [class.loop-output]="isLoopTranscriptMessage(item.message)"
-                  [innerHTML]="renderMarkdown(item.message.content)"
-                ></div>
-                @if (item.message.hasAttachments) {
-                  <span class="attach-flag"><app-mobile-icon name="attachment" /> Photo attached</span>
-                }
-                @if (item.message.type !== 'system' && item.message.content) {
-                  <app-copy-button [text]="item.message.content" />
-                }
-              </div>
-            }
-          } @empty {
-            <p class="muted center">{{ online() ? 'No messages yet.' : 'Connecting…' }}</p>
-          }
-          @if (working()) {
-            <div class="typing" role="status" aria-label="Agent is working">
-              <span></span><span></span><span></span>
-            </div>
-          }
-        </div>
-
-        @if (messages().length > 0) {
-          <div class="scroll-btns">
-            @if (!atTop()) {
-              <button class="scroll-btn" (click)="scrollToTop()" aria-label="Scroll to top">
-                <app-mobile-icon class="scroll-icon--up" name="chevron-down" />
-              </button>
-            }
-            @if (!atBottom()) {
-              <button
-                class="scroll-btn"
-                [class.new-output]="hasNewOutput()"
-                (click)="scrollToBottom()"
-                aria-label="Scroll to bottom"
-              >
-                @if (hasNewOutput()) {
-                  <span class="pill-label">New output</span>
-                }
-                <app-mobile-icon name="chevron-down" />
-              </button>
-            }
-          </div>
-        }
-      </div>
-
-      <form class="composer" (submit)="send($event)">
-        @if (attachments().length > 0) {
-          <div class="attach-strip" aria-label="Pending attachments">
-            @for (attachment of attachments(); track attachment) {
-              <div class="chip">
-                <img [src]="attachment.data" [alt]="attachment.name" />
-                <button
-                  type="button"
-                  class="chip-x"
-                  (click)="removeAttachment(attachment)"
-                  [attr.aria-label]="'Remove ' + attachment.name"
-                >
-                  <app-mobile-icon name="close" />
-                </button>
-              </div>
-            }
-          </div>
-        }
-        <textarea
-          rows="1"
-          [ngModel]="draft()"
-          (ngModelChange)="draft.set($event)"
-          [ngModelOptions]="{ standalone: true }"
-          placeholder="Message…"
-          (keydown.enter)="onEnter($event)"
-          (paste)="onPaste($event)"
-        ></textarea>
-        <div class="composer-toolbar">
-          <div class="composer-toolbar__leading">
-            @if (canAttach) {
-              <button
-                type="button"
-                class="composer-tool"
-                (click)="pickImages()"
-                [disabled]="attachBusy() || sending()"
-                aria-label="Add photo"
-              >
-                <app-mobile-icon name="plus" />
-              </button>
-              <button
-                type="button"
-                class="composer-tool"
-                (click)="pasteImageFromClipboard()"
-                [disabled]="attachBusy() || sending()"
-                aria-label="Paste image from clipboard"
-              >
-                <app-mobile-icon name="clipboard" />
-              </button>
-            }
-          </div>
-          <span class="composer-status">{{ online() ? activityLabel() : 'Offline' }}</span>
-          @if (canDictate) {
-            <button
-              type="button"
-              class="composer-tool"
-              [class.composer-tool--listening]="listening()"
-              (click)="toggleDictation()"
-              [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'"
-            >
-              <app-mobile-icon name="microphone" />
-            </button>
-          }
-          <button
-            type="submit"
-            class="send"
-            [disabled]="!online() || !canSend() || sending()"
-            [attr.aria-label]="sending() ? 'Sending message' : 'Send message'"
-          >
-            <app-mobile-icon name="arrow-up" />
-          </button>
-        </div>
-      </form>
-
-      @if (modelSheetOpen()) {
-        <app-model-sheet
-          [provider]="instance()?.provider ?? ''"
-          [models]="modelsForProvider()"
-          [selected]="instance()?.model"
-          [includeDefault]="false"
-          [loading]="modelsLoading() || changingModel()"
-          [error]="modelsError()"
-          (choose)="chooseModel($event)"
-          (dismiss)="modelSheetOpen.set(false)"
-        />
-      }
-    </section>
-  `,
+  templateUrl: './conversation.component.html',
   styleUrls: ['./conversation.component.scss'],
 })
 export class ConversationComponent {
@@ -283,6 +88,10 @@ export class ConversationComponent {
   protected readonly canDictate = this.voice.available;
   protected readonly listening = this.voice.listening;
   protected readonly sending = signal(false);
+  protected readonly interrupting = signal(false);
+  /** Transient one-line feedback above the composer (queued / stopped / failed). */
+  protected readonly notice = signal<string | null>(null);
+  protected readonly noticeIsError = signal(false);
   protected readonly menuOpen = signal(false);
   protected readonly modelSheetOpen = signal(false);
   protected readonly modelsLoading = signal(false);
@@ -306,6 +115,7 @@ export class ConversationComponent {
   private prevMessageCount = 0;
   /** Session the current draft belongs to; '' suspends draft persistence. */
   private draftKeyId = '';
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   private readonly scrollEl = viewChild<ElementRef<HTMLDivElement>>('scrollEl');
 
@@ -327,6 +137,10 @@ export class ConversationComponent {
   });
   protected readonly working = computed(() => isWorkingOrLooping(this.instance()));
   protected readonly messages = computed(() => this.gateway.messagesFor(this.instanceId()));
+  /** Messages the host is holding until this session can accept input again. */
+  protected readonly queued = computed(() => this.instance()?.queuedMessages ?? []);
+  /** An interrupt is already settling — a second one would cancel the session. */
+  protected readonly stopping = computed(() => isInterruptRecovery(this.instance()?.status ?? ''));
   protected readonly modelsForProvider = computed(() => {
     const provider = this.instance()?.provider;
     return provider ? this.modelCatalog()?.[provider] ?? [] : [];
@@ -363,6 +177,7 @@ export class ConversationComponent {
     });
     inject(DestroyRef).onDestroy(() => {
       this.gateway.clearActiveView(this.instanceId());
+      clearTimeout(this.noticeTimer);
       if (this.voice.listening()) void this.voice.stop();
     });
 
@@ -559,30 +374,82 @@ export class ConversationComponent {
     this.sending.set(true);
     this.draft.set('');
     this.attachments.set([]);
+    this.clearNotice();
     try {
-      await this.gateway.sendInput(
+      const result = await this.gateway.sendInput(
         this.instanceId(),
         text,
         attachments.length ? attachments : undefined,
       );
-    } catch {
-      // Restore the draft + attachments so the user doesn't lose them.
+      if (result.queued) {
+        this.showNotice('Queued — it will send when this session is free.');
+      }
+    } catch (err) {
+      // Restore the draft + attachments so the user doesn't lose them, and say
+      // why: a silent restore reads as the message having been sent twice.
       this.haptics.error();
       this.draft.set(text);
       this.attachments.set(attachments);
+      this.showNotice(`Not sent: ${errorText(err)}`, true);
     } finally {
       this.sending.set(false);
     }
   }
 
-  protected async interrupt(): Promise<void> {
+  /**
+   * Stop the running turn. From the menu (`escalate`) a second stop while the
+   * session is already settling force-cancels it on the host, so that path
+   * confirms first; the composer button is simply disabled while settling.
+   */
+  protected async interrupt(escalate = false): Promise<void> {
     this.menuOpen.set(false);
-    this.haptics.heavyTap();
-    try {
-      await this.gateway.interrupt(this.instanceId());
-    } catch {
-      /* surfaced via status */
+    if (this.interrupting()) return;
+    if (this.stopping()) {
+      if (!escalate) return;
+      if (!confirm('This session is already stopping. Force-cancel it? The session ends.')) return;
     }
+    this.haptics.heavyTap();
+    this.interrupting.set(true);
+    this.clearNotice();
+    try {
+      const { accepted } = await this.gateway.interrupt(this.instanceId());
+      if (accepted) {
+        this.showNotice('Stopping…');
+      } else {
+        this.haptics.error();
+        this.showNotice('Nothing to stop — this session is not running a turn.', true);
+      }
+    } catch (err) {
+      this.haptics.error();
+      this.showNotice(`Stop failed: ${errorText(err)}`, true);
+    } finally {
+      this.interrupting.set(false);
+    }
+  }
+
+  /** Cancel a queued message and put its text back in the composer. */
+  protected async cancelQueued(item: MobileQueuedMessageDto): Promise<void> {
+    this.haptics.tap();
+    try {
+      const restored = await this.gateway.cancelQueued(this.instanceId(), item.id);
+      const text = restored || item.message;
+      // Never lose the text: append when the composer is already in use.
+      this.draft.update((current) => (current.trim() ? `${current.trimEnd()}\n${text}` : text));
+    } catch (err) {
+      this.showNotice(`Could not cancel: ${errorText(err)}`, true);
+    }
+  }
+
+  private showNotice(text: string, isError = false): void {
+    this.notice.set(text);
+    this.noticeIsError.set(isError);
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => this.notice.set(null), NOTICE_TIMEOUT_MS);
+  }
+
+  private clearNotice(): void {
+    clearTimeout(this.noticeTimer);
+    this.notice.set(null);
   }
 
   protected async terminate(): Promise<void> {

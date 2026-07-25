@@ -43,6 +43,21 @@ export function needsAttention(status: string): boolean {
   return status === 'waiting_for_permission' || status === 'waiting_for_input';
 }
 
+/**
+ * The session is already settling an interrupt. A *second* interrupt from here
+ * escalates on the host and cancels the session outright
+ * (instance/lifecycle/interrupt-respawn-handler.ts), so the UI must not let a
+ * second tap happen by accident.
+ */
+export function isInterruptRecovery(status: string): boolean {
+  return (
+    status === 'respawning' ||
+    status === 'interrupting' ||
+    status === 'cancelling' ||
+    status === 'interrupt-escalating'
+  );
+}
+
 /** True while the agent is actively doing work (drives the typing indicator). */
 export function isWorking(status: string): boolean {
   switch (status) {

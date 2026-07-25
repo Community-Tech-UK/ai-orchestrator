@@ -367,6 +367,26 @@
   background: var(--accent-error);
 }
 
+/* Stop: only rendered while the agent is working, so it reads as an action. */
+.composer-tool--stop {
+  border: 1px solid var(--separator);
+  color: var(--accent-error);
+}
+
+.composer-notice {
+  margin: 0 var(--mobile-gutter);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.composer-notice.error {
+  color: var(--accent-error);
+}
+
+app-composer-queue {
+  margin: 0 var(--mobile-gutter);
+}
+
 .composer-status {
   min-width: 0;
   flex: 1;

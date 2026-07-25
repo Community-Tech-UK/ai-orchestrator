@@ -22,6 +22,7 @@ import type { LoopState } from '../../shared/types/loop.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type {
   MobileGatewayStatus,
+  MobileInputResponse,
   MobileInstanceDto,
   MobileMessagesResumeDto,
   MobilePauseDto,
@@ -48,6 +49,11 @@ import {
   sendJsonResponse,
 } from './mobile-gateway-http-utils';
 import { handleMobileHistory, handleMobileHistoryMessages } from './mobile-gateway-history-handlers';
+import {
+  handleMobileQueueRoutes,
+  MobileInputQueue,
+  shouldQueueInput,
+} from './mobile-input-queue';
 import {
   handleWsUpgrade,
   isInstanceBeingViewed,
@@ -240,6 +246,19 @@ export class MobileGatewayServer {
    * instance is removed.
    */
   private readonly unreadCompletions = new Set<string>();
+  /**
+   * Messages the phone sent while a session was mid-turn. Parked here and
+   * delivered on the next ready edge instead of being thrown at an adapter that
+   * would reject them (see mobile-input-queue.ts).
+   */
+  private readonly inputQueue = new MobileInputQueue({
+    getInstance: (instanceId) => this.deps?.instanceManager.getInstance(instanceId),
+    isPaused: () => this.pauseState().isPaused,
+    deliver: (instanceId, message, attachments) =>
+      this.source().sendInput(instanceId, message, attachments),
+    onChange: () => this.scheduleSnapshotBroadcast(),
+    logger,
+  });
   /** The orchestration handler we attached to, for clean detach on stop. */
   private orchestration: EmitterLike | null = null;
   private attachedPause: GatewayPauseSource | null = null;
@@ -255,8 +274,11 @@ export class MobileGatewayServer {
     this.handleProviderEvent(envelope as ProviderRuntimeEventEnvelope);
   private readonly onInputRequired = (payload: unknown) => this.handleInputRequired(payload);
   private readonly onUserAction = (request: unknown) => this.handleUserAction(request);
-  private readonly onPauseChange = () =>
+  private readonly onPauseChange = () => {
     this.broadcast({ type: 'pause-state', data: this.pauseState() });
+    // Unpausing is a ready edge for every session holding parked messages.
+    if (!this.pauseState().isPaused) this.drainAllQueues();
+  };
   private readonly onLoopStateChanged = () => this.scheduleSnapshotBroadcast();
 
   static getInstance(): MobileGatewayServer {
@@ -439,6 +461,7 @@ export class MobileGatewayServer {
     this.clients.clear();
     this.activeViewByClient.clear();
     this.prompts.clear();
+    this.inputQueue.clearAll();
 
     if (this.wss) {
       this.wss.close();
@@ -612,6 +635,7 @@ export class MobileGatewayServer {
 
   private handleInstanceRemoved(instanceId: string): void {
     this.clearPromptsForInstance(instanceId);
+    this.inputQueue.clear(instanceId);
     this.lastStatusByInstance.delete(instanceId);
     this.unreadCompletions.delete(instanceId);
     // Dismiss any lock-screen Live Activity tracking this session.
@@ -627,6 +651,7 @@ export class MobileGatewayServer {
         this.clearPromptsForInstance(u.instanceId);
       }
       this.notifyCompletionOnIdle(u.instanceId, u.status);
+      void this.inputQueue.drain(u.instanceId);
     }
     this.scheduleSnapshotBroadcast();
   }
@@ -640,10 +665,18 @@ export class MobileGatewayServer {
             this.clearPromptsForInstance(u.instanceId);
           }
           this.notifyCompletionOnIdle(u.instanceId, u.status);
+          void this.inputQueue.drain(u.instanceId);
         }
       }
     }
     this.scheduleSnapshotBroadcast();
+  }
+
+  /** Try every parked queue — used when a global gate (pause) lifts. */
+  private drainAllQueues(): void {
+    for (const instance of this.deps?.instanceManager.getAllInstances() ?? []) {
+      void this.inputQueue.drain(instance.id);
+    }
   }
 
   /**
@@ -859,10 +892,12 @@ export class MobileGatewayServer {
       .map((dto) => {
         const pending = promptCounts.get(dto.id);
         const unread = this.unreadCompletions.has(dto.id);
-        if (pending === undefined && !unread) return dto;
+        const queued = this.inputQueue.toDto(dto.id);
+        if (pending === undefined && !unread && !queued) return dto;
         return {
           ...dto,
           ...(pending !== undefined ? { pendingApprovalCount: pending } : {}),
+          ...(queued ? { queuedMessages: queued } : {}),
           hasUnreadCompletion: unread,
         };
       });
@@ -1000,6 +1035,7 @@ export class MobileGatewayServer {
               return await this.handleRename(req, res, instanceId);
             }
           }
+          if (handleMobileQueueRoutes(this.inputQueue, res, segments, method)) return;
         }
 
         if (segments[1] === 'projects' && segments.length === 2 && method === 'GET') {
@@ -1156,7 +1192,8 @@ export class MobileGatewayServer {
       this.sendJson(res, 400, { error: 'message or attachments required' });
       return;
     }
-    if (!this.source().getInstance(instanceId)) {
+    const instance = this.source().getInstance(instanceId);
+    if (!instance) {
       this.sendJson(res, 404, { error: 'Instance not found' });
       return;
     }
@@ -1170,11 +1207,31 @@ export class MobileGatewayServer {
     if (idempotencyKey && getIdempotencyStore().isDuplicate(
       IdempotencyStore.compose('input', instanceId, idempotencyKey),
     )) {
-      this.sendJson(res, 200, { ok: true, duplicate: true });
+      const duplicate: MobileInputResponse = { ok: true, duplicate: true };
+      this.sendJson(res, 200, duplicate);
+      return;
+    }
+    // Mid-turn (or paused) sends park instead of hitting an adapter that would
+    // reject them — the desktop composer queues for the same statuses.
+    if (shouldQueueInput(instance, this.pauseState().isPaused)) {
+      const parked = this.inputQueue.enqueue(instanceId, message, attachments);
+      if (!parked) {
+        this.sendJson(res, 429, {
+          error: 'Too many messages queued for this session — wait for it to catch up.',
+        });
+        return;
+      }
+      // The session can settle between the status read above and the enqueue,
+      // and that ready edge would already have passed. Kick a drain so the
+      // message can't sit until some later state change.
+      void this.inputQueue.drain(instanceId);
+      const queued: MobileInputResponse = { ok: true, queued: true, queueId: parked.id };
+      this.sendJson(res, 200, queued);
       return;
     }
     await this.source().sendInput(instanceId, message, attachments);
-    this.sendJson(res, 200, { ok: true });
+    const sent: MobileInputResponse = { ok: true };
+    this.sendJson(res, 200, sent);
   }
 
   private async handleRespond(

@@ -21,7 +21,8 @@ import {
 import { MobileDeviceRegistry, type MobileDevicePersistence } from './mobile-device-registry';
 import { MobileApnsSender } from './mobile-apns-sender';
 import { _resetIdempotencyStoreForTesting } from '../transport/idempotency-store';
-import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
+import { MAX_QUEUED_PER_INSTANCE } from './mobile-input-queue';
+import type { FileAttachment, Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { LoopState } from '../../shared/types/loop.types';
 import type { MobileMessageDto, MobileMessagesResumeDto, MobilePauseDto } from '../../shared/types/mobile-gateway.types';
 
@@ -47,7 +48,9 @@ class FakeInstanceSource extends EventEmitter implements GatewayInstanceSource {
     respondToUserAction = vi.fn();
   })();
 
-  sendInput = vi.fn(async () => undefined);
+  sendInput = vi.fn<
+    (instanceId: string, message: string, attachments?: FileAttachment[]) => Promise<void>
+  >(async () => undefined);
   interruptInstance = vi.fn(() => true);
   terminateInstance = vi.fn(async () => undefined);
   changeModel = vi.fn(async (id: string, model: string) => {
@@ -647,14 +650,115 @@ describe('MobileGatewayServer', () => {
     expect(envelope.messages[299].seq).toBe(300);
   });
 
-  it('routes input to sendInput', async () => {
+  it('routes input to sendInput when the session is ready', async () => {
+    source.instances = [inst({ id: 'a', status: 'idle' })];
     const token = await pairToken();
     const res = await authed(token, '/api/instances/a/input', {
       method: 'POST',
       body: JSON.stringify({ message: 'do the thing' }),
     });
     expect(res.status).toBe(200);
+    expect((await res.json()).queued).toBeUndefined();
     expect(source.sendInput).toHaveBeenCalledWith('a', 'do the thing', undefined);
+  });
+
+  // ---- queue-while-busy (mobile parity with the desktop composer queue) ----
+
+  it('queues input sent mid-turn instead of throwing it at the adapter', async () => {
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'follow-up' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { queued?: boolean; queueId?: string };
+    expect(body.queued).toBe(true);
+    expect(body.queueId).toBeTruthy();
+    expect(source.sendInput).not.toHaveBeenCalled();
+
+    const snapshot = await (await authed(token, '/api/snapshot')).json();
+    expect(snapshot.instances[0].queuedMessages).toEqual([
+      expect.objectContaining({ id: body.queueId, message: 'follow-up', hasAttachments: false }),
+    ]);
+  });
+
+  it('delivers queued input on the next ready state edge', async () => {
+    const token = await pairToken();
+    await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'first' }),
+    });
+    await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'second' }),
+    });
+    expect(source.sendInput).not.toHaveBeenCalled();
+
+    // One message per ready edge, mirroring the desktop queue: the delivered
+    // turn takes the session busy again before the next one goes out.
+    source.instances[0].status = 'idle';
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    await vi.waitFor(() => expect(source.sendInput).toHaveBeenCalledTimes(1));
+
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    await vi.waitFor(() => expect(source.sendInput).toHaveBeenCalledTimes(2));
+    expect(source.sendInput.mock.calls.map((c) => c[1])).toEqual(['first', 'second']);
+    const snapshot = await (await authed(token, '/api/snapshot')).json();
+    expect(snapshot.instances[0].queuedMessages).toBeUndefined();
+  });
+
+  it('cancels a queued message and hands its text back', async () => {
+    const token = await pairToken();
+    const queuedRes = await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'never mind' }),
+    });
+    const { queueId } = (await queuedRes.json()) as { queueId: string };
+
+    const cancelled = await authed(token, `/api/instances/a/queue/${queueId}`, { method: 'DELETE' });
+    expect(cancelled.status).toBe(200);
+    expect((await cancelled.json()).message).toBe('never mind');
+
+    const missing = await authed(token, `/api/instances/a/queue/${queueId}`, { method: 'DELETE' });
+    expect(missing.status).toBe(404);
+
+    source.instances[0].status = 'idle';
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(source.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('refuses to queue past the per-instance cap rather than dropping messages', async () => {
+    const token = await pairToken();
+    for (let i = 0; i < MAX_QUEUED_PER_INSTANCE; i += 1) {
+      const ok = await authed(token, '/api/instances/a/input', {
+        method: 'POST',
+        body: JSON.stringify({ message: `m${i}` }),
+      });
+      expect(ok.status).toBe(200);
+    }
+    const overflow = await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'one too many' }),
+    });
+    expect(overflow.status).toBe(429);
+  });
+
+  it('drops a queue when its instance is removed', async () => {
+    const token = await pairToken();
+    await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'orphan' }),
+    });
+    source.instances = [];
+    source.emit('instance:removed', 'a');
+
+    source.instances = [inst({ id: 'a', status: 'idle' })];
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(source.sendInput).not.toHaveBeenCalled();
   });
 
   it('rejects empty input', async () => {
@@ -936,6 +1040,7 @@ describe('MobileGatewayServer', () => {
   // ---- B2 idempotency: at-most-once for input / interrupt / respond / terminate ----
 
   it('dedupes a retried input with the same idempotencyKey (queued once)', async () => {
+    source.instances = [inst({ id: 'a', status: 'idle' })];
     const token = await pairToken();
     const first = await authed(token, '/api/instances/a/input', {
       method: 'POST',
@@ -955,6 +1060,7 @@ describe('MobileGatewayServer', () => {
   });
 
   it('still queues two distinct inputs without an idempotencyKey', async () => {
+    source.instances = [inst({ id: 'a', status: 'idle' })];
     const token = await pairToken();
     await authed(token, '/api/instances/a/input', {
       method: 'POST',

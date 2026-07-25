@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   displayStatusColor,
   displayStatusLabel,
+  isInterruptRecovery,
   isLiveActivityCandidate,
   isWorkingOrLooping,
   liveActivityStatusLabel,
@@ -35,5 +36,19 @@ describe('loop-aware session status display', () => {
     expect(isWorkingOrLooping(session)).toBe(true);
     expect(isLiveActivityCandidate(session)).toBe(true);
     expect(liveActivityStatusLabel(session)).toBe('working');
+  });
+});
+
+describe('interrupt recovery', () => {
+  it('flags the statuses where a second stop would cancel the session', () => {
+    for (const status of ['respawning', 'interrupting', 'cancelling', 'interrupt-escalating']) {
+      expect(isInterruptRecovery(status)).toBe(true);
+    }
+  });
+
+  it('leaves a normal running turn interruptible', () => {
+    for (const status of ['busy', 'processing', 'thinking_deeply', 'idle', '']) {
+      expect(isInterruptRecovery(status)).toBe(false);
+    }
   });
 });

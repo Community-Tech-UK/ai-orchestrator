@@ -348,9 +348,9 @@
 
                 @if (form().loopEnabled) {
                   <label>
-                    <span>Verify Command (required)</span>
-                    <input name="loopVerifyCommand" placeholder="npm test" [ngModel]="form().loopVerifyCommand" (ngModelChange)="patchForm({ loopVerifyCommand: $event })" required />
-                    <span class="hint">The loop only completes autonomously when this command passes.</span>
+                    <span>Verify command</span>
+                    <input name="loopVerifyCommand" placeholder="Auto-detect from the working directory" [ngModel]="form().loopVerifyCommand" (ngModelChange)="patchForm({ loopVerifyCommand: $event })" />
+                    <span class="hint">The loop only completes autonomously when this command passes. Leave blank to use the working directory's own verifier (package.json verify / test / lint / typecheck).</span>
                   </label>
                   <div class="form-grid">
                     <label class="checkbox">

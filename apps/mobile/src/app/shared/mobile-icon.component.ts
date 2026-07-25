@@ -31,6 +31,7 @@ export const MOBILE_ICON_PATHS = {
   warning: 'M12 3 2.5 20h19L12 3ZM12 9v5M12 18h.01',
   error: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM8 8l8 8M16 8l-8 8',
   qr: 'M3 3h7v7H3V3ZM14 3h7v7h-7V3ZM3 14h7v7H3v-7ZM14 14h3v3h-3v-3ZM18 14h3v7h-3M14 19h3v2h-3v-2Z',
+  stop: 'M7 7h10v10H7V7Z',
 } as const;
 
 export const MOBILE_ICON_NAMES = Object.keys(MOBILE_ICON_PATHS) as (keyof typeof MOBILE_ICON_PATHS)[];

@@ -22,7 +22,7 @@
             "index": "src/renderer/index.html",
             "browser": "src/renderer/main.ts",
             "polyfills": [],
-            "tsConfig": "tsconfig.json",
+            "tsConfig": "tsconfig.renderer.json",
             "allowedCommonJsDependencies": [
               "qrcode"
             ],

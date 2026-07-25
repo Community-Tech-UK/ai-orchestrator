@@ -1,5 +1,6 @@
-import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { ɵresolveComponentResources as resolveComponentResources, type WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import type { InferredVerifyPayload } from '../../core/services/ipc/loop-ipc.service';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +32,17 @@ await resolveComponentResources((url) => {
 describe('LoopConfigPanelComponent', () => {
   let fixture: ComponentFixture<LoopConfigPanelComponent>;
   let component: LoopConfigPanelComponent;
+
+  /** `inferredVerify`/`inferLoading` are protected (template-only) state; the
+   *  IPC bridge that fills them doesn't exist outside Electron. */
+  function setInferredVerify(inferred: InferredVerifyPayload | null): void {
+    const internals = component as unknown as {
+      inferredVerify: WritableSignal<InferredVerifyPayload | null>;
+      inferLoading: WritableSignal<boolean>;
+    };
+    internals.inferLoading.set(false);
+    internals.inferredVerify.set(inferred);
+  }
 
   beforeEach(async () => {
     localStorage.clear();
@@ -244,6 +256,34 @@ describe('LoopConfigPanelComponent', () => {
     component.operatorReviewedCompletion.set(true);
 
     expect(component.canSubmit()).toBe(true);
+  });
+
+  it('WS6: a verifier detected for the workspace is authority enough to submit', () => {
+    // The reported bug: the panel showed "auto-detected: npm run verify" and
+    // still refused to start. Main adopts the detected command at start, so the
+    // panel must not demand the user retype it.
+    component.verifyCommand.set('');
+    setInferredVerify({ command: 'npm run verify', source: 'package.json script "verify"', scope: 'workspace' });
+
+    expect(component.validationError()).toBeNull();
+    expect(component.canSubmit()).toBe(true);
+    expect(component.verifyHint()).toContain('will be used: npm run verify');
+    // Resolution stays in the main process — the panel sends the typed field only.
+    expect(component.buildConfig()?.completion?.verifyCommand).toBe('');
+  });
+
+  it('WS6: a verifier that lives OUTSIDE the workspace is offered, not adopted', () => {
+    // It belongs to an enclosing project this loop was not aimed at, and its
+    // suite covers code outside the loop's scope. Suggest it; let the user pick.
+    component.verifyCommand.set('');
+    setInferredVerify({
+      command: 'npm --prefix "/repo" run verify',
+      source: 'package.json script "verify"',
+      scope: 'ancestor',
+    });
+
+    expect(component.canSubmit()).toBe(false);
+    expect(component.verifyHint()).toContain('paste it here');
   });
 
   it('WS6: an investigation goal may submit without a verify command', () => {

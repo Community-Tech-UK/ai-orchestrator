@@ -9,6 +9,18 @@ import type {
 } from '@contracts/schemas/loop';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
+/**
+ * The verify command detected for a workspace. `scope` mirrors
+ * `InferredVerifyScope` in `src/main/orchestration/loop-verify-command.ts`:
+ * only a non-`ancestor` verifier is auto-adopted at loop start, because an
+ * ancestor's suite belongs to an enclosing project the loop was not aimed at.
+ */
+export interface InferredVerifyPayload {
+  command: string;
+  source: string;
+  scope: 'workspace' | 'descendant' | 'ancestor';
+}
+
 export type LoopOutstandingStatus = 'open' | 'resolved' | 'dismissed';
 export interface LoopOutstandingQuery {
   chatId?: string;
@@ -303,10 +315,10 @@ export class LoopIpcService {
   }
 
   /** LF-3a: preview the auto-inferred verify command for a workspace. */
-  async inferVerify(workspaceCwd: string): Promise<IpcResponse<{ inferred: { command: string; source: string } | null }>> {
+  async inferVerify(workspaceCwd: string): Promise<IpcResponse<{ inferred: InferredVerifyPayload | null }>> {
     if (!this.api) return notInElectron();
     const fn = (this.api as unknown as {
-      loopInferVerify?: (cwd: string) => Promise<IpcResponse<{ inferred: { command: string; source: string } | null }>>;
+      loopInferVerify?: (cwd: string) => Promise<IpcResponse<{ inferred: InferredVerifyPayload | null }>>;
     }).loopInferVerify;
     if (typeof fn !== 'function') {
       return { success: false, error: { message: 'infer-verify bridge unavailable' } };

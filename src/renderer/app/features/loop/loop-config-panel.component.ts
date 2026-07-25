@@ -1,6 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LoopIpcService, type LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
+import {
+  LoopIpcService,
+  type InferredVerifyPayload,
+  type LoopStartConfigInput,
+} from '../../core/services/ipc/loop-ipc.service';
 import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-history.service';
 import {
   DEFAULT_INSTANCE_PROVIDERS,
@@ -144,7 +148,7 @@ export class LoopConfigPanelComponent {
 
   /** LF-3a: the verify command the loop would auto-infer for this workspace,
    *  surfaced so the user knows what gates completion before they start. */
-  protected inferredVerify = signal<{ command: string; source: string } | null>(null);
+  protected inferredVerify = signal<InferredVerifyPayload | null>(null);
   protected inferLoading = signal(false);
   private lastInferredWorkspace: string | null = null;
 
@@ -325,13 +329,29 @@ export class LoopConfigPanelComponent {
   }
 
   /** Dynamic hint for the verify-command field: shows the auto-detected command
-   *  when the field is blank, so the user can see what will gate completion. */
+   *  when the field is blank. Leaving the field blank ADOPTS that command —
+   *  `prepareLoopStartConfig` resolves it at start — so the hint states what
+   *  will actually gate completion, not merely what exists. */
   verifyHint = computed<string>(() => {
     if (this.verifyCommand().trim()) return '(custom command)';
     if (this.inferLoading()) return '(detecting…)';
     const inferred = this.inferredVerify();
-    if (inferred) return `(auto-detected: ${inferred.command})`;
-    return '(no verifier detected — set one or enable operator review)';
+    if (!inferred) return '(no verifier detected — set one or enable operator review)';
+    if (inferred.scope === 'ancestor') {
+      // Reported but not adopted: it belongs to an enclosing project this loop
+      // wasn't aimed at. Offer it; let the user make that call.
+      return `(a parent project verifies with \`${inferred.command}\` — paste it here to use it)`;
+    }
+    return `(auto-detected, will be used: ${inferred.command})`;
+  });
+
+  /** WS6: does this run have a verification authority? A detected workspace
+   *  verifier counts — the main process adopts it at start, so blocking on the
+   *  typed field alone refused runs the app had already found a verifier for. */
+  private hasVerificationAuthority = computed(() => {
+    if (this.verifyCommand().trim() || this.operatorReviewedCompletion()) return true;
+    const inferred = this.inferredVerify();
+    return inferred !== null && inferred.scope !== 'ancestor';
   });
 
   validationError = computed(() => {
@@ -383,14 +403,17 @@ export class LoopConfigPanelComponent {
     }
     // WS6 verification authority (same rule enforced in the main process):
     // an implementation goal cannot imply autonomous completion without a
-    // verify command or explicit operator-reviewed authority.
+    // verify command or explicit operator-reviewed authority. Detection is
+    // still running on first open — don't flash a refusal we're about to
+    // withdraw; the main process re-checks at start either way.
     if (
-      resolveLoopGoalIntent(undefined, this.prompt()).intent === 'implementation'
-      && !this.verifyCommand().trim()
-      && !this.operatorReviewedCompletion()
+      !this.inferLoading()
+      && !this.hasVerificationAuthority()
+      && resolveLoopGoalIntent(undefined, this.prompt()).intent === 'implementation'
     ) {
-      return 'Implementation goals need a verification authority: add a verify command '
-        + '(tests/build/typecheck), or enable operator-reviewed completion.';
+      return 'No verifier was detected in this workspace, and implementation goals need '
+        + 'a verification authority: add a verify command (tests/build/typecheck), or '
+        + 'enable operator-reviewed completion.';
     }
     return null;
   });
