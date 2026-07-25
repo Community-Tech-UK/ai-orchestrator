@@ -1,8 +1,8 @@
 # Composer Draft Auto-Resize Specification
 
-Status: implemented; completion blocked by an unrelated full-suite heap-snapshot failure
+Status: completed — implemented, verified, and closed on 2026-07-25
 
-Implementation plan: [2026-07-23-composer-draft-auto-resize_plan.md](./2026-07-23-composer-draft-auto-resize_plan.md)
+Implementation plan: [2026-07-23-composer-draft-auto-resize_plan_completed.md](./2026-07-23-composer-draft-auto-resize_plan_completed.md)
 
 ## Problem
 
@@ -81,14 +81,14 @@ The renderer benchmark confirmed the requested behaviour:
 
 ## Verification Status
 
-The focused spec passes 7/7. Production and spec typechecks, lint, the
-TypeScript LOC ratchet, and `git diff --check` pass. One stable canonical run
-also passed all 1,554 files and 15,383 tests.
+The full canonical gate passed on the 2026-07-25 closing run. Every command
+exited `0`: the focused spec (7/7), `npx tsc --noEmit`, `npx tsc --noEmit -p
+tsconfig.spec.json`, `npm run lint`, `npm run check:ts-max-loc`, `git diff
+--check`, and `npm run test:quiet` across 1,572 files and 15,577 tests.
 
-The mandatory fresh completion gate remains nonzero because two independent
-full-suite executions failed in the unrelated
-`src/main/diagnostics/heap-snapshot.spec.ts` test with Node's maximum-string
-error. That test passes 3/3 in isolation, and no composer-specific failure was
-found. Repository rules require the specification and plan to retain their
-active filenames until the full completion gate passes or the unrelated failure
-is fixed in separately authorized scope.
+Earlier sessions saw two full-suite failures in the unrelated
+`src/main/diagnostics/heap-snapshot.spec.ts`, which reads an entire heap-snapshot
+file into a JavaScript string and therefore exceeds Node's maximum string length
+when full-suite memory pressure grows the heap. That test did not fail on the
+closing run and is untouched by this change; hardening it remains a separate,
+unauthorized follow-up.

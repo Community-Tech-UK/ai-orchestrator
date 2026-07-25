@@ -21,6 +21,7 @@ import {
   shouldHydrateComposerPickerSelection,
 } from './composer-toolbar.component';
 import { InstanceIpcService } from '../../core/services/ipc';
+import { ToastService } from '../../core/services/toast.service';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type {
   InstanceRuntimeSummary,
@@ -30,6 +31,10 @@ import type {
 // Stub out OrchestrationIpcService — we only care about changeModel.
 const ipcStub = {
   changeModel: vi.fn().mockResolvedValue({ success: true }),
+};
+
+const toastStub = {
+  show: vi.fn(),
 };
 
 // Override signal-input getters (vitest does not run the Angular compiler).
@@ -58,11 +63,14 @@ describe('ComposerToolbarComponent', () => {
 
   beforeEach(async () => {
     ipcStub.changeModel.mockClear();
+    ipcStub.changeModel.mockResolvedValue({ success: true });
+    toastStub.show.mockClear();
 
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
       providers: [
         { provide: InstanceIpcService, useValue: ipcStub },
+        { provide: ToastService, useValue: toastStub },
       ],
     }).compileComponents();
 
@@ -281,6 +289,42 @@ describe('ComposerToolbarComponent', () => {
 
   it('exposes Local Models in the live picker for runtime-target switching', () => {
     expect(component.pickerProviders).toContain('local-model');
+  });
+
+  // ── 10. A rejected swap must not leave the picker lying about the runtime ──
+
+  it('rolls the picker back to the live runtime and toasts when the change is rejected', async () => {
+    // Regression: this component talks to IPC directly and used to discard the
+    // response, while the re-seed effect deliberately refuses to clobber an
+    // in-flight pick. A rejected swap therefore left the picker reading
+    // "Codex · gpt-5.5" on a session still running Claude, with no error shown.
+    ipcStub.changeModel.mockResolvedValueOnce({
+      success: false,
+      error: { message: 'Cannot switch provider: the Codex CLI is not installed.' },
+    });
+
+    await component.onPickerSelectionChange({ provider: 'codex', model: 'gpt-5.5', reasoning: null });
+
+    expect(component.pickerSelection()).toEqual({
+      provider: 'claude',
+      model: 'claude-opus-4-5',
+      reasoning: null,
+    });
+    expect(toastStub.show).toHaveBeenCalledWith(
+      'Cannot switch provider: the Codex CLI is not installed.',
+      'error',
+    );
+  });
+
+  it('keeps the picked selection when the backend accepts (or queues) the change', async () => {
+    await component.onPickerSelectionChange({ provider: 'codex', model: 'gpt-5.5', reasoning: null });
+
+    expect(component.pickerSelection()).toEqual({
+      provider: 'codex',
+      model: 'gpt-5.5',
+      reasoning: null,
+    });
+    expect(toastStub.show).not.toHaveBeenCalled();
   });
 });
 

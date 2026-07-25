@@ -162,9 +162,9 @@ function localModelInventoryEntryMatchesTarget(
  */
 const CREATE_ENRICHER_DEADLINE_MS = 600;
 
-export type { LifecycleDependencies } from './instance-lifecycle.types';
+export type { LifecycleDependencies, RestartOutcome } from './instance-lifecycle.types';
 
-import type { LifecycleDependencies } from './instance-lifecycle.types';
+import type { LifecycleDependencies, RestartOutcome } from './instance-lifecycle.types';
 export class InstanceLifecycleManager extends EventEmitter {
   private settings = getSettingsManager();
   private outputStorage = getOutputStorageManager();
@@ -418,6 +418,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       terminateInstance: (id, auto) => this.terminateInstance(id, auto),
       hibernateInstance: (id) => this.hibernateInstance(id),
       dispatchRecovery: (instanceId, failure) => this.dispatchRecoveryActions(instanceId, failure),
+      isLifecycleLocked: (id) => getSessionMutex().isLocked(id),
     });
     this.idleMonitor.start();
     this.interruptRespawn = new InterruptRespawnHandler({
@@ -2559,9 +2560,14 @@ export class InstanceLifecycleManager extends EventEmitter {
   // ============================================
 
   /**
-   * Restart an instance
+   * Restart an instance.
+   *
+   * Returns the outcome rather than throwing so existing callers keep their
+   * behaviour, while the IPC layer can report a failed restart to the user.
+   * Recovery failure used to be logged and swallowed, so the renderer saw
+   * `{ success: true }` and the restart button looked inert.
    */
-  async restartInstance(instanceId: string): Promise<void> {
+  async restartInstance(instanceId: string): Promise<RestartOutcome> {
     const pendingInstance = this.deps.getInstance(instanceId);
     const release = await getSessionMutex().acquire(instanceId, 'restart', {
       operation: 'restart',
@@ -2668,7 +2674,8 @@ export class InstanceLifecycleManager extends EventEmitter {
             historyThreadId: instance.historyThreadId,
           }
         );
-        return;
+        this.emitRestartFailureNotice(instance, result.error);
+        return { success: false, error: result.error };
       }
 
       if (instance.status === 'initializing') {
@@ -2694,9 +2701,32 @@ export class InstanceLifecycleManager extends EventEmitter {
           historyThreadId: instance.historyThreadId,
         }
       );
+      return { success: true, method: result.method };
     } finally {
       release();
     }
+  }
+
+  /**
+   * Tell the user, in the conversation they are already looking at, that the
+   * restart failed and the session still needs attention. The `error` status
+   * alone is indistinguishable from the error that prompted the restart.
+   */
+  private emitRestartFailureNotice(instance: Instance, error?: string): void {
+    const notice: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: error
+        ? `Restart failed — the session could not be resumed: ${error}`
+        : 'Restart failed — the session could not be resumed.',
+      metadata: {
+        source: 'restart-failed',
+        restartEpoch: instance.restartEpoch,
+      },
+    };
+    this.deps.addToOutputBuffer(instance, notice);
+    this.emit('output', { instanceId: instance.id, message: notice });
   }
 
   async restartFreshInstance(instanceId: string): Promise<void> {

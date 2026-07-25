@@ -25,6 +25,7 @@ import {
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { applyClaudeHygieneEnv, resolveClaudeFallbackModel } from './claude-env-pack';
+import { nativeSessionIdInUse, nativeTranscriptExists } from './claude-transcript-registry';
 import { parseNdjsonLine } from '../json-parse';
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
@@ -218,31 +219,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     return this.lastRateLimitInfo;
   }
 
-  /**
-   * B7: Claude's `--resume <id>` scans the transcript under the *current cwd's*
-   * lossily-encoded project dir (`~/.claude/projects/<encoded-cwd>/<id>.jsonl`,
-   * every non-alphanumeric char → `-`). Resuming from a different cwd — or for an
-   * id never flushed — fails "No conversation found". Verify up-front so we fall
-   * back to fresh+replay before a doomed spawn. Permissive on uncertainty (no
-   * cwd / FS error) so we never block a legitimate resume.
-   */
-  private nativeTranscriptExists(sessionId: string): boolean {
-    const cwd = this.spawnOptions.workingDirectory;
-    if (!cwd) return true;
-    try {
-      const encoded = cwd.replace(/[^a-zA-Z0-9]/g, '-');
-      return existsSync(join(homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`));
-    } catch {
-      return true;
-    }
-  }
-
   /** Whether the next spawn should use native `--resume` (B7-guarded). */
   private shouldUseNativeResume(): boolean {
     return Boolean(
       this.spawnOptions.resume
       && this.sessionId
-      && this.nativeTranscriptExists(this.sessionId),
+      && nativeTranscriptExists(this.spawnOptions.workingDirectory, this.sessionId),
     );
   }
 
@@ -1095,7 +1077,18 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           cwd: this.spawnOptions.workingDirectory,
         });
       }
-      args.push('--session-id', this.sessionId);
+      // Reusing the id is only safe while the CLI has never minted it. When it
+      // has (a transcript we can't resume from under this cwd), passing it is a
+      // guaranteed exit-1; let the CLI assign a fresh id instead — the adapter
+      // adopts the authoritative one from the init message either way.
+      if (nativeSessionIdInUse(this.sessionId)) {
+        logger.info('Skipping --session-id: id already in use by an unreachable transcript', {
+          sessionId: this.sessionId,
+          cwd: this.spawnOptions.workingDirectory,
+        });
+      } else {
+        args.push('--session-id', this.sessionId);
+      }
     }
 
     if (this.spawnOptions.model) {

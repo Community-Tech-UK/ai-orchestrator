@@ -5529,7 +5529,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3456
+      "lines": 3486
     },
     {
       "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
@@ -5596,12 +5596,12 @@
       "lines": 2474
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2394
-    },
-    {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
       "lines": 2372
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2351
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -5736,16 +5736,16 @@
       "lines": 1517
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
+      "lines": 1513
+    },
+    {
       "path": "src/main/orchestration/orchestration-handler.ts",
       "lines": 1501
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
       "lines": 1498
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
-      "lines": 1485
     },
     {
       "path": "src/main/history/history-manager.ts",
@@ -5856,6 +5856,10 @@
       "lines": 1272
     },
     {
+      "path": "src/main/ipc/handlers/instance-handlers.ts",
+      "lines": 1271
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
       "lines": 1268
     },
@@ -5886,10 +5890,6 @@
     {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
       "lines": 1253
-    },
-    {
-      "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1252
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -5928,6 +5928,10 @@
       "lines": 1231
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 1225
+    },
+    {
       "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
       "lines": 1221
     },
@@ -5938,10 +5942,6 @@
     {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
       "lines": 1214
-    },
-    {
-      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
-      "lines": 1206
     },
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",

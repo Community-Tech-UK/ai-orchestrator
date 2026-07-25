@@ -135,6 +135,121 @@ export function reconcilePrivateCodexRolloutPaths(
   }
 }
 
+export interface RepairPrivateRolloutOptions {
+  privateStatePath?: string;
+  sessionsDir?: string;
+  driverFactory?: SqliteDriverFactory;
+  tempRoots?: readonly string[];
+  fileExists?: (path: string) => boolean;
+}
+
+/**
+ * How long the single-row repair may wait on a locked database. Deliberately
+ * short: it sits in front of a resume, and falling back to the previous
+ * behaviour is far better than delaying the spawn.
+ */
+const REPAIR_BUSY_TIMEOUT_MS = 250;
+
+export type RepairPrivateRolloutResult =
+  | { status: 'repaired'; from: string; to: string }
+  | {
+    status: 'skipped';
+    reason:
+    | 'missing-database'
+    | 'incompatible-schema'
+    | 'unknown-thread'
+    | 'not-a-temp-home-path'
+    | 'destination-missing';
+  }
+  | { status: 'failed'; error: string };
+
+/**
+ * Repair a single thread's `rollout_path` immediately before attempting to
+ * resume it.
+ *
+ * Codex records the rollout path resolved *through* the disposable temp
+ * `CODEX_HOME` it was spawned with. `CodexHomeManager` symlinks `sessions/`
+ * into the persistent AIO store, so the rollout file itself survives, but the
+ * recorded path dies with the temp directory. The startup reconcile
+ * ({@link reconcilePrivateCodexRolloutPaths}) cannot help a session created and
+ * resumed within the same app run, which is every restart — so native resume
+ * failed with "failed to resolve rollout path" and silently degraded to a fresh
+ * thread, losing the conversation.
+ *
+ * Deliberately narrower than the startup reconcile: one row, no whole-database
+ * `VACUUM INTO` backup (this runs on the spawn path), and only ever when the
+ * destination file is confirmed present on disk. Never throws.
+ */
+export function repairPrivateCodexRolloutPath(
+  threadId: string,
+  options: RepairPrivateRolloutOptions = {},
+): RepairPrivateRolloutResult {
+  const privateStatePath = options.privateStatePath ?? join(getAioCodexStateDir(), 'state_5.sqlite');
+  if (!existsSync(privateStatePath)) {
+    return { status: 'skipped', reason: 'missing-database' };
+  }
+
+  const driverFactory = options.driverFactory ?? defaultDriverFactory;
+  let db: SqliteDriver;
+  try {
+    db = driverFactory(privateStatePath);
+  } catch (error) {
+    return { status: 'failed', error: message(error) };
+  }
+
+  try {
+    // This runs on the spawn path, and a live Codex process with its MCP
+    // connected is an active writer on this database. better-sqlite3 waits 5s on
+    // a locked database by default, which would stall the resume; a contended
+    // repair should give up almost immediately and let resume proceed unchanged.
+    try {
+      db.pragma(`busy_timeout = ${REPAIR_BUSY_TIMEOUT_MS}`);
+    } catch {
+      // A driver without busy_timeout support is fine; the repair still works.
+    }
+
+    if (!hasThreadsSchema(db)) {
+      return { status: 'skipped', reason: 'incompatible-schema' };
+    }
+
+    const row = db.prepare('SELECT id, rollout_path FROM threads WHERE id = ?')
+      .get<{ id: string; rollout_path: string }>(threadId);
+    if (!row) {
+      return { status: 'skipped', reason: 'unknown-thread' };
+    }
+
+    const tempRoots = resolveCodexTempRoots(options.tempRoots);
+    if (!isOwnedAioRolloutPath(row.rollout_path, tempRoots)) {
+      return { status: 'skipped', reason: 'not-a-temp-home-path' };
+    }
+
+    const sessionsDir = options.sessionsDir ?? getAioCodexSessionsDir();
+    const dest = persistentRolloutPathFor(row.rollout_path, sessionsDir);
+    const fileExists = options.fileExists ?? existsSync;
+    if (dest === null || !fileExists(dest)) {
+      return { status: 'skipped', reason: 'destination-missing' };
+    }
+
+    runImmediateTransaction(db, () => {
+      db.prepare('UPDATE threads SET rollout_path = ? WHERE id = ?').run(dest, threadId);
+    });
+    logger.info('Repaired Codex rollout path before resume', {
+      threadId,
+      from: row.rollout_path,
+      to: dest,
+    });
+    return { status: 'repaired', from: row.rollout_path, to: dest };
+  } catch (error) {
+    logger.warn('Could not repair Codex rollout path before resume; resume may fall back to a fresh thread', {
+      threadId,
+      error: message(error),
+    });
+    return { status: 'failed', error: message(error) };
+  } finally {
+    db.close();
+  }
+}
+
 function runImmediateTransaction<T>(db: SqliteDriver, operation: () => T): T {
   db.exec('BEGIN IMMEDIATE');
   try {

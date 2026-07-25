@@ -51,7 +51,7 @@ import {
 } from '../cli/adapters/adapter-factory';
 
 import { InstanceStateManager } from './instance-state';
-import { InstanceLifecycleManager } from './instance-lifecycle';
+import { InstanceLifecycleManager, type RestartOutcome } from './instance-lifecycle';
 import { InstanceCommunicationManager } from './instance-communication';
 import { InstanceContextManager } from './instance-context';
 import type { InstanceContextPort } from './instance-context-port';
@@ -1409,7 +1409,7 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
-  async restartInstance(instanceId: string): Promise<void> {
+  async restartInstance(instanceId: string): Promise<RestartOutcome> {
     return this.lifecycle.restartInstance(instanceId);
   }
 

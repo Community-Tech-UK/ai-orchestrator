@@ -134,6 +134,25 @@ export class DesiredRuntimeQueue {
     try {
       await this.deps.applyChange(instanceId, desired);
     } catch (error) {
+      // The status checked above is re-checked by the reconciler *after* it
+      // acquires the session mutex, and another holder (a restart, say) can own
+      // that mutex for seconds. Losing that race is transient, not a failed
+      // swap — re-park the request so the next settle retries it, exactly as
+      // the immediate path does. This cannot spin: a gate rejection performs no
+      // state transition, and `onSettled` only fires from one, so a retry needs
+      // a genuine external transition back into an allowed status.
+      const live = this.deps.getInstance(instanceId);
+      if (live && !isModelSwitchAllowedStatus(live.status)) {
+        live.desiredRuntime = desired;
+        this.deps.publishPendingState(live);
+        logger.info('Deferred runtime change lost the status race; re-queued', {
+          instanceId,
+          status: live.status,
+          desiredRuntime: desired,
+        });
+        return;
+      }
+
       // Unlike the YOLO queue we do NOT retry: a failed swap is usually
       // permanent (target CLI missing), and silent retry loops would respawn
       // repeatedly. Surface it in the transcript instead.
@@ -143,7 +162,6 @@ export class DesiredRuntimeQueue {
         desired,
         error: message,
       });
-      const live = this.deps.getInstance(instanceId);
       if (live) {
         this.deps.notifyApplyFailure(live, {
           id: generateId(),

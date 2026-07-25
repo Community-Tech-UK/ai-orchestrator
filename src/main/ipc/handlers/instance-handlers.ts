@@ -338,7 +338,19 @@ export function registerInstanceHandlers(deps: {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(InstanceRestartPayloadSchema, payload, 'INSTANCE_RESTART');
-        await instanceManager.restartInstance(validated.instanceId);
+        const outcome = await instanceManager.restartInstance(validated.instanceId);
+        if (!outcome.success) {
+          return {
+            success: false,
+            error: {
+              code: 'RESTART_FAILED',
+              message: outcome.error
+                ? `Restart failed — the session could not be resumed: ${outcome.error}`
+                : 'Restart failed — the session could not be resumed.',
+              timestamp: Date.now()
+            }
+          };
+        }
 
         return { success: true };
       } catch (error) {
@@ -378,7 +390,14 @@ export function registerInstanceHandlers(deps: {
           instanceId: validated.instanceId,
           grantedPath: validated.path,
         });
-        await instanceManager.restartInstance(validated.instanceId);
+        const outcome = await instanceManager.restartInstance(validated.instanceId);
+        if (!outcome.success) {
+          throw new Error(
+            outcome.error
+              ? `Writable root granted, but restarting into the rebuilt jail failed: ${outcome.error}`
+              : 'Writable root granted, but restarting into the rebuilt jail failed.',
+          );
+        }
         return { success: true };
       } catch (error) {
         return {

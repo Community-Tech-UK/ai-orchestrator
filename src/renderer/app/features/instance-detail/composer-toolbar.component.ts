@@ -32,6 +32,8 @@ import {
 import { DecimalPipe } from '@angular/common';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { InstanceIpcService } from '../../core/services/ipc';
+import { ToastService } from '../../core/services/toast.service';
+import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type { InstanceProvider, InstanceStatus } from '../../core/state/instance/instance.types';
 import type { DesiredRuntime } from '../../../../shared/types/instance.types';
@@ -204,6 +206,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
 })
 export class ComposerToolbarComponent {
   private readonly ipc = inject(InstanceIpcService);
+  private readonly toast = inject(ToastService);
   /** Tracks which instance the picker was last fully seeded for. */
   private lastSeededInstanceId: string | null = null;
 
@@ -365,12 +368,12 @@ export class ComposerToolbarComponent {
     if (sel.modelRuntimeTarget) {
       // Local-model runtime targets route via modelRuntimeTarget, never via a
       // CLI provider swap.
-      await this.ipc.changeModel(
+      this.settleSelection(sel, await this.ipc.changeModel(
         this.instanceId(),
         sel.modelRuntimeTarget.kind === 'local-model' ? sel.modelRuntimeTarget.modelId : sel.model ?? undefined,
         reasoningEffort,
         sel.modelRuntimeTarget,
-      );
+      ));
       return;
     }
     if (sel.provider === 'local-model') {
@@ -380,12 +383,39 @@ export class ComposerToolbarComponent {
     // Cross-provider swaps pass the target provider; a missing model falls
     // back to the backend's remembered per-provider default.
     if (!sel.model && !sel.provider) return;
-    await this.ipc.changeModel(
+    this.settleSelection(sel, await this.ipc.changeModel(
       this.instanceId(),
       sel.model ?? undefined,
       reasoningEffort,
       undefined,
       sel.provider,
+    ));
+  }
+
+  /**
+   * Reconcile the optimistic picker label with the backend's answer.
+   *
+   * The pick above is applied to `pendingSelection` immediately so the picker
+   * feels responsive, and the re-seed effect deliberately refuses to clobber an
+   * in-flight pick. That combination meant a rejected swap left the picker
+   * claiming the target provider while the session kept running the old one —
+   * silently, since this component talks to IPC directly and never saw the
+   * failure. Roll the label back to backend truth and say what went wrong.
+   *
+   * Only rolls back the pick it was called for: a newer selection made while
+   * this request was in flight owns the picker and settles on its own response.
+   */
+  private settleSelection(sent: PendingSelection, response: IpcResponse): void {
+    if (response.success || this.pendingSelection() !== sent) return;
+    this.pendingSelection.set(deriveComposerPickerSelection(
+      this.provider(),
+      this.currentModel(),
+      this.currentReasoningEffort() ?? null,
+      this.runtimeSummary(),
+    ));
+    this.toast.show(
+      response.error?.message || 'Could not change model. Please try again.',
+      'error',
     );
   }
 

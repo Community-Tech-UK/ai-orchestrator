@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createSqliteWasmDatabase } from '../../../db/sqlite-wasm-driver';
 import type { SqliteDriver } from '../../../db/sqlite-driver';
-import { reconcilePrivateCodexRolloutPaths } from './codex-private-rollout-reconcile';
+import {
+  reconcilePrivateCodexRolloutPaths,
+  repairPrivateCodexRolloutPath,
+} from './codex-private-rollout-reconcile';
 
 describe('reconcilePrivateCodexRolloutPaths', () => {
   const roots: string[] = [];
@@ -255,5 +258,150 @@ describe('reconcilePrivateCodexRolloutPaths', () => {
     expect(source.indexOf('cleanupLeakedAioCodexThreads()')).toBeLessThan(
       source.indexOf('reconcilePrivateCodexRolloutPaths()'),
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // repairPrivateCodexRolloutPath
+  //
+  // The startup reconcile cannot help a session created and resumed in the same
+  // app run — which is every restart. Codex then fails to resolve the rollout
+  // path recorded through the now-deleted temp CODEX_HOME and silently starts a
+  // fresh thread, losing the conversation.
+  // -------------------------------------------------------------------------
+
+  describe('repairPrivateCodexRolloutPath', () => {
+    function setup() {
+      const root = makeRoot();
+      const statePath = join(root, 'state_5.sqlite');
+      const sessionsDir = join(root, 'aio-sessions');
+      const db = createPrivateDatabase(statePath, sessionsDir);
+      return { statePath, sessionsDir, db };
+    }
+
+    it('rewrites the target thread to its persistent path and leaves other rows alone', () => {
+      const { statePath, sessionsDir, db } = setup();
+
+      const result = repairPrivateCodexRolloutPath('stale-present', {
+        privateStatePath: statePath,
+        sessionsDir,
+        tempRoots,
+        fileExists: presentOnly,
+        driverFactory: () => db,
+      });
+
+      expect(result).toMatchObject({
+        status: 'repaired',
+        to: join(sessionsDir, '2026', '07', '10', 'rollout-present.jsonl'),
+      });
+      expect(db.prepare('SELECT rollout_path FROM threads WHERE id = ?').get('stale-present')).toEqual({
+        rollout_path: join(sessionsDir, '2026', '07', '10', 'rollout-present.jsonl'),
+      });
+      // A sibling stale row is untouched — this is a single-thread repair.
+      expect(db.prepare('SELECT rollout_path FROM threads WHERE id = ?').get('stale-missing')).toEqual({
+        rollout_path: '/tmp/codex-browser-mcp-xyz/sessions/2026/07/11/rollout-missing.jsonl',
+      });
+    });
+
+    it('is idempotent — a repaired row no longer matches the temp-home predicate', () => {
+      const { statePath, sessionsDir, db } = setup();
+      const options = {
+        privateStatePath: statePath,
+        sessionsDir,
+        tempRoots,
+        fileExists: presentOnly,
+        driverFactory: () => db,
+      };
+
+      expect(repairPrivateCodexRolloutPath('stale-present', options).status).toBe('repaired');
+      expect(repairPrivateCodexRolloutPath('stale-present', options)).toEqual({
+        status: 'skipped',
+        reason: 'not-a-temp-home-path',
+      });
+    });
+
+    it('never rewrites a row whose destination file is absent', () => {
+      const { statePath, sessionsDir, db } = setup();
+
+      const result = repairPrivateCodexRolloutPath('stale-missing', {
+        privateStatePath: statePath,
+        sessionsDir,
+        tempRoots,
+        fileExists: presentOnly,
+        driverFactory: () => db,
+      });
+
+      expect(result).toEqual({ status: 'skipped', reason: 'destination-missing' });
+      expect(db.prepare('SELECT rollout_path FROM threads WHERE id = ?').get('stale-missing')).toEqual({
+        rollout_path: '/tmp/codex-browser-mcp-xyz/sessions/2026/07/11/rollout-missing.jsonl',
+      });
+    });
+
+    it('leaves a legitimate non-temp rollout path untouched', () => {
+      const { statePath, sessionsDir, db } = setup();
+
+      const result = repairPrivateCodexRolloutPath('legit', {
+        privateStatePath: statePath,
+        sessionsDir,
+        tempRoots,
+        fileExists: () => true,
+        driverFactory: () => db,
+      });
+
+      expect(result).toEqual({ status: 'skipped', reason: 'not-a-temp-home-path' });
+      expect(db.prepare('SELECT rollout_path FROM threads WHERE id = ?').get('legit')).toEqual({
+        rollout_path: '/Users/example/.codex/sessions/rollout-legit.jsonl',
+      });
+    });
+
+    it('skips an unknown thread id', () => {
+      const { statePath, sessionsDir, db } = setup();
+
+      expect(
+        repairPrivateCodexRolloutPath('no-such-thread', {
+          privateStatePath: statePath,
+          sessionsDir,
+          tempRoots,
+          fileExists: () => true,
+          driverFactory: () => db,
+        }),
+      ).toEqual({ status: 'skipped', reason: 'unknown-thread' });
+    });
+
+    it('skips when the private database does not exist', () => {
+      expect(
+        repairPrivateCodexRolloutPath('anything', {
+          privateStatePath: join(makeRoot(), 'absent.sqlite'),
+        }),
+      ).toEqual({ status: 'skipped', reason: 'missing-database' });
+    });
+
+    it('reports failure instead of throwing when the rewrite fails', () => {
+      const { statePath, sessionsDir, db } = setup();
+      const original = db.prepare.bind(db);
+      db.prepare = ((sql: string) => {
+        if (sql.startsWith('UPDATE')) throw new Error('database is locked');
+        return original(sql);
+      }) as typeof db.prepare;
+
+      const result = repairPrivateCodexRolloutPath('stale-present', {
+        privateStatePath: statePath,
+        sessionsDir,
+        tempRoots,
+        fileExists: presentOnly,
+        driverFactory: () => db,
+      });
+
+      expect(result).toMatchObject({ status: 'failed' });
+      db.prepare = original;
+    });
+
+    it('is invoked before the Codex app-server resume attempt', () => {
+      const source = readFileSync(join(__dirname, 'app-server-initializer.ts'), 'utf-8');
+
+      expect(source).toContain('repairPrivateCodexRolloutPath');
+      expect(source.indexOf('repairPrivateCodexRolloutPath(')).toBeLessThan(
+        source.indexOf('await resumeThreadWithRetry('),
+      );
+    });
   });
 });

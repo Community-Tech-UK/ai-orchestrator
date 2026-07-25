@@ -19,6 +19,17 @@ import type {
 } from '../mcp/mcp-runtime-tool-context';
 
 /**
+ * Result of a restart attempt. Restart resolves with this instead of throwing,
+ * so callers that only care about "it was attempted" are unaffected while the
+ * IPC layer can surface a failed resume to the user.
+ */
+export interface RestartOutcome {
+  success: boolean;
+  method?: 'native-resume' | 'replay-fallback';
+  error?: string;
+}
+
+/**
  * Dependencies required by the lifecycle manager
  */
 export interface LifecycleDependencies {

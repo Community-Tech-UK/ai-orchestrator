@@ -1336,6 +1336,34 @@ describe('InstanceManager', () => {
       );
     });
 
+    it('swaps provider immediately from an errored session', async () => {
+      // The reported failure: a Codex session died on a 503 and sat in `error`.
+      // Picking Claude only ever parked a desiredRuntime, because `error` was
+      // outside the status gate and the sole route out of `error` is a
+      // successful restart of the provider that was already failing.
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      manager.updateInstanceStatus(instance.id, 'ready');
+      manager.updateInstanceStatus(instance.id, 'error');
+      mockCreateCliAdapter.mockClear();
+
+      const swapped = await manager.requestModelChange(instance.id, {
+        provider: 'codex',
+        model: 'gpt-5.5',
+      });
+
+      expect(swapped.desiredRuntime).toBeUndefined();
+      expect(swapped.provider).toBe('codex');
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'codex',
+        expect.objectContaining({ model: 'gpt-5.5' }),
+        expect.anything(),
+      );
+    });
+
     it('cancels a queued change when the live config is re-selected', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

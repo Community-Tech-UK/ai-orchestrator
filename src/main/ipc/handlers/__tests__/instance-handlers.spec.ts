@@ -729,12 +729,31 @@ describe('instance-handlers', () => {
 
   describe('INSTANCE_RESTART', () => {
     it('restarts instance on valid payload', async () => {
-      vi.mocked(mockInstanceManager.restartInstance).mockResolvedValue(undefined);
+      vi.mocked(mockInstanceManager.restartInstance).mockResolvedValue({
+        success: true,
+        method: 'native-resume',
+      });
 
       const result = await invoke(IPC_CHANNELS.INSTANCE_RESTART, { instanceId: 'inst-33' });
 
       expect(result.success).toBe(true);
       expect(mockInstanceManager.restartInstance).toHaveBeenCalledWith('inst-33');
+    });
+
+    it('reports a failed resume instead of answering success', async () => {
+      // Regression: restartInstance resolves (it does not throw) when session
+      // recovery fails, so the handler used to answer `{ success: true }` and
+      // the restart button looked inert while the session stayed in `error`.
+      vi.mocked(mockInstanceManager.restartInstance).mockResolvedValue({
+        success: false,
+        error: 'Codex app-server runtime closed',
+      });
+
+      const result = await invoke(IPC_CHANNELS.INSTANCE_RESTART, { instanceId: 'inst-33' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('RESTART_FAILED');
+      expect(result.error?.message).toContain('Codex app-server runtime closed');
     });
 
     it('returns structured error when restart fails', async () => {

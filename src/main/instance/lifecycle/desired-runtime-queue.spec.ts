@@ -172,7 +172,7 @@ describe('planContinuity', () => {
 describe('DesiredRuntimeQueue', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it.each(['idle', 'ready', 'waiting_for_input'] as const)(
+  it.each(['idle', 'ready', 'waiting_for_input', 'error'] as const)(
     'applies immediately from %s',
     async (status) => {
       const h = makeHarness(makeInstance(status));
@@ -266,6 +266,42 @@ describe('DesiredRuntimeQueue', () => {
         content: expect.stringContaining('Codex CLI is not installed'),
       }),
     );
+  });
+
+  it('re-queues a deferred apply that lost the status race under the session mutex', async () => {
+    // Regression: a queued swap fired on a settled transition, then blocked on
+    // the session mutex behind a restart. By the time the reconciler ran, the
+    // instance had left the allowed set, so its status gate threw — and the
+    // queue dropped the user's swap for good with a misleading transcript note.
+    const instance = makeInstance('busy');
+    const h = makeHarness(instance, async () => {
+      instance.status = 'respawning';
+      throw new Error('Model changes are only available while the instance is waiting for user input.');
+    });
+    await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
+
+    instance.status = 'idle';
+    h.queue.onSettled(instance);
+    await flushMacrotasks();
+
+    expect(instance.desiredRuntime).toEqual({ provider: 'codex', model: 'gpt-5.5' });
+    expect(h.notifyApplyFailure).not.toHaveBeenCalled();
+  });
+
+  it('applies a queued change once the instance settles into error (dead provider)', async () => {
+    // The escape hatch from a provider that is 503ing: `error` is settled, so
+    // the swap must actually run rather than park forever waiting for an idle
+    // that only a successful restart of the failing provider could produce.
+    const instance = makeInstance('busy');
+    const h = makeHarness(instance);
+    await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
+
+    instance.status = 'error';
+    h.queue.onSettled(instance);
+    await flushMacrotasks();
+
+    expect(h.applyChange).toHaveBeenCalledWith('inst-1', { provider: 'codex', model: 'gpt-5.5' });
+    expect(instance.desiredRuntime).toBeUndefined();
   });
 
   it('queues when a settled apply loses the race to a new turn', async () => {

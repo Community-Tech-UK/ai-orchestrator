@@ -3,6 +3,7 @@ import type { CodexCliConfig } from '../codex-adapter-config';
 import type { ResumeCursor } from '../../../session/session-continuity';
 import { getLogger } from '../../../logging/logger';
 import type { AppServerClient } from './app-server-client';
+import { repairPrivateCodexRolloutPath } from './codex-private-rollout-reconcile';
 import { isRecoverableThreadResumeError } from './exec-error-classifier';
 import { resumeThreadWithRetry } from './thread-resume-retry';
 import { startThreadWithRetry } from './thread-start-retry';
@@ -86,6 +87,11 @@ export async function initializeCodexAppServer(
 
   try {
     if (shouldResume && requestedResumeSessionId) {
+      // The thread's recorded rollout path may still point at the disposable
+      // temp CODEX_HOME of the spawn that created it. That directory is gone,
+      // so resume would fail to resolve the rollout and silently start a fresh
+      // thread even though the rollout file is safe in the persistent store.
+      repairPrivateCodexRolloutPath(requestedResumeSessionId);
       try {
         const resumeResult = await resumeThreadWithRetry(client, {
           threadId: requestedResumeSessionId,

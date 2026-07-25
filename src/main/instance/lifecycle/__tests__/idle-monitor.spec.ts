@@ -264,6 +264,99 @@ describe('IdleMonitor', () => {
     expect(terminateInstance).not.toHaveBeenCalled();
   });
 
+  // ---------------------------------------------------------------------------
+  // cleanupZombieProcesses in-flight lifecycle guard
+  //
+  // Regression: the reaper fired 1s into a restart that held the session lock,
+  // force-killing the app-server the restart had just spawned. The in-flight
+  // replay send then rejected with "Codex app-server runtime closed", the
+  // restart reported failure, and the session was parked in `error`.
+  // ---------------------------------------------------------------------------
+
+  function makeZombieMonitor(opts: {
+    status: string;
+    locked: boolean;
+    processId?: number | null;
+    hasAdapter?: boolean;
+  }) {
+    const instance = {
+      id: 'inst-1',
+      status: opts.status,
+      processId: opts.processId ?? null,
+    } as unknown as Instance;
+    const adapter = { isRunning: () => true, terminate: vi.fn(async () => undefined) };
+    const hasAdapter = opts.hasAdapter ?? true;
+    const deleteAdapter = vi.fn();
+    const transitionState = vi.fn();
+
+    const monitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 0 }),
+      getRecoveryEngine: () => ({} as unknown as RecoveryRecipeEngine),
+      getActivityDetectors: () => new Map(),
+      getInstance: () => instance,
+      forEachInstance: vi.fn((cb: (i: Instance, id: string) => void) => cb(instance, instance.id)),
+      getAdapter: () => (hasAdapter ? (adapter as never) : undefined),
+      queueUpdate: vi.fn(),
+      deleteAdapter,
+      transitionState,
+      terminateInstance: vi.fn(async () => undefined),
+      hibernateInstance: vi.fn(async () => undefined),
+      dispatchRecovery: vi.fn(async () => undefined),
+      isLifecycleLocked: () => opts.locked,
+    });
+
+    return { monitor, adapter, deleteAdapter, transitionState, instance };
+  }
+
+  it('does NOT reap a running adapter while a lifecycle operation holds the session lock', async () => {
+    const { monitor, adapter, deleteAdapter } = makeZombieMonitor({ status: 'error', locked: true });
+
+    monitor.cleanupZombieProcesses();
+    await flushAsyncWork();
+
+    expect(adapter.terminate).not.toHaveBeenCalled();
+    expect(deleteAdapter).not.toHaveBeenCalled();
+  });
+
+  it('still reaps a running adapter of an errored instance once no lock is held', async () => {
+    const { monitor, adapter, deleteAdapter } = makeZombieMonitor({ status: 'error', locked: false });
+
+    monitor.cleanupZombieProcesses();
+    await flushAsyncWork();
+
+    expect(adapter.terminate).toHaveBeenCalledWith(false);
+    expect(deleteAdapter).toHaveBeenCalledWith('inst-1');
+  });
+
+  it('does NOT force an initializing instance to error mid-restart when the lock is held', () => {
+    // Restart clears processId and spawns a replacement, so the PID-without-adapter
+    // pass would otherwise flip a healthy in-flight restart to `error`.
+    const { monitor, transitionState } = makeZombieMonitor({
+      status: 'initializing',
+      locked: true,
+      processId: 4321,
+      hasAdapter: false,
+    });
+
+    monitor.cleanupZombieProcesses();
+
+    expect(transitionState).not.toHaveBeenCalled();
+  });
+
+  it('still clears a stale PID and errors an initializing instance when no lock is held', () => {
+    const { monitor, transitionState, instance } = makeZombieMonitor({
+      status: 'initializing',
+      locked: false,
+      processId: 4321,
+      hasAdapter: false,
+    });
+
+    monitor.cleanupZombieProcesses();
+
+    expect(instance.processId).toBeNull();
+    expect(transitionState).toHaveBeenCalledWith(instance, 'error');
+  });
+
   it('terminateIdleHalf still reclaims genuinely stale children, oldest first', () => {
     const { monitor, terminateInstance } = makeIdleHalfMonitor([
       { id: 'recent', idleForMs: 1_000 },

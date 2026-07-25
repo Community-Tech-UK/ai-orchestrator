@@ -29,6 +29,7 @@ import type { ErrorInfo } from '../../../shared/types/ipc.types';
 import { createDetectedFailure, type DetectedFailure } from '../../../shared/types/error-recovery.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
+import { getSessionMutex } from '../../session/session-mutex';
 
 const logger = getLogger('IdleMonitor');
 
@@ -97,6 +98,13 @@ export interface IdleMonitorDeps {
   terminateInstance: (id: string, graceful: boolean) => Promise<void>;
   hibernateInstance: (id: string) => Promise<void>;
   dispatchRecovery: (instanceId: string, failure: DetectedFailure) => Promise<void>;
+
+  /**
+   * Whether a lifecycle operation (restart, recovery respawn, runtime change,
+   * auto-save) currently holds this instance's session lock. Defaults to the
+   * real SessionMutex; injectable so specs can drive the guard deterministically.
+   */
+  isLifecycleLocked?: (id: string) => boolean;
 }
 
 export class IdleMonitor {
@@ -105,6 +113,10 @@ export class IdleMonitor {
   private readonly remoteStaleSurfaced = new Set<string>();
 
   constructor(private readonly deps: IdleMonitorDeps) {}
+
+  private isLifecycleLocked(instanceId: string): boolean {
+    return (this.deps.isLifecycleLocked ?? ((id: string) => getSessionMutex().isLocked(id)))(instanceId);
+  }
 
   /**
    * D4: detect a connected-but-wedged remote worker. Local process liveness
@@ -383,11 +395,28 @@ export class IdleMonitor {
    *      Also clear `instance.processId` if it claims a PID but no adapter is registered,
    *      and transition busy/initializing → error to avoid stuck states.
    *   2. Force-cleanup the zombie adapters identified in pass 1.
+   *
+   * Instances holding their session lock are skipped entirely. A held lock means
+   * a lifecycle operation owns the adapter right now, and mid-operation an
+   * instance legitimately looks like a zombie: restart clears `processId`,
+   * spawns a replacement, and can pass through `error` while a failed send is
+   * classified. Reaping there kills the adapter the operation just built — it
+   * turned a recoverable restart into "Codex app-server runtime closed" and
+   * parked the session in `error` with no user-visible reason. A genuinely
+   * orphaned adapter is still caught on the next tick, once the lock is free.
    */
   cleanupZombieProcesses(): void {
     const adapterEntriesToCleanup: string[] = [];
 
     this.deps.forEachInstance((instance, instanceId) => {
+      if (this.isLifecycleLocked(instanceId)) {
+        logger.debug('Skipping zombie scan; a lifecycle operation holds the session lock', {
+          instanceId,
+          status: instance.status,
+        });
+        return;
+      }
+
       const adapter = this.deps.getAdapter(instanceId);
 
       if (adapter && (instance.status === 'error' || instance.status === 'terminated')) {
