@@ -34,9 +34,32 @@ export function statusLabel(status: string): string {
 
 const LOOP_STATUS_COLOR = '#a78bfa';
 
+const ACTIVE_SESSION_STATUSES = new Set<string>([
+  'initializing',
+  'ready',
+  'idle',
+  'busy',
+  'processing',
+  'thinking_deeply',
+  'waiting_for_input',
+  'waiting_for_permission',
+  'interrupting',
+  'cancelling',
+  'interrupt-escalating',
+  'respawning',
+  'hibernating',
+  'waking',
+  'degraded',
+]);
+
 interface SessionStatusView {
   status?: string;
   isLooping?: boolean;
+}
+
+/** Matches the desktop project rail's broad live/current "Active" filter. */
+export function isActiveSessionStatus(status: string): boolean {
+  return ACTIVE_SESSION_STATUSES.has(status);
 }
 
 export function needsAttention(status: string): boolean {

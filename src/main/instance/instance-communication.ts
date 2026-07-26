@@ -150,6 +150,55 @@ export class InstanceCommunicationManager extends EventEmitter {
     return typeof turnId === 'string' ? turnId : undefined;
   }
 
+  private reconcileCompletedCodexContent(
+    instance: Instance,
+    response: CliResponse,
+    adapterGeneration: number,
+  ): void {
+    const canonicalContent = response.content;
+    if (!canonicalContent?.trim()) {
+      return;
+    }
+
+    for (let index = instance.outputBuffer.length - 1; index >= 0; index--) {
+      const candidate = instance.outputBuffer[index];
+      if (
+        candidate.type !== 'assistant'
+        || candidate.metadata?.['adapterGeneration'] !== adapterGeneration
+        || typeof candidate.metadata?.['streaming'] !== 'boolean'
+      ) {
+        continue;
+      }
+
+      const visibleContent = candidate.content ?? '';
+      if (
+        !visibleContent.trim()
+        || canonicalContent.length <= visibleContent.length
+        || !canonicalContent.startsWith(visibleContent)
+      ) {
+        return;
+      }
+
+      logger.warn('Repairing truncated Codex output from canonical completion', {
+        instanceId: instance.id,
+        messageId: candidate.id,
+        visibleLength: visibleContent.length,
+        canonicalLength: canonicalContent.length,
+      });
+      this.addToOutputBuffer(instance, {
+        ...candidate,
+        content: canonicalContent,
+        metadata: {
+          ...candidate.metadata,
+          streaming: false,
+          accumulatedContent: canonicalContent,
+          completionReconciled: true,
+        },
+      });
+      return;
+    }
+  }
+
   /**
    * §3.2: Surface a definitive invalid/expired session as a TYPED system notice
    * (carried in `metadata.notice`) instead of leaving the raw provider error
@@ -1600,6 +1649,9 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (this.deps.drainContextEvidence) {
         await this.deps.drainContextEvidence(instanceId);
       }
+      if (isStaleAdapterEvent('complete')) {
+        return;
+      }
       const providerLimitSignal = detectCompletionProviderLimit(
         response,
         readAdapterRateLimitTelemetry(adapter),
@@ -1615,10 +1667,17 @@ export class InstanceCommunicationManager extends EventEmitter {
           contentLength: response.content?.length ?? 0,
         });
       }
+      const completedInstance = this.deps.getInstance(instanceId);
+      if (completedInstance?.provider === 'codex') {
+        this.reconcileCompletedCodexContent(
+          completedInstance,
+          response,
+          adapterGenerationAtSubscribe,
+        );
+      }
       emitProviderRuntimeEvent(this.toProviderCompleteEvent(response), {
         raw: { source: 'adapter-event:complete', payload: toJsonSafeProviderEventPayload(response) },
       });
-      const completedInstance = this.deps.getInstance(instanceId);
       if (completedInstance) {
         this.recordCompletionCost(instanceId, completedInstance, response);
         this.recordEstimationTelemetry(completedInstance, response);

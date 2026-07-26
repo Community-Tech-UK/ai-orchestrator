@@ -12,6 +12,12 @@ import {
 } from '../../shared/validation/remote-fs-schemas';
 import { FileAttachmentSchema } from '@contracts/schemas/common';
 import { BrowserAttachExistingTabRequestSchema } from '@contracts/schemas/browser';
+import {
+  LocalAiDiagnosticReportSchema,
+  LocalAiProbeResultSchema,
+  LocalAiRepairActionSchema,
+  LocalAiRepairResultSchema,
+} from '../../shared/validation/local-ai-guard.schemas';
 
 export { FsReadFileParamsSchema, FsWriteFileParamsSchema };
 
@@ -20,6 +26,10 @@ export const WORKER_NODE_WS_MAX_PAYLOAD_BYTES = BROWSER_CDP_MAX_FRAME_BYTES + 16
 export const WORKER_NODE_WS_BACKPRESSURE_BYTES = 32 * 1024 * 1024;
 const ProviderModelIdSchema = z.string().max(512);
 const LocalModelEndpointProviderSchema = z.enum(['ollama', 'openai-compatible']);
+const LocalAiEndpointIdSchema = z.string().trim().min(1).max(128);
+const LocalAiModelIdSchema = z.string().trim().min(1).max(256);
+export const LOCAL_AI_HEALTH_MAX_TIMEOUT_MS = 120_000;
+export const LOCAL_AI_HEALTH_MAX_LATENCY_THRESHOLD_MS = 300_000;
 
 // -- Shared sub-schemas -------------------------------------------------------
 
@@ -433,6 +443,106 @@ export const AudioTranscribeParamsSchema = z.discriminatedUnion('provider', [
   }),
 ]);
 
+const LocalAiExpectedModelRpcSchema = z.object({
+  modelId: LocalAiModelIdSchema,
+  required: z.boolean(),
+  minContextLength: z.number().int().positive().max(10_000_000).optional(),
+}).strict();
+
+const LocalAiCanaryContractSchema = z.object({
+  contract: z.literal('exact-token-v1'),
+  model: LocalAiModelIdSchema,
+}).strict();
+
+const localAiHealthBaseFields = {
+  provider: LocalModelEndpointProviderSchema,
+  endpointId: LocalAiEndpointIdSchema,
+  expectedModels: z.array(LocalAiExpectedModelRpcSchema).min(1).max(100),
+  canary: LocalAiCanaryContractSchema,
+  latencyThresholdMs: z.number().int().positive().max(LOCAL_AI_HEALTH_MAX_LATENCY_THRESHOLD_MS),
+  timeoutMs: z.number().int().positive().max(LOCAL_AI_HEALTH_MAX_TIMEOUT_MS),
+} as const;
+
+function validateLocalAiHealthTarget(
+  value: {
+    provider: 'ollama' | 'openai-compatible';
+    endpointId: string;
+    expectedModels: Array<{ modelId: string }>;
+    canary: { model: string };
+  },
+  context: z.RefinementCtx,
+): void {
+  const expectedEndpointId = value.provider === 'ollama' ? 'ollama' : 'openai-compatible';
+  if (value.endpointId !== expectedEndpointId) {
+    context.addIssue({
+      code: 'custom',
+      path: ['endpointId'],
+      message: `Endpoint ID must match the worker-local ${value.provider} endpoint`,
+    });
+  }
+  if (!value.expectedModels.some((expected) => expected.modelId === value.canary.model)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['canary', 'model'],
+      message: 'Canary model must be present in expectedModels',
+    });
+  }
+  if (new Set(value.expectedModels.map((expected) => expected.modelId)).size !== value.expectedModels.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['expectedModels'],
+      message: 'Expected models must be unique',
+    });
+  }
+}
+
+export const LocalAiHealthCheckParamsSchema = z.object({
+  ...localAiHealthBaseFields,
+  kind: z.enum(['lightweight', 'functional']),
+}).strict().superRefine(validateLocalAiHealthTarget);
+
+export const LocalAiHealthDiagnoseParamsSchema = z.object({
+  ...localAiHealthBaseFields,
+}).strict().superRefine(validateLocalAiHealthTarget);
+
+export const LocalAiHealthRepairParamsSchema = z.object({
+  provider: LocalModelEndpointProviderSchema,
+  endpointId: LocalAiEndpointIdSchema,
+  action: LocalAiRepairActionSchema,
+}).strict().superRefine((value, context) => {
+  const expectedEndpointId = value.provider === 'ollama' ? 'ollama' : 'openai-compatible';
+  if (value.endpointId !== expectedEndpointId) {
+    context.addIssue({
+      code: 'custom',
+      path: ['endpointId'],
+      message: `Endpoint ID must match the worker-local ${value.provider} endpoint`,
+    });
+  }
+});
+
+const LocalAiHealthMetadataProbeResultSchema = LocalAiProbeResultSchema
+  .superRefine((sample, context) => {
+    if (!['endpoint', 'model', 'inference'].includes(sample.layer)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['layer'],
+        message: 'Worker Local AI checks may return endpoint, model, and inference metadata only',
+      });
+    }
+  });
+
+export const LocalAiHealthCheckResultSchema = z.array(LocalAiHealthMetadataProbeResultSchema)
+  .min(1)
+  .max(3);
+
+export const LocalAiHealthDiagnoseResultSchema = LocalAiDiagnosticReportSchema
+  .safeExtend({
+    samples: z.array(LocalAiHealthMetadataProbeResultSchema).min(1).max(3),
+    recommendedActions: z.array(LocalAiRepairActionSchema).max(5),
+  });
+
+export const LocalAiHealthRepairResultSchema = LocalAiRepairResultSchema;
+
 export const LocalModelSessionStartParamsSchema = z.object({
   sessionId: z.string().min(1).max(200),
   endpointProvider: LocalModelEndpointProviderSchema,
@@ -535,6 +645,9 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'auxiliaryModel.list': AuxiliaryModelListParamsSchema,
   'auxiliaryModel.generate': AuxiliaryModelGenerateParamsSchema,
   'audio.transcribe': AudioTranscribeParamsSchema,
+  'localAi.health.check': LocalAiHealthCheckParamsSchema,
+  'localAi.health.diagnose': LocalAiHealthDiagnoseParamsSchema,
+  'localAi.health.repair': LocalAiHealthRepairParamsSchema,
 };
 
 /**

@@ -38,11 +38,11 @@
     </div>
     <div class="stat-card">
       <span class="stat-label">Storage Used</span>
-      <span class="stat-value">{{ formatBytes(stats()?.storageUsedBytes) }}</span>
+      <span class="stat-value">{{ formatBytes($safeNavigationMigration(stats()?.storageUsedBytes)) }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-label">Oldest Snapshot</span>
-      <span class="stat-value">{{ formatDate(stats()?.oldestSnapshot) }}</span>
+      <span class="stat-value">{{ formatDate($safeNavigationMigration(stats()?.oldestSnapshot)) }}</span>
     </div>
   </div>
 

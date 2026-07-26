@@ -1019,6 +1019,39 @@ describe('WorkerAgent', () => {
     });
   });
 
+  it('rejects Local AI health RPC without service scope before probing a local endpoint', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await (agent as unknown as {
+        handleRpcRequest: (msg: unknown) => Promise<void>;
+      }).handleRpcRequest({
+        jsonrpc: '2.0',
+        id: 51,
+        method: 'localAi.health.check',
+        params: {
+          provider: 'ollama',
+          endpointId: 'ollama',
+          expectedModels: [{ modelId: 'qwen3:8b', required: true }],
+          kind: 'lightweight',
+          canary: { contract: 'exact-token-v1', model: 'qwen3:8b' },
+          latencyThresholdMs: 2_000,
+          timeoutMs: 1_000,
+        },
+      });
+
+      const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+      expect(payload.error).toMatchObject({
+        code: -32000,
+        message: expect.stringContaining('requires scope=service'),
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('handles auxiliaryModel.generate for an openai-compatible (LM Studio) endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

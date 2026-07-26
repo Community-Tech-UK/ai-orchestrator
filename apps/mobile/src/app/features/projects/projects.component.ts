@@ -31,9 +31,20 @@ import {
   toggleExpandedProjectKey,
   type NavigationTarget,
   type ProjectListGroup,
+  type SessionStateFilter,
 } from './project-list.view-model';
 
 type OrganizeMode = 'project' | 'chronological';
+
+export function projectsEmptyStateTitle(
+  stateFilter: SessionStateFilter,
+  query: string,
+  mode: OrganizeMode = 'project',
+): string {
+  if (stateFilter === 'active') return 'No active sessions';
+  if (query.trim()) return 'No matching sessions';
+  return mode === 'project' ? 'No projects yet' : 'No sessions yet';
+}
 
 @Component({
   standalone: true,
@@ -123,7 +134,29 @@ type OrganizeMode = 'project' | 'chronological';
         </aside>
       }
 
-      <h1 class="projects-title">{{ mode() === 'project' ? 'Projects' : 'Sessions' }}</h1>
+      <div class="projects-heading">
+        <h1 class="projects-title">{{ mode() === 'project' ? 'Projects' : 'Sessions' }}</h1>
+        <div class="projects-state-filter" role="group" aria-label="Filter sessions by state">
+          <button
+            type="button"
+            class="projects-state-filter__button"
+            [class.projects-state-filter__button--active]="stateFilter() === 'all'"
+            [attr.aria-pressed]="stateFilter() === 'all'"
+            (click)="setStateFilter('all')"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            class="projects-state-filter__button"
+            [class.projects-state-filter__button--active]="stateFilter() === 'active'"
+            [attr.aria-pressed]="stateFilter() === 'active'"
+            (click)="setStateFilter('active')"
+          >
+            Active
+          </button>
+        </div>
+      </div>
 
       @if (!online() && renderedGroups().length === 0) {
         <div class="mobile-empty-state projects-empty">
@@ -189,8 +222,16 @@ type OrganizeMode = 'project' | 'chronological';
             } @empty {
               <div class="mobile-empty-state projects-empty">
                 <app-mobile-icon name="folder" />
-                <h2>{{ searchQuery().trim() ? 'No matching sessions' : 'No projects yet' }}</h2>
-                <p>{{ searchQuery().trim() ? 'Try a project, session, provider, or model name.' : 'Start a session to add work from this host.' }}</p>
+                <h2>{{ projectsEmptyStateTitle(stateFilter(), searchQuery(), mode()) }}</h2>
+                <p>
+                  @if (stateFilter() === 'active') {
+                    Switch to All to see past and inactive sessions.
+                  } @else if (searchQuery().trim()) {
+                    Try a project, session, provider, or model name.
+                  } @else {
+                    Start a session to add work from this host.
+                  }
+                </p>
               </div>
             }
           </div>
@@ -201,7 +242,10 @@ type OrganizeMode = 'project' | 'chronological';
             } @empty {
               <div class="mobile-empty-state projects-empty">
                 <app-mobile-icon name="history" />
-                <h2>No sessions yet</h2>
+                <h2>{{ projectsEmptyStateTitle(stateFilter(), searchQuery(), mode()) }}</h2>
+                @if (stateFilter() === 'active') {
+                  <p>Switch to All to see past and inactive sessions.</p>
+                }
               </div>
             }
           </div>
@@ -242,6 +286,7 @@ export class ProjectsComponent implements OnInit {
   protected readonly state = this.gateway.state;
   protected readonly online = this.gateway.online;
   protected readonly mode = signal<OrganizeMode>('project');
+  protected readonly stateFilter = signal<SessionStateFilter>('all');
   protected readonly menuOpen = signal(false);
   protected readonly searchQuery = signal('');
   protected readonly recentDirs = signal<MobileRecentDirDto[]>([]);
@@ -261,12 +306,10 @@ export class ProjectsComponent implements OnInit {
     ),
   );
   protected readonly visibleGroups = computed(() =>
-    filterProjectGroups(this.renderedGroups(), this.searchQuery()),
+    filterProjectGroups(this.renderedGroups(), this.searchQuery(), this.stateFilter()),
   );
   protected readonly chronologicalRows = computed(() =>
-    flattenChronologicalSessions(
-      filterProjectGroups(this.renderedGroups(), this.searchQuery()),
-    ),
+    flattenChronologicalSessions(this.visibleGroups()),
   );
   protected readonly promptCount = computed(() => this.gateway.prompts().length);
   protected readonly paused = computed(() => this.gateway.pause().isPaused);
@@ -280,6 +323,7 @@ export class ProjectsComponent implements OnInit {
     this.online() ? 'var(--accent-online)' : 'var(--text-secondary)',
   );
   protected readonly projectComposeAriaLabel = projectComposeAriaLabel;
+  protected readonly projectsEmptyStateTitle = projectsEmptyStateTitle;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -349,6 +393,10 @@ export class ProjectsComponent implements OnInit {
 
   protected updateSearch(event: Event): void {
     this.searchQuery.set((event.target as HTMLInputElement).value);
+  }
+
+  protected setStateFilter(filter: SessionStateFilter): void {
+    this.stateFilter.set(filter);
   }
 
   protected setMode(mode: OrganizeMode): void {

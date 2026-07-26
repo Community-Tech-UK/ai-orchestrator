@@ -26,6 +26,9 @@ interface BrowserExtensionBackgroundHarness {
   }) => Promise<void>;
   reportTabInventory: () => Promise<void>;
   selfHealIfWedged: () => Promise<void>;
+  startControlledTab: (tabId: number) => Promise<unknown>;
+  stopControlledTab: (tabId: number, token?: unknown) => Promise<void>;
+  tabState: (tabId: number) => ReturnType<typeof makeWebTab> | undefined;
   sendMessage: (message: unknown) => Promise<unknown>;
   tabDebuggerChains: Map<number, Promise<void>>;
   chrome: BrowserExtensionChromeHarness;
@@ -59,7 +62,17 @@ interface BrowserExtensionChromeHarness {
       set: ReturnType<typeof vi.fn>;
     };
   };
+  scripting: {
+    executeScript: ReturnType<typeof vi.fn>;
+  };
   tabs: {
+    get: ReturnType<typeof vi.fn>;
+    group: ReturnType<typeof vi.fn>;
+    query: ReturnType<typeof vi.fn>;
+    ungroup: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+  };
+  tabGroups: {
     get: ReturnType<typeof vi.fn>;
     query: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -220,6 +233,262 @@ describe('browser extension assets', () => {
     await harness.forceReleaseCommandResources({ target: { tabId: 42 } });
 
     expect(harness.tabDebuggerChains.has(42)).toBe(false);
+  });
+
+  it('reuses an existing Harness group and ungroups the tab after control ends', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+
+    const token = await harness.startControlledTab(42);
+
+    expect(harness.tabState(42)?.groupId).toBe(10);
+
+    await harness.stopControlledTab(42, token);
+
+    expect(harness.tabState(42)?.groupId).toBe(-1);
+  });
+
+  it('keeps a nested control lease grouped until the final stop', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+
+    const outerToken = await harness.startControlledTab(42);
+    const innerToken = await harness.startControlledTab(42);
+    await harness.stopControlledTab(42, innerToken);
+
+    expect(harness.tabState(42)?.groupId).toBe(10);
+
+    await harness.stopControlledTab(42, outerToken);
+
+    expect(harness.tabState(42)?.groupId).toBe(-1);
+  });
+
+  it('restores a tab to its original non-Harness group after control ends', async () => {
+    const harness = loadBackgroundHarnessForTest({ initialTabGroupId: 55 });
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+
+    const token = await harness.startControlledTab(42);
+
+    expect(harness.tabState(42)?.groupId).toBe(10);
+
+    await harness.stopControlledTab(42, token);
+
+    expect(harness.tabState(42)?.groupId).toBe(55);
+  });
+
+  it('recreates an original group that Chrome removed when its sole tab moved', async () => {
+    const deletedGroupIds = new Set<number>();
+    const harness = loadBackgroundHarnessForTest({
+      deletedGroupIds,
+      initialTabGroupId: 55,
+    });
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+    const token = await harness.startControlledTab(42);
+    deletedGroupIds.add(55);
+
+    await harness.stopControlledTab(42, token);
+
+    expect(harness.tabState(42)?.groupId).toBe(1);
+    expect(harness.chrome.tabGroups.update).toHaveBeenCalledWith(1, {
+      title: 'Research',
+      color: 'green',
+      collapsed: true,
+    });
+  });
+
+  it('treats Chrome group cleanup failures as best effort', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+    harness.chrome.tabs.ungroup.mockRejectedValue(new Error('Chrome rejected ungroup'));
+
+    const token = await harness.startControlledTab(42);
+
+    await expect(harness.stopControlledTab(42, token)).resolves.toBeUndefined();
+  });
+
+  it('ignores a timed-out operation finalizer after a newer lease starts', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+    const staleToken = await harness.startControlledTab(42);
+
+    await harness.forceReleaseCommandResources({ target: { tabId: 42 } });
+    const currentToken = await harness.startControlledTab(42);
+    await harness.stopControlledTab(42, staleToken);
+
+    expect(harness.tabState(42)?.groupId).toBe(10);
+
+    await harness.stopControlledTab(42, currentToken);
+
+    expect(harness.tabState(42)?.groupId).toBe(-1);
+  });
+
+  it('force-releases a command without waiting for hung lease initialization', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabs.get.mockImplementationOnce(
+      () => new Promise<ReturnType<typeof makeWebTab>>(() => undefined),
+    );
+    void harness.startControlledTab(42);
+
+    await expect(harness.forceReleaseCommandResources({
+      target: { tabId: 42 },
+    })).resolves.toBeUndefined();
+
+    const currentToken = await harness.startControlledTab(42);
+    await harness.stopControlledTab(42, currentToken);
+  });
+
+  it('does not attach a reacquisition to a retiring lease with pending cleanup', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+    const firstToken = await harness.startControlledTab(42);
+    const executeScript = harness.chrome.scripting.executeScript;
+    const defaultExecuteScript = executeScript.getMockImplementation()!;
+    let releaseGlowRemoval: (() => void) | undefined;
+    executeScript.mockImplementation(async (input: { func?: { name?: string } }) => {
+      if (input.func?.name === 'removeControlGlowScript') {
+        await new Promise<void>((resolve) => {
+          releaseGlowRemoval = resolve;
+        });
+        return [];
+      }
+      return defaultExecuteScript(input);
+    });
+
+    const firstStop = harness.stopControlledTab(42, firstToken);
+    await flushPromises();
+    expect(releaseGlowRemoval).toBeTypeOf('function');
+    const secondToken = await harness.startControlledTab(42);
+    releaseGlowRemoval!();
+    await firstStop;
+
+    expect(harness.tabState(42)?.groupId).toBe(10);
+
+    executeScript.mockImplementation(defaultExecuteScript);
+    await harness.stopControlledTab(42, secondToken);
+
+    expect(harness.tabState(42)?.groupId).toBe(-1);
+  });
+
+  it('carries original group metadata across a replacement generation', async () => {
+    const harness = loadBackgroundHarnessForTest({ initialTabGroupId: 55 });
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+    const firstToken = await harness.startControlledTab(42);
+
+    const firstStop = harness.stopControlledTab(42, firstToken);
+    const secondToken = await harness.startControlledTab(42);
+    await firstStop;
+
+    expect(harness.tabState(42)?.groupId).toBe(10);
+
+    await harness.stopControlledTab(42, secondToken);
+
+    expect(harness.tabState(42)?.groupId).toBe(55);
+  });
+
+  it('prevents an older cleanup from overtaking a retiring replacement generation', async () => {
+    const harness = loadBackgroundHarnessForTest({ initialTabGroupId: 55 });
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+    const firstToken = await harness.startControlledTab(42);
+    const executeScript = harness.chrome.scripting.executeScript;
+    const defaultExecuteScript = executeScript.getMockImplementation()!;
+    const getTab = harness.chrome.tabs.get;
+    const currentTab = harness.tabState(42);
+    let removeCallCount = 0;
+    let releaseFirstGlowRemoval: (() => void) | undefined;
+    let releaseFirstCleanupTabRead: (() => void) | undefined;
+    executeScript.mockImplementation(async (input: { func?: { name?: string } }) => {
+      if (input.func?.name === 'removeControlGlowScript' && removeCallCount++ === 0) {
+        await new Promise<void>((resolve) => {
+          releaseFirstGlowRemoval = resolve;
+        });
+        return [];
+      }
+      return defaultExecuteScript(input);
+    });
+    getTab.mockImplementationOnce(
+      () => new Promise<ReturnType<typeof makeWebTab> | undefined>((resolve) => {
+        releaseFirstCleanupTabRead = () => resolve(currentTab);
+      }),
+    );
+
+    const firstStop = harness.stopControlledTab(42, firstToken);
+    await flushPromises();
+    expect(releaseFirstGlowRemoval).toBeTypeOf('function');
+    expect(releaseFirstCleanupTabRead).toBeTypeOf('function');
+    const secondToken = await harness.startControlledTab(42);
+    releaseFirstCleanupTabRead!();
+    await flushPromises();
+    const groupTab = harness.chrome.tabs.group;
+    const defaultGroupTab = groupTab.getMockImplementation()!;
+    let releaseReplacementRestore: (() => void) | undefined;
+    groupTab.mockImplementation(async (input: { tabIds: number | number[]; groupId?: number }) => {
+      if (input.groupId === 55) {
+        await new Promise<void>((resolve) => {
+          releaseReplacementRestore = resolve;
+        });
+      }
+      return defaultGroupTab(input);
+    });
+
+    const secondStop = harness.stopControlledTab(42, secondToken);
+    await flushPromises();
+    expect(releaseReplacementRestore).toBeTypeOf('function');
+    releaseFirstGlowRemoval!();
+    await flushPromises();
+    const groupIdWhileReplacementRetires = harness.tabState(42)?.groupId;
+
+    releaseReplacementRestore!();
+    await Promise.all([firstStop, secondStop]);
+
+    expect(groupIdWhileReplacementRetires).toBe(10);
+    expect(harness.tabState(42)?.groupId).toBe(55);
+  });
+
+  it('preserves a manual group move made while the tab is controlled', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+    const token = await harness.startControlledTab(42);
+    const tab = harness.tabState(42);
+    if (tab) {
+      tab.groupId = 77;
+    }
+
+    await harness.stopControlledTab(42, token);
+
+    expect(harness.tabState(42)?.groupId).toBe(77);
+  });
+
+  it('consolidates historical Harness groups and removes them after final control', async () => {
+    const harness = loadBackgroundHarnessForTest({
+      additionalTabs: [{ tabId: 43, groupId: 11 }],
+      initialTabGroupId: 10,
+    });
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([
+      { id: 10, title: 'Harness', windowId: 7 },
+      { id: 11, title: 'Harness', windowId: 7 },
+    ]);
+
+    const token = await harness.startControlledTab(42);
+
+    expect(harness.tabState(42)?.groupId).toBe(10);
+    expect(harness.tabState(43)?.groupId).toBe(10);
+
+    await harness.stopControlledTab(42, token);
+
+    expect(harness.tabState(42)?.groupId).toBe(-1);
+    expect(harness.tabState(43)?.groupId).toBe(-1);
   });
 
   it('keeps controlled tabs unfrozen and undiscarded against background throttling', () => {
@@ -916,10 +1185,14 @@ describe('browser extension assets', () => {
 });
 
 function loadBackgroundHarnessForTest(options: {
+  additionalTabs?: Array<{ tabId: number; groupId: number }>;
+  deletedGroupIds?: Set<number>;
   failConnectHosts?: Set<string>;
   initialGatewayEnabled?: boolean;
+  initialTabGroupId?: number;
 } = {}): BrowserExtensionBackgroundHarness {
   const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
+  const deletedGroupIds = options.deletedGroupIds ?? new Set<number>();
   const failConnectHosts = options.failConnectHosts ?? new Set<string>();
   const ports = new Map<string, NativePortHarness>();
   const localStore: Record<string, unknown> = {};
@@ -927,6 +1200,14 @@ function loadBackgroundHarnessForTest(options: {
   const messageEvent = createChromeEvent<[unknown, unknown, (response: unknown) => void]>();
   let nowMs = 1_000_000;
   let browserGatewayEnabled = options.initialGatewayEnabled;
+  const initialTab = makeWebTab(42);
+  initialTab.groupId = options.initialTabGroupId ?? -1;
+  const tabsById = new Map<number, ReturnType<typeof makeWebTab>>([[42, initialTab]]);
+  for (const additionalTab of options.additionalTabs ?? []) {
+    const tab = makeWebTab(additionalTab.tabId);
+    tab.groupId = additionalTab.groupId;
+    tabsById.set(additionalTab.tabId, tab);
+  }
   const connectNative = vi.fn((hostName: string) => {
     if (failConnectHosts.has(hostName)) {
       throw new Error(`Specified native messaging host not found: ${hostName}`);
@@ -1014,15 +1295,44 @@ function loadBackgroundHarnessForTest(options: {
         },
       },
       tabs: {
-        get: vi.fn(async (tabId: number) => makeWebTab(tabId)),
-        group: vi.fn(async () => 1),
+        get: vi.fn(async (tabId: number) => tabsById.get(tabId)),
+        group: vi.fn(async (input: { tabIds: number | number[]; groupId?: number }) => {
+          if (input.groupId !== undefined && deletedGroupIds.has(input.groupId)) {
+            throw new Error(`No group with id: ${input.groupId}`);
+          }
+          const tabIds = Array.isArray(input.tabIds) ? input.tabIds : [input.tabIds];
+          const groupId = input.groupId ?? 1;
+          for (const tabId of tabIds) {
+            const tab = tabsById.get(tabId);
+            if (tab) {
+              tab.groupId = groupId;
+            }
+          }
+          return groupId;
+        }),
         onRemoved: createChromeEvent(),
         onUpdated: createChromeEvent(),
-        query: vi.fn(async () => [makeWebTab(42)]),
-        update: vi.fn(async (tabId: number) => makeWebTab(tabId)),
+        query: vi.fn(async () => [...tabsById.values()]),
+        ungroup: vi.fn(async (input: number | number[]) => {
+          const tabIds = Array.isArray(input) ? input : [input];
+          for (const tabId of tabIds) {
+            const tab = tabsById.get(tabId);
+            if (tab) {
+              tab.groupId = -1;
+            }
+          }
+        }),
+        update: vi.fn(async (tabId: number) => tabsById.get(tabId)),
       },
       tabGroups: {
         TAB_GROUP_ID_NONE: -1,
+        get: vi.fn(async (groupId: number) => ({
+          id: groupId,
+          title: groupId === 55 ? 'Research' : 'Harness',
+          color: groupId === 55 ? 'green' : 'blue',
+          collapsed: groupId === 55,
+          windowId: 7,
+        })),
         query: vi.fn(async () => []),
         update: vi.fn(async () => undefined),
       },
@@ -1030,7 +1340,7 @@ function loadBackgroundHarnessForTest(options: {
     __backgroundHarness: undefined as BrowserExtensionBackgroundHarness | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { bridges, deriveToolbarBadgeState, forceReleaseCommandResources, reportTabInventory, selfHealIfWedged, tabDebuggerChains };`,
+    `${background}\n;globalThis.__backgroundHarness = { bridges, deriveToolbarBadgeState, forceReleaseCommandResources, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );
@@ -1042,6 +1352,7 @@ function loadBackgroundHarnessForTest(options: {
     chrome: context.chrome,
     failConnectHosts,
     ports,
+    tabState: (tabId: number) => tabsById.get(tabId),
     sendMessage: (message: unknown) => new Promise((resolve) => {
       let responded = false;
       messageEvent.emit(message, {}, (response: unknown) => {

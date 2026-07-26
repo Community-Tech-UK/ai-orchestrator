@@ -395,7 +395,7 @@ interface SlotTestState {
                   <button
                     type="button"
                     class="btn"
-                    [disabled]="slotTest(slot)?.testing"
+                    [disabled]="$safeNavigationMigration(slotTest(slot)?.testing)"
                     (click)="testSlot(slot)"
                   >
                     {{ slotTest(slot)?.testing ? 'Testing…' : 'Test' }}

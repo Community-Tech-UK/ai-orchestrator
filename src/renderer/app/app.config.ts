@@ -19,7 +19,7 @@ import { RendererHeartbeatService } from './core/services/renderer-heartbeat.ser
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    // Angular 21: Zoneless change detection is now stable and the default
+    // Zoneless change detection is stable and the default.
     provideZonelessChangeDetection(),
 
     // Router configuration

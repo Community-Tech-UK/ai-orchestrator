@@ -563,6 +563,28 @@ export class InputPanelComponent implements OnDestroy {
     return draftValue ?? this.settingsStore.defaultYoloMode();
   });
 
+  /** Fast mode is supported by Claude and Codex and remembered per provider. */
+  readonly showDraftFastModeToggle = computed(() => {
+    const provider = this.selectedProvider();
+    return this.isDraftComposer() && (provider === 'claude' || provider === 'codex');
+  });
+
+  readonly effectiveDraftFastMode = computed(() =>
+    this.providerState.getFastModeForProvider(this.selectedProvider()),
+  );
+
+  onToggleDraftFastMode(): void {
+    const provider = this.selectedProvider();
+    if (provider !== 'claude' && provider !== 'codex') {
+      return;
+    }
+
+    this.providerState.rememberFastModeForProvider(
+      provider,
+      !this.effectiveDraftFastMode(),
+    );
+  }
+
   readonly effectiveLaunchMode = computed<InstanceLaunchMode>(() => {
     if (this.selectedProvider() !== 'claude') {
       return 'orchestrated';

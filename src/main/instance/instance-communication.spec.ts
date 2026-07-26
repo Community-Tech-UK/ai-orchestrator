@@ -698,6 +698,180 @@ describe('InstanceCommunicationManager', () => {
     }));
   });
 
+  it('repairs a truncated Codex stream from the canonical completed response', async () => {
+    instance.provider = 'codex';
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const partial = 'If no remote browser is available, I';
+    const complete = `${partial} will stop and tell you rather than falling back to your computer.`;
+    const completionOrder: string[] = [];
+    manager.on('output', ({ message }: { message: OutputMessage }) => {
+      if (message.id === 'codex-agent-message-1') {
+        completionOrder.push(`output:${message.content}`);
+      }
+    });
+    emitProviderRuntimeEvent.mockImplementation((_instanceId, event) => {
+      if (event.kind === 'complete') {
+        completionOrder.push('complete');
+      }
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', {
+      id: 'codex-agent-message-1',
+      timestamp: Date.now(),
+      type: 'assistant',
+      content: partial,
+      metadata: {
+        streaming: false,
+        accumulatedContent: partial,
+        turnId: 'turn-1',
+      },
+    } satisfies OutputMessage);
+    await flushOutputHandlers();
+    completionOrder.length = 0;
+
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'response-1',
+      role: 'assistant',
+      content: complete,
+    } satisfies CliResponse);
+    await flushOutputHandlers();
+
+    expect(instance.outputBuffer).toHaveLength(1);
+    expect(instance.outputBuffer[0]).toMatchObject({
+      id: 'codex-agent-message-1',
+      type: 'assistant',
+      content: complete,
+      metadata: expect.objectContaining({
+        streaming: false,
+        accumulatedContent: complete,
+      }),
+    });
+    expect(completionOrder).toEqual([`output:${complete}`, 'complete']);
+  });
+
+  it('does not replace divergent Codex output from the completed response', async () => {
+    instance.provider = 'codex';
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', {
+      id: 'codex-agent-message-1',
+      timestamp: Date.now(),
+      type: 'assistant',
+      content: 'Visible answer from another phase',
+      metadata: {
+        streaming: false,
+        accumulatedContent: 'Visible answer from another phase',
+      },
+    } satisfies OutputMessage);
+    await flushOutputHandlers();
+
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'response-1',
+      role: 'assistant',
+      content: 'Different canonical answer',
+    } satisfies CliResponse);
+    await flushOutputHandlers();
+
+    expect(instance.outputBuffer[0]?.content).toBe('Visible answer from another phase');
+    expect(instance.outputBuffer[0]?.metadata?.['completionReconciled']).toBeUndefined();
+  });
+
+  it('does not replace a non-Codex streamed prefix from the completed response', async () => {
+    instance.provider = 'claude';
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const partial = 'A partial answer';
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', {
+      id: 'claude-message-1',
+      timestamp: Date.now(),
+      type: 'assistant',
+      content: partial,
+      metadata: {
+        streaming: false,
+        accumulatedContent: partial,
+      },
+    } satisfies OutputMessage);
+    await flushOutputHandlers();
+
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'response-1',
+      role: 'assistant',
+      content: `${partial} with more detail`,
+    } satisfies CliResponse);
+    await flushOutputHandlers();
+
+    expect(instance.outputBuffer[0]?.content).toBe(partial);
+    expect(instance.outputBuffer[0]?.metadata?.['completionReconciled']).toBeUndefined();
+  });
+
+  it('drops a Codex completion that becomes stale while context evidence drains', async () => {
+    instance.provider = 'codex';
+    const oldAdapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    const newAdapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    const partial = 'Partial answer from the old generation';
+    let releaseDrain: (() => void) | undefined;
+    const drainContextEvidence = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => {
+        releaseDrain = resolve;
+      }),
+    );
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      drainContextEvidence,
+      emitProviderRuntimeEvent,
+    });
+
+    adapters.set(instance.id, oldAdapter);
+    manager.setupAdapterEvents(instance.id, oldAdapter);
+    (oldAdapter as unknown as EventEmitter).emit('output', {
+      id: 'old-codex-message',
+      timestamp: Date.now(),
+      type: 'assistant',
+      content: partial,
+      metadata: {
+        streaming: false,
+        accumulatedContent: partial,
+      },
+    } satisfies OutputMessage);
+    await flushOutputHandlers();
+
+    (oldAdapter as unknown as EventEmitter).emit('complete', {
+      id: 'old-response',
+      role: 'assistant',
+      content: `${partial} with text that must not be restored`,
+    } satisfies CliResponse);
+    expect(drainContextEvidence).toHaveBeenCalledWith(instance.id);
+
+    manager.setupAdapterEvents(instance.id, newAdapter);
+    adapters.set(instance.id, newAdapter);
+    releaseDrain?.();
+    await flushOutputHandlers();
+
+    expect(instance.outputBuffer[0]?.content).toBe(partial);
+    expect(instance.outputBuffer[0]?.metadata?.['completionReconciled']).toBeUndefined();
+    expect(emitProviderRuntimeEvent).not.toHaveBeenCalledWith(
+      instance.id,
+      expect.objectContaining({ kind: 'complete' }),
+      expect.anything(),
+    );
+  });
+
   it('propagates the A3 degradedReason tag onto the complete runtime event', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

@@ -33,6 +33,12 @@ import {
   LocalModelSessionIdParamsSchema,
   LocalModelSessionSendInputParamsSchema,
   LocalModelSessionStartParamsSchema,
+  LocalAiHealthCheckParamsSchema,
+  LocalAiHealthCheckResultSchema,
+  LocalAiHealthDiagnoseParamsSchema,
+  LocalAiHealthDiagnoseResultSchema,
+  LocalAiHealthRepairParamsSchema,
+  LocalAiHealthRepairResultSchema,
   StreamAckParamsSchema,
   StreamResumeParamsSchema,
 } from '../main/remote-node/rpc-schemas';
@@ -74,6 +80,8 @@ import {
 import type { WorkerTerminalHandler } from './worker-terminal-handler';
 import type { RpcMessage } from './worker-rpc-types';
 import { validateScope } from './worker-rpc-types';
+import { WorkerLocalAiHealth } from './worker-local-ai-health';
+import { parseBoundedServiceRpcResponse } from '../main/remote-node/worker-node-connection-helpers';
 
 type AudioTranscribeParams = z.infer<typeof AudioTranscribeParamsSchema>;
 
@@ -103,10 +111,15 @@ interface WorkerRpcDispatcherDeps {
     Array<{ instanceId: string; replayed: number; gapThroughSeq?: number }>;
   ackDurableEvents?: (cursors: Array<{ instanceId: string; seq: number }>) => void;
   sendError: (id: string | number, code: number, message: string) => void;
+  localAiHealth?: Pick<WorkerLocalAiHealth, 'check' | 'diagnose' | 'repair'>;
 }
 
 export class WorkerRpcDispatcher {
-  constructor(private readonly deps: WorkerRpcDispatcherDeps) {}
+  private readonly localAiHealth: Pick<WorkerLocalAiHealth, 'check' | 'diagnose' | 'repair'>;
+
+  constructor(private readonly deps: WorkerRpcDispatcherDeps) {
+    this.localAiHealth = deps.localAiHealth ?? new WorkerLocalAiHealth();
+  }
 
   handleRpcNotification(msg: RpcMessage): void {
     const err = validateScope(msg, 'service');
@@ -468,6 +481,45 @@ export class WorkerRpcDispatcher {
           const validated = AudioTranscribeParamsSchema.parse(params);
           const text = await this.handleAudioTranscribe(validated);
           result = { text };
+          break;
+        }
+        case COORDINATOR_TO_NODE.LOCAL_AI_HEALTH_CHECK: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const validated = LocalAiHealthCheckParamsSchema.parse(params);
+          result = parseBoundedServiceRpcResponse(
+            LocalAiHealthCheckResultSchema,
+            await this.localAiHealth.check(validated),
+          );
+          break;
+        }
+        case COORDINATOR_TO_NODE.LOCAL_AI_HEALTH_DIAGNOSE: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const validated = LocalAiHealthDiagnoseParamsSchema.parse(params);
+          result = parseBoundedServiceRpcResponse(
+            LocalAiHealthDiagnoseResultSchema,
+            await this.localAiHealth.diagnose(validated),
+          );
+          break;
+        }
+        case COORDINATOR_TO_NODE.LOCAL_AI_HEALTH_REPAIR: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const validated = LocalAiHealthRepairParamsSchema.parse(params);
+          result = parseBoundedServiceRpcResponse(
+            LocalAiHealthRepairResultSchema,
+            await this.localAiHealth.repair(validated),
+          );
           break;
         }
         default:

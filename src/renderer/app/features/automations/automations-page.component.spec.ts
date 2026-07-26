@@ -170,6 +170,12 @@ describe('AutomationsPageComponent row actions', () => {
     await fixture.whenStable();
   });
 
+  it('spaces the primary create action from its dropdown trigger', () => {
+    const createControls = fixture.nativeElement.querySelector('.create') as HTMLElement;
+
+    expect(getComputedStyle(createControls).gap).toBe('var(--spacing-xs)');
+  });
+
   it('pauses an active automation from the row action', async () => {
     const pauseButton = findButton('Pause Daily check');
 

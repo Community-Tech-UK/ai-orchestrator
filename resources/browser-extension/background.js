@@ -57,6 +57,8 @@ let gatewayStateLoaded = false;
 let gatewayStatePromise = null;
 const sharedTabs = [];
 const bridges = BRIDGE_DEFINITIONS.map(createBridge);
+const controlledTabLeases = new Map();
+const controlledTabRestoreLineages = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
   // 0.5 = 30s, the MV3 minimum (Chrome ≥120). This alarm is the recovery path
@@ -976,10 +978,11 @@ async function forceReleaseCommandResources(command) {
     return;
   }
   tabDebuggerChains.delete(tabId);
-  if (chrome.debugger?.detach) {
-    await chrome.debugger.detach({ tabId }).catch(() => undefined);
-  }
-  await stopControlledTab(tabId).catch(() => undefined);
+  const controlledTabCleanup = stopControlledTab(tabId).catch(() => undefined);
+  const debuggerCleanup = chrome.debugger?.detach
+    ? chrome.debugger.detach({ tabId }).catch(() => undefined)
+    : Promise.resolve();
+  await Promise.all([controlledTabCleanup, debuggerCleanup]);
 }
 
 function pollForCommand(bridge, options = {}) {
@@ -1132,7 +1135,7 @@ async function executeBrowserCommand(command) {
     case 'open_tab': {
       const url = requirePayloadString(command, 'url');
       const tab = await chrome.tabs.create({ url, active: true });
-      await startControlledTab(tab.id);
+      const controlToken = await startControlledTab(tab.id);
       try {
         await waitForTabComplete(tab.id);
         // Re-instrument the freshly-loaded document: the full load replaced the
@@ -1146,13 +1149,13 @@ async function executeBrowserCommand(command) {
           includeScreenshot: true,
         });
       } finally {
-        await stopControlledTab(tab.id);
+        await stopControlledTab(tab.id, controlToken);
       }
     }
     case 'navigate': {
       const tabId = requireTargetTabId(command);
       const url = requirePayloadString(command, 'url');
-      await startControlledTab(tabId);
+      const controlToken = await startControlledTab(tabId);
       try {
         const tab = await chrome.tabs.update(tabId, { url, active: true });
         await waitForTabComplete(tabId);
@@ -1166,7 +1169,7 @@ async function executeBrowserCommand(command) {
           includeScreenshot: true,
         });
       } finally {
-        await stopControlledTab(tabId);
+        await stopControlledTab(tabId, controlToken);
       }
     }
     case 'click': {
@@ -1206,41 +1209,41 @@ async function executeBrowserCommand(command) {
       return uploadFileInTargetTab(command);
     case 'accessibility_snapshot': {
       const tabId = requireTargetTabId(command);
-      await startControlledTab(tabId);
+      const controlToken = await startControlledTab(tabId);
       try {
         return await captureAccessibilitySnapshot(tabId, {
           interestingOnly: command.payload?.interestingOnly !== false,
           limit: typeof command.payload?.limit === 'number' ? command.payload.limit : 2000,
         });
       } finally {
-        await stopControlledTab(tabId);
+        await stopControlledTab(tabId, controlToken);
       }
     }
     case 'evaluate': {
       const tabId = requireTargetTabId(command);
       const expression = requirePayloadString(command, 'expression');
-      await startControlledTab(tabId);
+      const controlToken = await startControlledTab(tabId);
       try {
         return await evaluateInTab(tabId, expression, command.payload?.awaitPromise !== false);
       } finally {
-        await stopControlledTab(tabId);
+        await stopControlledTab(tabId, controlToken);
       }
     }
     case 'download_file':
       return downloadFileFromTargetTab(command);
     case 'snapshot': {
       const tabId = requireTargetTabId(command);
-      await startControlledTab(tabId);
+      const controlToken = await startControlledTab(tabId);
       try {
         const tab = await chrome.tabs.get(tabId);
         return buildTabPayload(tab, { includeText: true });
       } finally {
-        await stopControlledTab(tabId);
+        await stopControlledTab(tabId, controlToken);
       }
     }
     case 'screenshot': {
       const tabId = requireTargetTabId(command);
-      await startControlledTab(tabId);
+      const controlToken = await startControlledTab(tabId);
       try {
         return {
           screenshotBase64: await captureTabScreenshot(tabId, {
@@ -1251,18 +1254,18 @@ async function executeBrowserCommand(command) {
           capturedAt: Date.now(),
         };
       } finally {
-        await stopControlledTab(tabId);
+        await stopControlledTab(tabId, controlToken);
       }
     }
     case 'wait_for': {
       const tabId = requireTargetTabId(command);
       const selector = typeof command.payload?.selector === 'string' ? command.payload.selector : 'body';
       const timeoutMs = typeof command.payload?.timeoutMs === 'number' ? command.payload.timeoutMs : 30000;
-      await startControlledTab(tabId);
+      const controlToken = await startControlledTab(tabId);
       try {
         return await waitForSelectorAcrossFrames(tabId, selector, timeoutMs);
       } finally {
-        await stopControlledTab(tabId);
+        await stopControlledTab(tabId, controlToken);
       }
     }
     case 'query_elements':
@@ -1288,7 +1291,7 @@ async function uploadFileInTargetTab(command) {
   const selector = requirePayloadString(command, 'selector');
   const filePath = requirePayloadString(command, 'filePath');
   let uploadState = { uploaded: false, fileCount: 0, files: [] };
-  await startControlledTab(tabId);
+  const controlToken = await startControlledTab(tabId);
   try {
     await withDebugger(tabId, async (debuggee) => {
       const evaluation = await chrome.debugger.sendCommand(debuggee, 'Runtime.evaluate', {
@@ -1338,7 +1341,7 @@ async function uploadFileInTargetTab(command) {
     await reportTab(await chrome.tabs.get(tabId));
     return { selector, ...uploadState };
   } finally {
-    await stopControlledTab(tabId);
+    await stopControlledTab(tabId, controlToken);
   }
 }
 
@@ -1347,7 +1350,7 @@ async function downloadFileFromTargetTab(command) {
   const timeoutMs = typeof command.payload?.timeoutMs === 'number'
     ? command.payload.timeoutMs
     : 60000;
-  await startControlledTab(tabId);
+  const controlToken = await startControlledTab(tabId);
   try {
     const url = typeof command.payload?.url === 'string' ? command.payload.url : undefined;
     const selector = typeof command.payload?.selector === 'string' ? command.payload.selector : undefined;
@@ -1370,7 +1373,7 @@ async function downloadFileFromTargetTab(command) {
     await runInTargetTab(command, 'click', [selector]);
     return download;
   } finally {
-    await stopControlledTab(tabId);
+    await stopControlledTab(tabId, controlToken);
   }
 }
 
@@ -1521,35 +1524,35 @@ async function callOnBackendNode(tabId, uid, functionDeclaration, args = []) {
 }
 
 async function clickByUid(tabId, uid) {
-  await startControlledTab(tabId);
+  const controlToken = await startControlledTab(tabId);
   try {
     const result = await callOnBackendNode(tabId, uid, `(${uidClickFn.toString()})`);
     await reportTab(await chrome.tabs.get(tabId));
     return result;
   } finally {
-    await stopControlledTab(tabId);
+    await stopControlledTab(tabId, controlToken);
   }
 }
 
 async function typeByUid(tabId, uid, value) {
-  await startControlledTab(tabId);
+  const controlToken = await startControlledTab(tabId);
   try {
     const result = await callOnBackendNode(tabId, uid, `(${uidTypeFn.toString()})`, [value]);
     await reportTab(await chrome.tabs.get(tabId));
     return result;
   } finally {
-    await stopControlledTab(tabId);
+    await stopControlledTab(tabId, controlToken);
   }
 }
 
 async function selectByUid(tabId, uid, value) {
-  await startControlledTab(tabId);
+  const controlToken = await startControlledTab(tabId);
   try {
     const result = await callOnBackendNode(tabId, uid, `(${uidSelectFn.toString()})`, [value]);
     await reportTab(await chrome.tabs.get(tabId));
     return result;
   } finally {
-    await stopControlledTab(tabId);
+    await stopControlledTab(tabId, controlToken);
   }
 }
 
@@ -1579,7 +1582,7 @@ async function fillFormCommand(command) {
 
   const tabId = requireTargetTabId(command);
   const typeFn = `(${uidTypeFn.toString()})`;
-  await startControlledTab(tabId);
+  const controlToken = await startControlledTab(tabId);
   try {
     const results = await withDebugger(tabId, async (debuggee) => {
       await chrome.debugger.sendCommand(debuggee, 'DOM.enable').catch(() => undefined);
@@ -1608,7 +1611,7 @@ async function fillFormCommand(command) {
     await reportTab(await chrome.tabs.get(tabId));
     return results;
   } finally {
-    await stopControlledTab(tabId);
+    await stopControlledTab(tabId, controlToken);
   }
 }
 
@@ -1971,7 +1974,7 @@ function delay(ms) {
 async function runInTargetTab(command, action, args) {
   assertGatewayEnabled();
   const tabId = requireTargetTabId(command);
-  await startControlledTab(tabId);
+  const controlToken = await startControlledTab(tabId);
   try {
     // Inject into every frame so elements inside <iframe>s are reachable. Each
     // frame returns a not-found sentinel when it lacks the element; we merge and
@@ -1988,7 +1991,7 @@ async function runInTargetTab(command, action, args) {
     await reportTab(await chrome.tabs.get(tabId));
     return merged;
   } finally {
-    await stopControlledTab(tabId);
+    await stopControlledTab(tabId, controlToken);
   }
 }
 
@@ -2231,12 +2234,92 @@ async function startControlledTab(tabId) {
   if (typeof tabId !== 'number') {
     return;
   }
-  await Promise.all([
-    preventTabDiscard(tabId),
-    markControlledTabGroup(tabId),
-    installControlGlow(tabId),
-    installConsoleNetworkCapture(tabId),
-  ]);
+
+  const existingLease = controlledTabLeases.get(tabId);
+  if (existingLease) {
+    const token = createControlledTabToken(existingLease);
+    await existingLease.ready;
+    return token;
+  }
+
+  const noGroupId = chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
+  const inheritedLineage = controlledTabRestoreLineages.get(tabId) ?? null;
+  const lease = {
+    restoreGroupId: inheritedLineage?.restoreGroupId ?? noGroupId,
+    restoreGroup: inheritedLineage?.restoreGroup ?? null,
+    restoreLineage: inheritedLineage,
+    restoreStateCaptured: inheritedLineage !== null,
+    controlledGroupId: noGroupId,
+    windowId: inheritedLineage?.windowId ?? null,
+    retiring: false,
+    cleanupPromise: null,
+    ready: null,
+    tokens: new Set(),
+  };
+  if (inheritedLineage) {
+    inheritedLineage.latestLease = lease;
+  }
+  const token = createControlledTabToken(lease);
+  controlledTabLeases.set(tabId, lease);
+  lease.ready = (async () => {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (lease.retiring) {
+      return;
+    }
+    if (tab) {
+      lease.windowId = tab.windowId;
+      if (!lease.restoreStateCaptured) {
+        const currentGroupId = typeof tab.groupId === 'number' ? tab.groupId : noGroupId;
+        const controlGroupIds = await findControlGroupIds(tab.windowId);
+        if (lease.retiring) {
+          return;
+        }
+        if (currentGroupId !== noGroupId && !controlGroupIds.includes(currentGroupId)) {
+          lease.restoreGroupId = currentGroupId;
+          lease.restoreGroup = await chrome.tabGroups?.get?.(currentGroupId)?.catch(() => null)
+            ?? null;
+          if (lease.retiring) {
+            return;
+          }
+        }
+        lease.restoreStateCaptured = true;
+      }
+    }
+    await preventTabDiscard(tabId);
+    if (lease.retiring) {
+      return;
+    }
+    lease.controlledGroupId = await markControlledTabGroup(tabId);
+    if (lease.retiring) {
+      return;
+    }
+    await Promise.all([
+      installControlGlow(tabId),
+      installConsoleNetworkCapture(tabId),
+    ]);
+  })();
+  const cleanupRetiredLease = () => {
+    if (lease.retiring) {
+      void cleanupControlledTabLease(tabId, lease);
+    }
+  };
+  void lease.ready.then(cleanupRetiredLease, cleanupRetiredLease);
+
+  try {
+    await lease.ready;
+    return token;
+  } catch (error) {
+    if (controlledTabLeases.get(tabId) === lease) {
+      controlledTabLeases.delete(tabId);
+    }
+    throw error;
+  }
+}
+
+function createControlledTabToken(lease) {
+  const token = { lease, released: false };
+  lease.tokens.add(token);
+  return token;
 }
 
 // Keep Chrome's Memory Saver from freezing/discarding a tab we are actively
@@ -2254,21 +2337,181 @@ async function preventTabDiscard(tabId) {
   await chrome.tabs.update(tabId, { autoDiscardable: false }).catch(() => undefined);
 }
 
-async function stopControlledTab(tabId) {
+async function stopControlledTab(tabId, token) {
   if (typeof tabId !== 'number') {
     return;
   }
-  await removeControlGlow(tabId);
+
+  const lease = token?.lease ?? controlledTabLeases.get(tabId);
+  if (!lease) {
+    await removeControlGlow(tabId);
+    return;
+  }
+  if (token) {
+    if (token.released) {
+      return;
+    }
+    token.released = true;
+    lease.tokens.delete(token);
+  } else {
+    for (const activeToken of lease.tokens) {
+      activeToken.released = true;
+    }
+    lease.tokens.clear();
+  }
+  if (controlledTabLeases.get(tabId) !== lease || lease.tokens.size > 0) {
+    return;
+  }
+  lease.retiring = true;
+  preserveControlledTabRestoreLineage(tabId, lease);
+  controlledTabLeases.delete(tabId);
+
+  if (token) {
+    await lease.ready.catch(() => undefined);
+  }
+  await cleanupControlledTabLease(tabId, lease);
+}
+
+function preserveControlledTabRestoreLineage(tabId, lease) {
+  if (!lease.restoreStateCaptured) {
+    return;
+  }
+  if (!lease.restoreLineage) {
+    lease.restoreLineage = {
+      restoreGroupId: lease.restoreGroupId,
+      restoreGroup: lease.restoreGroup,
+      windowId: lease.windowId,
+      latestLease: lease,
+    };
+  }
+  const currentLineage = controlledTabRestoreLineages.get(tabId);
+  if (!currentLineage || currentLineage === lease.restoreLineage) {
+    controlledTabRestoreLineages.set(tabId, lease.restoreLineage);
+  }
+}
+
+async function cleanupControlledTabLease(tabId, lease) {
+  if (lease.cleanupPromise) {
+    return lease.cleanupPromise;
+  }
+  const cleanupPromise = (async () => {
+    if (hasReplacementControlledTabLease(tabId, lease)) {
+      return;
+    }
+    await Promise.all([
+      removeControlGlow(tabId),
+      restoreControlledTabGroup(tabId, lease),
+    ]);
+    if (hasReplacementControlledTabLease(tabId, lease)) {
+      return;
+    }
+    await cleanupControlGroupsIfWindowIdle(lease.windowId, lease);
+    if (controlledTabRestoreLineages.get(tabId) === lease.restoreLineage) {
+      controlledTabRestoreLineages.delete(tabId);
+    }
+  })();
+  lease.cleanupPromise = cleanupPromise;
+  try {
+    await cleanupPromise;
+  } finally {
+    if (lease.cleanupPromise === cleanupPromise) {
+      lease.cleanupPromise = null;
+    }
+  }
+}
+
+function hasReplacementControlledTabLease(tabId, retiredLease) {
+  const currentLease = controlledTabLeases.get(tabId);
+  if (currentLease && currentLease !== retiredLease) {
+    return true;
+  }
+  const latestLineageLease = retiredLease.restoreLineage?.latestLease;
+  return Boolean(latestLineageLease && latestLineageLease !== retiredLease);
+}
+
+async function cleanupControlGroupsIfWindowIdle(windowId, completedLease) {
+  if (
+    typeof windowId !== 'number'
+    || !chrome.tabs?.query
+    || !chrome.tabs?.ungroup
+    || hasOtherControlledLeaseInWindow(windowId, completedLease)
+  ) {
+    return;
+  }
+  const controlGroupIds = await findControlGroupIds(windowId);
+  if (controlGroupIds.length === 0) {
+    return;
+  }
+  const controlGroupIdSet = new Set(controlGroupIds);
+  const tabs = await chrome.tabs.query({ windowId }).catch(() => []);
+  const tabIds = tabs
+    .filter((tab) => typeof tab.id === 'number' && controlGroupIdSet.has(tab.groupId))
+    .map((tab) => tab.id);
+  if (tabIds.length === 0 || hasOtherControlledLeaseInWindow(windowId, completedLease)) {
+    return;
+  }
+  await chrome.tabs.ungroup(tabIds).catch(() => undefined);
+}
+
+function hasOtherControlledLeaseInWindow(windowId, completedLease) {
+  for (const lease of controlledTabLeases.values()) {
+    if (lease !== completedLease && lease.windowId === windowId && lease.tokens.size > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function restoreControlledTabGroup(tabId, lease) {
+  if (!chrome.tabs?.get || hasReplacementControlledTabLease(tabId, lease)) {
+    return;
+  }
+  const noGroupId = chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
+  if (lease.controlledGroupId === noGroupId) {
+    return;
+  }
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (
+    !tab
+    || tab.groupId !== lease.controlledGroupId
+    || hasReplacementControlledTabLease(tabId, lease)
+  ) {
+    return;
+  }
+  if (lease.restoreGroupId !== noGroupId && chrome.tabs.group) {
+    const restoredGroupId = await chrome.tabs.group({
+      tabIds: tabId,
+      groupId: lease.restoreGroupId,
+    }).catch(() => noGroupId);
+    if (restoredGroupId === lease.restoreGroupId) {
+      return;
+    }
+  }
+  if (lease.restoreGroup && chrome.tabs.group) {
+    const recreatedGroupId = await chrome.tabs.group({ tabIds: tabId })
+      .catch(() => noGroupId);
+    if (recreatedGroupId !== noGroupId) {
+      await chrome.tabGroups?.update?.(recreatedGroupId, {
+        ...(typeof lease.restoreGroup.title === 'string'
+          ? { title: lease.restoreGroup.title }
+          : {}),
+        color: lease.restoreGroup.color,
+        collapsed: lease.restoreGroup.collapsed,
+      })?.catch(() => undefined);
+      return;
+    }
+  }
+  await chrome.tabs.ungroup?.(tabId)?.catch(() => undefined);
 }
 
 async function markControlledTabGroup(tabId) {
   if (!chrome.tabs?.group || !chrome.tabGroups?.update) {
-    return;
+    return chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
   }
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) {
-    return;
+    return chrome.tabGroups.TAB_GROUP_ID_NONE ?? -1;
   }
   const noGroupId = chrome.tabGroups.TAB_GROUP_ID_NONE ?? -1;
   const currentGroupId = typeof tab.groupId === 'number' ? tab.groupId : noGroupId;
@@ -2283,7 +2526,8 @@ async function markControlledTabGroup(tabId) {
 
   // Already homed in the canonical control group — nothing to (re)group.
   if (currentGroupId !== noGroupId && currentGroupId === canonicalGroupId) {
-    return;
+    await consolidateControlGroups(tab.windowId, currentGroupId);
+    return currentGroupId;
   }
 
   const groupId = await chrome.tabs.group(
@@ -2298,12 +2542,43 @@ async function markControlledTabGroup(tabId) {
       color: 'blue',
       collapsed: false,
     }).catch(() => undefined);
+    await consolidateControlGroups(tab.windowId, groupId);
   }
+  return groupId;
+}
+
+async function consolidateControlGroups(windowId, canonicalGroupId) {
+  if (!chrome.tabs?.query || !chrome.tabs?.group) {
+    return;
+  }
+  const controlGroupIds = await findControlGroupIds(windowId);
+  const duplicateGroupIds = new Set(
+    controlGroupIds.filter((groupId) => groupId !== canonicalGroupId),
+  );
+  if (duplicateGroupIds.size === 0) {
+    return;
+  }
+  const tabs = await chrome.tabs.query({ windowId }).catch(() => []);
+  const duplicateTabIds = tabs
+    .filter((tab) => typeof tab.id === 'number' && duplicateGroupIds.has(tab.groupId))
+    .map((tab) => tab.id);
+  if (duplicateTabIds.length === 0) {
+    return;
+  }
+  await chrome.tabs.group({
+    tabIds: duplicateTabIds,
+    groupId: canonicalGroupId,
+  }).catch(() => undefined);
 }
 
 async function findControlGroupId(windowId, noGroupId) {
+  const groupIds = await findControlGroupIds(windowId);
+  return groupIds[0] ?? noGroupId;
+}
+
+async function findControlGroupIds(windowId) {
   if (!chrome.tabGroups?.query) {
-    return noGroupId;
+    return [];
   }
   const query = typeof windowId === 'number'
     ? { windowId, title: CONTROL_GROUP_TITLE }
@@ -2312,16 +2587,14 @@ async function findControlGroupId(windowId, noGroupId) {
   // Pick the oldest matching group (smallest id) so the canonical group is
   // stable regardless of query ordering, avoiding group-thrash when multiple
   // tabs are controlled at once.
-  let canonicalId = noGroupId;
+  const groupIds = [];
   for (const group of groups) {
     if (typeof group?.id !== 'number') {
       continue;
     }
-    if (canonicalId === noGroupId || group.id < canonicalId) {
-      canonicalId = group.id;
-    }
+    groupIds.push(group.id);
   }
-  return canonicalId;
+  return groupIds.sort((left, right) => left - right);
 }
 
 // Console/network capture for shared, extension-driven tabs.
@@ -2352,7 +2625,7 @@ async function installConsoleNetworkCapture(tabId) {
 // re-share the tab (req #5). Returns { kind, installed, entries }.
 async function readCapturedEntries(command, kind) {
   const tabId = requireTargetTabId(command);
-  await startControlledTab(tabId);
+  const controlToken = await startControlledTab(tabId);
   try {
     const sinceSeq = typeof command.payload?.sinceSeq === 'number' ? command.payload.sinceSeq : null;
     const level = typeof command.payload?.level === 'string' ? command.payload.level : null;
@@ -2367,7 +2640,7 @@ async function readCapturedEntries(command, kind) {
     const entries = value && Array.isArray(value.entries) ? value.entries : [];
     return { kind, installed, entries };
   } finally {
-    await stopControlledTab(tabId);
+    await stopControlledTab(tabId, controlToken);
   }
 }
 

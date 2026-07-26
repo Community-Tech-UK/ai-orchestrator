@@ -97,7 +97,7 @@ src/
 │   ├── workflows/                     # Workflow automation
 │   └── workspace/                     # Worktree management
 │
-├── renderer/                          # Angular 21 Application (Zoneless)
+├── renderer/                          # Angular 22 Application (Zoneless)
 │   ├── app/                           # 262 source files
 │   │   ├── app.component.ts           # Root component
 │   │   ├── app.config.ts              # Zoneless change detection
@@ -180,7 +180,7 @@ src/
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Electron + Angular setup | Done | Zoneless Angular 21 |
+| Electron + Angular setup | Done | Zoneless Angular 22 |
 | Multi-provider CLI adapters | Done | Claude, Gemini, Codex, Copilot |
 | Provider failover & discovery | Done | Automatic failover, model detection |
 | Instance Manager | Done | Create, terminate, restart, fork, hibernate |
@@ -228,7 +228,7 @@ src/
 ## Running the App
 
 ### Prerequisites
-- Node.js 20+
+- Node.js 24.15.0 (see `.nvmrc`)
 - npm 10+
 - At least one CLI installed: `claude`, `gemini`, `codex`, or `copilot`
 

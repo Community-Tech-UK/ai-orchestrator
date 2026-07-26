@@ -1,6 +1,44 @@
 import type { NodePlatform } from '../../shared/types/worker-node.types';
 import type { RpcRequest } from './worker-node-rpc';
 import { COORDINATOR_TO_NODE } from './worker-node-rpc';
+import type { z } from 'zod/v4';
+
+export const LOCAL_AI_HEALTH_MAX_RPC_RESPONSE_BYTES = 16 * 1024;
+
+export class BoundedServiceRpcResponseError extends Error {
+  constructor() {
+    super('Service RPC response was invalid or exceeded its byte limit');
+    this.name = 'BoundedServiceRpcResponseError';
+  }
+}
+
+/**
+ * Fail closed on service-RPC responses before any caller stores or logs them.
+ * Error text deliberately excludes Zod issues and serialized response content.
+ */
+export function parseBoundedServiceRpcResponse<T>(
+  schema: z.ZodType<T>,
+  value: unknown,
+  maxBytes = LOCAL_AI_HEALTH_MAX_RPC_RESPONSE_BYTES,
+): T {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw new BoundedServiceRpcResponseError();
+  }
+  if (typeof serialized !== 'string') {
+    throw new BoundedServiceRpcResponseError();
+  }
+  if (Buffer.byteLength(serialized, 'utf8') > maxBytes) {
+    throw new BoundedServiceRpcResponseError();
+  }
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new BoundedServiceRpcResponseError();
+  }
+  return parsed.data;
+}
 
 /**
  * RPC methods that represent the coordinator actually *using* a remote node
@@ -66,6 +104,8 @@ export function summarizeRpcParams(params: unknown): Record<string, unknown> | u
     'endpointProvider',
     'endpointId',
     'modelId',
+    'kind',
+    'action',
     'terminalId',
   ]) {
     const value = p[key];

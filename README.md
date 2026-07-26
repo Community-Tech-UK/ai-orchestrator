@@ -13,7 +13,7 @@ A high-performance desktop application for managing, monitoring, and coordinatin
 
 ## Tech Stack
 
-- **Frontend**: Angular 21 with signals-based state management
+- **Frontend**: Angular 22 with signals-based state management
 - **Backend**: Electron (Node.js) with TypeScript
 - **CLI Integration**: Multi-provider CLI adapters for spawning AI instances
 - **Build**: Angular CLI + Electron Builder
@@ -21,7 +21,7 @@ A high-performance desktop application for managing, monitoring, and coordinatin
 
 ## Prerequisites
 
-- Node.js 22+
+- Node.js 24.15.0 (see `.nvmrc`)
 - npm 10+
 - At least one supported AI CLI installed and configured, such as Claude, Codex, Gemini/Antigravity, Copilot, or Cursor
 

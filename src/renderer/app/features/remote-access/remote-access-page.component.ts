@@ -84,7 +84,7 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
         </article>
         <article class="stat-card">
           <span class="stat-label">Last Event</span>
-          <strong>{{ formatDate(status()?.lastEventAt) }}</strong>
+          <strong>{{ formatDate($safeNavigationMigration(status()?.lastEventAt)) }}</strong>
         </article>
       </section>
 

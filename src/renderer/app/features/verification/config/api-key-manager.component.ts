@@ -88,7 +88,7 @@ interface ProviderInfo {
             <input
               type="text"
               [(ngModel)]="newKeyName"
-              [placeholder]="getSelectedProvider()?.name + ' API Key'"
+              [placeholder]="$safeNavigationMigration(getSelectedProvider()?.name) + ' API Key'"
             />
           </div>
 
@@ -108,7 +108,7 @@ interface ProviderInfo {
 
           @if (getSelectedProvider()?.helpUrl) {
             <div class="form-hint">
-              <a [href]="getSelectedProvider()?.helpUrl" target="_blank" rel="noopener">
+              <a [href]="$safeNavigationMigration(getSelectedProvider()?.helpUrl)" target="_blank" rel="noopener">
                 How to get your {{ getSelectedProvider()?.name }} API key
               </a>
             </div>

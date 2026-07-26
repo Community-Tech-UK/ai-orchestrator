@@ -104,6 +104,47 @@ describe('project list view model', () => {
     expect(filterProjectGroups(groups, 'missing')).toEqual([]);
   });
 
+  it('shows only desktop-active live rows and removes projects without active sessions', () => {
+    const groups = buildProjectGroups(
+      [],
+      [
+        ...live,
+        {
+          ...live[0],
+          id: 'idle-2',
+          displayName: 'Waiting for the next prompt',
+          status: 'idle',
+          lastActivity: 15,
+        },
+        {
+          ...live[0],
+          id: 'failed-3',
+          displayName: 'Failed terminal session',
+          status: 'failed',
+          workingDirectory: '/work/terminal',
+          projectName: 'terminal',
+          lastActivity: 30,
+        },
+      ],
+      history,
+      recent,
+    );
+
+    const active = filterProjectGroups(groups, '', 'active');
+
+    expect(active.map((group) => group.project.name)).toEqual(['aio']);
+    expect(active[0].sessions.map((row) => row.id)).toEqual(['live-1', 'idle-2']);
+  });
+
+  it('applies text search without restoring rows removed by the active filter', () => {
+    const groups = buildProjectGroups([], live, history, recent);
+
+    expect(filterProjectGroups(groups, 'older', 'active')).toEqual([]);
+    expect(
+      filterProjectGroups(groups, 'aio', 'active')[0].sessions.map((row) => row.id),
+    ).toEqual(['live-1']);
+  });
+
   it('routes live and history rows to their existing destinations', () => {
     const groups = buildProjectGroups([], live, history, recent);
 

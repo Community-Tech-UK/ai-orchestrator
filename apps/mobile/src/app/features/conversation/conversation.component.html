@@ -222,7 +222,7 @@
     <app-model-sheet
       [provider]="instance()?.provider ?? ''"
       [models]="modelsForProvider()"
-      [selected]="instance()?.model"
+      [selected]="$safeNavigationMigration(instance()?.model)"
       [includeDefault]="false"
       [loading]="modelsLoading() || changingModel()"
       [error]="modelsError()"

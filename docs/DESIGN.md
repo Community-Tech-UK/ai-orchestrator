@@ -20,8 +20,8 @@ AI Orchestrator is a high-performance desktop environment for managing, monitori
 ### Technology Stack
 
 - **Electron 40** - Desktop application framework
-- **Angular 21** - Zoneless frontend with signals-based reactivity
-- **TypeScript 5.9** - Full-stack type safety with shared interfaces
+- **Angular 22** - Zoneless frontend with signals-based reactivity
+- **TypeScript 6.0** - Full-stack type safety with shared interfaces
 - **better-sqlite3** - Persistence for RLM and memory systems
 - **Zod 4** - Runtime validation for all IPC payloads
 - **Multi-Provider CLIs** - Claude, Gemini, Codex, Copilot as spawned child processes
@@ -402,7 +402,7 @@ claude-orchestrator/
 ├── src/
 │   ├── main/              # Electron Main Process — 37 domains, 325 files
 │   ├── preload/           # Secure Context Bridge — 5,300 lines
-│   ├── renderer/          # Angular 21 Frontend — 48 features, 262 files
+│   ├── renderer/          # Angular 22 Frontend — 48 features, 262 files
 │   └── shared/            # Types (47), Constants, Validation
 ├── docs/plans/            # Architecture docs and benchmarks
 ├── benchmarks/            # Performance benchmark harness

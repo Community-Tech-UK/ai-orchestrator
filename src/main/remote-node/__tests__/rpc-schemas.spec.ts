@@ -19,6 +19,11 @@ import {
   LocalModelSessionIdParamsSchema,
   LocalModelSessionSendInputParamsSchema,
   LocalModelSessionStartParamsSchema,
+  LocalAiHealthCheckParamsSchema,
+  LocalAiHealthCheckResultSchema,
+  LocalAiHealthDiagnoseParamsSchema,
+  LocalAiHealthDiagnoseResultSchema,
+  LocalAiHealthRepairParamsSchema,
   BrowserExtAttachTabParamsSchema,
   BrowserExtPollCommandParamsSchema,
   BrowserExtCommandResultParamsSchema,
@@ -26,6 +31,10 @@ import {
   COORDINATOR_TO_NODE_PARAM_SCHEMAS,
   validateRpcParams,
 } from '../rpc-schemas';
+import {
+  BoundedServiceRpcResponseError,
+  parseBoundedServiceRpcResponse,
+} from '../worker-node-connection-helpers';
 
 describe('rpc-schemas', () => {
   const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
@@ -589,6 +598,110 @@ describe('rpc-schemas', () => {
         .toBe(LocalModelSessionIdParamsSchema);
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.interrupt'])
         .toBe(LocalModelSessionIdParamsSchema);
+    });
+  });
+
+  describe('Local AI health RPC schemas', () => {
+    const validCheck = {
+      provider: 'ollama',
+      endpointId: 'ollama',
+      expectedModels: [
+        { modelId: 'qwen3:8b', required: true, minContextLength: 8_192 },
+      ],
+      kind: 'functional',
+      canary: {
+        contract: 'exact-token-v1',
+        model: 'qwen3:8b',
+      },
+      latencyThresholdMs: 2_000,
+      timeoutMs: 30_000,
+    };
+
+    it('accepts a bounded named-canary request and registers all three service methods', () => {
+      const { kind: _kind, ...diagnose } = validCheck;
+      expect(LocalAiHealthCheckParamsSchema.parse(validCheck)).toEqual(validCheck);
+      expect(LocalAiHealthDiagnoseParamsSchema.safeParse(diagnose).success).toBe(true);
+      expect(LocalAiHealthRepairParamsSchema.safeParse({
+        provider: 'ollama',
+        endpointId: 'ollama',
+        action: 'restart-ollama',
+      }).success).toBe(true);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localAi.health.check'])
+        .toBe(LocalAiHealthCheckParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localAi.health.diagnose'])
+        .toBe(LocalAiHealthDiagnoseParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localAi.health.repair'])
+        .toBe(LocalAiHealthRepairParamsSchema);
+    });
+
+    it('rejects caller prompts, commands, URLs, executable arguments, and unknown keys', () => {
+      for (const forbidden of [
+        { prompt: 'include repository content' },
+        { command: 'sh' },
+        { baseUrl: 'http://attacker.invalid' },
+        { executable: '/bin/sh' },
+        { args: ['-c', 'arbitrary'] },
+      ]) {
+        expect(LocalAiHealthCheckParamsSchema.safeParse({
+          ...validCheck,
+          ...forbidden,
+        }).success).toBe(false);
+      }
+    });
+
+    it('rejects an unbounded request and a canary model outside the expected-model allow-list', () => {
+      expect(LocalAiHealthCheckParamsSchema.safeParse({
+        ...validCheck,
+        timeoutMs: 120_001,
+      }).success).toBe(false);
+      expect(LocalAiHealthCheckParamsSchema.safeParse({
+        ...validCheck,
+        expectedModels: [{ modelId: 'qwen3:8b', required: true }],
+        canary: {
+          contract: 'exact-token-v1',
+          model: 'not-enrolled',
+        },
+      }).success).toBe(false);
+    });
+
+    it('rejects an unrecognised repair action and caller-controlled process fields', () => {
+      expect(LocalAiHealthRepairParamsSchema.safeParse({
+        provider: 'ollama',
+        endpointId: 'ollama',
+        action: 'run-command',
+      }).success).toBe(false);
+      expect(LocalAiHealthRepairParamsSchema.safeParse({
+        provider: 'ollama',
+        endpointId: 'ollama',
+        action: 'restart-ollama',
+        executable: '/bin/sh',
+      }).success).toBe(false);
+    });
+
+    it('normalises a non-serializable service response to the bounded-response error', () => {
+      expect(() => parseBoundedServiceRpcResponse(
+        LocalAiHealthCheckResultSchema,
+        undefined,
+      )).toThrow(BoundedServiceRpcResponseError);
+    });
+
+    it('rejects non-metadata health layers in diagnose responses', () => {
+      expect(LocalAiHealthDiagnoseResultSchema.safeParse({
+        targetId: 'ollama',
+        checkedAt: 1_700_000_000_000,
+        samples: [{
+          targetId: 'ollama',
+          layer: 'worker',
+          checkType: 'functional',
+          ok: true,
+          required: true,
+          affectedRoles: [],
+          checkedAt: 1_700_000_000_000,
+          durationMs: 1,
+          evidence: { workerConnected: true },
+        }],
+        recommendedActions: [],
+      }).success).toBe(false);
     });
   });
 

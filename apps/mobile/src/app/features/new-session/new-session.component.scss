@@ -224,6 +224,21 @@
   margin-bottom: var(--space-5);
 }
 
+.sheet-heading--with-action {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.sheet-heading__copy {
+  min-width: 0;
+}
+
+.sheet-confirm {
+  flex: none;
+}
+
 .sheet-heading h2 {
   margin: var(--space-1) 0 var(--space-2);
   font-size: var(--font-size-xl);

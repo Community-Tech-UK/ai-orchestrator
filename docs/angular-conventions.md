@@ -1,6 +1,6 @@
 # Angular Conventions
 
-These are the always-on conventions for this Angular 21, zoneless renderer. Project-specific state, styling, HTTP, and build choices remain in `AGENTS.md` and the codebase.
+These are the always-on conventions for this Angular 22, zoneless renderer. Project-specific state, styling, HTTP, and build choices remain in `AGENTS.md` and the codebase.
 
 ## Components
 

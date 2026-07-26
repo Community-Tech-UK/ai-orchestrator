@@ -86,6 +86,9 @@ export const COORDINATOR_TO_NODE = {
   AUXILIARY_MODEL_LIST: 'auxiliaryModel.list',
   AUXILIARY_MODEL_GENERATE: 'auxiliaryModel.generate',
   AUDIO_TRANSCRIBE: 'audio.transcribe',
+  LOCAL_AI_HEALTH_CHECK: 'localAi.health.check',
+  LOCAL_AI_HEALTH_DIAGNOSE: 'localAi.health.diagnose',
+  LOCAL_AI_HEALTH_REPAIR: 'localAi.health.repair',
 } as const;
 
 export type RpcScope = 'instance' | 'service';

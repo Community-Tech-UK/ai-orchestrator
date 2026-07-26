@@ -157,6 +157,8 @@ class SqliteWasmDriver implements SqliteDriver {
   private readonly statements: SqliteWasmStatement[] = [];
   private readonly stmtCache = new Map<string, SqliteWasmStatement>();
   private closed = false;
+  private transactionDepth = 0;
+  private nextSavepointId = 0;
 
   constructor(db: OO1Database) {
     this.db = db;
@@ -210,18 +212,28 @@ class SqliteWasmDriver implements SqliteDriver {
 
   transaction<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
     return (...args: A): R => {
-      this.db.exec('BEGIN');
+      const isOuterTransaction = this.transactionDepth === 0;
+      const savepoint = `sqlite_wasm_transaction_${this.nextSavepointId += 1}`;
+      this.db.exec(isOuterTransaction ? 'BEGIN' : `SAVEPOINT ${savepoint}`);
+      this.transactionDepth += 1;
       try {
         const result = fn(...args);
-        this.db.exec('COMMIT');
+        this.db.exec(isOuterTransaction ? 'COMMIT' : `RELEASE SAVEPOINT ${savepoint}`);
         return result;
       } catch (err) {
         try {
-          this.db.exec('ROLLBACK');
+          if (isOuterTransaction) {
+            this.db.exec('ROLLBACK');
+          } else {
+            this.db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+            this.db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+          }
         } catch {
           // Rollback itself failed — the original error is what we propagate.
         }
         throw err;
+      } finally {
+        this.transactionDepth -= 1;
       }
     };
   }

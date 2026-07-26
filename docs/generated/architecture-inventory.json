@@ -5526,6 +5526,10 @@
       "lines": 3817
     },
     {
+      "path": "resources/browser-extension/background.js",
+      "lines": 3602
+    },
+    {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
       "lines": 3564
     },
@@ -5544,10 +5548,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
       "lines": 3408
-    },
-    {
-      "path": "resources/browser-extension/background.js",
-      "lines": 3329
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5594,12 +5594,12 @@
       "lines": 2580
     },
     {
-      "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
-      "lines": 2519
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2533
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2474
+      "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
+      "lines": 2519
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -5616,6 +5616,10 @@
     {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
       "lines": 2228
+    },
+    {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 2226
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5647,10 +5651,6 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 2052
-    },
-    {
-      "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 2052
     },
     {
@@ -5694,12 +5694,12 @@
       "lines": 1764
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 1754
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1759
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1737
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 1754
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5732,6 +5732,10 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
       "lines": 1540
+    },
+    {
+      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "lines": 1531
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
@@ -5854,6 +5858,10 @@
       "lines": 1293
     },
     {
+      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
+      "lines": 1285
+    },
+    {
       "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
       "lines": 1281
     },
@@ -5886,6 +5894,10 @@
       "lines": 1263
     },
     {
+      "path": "src/main/local-ai-guard/local-ai-incident-service.spec.ts",
+      "lines": 1263
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-08-remote-local-model-runtime_completed.md",
       "lines": 1261
     },
@@ -5900,10 +5912,6 @@
     {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
       "lines": 1253
-    },
-    {
-      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
-      "lines": 1252
     },
     {
       "path": "docs/fable_todo_completed.md",
@@ -5940,10 +5948,6 @@
     {
       "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
       "lines": 1221
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 1220
     },
     {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
@@ -6036,6 +6040,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-06-remote-nodes-ux.md",
       "lines": 1109
+    },
+    {
+      "path": "src/main/local-ai-guard/local-ai-health-engine.spec.ts",
+      "lines": 1107
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design_completed.md",
@@ -6220,6 +6228,10 @@
     {
       "path": "docs/superpowers/plans/2026-07-11-harness-mobile-codex-redesign_completed.md",
       "lines": 953
+    },
+    {
+      "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
+      "lines": 951
     },
     {
       "path": "src/main/plugins/plugin-manager.spec.ts",

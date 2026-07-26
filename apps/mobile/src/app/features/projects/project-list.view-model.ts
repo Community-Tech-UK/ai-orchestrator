@@ -6,14 +6,21 @@ import type {
 } from '../../core/models';
 import {
   displayStatusLabel,
+  isActiveSessionStatus,
   isWorkingOrLooping,
   needsAttention,
 } from '../../core/status';
 import type { MobileSessionRowView } from '../../shared/mobile-session-row.component';
 
+export type SessionStateFilter = 'all' | 'active';
+
+export interface ProjectSessionRow extends MobileSessionRowView {
+  active: boolean;
+}
+
 export interface ProjectListGroup {
   project: MobileProjectDto;
-  sessions: MobileSessionRowView[];
+  sessions: ProjectSessionRow[];
 }
 
 export interface NavigationTarget {
@@ -118,18 +125,29 @@ export function buildProjectGroups(
 export function filterProjectGroups(
   groups: ProjectListGroup[],
   query: string,
+  stateFilter: SessionStateFilter = 'all',
 ): ProjectListGroup[] {
   const normalized = query.trim().toLocaleLowerCase();
-  if (!normalized) return groups;
 
   const matches: ProjectListGroup[] = [];
   for (const group of groups) {
+    const stateSessions = stateFilter === 'active'
+      ? group.sessions.filter((session) => session.active)
+      : group.sessions;
+    if (stateFilter === 'active' && stateSessions.length === 0) continue;
+    if (!normalized) {
+      matches.push(
+        stateSessions === group.sessions ? group : { ...group, sessions: stateSessions },
+      );
+      continue;
+    }
+
     const projectMatches = [group.project.name, group.project.path].some((value) =>
       value.toLocaleLowerCase().includes(normalized),
     );
     const sessions = projectMatches
-      ? group.sessions
-      : group.sessions.filter((session) =>
+      ? stateSessions
+      : stateSessions.filter((session) =>
           [session.title, session.subtitle ?? '', session.statusLabel].some((value) =>
             value.toLocaleLowerCase().includes(normalized),
           ),
@@ -217,7 +235,7 @@ function ensureProject(
   return created;
 }
 
-function liveSessionRow(instance: MobileInstanceDto): MobileSessionRowView {
+function liveSessionRow(instance: MobileInstanceDto): ProjectSessionRow {
   const status = displayStatusLabel(instance);
   return {
     id: instance.id,
@@ -228,10 +246,11 @@ function liveSessionRow(instance: MobileInstanceDto): MobileSessionRowView {
     unread: instance.hasUnreadCompletion,
     live: true,
     lastActivity: instance.lastActivity,
+    active: isActiveSessionStatus(instance.status),
   };
 }
 
-function historySessionRow(session: MobileHistorySessionDto): MobileSessionRowView {
+function historySessionRow(session: MobileHistorySessionDto): ProjectSessionRow {
   return {
     id: session.id,
     title: session.name,
@@ -241,6 +260,7 @@ function historySessionRow(session: MobileHistorySessionDto): MobileSessionRowVi
     unread: false,
     live: false,
     lastActivity: session.lastActiveAt,
+    active: false,
   };
 }
 

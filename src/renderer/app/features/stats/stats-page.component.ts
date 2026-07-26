@@ -116,11 +116,11 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
             </div>
             <div class="metric-card">
               <div class="metric-label">Total Tokens</div>
-              <div class="metric-value">{{ formatNumber(stats()?.totalTokens) }}</div>
+              <div class="metric-value">{{ formatNumber($safeNavigationMigration(stats()?.totalTokens)) }}</div>
             </div>
             <div class="metric-card">
               <div class="metric-label">Total Cost</div>
-              <div class="metric-value">{{ formatCost(stats()?.totalCost) }}</div>
+              <div class="metric-value">{{ formatCost($safeNavigationMigration(stats()?.totalCost)) }}</div>
             </div>
           </div>
 

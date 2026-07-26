@@ -2,11 +2,49 @@ import { describe, expect, it } from 'vitest';
 import {
   displayStatusColor,
   displayStatusLabel,
+  isActiveSessionStatus,
   isInterruptRecovery,
   isLiveActivityCandidate,
   isWorkingOrLooping,
   liveActivityStatusLabel,
 } from './status';
+
+describe('desktop-aligned active session status', () => {
+  it('includes current live states and excludes terminal, error, and hibernated states', () => {
+    const activeStatuses = [
+      'initializing',
+      'ready',
+      'idle',
+      'busy',
+      'processing',
+      'thinking_deeply',
+      'waiting_for_input',
+      'waiting_for_permission',
+      'interrupting',
+      'cancelling',
+      'interrupt-escalating',
+      'respawning',
+      'hibernating',
+      'waking',
+      'degraded',
+    ];
+    const inactiveStatuses = [
+      'cancelled',
+      'superseded',
+      'hibernated',
+      'error',
+      'failed',
+      'terminated',
+    ];
+
+    expect(activeStatuses.map((status) => isActiveSessionStatus(status))).toEqual(
+      activeStatuses.map(() => true),
+    );
+    expect(inactiveStatuses.map((status) => isActiveSessionStatus(status))).toEqual(
+      inactiveStatuses.map(() => false),
+    );
+  });
+});
 
 describe('loop-aware session status display', () => {
   it('treats idle looping sessions as active loop sessions', () => {

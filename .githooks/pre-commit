@@ -1,4 +1,10 @@
 #!/usr/bin/env sh
 set -eu
 
+# Lifecycle guard: active plan/spec/livetest docs must stay untracked.
+# Shared with every other project via ~/.config/git/hooks (global core.hooksPath).
+if [ -x "$HOME/.config/git/hooks/plan-spec-guard.sh" ]; then
+  "$HOME/.config/git/hooks/plan-spec-guard.sh" || exit 1
+fi
+
 node scripts/run-git-hook.js pre-commit

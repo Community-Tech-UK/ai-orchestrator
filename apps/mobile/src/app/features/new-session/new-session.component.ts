@@ -257,10 +257,20 @@ const DRAFT_KEY = 'new-session';
 
       @if (settingsSheetOpen()) {
         <app-mobile-sheet label="Session settings" (dismiss)="settingsSheetOpen.set(false)">
-          <header class="sheet-heading">
-            <span class="sheet-eyebrow">Harness resolves the final setup</span>
-            <h2>Session settings</h2>
-            <p>Auto uses the host's preferred provider, model, and reasoning level.</p>
+          <header class="sheet-heading sheet-heading--with-action">
+            <div class="sheet-heading__copy">
+              <span class="sheet-eyebrow">Harness resolves the final setup</span>
+              <h2>Session settings</h2>
+              <p>Auto uses the host's preferred provider, model, and reasoning level.</p>
+            </div>
+            <button
+              class="sheet-confirm mobile-icon-button"
+              type="button"
+              (click)="completeSettings()"
+              aria-label="Continue with selected provider"
+            >
+              <app-mobile-icon name="check" />
+            </button>
           </header>
 
           <span class="sheet-section-label">Provider</span>
@@ -510,6 +520,11 @@ export class NewSessionComponent implements OnInit {
       this.model.set(undefined);
       this.reasoningEffort.set(defaultReasoningEffortForProvider(provider));
     }
+    this.haptics.tap();
+  }
+
+  protected completeSettings(): void {
+    this.settingsSheetOpen.set(false);
     this.haptics.tap();
   }
 

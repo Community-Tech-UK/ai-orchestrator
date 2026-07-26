@@ -6,6 +6,8 @@ import {
   EventEmitter,
   Input,
   Output,
+  input,
+  output,
   signal,
   ɵresolveComponentResources as resolveComponentResources,
 } from '@angular/core';
@@ -23,6 +25,7 @@ import { PerfInstrumentationService } from '../../core/services/perf-instrumenta
 import { PromptSuggestionService } from '../../core/services/prompt-suggestion.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { ProviderStateService } from '../../core/services/provider-state.service';
+import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import { CommandStore } from '../../core/state/command.store';
 import { PromptHistoryStore } from '../../core/state/prompt-history.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -93,6 +96,18 @@ await resolveComponentResources((url) => {
 class AgentSelectorStubComponent {
   @Input() selectedAgentId = 'build';
   @Output() agentSelected = new EventEmitter<unknown>();
+}
+
+@Component({
+  selector: 'app-compact-model-picker',
+  template: '',
+})
+class CompactModelPickerStubComponent {
+  mode = input('pending-create');
+  providers = input<string[]>([]);
+  selection = input<unknown>();
+  selectedLocalModelNodeId = input<string | null>(null);
+  selectionChange = output<unknown>();
 }
 
 @Component({
@@ -176,11 +191,15 @@ describe('InputPanelComponent composer autocomplete integration', () => {
   let component: InputPanelComponent;
   let codebaseSearch: ReturnType<typeof createCodebaseSearchMock>;
   let draftService: ReturnType<typeof createDraftServiceMock>;
+  let newSessionDraft: ReturnType<typeof createNewSessionDraftMock>;
+  let providerState: ReturnType<typeof createProviderStateMock>;
   let animationFrameCallbacks: FrameRequestCallback[];
 
   beforeEach(async () => {
     codebaseSearch = createCodebaseSearchMock();
     draftService = createDraftServiceMock();
+    newSessionDraft = createNewSessionDraftMock();
+    providerState = createProviderStateMock();
     animationFrameCallbacks = [];
     vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
       animationFrameCallbacks.push(callback);
@@ -197,6 +216,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
         styleUrls: [],
         imports: [
           AgentSelectorStubComponent,
+          CompactModelPickerStubComponent,
           LoopToggleStubComponent,
           LoopConfigPanelStubComponent,
           ComposerToolbarStubComponent,
@@ -214,8 +234,8 @@ describe('InputPanelComponent composer autocomplete integration', () => {
         { provide: DraftService, useValue: draftService },
         { provide: PromptSuggestionService, useValue: { getSuggestion: vi.fn(() => null) } },
         { provide: PerfInstrumentationService, useValue: { markComposerLatency: vi.fn(() => vi.fn()) } },
-        { provide: ProviderStateService, useValue: createProviderStateMock() },
-        { provide: NewSessionDraftService, useValue: createNewSessionDraftMock() },
+        { provide: ProviderStateService, useValue: providerState },
+        { provide: NewSessionDraftService, useValue: newSessionDraft },
         { provide: SettingsStore, useValue: { defaultYoloMode: signal(false) } },
         { provide: ActionDispatchService, useValue: { dispatch: vi.fn() } },
         { provide: InstanceStore, useValue: { getInstance: vi.fn(() => undefined) } },
@@ -382,6 +402,52 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(component.message()).toBe('see @src');
   });
 
+  it('shows and toggles the selected provider fast preference for a new session', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    fixture.detectChanges();
+
+    const fastButton = fixture.nativeElement.querySelector('.fast-toggle') as HTMLButtonElement;
+    expect(fastButton.textContent).toContain('FAST OFF');
+
+    fastButton.click();
+    fixture.detectChanges();
+
+    expect(providerState.rememberFastModeForProvider).toHaveBeenCalledWith('claude', true);
+    expect(fastButton.textContent).toContain('FAST ON');
+  });
+
+  it('shows the remembered fast preference only for supported draft providers', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    providerState.fastModeByProvider.set({ claude: false, codex: true });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.fast-toggle')?.textContent).toContain('FAST OFF');
+
+    providerState.selectedProvider.set('codex');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.fast-toggle')?.textContent).toContain('FAST ON');
+
+    providerState.selectedProvider.set('gemini');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.fast-toggle')).toBeNull();
+  });
+
+  it('hides the draft fast toggle for a local-model target', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    newSessionDraft.provider.set('auto');
+    newSessionDraft.modelRuntimeTarget.set({
+      kind: 'local-model',
+      source: 'this-device',
+      selectorId: 'lm://this-device/ollama/ollama/qwen2.5',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen2.5',
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.fast-toggle')).toBeNull();
+  });
+
   function getTextarea(): HTMLTextAreaElement {
     return fixture.nativeElement.querySelector('textarea.message-input') as HTMLTextAreaElement;
   }
@@ -475,27 +541,45 @@ function createDraftServiceMock() {
   };
 }
 
-function createProviderStateMock(): Partial<ProviderStateService> {
+function createProviderStateMock() {
+  const fastModeByProvider = signal<Record<string, boolean>>({});
   return {
     selectedProvider: signal<ProviderType>('claude'),
     selectedModel: signal<string>(''),
+    fastModeByProvider,
     setProvider: vi.fn(),
     setModel: vi.fn(),
+    getFastModeForProvider: vi.fn(
+      (provider: ProviderType) => fastModeByProvider()[provider] ?? false,
+    ),
+    rememberFastModeForProvider: vi.fn((provider: ProviderType, fastMode: boolean) => {
+      fastModeByProvider.update((current) => ({ ...current, [provider]: fastMode }));
+    }),
+    getLaunchModeForProvider: vi.fn(() => 'orchestrated' as const),
   };
 }
 
-function createNewSessionDraftMock(): Partial<NewSessionDraftService> {
+function createNewSessionDraftMock() {
   return {
     revision: signal(0),
     prompt: signal(''),
     provider: signal<ProviderType | null>(null),
     model: signal<string | null>(null),
+    modelRuntimeTarget: signal<ModelRuntimeTarget | null>(null),
+    reasoningEffort: signal(null),
+    nodeId: signal<string | null>(null),
     yoloMode: signal<boolean | null>(null),
+    hardened: signal<boolean | null>(null),
+    launchMode: signal(null),
     agentId: signal('build'),
     setProvider: vi.fn(),
     setModel: vi.fn(),
+    setModelRuntimeTarget: vi.fn(),
+    setReasoningEffort: vi.fn(),
     setAgentId: vi.fn(),
     setYoloMode: vi.fn(),
+    setHardened: vi.fn(),
+    setLaunchMode: vi.fn(),
     setPrompt: vi.fn(),
     clearActiveComposer: vi.fn(),
   };

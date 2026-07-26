@@ -100,7 +100,7 @@ let eventLogIdCounter = 0;
                 <span class="meta-value">{{ formatDate(status()!.lastFetched!) }}</span>
               </div>
             }
-            @if (status()?.cacheAge !== undefined) {
+            @if ($safeNavigationMigration(status()?.cacheAge) !== undefined) {
               <div class="meta-row">
                 <span class="meta-label">Cache age:</span>
                 <span class="meta-value">{{ formatAge(status()!.cacheAge!) }}</span>

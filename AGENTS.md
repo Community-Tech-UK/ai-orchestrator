@@ -1,6 +1,6 @@
 # AI Orchestrator Agent Instructions
 
-AI Orchestrator is an Electron 40 + Angular 21 desktop app that coordinates Claude, Gemini, Codex, and Copilot CLIs. The main process is TypeScript/Node, the renderer is zoneless Angular with signals, persistence uses better-sqlite3, IPC payloads use Zod 4, and tests use Vitest.
+AI Orchestrator is an Electron 40 + Angular 22 desktop app that coordinates Claude, Gemini, Codex, and Copilot CLIs. The main process is TypeScript/Node, the renderer is zoneless Angular with signals, persistence uses better-sqlite3, IPC payloads use Zod 4, and tests use Vitest.
 
 ## Critical Rules
 
@@ -78,6 +78,8 @@ Before renaming the plan:
 4. In the completion summary, describe the items as deferred live checks recorded in the livetest doc. Do not claim they are verified.
 
 The livetest doc is itself a plan: run it against the rebuilt app (typically by dragging `*_livetest.md` files into a loop) and rename it `_livetest_completed.md` only when every check passes with evidence. Searching for `*_livetest.md` lists all pending live testing.
+
+Every `*_livetest.md` carries a header block pointing at the remediation flow — include it when you create a new one. A **reproduced** defect goes into `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item (index row plus observed behaviour, root cause, required behaviour, acceptance), with a matching implementation-status section in `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. Per-check evidence stays in the owning livetest doc. Before running a campaign, read `docs/plans/livetest-campaign-runbook.md`.
 
 ## TypeScript and Angular Conventions
 

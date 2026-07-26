@@ -141,6 +141,17 @@
           >
             <span class="yolo-label">YOLO {{ effectiveYoloMode() ? 'ON' : 'OFF' }}</span>
           </button>
+          @if (showDraftFastModeToggle()) {
+            <button
+              type="button"
+              class="yolo-toggle fast-toggle"
+              [class.active]="effectiveDraftFastMode()"
+              (click)="onToggleDraftFastMode()"
+              [title]="effectiveDraftFastMode() ? 'Fast Mode ON — faster output at some capability cost. Click to disable' : 'Fast Mode OFF — standard output. Click to enable faster output'"
+            >
+              <span class="yolo-label">FAST {{ effectiveDraftFastMode() ? 'ON' : 'OFF' }}</span>
+            </button>
+          }
           @if (showHardenedToggle()) {
             <button
               class="yolo-toggle hardened-toggle"

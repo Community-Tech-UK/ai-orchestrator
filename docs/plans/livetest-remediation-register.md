@@ -1,12 +1,20 @@
-# Live-Test Failure Remediation Spec
+# Live-Test Remediation Register
 
-**Status:** Approved in review `2026-07-18-livetest-failure-remediation`.
+**Type: standing register — deliberately tracked, no `_spec`/`_plan` lifecycle.**
+This file has no `_completed` state and never will: new `LT-NNN` items are appended whenever a
+live-test campaign reproduces a defect (see Operating Rule 6 below). It was previously named
+`2026-07-18-livetest-failure-remediation_spec_planned.md`; renamed 2026-07-26 because a `_planned`
+suffix implies a terminal `_completed` that cannot apply to a rolling index, and because the
+untracked-until-complete rule would leave weeks of accumulated defect triage unbacked-up. Per-item
+status lives in the Remediation Index; implementation progress lives in the plan.
+
+**Original status:** Approved in review `2026-07-18-livetest-failure-remediation`.
 
 **Plan:** [2026-07-19-livetest-failure-remediation_plan.md](2026-07-19-livetest-failure-remediation_plan.md)
 
 **Purpose:** Provide one execution index for every confirmed defect found while running the
-currently untracked live-test backlog. The originating live-test files remain the canonical
-acceptance procedures and evidence records.
+live-test backlog. The originating live-test files remain the canonical acceptance procedures and
+evidence records.
 
 ## Operating Rules
 
@@ -35,6 +43,10 @@ acceptance procedures and evidence records.
 | LT-004 | P0 | Interrupt and unexpected-exit recovery must classify the active runtime correctly and preserve the session | [Interrupt evidence](../superpowers/plans/2026-07-17-interrupt-respawn-reconciler-migration-plan_livetest.md#2026-07-18-live-test-evidence), [unexpected-exit evidence](../superpowers/plans/2026-07-17-unexpected-exit-reconciler-migration-plan_livetest.md#2026-07-18-live-test-evidence) | [Interrupt checks](../superpowers/plans/2026-07-17-interrupt-respawn-reconciler-migration-plan_livetest.md#checks), [unexpected-exit checks](../superpowers/plans/2026-07-17-unexpected-exit-reconciler-migration-plan_livetest.md#checks) |
 | LT-005 | P1 | `bench:retrieval -- --local` must run the documented read-only local-personal suite against real stores | [WS16 evidence](2026-07-13-fable-ws16_livetest.md#2026-07-18-live-test-evidence) | [WS16 local-personal check](2026-07-13-fable-ws16_livetest.md#3-local-personal-suite-read-only-never-committed) |
 | LT-006 | P1 | Replace obsolete live Gemini requirements with Antigravity while preserving explicit backward-compatibility coverage | [WS1 historical blocker](2026-07-13-fable-ws1_livetest.md#evidence-run--2026-07-16-blocked-no-rows-recorded) | [WS1 completion matrix](2026-07-13-fable-ws1_livetest.md#completion-matrix), [WS7 failover check](2026-07-13-fable-ws7-phaseb_livetest.md), [provider-context evidence check](../superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan_livetest.md) |
+| LT-008 | P0 | A yolo-only (or any fork-resume) runtime change must resume the session that exists, not a freshly minted id, and must not destroy a live session on an unproven health probe | [YOLO reconciler evidence](../superpowers/plans/2026-07-17-yolo-mode-reconciler-migration-plan_livetest.md#evidence-run--2026-07-26--checks-1-and-3-fail-reproducibly-root-cause-found) | [YOLO reconciler checks](../superpowers/plans/2026-07-17-yolo-mode-reconciler-migration-plan_livetest.md#checks) |
+| LT-009 | P0 | The skill registry must actually contain the builtin skills, so trigger matching and skill attribution can record anything at all | [Skill observability evidence](../../2026-07-23-skill-observability-and-design-skills_livetest.md#evidence-run-2--2026-07-26-dev-app-with-a-send-path--check-2-fails-the-registry-is-empty) | [Skill observability checks](../../2026-07-23-skill-observability-and-design-skills_livetest.md) |
+| LT-010 | P1 | `sync_to_node` / `sync_from_node` must validate against the node's file-transfer roots, the same allowlist `upload_to_node` uses | [Worker file-movement evidence](2026-07-16-worker-controller-file-movement_livetest.md#evidence-run--2026-07-26--check-5-re-run-sync-root-bug-root-caused) | [Worker file-movement check 5](2026-07-16-worker-controller-file-movement_livetest.md#5-agent-folder-sync-spec-item-5) |
+| LT-011 | P2 | Live-test checks must assert on signals the app actually emits; add the missing log lines (or rewrite the checks) | [History-restore evidence](../superpowers/plans/2026-07-17-history-restore-reconciler-migration-plan_livetest.md#evidence-run--2026-07-26--corroboration-for-check-1-24-not-run-the-checks-are-not-log-observable-as-written) | [History-restore checks](../superpowers/plans/2026-07-17-history-restore-reconciler-migration-plan_livetest.md#checks) |
 | LT-007 | P2 | Remove obsolete “no GUI automation” and “non-interactive session” blockers from live-test guidance now that Computer Use is available | [Doc-review delivery attempt](2026-07-13-doc-review-delivery-reconciliation-plan_livetest.md#evidence-run--2026-07-16-attempt-1-autonomous-agent), [WS1 attempt](2026-07-13-fable-ws1_livetest.md#evidence-run--2026-07-16-blocked-no-rows-recorded), [context-pressure attempt](../superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest.md#live-test-attempt-log-2026-07-16) | Re-run each linked checklist with current Computer Use capabilities |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
@@ -343,12 +355,189 @@ The following observations do not currently justify code changes:
 6. LT-005: wire the read-only local benchmark and finish WS16.
 7. Work through every remaining pending live test with Codex, Antigravity, Copilot, Computer Use,
    and a current remote worker where required. Add only reproduced defects to this spec.
+8. **LT-008 first among the 2026-07-26 additions** — it corrupts every fork-resume runtime change on
+   Claude, which also blocks session-provider-model-swap and rolling-handoff from being tested
+   meaningfully. Then LT-009, LT-010, LT-011.
+
+## LT-008: Fork-Resume Passes a Never-Minted Session Id as the Resume Source
+
+**Priority P0. Found 2026-07-26, reproduced 2 of 2 on a real Claude session.**
+
+### Observed behavior
+
+`toggleYoloMode({ enabled })` on an **idle** Claude instance with conversation history returns
+`TOGGLE_YOLO_MODE_FAILED: "Illegal transition: error → busy"`. The CLI is SIGTERM'd, the instance
+drops to `error`, and roughly 45 s later the generic `process_exited_unexpected` recovery recipe
+respawns it with a **fresh provider session and a replayed transcript**. No
+`[System: YOLO mode enabled …]` notice ever appears. Provider session id changed on every toggle
+(`0fd999dd… → a9d33453… → 3d359928… → 12e02cae…`).
+
+### Root cause
+
+`src/main/instance/lifecycle/runtime-reconciler.ts:194-206` resolves a yolo-only change on a
+conversation-bearing Claude session to `native-resume-fork` (Claude reports `supportsForkSession`).
+Lines 238-241 then mint the fork's *target* id and overwrite the instance with it **before** spawn:
+
+```ts
+const newSessionId = shouldResume && shouldForkSession
+  ? generateId()                                   // an id the CLI has never minted
+  : (shouldResume ? instance.sessionId : generateId());
+instance.sessionId = newSessionId;
+```
+
+That id is passed as `spawnOptions.sessionId` (line 265). `claude-cli-adapter.ts:1064-1069` treats
+`spawnOptions.sessionId` as the **source** to resume from and builds
+`--resume <id> --fork-session`; `UnifiedSpawnOptions` carries no separate source-id field (only
+`forkSession?: boolean`). `shouldUseNativeResume()` finds no transcript for the never-used id,
+logs `Skipping --resume: no transcript for session under current cwd`, and spawns **without**
+`--resume`. No resume proof arrives, so `waitForResumeHealth` is false, and line 301 throws
+`Native resume did not stabilize after model change` → `adapter.terminate(true)`.
+
+### Required behavior
+
+1. For a fork, pass the **existing** `instance.sessionId` as the resume source and let the CLI mint
+   the forked id — the adapter already adopts the authoritative id from the init message
+   (`claude-cli-adapter.ts:1080-1084`). The reconciler must not pre-generate the target id, or must
+   pass source and target as distinct fields.
+2. **Same file, related hazard:** the runtime-change path uses the boolean `waitForResumeHealth`
+   (line 301), where an `inconclusive` verdict collapses to `false` and destroys the session. The
+   recovery path deliberately does not — `resolveRecoveryResumeHealth` (line 488) retries once and
+   then *keeps* the live session, commenting that tearing it down "is exactly what previously lost
+   the live thread and in-flight background agents on 'resume failed'". Apply the same policy to the
+   runtime-change path.
+
+### Acceptance
+
+A yolo toggle on an idle Claude instance with history keeps the same provider session id, emits the
+system notice, and answers a pre-toggle question from native context — YOLO reconciler checks 1 and
+3, plus check 2's apply-on-settle half.
+
+## LT-009: Skill Registry Is Empty, So Skill Observability Records Nothing
+
+**Priority P0. Found 2026-07-26.**
+
+### Observed behavior
+
+Six real `sendInput` turns carrying exact builtin trigger phrases — including the bare phrase
+`flaky test` (100% of the message) and the slash form `/test-stabilizer` — produced **zero**
+`skill_activations` rows on a profile where migration `053_skill_attribution` is applied and both
+tables exist. Every send logged `RLM context injected`; **no** send logged
+`UnifiedMemory context injected`, i.e. the branch carrying skills never yielded a payload.
+`/test-stabilizer` came back from the agent as `Unknown command: /test-stabilizer`.
+
+The min-confidence gate is **not** the cause: `triggerMinConfidence` is `0.05`
+(`skills-loader.ts:56`); the bare-phrase send scores 1.0.
+
+### Root cause (partially established)
+
+`skillsList()` returns **0 skills** — confirmed via two independent call paths, and it takes no
+payload so it cannot be a validation artifact. Meanwhile **17 builtin skill directories exist on
+disk** under `src/main/skills/builtin/`. With an empty registry `SkillRegistry.matchTrigger()` can
+never match, so `detectRelevantSkills()` returns nothing and `fetchSkills()`
+(`unified-controller.ts:765-801`) records nothing.
+
+**Open:** why discovery/registration finds none of the 17 builtins. That is the first thing to chase.
+
+### Required behavior
+
+The builtin skills are registered at startup; a message containing a builtin trigger injects the
+skill and writes a `skill_activations` row with `matched_by='trigger'`; `/test-stabilizer` resolves.
+
+### Acceptance
+
+Skill-observability checks 2, 4, 7 and 9 become scoreable (they are currently *indeterminate*, not
+passing — their negative halves are vacuous while nothing can inject at all).
+
+## LT-010: Sync Handler Validates Against the Wrong Allowlist
+
+**Priority P1. Found 2026-07-26 (confirms and root-causes the 2026-07-24 report).**
+
+### Observed behavior
+
+Against the live `windows-pc` worker, in the same minute:
+
+- `sync_to_node → C:\Users\shutu\.orchestrator\_scratch\aio-transfers\aio-lt-sync` fails with
+  `RPC error -32603: Path outside allowed roots`.
+- `upload_to_node` writes to **that same path** successfully.
+
+The node advertises that root as
+`{id: "scratch", path: "C:\\Users\\shutu\\.orchestrator\\_scratch\\aio-transfers", read: true, write: true}`.
+
+### Root cause
+
+`src/worker-agent/worker-agent.ts:929` constructs the handler from the wrong list:
+
+```ts
+this.syncHandler = new SyncHandler(this.config.workingDirectories ?? []);
+```
+
+`SyncHandler.assertAllowed()` (`src/worker-agent/sync-handler.ts:29-33`) therefore validates against
+`workingDirectories`, a different allowlist from the file-transfer roots that
+`upload_to_node`/`download_from_node` use. `isPathAllowed()` itself
+(`src/worker-agent/path-sandbox.ts`) is correct — it is handed the wrong roots. Proof: the identical
+sync into a *working directory* path succeeds (`added: 2, totalBytesTransferred: 48`).
+
+### Required behavior
+
+Construct `SyncHandler` from the node's writable file-transfer roots so the sync and upload tools
+share one allowlist, and read-only roots are refused **as read-only** rather than as
+"outside allowed roots".
+
+### Acceptance
+
+Worker file-movement check 5 passes against the `aio-transfers` scratch root exactly as its recipe
+is written, including the read-only-root refusal assertion.
+
+## LT-011: Live-Test Checks That Assert on Signals the App Never Emits
+
+**Priority P2. Found 2026-07-26.**
+
+### Observed behavior
+
+- History-restore check 4 instructs the runner to "check the app log for
+  `Browser gateway MCP disabled for instance`". **That string is never logged.** Neither are
+  `restoreMode`, `native-resume`, `replay-fallback`, or `nativeResumeFailedAt` — so **none** of that
+  doc's four checks is log-observable, even with full UI access.
+- `VectorStore.getStats()` has no log line and no IPC exposure, so
+  `2026-07-21-rlm-vector-store-memory_livetest.md` check 2 cannot be read at all.
+- Stale preload wrappers: `electronAPI.skillsDiscover` sends `{ directory }` and
+  `electronAPI.skillsMatch` sends `{ query, maxResults }`
+  (`src/preload/domains/orchestration.preload.ts:534-536, 589-591`) while the contracts require
+  `{ searchPaths }` and `{ text }` (`packages/contracts/src/schemas/provider.schemas.ts:326-328`),
+  so both fail Zod validation. The Angular `OrchestrationIpcService` sends the correct shapes, so
+  this is a latent inconsistency rather than a user-facing break — but it silently breaks any agent
+  probing through `electronAPI`.
+
+### Required behavior
+
+Either emit the signals the checks name (a `restoreMode` log line at each rung; a
+`Browser gateway MCP disabled for instance` line; a `getStats()` diagnostics field or log line), or
+rewrite those checks to assert on something real. Align the stale preload wrappers with the
+contracts.
+
+## 2026-07-26 observations — triage needed, not yet classified as defects
+
+Reproduced and evidenced, but each needs a judgement call before it becomes an LT item:
+
+1. **76% of production sends (51 of 67) miss the 500 ms `INPUT_CONTEXT_DEADLINE_MS`** and defer
+   their context bundle to the next turn. Unified-memory context yielded a payload on only 2 of 67
+   sends. Deferral is by design (`instance-manager.ts:1789-1802`); the *rate* may not be.
+2. **Automation-initiated turns are entirely outside skill observability** — an automation delivers
+   its prompt as the instance's initial prompt at spawn, which never runs `buildInputContexts` →
+   `fetchSkills`, so scheduled work can never produce a `skill_activations` row.
+3. **28 `codex app-server` wrapper processes** parented to the Harness main process, several 4–12 h
+   old, against `activeInstances: 0` on the remote node. Possible orphan-process leak.
+4. **`rlm-storage:get-health` blocks the main event loop** — `syncMs` 189 / 214 / 266 and once
+   **2164 ms** against a 100 ms threshold (`IpcHandlerTiming`, `SlowOperations`).
+5. **The dev app still writes its `app.log` into the production profile** (wave-2 finding 12,
+   re-confirmed 2026-07-26). This actively contaminates log-based evidence gathered from
+   `harness/logs/` while a dev app is running.
 
 ## Completion Criteria
 
 This remediation program is complete when:
 
-- LT-001 through LT-007 satisfy their acceptance criteria.
+- LT-001 through LT-011 satisfy their acceptance criteria.
 - Every linked source live test is renamed `_livetest_completed.md`.
 - Every newly discovered defect has been fixed and linked here before its retest is completed.
 - All remaining untracked `_livetest.md` files have either passed and been renamed or contain a

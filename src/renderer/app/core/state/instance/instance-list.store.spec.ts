@@ -1,12 +1,18 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IpcFacadeService } from '../../services/ipc';
+import { ProviderStateService } from '../../services/provider-state.service';
 import { InstanceListStore } from './instance-list.store';
 import { InstanceStateService } from './instance-state.service';
 
 describe('InstanceListStore', () => {
   let store: InstanceListStore;
   let stateService: InstanceStateService;
+  let providerState: {
+    selectedProvider: ReturnType<typeof vi.fn>;
+    getFastModeForProvider: ReturnType<typeof vi.fn>;
+    rememberFastModeForProvider: ReturnType<typeof vi.fn>;
+  };
   let ipc: {
     createInstance: ReturnType<typeof vi.fn>;
     createInstanceWithMessage: ReturnType<typeof vi.fn>;
@@ -18,6 +24,11 @@ describe('InstanceListStore', () => {
   };
 
   beforeEach(() => {
+    providerState = {
+      selectedProvider: vi.fn(() => 'claude'),
+      getFastModeForProvider: vi.fn(() => false),
+      rememberFastModeForProvider: vi.fn(),
+    };
     ipc = {
       createInstance: vi.fn().mockResolvedValue({
         success: true,
@@ -80,6 +91,7 @@ describe('InstanceListStore', () => {
         InstanceListStore,
         InstanceStateService,
         { provide: IpcFacadeService, useValue: ipc },
+        { provide: ProviderStateService, useValue: providerState },
       ],
     });
 
@@ -410,6 +422,24 @@ describe('InstanceListStore', () => {
       message: 'delete the stale copy',
       provider: 'codex',
       yoloMode: true,
+    }));
+  });
+
+  it('uses the target provider remembered fast preference for a new session', async () => {
+    providerState.getFastModeForProvider.mockImplementation(
+      (provider: string) => provider === 'codex',
+    );
+
+    await store.createInstanceWithMessageAndReturnId({
+      workingDirectory: '/tmp/project',
+      message: 'investigate the latency',
+      provider: 'codex',
+    });
+
+    expect(providerState.getFastModeForProvider).toHaveBeenCalledWith('codex');
+    expect(ipc.createInstanceWithMessage).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'codex',
+      fastMode: true,
     }));
   });
 
