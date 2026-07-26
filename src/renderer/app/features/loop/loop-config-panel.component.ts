@@ -233,6 +233,9 @@ export class LoopConfigPanelComponent {
    *  legitimate non-test-driven loops (new module scaffolds, refactors with
    *  no test deltas, doc/asset generation) don't pause spuriously. */
   pauseOnTokenBurn = signal(false);
+  /** Interactive loops are isolated and promoted by AIO unless the operator
+   *  explicitly selects the legacy shared-checkout compatibility mode. */
+  managedIsolation = signal(true);
   allowDestructive = signal(false);
   showAdvanced = signal(false);
   private planPacketModeManuallyOverridden = false;
@@ -617,6 +620,8 @@ export class LoopConfigPanelComponent {
           }
         : {}),
       allowDestructiveOps: this.allowDestructive(),
+      isolateLoopWorkspaces: this.managedIsolation(),
+      autoIntegrateWorktree: this.managedIsolation(),
       context: {
         compaction: {
           enabled: this.compactContext(),

@@ -1,6 +1,7 @@
 // Presentational types for the renderer LoopStore. Split out of loop.store.ts
 // to keep that file under its LOC ceiling. Re-exported from loop.store.ts so
 // existing consumers can keep importing them from the store.
+import type { LoopWorktreeLifecycle } from '../../../../shared/types/loop.types';
 
 export interface LoopBannerNoProgress {
   kind: 'no-progress';
@@ -83,6 +84,8 @@ export interface LoopFinalSummary {
    *  the main process. Absent when the loop terminated before any
    *  iteration completed. */
   lastIteration?: LoopFinalSummaryLastIteration;
+  /** Final or in-progress state of AIO-managed worktree promotion. */
+  worktreeLifecycle?: LoopWorktreeLifecycle;
 }
 
 export interface LoopRunningIteration {

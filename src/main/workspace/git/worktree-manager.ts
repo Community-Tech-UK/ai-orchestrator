@@ -31,11 +31,16 @@ import { getGitWriteQueue } from './git-write-queue';
 import { gitExec, gitExecSafe } from './git-exec';
 import { provisionWorktreeDependencies } from './worktree-deps';
 import { assignWorktreeRendererPort } from './worktree-port';
-import { pathCompareKey, removeManagedWorktreeDirectory } from './worktree-cleanup';
+import {
+  deleteLocalBranchIfPresent,
+  pathCompareKey,
+  removeManagedWorktreeDirectory,
+} from './worktree-cleanup';
 import {
   integrateViaWorktree,
   integrateIntoSharedBranch,
-  tryAdvanceBaseBranch,
+  promoteIntegrationBranch,
+  type BasePromotionResult,
   type SharedIntegrationResult,
 } from './worktree-integration';
 
@@ -91,6 +96,7 @@ export class WorktreeManager extends EventEmitter {
       taskType?: WorktreeSession['taskType'];
       skipInstall?: boolean;
       repoRoot?: string;
+      onPrepared?: (session: WorktreeSession) => void | Promise<void>;
     }
   ): Promise<WorktreeSession> {
     // Check concurrent limit
@@ -137,6 +143,8 @@ export class WorktreeManager extends EventEmitter {
     this.emit('worktree:creating', session);
 
     try {
+      // Persist ownership before any branch/worktree mutation.
+      await options?.onPrepared?.(session);
       await fs.mkdir(path.dirname(worktreePath), { recursive: true });
 
       await getGitWriteQueue().enqueue('worktree-add', () =>
@@ -179,7 +187,7 @@ export class WorktreeManager extends EventEmitter {
       this.emit('worktree:error', { session, error });
 
       try {
-        await this.cleanupWorktree(session.id, { force: true });
+        await this.cleanupWorktree(session.id, { force: true, deleteBranch: true });
       } catch {
         /* intentionally ignored: cleanup errors should not mask the original error */
       }
@@ -274,6 +282,7 @@ export class WorktreeManager extends EventEmitter {
     instanceId: string,
     worktreePath: string,
     taskDescription: string,
+    options?: { baseBranch?: string },
   ): Promise<WorktreeSession> {
     const existing = [...this.sessions.values()].find((s) => s.worktreePath === worktreePath);
     if (existing) return existing;
@@ -287,7 +296,7 @@ export class WorktreeManager extends EventEmitter {
       instanceId,
       worktreePath,
       branchName: branchName || `task-restored-${Date.now().toString(36)}`,
-      baseBranch: '',
+      baseBranch: options?.baseBranch ?? '',
       baseCommit: baseCommit || '',
       status: 'active',
       lastActivity: Date.now(),
@@ -314,9 +323,10 @@ export class WorktreeManager extends EventEmitter {
     if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
 
     try {
-      const status = await gitExecSafe(['status', '--porcelain'], session.worktreePath);
+      const status = await gitExec(['status', '--porcelain'], session.worktreePath);
       if (!status.trim()) {
-        return { committed: false, hasUncommittedWork: false };
+        const hash = await gitExec(['rev-parse', 'HEAD'], session.worktreePath);
+        return { committed: false, hasUncommittedWork: false, hash };
       }
 
       const result = await getGitWriteQueue().enqueue('harvest', async () => {
@@ -658,13 +668,20 @@ export class WorktreeManager extends EventEmitter {
    */
   async integrateWorktree(
     worktreeId: string,
-    options?: { strategy?: MergeStrategy; integrationBranch?: string; advanceBaseIfUnchecked?: boolean },
-  ): Promise<SharedIntegrationResult & { baseAdvanced?: boolean }> {
+    options?: { strategy?: MergeStrategy; integrationBranch?: string },
+  ): Promise<SharedIntegrationResult> {
     const session = this.sessions.get(worktreeId);
     if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
 
-    const repoRoot = await gitExec(['rev-parse', '--show-toplevel'], session.worktreePath);
-    const baseBranch = session.baseBranch || (await gitExec(['branch', '--show-current'], repoRoot));
+    const repoRoot = await this.getWorktreeAdminRoot(session);
+    const baseBranch = session.baseBranch;
+    if (!baseBranch) {
+      return {
+        success: false,
+        integrationBranch: options?.integrationBranch ?? '',
+        error: 'Managed worktree base branch metadata is missing',
+      };
+    }
     const integrationBranch = options?.integrationBranch ?? `integration/${baseBranch}`;
     const strategy = options?.strategy ?? this.config.defaultStrategy;
 
@@ -690,11 +707,26 @@ export class WorktreeManager extends EventEmitter {
     session.mergedAt = Date.now();
     this.emit('worktree:merged', session);
 
-    let baseAdvanced = false;
-    if (options?.advanceBaseIfUnchecked) {
-      baseAdvanced = await tryAdvanceBaseBranch(repoRoot, baseBranch, integrationBranch);
+    return result;
+  }
+
+  async promoteWorktreeIntegration(
+    worktreeId: string,
+    integrationBranch: string,
+    expectedIntegrationTip?: string,
+  ): Promise<BasePromotionResult> {
+    const session = this.sessions.get(worktreeId);
+    if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
+    if (!session.baseBranch) {
+      return { status: 'blocked', reason: 'Managed worktree base branch metadata is missing' };
     }
-    return { ...result, baseAdvanced };
+    const repoRoot = await this.getWorktreeAdminRoot(session);
+    return promoteIntegrationBranch(
+      repoRoot,
+      session.baseBranch,
+      integrationBranch,
+      expectedIntegrationTip,
+    );
   }
 
   /**
@@ -705,15 +737,23 @@ export class WorktreeManager extends EventEmitter {
    * Pass `force: true` only when the caller has already preserved the work
    * (e.g. after a harvest or when the session is in `abandoned` status).
    */
-  async cleanupWorktree(worktreeId: string, options?: { force?: boolean }): Promise<void> {
+  async cleanupWorktree(
+    worktreeId: string,
+    options?: { force?: boolean; retainBranch?: boolean; deleteBranch?: boolean },
+  ): Promise<void> {
     const session = this.sessions.get(worktreeId);
     if (!session) return;
 
     const repoRoot = await this.getWorktreeAdminRoot(session);
+    const shouldDeleteBranch = !options?.retainBranch
+      && (session.status === 'merged' || options?.deleteBranch);
+    const expectedBranchTip = shouldDeleteBranch
+      ? await gitExec(['rev-parse', `refs/heads/${session.branchName}`], repoRoot)
+      : undefined;
 
     // Guard: refuse to silently discard uncommitted work unless caller opts in.
     if (!options?.force && session.status !== 'abandoned') {
-      const statusOut = await gitExecSafe(['status', '--porcelain'], session.worktreePath);
+      const statusOut = await gitExec(['status', '--porcelain'], session.worktreePath);
       if (statusOut.trim()) {
         throw new Error(
           `Worktree ${worktreeId} (${session.branchName}) has uncommitted changes. ` +
@@ -727,11 +767,21 @@ export class WorktreeManager extends EventEmitter {
         repoRoot,
         worktreePath: session.worktreePath,
         baseDir: this.config.baseDir,
+        expectedBranch: session.branchName,
       });
 
-      if (session.status === 'merged') {
+      if (shouldDeleteBranch && expectedBranchTip) {
         // Only delete the branch after it has been fully merged.
-        await gitExecSafe(['branch', '-d', session.branchName], repoRoot);
+        await deleteLocalBranchIfPresent(
+          repoRoot,
+          session.branchName,
+          options?.deleteBranch
+            ? { allowUnmerged: true, expectedTip: expectedBranchTip }
+            : {
+                mergedIntoBranch: session.baseBranch,
+                expectedTip: expectedBranchTip,
+              },
+        );
       }
       // Abandoned branches are intentionally kept — the user can review the work.
 

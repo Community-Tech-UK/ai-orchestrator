@@ -2,6 +2,11 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  codeIndexDirectoryIgnoreNames,
+  codeIndexFileIgnoreNames,
+  codeIndexFileIgnoreSuffixes,
+} from '../codemem/code-index-ignores';
 
 export type LoopRepoStateSource = 'git' | 'none';
 
@@ -25,6 +30,7 @@ export interface LoopRepoComparison {
   untrackedFiles: string[];
   dirtyAtStartCarriedForward: boolean;
   truncated: boolean;
+  failureReason?: string;
 }
 
 export interface LoopRepoComparisonOptions {
@@ -37,13 +43,16 @@ export type LoopRepoGitRunner = (
 ) => { status: number | null; stdout: string; stderr?: string };
 
 const DEFAULT_MAX_DIFF_CHARS = 96_000;
-const IGNORED_REPO_PREFIXES = [
-  '.aio-loop-control/',
-  '.aio-loop-attachments/',
-  '.aio-loop-state/',
-  '.git/',
-  'node_modules/',
-];
+const MAX_HASHED_WORKSPACE_FILE_BYTES = 5 * 1024 * 1024;
+const IGNORED_REPO_PATH_SEGMENTS = new Set([
+  ...codeIndexDirectoryIgnoreNames(),
+  '.kotlin',
+  'bin',
+  'build-device',
+  'build-simulator',
+]);
+const IGNORED_REPO_FILE_NAMES = new Set(codeIndexFileIgnoreNames());
+const IGNORED_REPO_FILE_SUFFIXES = codeIndexFileIgnoreSuffixes();
 
 const defaultGitRunner: LoopRepoGitRunner = (args, cwd) => {
   try {
@@ -89,10 +98,12 @@ export function captureLoopRepoBaseline(
 
   const head = runner(['rev-parse', 'HEAD'], workspaceCwd);
   const headRef = head.status === 0 ? head.stdout.trim() || null : null;
-  const trackedDirtyAtStart = headRef
-    ? readPathList(runner(['diff', '--name-only', headRef], workspaceCwd).stdout)
-    : [];
-  const untrackedAtStart = readPathList(runner(['ls-files', '--others', '--exclude-standard'], workspaceCwd).stdout);
+  if (!headRef) return fallback();
+  const tracked = runner(['diff', '--name-only', headRef], workspaceCwd);
+  const untracked = runner(['ls-files', '--others', '--exclude-standard'], workspaceCwd);
+  if (tracked.status !== 0 || untracked.status !== 0) return fallback();
+  const trackedDirtyAtStart = readPathList(tracked.stdout);
+  const untrackedAtStart = readPathList(untracked.stdout);
 
   return {
     source: 'git',
@@ -122,22 +133,46 @@ export function compareLoopRepoState(
     return emptyComparison({ ...baseline, source: 'none' });
   }
 
-  const trackedFiles = readPathList(runner(['diff', '--name-only', baseline.headRef], workspaceCwd).stdout);
-  const untrackedFiles = readPathList(runner(['ls-files', '--others', '--exclude-standard'], workspaceCwd).stdout);
+  const tracked = runner(['diff', '--name-only', baseline.headRef], workspaceCwd);
+  const untracked = runner(['ls-files', '--others', '--exclude-standard'], workspaceCwd);
+  if (tracked.status !== 0 || untracked.status !== 0) {
+    return {
+      ...emptyComparison({ ...baseline, source: 'none' }),
+      failureReason: tracked.status !== 0
+        ? 'tracked Git state observation failed'
+        : 'untracked Git state observation failed',
+    };
+  }
+  const trackedFiles = readPathList(tracked.stdout);
+  const untrackedFiles = readPathList(untracked.stdout);
+  const trackedFileSet = new Set(trackedFiles);
+  const untrackedFileSet = new Set(untrackedFiles);
 
   let dirtyAtStartCarriedForward = false;
   const changedFiles = new Set<string>();
-  for (const relPath of trackedFiles) {
+  const trackedCandidates = new Set([
+    ...trackedFiles,
+    ...baseline.trackedDirtyAtStart,
+  ]);
+  for (const relPath of trackedCandidates) {
     if (baseline.trackedDirtyAtStart.includes(relPath)) {
-      const currentHash = hashTrackedDirtyFile(workspaceCwd, baseline.headRef, relPath, runner);
+      const currentHash = trackedFileSet.has(relPath)
+        ? hashTrackedDirtyFile(workspaceCwd, baseline.headRef, relPath, runner)
+        : hashText('');
       if (currentHash === baseline.trackedDirtyHashes?.[relPath]) continue;
       dirtyAtStartCarriedForward = true;
     }
     changedFiles.add(relPath);
   }
-  for (const relPath of untrackedFiles) {
+  const untrackedCandidates = new Set([
+    ...untrackedFiles,
+    ...baseline.untrackedAtStart,
+  ]);
+  for (const relPath of untrackedCandidates) {
     if (baseline.untrackedAtStart.includes(relPath)) {
-      const currentHash = hashWorkspaceFile(path.join(workspaceCwd, relPath));
+      const currentHash = untrackedFileSet.has(relPath)
+        ? hashWorkspaceFile(path.join(workspaceCwd, relPath))
+        : '';
       if (currentHash === baseline.untrackedHashes?.[relPath]) continue;
       dirtyAtStartCarriedForward = true;
     }
@@ -207,7 +242,11 @@ function normalizeRepoPath(relPath: string): string {
 
 function isIgnoredLoopRepoPath(relPath: string): boolean {
   const normalized = normalizeRepoPath(relPath);
-  return IGNORED_REPO_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  const segments = normalized.split('/');
+  const leaf = segments.at(-1) ?? '';
+  return segments.some((segment) => IGNORED_REPO_PATH_SEGMENTS.has(segment))
+    || IGNORED_REPO_FILE_NAMES.has(leaf)
+    || IGNORED_REPO_FILE_SUFFIXES.some((suffix) => leaf.endsWith(suffix));
 }
 
 function hashTrackedDirtyFiles(
@@ -246,7 +285,12 @@ function hashWorkspaceFile(absPath: string): string {
   try {
     const stat = fs.statSync(absPath);
     if (!stat.isFile()) return '';
-    return createHash('sha256').update(fs.readFileSync(absPath)).digest('hex');
+    if (stat.size <= MAX_HASHED_WORKSPACE_FILE_BYTES) {
+      return createHash('sha256').update(fs.readFileSync(absPath)).digest('hex');
+    }
+    return createHash('sha256')
+      .update(`${stat.size}:${Math.trunc(stat.mtimeMs)}`)
+      .digest('hex');
   } catch {
     return '';
   }

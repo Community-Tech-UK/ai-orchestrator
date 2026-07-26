@@ -1,8 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { EventEmitter } from 'node:events';
-import { buildCompactionSummaryMessage, registerCompactionSummaryRenderer } from '../compaction-summary-renderer';
+import { describe, expect, it } from 'vitest';
 import { buildInterruptBoundaryMessage } from '../interrupt-boundary-renderer';
-import type { SessionContinuityManager } from '../../session/session-continuity';
 
 describe('display marker renderers', () => {
   it('builds structured interrupt boundary messages', () => {
@@ -21,42 +18,5 @@ describe('display marker renderers', () => {
       outcome: 'respawn-success',
       fallbackMode: 'native-resume',
     });
-  });
-
-  it('builds and forwards compaction summary messages', () => {
-    const continuity = new EventEmitter();
-    const emitOutputMessage = vi.fn();
-    registerCompactionSummaryRenderer(
-      continuity as unknown as Pick<SessionContinuityManager, 'on' | 'off'>,
-      { emitOutputMessage },
-    );
-
-    continuity.emit('session:compaction-display', {
-      instanceId: 'inst-1',
-      reason: 'context-budget',
-      beforeCount: 100,
-      afterCount: 40,
-    });
-
-    expect(emitOutputMessage).toHaveBeenCalledWith(
-      'inst-1',
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          kind: 'compaction-summary',
-          reason: 'context-budget',
-          beforeCount: 100,
-          afterCount: 40,
-        }),
-      }),
-    );
-  });
-
-  it('builds compact compaction messages without transcripts', () => {
-    expect(buildCompactionSummaryMessage({
-      instanceId: 'inst-1',
-      reason: 'context-budget',
-      beforeCount: 100,
-      afterCount: 40,
-    }).content).toBe('Context compacted: 100 -> 40 messages');
   });
 });

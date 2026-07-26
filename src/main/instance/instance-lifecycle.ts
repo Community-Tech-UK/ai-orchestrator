@@ -69,6 +69,7 @@ import {
   buildInstanceRecord,
 } from './lifecycle/instance-create-builder';
 import { createModelSelectionDegradationNotice, type ModelSelectionDegradation } from './lifecycle/model-selection-degradation';
+import { resolveSpawnReasoningEffort } from './lifecycle/reasoning-effort-resolution';
 import { ModelSelectionResolver } from './lifecycle/model-selection-resolver';
 import { InstanceSpawnPreflightChain } from './lifecycle/instance-spawn-preflight-chain';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
@@ -1717,7 +1718,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
 
         instance.currentModel = resolvedModel;
-        instance.reasoningEffort = config.reasoningEffort;
+        const resolvedReasoningEffort = resolveSpawnReasoningEffort(config, resolvedCliType);
+        instance.reasoningEffort = resolvedReasoningEffort;
 
         // Fast mode: explicit per-instance override > per-provider remembered >
         // global default. Stored on the instance so respawns (yolo/model/agent
@@ -1755,7 +1757,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           yoloMode: instance.yoloMode,
           launchMode: instance.launchMode,
           bare: instance.bareMode === true,
-          reasoningEffort: config.reasoningEffort,
+          reasoningEffort: resolvedReasoningEffort,
           fastMode: resolvedFastMode,
           residentClaude: this.residentClaudeForSpawn(instance),
           allowedTools: toolPermissions.allowedTools,
@@ -2239,6 +2241,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           launchMode: instance.launchMode,
           bare: instance.bareMode === true,
           model: instance.currentModel,
+          reasoningEffort: instance.reasoningEffort,
           fastMode: instance.fastMode,
           residentClaude: this.residentClaudeForSpawn(instance),
           resume: canAttemptNativeResume,
@@ -2434,6 +2437,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         yoloMode: instance.yoloMode,
         launchMode: instance.launchMode,
         model: instance.currentModel,
+        reasoningEffort: instance.reasoningEffort,
         fastMode: instance.fastMode,
         residentClaude: this.residentClaudeForSpawn(instance),
         resume: true,
@@ -2511,6 +2515,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         yoloMode: instance.yoloMode,
         launchMode: instance.launchMode,
         model: instance.currentModel,
+        reasoningEffort: instance.reasoningEffort,
         fastMode: instance.fastMode,
         residentClaude: this.residentClaudeForSpawn(instance),
         resume: false,
@@ -2789,6 +2794,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           yoloMode: instance.yoloMode,
           launchMode: instance.launchMode,
           model: instance.currentModel,
+          reasoningEffort: instance.reasoningEffort,
           resume: false,
           forkSession: false,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -2950,6 +2956,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         yoloMode: instance.yoloMode,
         launchMode: instance.launchMode,
         model: instance.currentModel,
+        reasoningEffort: instance.reasoningEffort,
         fastMode: instance.fastMode,
         residentClaude: this.residentClaudeForSpawn(instance),
         allowedTools: toolPermissions.allowedTools,

@@ -35,6 +35,14 @@ export function parseInterruptBoundary(message: OutputMessage): InterruptBoundar
   };
 }
 
+/**
+ * Legacy-only. Nothing emits `compaction-summary` any more — it came from the
+ * session-history trim that used to masquerade as a provider compaction — but
+ * history restore replays stored `OutputMessage`s verbatim
+ * (`history-restore-coordinator` seeds `initialOutputBuffer` from them), so
+ * sessions archived before the removal still carry these. Keep the parser so
+ * they render as the card they were, not as raw system text.
+ */
 export function parseCompactionSummary(message: OutputMessage): CompactionSummaryDisplay | null {
   if (message.type !== 'system' || message.metadata?.['kind'] !== 'compaction-summary') {
     return null;

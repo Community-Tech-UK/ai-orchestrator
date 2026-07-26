@@ -33,6 +33,8 @@ export interface CreateInstanceWithMessageOptions {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
   model?: string;
+  /** Omitted = spawn path applies the app-level per-provider default. */
+  reasoningEffort?: ReasoningEffort | null;
   modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;
   bareMode?: boolean;
@@ -150,6 +152,9 @@ export class InstanceListStore {
         agentId: config.agentId,
         provider: config.provider,
         model: config.model,
+        ...(config.reasoningEffort !== undefined
+          ? { reasoningEffort: config.reasoningEffort }
+          : {}),
         ...(config.modelRuntimeTarget ? { modelRuntimeTarget: config.modelRuntimeTarget } : {}),
         bareMode: config.bareMode,
         fastMode: this.resolveFastModeForCreate(config.fastMode, config.provider),
@@ -263,6 +268,9 @@ export class InstanceListStore {
         agentId,
         provider: provider === 'auto' ? undefined : provider,
         model,
+        ...(options.reasoningEffort !== undefined
+          ? { reasoningEffort: options.reasoningEffort }
+          : {}),
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
         ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         bareMode,

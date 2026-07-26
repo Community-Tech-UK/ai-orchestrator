@@ -28,11 +28,25 @@ describe('LoopCompletionContextStore', () => {
   it('tracks quota downshifts, cap wrap-up state, and envelope repairs', () => {
     const store = new LoopCompletionContextStore();
     store.setDownshiftModel('a', 'small-model');
-    store.setCapWrapUp('a', 'tokens');
+    store.setCapWrapUp('a', {
+      cap: 'tokens',
+      originalReason: 'token limit reached',
+      triggerIteration: 4,
+      measurement: 100,
+      limit: 100,
+      phase: 'pending-turn',
+    });
     store.setEnvelopeRewrapCount('a', 2);
 
     expect(store.getDownshiftModel('a')).toBe('small-model');
-    expect(store.getCapWrapUp('a')).toBe('tokens');
+    expect(store.getCapWrapUp('a')).toEqual({
+      cap: 'tokens',
+      originalReason: 'token limit reached',
+      triggerIteration: 4,
+      measurement: 100,
+      limit: 100,
+      phase: 'pending-turn',
+    });
     expect(store.getEnvelopeRewrapCount('a')).toBe(2);
   });
 
@@ -44,7 +58,12 @@ describe('LoopCompletionContextStore', () => {
       store.requestContextReset(id);
       store.setPendingFailover(id, 'codex');
       store.setDownshiftModel(id, 'small-model');
-      store.setCapWrapUp(id, 'cost');
+      store.setCapWrapUp(id, {
+        cap: 'cost',
+        originalReason: 'cost limit reached',
+        triggerIteration: 1,
+        phase: 'pending-turn',
+      });
       store.setEnvelopeRewrapCount(id, 1);
     }
 

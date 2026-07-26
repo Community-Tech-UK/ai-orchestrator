@@ -1,2 +1,22 @@
-{"kind":"tool_use","toolName":"Bash","toolUseId":"codex-tool-1","input":{"command":"pwd"}}
-{"kind":"tool_result","toolName":"Bash","toolUseId":"codex-tool-1","success":true,"output":"/workspace"}
+{"kind":"spawned","pid":74494}
+{"kind":"spawned","pid":74505}
+{"kind":"status","status":"idle"}
+{"kind":"status","status":"busy"}
+{"kind":"output","content":"[omitted-session-body]","messageType":"tool_result","messageId":"<redacted-id>","timestamp":1785031867526,"metadata":{"command":"<redacted-path> -lc pwd","exitCode":0,"is_error":false}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"tool_use","messageId":"<redacted-id>","timestamp":1785031867526,"metadata":{"name":"Bash","streaming":true,"phase":"[omitted-session-body]"}}
+{"kind":"context","used":23209,"total":258400,"percentage":8.981811145510836}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869049,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869050,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869064,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869083,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869102,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869131,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869152,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869153,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869171,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869189,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869208,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"context","used":23281,"total":258400,"percentage":9.009674922600619}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869388,"metadata":{"turnId":"[omitted-session-body]","streaming":false,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true},"thinkingExtracted":true}
+{"kind":"status","status":"idle"}
+{"kind":"complete"}

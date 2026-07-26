@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 14;
+export const LOOP_SCHEMA_VERSION = 16;
 
 interface LoopMigration {
   version: number;
@@ -322,6 +322,15 @@ const MIGRATIONS: LoopMigration[] = [
       ALTER TABLE loop_iterations ADD COLUMN cache_write_tokens INTEGER;
       ALTER TABLE loop_iterations ADD COLUMN model TEXT;
       ALTER TABLE loop_iterations ADD COLUMN cost_known INTEGER;
+    `,
+  },
+  {
+    // Durable managed-worktree finalization state. Kept as JSON because the
+    // phase and branch/error metadata are read and written atomically.
+    version: 16,
+    name: '016_loop_runs_worktree_lifecycle',
+    up: `
+      ALTER TABLE loop_runs ADD COLUMN worktree_lifecycle_json TEXT;
     `,
   },
 ];

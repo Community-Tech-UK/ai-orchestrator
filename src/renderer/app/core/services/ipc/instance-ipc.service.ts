@@ -21,6 +21,8 @@ export interface CreateInstanceConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
   model?: string;
+  /** Omitted = spawn path applies the app-level per-provider default. */
+  reasoningEffort?: ReasoningEffort | null;
   modelRuntimeTarget?: ModelRuntimeTarget;
   bareMode?: boolean;
   fastMode?: boolean;
@@ -39,6 +41,8 @@ export interface CreateInstanceWithMessageConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
   model?: string;
+  /** Omitted = spawn path applies the app-level per-provider default. */
+  reasoningEffort?: ReasoningEffort | null;
   modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;
   bareMode?: boolean;

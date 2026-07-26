@@ -87,4 +87,27 @@ describe('LoopCoordinator — P2 worktree isolation fail-closed', () => {
 
     expect(createWorktreeMock).not.toHaveBeenCalled();
   });
+
+  it('does not claim AIO ownership of a caller-supplied execution worktree', async () => {
+    const createWorktreeMock = vi.fn();
+    vi.mocked(getWorktreeManager).mockReturnValue({
+      createWorktree: createWorktreeMock,
+    } as unknown as WorktreeManager);
+    coordinator.on('loop:invoke-iteration', () => {
+      // Keep the loop live until the ownership assertion is made.
+    });
+
+    const suppliedPath = join(workspace, '.claude', 'worktrees', 'pre-existing');
+    const state = await coordinator.startLoop('chat-supplied-worktree', {
+      initialPrompt: 'work in the supplied checkout',
+      workspaceCwd: workspace,
+      executionCwd: suppliedPath,
+      worktreeBranch: 'pre-existing',
+      worktreeBaseBranch: 'main',
+      isolateLoopWorkspaces: true,
+    });
+
+    expect(createWorktreeMock).not.toHaveBeenCalled();
+    expect(state.worktreeLifecycle).toBeUndefined();
+  });
 });

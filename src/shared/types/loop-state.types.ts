@@ -364,6 +364,42 @@ export interface LoopContextWindowCalibration {
   reason: string;
 }
 
+export interface LoopCapWrapUpIntent {
+  cap: 'iterations' | 'wall-time' | 'tokens' | 'cost';
+  originalReason: string;
+  triggerIteration: number;
+  measurement?: number;
+  limit?: number;
+  phase: 'pending-turn' | 'turn-complete';
+}
+
+export type LoopWorktreeLifecyclePhase =
+  | 'acquired'
+  | 'harvesting'
+  | 'harvested'
+  | 'integrating'
+  | 'integrated'
+  | 'promoting'
+  | 'promoted'
+  | 'blocked'
+  | 'preserved'
+  | 'cleaned';
+
+export interface LoopWorktreeLifecycle {
+  /** Present only when AIO created and durably reserved this worktree. */
+  managedByAio?: true;
+  phase: LoopWorktreeLifecyclePhase;
+  baseBranch: string;
+  sessionBranch: string;
+  /** Exact AIO-owned session ref tip used to reject branch-name reuse. */
+  sessionTip?: string;
+  integrationBranch?: string;
+  /** Exact AIO-owned integration ref tip approved for promotion. */
+  integrationTip?: string;
+  lastError?: string;
+  updatedAt: number;
+}
+
 export interface LoopState {
   id: string;
   chatId: string;
@@ -379,6 +415,10 @@ export interface LoopState {
   lastIteration?: LoopIteration;
   endReason?: string;
   endEvidence?: Record<string, unknown>;
+  /** Durable AIO-owned worktree finalization state. */
+  worktreeLifecycle?: LoopWorktreeLifecycle;
+  /** Persisted cap terminal intent. A restored run terminalizes under this cap. */
+  capWrapUpIntent?: LoopCapWrapUpIntent;
   outstanding?: LoopOutstanding;
   repoBaseline?: LoopRepoBaselineSnapshot;
   preflight?: LoopPreflightResult;

@@ -7,6 +7,10 @@ function makeSpawnOptions(overrides: Partial<UnifiedSpawnOptions> = {}): Unified
   return {
     sessionId: 'session-1',
     workingDirectory: '/tmp/project',
+    // Production always passes a resolved effort now (see
+    // `resolveSpawnReasoningEffort`); 'high' is the app default for claude and
+    // codex, i.e. what a warm adapter was pre-spawned with.
+    reasoningEffort: 'high',
     mcpConfig: ['local-mcp.json'],
     browserGatewayMcp: {
       aioMcpCliPath: '/tmp/aio-mcp',
@@ -43,6 +47,41 @@ describe('InstanceSpawnPreflightChain', () => {
     expect(deps.consumeWarmAdapter).toHaveBeenCalledWith('claude', '/tmp/project');
     expect(deps.assertLocalModelRuntimeAvailable).not.toHaveBeenCalled();
     expect(deps.warmCodememWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('refuses the warm adapter when the create wants a different reasoning effort', async () => {
+    // The warm adapter was spawned with the app default and its spawn options
+    // can no longer be changed, so an explicit picker level must spawn fresh
+    // rather than silently inherit 'high'.
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+    const chain = new InstanceSpawnPreflightChain(deps);
+
+    const result = await chain.prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude', reasoningEffort: 'low' },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'claude',
+      spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined, reasoningEffort: 'low' }),
+    });
+
+    expect(result.kind).toBe('fresh');
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+  });
+
+  it('refuses the warm adapter for an explicit provider-decide effort', async () => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+    const chain = new InstanceSpawnPreflightChain(deps);
+
+    const result = await chain.prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude', reasoningEffort: null },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'claude',
+      spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined, reasoningEffort: undefined }),
+    });
+
+    expect(result.kind).toBe('fresh');
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
   });
 
   it('forces a fresh local preflight for resume and warms the workspace', async () => {
@@ -108,7 +147,13 @@ describe('InstanceSpawnPreflightChain', () => {
       config: { workingDirectory: '/tmp/project', provider: 'cursor' },
       instance: { workingDirectory: '/tmp/project', bareMode: false },
       provider: 'cursor',
-      spawnOptions: makeSpawnOptions({ model: 'composer-2.5', browserGatewayMcp: undefined }),
+      // `undefined` matches cursor's app default, so this test stays isolated
+      // to the explicit-model rule rather than also tripping the effort gate.
+      spawnOptions: makeSpawnOptions({
+        model: 'composer-2.5',
+        browserGatewayMcp: undefined,
+        reasoningEffort: undefined,
+      }),
     });
 
     expect(result.kind).toBe('fresh');

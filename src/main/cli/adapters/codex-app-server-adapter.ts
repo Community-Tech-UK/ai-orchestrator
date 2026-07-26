@@ -1,6 +1,8 @@
 import type {
   AdapterCapabilities,
   AdapterRuntimeCapabilities,
+  CliMessage,
+  CliResponse,
   CliSpawnMode,
   ContextUsageObservation,
   InterruptResult,
@@ -54,6 +56,11 @@ import type {
   ProviderContextExecutableAction,
 } from '../../context-evidence/provider-context-action-executor';
 import { CodexMcpElicitationBridge } from './codex/mcp-elicitation-bridge';
+import {
+  captureCorrelatedCodexResponse,
+  SerializedCodexRequestQueue,
+  toCodexFileAttachments,
+} from './codex-app-server-request';
 
 const logger = getLogger('CodexCliAdapter');
 const contextDiagnosticsLogger = getLogger('CodexContextDiagnostics');
@@ -76,6 +83,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   protected readonly contextCostController: CodexContextCostController;
   private contextDiagnosticsSink: CodexContextDiagnosticSink | null;
   private contextDiagnosticsWarningLogged = false;
+  private readonly requestQueue = new SerializedCodexRequestQueue();
   private readonly mcpElicitationBridge = new CodexMcpElicitationBridge({
     onInputRequired: (payload) => this.emit('input_required', payload),
     onStatus: (status) => this.emit('status', status as InstanceStatus),
@@ -325,6 +333,31 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     return fakePid;
   }
 
+  protected override async initializeRequestRuntime(): Promise<void> {
+    if (!this.isSpawned) {
+      await this.spawn();
+    }
+  }
+
+  override async requestResponse(message: CliMessage): Promise<CliResponse> {
+    return this.requestQueue.run(() => this.performRequestResponse(message));
+  }
+
+  private async performRequestResponse(message: CliMessage): Promise<CliResponse> {
+    await this.initializeForRequest();
+    if (!this.useAppServer || !this.getAppServerClient()) {
+      return this.sendMessage(message);
+    }
+
+    return captureCorrelatedCodexResponse(this, () =>
+      this.sendInputImpl(
+        message.content,
+        toCodexFileAttachments(message.attachments),
+        message.metadata,
+      ),
+    );
+  }
+
   protected getAppServerClient(): CodexAppServerRuntimeClient | null {
     return this.appServerRuntime.getClient() ?? this.appServerClient;
   }
@@ -433,9 +466,10 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   protected async appServerSendMessage(
     message: string,
     attachments?: FileAttachment[],
+    metadata?: CliMessage['metadata'],
   ): Promise<void> {
     try {
-      await this.appServerSendMessageInner(message, attachments);
+      await this.appServerSendMessageInner(message, attachments, 0, metadata);
     } catch (error) {
       if (isCodexInputTooLargeError(error)) {
         logger.warn('Codex app-server turn exceeded per-turn input char cap; recovering', {
@@ -443,7 +477,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
           cause: error instanceof Error ? error.message : String(error),
         });
         await recoverFromInputCap({
-          send: () => this.appServerSendMessageInner(message, attachments),
+          send: () => this.appServerSendMessageInner(message, attachments, 0, metadata),
           compact: () => this.compactContext(),
           reopenThread: () => this.reopenAppServerThread(),
           onThreadReset: () => this.emit('output', {
@@ -471,13 +505,14 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   protected override async sendInputImpl(
     message: string,
     attachments?: FileAttachment[],
+    metadata?: CliMessage['metadata'],
   ): Promise<void> {
     if (!this.isSpawned) throw new Error('Adapter not spawned - call spawn() first');
     this.emit('status', 'busy' as InstanceStatus);
 
     try {
       if (this.useAppServer && this.getAppServerClient()) {
-        await this.appServerSendMessage(message, attachments);
+        await this.appServerSendMessage(message, attachments, metadata);
       } else {
         await this.execSendMessage(message, attachments);
       }
@@ -659,5 +694,6 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     message: string,
     attachments?: FileAttachment[],
     costRecoveryCount?: number,
+    metadata?: CliMessage['metadata'],
   ): Promise<void>;
 }

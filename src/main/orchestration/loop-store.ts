@@ -21,6 +21,7 @@ import type {
   LoopState,
   LoopStatus,
   LoopTerminalIntent,
+  LoopWorktreeLifecycle,
 } from '../../shared/types/loop.types';
 import type { LoopCheckpoint } from './loop-checkpoint';
 import {
@@ -29,6 +30,12 @@ import {
   upsertLoopCheckpoint,
 } from './loop-store-checkpoints';
 import { countLoopIterations, selectLoopIterations } from './loop-store-iterations';
+import {
+  getPendingLoopWorktreeLifecycles,
+  parseWorktreeLifecycle,
+  reserveManagedLoopWorktree,
+  updateLoopWorktreeLifecycle,
+} from './loop-store-worktrees';
 
 /** Deterministic id for an aggregated outstanding item: same (run, kind, text)
  *  always collapses to the same row so re-captures upsert (and keep the user's
@@ -67,6 +74,7 @@ interface LoopRunRow {
   worktree_path: string | null;
   /** P3: git branch name for this session's worktree (null for pre-isolation runs). */
   branch_name: string | null;
+  worktree_lifecycle_json: string | null;
 }
 
 /** FU-3: when restart_failure_count reaches this many consecutive
@@ -88,6 +96,7 @@ interface RunSummaryRow {
   ended_at: number | null;
   end_reason: string | null;
   config_json: string;
+  worktree_lifecycle_json: string | null;
 }
 
 /**
@@ -131,6 +140,7 @@ function rowToRunSummary(row: RunSummaryRow): LoopRunSummary {
     workspaceCwd,
     initialPrompt,
     iterationPrompt,
+    worktreeLifecycle: parseWorktreeLifecycle(row.worktree_lifecycle_json),
   };
 }
 
@@ -210,9 +220,9 @@ export class LoopStore {
    * pattern as `restart_failure_count`: they are written on the initial
    * INSERT (when config already has executionCwd / worktreeBranch set)
    * but intentionally NOT included in the ON CONFLICT UPDATE SET clause.
-   * Only `clearWorktreeInfo` may mutate them after insert (to NULL them
-   * after cleanup). This prevents routine state-change upserts from
-   * re-populating the columns after clearWorktreeInfo has cleared them.
+   * Only `clearWorktreeInfo` may mutate the path after insert (to NULL it
+   * after cleanup). Branch metadata remains durable for promotion recovery.
+   * This prevents routine state-change upserts from re-populating a reaped path.
    */
   upsertRun(state: LoopState): void {
     this.db.prepare(`
@@ -221,10 +231,14 @@ export class LoopStore {
         total_iterations, total_tokens, total_cost_cents, current_stage,
         completed_file_rename_observed, highest_test_pass_count, end_reason,
         end_evidence_json, manual_review_only,
-        worktree_path, branch_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        worktree_path, branch_name, worktree_lifecycle_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        chat_id = excluded.chat_id,
+        plan_file = excluded.plan_file,
+        config_json = excluded.config_json,
         status = excluded.status,
+        started_at = excluded.started_at,
         ended_at = excluded.ended_at,
         total_iterations = excluded.total_iterations,
         total_tokens = excluded.total_tokens,
@@ -234,7 +248,8 @@ export class LoopStore {
         highest_test_pass_count = excluded.highest_test_pass_count,
         end_reason = excluded.end_reason,
         end_evidence_json = excluded.end_evidence_json,
-        manual_review_only = excluded.manual_review_only
+        manual_review_only = excluded.manual_review_only,
+        worktree_lifecycle_json = excluded.worktree_lifecycle_json
     `).run(
       state.id,
       state.chatId,
@@ -252,8 +267,13 @@ export class LoopStore {
       state.endReason ?? null,
       state.endEvidence ? JSON.stringify(state.endEvidence) : null,
       state.manualReviewOnly ? 1 : 0,
-      state.config.executionCwd ?? null,
-      state.config.worktreeBranch ?? null,
+      state.worktreeLifecycle?.managedByAio === true
+        ? state.config.executionCwd ?? null
+        : null,
+      state.worktreeLifecycle?.managedByAio === true
+        ? state.config.worktreeBranch ?? null
+        : null,
+      state.worktreeLifecycle ? JSON.stringify(state.worktreeLifecycle) : null,
     );
     for (const intent of state.terminalIntentHistory ?? []) {
       this.upsertTerminalIntent(intent);
@@ -273,6 +293,23 @@ export class LoopStore {
     } catch (err) {
       logger.warn('LoopStore.updateWorktreeInfo: failed', { loopRunId, error: String(err) });
     }
+  }
+
+  updateWorktreeLifecycle(loopRunId: string, lifecycle: LoopWorktreeLifecycle): void {
+    updateLoopWorktreeLifecycle(this.db, loopRunId, lifecycle);
+  }
+
+  reserveManagedWorktree(input: {
+    id: string;
+    chatId: string;
+    config: LoopConfig;
+    lifecycle: LoopWorktreeLifecycle;
+  }): void {
+    reserveManagedLoopWorktree(this.db, input);
+  }
+
+  getPendingWorktreeLifecycles() {
+    return getPendingLoopWorktreeLifecycles(this.db);
   }
 
   /**
@@ -300,6 +337,7 @@ export class LoopStore {
         SELECT id, worktree_path, branch_name, config_json, status
         FROM loop_runs
         WHERE worktree_path IS NOT NULL
+          AND worktree_lifecycle_json IS NULL
           AND (
             status NOT IN ('running', 'paused', 'provider-limit')
             OR (status = 'provider-limit' AND ended_at IS NOT NULL)
@@ -327,15 +365,19 @@ export class LoopStore {
     }
   }
 
-  /** P3 boot-reconcile: clear the worktree columns after cleanup so the row
+  /** P3 boot-reconcile: clear the worktree path after cleanup so the row
    *  is not re-processed on the next boot. */
   clearWorktreeInfo(loopRunId: string): void {
     try {
-      this.db.prepare(
-        `UPDATE loop_runs SET worktree_path = NULL, branch_name = NULL WHERE id = ?`
+      const result = this.db.prepare(
+        `UPDATE loop_runs SET worktree_path = NULL WHERE id = ?`
       ).run(loopRunId);
+      if (result.changes !== 1) {
+        throw new Error(`Loop run ${loopRunId} was not updated`);
+      }
     } catch (err) {
       logger.warn('LoopStore.clearWorktreeInfo: failed', { loopRunId, error: String(err) });
+      throw err;
     }
   }
 
@@ -405,7 +447,7 @@ export class LoopStore {
 
   getRunSummary(loopRunId: string): LoopRunSummary | null {
     const row = this.db
-      .prepare('SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents, started_at, ended_at, end_reason, config_json FROM loop_runs WHERE id = ?')
+      .prepare('SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents, started_at, ended_at, end_reason, config_json, worktree_lifecycle_json FROM loop_runs WHERE id = ?')
       .get<RunSummaryRow>(loopRunId);
     if (!row) return null;
     return rowToRunSummary(row);
@@ -415,7 +457,7 @@ export class LoopStore {
     const rows = this.db
       .prepare(`
         SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents,
-               started_at, ended_at, end_reason, config_json
+               started_at, ended_at, end_reason, config_json, worktree_lifecycle_json
         FROM loop_runs
         WHERE chat_id = ?
         ORDER BY started_at DESC
@@ -436,7 +478,7 @@ export class LoopStore {
     const rows = this.db
       .prepare(`
         SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents,
-               started_at, ended_at, end_reason, config_json
+               started_at, ended_at, end_reason, config_json, worktree_lifecycle_json
         FROM loop_runs
         ORDER BY started_at DESC
         LIMIT ?

@@ -247,6 +247,62 @@ describe('instance-handlers', () => {
       );
     });
 
+    it('forwards reasoning effort from INSTANCE_CREATE payloads', async () => {
+      // This hop was the bug: the payload schema had no `reasoningEffort`, so
+      // the picker's choice could never reach a new session.
+      const fakeInstance = { id: 'inst-effort', communicationTokens: undefined };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE, {
+        workingDirectory: '/projects/my-app',
+        provider: 'codex',
+        reasoningEffort: 'xhigh',
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ reasoningEffort: 'xhigh' }),
+      );
+    });
+
+    it('forwards an explicit provider-decide (null) reasoning effort unchanged', async () => {
+      // `null` is the picker's "let the provider decide" row. Collapsing it to
+      // undefined here would silently re-apply the app default.
+      const fakeInstance = { id: 'inst-effort-null', communicationTokens: undefined };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE, {
+        workingDirectory: '/projects/my-app',
+        provider: 'codex',
+        reasoningEffort: null,
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ reasoningEffort: null }),
+      );
+    });
+
+    it('forwards reasoning effort from create-with-message payloads', async () => {
+      const fakeInstance = { id: 'inst-effort-msg', communicationTokens: undefined };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE, {
+        workingDirectory: '/projects/my-app',
+        message: 'Ship it',
+        provider: 'codex',
+        reasoningEffort: 'high',
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ reasoningEffort: 'high' }),
+      );
+    });
+
     it('forwards local-model runtime targets from INSTANCE_CREATE payloads', async () => {
       const fakeInstance = { id: 'inst-local-model', communicationTokens: undefined };
       const modelRuntimeTarget = {

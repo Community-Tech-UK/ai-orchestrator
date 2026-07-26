@@ -179,6 +179,33 @@ describe('LoopControlComponent', () => {
     expect(ipc.resume).toHaveBeenCalledWith('loop-1');
   });
 
+  it('announces an asynchronous blocked worktree lifecycle as an assertive alert', () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'completed',
+        endedAt: 1778310005000,
+        endReason: 'completed but promotion blocked',
+        worktreeLifecycle: {
+          managedByAio: true,
+          phase: 'blocked',
+          baseBranch: 'main',
+          sessionBranch: 'task-loop-1',
+          sessionTip: 'abc123',
+          lastError: 'root checkout has uncommitted changes',
+          updatedAt: 1778310005000,
+        },
+      },
+    }));
+    fixture.detectChanges();
+
+    const status = fixture.nativeElement.querySelector('.lsum-managed') as HTMLElement;
+    expect(status.getAttribute('role')).toBe('alert');
+    expect(status.getAttribute('aria-live')).toBe('assertive');
+    expect(status.getAttribute('aria-atomic')).toBe('true');
+  });
+
   it('shows a read-only run-config summary while the loop is active (LF-8)', () => {
     listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
     fixture.detectChanges();

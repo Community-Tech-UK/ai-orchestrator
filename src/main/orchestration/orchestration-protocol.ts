@@ -62,7 +62,9 @@ export type {
 export {
   generateOrchestrationPrompt,
   generateChildPrompt,
+  detectsConsensusIntent,
   detectsSchedulingIntent,
+  CONSENSUS_INTENT_REMINDER,
   SCHEDULING_INTENT_REMINDER,
 } from './orchestration-protocol.prompts';
 

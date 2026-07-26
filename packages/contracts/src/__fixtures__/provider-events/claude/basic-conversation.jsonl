@@ -1,2 +1,7 @@
-{"name":"output","args":[{"id":"claude-message-1","timestamp":1000,"type":"assistant","content":"Hello from Claude."}]}
-{"name":"complete","args":[{"id":"claude-response-1","role":"assistant","content":"Hello from Claude.","usage":{"totalTokens":12,"duration":50}}]}
+{"name":"spawned","args":[12531]}
+{"name":"spawned","args":[12534]}
+{"name":"status","args":["busy"]}
+{"name":"output","args":[{"id":"<redacted-id>","timestamp":1785031323501,"type":"assistant","content":"[omitted-session-body]","thinking":{"type":"undefined"},"thinkingExtracted":true}]}
+{"name":"context","args":[{"used":38165,"total":1000000,"percentage":3.8164999999999996}]}
+{"name":"status","args":["busy"]}
+{"name":"status","args":["idle"]}

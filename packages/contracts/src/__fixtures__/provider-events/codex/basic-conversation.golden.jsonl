@@ -1,2 +1,19 @@
-{"kind":"output","content":"Hello from Codex.","messageType":"assistant","messageId":"codex-message-1","timestamp":2000}
-{"kind":"complete","tokensUsed":10,"costUsd":0.001}
+{"kind":"spawned","pid":45623}
+{"kind":"spawned","pid":45725}
+{"kind":"status","status":"idle"}
+{"kind":"status","status":"busy"}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684231,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684216,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684251,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684280,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684291,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684294,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684315,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684334,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684354,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684372,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684397,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true,"phase":"[omitted-session-body]","turnId":"[omitted-session-body]"},"thinkingExtracted":true}
+{"kind":"context","used":23086,"total":258400,"percentage":8.93421052631579}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031684600,"metadata":{"turnId":"[omitted-session-body]","streaming":false,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true},"thinkingExtracted":true}
+{"kind":"status","status":"idle"}
+{"kind":"complete"}

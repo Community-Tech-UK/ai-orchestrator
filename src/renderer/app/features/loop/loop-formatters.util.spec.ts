@@ -11,6 +11,7 @@ import {
   loopPauseReason,
   loopStatusLabel,
   loopStatusPill,
+  managedWorktreeStatus,
   relativeTime,
   shortTime,
   summaryHasDistinctIterationPrompt,
@@ -114,6 +115,67 @@ describe('loopStatusLabel', () => {
 
   it('falls through unknown statuses verbatim (forward-compat)', () => {
     expect(loopStatusLabel('not-yet-defined')).toBe('not-yet-defined');
+  });
+});
+
+describe('managedWorktreeStatus', () => {
+  it('makes a blocked promotion and its durable branches explicit', () => {
+    expect(managedWorktreeStatus({
+      phase: 'blocked',
+      baseBranch: 'main',
+      sessionBranch: 'task-loop',
+      integrationBranch: 'integration/main',
+      lastError: 'root checkout has uncommitted changes',
+      updatedAt: 1,
+    }, 'completed')).toEqual({
+      tone: 'blocked',
+      label: 'promotion blocked',
+      detail: 'root checkout has uncommitted changes · saved on task-loop and integration/main',
+    });
+  });
+
+  it('does not render arbitrary persisted Git output as operator-facing detail', () => {
+    const view = managedWorktreeStatus({
+      phase: 'blocked',
+      baseBranch: 'main',
+      sessionBranch: 'task-loop',
+      integrationBranch: 'integration/main',
+      lastError: 'fatal: could not read /Users/james/private/repo/.git/worktrees/task',
+      updatedAt: 1,
+    }, 'completed');
+
+    expect(view?.detail).toBe(
+      'manual attention required; inspect AIO logs · saved on task-loop and integration/main',
+    );
+    expect(view?.detail).not.toContain('/Users/');
+    expect(view?.detail).not.toContain('fatal:');
+  });
+
+  it('labels successful cleanup as promoted instead of merely cleaned', () => {
+    expect(managedWorktreeStatus({
+      phase: 'cleaned',
+      baseBranch: 'main',
+      sessionBranch: 'task-loop',
+      integrationBranch: 'integration/main',
+      updatedAt: 1,
+    }, 'completed')).toEqual({
+      tone: 'success',
+      label: 'promoted to main',
+      detail: 'managed workspace cleaned',
+    });
+  });
+
+  it('labels non-integrated cleanup as preserved on the session branch', () => {
+    expect(managedWorktreeStatus({
+      phase: 'cleaned',
+      baseBranch: 'main',
+      sessionBranch: 'task-loop',
+      updatedAt: 1,
+    }, 'cancelled')).toEqual({
+      tone: 'preserved',
+      label: 'work preserved',
+      detail: 'saved on task-loop · managed workspace cleaned',
+    });
   });
 });
 

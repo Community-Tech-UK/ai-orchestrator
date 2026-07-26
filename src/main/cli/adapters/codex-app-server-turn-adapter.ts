@@ -1,4 +1,5 @@
 import type {
+  CliMessage,
   CliResponse,
   CliToolCall,
   TurnInterruptCompletion,
@@ -35,6 +36,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     message: string,
     attachments?: FileAttachment[],
     costRecoveryCount = 0,
+    metadata?: CliMessage['metadata'],
   ): Promise<void> {
     if (!this.getAppServerClient() || !this.getAppServerThreadId()) {
       throw new Error('App-server not initialized');
@@ -83,13 +85,13 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       throw new Error('Cannot send empty app-server turn input');
     }
 
-    const turnState = await this.captureTurn(input);
+    const turnState = await this.captureTurn(input, metadata);
 
     if (await this.contextCostController.recoverAfterTurn({
       turnStatus: turnState.finalTurn?.status,
       recoveryCount: costRecoveryCount,
       continueTurn: (continuation, nextCount) => this.appServerSendMessageInner(
-        continuation, undefined, nextCount,
+        continuation, undefined, nextCount, metadata,
       ),
     })) {
       return;
@@ -114,7 +116,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     const toolCalls = this.buildToolCallsFromTurnState(turnState);
 
     if (responseContent || toolCalls.length > 0) {
-      const extracted = extractThinkingContent(responseContent);
+      const extracted = extractThinkingContent(responseContent, { headerStyle: false });
 
       // Merge thinking from two sources:
       // 1. Structured reasoning items (captured via item/completed type:reasoning)
@@ -271,7 +273,10 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
    * `captureTurn()` pattern. Includes multi-turn notification routing:
    * notifications from other turns are forwarded to the previous handler.
    */
-  private async captureTurn(input: UserInput[]): Promise<TurnCaptureState> {
+  private async captureTurn(
+    input: UserInput[],
+    metadata?: CliMessage['metadata'],
+  ): Promise<TurnCaptureState> {
     this.ensureAppServerRuntimeAttached();
     const turnParams: Record<string, unknown> = {};
     if (this.cliConfig.outputSchema) turnParams['outputSchema'] = this.cliConfig.outputSchema;
@@ -286,7 +291,14 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       handleNotification: (state, notification) => this.handleTurnNotification(state, notification),
       completeTurn: (state, turn) => this.completeTurn(state, turn),
       toInterruptCompletion: (state) => this.toTurnInterruptCompletion(state),
-      resolveNotificationIdleTimeoutMs: (turnEstablished) => this.resolveNotificationIdleTimeoutMs(turnEstablished),
+      resolveNotificationIdleTimeoutMs: (turnEstablished) => {
+        const configured = this.resolveNotificationIdleTimeoutMs(turnEstablished);
+        const activeTimeoutMs = metadata?.['continueWhileActiveOnTimeout'] === true
+          && typeof metadata['activeTimeoutMs'] === 'number'
+          ? metadata['activeTimeoutMs']
+          : 0;
+        return Math.max(configured, activeTimeoutMs);
+      },
       hasPendingApproval: () => hasPendingBrowserApproval(this.cliConfig.browserGatewayInstanceId),
       onHeartbeat: () => this.emit('heartbeat'),
       onAbandonedTurn: () => this.contextDiagnostics?.completeTurn('unknown'),

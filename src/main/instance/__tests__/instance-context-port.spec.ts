@@ -201,7 +201,7 @@ vi.mock('../instance-orchestration', () => ({
     processOrchestrationOutput: vi.fn(),
     registerInstance: vi.fn(),
     unregisterInstance: vi.fn(),
-    getSchedulingReminderIfRelevant: vi.fn(() => null),
+    getLaterTurnReminderIfRelevant: vi.fn(() => null),
   })),
 }));
 vi.mock('../instance-persistence', () => ({

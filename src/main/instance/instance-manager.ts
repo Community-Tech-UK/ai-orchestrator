@@ -120,6 +120,7 @@ import {
   type HistoryRestoreCoordinatorResult,
 } from '../history/history-restore-coordinator';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
+import { resolveSpawnReasoningEffort } from './lifecycle/reasoning-effort-resolution';
 import {
   getIndexedCodebaseContextService,
   type IndexedCodebaseContextInfo,
@@ -229,6 +230,7 @@ export class InstanceManager extends EventEmitter {
           cliType: resolvedCliType,
           options: {
             workingDirectory: options.workingDirectory,
+            reasoningEffort: resolveSpawnReasoningEffort({}, resolvedCliType),
           },
         });
         await adapter.spawn();
@@ -1928,17 +1930,15 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Reinforce automation steering on later turns. The full orchestration prompt
-    // (which carries the "use create_automation, never the host CLI scheduler"
-    // guidance) only lands on the first message of a fresh conversation. In a long
-    // chat, a later "create an automation"/"every morning" request would otherwise
-    // race against the host CLI's `schedule` skill with no steering in front of the
-    // model. Re-inject a concise reminder exactly when scheduling intent appears.
+    // Re-surface relevant orchestration guidance after the full first-turn prompt
+    // has scrolled out of the active context. Detection only selects static,
+    // conditional reminders; user text is never interpolated into them.
     if (!orchestrationPromptInjected) {
-      const schedulingReminder = this.orchestrationMgr.getSchedulingReminderIfRelevant(message);
-      if (schedulingReminder) {
+      const laterTurnReminder =
+        this.orchestrationMgr.getLaterTurnReminderIfRelevant(message);
+      if (laterTurnReminder) {
         const prefix = contextBlock ? `${contextBlock}\n\n` : '';
-        contextBlock = `${prefix}${schedulingReminder}`;
+        contextBlock = `${prefix}${laterTurnReminder}`;
       }
     }
 

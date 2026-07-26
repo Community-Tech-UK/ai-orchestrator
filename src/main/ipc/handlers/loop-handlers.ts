@@ -141,7 +141,11 @@ export function registerLoopHandlers(deps: {
   });
 
   // Forward state changes to renderer.
-  coordinator.on('loop:state-changed', (data: { loopRunId: string; state: LoopState }) => {
+  coordinator.on('loop:state-changed', (data: {
+    loopRunId: string;
+    state: LoopState;
+    lifecycleOnly?: boolean;
+  }) => {
     try {
       store.persistStateCheckpoint({
         state: data.state,
@@ -154,7 +158,7 @@ export function registerLoopHandlers(deps: {
       // has already sealed the row (for example finalAudit in ping-pong and
       // review-driven terminal paths). Refresh the last row on state changes so
       // history pagination and checkpoint state stay aligned.
-      if (data.state.lastIteration) {
+      if (data.state.lastIteration && !data.lifecycleOnly) {
         store.insertIteration(data.state.lastIteration);
       }
     } catch (err) {
@@ -163,7 +167,7 @@ export function registerLoopHandlers(deps: {
         error: String(err),
       });
     }
-    if (shouldAppendTerminalSummary(data.state)) {
+    if (!data.lifecycleOnly && shouldAppendTerminalSummary(data.state)) {
       try {
         appendLoopTerminalSummary(data.state, chatService, deps.instanceManager);
       } catch (err) {

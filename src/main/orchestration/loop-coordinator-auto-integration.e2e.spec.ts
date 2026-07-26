@@ -5,7 +5,8 @@
  *   2. let the "agent" write a file into that worktree,
  *   3. on terminal-success: harvest the file to the session branch,
  *   4. auto-integrate the session branch into integration/main,
- *   5. reap the session worktree dir.
+ *   5. promote integration/main back to main,
+ *   6. reap the session worktree dir.
  *
  * Nothing is mocked here except the agent's work (the invoke-iteration callback):
  * the worktree create/harvest/integrate/reap all run real git.
@@ -45,6 +46,7 @@ beforeEach(async () => {
   await git(['config', 'user.email', 'test@example.com'], repo);
   await git(['config', 'user.name', 'Test'], repo);
   await git(['config', 'commit.gpgsign', 'false'], repo);
+  writeFileSync(join(repo, '.gitignore'), '.worktrees/\n.aio-loop-state/\n.aio-loop-control/\n');
   writeFileSync(join(repo, 'STAGE.md'), 'IMPLEMENT\n');
   writeFileSync(join(repo, 'README.md'), '# seed\n');
   await git(['add', '-A'], repo);
@@ -86,8 +88,8 @@ function claimsDone(): LoopChildResult {
   };
 }
 
-describe('E2E: isolated loop acquire → harvest → auto-integrate → reap (real git)', () => {
-  it('lands the agent file on integration/main and reaps the worktree', async () => {
+describe('E2E: isolated loop acquire → harvest → integrate → promote → reap (real git)', () => {
+  it('lands the agent file on main and reaps the worktree', async () => {
     let capturedExecutionCwd = '';
 
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
@@ -138,19 +140,24 @@ describe('E2E: isolated loop acquire → harvest → auto-integrate → reap (re
     expect(accepted).toBe(true);
 
     // 4. The fire-and-forget terminate path harvests → integrates → reaps.
-    //    Wait for the integration branch to exist AND the worktree to be reaped.
+    //    Directory removal precedes safe branch deletion, so wait for the
+    //    persisted lifecycle to confirm that the whole cleanup transaction ended.
     const integrated = await waitFor(
       () =>
         !existsSync(worktreePath) &&
-        existsSync(join(repo, '.git', 'refs', 'heads', 'integration', 'main')),
+        existsSync(join(repo, '.git', 'refs', 'heads', 'integration', 'main')) &&
+        liveState(state.id)?.worktreeLifecycle?.phase === 'cleaned',
     );
     expect(integrated).toBe(true);
 
-    // 5. integration/main contains the agent's harvested file; root is untouched.
+    // 5. Both integration/main and main contain the harvested file, and the
+    // root checkout was updated coherently rather than by ref-only mutation.
     const files = await git(['ls-tree', '-r', '--name-only', 'integration/main'], repo);
     expect(files).toContain('agent-output.txt');
     expect(await git(['branch', '--show-current'], repo)).toBe('main');
-    expect(await git(['ls-tree', '-r', '--name-only', 'main'], repo)).not.toContain('agent-output.txt');
+    expect(await git(['ls-tree', '-r', '--name-only', 'main'], repo)).toContain('agent-output.txt');
+    expect(existsSync(join(repo, 'agent-output.txt'))).toBe(true);
+    expect(liveState(state.id)?.worktreeLifecycle?.phase).toBe('cleaned');
 
     // The worktree directory was reaped.
     expect(existsSync(worktreePath)).toBe(false);

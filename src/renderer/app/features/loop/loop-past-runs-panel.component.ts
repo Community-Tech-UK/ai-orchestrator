@@ -17,6 +17,7 @@ import {
   formatTimestamp,
   humanTokens,
   loopStatusLabel,
+  managedWorktreeStatus,
   relativeTime,
 } from './loop-formatters.util';
 import { LoopPanelOpenerService } from './loop-panel-opener.service';
@@ -106,6 +107,18 @@ export function deriveReattemptSeed(
                   <span class="pr-status" [attr.data-status]="run.status">{{ statusLabel(run.status) }}</span>
                   <span class="pr-time" [title]="absoluteTime(run.startedAt)">{{ relTime(run.startedAt) }}</span>
                   <span class="pr-meta">{{ run.totalIterations }} iter · {{ tokens(run.totalTokens) }} · {{ cost(run.totalCostCents) }}</span>
+                  @if (managedStatus(run); as managed) {
+                    <span
+                      class="pr-managed"
+                      [attr.data-tone]="managed.tone"
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
+                      <span class="pr-managed-label">{{ managed.label }}</span>
+                      <span class="pr-managed-detail">{{ managed.detail }}</span>
+                    </span>
+                  }
                   <span class="pr-actions">
                     <button
                       type="button"
@@ -190,6 +203,18 @@ export function deriveReattemptSeed(
     .pr-status[data-status="no-progress"] { color: #f7c07a; background: rgba(247,192,122,0.12); }
     .pr-time { opacity: 0.65; font-family: var(--font-mono, monospace); font-size: 10px; }
     .pr-meta { opacity: 0.6; font-size: 10px; flex: 1; }
+    .pr-managed {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.08);
+      display: inline-flex;
+      gap: 4px;
+    }
+    .pr-managed-detail { opacity: 0.75; }
+    .pr-managed[data-tone="success"] { color: #8edc8e; background: rgba(142,220,142,0.12); }
+    .pr-managed[data-tone="blocked"] { color: #f7c07a; background: rgba(247,192,122,0.14); }
+    .pr-managed[data-tone="preserved"] { color: #b9c7ef; background: rgba(150,175,235,0.12); }
     .pr-actions { display: flex; gap: 4px; }
     .pr-action-btn {
       padding: 2px 8px; font-size: 11px; font: inherit;
@@ -399,5 +424,9 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
 
   protected absoluteTime(ts: number): string {
     return formatTimestamp(ts);
+  }
+
+  protected managedStatus(run: LoopRunSummaryPayload) {
+    return managedWorktreeStatus(run.worktreeLifecycle, run.status);
   }
 }

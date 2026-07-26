@@ -10,7 +10,7 @@
 import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorktreeManager, _resetWorktreeManagerForTesting } from './worktree-manager';
@@ -126,6 +126,18 @@ describe('WorktreeManager.adoptWorktree — restore-path re-registration', () =>
     expect(result.id).toBe('wt-already-registered');
     expect(result).toBe(fakeSession);
   });
+
+  it('retains the recorded base branch when adopting a restored worktree', async () => {
+    const mgr = WorktreeManager.getInstance();
+    const result = await mgr.adoptWorktree(
+      'loop-restored-base',
+      '/tmp/restored-base',
+      'restore base test',
+      { baseBranch: 'release' },
+    );
+
+    expect(result.baseBranch).toBe('release');
+  });
 });
 
 describe('WorktreeManager.integrateWorktree — auto-integration (real git)', () => {
@@ -166,7 +178,11 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
     await git(['add', '-A'], session.worktreePath);
     await git(['commit', '-q', '--no-gpg-sign', '-m', 'agent work'], session.worktreePath);
 
-    const result = await mgr.integrateWorktree(session.id, { advanceBaseIfUnchecked: true });
+    const result = await mgr.integrateWorktree(session.id);
+    const promotion = await mgr.promoteWorktreeIntegration(
+      session.id,
+      result.integrationBranch,
+    );
 
     expect(result.success).toBe(true);
     expect(result.integrationBranch).toBe('integration/main');
@@ -176,7 +192,92 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
     const files = await git(['ls-tree', '-r', '--name-only', 'integration/main'], repo);
     expect(files).toContain('feature.txt');
 
-    // Root (main) is checked out at root, so base must NOT have been advanced.
-    expect(result.baseAdvanced).toBe(false);
+    // A clean root checkout is promoted with a working-tree-aware fast-forward.
+    expect(promotion).toEqual({
+      status: 'promoted',
+      method: 'checked-out-ff',
+      tip: await git(['rev-parse', 'integration/main'], repo),
+    });
+    expect(await git(['rev-parse', 'main'], repo)).toBe(
+      await git(['rev-parse', 'integration/main'], repo),
+    );
+    expect(await git(['status', '--porcelain', '--untracked-files=no'], repo)).toBe('');
+    expect(await git(['branch', '--show-current'], repo)).toBe('main');
+  });
+
+  it('durably prepares ownership before creating the Git worktree or branch', async () => {
+    const mgr = WorktreeManager.getInstance();
+    let prepared = false;
+    const session = await mgr.createWorktree('loop-prepared', 'reserved first', {
+      repoRoot: repo,
+      baseBranch: 'main',
+      skipInstall: true,
+      onPrepared: async (candidate) => {
+        prepared = true;
+        expect(existsSync(candidate.worktreePath)).toBe(false);
+        expect(await git(['branch', '--list', candidate.branchName], repo)).toBe('');
+      },
+    });
+
+    expect(prepared).toBe(true);
+    expect(existsSync(session.worktreePath)).toBe(true);
+    expect(await git(['branch', '--list', session.branchName], repo)).toContain(
+      session.branchName,
+    );
+  });
+
+  it('can clean a merged worktree while retaining its session branch', async () => {
+    const mgr = WorktreeManager.getInstance();
+    const session = await mgr.createWorktree('loop-int-2', 'retain blocked work', {
+      repoRoot: repo,
+      baseBranch: 'main',
+      skipInstall: true,
+    });
+    writeFileSync(join(session.worktreePath, 'retained.txt'), 'retained\n');
+    await git(['add', '-A'], session.worktreePath);
+    await git(['commit', '-q', '--no-gpg-sign', '-m', 'retained work'], session.worktreePath);
+
+    await mgr.integrateWorktree(session.id);
+    await mgr.cleanupWorktree(session.id, { retainBranch: true });
+
+    expect(await git(['branch', '--list', session.branchName], repo)).toContain(session.branchName);
+    expect(await git(['worktree', 'list'], repo)).not.toContain(session.worktreePath);
+  });
+
+  it('deletes a promoted session branch against an unchecked base, not root HEAD', async () => {
+    const mgr = WorktreeManager.getInstance();
+    await git(['branch', 'release', 'main'], repo);
+    const session = await mgr.createWorktree('loop-release', 'release feature', {
+      repoRoot: repo,
+      baseBranch: 'release',
+      skipInstall: true,
+    });
+    writeFileSync(join(session.worktreePath, 'release.txt'), 'release\n');
+    await git(['add', '-A'], session.worktreePath);
+    await git(['commit', '-q', '--no-gpg-sign', '-m', 'release work'], session.worktreePath);
+
+    const integration = await mgr.integrateWorktree(session.id);
+    await expect(
+      mgr.promoteWorktreeIntegration(session.id, integration.integrationBranch),
+    ).resolves.toMatchObject({ status: 'promoted', method: 'update-ref' });
+    await mgr.cleanupWorktree(session.id);
+
+    expect(await git(['branch', '--list', session.branchName], repo)).toBe('');
+    expect(await git(['branch', '--show-current'], repo)).toBe('main');
+  });
+
+  it('fails closed when harvest cannot inspect worktree status', async () => {
+    const mgr = WorktreeManager.getInstance();
+    const session = await mgr.createWorktree('loop-int-missing', 'missing status', {
+      repoRoot: repo,
+      baseBranch: 'main',
+      skipInstall: true,
+    });
+    rmSync(session.worktreePath, { recursive: true, force: true });
+
+    await expect(mgr.harvestWorktree(session.id)).resolves.toEqual({
+      committed: false,
+      hasUncommittedWork: true,
+    });
   });
 });

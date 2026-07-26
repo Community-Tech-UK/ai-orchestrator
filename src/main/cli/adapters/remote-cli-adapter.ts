@@ -181,6 +181,7 @@ export class RemoteCliAdapter extends EventEmitter {
           workingDirectory: this.spawnOptions.workingDirectory,
           systemPrompt: this.spawnOptions.systemPrompt,
           model: this.spawnOptions.model,
+          reasoningEffort: this.spawnOptions.reasoningEffort,
           yoloMode: this.spawnOptions.yoloMode,
           allowedTools: this.spawnOptions.allowedTools,
           disallowedTools: this.spawnOptions.disallowedTools,

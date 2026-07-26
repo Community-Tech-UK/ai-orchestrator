@@ -11,6 +11,7 @@ import { FileAttachmentService } from './file-attachment.service';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
+import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 
 function makeRemoteNode(
@@ -72,6 +73,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     provider: ReturnType<typeof signal<'claude' | null>>;
     model: ReturnType<typeof signal<string | null>>;
     modelRuntimeTarget: ReturnType<typeof signal<ModelRuntimeTarget | null>>;
+    reasoningEffort: ReturnType<typeof signal<ReasoningEffort | null>>;
     agentId: ReturnType<typeof signal<string>>;
     yoloMode: ReturnType<typeof signal<boolean | null>>;
     hardened: ReturnType<typeof signal<boolean | null>>;
@@ -114,6 +116,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       provider: signal<'claude' | null>('claude'),
       model: signal<string | null>(null),
       modelRuntimeTarget: signal<ModelRuntimeTarget | null>(null),
+      reasoningEffort: signal<ReasoningEffort | null>('high'),
       agentId: signal('build'),
       yoloMode: signal<boolean | null>(null),
       hardened: signal<boolean | null>(null),
@@ -182,6 +185,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       agentId: 'build',
       provider: 'claude',
       model: CLAUDE_MODELS.OPUS_1M,
+      reasoningEffort: 'high',
       launchMode: 'orchestrated',
       forceNodeId: undefined,
     });
@@ -223,6 +227,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       agentId: 'build',
       provider: 'claude',
       model: CLAUDE_MODELS.OPUS_1M,
+      reasoningEffort: 'high',
       launchMode: 'orchestrated',
       forceNodeId: undefined,
     });
@@ -256,6 +261,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       agentId: 'build',
       provider: 'claude',
       model: CLAUDE_MODELS.OPUS_1M,
+      reasoningEffort: 'high',
       launchMode: 'interactive',
       forceNodeId: undefined,
     });
@@ -290,6 +296,34 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       workingDirectory: '/repo',
       hardened: true,
     }));
+  });
+
+  it('forwards an explicit provider-decide effort instead of collapsing it to the default', async () => {
+    // The picker's "Provider — let the provider decide" row stores null. Once a
+    // provider has been chosen the draft's effort is authoritative, so null must
+    // reach the backend as null rather than being dropped (which would re-apply
+    // the app default and make the control do the opposite of its label).
+    newSessionDraft.reasoningEffort.set(null);
+
+    const launched = await service.onWelcomeSendMessage('Provider decides', vi.fn());
+
+    expect(launched).toBe(true);
+    expect(store.createInstanceWithMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: null }),
+    );
+  });
+
+  it('omits reasoning effort entirely for a pristine draft', async () => {
+    // A draft that never had a provider picked carries a meaningless null, so
+    // the field is omitted and the spawn path applies the app default.
+    newSessionDraft.provider.set(null);
+    newSessionDraft.reasoningEffort.set(null);
+
+    const launched = await service.onWelcomeSendMessage('Untouched draft', vi.fn());
+
+    expect(launched).toBe(true);
+    const payload = store.createInstanceWithMessage.mock.calls[0][0] as Record<string, unknown>;
+    expect('reasoningEffort' in payload).toBe(false);
   });
 
   it('passes local model runtime targets through normal welcome session creation', async () => {
@@ -346,6 +380,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       agentId: 'build',
       provider: 'claude',
       model: CLAUDE_MODELS.OPUS_1M,
+      reasoningEffort: 'high',
       launchMode: 'orchestrated',
       forceNodeId: undefined,
     });

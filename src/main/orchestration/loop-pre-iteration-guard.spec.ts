@@ -34,7 +34,12 @@ function makeState(): LoopState {
 
 function makeHarness(overrides: Partial<ConstructorParameters<typeof LoopPreIterationGuard>[0]> = {}) {
   let cancelled = false;
-  let capWrapUp: 'iterations' | 'wall-time' | 'tokens' | 'cost' | undefined;
+  let capWrapUp: {
+    cap: 'iterations' | 'wall-time' | 'tokens' | 'cost';
+    originalReason: string;
+    triggerIteration: number;
+    phase: 'pending-turn' | 'turn-complete';
+  } | undefined;
   const terminate = vi.fn();
   const emit = vi.fn();
   const guard = new LoopPreIterationGuard({
@@ -43,7 +48,7 @@ function makeHarness(overrides: Partial<ConstructorParameters<typeof LoopPreIter
     maintenanceActive: () => false,
     getConvergenceNote: () => undefined,
     getCapWrapUp: () => capWrapUp,
-    setCapWrapUp: (_id, cap) => { capWrapUp = cap; },
+    setCapWrapUp: (_id, intent) => { capWrapUp = intent; },
     terminate,
     emit,
     sleep: vi.fn(async () => undefined),
@@ -99,6 +104,29 @@ describe('LoopPreIterationGuard', () => {
       state,
       'cap-reached',
       expect.stringContaining('iterations'),
+    );
+  });
+
+  it('terminalizes a restored pending cap intent without reopening the work budget', async () => {
+    const state = makeState();
+    state.capWrapUpIntent = {
+      cap: 'cost',
+      originalReason: 'Original cost limit reason',
+      triggerIteration: 4,
+      measurement: 400,
+      limit: 400,
+      phase: 'pending-turn',
+    };
+    // Simulate a compatibility restore whose current config no longer proves
+    // the cap numerically. The persisted terminal intent remains authoritative.
+    state.config.caps.maxCostCents = null;
+    const harness = makeHarness();
+
+    await expect(harness.guard.run(state)).resolves.toBe('terminal');
+    expect(harness.terminate).toHaveBeenCalledWith(
+      state,
+      'cap-reached',
+      'Original cost limit reason',
     );
   });
 });

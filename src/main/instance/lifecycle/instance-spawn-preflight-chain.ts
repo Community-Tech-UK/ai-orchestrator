@@ -9,6 +9,7 @@ import type {
 } from '../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { requiresFreshConfiguredModelSpawn } from './create-validation-helpers';
+import { resolveSpawnReasoningEffort } from './reasoning-effort-resolution';
 import { resolveExecutionLocation } from './execution-location-resolver';
 
 export interface InstanceSpawnPreflightDeps {
@@ -47,6 +48,13 @@ export class InstanceSpawnPreflightChain {
       provider,
       spawnOptions.model,
     );
+    // A warm adapter was spawned ahead of time with the app-level default
+    // effort (see `WarmStartManager` wiring in instance-manager). Its spawn
+    // options are already baked in, so any create that resolved to a different
+    // effort — an explicit picker level, or the "let the provider decide"
+    // sentinel — must spawn fresh instead of silently inheriting the default.
+    const warmEffortMismatch =
+      spawnOptions.reasoningEffort !== resolveSpawnReasoningEffort({}, provider);
     const warmStartBlocked = Boolean(
       config.resume
       || config.forceNodeId
@@ -54,6 +62,7 @@ export class InstanceSpawnPreflightChain {
       || config.modelRuntimeTarget
       || spawnOptions.browserGatewayMcp
       || needsFreshConfiguredModel
+      || warmEffortMismatch
       || instance.bareMode === true,
     );
 

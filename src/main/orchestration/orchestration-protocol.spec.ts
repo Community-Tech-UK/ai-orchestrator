@@ -15,7 +15,9 @@ import {
   formatCommandResponse,
   generateChildPrompt,
   generateOrchestrationPrompt,
+  detectsConsensusIntent,
   detectsSchedulingIntent,
+  CONSENSUS_INTENT_REMINDER,
   SCHEDULING_INTENT_REMINDER,
   parseOrchestratorCommands,
   stripOrchestrationMarkers,
@@ -293,12 +295,100 @@ describe('generateOrchestrationPrompt', () => {
   });
 
   describe('consensus guidance', () => {
-    it('documents consensus_query as a high-confidence-validation tool', () => {
-      expect(prompt).toMatch(/consensus_query[\s\S]*high-confidence/);
+    it('requires consensus_query for selective high-value validation triggers', () => {
+      expect(prompt).toMatch(/consensus_query[\s\S]*high-impact[\s\S]*conflicting evidence/i);
+      expect(prompt).toMatch(/repeated failed attempts[\s\S]*explicitly asks/i);
     });
 
-    it('warns against consensus for simple lookups', () => {
-      expect(prompt).toMatch(/Do NOT use[\s\S]*simple lookups/);
+    it('requires the primary model to reconcile the result and revise its course when warranted', () => {
+      expect(prompt).toMatch(/inspect[\s\S]*agreement[\s\S]*dissent[\s\S]*provider failures/i);
+      expect(prompt).toMatch(/revise[\s\S]*conclusion changed/i);
+      expect(prompt).toMatch(/compare[\s\S]*current hypothesis or plan/i);
+      expect(prompt).toMatch(/gather direct evidence[\s\S]*material conflicts/i);
+      expect(prompt).toMatch(/continue investigating[\s\S]*material disagreement remains/i);
+    });
+
+    it('warns against consensus for routine or directly evidenced work', () => {
+      expect(prompt).toMatch(/Do NOT use[\s\S]*simple lookups[\s\S]*directly evidenced/i);
+    });
+  });
+
+  describe('consensus intent reinforcement', () => {
+    it.each([
+      'Please run a consensus check on this migration plan',
+      'Fact-check this claim',
+      'Cross-check this conclusion',
+      'Consensus please',
+      'Second opinion please',
+      'Can you fact-check this with another model?',
+      'Verify this conclusion with the other providers',
+      'I want a second opinion on the security assessment',
+      'Cross-check this conclusion across multiple providers',
+      'This is a high-risk decision and I am not sure which option is safe',
+      'Is this production migration safe or too risky?',
+      'The security reviewers disagree about the correct fix',
+      'The CLI tools contradict each other about the result',
+      'There is no consensus among reviewers',
+      'There is no consensus among security reviewers about whether this deployment is safe',
+      'No consensus exists because the reviewers disagree',
+      'There is conflicting evidence about whether the migration is safe',
+      'The same fix failed again after a second attempt',
+      'This still fails after another attempt',
+      'The same fix failed twice',
+      'Our strategy has failed twice',
+      'The approach failed on the second attempt',
+      'This fix failed after two attempts',
+      'This is the second failed attempt',
+      'This was our third failed attempt',
+      'We have now failed twice',
+      'This failed after two attempts',
+    ])('detects consensus-worthy intent in: %s', (text) => {
+      expect(detectsConsensusIntent(text)).toBe(true);
+    });
+
+    it.each([
+      'Explain how the Raft consensus algorithm works',
+      'Look up the current Node version',
+      'Verify that the import resolves',
+      'Fix the failing test',
+      'The first attempt failed, please apply the obvious correction',
+      '',
+    ])('does not trigger on routine message: %s', (text) => {
+      expect(detectsConsensusIntent(text)).toBe(false);
+    });
+
+    it.each([
+      "Don't run a consensus check; just show me the logs",
+      'Skip the second opinion and use the existing evidence',
+      'Proceed without a cross-check',
+    ])('honours explicit opt-out phrasing in: %s', (text) => {
+      expect(detectsConsensusIntent(text)).toBe(false);
+    });
+
+    it('handles null/undefined input', () => {
+      expect(detectsConsensusIntent(undefined)).toBe(false);
+      expect(detectsConsensusIntent(null)).toBe(false);
+    });
+
+    it('reminder is conditional and requires evidence-led reconciliation', () => {
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/\bif\b/i);
+      expect(CONSENSUS_INTENT_REMINDER).toContain('consensus_query');
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/agreement[\s\S]*dissent[\s\S]*provider failures/i);
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/authoritative[\s\S]*reproducible evidence/i);
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/direct authoritative evidence[\s\S]*skip/i);
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/high-impact[\s\S]*conflicting evidence/i);
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/whether your conclusion changed/i);
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/compare[\s\S]*current hypothesis or plan/i);
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/gather direct evidence[\s\S]*material conflicts/i);
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(
+        /continue investigating[\s\S]*material disagreement remains/i,
+      );
+    });
+
+    it('reminder carries a compact marker-wrapped consensus_query skeleton', () => {
+      expect(CONSENSUS_INTENT_REMINDER).toContain(ORCHESTRATION_MARKER_START);
+      expect(CONSENSUS_INTENT_REMINDER).toContain('"action":"consensus_query"');
+      expect(CONSENSUS_INTENT_REMINDER).toMatch(/not actually warrant consensus[\s\S]*ignore/i);
     });
   });
 });

@@ -3,51 +3,61 @@ import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { LoopFileChange } from '../../shared/types/loop.types';
+import {
+  codeIndexDirectoryIgnoreNames,
+  codeIndexFileIgnoreNames,
+  codeIndexFileIgnoreSuffixes,
+} from '../codemem/code-index-ignores';
 
 interface WorkspaceSnapshotEntry {
   contentHash: string;
 }
 
-interface WorkspaceSnapshotOptions {
+export interface WorkspaceSnapshotOptions {
   maxFiles?: number;
+  maxDirectories?: number;
+  excludedRelativeDirs?: readonly string[];
 }
 
-export type WorkspaceSnapshot = Map<string, WorkspaceSnapshotEntry>;
+export type WorkspaceObservationCoverage = 'complete' | 'partial' | 'failed';
+
+export interface WorkspaceSnapshot {
+  entries: Map<string, WorkspaceSnapshotEntry>;
+  coverage: WorkspaceObservationCoverage;
+  reason?: string;
+  skippedPathCount: number;
+  keys(): IterableIterator<string>;
+}
+
+export interface WorkspaceSnapshotDelta {
+  changes: LoopFileChange[];
+  coverage: WorkspaceObservationCoverage;
+  reason?: string;
+}
 export type WorkspaceGitRunner = (args: string[], cwd: string) => { status: number | null; stdout: string };
 
 const WORKSPACE_SNAPSHOT_MAX_FILES = 5_000;
+const WORKSPACE_SNAPSHOT_MAX_DIRECTORIES = 5_000;
 const WORKSPACE_SNAPSHOT_MAX_FILE_BYTES = 5 * 1024 * 1024;
 const WORKSPACE_SNAPSHOT_IGNORED_DIRS = new Set([
   // Loop runtime state. `.aio-loop-state` holds the loop's own NOTES.md /
   // OUTSTANDING.md / DONE.txt, rewritten EVERY iteration — counting it as a
   // file change manufactures false "progress" and masks a genuine stall.
-  '.aio-loop-attachments',
-  '.aio-loop-control',
-  '.aio-loop-state',
-  // JS/TS build + tool caches.
-  '.angular',
-  '.cache',
-  '.git',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.vite',
-  'build',
+  ...codeIndexDirectoryIgnoreNames(),
+  // Additional platform build directories covered by Loop's existing policy.
   'build-device',
   'build-simulator',
-  'coverage',
-  'dist',
-  'node_modules',
-  'out',
   // JVM build artifacts. Gradle rewrites its cache on every build, so a
   // Java/Kotlin loop that compiles each iteration would otherwise show dozens
   // of churning `.gradle/...` files and never read as "no progress".
-  '.gradle',
   '.kotlin',
   'bin',
-  'target',
 ]);
-const WORKSPACE_SNAPSHOT_IGNORED_FILES = new Set(['.DS_Store']);
+const WORKSPACE_SNAPSHOT_IGNORED_FILES = new Set([
+  ...codeIndexFileIgnoreNames(),
+  '.DS_Store',
+]);
+const WORKSPACE_SNAPSHOT_IGNORED_FILE_SUFFIXES = codeIndexFileIgnoreSuffixes();
 const WORKSPACE_SNAPSHOT_SOURCE_MARKERS = [
   '.git',
   'angular.json',
@@ -96,7 +106,9 @@ function isIgnoredWorkspaceRelPath(relPath: string): boolean {
     if (WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(segments[i])) return true;
   }
   const leaf = segments[segments.length - 1];
-  return WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(leaf) || WORKSPACE_SNAPSHOT_IGNORED_FILES.has(leaf);
+  return WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(leaf)
+    || WORKSPACE_SNAPSHOT_IGNORED_FILES.has(leaf)
+    || WORKSPACE_SNAPSHOT_IGNORED_FILE_SUFFIXES.some((suffix) => leaf.endsWith(suffix));
 }
 
 const defaultWorkspaceGitRunner: WorkspaceGitRunner = (args, cwd) => {
@@ -205,59 +217,106 @@ function workspaceSnapshotEntryPriority(parentDir: string, entry: fs.Dirent): nu
 
 export function snapshotWorkspaceFiles(cwd: string, options: WorkspaceSnapshotOptions = {}): WorkspaceSnapshot {
   const root = path.resolve(cwd);
-  const snapshot: WorkspaceSnapshot = new Map();
+  const snapshotEntries = new Map<string, WorkspaceSnapshotEntry>();
   const maxFiles = options.maxFiles ?? WORKSPACE_SNAPSHOT_MAX_FILES;
+  const maxDirectories = options.maxDirectories ?? WORKSPACE_SNAPSHOT_MAX_DIRECTORIES;
+  const excluded = new Set(
+    (options.excludedRelativeDirs ?? []).map((value) => normalizeWorkspacePath(value).replace(/\/+$/, '')),
+  );
   let limitReached = false;
+  let directoryLimitReached = false;
+  let traversedDirectories = 0;
+  let skippedPathCount = 0;
+  const queue: Array<{ dir: string; relDir: string }> = [{ dir: root, relDir: '' }];
+  const deferredDirectories: Array<{ dir: string; relDir: string }> = [];
+  let rootReadable = false;
 
-  const visit = (dir: string, relDir: string): void => {
-    if (limitReached) return;
-
-    let entries: fs.Dirent[];
+  while ((queue.length > 0 || deferredDirectories.length > 0) && !limitReached) {
+    if (traversedDirectories >= maxDirectories) {
+      directoryLimitReached = true;
+      break;
+    }
+    const current = queue.shift() ?? deferredDirectories.shift()!;
+    traversedDirectories += 1;
+    let dirEntries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      dirEntries = fs.readdirSync(current.dir, { withFileTypes: true });
+      if (current.relDir === '') rootReadable = true;
     } catch {
-      return;
+      skippedPathCount += 1;
+      continue;
     }
 
-    entries.sort((a, b) => {
+    dirEntries.sort((a, b) => {
       const priorityDelta =
-        workspaceSnapshotEntryPriority(dir, a) - workspaceSnapshotEntryPriority(dir, b);
+        workspaceSnapshotEntryPriority(current.dir, a) - workspaceSnapshotEntryPriority(current.dir, b);
       return priorityDelta || a.name.localeCompare(b.name);
     });
-    for (const entry of entries) {
-      if (limitReached) return;
+    for (const entry of dirEntries) {
+      if (limitReached) break;
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory() && WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(entry.name)) continue;
-      if (entry.isFile() && WORKSPACE_SNAPSHOT_IGNORED_FILES.has(entry.name)) continue;
+      if (
+        entry.isFile()
+        && (
+          WORKSPACE_SNAPSHOT_IGNORED_FILES.has(entry.name)
+          || WORKSPACE_SNAPSHOT_IGNORED_FILE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))
+        )
+      ) continue;
 
-      const relPath = relDir ? path.join(relDir, entry.name) : entry.name;
+      const relPath = current.relDir ? path.join(current.relDir, entry.name) : entry.name;
+      const normalizedRelPath = normalizeWorkspacePath(relPath);
       const absPath = path.join(root, relPath);
 
       if (entry.isDirectory()) {
-        visit(absPath, relPath);
+        if (!excluded.has(normalizedRelPath)) {
+          const target = { dir: absPath, relDir: relPath };
+          if (isDeprioritizedWorkspaceDir(entry.name)) {
+            deferredDirectories.push(target);
+          } else {
+            queue.push(target);
+          }
+        }
         continue;
       }
 
       if (!entry.isFile()) continue;
-      if (snapshot.size >= maxFiles) {
+      if (snapshotEntries.size >= maxFiles) {
         limitReached = true;
-        return;
+        break;
       }
 
       try {
         const stat = fs.statSync(absPath);
         if (!stat.isFile()) continue;
-        snapshot.set(normalizeWorkspacePath(relPath), {
+        snapshotEntries.set(normalizedRelPath, {
           contentHash: hashWorkspaceFile(absPath, stat),
         });
       } catch {
-        // Best effort only.
+        skippedPathCount += 1;
       }
     }
+  }
+  const coverage: WorkspaceObservationCoverage = !rootReadable
+    ? 'failed'
+    : limitReached || directoryLimitReached || skippedPathCount > 0
+      ? 'partial'
+      : 'complete';
+  const reasons = [
+    limitReached ? `filesystem snapshot file limit reached (${maxFiles})` : '',
+    directoryLimitReached
+      ? `filesystem snapshot directory limit reached (${maxDirectories})`
+      : '',
+    skippedPathCount > 0 ? `${skippedPathCount} eligible path(s) unreadable` : '',
+    !rootReadable ? 'workspace root could not be read' : '',
+  ].filter(Boolean);
+  return {
+    entries: snapshotEntries,
+    coverage,
+    ...(reasons.length > 0 ? { reason: reasons.join('; ') } : {}),
+    skippedPathCount,
+    keys: () => snapshotEntries.keys(),
   };
-
-  visit(root, '');
-  return snapshot;
 }
 
 export function snapshotFileChangesViaWorkspace(
@@ -265,13 +324,21 @@ export function snapshotFileChangesViaWorkspace(
   cwd: string,
   options: WorkspaceSnapshotOptions = {},
 ): LoopFileChange[] {
+  return snapshotWorkspaceDelta(before, cwd, options).changes;
+}
+
+export function snapshotWorkspaceDelta(
+  before: WorkspaceSnapshot,
+  cwd: string,
+  options: WorkspaceSnapshotOptions = {},
+): WorkspaceSnapshotDelta {
   const after = snapshotWorkspaceFiles(cwd, options);
-  const paths = new Set<string>([...before.keys(), ...after.keys()]);
+  const paths = new Set<string>([...before.entries.keys(), ...after.entries.keys()]);
   const changes: LoopFileChange[] = [];
 
   for (const relPath of [...paths].sort()) {
-    const prev = before.get(relPath);
-    const next = after.get(relPath);
+    const prev = before.entries.get(relPath);
+    const next = after.entries.get(relPath);
     if (prev?.contentHash === next?.contentHash) continue;
 
     changes.push({
@@ -282,7 +349,14 @@ export function snapshotFileChangesViaWorkspace(
     });
   }
 
-  return changes;
+  const coverage: WorkspaceObservationCoverage =
+    before.coverage === 'failed' || after.coverage === 'failed'
+      ? 'failed'
+      : before.coverage === 'partial' || after.coverage === 'partial'
+        ? 'partial'
+        : 'complete';
+  const reason = [before.reason, after.reason].filter(Boolean).join('; ');
+  return { changes, coverage, ...(reason ? { reason } : {}) };
 }
 
 export function mergeFileChanges(...groups: LoopFileChange[][]): LoopFileChange[] {

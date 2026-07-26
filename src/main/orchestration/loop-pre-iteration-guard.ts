@@ -1,5 +1,6 @@
 import {
   createLoopPendingInput,
+  type LoopCapWrapUpIntent,
   type LoopState,
 } from '../../shared/types/loop.types';
 import {
@@ -12,7 +13,7 @@ import {
   isTerminalLoopRuntimeState,
 } from './loop-runtime-status';
 
-type LoopCap = 'iterations' | 'wall-time' | 'tokens' | 'cost';
+type LoopCap = LoopCapWrapUpIntent['cap'];
 type PreIterationResult = 'continue' | 'restart' | 'terminal';
 
 interface LoopPreIterationGuardDependencies {
@@ -20,8 +21,8 @@ interface LoopPreIterationGuardDependencies {
   waitWhilePaused(loopRunId: string): Promise<void>;
   maintenanceActive(): boolean;
   getConvergenceNote(loopRunId: string): string | undefined;
-  getCapWrapUp(loopRunId: string): LoopCap | undefined;
-  setCapWrapUp(loopRunId: string, cap: LoopCap): void;
+  getCapWrapUp(loopRunId: string): LoopCapWrapUpIntent | undefined;
+  setCapWrapUp(loopRunId: string, intent: LoopCapWrapUpIntent): void;
   terminate(state: LoopState, status: LoopState['status'], reason?: string): void;
   emit(eventName: string, payload: unknown): void;
   sleep(delayMs: number): Promise<void>;
@@ -55,10 +56,11 @@ export class LoopPreIterationGuard {
       return 'restart';
     }
 
-    const cap = checkLoopHardCaps(state);
+    const existingIntent = this.dependencies.getCapWrapUp(state.id) ?? state.capWrapUpIntent;
+    const cap = checkLoopHardCaps(state) ?? existingIntent?.cap ?? null;
     if (!cap) return 'continue';
 
-    const reason = describeLoopCapReason(
+    const reason = existingIntent?.originalReason ?? describeLoopCapReason(
       state,
       cap,
       this.dependencies.getConvergenceNote(state.id),
@@ -66,10 +68,12 @@ export class LoopPreIterationGuard {
     const wrapUpEnabled = state.config.caps.capWrapUpIteration ?? true;
     if (
       wrapUpEnabled &&
-      !this.dependencies.getCapWrapUp(state.id) &&
+      !existingIntent &&
       state.status === 'running'
     ) {
-      this.dependencies.setCapWrapUp(state.id, cap);
+      const intent = createCapWrapUpIntent(state, cap, reason);
+      state.capWrapUpIntent = intent;
+      this.dependencies.setCapWrapUp(state.id, intent);
       state.pendingInterventions.push(
         createLoopPendingInput(buildCapWrapUpDirective(cap, reason), { source: 'cap-wrap-up' }),
       );
@@ -82,4 +86,33 @@ export class LoopPreIterationGuard {
     this.dependencies.terminate(state, 'cap-reached', reason);
     return 'terminal';
   }
+}
+
+function createCapWrapUpIntent(
+  state: LoopState,
+  cap: LoopCap,
+  originalReason: string,
+): LoopCapWrapUpIntent {
+  const measurementAndLimit = (() => {
+    switch (cap) {
+      case 'iterations':
+        return { measurement: state.totalIterations, limit: state.config.caps.maxIterations ?? undefined };
+      case 'wall-time':
+        return { measurement: Date.now() - state.startedAt, limit: state.config.caps.maxWallTimeMs ?? undefined };
+      case 'tokens':
+        return { measurement: state.totalTokens, limit: state.config.caps.maxTokens ?? undefined };
+      case 'cost':
+        return { measurement: state.totalCostCents, limit: state.config.caps.maxCostCents ?? undefined };
+    }
+  })();
+  return {
+    cap,
+    originalReason,
+    triggerIteration: state.totalIterations,
+    ...(typeof measurementAndLimit.measurement === 'number'
+      ? { measurement: measurementAndLimit.measurement }
+      : {}),
+    ...(typeof measurementAndLimit.limit === 'number' ? { limit: measurementAndLimit.limit } : {}),
+    phase: 'pending-turn',
+  };
 }

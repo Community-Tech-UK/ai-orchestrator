@@ -1,2 +1,7 @@
-{"kind":"output","content":"Hello from Claude.","messageType":"assistant","messageId":"claude-message-1","timestamp":1000}
-{"kind":"complete","tokensUsed":12,"durationMs":50}
+{"kind":"spawned","pid":12531}
+{"kind":"spawned","pid":12534}
+{"kind":"status","status":"busy"}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031323501,"thinkingExtracted":true}
+{"kind":"context","used":38165,"total":1000000,"percentage":3.8164999999999996}
+{"kind":"status","status":"busy"}
+{"kind":"status","status":"idle"}

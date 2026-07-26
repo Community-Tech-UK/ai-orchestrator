@@ -190,6 +190,43 @@ describe('InstancePersistenceManager', () => {
     );
   });
 
+  it('preserves a provider-decided runtime instead of escalating the fork to the default', async () => {
+    // An instance with no stored effort is one running provider-decided. Passing
+    // `undefined` would read as "unchosen" at spawn and re-apply the app default
+    // ('high' for codex), silently escalating a fork of a deliberately cheap run.
+    sourceInstance.provider = 'codex';
+    sourceInstance.reasoningEffort = undefined;
+    sourceInstance.outputBuffer = [message('assistant-1')];
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      sourceMessageId: 'assistant-1',
+      preserveRuntimeSettings: true,
+    });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: null }),
+    );
+  });
+
+  it('carries an explicit effort through a preserved fork', async () => {
+    sourceInstance.provider = 'codex';
+    sourceInstance.reasoningEffort = 'low';
+    sourceInstance.outputBuffer = [message('assistant-1')];
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      sourceMessageId: 'assistant-1',
+      preserveRuntimeSettings: true,
+    });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: 'low' }),
+    );
+  });
+
   it('adds hidden replay context for prompted forks without changing the visible prompt', async () => {
     sourceInstance.outputBuffer = [
       { ...message('user-1', 'original setup context'), type: 'user' },

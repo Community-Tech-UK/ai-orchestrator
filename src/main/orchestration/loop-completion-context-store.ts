@@ -1,4 +1,4 @@
-type LoopCapKind = 'iterations' | 'wall-time' | 'tokens' | 'cost';
+import type { LoopCapWrapUpIntent } from '../../shared/types/loop.types';
 
 /** Owns transient completion/convergence hints that do not belong in LoopState. */
 export class LoopCompletionContextStore {
@@ -7,7 +7,7 @@ export class LoopCompletionContextStore {
   private pendingContextResets = new Set<string>();
   private pendingFailovers = new Map<string, string>();
   private downshiftModels = new Map<string, string>();
-  private capWrapUps = new Map<string, LoopCapKind>();
+  private capWrapUps = new Map<string, LoopCapWrapUpIntent>();
   private envelopeRewraps = new Map<string, number>();
 
   setConvergenceNote(loopRunId: string, note: string): void {
@@ -66,12 +66,13 @@ export class LoopCompletionContextStore {
     this.downshiftModels.delete(loopRunId);
   }
 
-  setCapWrapUp(loopRunId: string, cap: LoopCapKind): void {
-    this.capWrapUps.set(loopRunId, cap);
+  setCapWrapUp(loopRunId: string, intent: LoopCapWrapUpIntent): void {
+    this.capWrapUps.set(loopRunId, { ...intent });
   }
 
-  getCapWrapUp(loopRunId: string): LoopCapKind | undefined {
-    return this.capWrapUps.get(loopRunId);
+  getCapWrapUp(loopRunId: string): LoopCapWrapUpIntent | undefined {
+    const intent = this.capWrapUps.get(loopRunId);
+    return intent ? { ...intent } : undefined;
   }
 
   setEnvelopeRewrapCount(loopRunId: string, count: number): void {

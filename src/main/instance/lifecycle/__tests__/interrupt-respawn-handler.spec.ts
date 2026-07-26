@@ -467,6 +467,132 @@ describe('InterruptRespawnHandler', () => {
     );
   });
 
+  it('carries the reasoning effort to the replacement adapter after an unexpected exit', async () => {
+    instance = createInstance('respawning');
+    instance.id = 'effort-exit-respawn-instance';
+    instance.provider = 'claude';
+    instance.reasoningEffort = 'xhigh';
+    instance.parentId = null;
+    instance.outputBuffer = [];
+
+    const previousAdapter = adapter as unknown as CliAdapter;
+    const replacement = new RespawnReplacementAdapter();
+    replacement.spawn.mockResolvedValue(777);
+    providerRuntime.createAdapter.mockReturnValue(replacement);
+
+    let currentAdapter: CliAdapter | undefined = previousAdapter;
+    const setAdapter = vi.fn((_id: string, next: CliAdapter) => {
+      currentAdapter = next;
+    });
+    const deleteAdapter = vi.fn(() => {
+      currentAdapter = undefined;
+    });
+
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: () => currentAdapter,
+      setAdapter,
+      deleteAdapter,
+      queueUpdate,
+      markInterrupted: vi.fn(),
+      clearInterrupted,
+      addToOutputBuffer,
+      setupAdapterEvents: vi.fn(),
+      transitionState: (target, status) => {
+        target.status = status;
+      },
+      getAdapterRuntimeCapabilities: () => ({
+        supportsResume: false,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+      }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude'),
+      getMcpConfig: () => [],
+      getPermissionHookPath: () => undefined,
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
+      buildReplayContinuityMessage: () => 'replay continuity',
+      buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
+      emitOutput,
+    }));
+
+    await handler.respawnAfterUnexpectedExit(instance.id);
+
+    expect(providerRuntime.createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cliType: 'claude',
+        options: expect.objectContaining({ reasoningEffort: 'xhigh' }),
+      }),
+    );
+  });
+
+  it('carries the reasoning effort to the replacement adapter after an interrupt respawn', async () => {
+    instance = createInstance('respawning');
+    instance.id = 'effort-interrupt-respawn-instance';
+    instance.provider = 'claude';
+    instance.reasoningEffort = 'xhigh';
+    instance.parentId = null;
+    instance.outputBuffer = [];
+
+    const previousAdapter = adapter as unknown as CliAdapter;
+    const replacement = new RespawnReplacementAdapter();
+    replacement.spawn.mockResolvedValue(777);
+    providerRuntime.createAdapter.mockReturnValue(replacement);
+
+    let currentAdapter: CliAdapter | undefined = previousAdapter;
+    const setAdapter = vi.fn((_id: string, next: CliAdapter) => {
+      currentAdapter = next;
+    });
+    const deleteAdapter = vi.fn(() => {
+      currentAdapter = undefined;
+    });
+
+    handler = new InterruptRespawnHandler(withRealRecoveryCore({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: () => currentAdapter,
+      setAdapter,
+      deleteAdapter,
+      queueUpdate,
+      markInterrupted: vi.fn(),
+      clearInterrupted,
+      addToOutputBuffer,
+      setupAdapterEvents: vi.fn(),
+      transitionState: (target, status) => {
+        target.status = status;
+      },
+      getAdapterRuntimeCapabilities: () => ({
+        supportsResume: false,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+      }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude'),
+      getMcpConfig: () => [],
+      getPermissionHookPath: () => undefined,
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
+      buildReplayContinuityMessage: () => 'replay continuity',
+      buildFallbackHistory: vi.fn(),
+      // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
+      applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
+      emitOutput,
+    }));
+
+    await handler.respawnAfterInterrupt(instance.id);
+
+    expect(providerRuntime.createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cliType: 'claude',
+        options: expect.objectContaining({ reasoningEffort: 'xhigh' }),
+      }),
+    );
+  });
+
   it('passes local-model runtime targets to replacement adapters during auto-respawn', async () => {
     instance = createInstance('respawning');
     instance.id = 'local-model-respawn-instance';

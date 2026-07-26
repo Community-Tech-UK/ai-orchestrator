@@ -104,7 +104,12 @@ export interface ContinuityConfig {
   compressOldSnapshots: boolean;
   resumeOnStartup: boolean;
   preserveToolResults: boolean;
-  /** Soft sizing hint for persisted history compaction, not a hard message cap. */
+  /**
+   * Hard cap on retained conversation entries. `addConversationEntry` keeps the
+   * newest N and drops the rest. This was previously only a soft sizing hint
+   * fed to a context-pressure policy that trimmed to 51 entries once the
+   * session passed 80% context; that policy is gone.
+   */
   maxConversationEntries: number;
   /** Number of newest state files to load into the resumable-session index at startup. 0 means unlimited. */
   maxLoadedStateFiles: number;

@@ -1,3 +1,13 @@
-{"kind":"status","status":"working"}
-{"kind":"tool_use","toolName":"Bash","toolUseId":"claude-tool-1","input":{"command":"git status --short"}}
-{"kind":"tool_result","toolName":"Bash","toolUseId":"claude-tool-1","success":true,"output":" M src/main/example.ts"}
+{"kind":"spawned","pid":16913}
+{"kind":"spawned","pid":16937}
+{"kind":"status","status":"busy"}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031503554,"thinkingExtracted":true}
+{"kind":"context","used":38232,"total":1000000,"percentage":3.8232000000000004}
+{"kind":"status","status":"busy"}
+{"kind":"context","used":38232,"total":1000000,"percentage":3.8232000000000004}
+{"kind":"status","status":"busy"}
+{"kind":"output","content":"[omitted-session-body]","messageType":"tool_use","messageId":"<redacted-id>","timestamp":1785031504130,"metadata":{"name":"Bash","id":"<redacted-id>","input":{"command":"[omitted-session-body]","description":"[omitted-session-body]"}}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031506193,"thinkingExtracted":true}
+{"kind":"context","used":38336,"total":1000000,"percentage":3.8336}
+{"kind":"status","status":"busy"}
+{"kind":"status","status":"idle"}

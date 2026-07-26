@@ -53,15 +53,6 @@ interface HandoffState {
   foldedTurnCount: number;
 }
 
-/**
- * Shared with the replay preamble so both hydration paths keep the end of a
- * turn — where the pending question or option list lives — instead of cutting
- * it off at the head budget.
- */
-function truncate(value: string, maxChars: number): string {
-  return truncateTranscriptContent(value, maxChars);
-}
-
 function toConversationTurn(turn: HandoffTurn): ConversationTurn {
   return {
     id: turn.id,
@@ -78,7 +69,10 @@ function conversationalMessages(messages: readonly OutputMessage[]): HandoffTurn
     .map((message) => ({
       id: message.id,
       role: message.type as 'user' | 'assistant',
-      content: truncate(message.content, MAX_CHARS_PER_TURN),
+      // Tail-preserving: an agent's pending question or option list sits at the
+      // end of its turn, so head-only truncation would delete what the next user
+      // message replies to.
+      content: truncateTranscriptContent(message.content, MAX_CHARS_PER_TURN),
       timestamp: message.timestamp,
     }));
 }
@@ -123,7 +117,7 @@ function renderDocument(parts: {
 
   lines.push('', 'Unresolved items:');
   if (parts.unresolved.length > 0) {
-    for (const item of parts.unresolved) lines.push(`- ${truncate(item, MAX_CHARS_PER_TURN)}`);
+    for (const item of parts.unresolved) lines.push(`- ${truncateTranscriptContent(item, MAX_CHARS_PER_TURN)}`);
   } else {
     lines.push('- None explicitly captured.');
   }
@@ -139,7 +133,7 @@ function renderDocument(parts: {
   lines.push('</conversation_history>');
   lines.push('Use this as background context for the next reply. Prefer continuing the task over asking the user to repeat information unless critical context is still missing.');
 
-  return truncate(redactSecrets(lines.join('\n')), MAX_DOCUMENT_CHARS);
+  return truncateTranscriptContent(redactSecrets(lines.join('\n')), MAX_DOCUMENT_CHARS);
 }
 
 export class HandoffStateService {

@@ -641,7 +641,18 @@ describe('FU-3: LoopStore restart-failure counter', () => {
 });
 
 describe('P3: LoopStore worktree column persistence', () => {
-  it('upsertRun persists worktree_path and branch_name from config on INSERT', () => {
+  function ownedLifecycle(branch: string) {
+    return {
+      managedByAio: true as const,
+      phase: 'acquired' as const,
+      baseBranch: 'main',
+      sessionBranch: branch,
+      sessionTip: 'base-tip',
+      updatedAt: 1,
+    };
+  }
+
+  it('upsertRun persists worktree_path and branch_name for an AIO-owned lifecycle', () => {
     const state = makeState({
       id: 'loop-wt-1',
       config: {
@@ -649,6 +660,7 @@ describe('P3: LoopStore worktree column persistence', () => {
         executionCwd: '/tmp/project/.worktrees/task-abc',
         worktreeBranch: 'task-abc-1a2b3c',
       },
+      worktreeLifecycle: ownedLifecycle('task-abc-1a2b3c'),
     });
     store.upsertRun(state);
 
@@ -668,6 +680,7 @@ describe('P3: LoopStore worktree column persistence', () => {
         executionCwd: '/tmp/project/.worktrees/task-def',
         worktreeBranch: 'task-def-4d5e6f',
       },
+      worktreeLifecycle: ownedLifecycle('task-def-4d5e6f'),
     });
     store.upsertRun(state);
 
@@ -683,7 +696,7 @@ describe('P3: LoopStore worktree column persistence', () => {
     expect(row?.branch_name).toBe('task-def-4d5e6f');
   });
 
-  it('clearWorktreeInfo nulls both columns; further upsertRun does not re-populate', () => {
+  it('clearWorktreeInfo nulls the reaped path but retains durable branch metadata', () => {
     const state = makeState({
       id: 'loop-wt-3',
       config: {
@@ -691,6 +704,7 @@ describe('P3: LoopStore worktree column persistence', () => {
         executionCwd: '/tmp/project/.worktrees/task-ghi',
         worktreeBranch: 'task-ghi-7g8h9i',
       },
+      worktreeLifecycle: ownedLifecycle('task-ghi-7g8h9i'),
     });
     store.upsertRun(state);
     store.clearWorktreeInfo('loop-wt-3');
@@ -700,7 +714,7 @@ describe('P3: LoopStore worktree column persistence', () => {
       `SELECT worktree_path, branch_name FROM loop_runs WHERE id = 'loop-wt-3'`,
     ).get() as { worktree_path: string | null; branch_name: string | null } | undefined);
     expect(row?.worktree_path).toBeNull();
-    expect(row?.branch_name).toBeNull();
+    expect(row?.branch_name).toBe('task-ghi-7g8h9i');
 
     // A subsequent upsertRun (e.g. a late state-change event) must NOT re-populate
     // the columns — the worktree is gone and re-writing its path would cause the
@@ -710,7 +724,7 @@ describe('P3: LoopStore worktree column persistence', () => {
       `SELECT worktree_path, branch_name FROM loop_runs WHERE id = 'loop-wt-3'`,
     ).get() as { worktree_path: string | null; branch_name: string | null } | undefined);
     expect(row?.worktree_path).toBeNull();
-    expect(row?.branch_name).toBeNull();
+    expect(row?.branch_name).toBe('task-ghi-7g8h9i');
   });
 
   it('non-isolated loops leave worktree columns NULL', () => {
@@ -724,29 +738,46 @@ describe('P3: LoopStore worktree column persistence', () => {
     expect(row?.branch_name).toBeNull();
   });
 
-  it('lists ended provider-limit worktrees for cleanup but leaves resumable provider-limit checkpoints alone', () => {
+  it('does not persist caller-supplied worktree metadata without AIO ownership', () => {
+    const state = makeState({
+      id: 'loop-unmanaged-wt',
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.claude/worktrees/pre-existing',
+        worktreeBranch: 'pre-existing',
+      },
+    });
+    store.upsertRun(state);
+
+    const row = driver.prepare(
+      `SELECT worktree_path, branch_name FROM loop_runs WHERE id = 'loop-unmanaged-wt'`,
+    ).get<{ worktree_path: string | null; branch_name: string | null }>();
+    expect(row).toEqual({ worktree_path: null, branch_name: null });
+  });
+
+  it('lists legacy ended provider-limit worktrees for cleanup but leaves resumable checkpoints alone', () => {
     const ended = makeState({
       id: 'loop-provider-limit-ended',
       status: 'provider-limit',
       endedAt: 1_700_000_120_000,
-      config: {
-        ...defaultLoopConfig('/tmp/project', 'goal'),
-        executionCwd: '/tmp/project/.worktrees/provider-limit-ended',
-        worktreeBranch: 'provider-limit-ended-123',
-      },
     });
     const resumable = makeState({
       id: 'loop-provider-limit-resumable',
       status: 'provider-limit',
       endedAt: null,
-      config: {
-        ...defaultLoopConfig('/tmp/project', 'goal'),
-        executionCwd: '/tmp/project/.worktrees/provider-limit-resumable',
-        worktreeBranch: 'provider-limit-resumable-123',
-      },
     });
     store.upsertRun(ended);
     store.upsertRun(resumable);
+    store.updateWorktreeInfo(
+      ended.id,
+      '/tmp/project/.worktrees/provider-limit-ended',
+      'provider-limit-ended-123',
+    );
+    store.updateWorktreeInfo(
+      resumable.id,
+      '/tmp/project/.worktrees/provider-limit-resumable',
+      'provider-limit-resumable-123',
+    );
 
     expect(store.getTerminalRunsWithWorktreePaths()).toEqual([
       expect.objectContaining({
@@ -755,6 +786,182 @@ describe('P3: LoopStore worktree column persistence', () => {
         worktreePath: '/tmp/project/.worktrees/provider-limit-ended',
       }),
     ]);
+  });
+});
+
+describe('managed worktree lifecycle persistence', () => {
+  const lifecycle = {
+    managedByAio: true,
+    phase: 'blocked',
+    baseBranch: 'main',
+    sessionBranch: 'task-example',
+    sessionTip: 'task-tip',
+    integrationBranch: 'integration/main',
+    lastError: 'root checkout has uncommitted changes',
+    updatedAt: 1234,
+  } as const;
+
+  it('durably reserves an acquired worktree before full loop startup completes', () => {
+    const config = {
+      ...defaultLoopConfig('/tmp/project', 'goal'),
+      executionCwd: '/tmp/project/.worktrees/task-reserved',
+      worktreeBranch: 'task-reserved',
+      worktreeBaseBranch: 'main',
+    };
+    const acquired = {
+      ...lifecycle,
+      phase: 'acquired' as const,
+      sessionBranch: 'task-reserved',
+      integrationBranch: undefined,
+      lastError: undefined,
+    };
+
+    store.reserveManagedWorktree({
+      id: 'loop-reserved',
+      chatId: 'chat-reserved',
+      config,
+      lifecycle: acquired,
+    });
+
+    expect(store.getPendingWorktreeLifecycles()).toEqual([
+      expect.objectContaining({
+        id: 'loop-reserved',
+        status: 'error',
+        worktreePath: config.executionCwd,
+        branchName: config.worktreeBranch,
+        lifecycle: acquired,
+      }),
+    ]);
+
+    const running = makeState({
+      id: 'loop-reserved',
+      chatId: 'chat-reserved',
+      status: 'running',
+      endedAt: null,
+      config: { ...config, iterationPrompt: 'configured after acquisition' },
+      worktreeLifecycle: acquired,
+    });
+    store.upsertRun(running);
+
+    expect(store.getPendingWorktreeLifecycles()).toEqual([]);
+    expect(store.getRunConfig(running.id)?.iterationPrompt).toBe(
+      'configured after acquisition',
+    );
+  });
+
+  it('round-trips lifecycle through run summaries and dedicated updates', () => {
+    const state = makeState({
+      id: 'loop-lifecycle',
+      worktreeLifecycle: {
+        ...lifecycle,
+        phase: 'acquired',
+        lastError: undefined,
+      },
+    });
+    store.upsertRun(state);
+
+    expect(store.getRunSummary(state.id)?.worktreeLifecycle).toEqual({
+      ...lifecycle,
+      phase: 'acquired',
+      lastError: undefined,
+    });
+
+    store.updateWorktreeLifecycle(state.id, lifecycle);
+
+    expect(store.getRunSummary(state.id)?.worktreeLifecycle).toEqual(lifecycle);
+    expect(store.listRunsForChat(state.chatId)[0]?.worktreeLifecycle).toEqual(lifecycle);
+  });
+
+  it('lists only terminal managed runs whose lifecycle still needs reconciliation', () => {
+    const pending = makeState({
+      id: 'loop-pending-lifecycle',
+      worktreeLifecycle: lifecycle,
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/task-example',
+        worktreeBranch: 'task-example',
+      },
+    });
+    const cleaned = makeState({
+      id: 'loop-cleaned-lifecycle',
+      worktreeLifecycle: { ...lifecycle, phase: 'cleaned', lastError: undefined },
+    });
+    const active = makeState({
+      id: 'loop-active-lifecycle',
+      status: 'running',
+      endedAt: null,
+      worktreeLifecycle: { ...lifecycle, phase: 'harvesting', lastError: undefined },
+    });
+    store.upsertRun(pending);
+    store.upsertRun(cleaned);
+    store.upsertRun(active);
+
+    expect(store.getPendingWorktreeLifecycles()).toEqual([
+      expect.objectContaining({
+        id: pending.id,
+        status: 'completed',
+        workspaceCwd: '/tmp/project',
+        worktreePath: '/tmp/project/.worktrees/task-example',
+        lifecycle,
+      }),
+    ]);
+  });
+
+  it('does not reconcile a resumable provider-limit lifecycle as terminal work', () => {
+    const resumable = makeState({
+      id: 'loop-provider-limit-managed-resumable',
+      status: 'provider-limit',
+      endedAt: null,
+      worktreeLifecycle: lifecycle,
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/provider-limit-resumable',
+        worktreeBranch: 'provider-limit-resumable',
+      },
+    });
+    const terminal = makeState({
+      id: 'loop-provider-limit-managed-terminal',
+      status: 'provider-limit',
+      endedAt: 1_700_000_120_000,
+      worktreeLifecycle: lifecycle,
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/provider-limit-terminal',
+        worktreeBranch: 'provider-limit-terminal',
+      },
+    });
+    store.upsertRun(resumable);
+    store.upsertRun(terminal);
+
+    expect(store.getPendingWorktreeLifecycles().map((row) => row.id)).toEqual([
+      terminal.id,
+    ]);
+  });
+
+  it('clears only the worktree path after reap and retains branch plus lifecycle recovery metadata', () => {
+    const state = makeState({
+      id: 'loop-cleared-lifecycle',
+      worktreeLifecycle: lifecycle,
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/task-example',
+        worktreeBranch: 'task-example',
+      },
+    });
+    store.upsertRun(state);
+    store.clearWorktreeInfo(state.id);
+
+    const row = driver.prepare(
+      `SELECT worktree_path, branch_name, worktree_lifecycle_json
+       FROM loop_runs WHERE id = ?`,
+    ).get<{
+      worktree_path: string | null;
+      branch_name: string | null;
+      worktree_lifecycle_json: string | null;
+    }>(state.id);
+    expect(row?.worktree_path).toBeNull();
+    expect(row?.branch_name).toBe('task-example');
+    expect(JSON.parse(row?.worktree_lifecycle_json ?? 'null')).toEqual(lifecycle);
   });
 });
 

@@ -101,16 +101,56 @@ the release workflow.
 
 ### Publishing
 
-1. Make sure the normal CI workflow is green.
-2. Set `package.json#version` to the new stable version and update the lockfile.
-3. Run the canonical local gates.
-4. Create and push the matching tag, for example `v0.2.0`.
-5. Confirm all five native build jobs and the final publish job pass.
-6. Test an installed previous version updating to the new release on each supported target.
+Before the first stable release, enable **Immutable releases** in the GitHub
+repository settings. Verify the live setting with an administrator-authorized
+GitHub CLI session:
 
-Published release assets are immutable. If a release is faulty, publish a higher patch version; never replace files underneath an existing version or tag.
-The publish job checks for an existing GitHub Release before upload and rejects
-duplicate filenames while collecting matrix artifacts.
+```bash
+gh api repos/Community-Tech-UK/ai-orchestrator/immutable-releases --jq '.enabled'
+```
+
+The command must print `true`. GitHub requires repository Administration read
+permission for this endpoint. The release workflow deliberately does not carry
+an elevated administration token; its standard `GITHUB_TOKEN` cannot verify
+this setting. Do not infer enablement from this document or from a successful
+workflow preflight.
+
+1. Set `package.json#version` to the new stable version and update the lockfile.
+2. Run the canonical local gates, `npm run audit:production`, and
+   `npm run audit:build`.
+3. Push the release commit to `main` and wait for the exact commit SHA's complete
+   CI workflow to succeed. A pull-request check for a different SHA is not
+   sufficient.
+4. Confirm no GitHub Release already exists for the proposed tag.
+5. Create and push the matching stable tag, for example `v0.2.0`, on that
+   successful `main` commit.
+6. Confirm preflight, all five native build jobs, and the final publish job pass.
+7. Test an installed previous version updating to the new release on each
+   supported target.
+
+Preflight verifies that the tag exactly matches `package.json#version`, the
+tagged commit is on `origin/main`, the exact SHA has a completed successful
+`ci.yml` push run on `main`, the production audit is clean, and the tag has no
+existing GitHub Release. It also rejects critical findings anywhere in the
+build dependency graph, rejects high advisories outside the reviewed baseline,
+and rejects any locked `app-builder-lib` below 26.15.0, the minimum patched
+AppImage builder. Immutable releases are the administrator-verified repository
+prerequisite above, not a workflow-token check.
+
+Once GitHub immutable releases are enabled, published release assets and their
+tag cannot be replaced. If a release is faulty, publish a higher patch version;
+never replace files underneath an existing version or tag. The publish job also
+checks for an existing GitHub Release both before matrix work and immediately
+before upload, rejects duplicate filenames while collecting matrix artifacts,
+and disables asset overwrites in the release action.
+
+### GitHub Action pin maintenance
+
+Every external action in `.github/workflows/ci.yml` and
+`.github/workflows/release.yml` is pinned to a full commit SHA. To upgrade an
+action, review the upstream release and diff, replace the SHA everywhere the
+action is used, and update the adjacent readable version comment. Do not replace
+a SHA with a movable major-version tag.
 
 For unsigned local macOS packaging, use:
 

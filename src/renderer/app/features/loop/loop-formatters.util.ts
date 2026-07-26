@@ -12,6 +12,7 @@
  * need (the loop control component runs a 1Hz tick) and pass `now` in
  * if they want to override (mostly for tests).
  */
+import type { LoopWorktreeLifecycle } from '../../../../shared/types/loop.types';
 
 /** Renders a wall-clock duration in milliseconds as `Ns`, `NmSs`, `NhMm`,
  *  or `NdNhNm`. Used for "loop ran for 9m3s"-style summaries. */
@@ -189,6 +190,123 @@ export function loopStatusLabel(status: string): string {
     case 'paused':                 return 'paused';
     case 'running':                return 'running';
     default:                       return status;
+  }
+}
+
+export interface ManagedWorktreeStatusView {
+  tone: 'active' | 'success' | 'blocked' | 'preserved';
+  label: string;
+  detail: string;
+}
+
+function publicWorktreeBlockReason(reason: string | undefined): string {
+  if (!reason) return 'manual attention required';
+  const exactReasons = new Set([
+    'root checkout has uncommitted changes',
+    'unable to inspect worktree ownership',
+    'unable to inspect root checkout branch',
+    'unable to inspect root checkout status',
+    'checked-out base promotion failed',
+    'unchecked base promotion failed',
+    'Harvest failed with uncommitted work',
+    'Unable to inspect managed worktree status',
+    'Session branch metadata is missing',
+    'Durable session branch is missing',
+    'Managed worktree base branch metadata is missing',
+    'Managed worktree integration failed; inspect AIO logs',
+    'Managed worktree finalization failed; inspect AIO logs',
+    'Managed worktree recovery failed; inspect AIO logs',
+  ]);
+  if (exactReasons.has(reason)) return reason;
+  if (
+    /^[A-Za-z0-9._/-]+ cannot be fast-forwarded to [A-Za-z0-9._/-]+$/.test(reason)
+    || /^[A-Za-z0-9._/-]+ is checked out outside the repository root$/.test(reason)
+    || /^(base|integration) branch [A-Za-z0-9._/-]+ does not exist$/.test(reason)
+  ) {
+    return reason;
+  }
+  return 'manual attention required; inspect AIO logs';
+}
+
+/** Human-facing outcome for AIO-owned worktree finalization. */
+export function managedWorktreeStatus(
+  lifecycle: LoopWorktreeLifecycle | undefined,
+  loopStatus: string,
+): ManagedWorktreeStatusView | null {
+  if (!lifecycle) return null;
+  const branches = [
+    lifecycle.sessionBranch,
+    lifecycle.integrationBranch,
+  ].filter((branch): branch is string => Boolean(branch));
+
+  switch (lifecycle.phase) {
+    case 'blocked':
+      return {
+        tone: 'blocked',
+        label: lifecycle.integrationBranch ? 'promotion blocked' : 'workspace blocked',
+        detail: `${publicWorktreeBlockReason(lifecycle.lastError)} · saved on ${branches.join(' and ')}`,
+      };
+    case 'promoted':
+      return {
+        tone: 'success',
+        label: `promoted to ${lifecycle.baseBranch}`,
+        detail: lifecycle.integrationBranch
+          ? `integrated through ${lifecycle.integrationBranch}`
+          : 'base branch fast-forwarded',
+      };
+    case 'preserved':
+      return {
+        tone: 'preserved',
+        label: 'work preserved',
+        detail: `saved on ${lifecycle.sessionBranch}`,
+      };
+    case 'cleaned': {
+      if (lifecycle.integrationBranch && (
+        loopStatus === 'completed' || loopStatus === 'completed-needs-review'
+      )) {
+        return {
+          tone: 'success',
+          label: `promoted to ${lifecycle.baseBranch}`,
+          detail: 'managed workspace cleaned',
+        };
+      }
+      return {
+        tone: 'preserved',
+        label: 'work preserved',
+        detail: `saved on ${lifecycle.sessionBranch} · managed workspace cleaned`,
+      };
+    }
+    case 'integrating':
+      return {
+        tone: 'active',
+        label: 'integrating work',
+        detail: `from ${lifecycle.sessionBranch}`,
+      };
+    case 'integrated':
+    case 'promoting':
+      return {
+        tone: 'active',
+        label: 'promotion pending',
+        detail: `${lifecycle.integrationBranch ?? lifecycle.sessionBranch} → ${lifecycle.baseBranch}`,
+      };
+    case 'harvesting':
+      return {
+        tone: 'active',
+        label: 'saving session work',
+        detail: lifecycle.sessionBranch,
+      };
+    case 'harvested':
+      return {
+        tone: 'active',
+        label: 'session work saved',
+        detail: lifecycle.sessionBranch,
+      };
+    case 'acquired':
+      return {
+        tone: 'active',
+        label: 'managed workspace active',
+        detail: lifecycle.sessionBranch,
+      };
   }
 }
 

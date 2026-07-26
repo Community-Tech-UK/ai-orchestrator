@@ -27,7 +27,6 @@ import { measureAsync } from '../util/slow-operations';
 import { getResumeHintManager } from './resume-hint';
 import { getLastStopSnapshotIfInitialized, type RecoverableSession } from './last-stop-snapshot';
 import { getSafeStorage } from './safe-storage-accessor';
-import { ConversationHistoryCompactor, SessionCompactionPolicy } from './compaction-policy';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 import { getSessionPersistenceQueue } from './session-persistence-queue';
@@ -141,6 +140,18 @@ interface SessionIdentityWriteThrough {
   nativeResumeFailedAt?: number | null;
 }
 
+/**
+ * Newest-first id lookup. Re-emitted ids (streaming updates to the same
+ * message) are almost always the tail entry, so scanning backwards makes the
+ * common case O(1).
+ */
+function findLastIndexById(entries: ConversationEntry[], id: string): number {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].id === id) return i;
+  }
+  return -1;
+}
+
 export class SessionContinuityManager extends EventEmitter {
   private continuityDir: string;
   private stateDir: string;
@@ -162,9 +173,6 @@ export class SessionContinuityManager extends EventEmitter {
   readonly snapshots: SnapshotManager;
   private instanceManager: InstanceManagerForContinuity | null = null;
   private readonly storagePaths = getProjectStoragePaths();
-  private readonly compactionPolicy = new SessionCompactionPolicy();
-  private readonly compactor = new ConversationHistoryCompactor<ConversationEntry>();
-  private readonly lastCompactionAt = new Map<string, number>();
 
   constructor(config: Partial<ContinuityConfig> = {}) {
     super();
@@ -828,50 +836,38 @@ export class SessionContinuityManager extends EventEmitter {
     if (!trackedState) return;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
-    state.conversationHistory = this.normalizeConversationHistory([
-      ...state.conversationHistory,
-      entry,
-    ]);
+    // This runs for every user/assistant/tool_use/tool_result message, so it
+    // appends and trims in place. The stored history was normalized by the
+    // previous call, so the only possible duplicate id is the one being
+    // appended — re-normalizing the whole array (an object spread per entry
+    // plus a rebuilt Map) would be pure waste on a hot path.
+    const normalizedEntry = this.normalizeConversationEntryForPersistence(entry);
+    const history = state.conversationHistory;
+    const duplicateIndex = normalizedEntry.id
+      ? findLastIndexById(history, normalizedEntry.id)
+      : -1;
+    if (duplicateIndex >= 0) {
+      history[duplicateIndex] = normalizedEntry;
+    } else {
+      history.push(normalizedEntry);
+    }
+
     this.stateActivityTimestamps.set(instanceId, entry.timestamp);
     this.appendSessionEvent(instanceId, 'conversation_entry', {
       role: entry.role,
       timestamp: entry.timestamp,
     });
 
-    const decision = this.compactionPolicy.evaluate({
-      messageCount: state.conversationHistory.length,
-      maxConversationEntries: this.config.maxConversationEntries,
-      contextUsagePercent:
-        state.contextUsage.total > 0
-          ? Math.round((state.contextUsage.used / state.contextUsage.total) * 100)
-          : 0,
-      lastCompactedAt: this.lastCompactionAt.get(instanceId),
-    });
-
-    if (decision.shouldCompact) {
-      const messageCountBeforeCompaction = state.conversationHistory.length;
-      const result = this.compactor.compact(state.conversationHistory, decision);
-      if (result.compactedCount > 0) {
-        state.conversationHistory = result.entries;
-        this.lastCompactionAt.set(instanceId, Date.now());
-        this.appendSessionEvent(instanceId, 'compaction_applied', {
-          compactedCount: result.compactedCount,
-          reason: decision.reason,
-        });
-        this.emit('session:compacting', {
-          instanceId,
-          messageCount: messageCountBeforeCompaction,
-          tokenCount: state.contextUsage.used,
-        });
-        this.emit('session:compaction-display', {
-          instanceId,
-          reason: decision.reason,
-          beforeCount: messageCountBeforeCompaction,
-          afterCount: state.conversationHistory.length,
-          tokensReclaimed: undefined,
-          fallbackMode: 'in-place',
-        });
-      }
+    // Bound the persisted record. This is local bookkeeping only — it does not
+    // touch the provider's context, so it is deliberately silent: it emits no
+    // display marker and no compaction event. The previous implementation ran a
+    // context-pressure policy here and rendered a "Context compacted" card,
+    // which read as a provider compaction it never performed.
+    const maxEntries = Math.max(1, this.config.maxConversationEntries);
+    if (history.length > maxEntries) {
+      // splice, not slice: at steady state this runs on every message, and
+      // slice would allocate a fresh `maxEntries`-length array each time.
+      history.splice(0, history.length - maxEntries);
     }
 
     this.dirty.add(instanceId);

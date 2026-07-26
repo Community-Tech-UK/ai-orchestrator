@@ -19,6 +19,7 @@ import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { mkdirSync } from 'node:fs';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
+import { passingVerifyCommand } from './loop-test-commands';
 
 function writeRunState(payload: unknown, name: string, content: string): void {
   const p = payload as { loopRunId: string; workspaceCwd: string };
@@ -57,6 +58,181 @@ afterEach(async () => {
 });
 
 describe('LoopCoordinator ledger-progress stall backstop', () => {
+  it('preserves ledger progress through CRITICAL reviews and ends the one wrap-up turn under the cost cap', async () => {
+    let invocations = 0;
+    const openCounts = [20, 18, 14, 10, 10];
+
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { seq: number; callback: (r: LoopChildResult) => void };
+      invocations += 1;
+      const openCount = openCounts[p.seq] ?? 10;
+      const tasks = Array.from({ length: 20 }, (_, index) =>
+        `- [${index < 20 - openCount ? 'x' : ' '}] Stable task ${index + 1}`);
+      writeRunState(payload, 'LOOP_TASKS.md', `# Loop Tasks\n${tasks.join('\n')}\n`);
+      queueMicrotask(() => p.callback({
+        childInstanceId: null,
+        output: 'persistent CRITICAL review with no structural work',
+        tokens: 1,
+        costUsd: 0.01,
+        filesChanged: [],
+        toolCalls: [],
+        errors: [],
+        testPassCount: null,
+        testFailCount: null,
+        exitedCleanly: true,
+      }));
+    });
+
+    const terminal = new Promise<{ reason: string }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('loop did not cap in time')), 25_000);
+      coordinator.on('loop:cap-reached', (event: { reason: string }) => {
+        clearTimeout(timeout);
+        resolve(event);
+      });
+      coordinator.on('loop:completed-needs-review', (event) => {
+        clearTimeout(timeout);
+        reject(new Error(`review stall incorrectly won: ${JSON.stringify(event)}`));
+      });
+    });
+
+    const state = await coordinator.startLoop('chat-ledger-progress-cap', {
+      initialPrompt: 'complete stable tasks',
+      workspaceCwd: workspace,
+      caps: {
+        maxIterations: 30,
+        maxWallTimeMs: 120_000,
+        maxTokens: 1_000_000,
+        maxCostCents: 4,
+        maxToolCallsPerIteration: 200,
+      },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        mode: 'review-driven',
+        maxStalledReviewIterations: 3,
+        maxLedgerStallIterations: 1,
+        verifyCommand: '',
+        crossModelReview: {
+          enabled: false,
+          blockingSeverities: ['critical', 'high'],
+          timeoutSeconds: 10,
+          reviewDepth: 'structured',
+        },
+      },
+    });
+
+    const event = await terminal;
+    const final = coordinator.getLoop(state.id);
+    expect(final?.status).toBe('cap-reached');
+    expect(event.reason).toMatch(/cost/i);
+    expect(final?.endReason).toBe(event.reason);
+    expect(invocations).toBe(5);
+  }, 30_000);
+
+  it('allows verified completion to win on the cap wrap-up turn', async () => {
+    let invocations = 0;
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { seq: number; callback: (r: LoopChildResult) => void };
+      invocations += 1;
+      if (p.seq === 1) writeRunState(payload, 'DONE.txt', 'verified complete\n');
+      queueMicrotask(() => p.callback({
+        childInstanceId: null,
+        output: p.seq === 1 ? '<promise>DONE</promise>\nTASK COMPLETE' : 'work remains',
+        tokens: 1,
+        costUsd: 0,
+        filesChanged: [],
+        toolCalls: [],
+        errors: [],
+        testPassCount: p.seq === 1 ? 1 : null,
+        testFailCount: p.seq === 1 ? 0 : null,
+        exitedCleanly: true,
+      }));
+    });
+
+    const completed = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('wrap-up did not complete')), 25_000);
+      coordinator.on('loop:completed', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      coordinator.on('loop:cap-reached', (event) => {
+        clearTimeout(timeout);
+        reject(new Error(`cap incorrectly beat verified completion: ${JSON.stringify(event)}`));
+      });
+    });
+
+    const state = await coordinator.startLoop('chat-cap-completes', {
+      initialPrompt: 'finish and verify',
+      workspaceCwd: workspace,
+      caps: {
+        ...defaultLoopConfig(workspace, 'x').caps,
+        maxIterations: 1,
+      },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: passingVerifyCommand(),
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+      },
+    });
+
+    await completed;
+    expect(coordinator.getLoop(state.id)?.status).toBe('completed');
+    expect(invocations).toBe(2);
+  }, 30_000);
+
+  it('terminalizes a failed cap wrap-up under the original cap reason', async () => {
+    let invocations = 0;
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as {
+        seq: number;
+        callback: (r: LoopChildResult | { error: string }) => void;
+      };
+      invocations += 1;
+      queueMicrotask(() => {
+        if (p.seq === 1) {
+          p.callback({ error: 'wrap-up transport failed' });
+          return;
+        }
+        p.callback({
+          childInstanceId: null,
+          output: 'work remains',
+          tokens: 1,
+          costUsd: 0,
+          filesChanged: [],
+          toolCalls: [],
+          errors: [],
+          testPassCount: null,
+          testFailCount: null,
+          exitedCleanly: true,
+        });
+      });
+    });
+
+    const capped = new Promise<{ reason: string }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('failed wrap-up did not cap')), 25_000);
+      coordinator.on('loop:cap-reached', (event: { reason: string }) => {
+        clearTimeout(timeout);
+        resolve(event);
+      });
+    });
+
+    const state = await coordinator.startLoop('chat-cap-wrap-fails', {
+      initialPrompt: 'continue until capped',
+      workspaceCwd: workspace,
+      caps: {
+        ...defaultLoopConfig(workspace, 'x').caps,
+        maxIterations: 1,
+      },
+    });
+
+    const event = await capped;
+    const final = coordinator.getLoop(state.id);
+    expect(final?.status).toBe('cap-reached');
+    expect(event.reason).toContain('cap=iterations');
+    expect(final?.endEvidence?.['wrapUpFailure']).toMatch(/transport failed/i);
+    expect(invocations).toBe(2);
+  }, 30_000);
+
   it('stops as completed-needs-review when the ledger open-count never improves, despite file changes every round', async () => {
     let iterations = 0;
 

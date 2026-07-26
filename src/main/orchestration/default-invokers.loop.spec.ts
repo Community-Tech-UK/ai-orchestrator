@@ -23,6 +23,8 @@ import type { LoopChildResult } from './loop-coordinator';
 // imports resolve. Mock-state is created here and the EventEmitter for the
 // loop coordinator is constructed inside beforeEach instead.
 const hoisted = vi.hoisted(() => ({
+  initializeForRequest: vi.fn(),
+  requestResponse: vi.fn(),
   sendMessage: vi.fn(),
   sendRaw: vi.fn(),
   terminate: vi.fn(),
@@ -49,6 +51,8 @@ const hoisted = vi.hoisted(() => ({
   maybeExternalizeLoopOutput: vi.fn(),
   loopCoordinatorRef: { current: null as unknown as EventEmitter },
   adapterRef: { current: null as unknown as EventEmitter & {
+    initializeForRequest: ReturnType<typeof vi.fn>;
+    requestResponse: ReturnType<typeof vi.fn>;
     sendMessage: ReturnType<typeof vi.fn>;
     sendRaw: ReturnType<typeof vi.fn>;
     terminate: ReturnType<typeof vi.fn>;
@@ -153,6 +157,8 @@ describe('Loop Mode invoker plumbing', () => {
       resumeLoop: vi.fn(() => true),
     });
     hoisted.sendMessage.mockReset();
+    hoisted.initializeForRequest.mockReset().mockResolvedValue(undefined);
+    hoisted.requestResponse.mockReset();
     hoisted.sendRaw.mockReset().mockResolvedValue(undefined);
     hoisted.terminate.mockReset().mockResolvedValue(undefined);
     hoisted.setStreamIdleTimeoutMs.mockReset();
@@ -171,6 +177,8 @@ describe('Loop Mode invoker plumbing', () => {
     // Build a fresh adapter object that's also an EventEmitter so we can
     // simulate stream:idle events.
     const adapterEmitter = new EventEmitter() as unknown as EventEmitter & {
+      initializeForRequest: typeof hoisted.initializeForRequest;
+      requestResponse: typeof hoisted.requestResponse;
       sendMessage: typeof hoisted.sendMessage;
       sendRaw: typeof hoisted.sendRaw;
       terminate: typeof hoisted.terminate;
@@ -178,6 +186,16 @@ describe('Loop Mode invoker plumbing', () => {
       setDisallowedToolsOverride: typeof hoisted.setDisallowedToolsOverride;
       setResume: typeof hoisted.setResume;
     };
+    adapterEmitter.initializeForRequest = hoisted.initializeForRequest;
+    let requestInitialized = false;
+    hoisted.requestResponse.mockImplementation(async (message) => {
+      if (!requestInitialized) {
+        requestInitialized = true;
+        await hoisted.initializeForRequest();
+      }
+      return hoisted.sendMessage(message);
+    });
+    adapterEmitter.requestResponse = hoisted.requestResponse;
     adapterEmitter.sendMessage = hoisted.sendMessage;
     adapterEmitter.sendRaw = hoisted.sendRaw;
     adapterEmitter.terminate = hoisted.terminate;
@@ -1386,6 +1404,7 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.createAdapter.mock.calls[0][0]).toMatchObject({
         cliType: 'codex',
         options: {
+          ephemeral: false,
           workingDirectory: '/tmp/ws',
           yoloMode: true,
         },
@@ -1438,6 +1457,8 @@ describe('Loop Mode invoker plumbing', () => {
 
       // Adapter should have been created only once across both iterations.
       expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+      // Persistent request readiness is idempotent across turns.
+      expect(hoisted.initializeForRequest).toHaveBeenCalledTimes(1);
       // sendMessage fires once per iteration.
       expect(hoisted.sendMessage).toHaveBeenCalledTimes(2);
       // Adapter is NOT torn down between iterations — it's reused.
@@ -1765,6 +1786,9 @@ describe('Loop Mode invoker plumbing', () => {
 
       // Each iteration spawns + tears down its own adapter.
       expect(hoisted.createAdapter).toHaveBeenCalledTimes(2);
+      expect(hoisted.createAdapter.mock.calls.every(
+        ([input]) => input.options.ephemeral === undefined,
+      )).toBe(true);
       expect(hoisted.terminate).toHaveBeenCalledTimes(2);
     });
 

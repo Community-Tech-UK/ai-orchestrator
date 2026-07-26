@@ -79,6 +79,30 @@ describe('instance.schemas', () => {
     }).modelRuntimeTarget).toEqual(modelRuntimeTarget);
   });
 
+  it('accepts reasoning effort on instance creation payloads', () => {
+    // The field was missing entirely, so the picker's chosen effort could never
+    // reach a new session and every fresh spawn fell back to the CLI default.
+    expect(InstanceCreatePayloadSchema.parse({
+      workingDirectory: '/repo',
+      provider: 'codex',
+      reasoningEffort: 'high',
+    }).reasoningEffort).toBe('high');
+
+    expect(InstanceCreateWithMessagePayloadSchema.parse({
+      workingDirectory: '/repo',
+      message: 'hello',
+      provider: 'codex',
+      reasoningEffort: 'high',
+    }).reasoningEffort).toBe('high');
+  });
+
+  it('leaves reasoning effort unset on creation payloads that omit it', () => {
+    expect(InstanceCreatePayloadSchema.parse({
+      workingDirectory: '/repo',
+      provider: 'codex',
+    }).reasoningEffort).toBeUndefined();
+  });
+
   it('accepts bare mode on instance creation payloads', () => {
     expect(InstanceCreatePayloadSchema.parse({
       workingDirectory: '/repo',

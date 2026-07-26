@@ -1,3 +1,13 @@
-{"name":"status","args":["working"]}
-{"name":"tool_use","args":[{"id":"claude-tool-1","name":"Bash","arguments":{"command":"git status --short"}}]}
-{"name":"tool_result","args":[{"id":"claude-tool-1","name":"Bash","arguments":{"command":"git status --short"},"result":" M src/main/example.ts"}]}
+{"name":"spawned","args":[16913]}
+{"name":"spawned","args":[16937]}
+{"name":"status","args":["busy"]}
+{"name":"output","args":[{"id":"<redacted-id>","timestamp":1785031503554,"type":"assistant","content":"[omitted-session-body]","thinking":{"type":"undefined"},"thinkingExtracted":true}]}
+{"name":"context","args":[{"used":38232,"total":1000000,"percentage":3.8232000000000004}]}
+{"name":"status","args":["busy"]}
+{"name":"context","args":[{"used":38232,"total":1000000,"percentage":3.8232000000000004}]}
+{"name":"status","args":["busy"]}
+{"name":"output","args":[{"id":"<redacted-id>","timestamp":1785031504130,"type":"tool_use","content":"[omitted-session-body]","metadata":{"name":"Bash","id":"<redacted-id>","input":{"command":"[omitted-session-body]","description":"[omitted-session-body]"}}}]}
+{"name":"output","args":[{"id":"<redacted-id>","timestamp":1785031506193,"type":"assistant","content":"[omitted-session-body]","thinking":{"type":"undefined"},"thinkingExtracted":true}]}
+{"name":"context","args":[{"used":38336,"total":1000000,"percentage":3.8336}]}
+{"name":"status","args":["busy"]}
+{"name":"status","args":["idle"]}

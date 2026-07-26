@@ -192,6 +192,7 @@ export class DeferredPermissionHandler {
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,
         model: instance.currentModel,
+        reasoningEffort: instance.reasoningEffort,
         bare: instance.bareMode === true,
         resume: true,
         mcpConfig: this.ops.getMcpConfig(instance.executionLocation, instance.id, cliType),

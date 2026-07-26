@@ -1,2 +1,10 @@
-{"name":"context","args":[{"used":24,"total":1000,"prompt_tokens":18,"completion_tokens":6,"source":"provider-usage"}]}
-{"name":"output","args":[{"id":"antigravity-message-1","timestamp":3000,"type":"assistant","content":"Hello from Antigravity."}]}
+{"name":"spawned","args":[12656]}
+{"name":"spawned","args":[34974]}
+{"name":"status","args":["idle"]}
+{"name":"status","args":["busy"]}
+{"name":"spawned","args":[12724]}
+{"name":"output","args":[{"id":"<redacted-id>","timestamp":1785032228301,"type":"assistant","content":"[omitted-session-body]","metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]"}}]}
+{"name":"output","args":[{"id":"<redacted-id>","timestamp":1785032228503,"type":"assistant","content":"[omitted-session-body]","metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]"}}]}
+{"name":"context","args":[{"used":5,"total":1000000,"percentage":0.0005,"cumulativeTokens":5,"costEstimate":0.000075}]}
+{"name":"status","args":["idle"]}
+{"name":"complete","args":[{"id":"<redacted-id>","content":"[omitted-session-body]","role":"[omitted-session-body]","usage":{"inputTokens":0,"outputTokens":5,"totalTokens":5,"duration":8560},"raw":"[omitted-session-body]","thinking":{"type":"undefined"}}]}

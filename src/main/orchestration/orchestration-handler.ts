@@ -23,7 +23,9 @@ import {
   ORCHESTRATION_MARKER_END,
   formatCommandResponse,
   generateOrchestrationPrompt,
+  detectsConsensusIntent,
   detectsSchedulingIntent,
+  CONSENSUS_INTENT_REMINDER,
   SCHEDULING_INTENT_REMINDER,
   type OrchestratorAction,
   type OrchestratorNodeSummary
@@ -271,16 +273,18 @@ export class OrchestrationHandler extends EventEmitter {
   }
 
   /**
-   * When a user message expresses scheduling/automation intent, returns a concise
-   * reminder steering the model to Harness's native `create_automation` (and away from
-   * the host CLI's cloud `schedule`/`CronCreate` tools). Returns null otherwise.
-   *
-   * The full steering only lands on the first message of a fresh conversation, so
-   * this re-surfaces it on later turns — exactly when the host CLI's schedule skill
-   * would otherwise win.
+   * Re-surfaces relevant orchestration guidance after the first conversation turn.
+   * Multiple matching reminders are returned in a stable order.
    */
-  getSchedulingReminderIfRelevant(message: string): string | null {
-    return detectsSchedulingIntent(message) ? SCHEDULING_INTENT_REMINDER : null;
+  getLaterTurnReminderIfRelevant(message: string): string | null {
+    const reminders: string[] = [];
+    if (detectsSchedulingIntent(message)) {
+      reminders.push(SCHEDULING_INTENT_REMINDER);
+    }
+    if (detectsConsensusIntent(message)) {
+      reminders.push(CONSENSUS_INTENT_REMINDER);
+    }
+    return reminders.length > 0 ? reminders.join('\n\n') : null;
   }
 
   /**

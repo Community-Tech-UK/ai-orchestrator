@@ -72,3 +72,14 @@ export function codeIndexDirectoryIgnoreNames(): string[] {
     .filter((pattern) => pattern.endsWith('/') && !pattern.includes('*'))
     .map((pattern) => pattern.slice(0, -1));
 }
+
+export function codeIndexFileIgnoreNames(): string[] {
+  return DEFAULT_CODE_INDEX_IGNORES
+    .filter((pattern) => !pattern.endsWith('/') && !pattern.includes('*'));
+}
+
+export function codeIndexFileIgnoreSuffixes(): string[] {
+  return DEFAULT_CODE_INDEX_IGNORES
+    .filter((pattern) => pattern.startsWith('**/*'))
+    .map((pattern) => pattern.slice(4));
+}

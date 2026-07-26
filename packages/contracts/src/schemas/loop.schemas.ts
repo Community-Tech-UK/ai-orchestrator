@@ -350,6 +350,8 @@ export const LoopConfigSchema = z.object({
   /** Branch name of the per-session worktree. Set automatically alongside
    *  executionCwd when isolateLoopWorkspaces is true. Read-only after start. */
   worktreeBranch: z.string().optional(),
+  /** Base branch captured when the managed worktree is acquired. */
+  worktreeBaseBranch: z.string().optional(),
   /** Auto-integrate the session branch into a shared `integration/<base>` branch
    *  on terminal-success (via a dedicated integration worktree, never the root
    *  checkout). Default: true when isolateLoopWorkspaces is true. */
@@ -590,6 +592,28 @@ export const LoopStateSchema = z.object({
   lastIteration: LoopIterationSchema.optional(),
   endReason: z.string().optional(),
   endEvidence: z.record(z.string(), z.unknown()).optional(),
+  worktreeLifecycle: z.object({
+    managedByAio: z.literal(true).optional(),
+    phase: z.enum([
+      'acquired',
+      'harvesting',
+      'harvested',
+      'integrating',
+      'integrated',
+      'promoting',
+      'promoted',
+      'blocked',
+      'preserved',
+      'cleaned',
+    ]),
+    baseBranch: z.string(),
+    sessionBranch: z.string(),
+    sessionTip: z.string().optional(),
+    integrationBranch: z.string().optional(),
+    integrationTip: z.string().optional(),
+    lastError: z.string().optional(),
+    updatedAt: z.number().int(),
+  }).optional(),
   repoBaseline: LoopRepoBaselineSnapshotSchema.optional(),
   preflight: LoopPreflightResultSchema.optional(),
   latestFinalAudit: LoopFinalAuditResultSchema.optional(),
@@ -693,6 +717,7 @@ export const LoopRunSummarySchema = z.object({
   /** Count of still-open outstanding items captured from this run. Optional —
    *  only populated by callers that join the outstanding table. */
   openOutstandingCount: z.number().int().nonnegative().optional(),
+  worktreeLifecycle: LoopStateSchema.shape.worktreeLifecycle,
 });
 
 /** Read-only projection of a coordinator-observed verification execution.

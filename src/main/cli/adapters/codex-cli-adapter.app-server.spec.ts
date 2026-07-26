@@ -167,6 +167,216 @@ describe('CodexCliAdapter', () => {
 
   // ─── New tests for app-server hardening (Phase 2/3) ────────────────
 
+  it('initializes once and returns two responses from the same native app-server thread', async () => {
+    let turn = 0;
+    const client = createSyntheticTurnClient([]);
+    client.request.mockImplementation(async (method: string) => {
+      if (method !== 'turn/start') throw new Error(`Unexpected synthetic RPC: ${method}`);
+      turn += 1;
+      const turnId = `turn-${turn}`;
+      client.notificationHandler?.({
+        method: 'turn/started',
+        params: { threadId: 'stable-thread', turn: { id: turnId } },
+      });
+      client.notificationHandler?.({
+        method: 'item/completed',
+        params: {
+          threadId: 'stable-thread',
+          turnId,
+          item: {
+            id: `message-${turn}`,
+            type: 'agentMessage',
+            phase: 'final_answer',
+            text: `response ${turn}`,
+          },
+        },
+      });
+      client.notificationHandler?.({
+        method: 'turn/completed',
+        params: {
+          threadId: 'stable-thread',
+          turn: {
+            id: turnId,
+            status: 'completed',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+        },
+      });
+      return { turn: { id: turnId, status: 'inProgress' } };
+    });
+    const adapter = new CodexCliAdapter();
+    const initializeRuntime = vi.spyOn(
+      adapter as unknown as { initializeRequestRuntime(): Promise<void> },
+      'initializeRequestRuntime',
+    ).mockImplementation(async () => {
+      const internals = adapter as unknown as {
+        appServerClient: typeof client;
+        appServerThreadId: string;
+        isSpawned: boolean;
+        useAppServer: boolean;
+      };
+      internals.appServerClient = client;
+      internals.appServerThreadId = 'stable-thread';
+      internals.isSpawned = true;
+      internals.useAppServer = true;
+    });
+    const recoveryWarning = vi.spyOn(getLogger('CodexCliAdapter'), 'warn');
+
+    const first = await adapter.requestResponse({ role: 'user', content: 'first' });
+    const second = await adapter.requestResponse({ role: 'user', content: 'second' });
+
+    expect(initializeRuntime).toHaveBeenCalledTimes(1);
+    expect(first.content).toBe('response 1');
+    expect(second.content).toBe('response 2');
+    expect(client.request).toHaveBeenCalledTimes(2);
+    expect(adapter.getRuntimeSnapshot().nativeThreadId).toBe('stable-thread');
+    expect(recoveryWarning.mock.calls.flat().join(' ')).not.toMatch(/thread became unavailable|stale/i);
+  });
+
+  it('serializes request/response turns and forwards attachments and metadata to the selected transport', async () => {
+    const adapter = new CodexCliAdapter();
+    const internals = adapter as unknown as {
+      isSpawned: boolean;
+      useAppServer: boolean;
+      appServerClient: { request: ReturnType<typeof vi.fn> };
+      sendInputImpl(
+        message: string,
+        attachments?: unknown[],
+        metadata?: Record<string, unknown>,
+      ): Promise<void>;
+    };
+    internals.isSpawned = true;
+    internals.useAppServer = true;
+    internals.appServerClient = { request: vi.fn() };
+    vi.spyOn(
+      adapter as unknown as { initializeForRequest(): Promise<void> },
+      'initializeForRequest',
+    ).mockResolvedValue(undefined);
+
+    let activeTurns = 0;
+    let maxActiveTurns = 0;
+    const sendInput = vi.spyOn(internals, 'sendInputImpl').mockImplementation(async (content) => {
+      activeTurns += 1;
+      maxActiveTurns = Math.max(maxActiveTurns, activeTurns);
+      await new Promise<void>((resolve) => setTimeout(resolve, content === 'first' ? 10 : 0));
+      adapter.emit('complete', {
+        id: `response-${content}`,
+        role: 'assistant',
+        content: `answer-${content}`,
+      });
+      activeTurns -= 1;
+    });
+
+    const first = adapter.requestResponse({
+      role: 'user',
+      content: 'first',
+      attachments: [{
+        type: 'file',
+        name: 'note.txt',
+        mimeType: 'text/plain',
+        content: 'hello',
+      }],
+      metadata: { allowPartialOnTimeout: true, activeTimeoutMs: 1234 },
+    });
+    const second = adapter.requestResponse({ role: 'user', content: 'second' });
+
+    await expect(Promise.all([first, second])).resolves.toMatchObject([
+      { id: 'response-first', content: 'answer-first' },
+      { id: 'response-second', content: 'answer-second' },
+    ]);
+    expect(maxActiveTurns).toBe(1);
+    expect(sendInput).toHaveBeenNthCalledWith(
+      1,
+      'first',
+      [expect.objectContaining({
+        name: 'note.txt',
+        type: 'text/plain',
+        data: expect.any(String),
+      })],
+      { allowPartialOnTimeout: true, activeTimeoutMs: 1234 },
+    );
+  });
+
+  it('keeps a drafted email with a bold subject and first-person wording out of thinking', async () => {
+    const emailDraft = [
+      '**Subject: Dingley test accounts**',
+      '',
+      'Hi [Name],',
+      '',
+      'I need to set up a small pool of Microsoft accounts in the Dingley tenant for testing.',
+      '',
+      'Could you either give me the User Administrator role temporarily, or create them yourself?',
+    ].join('\n');
+    const client = createSyntheticTurnClient([
+      {
+        method: 'turn/started',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+      },
+      {
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'message-1',
+          delta: emailDraft,
+        },
+      },
+      {
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: {
+            id: 'message-1',
+            type: 'agentMessage',
+            phase: 'final_answer',
+            text: emailDraft,
+          },
+        },
+      },
+      {
+        method: 'turn/completed',
+        params: {
+          threadId: 'thread-1',
+          turn: {
+            id: 'turn-1',
+            status: 'completed',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+        },
+      },
+    ]);
+    const adapter = new CodexCliAdapter();
+    const assistantOutputs: Array<{
+      content: string;
+      metadata?: Record<string, unknown>;
+      thinking?: unknown[];
+    }> = [];
+    adapter.on('output', (output: {
+      type: string;
+      content: string;
+      metadata?: Record<string, unknown>;
+      thinking?: unknown[];
+    }) => {
+      if (output.type === 'assistant') {
+        assistantOutputs.push(output);
+      }
+    });
+    (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+    (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+    await (adapter as unknown as {
+      appServerSendMessageInner(message: string): Promise<void>;
+    }).appServerSendMessageInner('Draft an email');
+
+    expect(assistantOutputs).toHaveLength(2);
+    for (const output of assistantOutputs) {
+      expect(output.content).toBe(emailDraft);
+      expect(output.metadata?.['accumulatedContent']).toBe(emailDraft);
+      expect(output.thinking).toBeUndefined();
+    }
+  });
+
   describe('MCP elicitation approvals', () => {
     it('surfaces an MCP tool approval and round-trips the user decision', async () => {
       const adapter = new CodexCliAdapter({ approvalMode: 'suggest' });

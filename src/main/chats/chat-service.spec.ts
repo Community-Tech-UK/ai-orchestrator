@@ -9,6 +9,7 @@ import { createInstance, type FileAttachment, type Instance, type InstanceCreate
 import type { ChatEvent } from '../../shared/types/chat.types';
 import { BranchSummarizer } from '../context/branch-summarizer';
 import { ChatService } from './chat-service';
+import { resolveSpawnReasoningEffort } from '../instance/lifecycle/reasoning-effort-resolution';
 import type { ConversationEvidenceDeletionResult } from '../conversation-ledger/context-evidence-ledger.types';
 
 const CHAT_PAGINATION_TEST_TIMEOUT_MS = 15_000;
@@ -1212,8 +1213,14 @@ describe('ChatService', () => {
 
       await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
 
+      // `null` is now the explicit provider-decide sentinel and is forwarded
+      // verbatim; the spawn resolver is what turns it into "send no effort".
+      // Assert both hops so the end behaviour stays pinned.
       const lastCreate = instanceManager.creates[instanceManager.creates.length - 1];
-      expect(lastCreate.reasoningEffort).toBeUndefined();
+      expect(lastCreate.reasoningEffort).toBeNull();
+      expect(resolveSpawnReasoningEffort(
+        { reasoningEffort: lastCreate.reasoningEffort }, 'codex',
+      )).toBeUndefined();
     });
 
     it('forwards updated model and reasoning on the respawned runtime', async () => {

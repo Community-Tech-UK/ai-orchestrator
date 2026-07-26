@@ -68,7 +68,7 @@ function orphan(repoRoot: string, wtPath: string, branch: string, id: string): O
 }
 
 describe('reconcileOrphanedWorktrees', () => {
-  it('harvests a dirty orphan to its branch, then reaps the dir and clears the pointer', async () => {
+  it('preserves an ambiguous dirty legacy orphan without harvesting or reaping it', async () => {
     const branch = 'task-recon-dirty';
     const wt = await addWorktree(branch);
     writeFileSync(join(wt, 'leftover.ts'), 'uncommitted agent work\n');
@@ -76,25 +76,23 @@ describe('reconcileOrphanedWorktrees', () => {
     const { store, cleared } = fakeStore([orphan(repo, wt, branch, 'run-dirty')]);
     const result = await reconcileOrphanedWorktrees(store);
 
-    expect(result).toEqual({ reaped: 1, total: 1 });
-    // The uncommitted work was harvested onto the branch before reap.
+    expect(result).toEqual({ reaped: 0, total: 1 });
     const files = await git(['ls-tree', '-r', '--name-only', branch], repo);
-    expect(files).toContain('leftover.ts');
-    // Dir removed, DB pointer cleared.
-    expect(existsSync(wt)).toBe(false);
-    expect(cleared).toEqual(['run-dirty']);
+    expect(files).not.toContain('leftover.ts');
+    expect(existsSync(wt)).toBe(true);
+    expect(cleared).toEqual([]);
   });
 
-  it('reaps a clean orphan and clears the pointer', async () => {
+  it('preserves an ambiguous clean legacy orphan', async () => {
     const branch = 'task-recon-clean';
     const wt = await addWorktree(branch);
 
     const { store, cleared } = fakeStore([orphan(repo, wt, branch, 'run-clean')]);
     const result = await reconcileOrphanedWorktrees(store);
 
-    expect(result).toEqual({ reaped: 1, total: 1 });
-    expect(existsSync(wt)).toBe(false);
-    expect(cleared).toEqual(['run-clean']);
+    expect(result).toEqual({ reaped: 0, total: 1 });
+    expect(existsSync(wt)).toBe(true);
+    expect(cleared).toEqual([]);
   });
 
   it('clears the pointer for an orphan whose directory is already gone (no throw)', async () => {
@@ -142,8 +140,45 @@ describe('reconcileOrphanedWorktrees', () => {
     ]);
     const result = await reconcileOrphanedWorktrees(store);
 
-    expect(result).toEqual({ reaped: 1, total: 2 });
-    expect(existsSync(okWt)).toBe(false);
-    expect(cleared.sort()).toEqual(['run-missing', 'run-ok']);
+    expect(result).toEqual({ reaped: 0, total: 2 });
+    expect(existsSync(okWt)).toBe(true);
+    expect(cleared).toEqual(['run-missing']);
+  });
+
+  it.each([
+    ['a sibling worktree', 'sibling'],
+    ['a .claude worktree', 'claude'],
+  ])('never removes %s from a legacy orphan record', async (_label, kind) => {
+    const branch = `pre-existing-${kind}`;
+    const wt = kind === 'sibling'
+      ? `${repo}-pre-existing`
+      : join(repo, '.claude', 'worktrees', branch);
+    await git(['worktree', 'add', '-q', '-b', branch, wt, 'main'], repo);
+
+    const { store, cleared } = fakeStore([orphan(repo, wt, branch, `run-${kind}`)]);
+    const result = await reconcileOrphanedWorktrees(store);
+
+    expect(result).toEqual({ reaped: 0, total: 1 });
+    expect(existsSync(wt)).toBe(true);
+    expect(await git(['branch', '--list', branch], repo)).toContain(branch);
+    expect(cleared).toEqual([]);
+    if (kind === 'sibling') {
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves a managed-path worktree when its live branch does not match the record', async () => {
+    const actualBranch = 'task-real-owner';
+    const wt = await addWorktree(actualBranch);
+    const { store, cleared } = fakeStore([
+      orphan(repo, wt, 'task-someone-else', 'run-branch-mismatch'),
+    ]);
+
+    const result = await reconcileOrphanedWorktrees(store);
+
+    expect(result).toEqual({ reaped: 0, total: 1 });
+    expect(existsSync(wt)).toBe(true);
+    expect(await git(['branch', '--list', actualBranch], repo)).toContain(actualBranch);
+    expect(cleared).toEqual([]);
   });
 });

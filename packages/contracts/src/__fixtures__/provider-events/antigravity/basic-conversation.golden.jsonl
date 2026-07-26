@@ -1,2 +1,10 @@
-{"kind":"context","used":24,"total":1000,"percentage":2.4,"inputTokens":18,"outputTokens":6,"source":"provider-usage"}
-{"kind":"output","content":"Hello from Antigravity.","messageType":"assistant","messageId":"antigravity-message-1","timestamp":3000}
+{"kind":"spawned","pid":12656}
+{"kind":"spawned","pid":34974}
+{"kind":"status","status":"idle"}
+{"kind":"status","status":"busy"}
+{"kind":"spawned","pid":12724}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785032228301,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785032228503,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"context","used":5,"total":1000000,"percentage":0.0005}
+{"kind":"status","status":"idle"}
+{"kind":"complete","tokensUsed":5,"durationMs":8560}

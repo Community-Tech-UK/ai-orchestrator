@@ -305,6 +305,24 @@
       <section class="row toggles">
         <label>
           <input
+            id="loop-cfg-managed-isolation"
+            type="checkbox"
+            [checked]="managedIsolation()"
+            (change)="managedIsolation.set(toggleEvent($event))"
+          />
+          AIO-managed isolated workspace
+          <span class="hint">
+            (recommended; harvests, integrates, promotes to the starting branch, then cleans up)
+          </span>
+        </label>
+        @if (!managedIsolation()) {
+          <div class="cfg-inline-warn">
+            Compatibility mode runs in the shared checkout. AIO cannot guarantee
+            isolated changes or automatic promotion for this run.
+          </div>
+        }
+        <label>
+          <input
             type="checkbox"
             [checked]="effectiveRequireRename()"
             [disabled]="planFileRequiresRename()"

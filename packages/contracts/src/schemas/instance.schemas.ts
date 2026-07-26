@@ -172,6 +172,13 @@ export const InstanceCreatePayloadSchema = z.object({
   agentId: z.string().max(100).optional(),
   provider: InstanceCreateProviderSchema.optional(),
   model: ModelIdSchema.optional(),
+  /**
+   * Omitted/null means "unspecified" — the spawn path then applies the
+   * app-level per-provider default (`getDefaultReasoningEffort`). Without this
+   * field the picker's chosen effort could not reach a new session at all, so
+   * every fresh session fell back to the CLI's own default.
+   */
+  reasoningEffort: ReasoningEffortSchema.nullable().optional(),
   modelRuntimeTarget: ModelRuntimeTargetSchema.optional(),
   bareMode: z.boolean().optional(),
   fastMode: z.boolean().optional(),
@@ -191,6 +198,8 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   agentId: z.string().max(100).optional(),
   provider: InstanceCreateProviderSchema.optional(),
   model: ModelIdSchema.optional(),
+  /** See `InstanceCreatePayloadSchema.reasoningEffort`. */
+  reasoningEffort: ReasoningEffortSchema.nullable().optional(),
   modelRuntimeTarget: ModelRuntimeTargetSchema.optional(),
   yoloMode: z.boolean().optional(),
   bareMode: z.boolean().optional(),

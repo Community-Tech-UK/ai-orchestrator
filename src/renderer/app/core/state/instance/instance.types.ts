@@ -205,6 +205,8 @@ export interface CreateInstanceConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
   model?: string;
+  /** Omitted = spawn path applies the app-level per-provider default. */
+  reasoningEffort?: ReasoningEffort | null;
   modelRuntimeTarget?: ModelRuntimeTarget;
   bareMode?: boolean;
   /** Explicit fast-mode override; when omitted, resolved from per-provider memory. */

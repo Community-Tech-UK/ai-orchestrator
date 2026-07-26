@@ -124,14 +124,46 @@ describe('compareLoopRepoState', () => {
     expect(comparison.dirtyAtStartCarriedForward).toBe(true);
   });
 
-  maybe('ignores loop state, control, attachments, git, and node_modules paths', () => {
+  maybe('detects deletion of a file that was untracked at baseline', () => {
+    initRepo();
+    write('src/new.ts', 'export const n = 1;\n');
+    const baseline = captureLoopRepoBaseline(workspace);
+
+    rmSync(join(workspace, 'src/new.ts'));
+    const comparison = compareLoopRepoState(workspace, baseline);
+
+    expect(comparison.changedFiles).toEqual(['src/new.ts']);
+    expect(comparison.dirtyAtStartCarriedForward).toBe(true);
+  });
+
+  maybe('detects restoration of a tracked file that was dirty at baseline', () => {
+    initRepo();
+    write('src/a.ts', 'export const a = 2;\n');
+    const baseline = captureLoopRepoBaseline(workspace);
+
+    git('restore', 'src/a.ts');
+    const comparison = compareLoopRepoState(workspace, baseline);
+
+    expect(comparison.changedFiles).toEqual(['src/a.ts']);
+    expect(comparison.dirtyAtStartCarriedForward).toBe(true);
+  });
+
+  maybe('ignores loop state, generated, vendor, scratch, and archive paths', () => {
     initRepo();
     const baseline = captureLoopRepoBaseline(workspace);
 
     write('.aio-loop-state/loop-1/NOTES.md', 'state');
     write('.aio-loop-control/loop-1/token', 'secret');
     write('.aio-loop-attachments/loop-1/file.txt', 'attachment');
+    write('_archive/old.txt', 'archive');
+    write('_scratch/output.txt', 'scratch');
+    write('build/output.js', 'build');
+    write('cache/output.bin', 'cache');
+    write('dist/output.js', 'dist');
     write('node_modules/pkg/index.js', 'module');
+    write('vendor/pkg/index.php', 'vendor');
+    write('.venv/lib/package.py', 'venv');
+    write('.worktrees/linked/src/app.ts', 'worktree');
 
     const comparison = compareLoopRepoState(workspace, baseline);
 

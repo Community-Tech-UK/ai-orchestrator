@@ -7,12 +7,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, rmSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   integrateViaWorktree,
   integrateIntoSharedBranch,
+  promoteIntegrationBranch,
   tryAdvanceBaseBranch,
   isBranchCheckedOut,
 } from './worktree-integration';
@@ -166,6 +175,30 @@ async function makeSessionBranch(name: string, file: string, content: string): P
 }
 
 describe('integrateIntoSharedBranch (auto-integration)', () => {
+  it('refuses to adopt or mutate a pre-existing integration-looking branch', async () => {
+    await git(['branch', 'integration/main', 'main'], repo);
+    await makeSessionBranch('task-unowned-integration', 'owned.txt', 'session work\n');
+    const before = await git(['rev-parse', 'integration/main'], repo);
+
+    const result = await integrateIntoSharedBranch({
+      repoRoot: repo,
+      baseDir: '.worktrees',
+      sessionBranch: 'task-unowned-integration',
+      integrationBranch: 'integration/main',
+      baseBranch: 'main',
+      strategy: 'auto',
+      nonce: 'unowned',
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: 'Integration branch is not registered as AIO-owned',
+    });
+    expect(await git(['rev-parse', 'integration/main'], repo)).toBe(before);
+    expect(await git(['ls-tree', '-r', '--name-only', 'integration/main'], repo))
+      .not.toContain('owned.txt');
+  });
+
   it('creates integration/main and accumulates multiple sessions without touching root', async () => {
     const rootHeadBefore = await git(['rev-parse', 'HEAD'], repo);
     await makeSessionBranch('task-a', 'a.txt', 'a\n');
@@ -287,5 +320,158 @@ describe('tryAdvanceBaseBranch', () => {
     const advanced = await tryAdvanceBaseBranch(repo, 'release', 'integration/release');
     expect(advanced).toBe(true);
     expect(await git(['rev-parse', 'release'], repo)).toBe(intTip); // fast-forwarded
+  });
+});
+
+describe('promoteIntegrationBranch', () => {
+  async function integrateFeature(
+    sessionBranch = 'task-promote',
+    file = 'promoted.txt',
+  ): Promise<string> {
+    await makeSessionBranch(sessionBranch, file, 'promoted work\n');
+    const result = await integrateIntoSharedBranch({
+      repoRoot: repo,
+      baseDir: '.worktrees',
+      sessionBranch,
+      integrationBranch: 'integration/main',
+      baseBranch: 'main',
+      strategy: 'auto',
+      nonce: sessionBranch,
+    });
+    expect(result.success).toBe(true);
+    return git(['rev-parse', 'integration/main'], repo);
+  }
+
+  it('fast-forwards a clean main checked out at root and updates its files', async () => {
+    const integrationTip = await integrateFeature();
+
+    const result = await promoteIntegrationBranch(repo, 'main', 'integration/main');
+
+    expect(result).toEqual({
+      status: 'promoted',
+      method: 'checked-out-ff',
+      tip: integrationTip,
+    });
+    expect(await git(['rev-parse', 'main'], repo)).toBe(integrationTip);
+    expect(await git(['branch', '--show-current'], repo)).toBe('main');
+    expect(await git(['status', '--porcelain'], repo)).toBe('');
+    expect(existsSync(join(repo, 'promoted.txt'))).toBe(true);
+  });
+
+  it('blocks on a dirty root without changing main or the dirty file', async () => {
+    await integrateFeature('task-dirty');
+    const mainBefore = await git(['rev-parse', 'main'], repo);
+    writeFileSync(join(repo, 'operator.txt'), 'operator work\n');
+
+    const result = await promoteIntegrationBranch(repo, 'main', 'integration/main');
+
+    expect(result).toEqual({
+      status: 'blocked',
+      reason: 'root checkout has uncommitted changes',
+    });
+    expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+    expect(await git(['status', '--porcelain'], repo)).toContain('operator.txt');
+    expect(await import('node:fs/promises').then((fs) => fs.readFile(join(repo, 'operator.txt'), 'utf8')))
+      .toBe('operator work\n');
+  });
+
+  it('blocks when main diverged from the integration branch', async () => {
+    await integrateFeature('task-divergent');
+    await commitFile('main-only.txt', 'main moved\n', 'advance main independently');
+    const mainBefore = await git(['rev-parse', 'main'], repo);
+
+    const result = await promoteIntegrationBranch(repo, 'main', 'integration/main');
+
+    expect(result).toEqual({
+      status: 'blocked',
+      reason: 'main cannot be fast-forwarded to integration/main',
+    });
+    expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+  });
+
+  it('blocks when the base branch is checked out in a non-root worktree', async () => {
+    await integrateFeature('task-other-checkout');
+    await git(['checkout', '-q', '-b', 'operator-root'], repo);
+    const otherPath = join(repo, '.worktrees', 'main-owner');
+    await git(['worktree', 'add', '-q', otherPath, 'main'], repo);
+
+    const result = await promoteIntegrationBranch(repo, 'main', 'integration/main');
+
+    expect(result).toEqual({
+      status: 'blocked',
+      reason: `main is checked out outside the repository root`,
+    });
+    expect(await git(['branch', '--show-current'], otherPath)).toBe('main');
+  });
+
+  it('advances an unchecked base with compare-and-swap update-ref', async () => {
+    await git(['branch', 'release', 'main'], repo);
+    await makeSessionBranch('task-release-promote', 'release.txt', 'release work\n');
+    await integrateIntoSharedBranch({
+      repoRoot: repo,
+      baseDir: '.worktrees',
+      sessionBranch: 'task-release-promote',
+      integrationBranch: 'integration/release',
+      baseBranch: 'release',
+      strategy: 'auto',
+      nonce: 'release-promote',
+    });
+    const integrationTip = await git(['rev-parse', 'integration/release'], repo);
+
+    const result = await promoteIntegrationBranch(repo, 'release', 'integration/release');
+
+    expect(result).toEqual({
+      status: 'promoted',
+      method: 'update-ref',
+      tip: integrationTip,
+    });
+    expect(await git(['rev-parse', 'release'], repo)).toBe(integrationTip);
+  });
+
+  it('fails closed when Git cannot inspect worktree ownership', async () => {
+    await git(['branch', 'release', 'main'], repo);
+    await makeSessionBranch('task-inspection-failure', 'inspection.txt', 'work\n');
+    await integrateIntoSharedBranch({
+      repoRoot: repo,
+      baseDir: '.worktrees',
+      sessionBranch: 'task-inspection-failure',
+      integrationBranch: 'integration/release',
+      baseBranch: 'release',
+      strategy: 'auto',
+      nonce: 'inspection-failure',
+    });
+    const releaseBefore = await git(['rev-parse', 'release'], repo);
+    const oldPath = process.env['PATH'];
+    const fakeBin = join(repo, 'fake-bin');
+    mkdirSync(fakeBin);
+    const fakeGit = join(fakeBin, 'git');
+    writeFileSync(
+      fakeGit,
+      '#!/bin/sh\nif [ "$1" = "worktree" ] && [ "$2" = "list" ]; then exit 42; fi\nexec /usr/bin/git "$@"\n',
+    );
+    chmodSync(fakeGit, 0o755);
+    process.env['PATH'] = `${fakeBin}:${oldPath ?? ''}`;
+
+    try {
+      await expect(
+        promoteIntegrationBranch(repo, 'release', 'integration/release'),
+      ).resolves.toEqual({
+        status: 'blocked',
+        reason: 'unable to inspect worktree ownership',
+      });
+    } finally {
+      process.env['PATH'] = oldPath;
+    }
+    expect(await git(['rev-parse', 'release'], repo)).toBe(releaseBefore);
+  });
+
+  it('is idempotent when the base already equals the integration tip', async () => {
+    const integrationTip = await integrateFeature('task-idempotent');
+    expect((await promoteIntegrationBranch(repo, 'main', 'integration/main')).status).toBe('promoted');
+
+    await expect(promoteIntegrationBranch(repo, 'main', 'integration/main')).resolves.toEqual({
+      status: 'already-promoted',
+      tip: integrationTip,
+    });
   });
 });

@@ -9,6 +9,7 @@ import {
   registerDefaultLoopInvoker,
 } from '../orchestration/default-invokers';
 import { getLoopStoreService } from '../orchestration/loop-store';
+import { reconcileManagedWorktreeLifecycles } from '../orchestration/loop-worktree-lifecycle-reconcile';
 import { reconcileOrphanedWorktrees } from '../orchestration/loop-worktree-reconcile';
 import { getOrchestratorPluginManager } from '../plugins/plugin-manager';
 import { getObservationIngestor, getObserverAgent, getReflectorAgent } from '../observation';
@@ -25,7 +26,6 @@ import { getProviderEventCaptureService } from '../conversation-ledger/provider-
 import { initializeProviderEventCaptureMaintenance } from '../conversation-ledger/provider-event-capture-maintenance';
 import { registerBuiltinTerminationGates } from '../session/builtin-termination-gates';
 import { initLastStopSnapshot } from '../session/last-stop-snapshot';
-import { registerCompactionSummaryRenderer } from '../display-items/compaction-summary-renderer';
 import { getResourceGovernor } from '../process/resource-governor';
 import { getCliAutoUpdateService } from '../cli/cli-auto-update-service';
 import { getHibernationManager } from '../process/hibernation-manager';
@@ -367,7 +367,13 @@ export function createInitializationSteps(
             logger.info(`Loop store: marked ${interrupted} previously-running loop(s) as paused on boot`);
           }
 
-          // P3 worktree boot-reconcile: clean up orphaned worktrees left by
+          // Resume AIO-managed lifecycle rows first: these may still need
+          // harvest, integration, or base promotion before their directory can
+          // be reaped. Legacy rows without lifecycle metadata fall through to
+          // the compatibility orphan cleanup below.
+          await reconcileManagedWorktreeLifecycles(service.store);
+
+          // P3 compatibility reconcile: clean up orphaned worktrees left by
           // terminal loops whose async cleanup did not complete (crash, forced
           // quit). Runs before the intent reconciler so it does not race it.
           // Logic lives in `loop-worktree-reconcile.ts` so it is unit-testable.
@@ -638,7 +644,6 @@ export function createInitializationSteps(
       fn: () => {
         const continuity = getSessionContinuityManager();
         continuity.setInstanceManager(instanceManager);
-        registerCompactionSummaryRenderer(continuity, instanceManager);
         // C5/§3.6: Initialize last-stop snapshot alongside session continuity.
         // Stored in the same continuity directory for co-location.
         initLastStopSnapshot(app.getPath('userData') + '/session-continuity');

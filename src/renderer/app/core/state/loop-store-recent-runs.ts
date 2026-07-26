@@ -33,6 +33,7 @@ export function loopStateToRunSummary(state: LoopStatePayload): LoopRunSummaryPa
     workspaceCwd: state.config.workspaceCwd,
     initialPrompt: state.config.initialPrompt,
     iterationPrompt: iterationPrompt && iterationPrompt.length > 0 ? iterationPrompt : null,
+    worktreeLifecycle: state.worktreeLifecycle,
   };
 }
 

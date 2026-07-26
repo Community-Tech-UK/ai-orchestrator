@@ -17,7 +17,7 @@ const {
   mockPromptHistoryRecord,
   mockQueueContinuityPreamble,
   mockQueueUpdate,
-  mockGetSchedulingReminder,
+  mockGetLaterTurnReminder,
   mockStateInstances,
   MockEmitter,
 } = vi.hoisted(() => ({
@@ -28,7 +28,7 @@ const {
   mockPromptHistoryRecord: vi.fn(),
   mockQueueContinuityPreamble: vi.fn(),
   mockQueueUpdate: vi.fn(),
-  mockGetSchedulingReminder: vi.fn(),
+  mockGetLaterTurnReminder: vi.fn(),
   mockStateInstances: new Map<string, Instance>(),
   MockEmitter: class {
     on(): this { return this; }
@@ -279,8 +279,8 @@ vi.mock('../instance-orchestration', () => {
     unregisterInstance(): void { return undefined; }
     hasActiveWork(): boolean { return false; }
     getOrchestrationPrompt(): string { return '[ORCHESTRATION PROMPT]'; }
-    getSchedulingReminderIfRelevant(message: string): string | null {
-      return mockGetSchedulingReminder(message) as string | null;
+    getLaterTurnReminderIfRelevant(message: string): string | null {
+      return mockGetLaterTurnReminder(message) as string | null;
     }
     getOrchestrationHandler(): Record<string, unknown> {
       return {
@@ -455,8 +455,8 @@ describe('InstanceManager context deadline', () => {
     mockCommandExecuteCommandString.mockResolvedValue(null);
     mockIndexedBuildContext.mockResolvedValue(null);
     mockIndexedFormatContextBlock.mockReturnValue('[Indexed]\nindex context');
-    mockGetSchedulingReminder.mockReset();
-    mockGetSchedulingReminder.mockReturnValue(null);
+    mockGetLaterTurnReminder.mockReset();
+    mockGetLaterTurnReminder.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -607,7 +607,7 @@ describe('InstanceManager context deadline', () => {
   // (re)injected. This is exactly the long-conversation case where the scheduling
   // reminder must be re-surfaced.
   it('injects the scheduling reminder into the context block on a later-turn scheduling request', async () => {
-    mockGetSchedulingReminder.mockImplementation((msg: string) =>
+    mockGetLaterTurnReminder.mockImplementation((msg: string) =>
       msg.includes('automation') ? '[SCHED REMINDER]' : null,
     );
     const contextPort = createContextPort({
@@ -622,13 +622,15 @@ describe('InstanceManager context deadline', () => {
 
     await manager.sendInput(instance.id, 'please create an automation for this');
 
-    expect(mockGetSchedulingReminder).toHaveBeenCalledWith('please create an automation for this');
+    expect(mockGetLaterTurnReminder).toHaveBeenCalledWith(
+      'please create an automation for this',
+    );
     const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
     expect(contextBlock).toContain('[SCHED REMINDER]');
   });
 
   it('prepends the reminder alongside retrieved context without dropping it', async () => {
-    mockGetSchedulingReminder.mockReturnValue('[SCHED REMINDER]');
+    mockGetLaterTurnReminder.mockReturnValue('[SCHED REMINDER]');
     const contextPort = createContextPort({
       buildRlmContext: vi.fn().mockResolvedValue({
         context: 'rlm context',
@@ -652,8 +654,29 @@ describe('InstanceManager context deadline', () => {
     expect(contextBlock).toContain('[RLM]\nrlm context');
   });
 
-  it('does not inject a reminder for non-scheduling messages', async () => {
-    mockGetSchedulingReminder.mockImplementation((msg: string) =>
+  it('injects the consensus reminder on a later-turn high-risk validation request', async () => {
+    mockGetLaterTurnReminder.mockImplementation((msg: string) =>
+      msg.includes('consensus') ? '[CONSENSUS REMINDER]' : null,
+    );
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+
+    await manager.sendInput(instance.id, 'run a consensus check on this migration');
+
+    expect(mockGetLaterTurnReminder).toHaveBeenCalledWith(
+      'run a consensus check on this migration',
+    );
+    expect(mockCommunicationSendInput.mock.calls[0]?.[1]).toBe(
+      'run a consensus check on this migration',
+    );
+    const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
+    expect(contextBlock).toContain('[CONSENSUS REMINDER]');
+    expect(contextBlock).not.toContain('[ORCHESTRATION PROMPT]');
+  });
+
+  it('does not inject a reminder for routine messages', async () => {
+    mockGetLaterTurnReminder.mockImplementation((msg: string) =>
       msg.includes('automation') ? '[SCHED REMINDER]' : null,
     );
     const instance = makeInstance();

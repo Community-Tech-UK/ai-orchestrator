@@ -640,6 +640,12 @@ export interface LoopConfig {
    */
   worktreeBranch?: string;
   /**
+   * Base branch captured when AIO creates the managed session worktree.
+   * Persisted independently of the root's later checkout state so recovery
+   * always knows the intended promotion target.
+   */
+  worktreeBaseBranch?: string;
+  /**
    * When isolation is on, automatically integrate the session branch on
    * terminal-success: the orchestrator merges the harvested session branch into
    * a shared, accumulating integration branch (`integration/<baseBranch>`) via a
@@ -733,6 +739,7 @@ export type {
   CompletionSignalId,
   LoopCompletionOutcome,
   LoopControlMetadata,
+  LoopCapWrapUpIntent,
   LoopErrorRecord,
   LoopFileChange,
   LoopInFlightIteration,
@@ -751,6 +758,8 @@ export type {
   LoopToolCallRecord,
   LoopVerifyFailureKind,
   LoopVerdict,
+  LoopWorktreeLifecycle,
+  LoopWorktreeLifecyclePhase,
   ProgressSignalEvidence,
   ProgressSignalId,
 } from './loop-state.types';

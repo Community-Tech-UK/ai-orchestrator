@@ -28,11 +28,12 @@ export const LIMITS = {
   PTL_MAX_RETRIES: 3,
   PTL_DROP_RATIO: 0.20, // Drop oldest 20% of turns per retry
 
-  // Compaction thresholds (percentage of context window)
+  // Compaction thresholds (percentage of context window).
+  // WARNING/BLOCKING were already unreferenced before the session-history
+  // policy was removed; BACKGROUND/COOLDOWN were that policy's only consumers.
+  // Real context-pressure decisions live in the compaction coordinator.
   COMPACTION_WARNING_THRESHOLD: 75,
-  COMPACTION_BACKGROUND_THRESHOLD: 80,   // Non-blocking background compaction
   COMPACTION_BLOCKING_THRESHOLD: 95,     // Blocking — must compact before continuing
-  COMPACTION_COOLDOWN_MS: 30000,         // 30s between compaction attempts
 
   // IPC
   IPC_TIMEOUT_MS: 30000,

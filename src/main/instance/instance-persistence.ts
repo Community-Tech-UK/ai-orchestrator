@@ -109,7 +109,13 @@ export class InstancePersistenceManager {
       yoloMode: config.preserveRuntimeSettings === false ? undefined : sourceInstance.yoloMode,
       agentId: config.preserveRuntimeSettings === false ? undefined : sourceInstance.agentId,
       modelOverride: config.preserveRuntimeSettings === false ? undefined : sourceInstance.currentModel,
-      reasoningEffort: config.preserveRuntimeSettings === false ? undefined : sourceInstance.reasoningEffort,
+      // `?? null` matters: a fork preserves the runtime exactly, and an
+      // instance with no stored effort is one that runs provider-decided.
+      // Passing `undefined` would read as "unchosen" and re-apply the app
+      // default, silently escalating the fork.
+      reasoningEffort: config.preserveRuntimeSettings === false
+        ? undefined
+        : sourceInstance.reasoningEffort ?? null,
       provider: config.preserveRuntimeSettings === false ? undefined : sourceInstance.provider,
       forceNodeId: config.preserveRuntimeSettings === false || sourceInstance.executionLocation?.type !== 'remote'
         ? undefined

@@ -3,6 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
 import type { CliResponse, InterruptResult } from '../main/cli/adapters/base-cli-adapter';
+// Type-only: `adapter-factory.types` carries no runtime deps, so this cannot
+// pull `electron` into the worker (adapter-factory itself stays a lazy import).
+import type { UnifiedSpawnOptions } from '../main/cli/adapters/adapter-factory.types';
 import type { FileAttachment } from '../shared/types/instance.types';
 import { observeAdapterRuntimeEvents } from '../main/providers/adapter-runtime-event-bridge';
 import { toOutputMessageFromProviderOutputEvent } from '../main/providers/provider-output-event';
@@ -19,6 +22,7 @@ export interface SpawnParams {
   workingDirectory: string;
   systemPrompt?: string;
   model?: string;
+  reasoningEffort?: UnifiedSpawnOptions['reasoningEffort'];
   yoloMode?: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -263,6 +267,7 @@ export class LocalInstanceManager extends EventEmitter {
         workingDirectory: params.workingDirectory,
         systemPrompt: this.appendAndroidLeasePrompt(params.systemPrompt, mobileMcp),
         model: params.model,
+        reasoningEffort: params.reasoningEffort,
         yoloMode: params.yoloMode ?? true,
         allowedTools: params.allowedTools,
         disallowedTools: params.disallowedTools,

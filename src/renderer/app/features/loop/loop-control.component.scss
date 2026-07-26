@@ -423,6 +423,20 @@ button {
 .lsum-close { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; padding: 0; }
 .lsum-line { margin-top: 4px; opacity: 0.85; }
 .lsum-reason { margin-top: 2px; opacity: 0.65; font-size: 11px; }
+.lsum-managed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 6px;
+  padding: 5px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: rgba(255,255,255,0.06);
+}
+.lsum-managed[data-tone="success"] { color: #8edc8e; background: rgba(142,220,142,0.10); }
+.lsum-managed[data-tone="blocked"] { color: #f7c07a; background: rgba(247,192,122,0.12); }
+.lsum-managed[data-tone="preserved"] { color: #b9c7ef; background: rgba(150,175,235,0.10); }
+.lsum-managed span { opacity: 0.82; overflow-wrap: anywhere; }
 
 .lsum-recap {
   margin-top: 10px;

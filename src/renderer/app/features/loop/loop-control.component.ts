@@ -24,6 +24,7 @@ import {
   humanTokens,
   loopPauseReason,
   loopStatusPill,
+  managedWorktreeStatus,
   shortTime,
   summaryHasDistinctIterationPrompt as hasDistinctIterationPrompt,
   summarizeToolDetail,
@@ -371,6 +372,18 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
           {{ s.iterations }} iterations · {{ duration(s.endedAt - s.startedAt) }} · {{ tokens(s.tokens) }} · {{ cost(s.costCents) }}
         </div>
         <div class="lsum-reason">Reason: {{ s.reason }}</div>
+        @if (managedStatus(s.worktreeLifecycle, s.status); as managed) {
+          <div
+            class="lsum-managed"
+            [attr.data-tone]="managed.tone"
+            [attr.role]="managed.tone === 'blocked' ? 'alert' : 'status'"
+            [attr.aria-live]="managed.tone === 'blocked' ? 'assertive' : 'polite'"
+            aria-atomic="true"
+          >
+            <strong>{{ managed.label }}</strong>
+            <span>{{ managed.detail }}</span>
+          </div>
+        }
 
         @if (s.lastIteration; as li) {
           <div class="lsum-recap">
@@ -1073,4 +1086,5 @@ export class LoopControlComponent implements OnDestroy {
   protected readonly iterationCapLabel = (maxIterations: number | null): string =>
     maxIterations === null ? '∞' : String(maxIterations);
   protected readonly summaryStatusLabel = terminalStatusLabel;
+  protected readonly managedStatus = managedWorktreeStatus;
 }

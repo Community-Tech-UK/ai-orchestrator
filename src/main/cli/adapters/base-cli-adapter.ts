@@ -227,6 +227,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   private processGeneration = 0;
   private processAlive = false;
+  private requestInitialization: Promise<void> | null = null;
 
   constructor(config: CliAdapterConfig) {
     super();
@@ -306,6 +307,30 @@ export abstract class BaseCliAdapter extends EventEmitter {
     if (!status.available) {
       throw new Error(`${this.getName()} CLI not available: ${status.error || 'Unknown error'}`);
     }
+  }
+
+  /**
+   * Prepare a reusable adapter for request/response turns exactly once.
+   * One-shot callers may continue to call sendMessage directly.
+   */
+  async initializeForRequest(): Promise<void> {
+    if (!this.requestInitialization) {
+      this.requestInitialization = this.initializeRequestRuntime().catch((error: unknown) => {
+        this.requestInitialization = null;
+        throw error;
+      });
+    }
+    await this.requestInitialization;
+  }
+
+  protected async initializeRequestRuntime(): Promise<void> {
+    await this.initialize();
+  }
+
+  /** Lifecycle-aware request/response seam for persistent orchestration. */
+  async requestResponse(message: CliMessage): Promise<CliResponse> {
+    await this.initializeForRequest();
+    return this.sendMessage(message);
   }
 
   /**

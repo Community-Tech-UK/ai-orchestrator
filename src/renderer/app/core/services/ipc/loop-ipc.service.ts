@@ -171,6 +171,10 @@ export interface LoopStartConfigInput {
   };
   initialStage?: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   allowDestructiveOps?: boolean;
+  /** Run in an AIO-owned per-loop worktree (interactive default: true). */
+  isolateLoopWorkspaces?: boolean;
+  /** Harvest, integrate, and promote the managed branch on terminal success. */
+  autoIntegrateWorktree?: boolean;
   /** Wall-clock cap per iteration (ms). */
   iterationTimeoutMs?: number;
   /** Stream-idle threshold per iteration (ms). */

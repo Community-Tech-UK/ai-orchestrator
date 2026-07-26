@@ -544,7 +544,8 @@ export interface InstanceCreateConfig {
   isRestoredSession?: boolean;
   agentId?: string; // Agent profile ID (defaults to 'build')
   modelOverride?: string; // Optional model override for the instance
-  reasoningEffort?: ReasoningEffort;
+  /** `undefined` = unchosen (spawn defaults it); `null` = provider decides. */
+  reasoningEffort?: ReasoningEffort | null;
   /**
    * Explicit fast-mode override for this instance. When undefined, spawn
    * resolution falls back to the per-provider / global defaults (see
@@ -654,7 +655,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     launchMode: config.launchMode ?? 'orchestrated',
     provider, // Default to auto (resolved by instance manager)
     bareMode: config.bareMode ?? false,
-    reasoningEffort: config.reasoningEffort,
+    reasoningEffort: config.reasoningEffort ?? undefined,
     executionLocation: { type: 'local' },
     nodePlacement: config.nodePlacement,
     diffStats: undefined,

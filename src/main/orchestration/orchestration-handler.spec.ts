@@ -29,6 +29,10 @@ vi.mock('../automations/automation-create-service', () => ({
 }));
 
 import { OrchestrationHandler } from './orchestration-handler';
+import {
+  CONSENSUS_INTENT_REMINDER,
+  SCHEDULING_INTENT_REMINDER,
+} from './orchestration-protocol';
 
 function commandBlock(command: Record<string, unknown>): string {
   return [
@@ -45,6 +49,37 @@ function responseData(response: string): Record<string, unknown> {
   }
   return JSON.parse(jsonMatch[0]) as Record<string, unknown>;
 }
+
+describe('OrchestrationHandler.getLaterTurnReminderIfRelevant', () => {
+  it('returns the scheduling reminder for scheduling intent', () => {
+    const orchestration = new OrchestrationHandler();
+
+    expect(orchestration.getLaterTurnReminderIfRelevant('run this every morning'))
+      .toBe(SCHEDULING_INTENT_REMINDER);
+  });
+
+  it('returns the consensus reminder for consensus-worthy intent', () => {
+    const orchestration = new OrchestrationHandler();
+
+    expect(orchestration.getLaterTurnReminderIfRelevant(
+      'Run a consensus check on this high-risk migration',
+    )).toBe(CONSENSUS_INTENT_REMINDER);
+  });
+
+  it('combines reminders in a stable order when both intents are present', () => {
+    const orchestration = new OrchestrationHandler();
+
+    expect(orchestration.getLaterTurnReminderIfRelevant(
+      'Schedule this daily, but first run a consensus check on the risky decision',
+    )).toBe(`${SCHEDULING_INTENT_REMINDER}\n\n${CONSENSUS_INTENT_REMINDER}`);
+  });
+
+  it('returns null for routine messages', () => {
+    const orchestration = new OrchestrationHandler();
+
+    expect(orchestration.getLaterTurnReminderIfRelevant('fix the failing test')).toBeNull();
+  });
+});
 
 describe('OrchestrationHandler.processOutput (streaming markers)', () => {
   beforeEach(() => {

@@ -178,3 +178,30 @@ describe('loop-schema v15 iteration cache/cost columns', () => {
     expect(row?.cost_known).toBeNull();
   });
 });
+
+describe('loop-schema v16 managed worktree lifecycle', () => {
+  it('upgrades a pre-v16 database without data loss and leaves legacy lifecycle NULL', () => {
+    runLoopMigrationsUpTo(driver, 15);
+    expect(columnNames('loop_runs')).not.toContain('worktree_lifecycle_json');
+
+    driver
+      .prepare(
+        `INSERT INTO loop_runs (id, chat_id, config_json, status, started_at, total_iterations)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run('run-v15', 'chat-v15', '{"workspaceCwd":"/p"}', 'completed', 1_700_000_000_000, 1);
+
+    runLoopMigrations(driver);
+
+    expect(LOOP_SCHEMA_VERSION).toBe(16);
+    expect(appliedVersions()).toContain(16);
+    expect(columnNames('loop_runs')).toContain('worktree_lifecycle_json');
+    const row = driver
+      .prepare('SELECT status, worktree_lifecycle_json FROM loop_runs WHERE id = ?')
+      .get<{ status: string; worktree_lifecycle_json: string | null }>('run-v15');
+    expect(row).toEqual({
+      status: 'completed',
+      worktree_lifecycle_json: null,
+    });
+  });
+});

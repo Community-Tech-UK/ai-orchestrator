@@ -4,6 +4,7 @@ import type {
   LoopStatus,
   LoopTerminalIntent,
   LoopVerdict,
+  LoopWorktreeLifecycle,
   ProgressSignalEvidence,
 } from './loop.types';
 
@@ -93,4 +94,6 @@ export interface LoopRunSummary {
   /** Count of still-open (un-resolved, un-dismissed) outstanding items captured
    *  from this run's OUTSTANDING.md. Omitted (undefined) when not computed. */
   openOutstandingCount?: number;
+  /** Durable managed-worktree promotion/cleanup state, when isolation was used. */
+  worktreeLifecycle?: LoopWorktreeLifecycle;
 }

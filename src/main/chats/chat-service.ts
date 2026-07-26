@@ -556,7 +556,10 @@ export class ChatService {
       yoloMode: chat.yolo,
       provider: chat.provider!,
       modelOverride: chat.model ?? undefined,
-      reasoningEffort: chat.reasoningEffort ?? undefined,
+      // Forwarded verbatim: `chat-service` already resolves the app default on
+      // create, so a stored `null` here is the user's explicit
+      // "let the provider decide" and must not collapse to the default.
+      reasoningEffort: chat.reasoningEffort,
       agentId: 'build',
       historyThreadId: chat.ledgerThreadId,
       evidenceConversationOwner: {

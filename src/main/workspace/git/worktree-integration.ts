@@ -21,6 +21,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
+import { realpathSync } from 'fs';
 import { getLogger } from '../../logging/logger';
 import { getGitWriteQueue } from './git-write-queue';
 import { hermeticGitEnv } from './git-env';
@@ -225,8 +226,220 @@ async function isAncestor(candidate: string, target: string, cwd: string): Promi
 
 /** True when `branch` is the checked-out branch of any live worktree (incl. root). */
 export async function isBranchCheckedOut(repoRoot: string, branch: string): Promise<boolean> {
-  const list = await gitSafe(['worktree', 'list', '--porcelain'], repoRoot);
+  const list = await git(['worktree', 'list', '--porcelain'], repoRoot);
   return list.split('\n').some((l) => l.trim() === `branch refs/heads/${branch}`);
+}
+
+interface WorktreeCheckout {
+  path: string;
+  branch?: string;
+}
+
+function parseWorktreeCheckouts(porcelain: string): WorktreeCheckout[] {
+  const checkouts: WorktreeCheckout[] = [];
+  let current: WorktreeCheckout | undefined;
+
+  for (const line of porcelain.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      current = { path: line.slice('worktree '.length) };
+      checkouts.push(current);
+    } else if (current && line.startsWith('branch refs/heads/')) {
+      current.branch = line.slice('branch refs/heads/'.length);
+    }
+  }
+
+  return checkouts;
+}
+
+function canonicalPath(value: string): string {
+  try {
+    return realpathSync(value);
+  } catch {
+    return path.resolve(value);
+  }
+}
+
+function hasRootCheckoutChanges(
+  statusPorcelain: string,
+  checkouts: WorktreeCheckout[],
+  repoRoot: string,
+): boolean {
+  const nestedWorktrees = checkouts
+    .map((checkout) => canonicalPath(checkout.path))
+    .filter((checkoutPath) => checkoutPath !== canonicalPath(repoRoot))
+    .map((checkoutPath) => path.relative(canonicalPath(repoRoot), checkoutPath))
+    .filter((relativePath) => relativePath && !relativePath.startsWith('..'));
+
+  return statusPorcelain.split('\n').filter(Boolean).some((line) => {
+    if (!line.startsWith('?? ')) return true;
+
+    const untrackedPath = line.slice(3).replace(/\/$/, '');
+    return !nestedWorktrees.some(
+      (worktreePath) =>
+        untrackedPath === worktreePath || untrackedPath.startsWith(`${worktreePath}${path.sep}`),
+    );
+  });
+}
+
+export type BasePromotionResult =
+  | { status: 'promoted'; method: 'checked-out-ff' | 'update-ref'; tip: string }
+  | { status: 'already-promoted'; tip: string }
+  | { status: 'blocked'; reason: string };
+
+const ZERO_OID = '0000000000000000000000000000000000000000';
+
+function integrationOwnershipRef(integrationBranch: string): string {
+  return `refs/aio/managed-integrations/${integrationBranch}`;
+}
+
+/**
+ * Promote an isolated integration branch back to its base branch without
+ * risking operator work in another checkout.
+ *
+ * A base checked out at the repository root is advanced with `merge --ff-only`
+ * so both its ref and working tree move together. An unchecked base is advanced
+ * with a compare-and-swap `update-ref`. A base owned by any other worktree, a
+ * dirty root, or a non-fast-forward topology is reported as blocked.
+ */
+export async function promoteIntegrationBranch(
+  repoRoot: string,
+  baseBranch: string,
+  integrationBranch: string,
+  expectedIntegrationTip?: string,
+): Promise<BasePromotionResult> {
+  return getGitWriteQueue().enqueue('promote-integration', async () => {
+    const baseTip = await gitSafe(
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${baseBranch}`],
+      repoRoot,
+    );
+    const integrationTip = await gitSafe(
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${integrationBranch}`],
+      repoRoot,
+    );
+
+    if (!baseTip) {
+      return { status: 'blocked', reason: `base branch ${baseBranch} does not exist` };
+    }
+    if (!integrationTip) {
+      return {
+        status: 'blocked',
+        reason: `integration branch ${integrationBranch} does not exist`,
+      };
+    }
+    const ownershipTip = await gitSafe(
+      ['rev-parse', '--verify', '--quiet', integrationOwnershipRef(integrationBranch)],
+      repoRoot,
+    );
+    if (
+      !ownershipTip
+      || ownershipTip !== integrationTip
+      || (expectedIntegrationTip && expectedIntegrationTip !== integrationTip)
+    ) {
+      return {
+        status: 'blocked',
+        reason: 'managed integration branch identity could not be verified',
+      };
+    }
+    if (baseTip === integrationTip) {
+      return { status: 'already-promoted', tip: integrationTip };
+    }
+    if (!(await isAncestor(baseTip, integrationTip, repoRoot))) {
+      return {
+        status: 'blocked',
+        reason: `${baseBranch} cannot be fast-forwarded to ${integrationBranch}`,
+      };
+    }
+
+    let checkoutList: string;
+    try {
+      checkoutList = await git(['worktree', 'list', '--porcelain'], repoRoot);
+    } catch (err) {
+      logger.warn('WorktreeIntegration: unable to inspect worktree ownership', {
+        baseBranch,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return { status: 'blocked', reason: 'unable to inspect worktree ownership' };
+    }
+    const checkouts = parseWorktreeCheckouts(checkoutList);
+    const baseCheckout = checkouts.find((checkout) => checkout.branch === baseBranch);
+
+    if (baseCheckout) {
+      if (canonicalPath(baseCheckout.path) !== canonicalPath(repoRoot)) {
+        return {
+          status: 'blocked',
+          reason: `${baseBranch} is checked out outside the repository root`,
+        };
+      }
+
+      let currentBranch: string;
+      try {
+        currentBranch = await git(['branch', '--show-current'], repoRoot);
+      } catch {
+        return { status: 'blocked', reason: 'unable to inspect root checkout branch' };
+      }
+      if (currentBranch !== baseBranch) {
+        return {
+          status: 'blocked',
+          reason: `${baseBranch} is not the active root branch`,
+        };
+      }
+      let rootStatus: string;
+      try {
+        rootStatus = await git(
+          ['status', '--porcelain', '--untracked-files=all'],
+          repoRoot,
+        );
+      } catch {
+        return { status: 'blocked', reason: 'unable to inspect root checkout status' };
+      }
+      if (hasRootCheckoutChanges(rootStatus, checkouts, repoRoot)) {
+        return { status: 'blocked', reason: 'root checkout has uncommitted changes' };
+      }
+
+      try {
+        await git(['merge', '--ff-only', '--no-verify', integrationBranch], repoRoot);
+        logger.info('WorktreeIntegration: promoted integration branch at root', {
+          baseBranch,
+          integrationBranch,
+          to: integrationTip,
+        });
+        return {
+          status: 'promoted',
+          method: 'checked-out-ff',
+          tip: integrationTip,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn('WorktreeIntegration: checked-out base promotion failed', {
+          baseBranch,
+          integrationBranch,
+          message,
+        });
+        return { status: 'blocked', reason: 'checked-out base promotion failed' };
+      }
+    }
+
+    try {
+      await git(
+        ['update-ref', `refs/heads/${baseBranch}`, integrationTip, baseTip],
+        repoRoot,
+      );
+      logger.info('WorktreeIntegration: promoted unchecked base branch', {
+        baseBranch,
+        integrationBranch,
+        to: integrationTip,
+      });
+      return { status: 'promoted', method: 'update-ref', tip: integrationTip };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('WorktreeIntegration: unchecked base promotion failed', {
+        baseBranch,
+        integrationBranch,
+        message,
+      });
+      return { status: 'blocked', reason: 'unchecked base promotion failed' };
+    }
+  });
 }
 
 /**
@@ -246,22 +459,62 @@ export async function integrateIntoSharedBranch(
   const intPath = path.join(repoRoot, baseDir, `.integration-${suffix}`);
 
   return getGitWriteQueue().enqueue('integrate-shared', async () => {
-    // Ensure the shared integration branch exists (created off baseBranch once).
-    const exists = await gitSafe(
+    const branchRef = `refs/heads/${integrationBranch}`;
+    const ownerRef = integrationOwnershipRef(integrationBranch);
+    // Existing integration-looking branches are never adopted implicitly.
+    // The parallel ownership ref records the exact tip AIO last wrote.
+    let integrationTip = await gitSafe(
       ['rev-parse', '--verify', '--quiet', `refs/heads/${integrationBranch}`],
       repoRoot,
     );
-    if (!exists) {
-      await git(['branch', integrationBranch, baseBranch], repoRoot);
+    let ownedTip = await gitSafe(
+      ['rev-parse', '--verify', '--quiet', ownerRef],
+      repoRoot,
+    );
+    if (integrationTip) {
+      if (!ownedTip || ownedTip !== integrationTip) {
+        return {
+          success: false,
+          integrationBranch,
+          error: 'Integration branch is not registered as AIO-owned',
+        };
+      }
+    } else {
+      if (ownedTip) {
+        return {
+          success: false,
+          integrationBranch,
+          error: 'AIO integration ownership metadata is stale',
+        };
+      }
+      const baseTip = await git(['rev-parse', baseBranch], repoRoot);
+      await git(['update-ref', branchRef, baseTip, ZERO_OID], repoRoot);
+      try {
+        await git(['update-ref', ownerRef, baseTip, ZERO_OID], repoRoot);
+      } catch (error) {
+        await gitSafe(['update-ref', '-d', branchRef, baseTip], repoRoot);
+        throw error;
+      }
+      integrationTip = baseTip;
+      ownedTip = baseTip;
     }
 
     // Skip if the session branch is already contained in the integration branch.
     if (await isAncestor(sessionBranch, integrationBranch, repoRoot)) {
-      return { success: true, integrationBranch, alreadyIntegrated: true };
+      return {
+        success: true,
+        integrationBranch,
+        alreadyIntegrated: true,
+        mergeCommit: integrationTip,
+      };
     }
 
     await git(['worktree', 'add', intPath, integrationBranch], repoRoot);
     try {
+      const checkedOutTip = await git(['rev-parse', 'HEAD'], intPath);
+      if (checkedOutTip !== ownedTip) {
+        throw new Error('Managed integration branch changed before checkout');
+      }
       const msg = commitMessage ?? `Auto-integrate ${sessionBranch} into ${integrationBranch}`;
       if (strategy === 'squash') {
         await git(['merge', '--squash', sessionBranch], intPath);
@@ -270,6 +523,7 @@ export async function integrateIntoSharedBranch(
         await git(['merge', '--no-ff', '--no-verify', '--no-gpg-sign', '-m', msg, sessionBranch], intPath);
       }
       const head = await git(['rev-parse', 'HEAD'], intPath);
+      await git(['update-ref', ownerRef, head, ownedTip], repoRoot);
       logger.info('WorktreeIntegration: auto-integrated into shared branch', {
         sessionBranch,
         integrationBranch,
@@ -292,7 +546,15 @@ export async function integrateIntoSharedBranch(
         conflictFiles: conflictFiles.length > 0 ? conflictFiles : undefined,
       };
     } finally {
-      await gitSafe(['worktree', 'remove', '--force', intPath], repoRoot);
+      await git(['worktree', 'remove', '--force', intPath], repoRoot);
+      const remaining = parseWorktreeCheckouts(
+        await git(['worktree', 'list', '--porcelain'], repoRoot),
+      );
+      if (remaining.some((checkout) =>
+        canonicalPath(checkout.path) === canonicalPath(intPath)
+      )) {
+        throw new Error('Temporary integration worktree cleanup failed');
+      }
     }
   });
 }

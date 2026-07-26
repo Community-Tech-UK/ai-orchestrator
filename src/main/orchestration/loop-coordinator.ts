@@ -19,6 +19,7 @@ import {
   type LoopIteration,
   type LoopStage,
   type LoopState,
+  type LoopWorktreeLifecycle,
   type LoopStreamEvent,
   type CompletionSignalEvidence,
   type ProgressSignalEvidence,
@@ -37,6 +38,7 @@ import {
   type VerifyOutcome,
 } from './loop-completion-detector';
 import { maybeQueueAnnounceThenHaltContinuation } from './loop-announce-then-halt';
+import { getLoopStore } from './loop-store';
 import { wireLoopCompletionWatcher } from './loop-completion-watcher-runtime';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
@@ -225,6 +227,7 @@ import type { LongRunResourceDecision } from '../runtime/long-run-resource-gover
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
 import { LoopPingPongReviewAbortRegistry } from './loop-pingpong-review-abort';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
+import { verifyManagedWorktreeOwnership } from '../workspace/git/worktree-cleanup';
 import { routeClassifiedLoopInvocationFailure } from './loop-invocation-error-routing';
 import { attemptLoopFailover } from './loop-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
@@ -233,6 +236,7 @@ import { detectAvailableClis } from '../cli/cli-detection';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getNotificationService } from '../notifications/notification-service';
 import { cleanupLoopWorktreeAfterTerminate } from './loop-worktree-termination-cleanup';
+import { evaluateReviewStall } from './loop-review-stall-policy';
 export { computeWorkHash } from './loop-work-hash';
 export type {
   FreshEyesFinding,
@@ -829,6 +833,7 @@ export class LoopCoordinator extends EventEmitter {
     const id = `loop-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const runtimeNextObjectivePlanner = nextObjectivePlanner
       ?? (config.nextObjectivePlanning?.enabled ? createAuxiliaryNextObjectivePlanner() : undefined);
+    let acquiredWorktreeLifecycle: LoopWorktreeLifecycle | undefined;
 
     // P2: Acquire a per-session worktree when isolation is requested.
     // The worktree path becomes executionCwd (CLI spawn dir); workspaceCwd
@@ -839,11 +844,32 @@ export class LoopCoordinator extends EventEmitter {
         const worktreeSession = await worktreeManager.createWorktree(
           id,
           config.initialPrompt.slice(0, 60),
-          { repoRoot: config.workspaceCwd, skipInstall: true, taskType: 'feature' },
+          {
+            repoRoot: config.workspaceCwd,
+            skipInstall: true,
+            taskType: 'feature',
+            onPrepared: (candidate) => {
+              config.executionCwd = candidate.worktreePath;
+              config.worktreeBranch = candidate.branchName;
+              config.worktreeBaseBranch = candidate.baseBranch;
+              const acquiredLifecycle = {
+                managedByAio: true as const,
+                phase: 'acquired' as const,
+                baseBranch: candidate.baseBranch,
+                sessionBranch: candidate.branchName,
+                sessionTip: candidate.baseCommit,
+                updatedAt: Date.now(),
+              };
+              acquiredWorktreeLifecycle = acquiredLifecycle;
+              getLoopStore().reserveManagedWorktree({
+                id,
+                chatId,
+                config,
+                lifecycle: acquiredLifecycle,
+              });
+            },
+          },
         );
-        config.executionCwd = worktreeSession.worktreePath;
-        // P3: also store branch name so upsertRun can persist it to branch_name column.
-        config.worktreeBranch = worktreeSession.branchName;
         this.lifecycle.setWorktreeSession(id, worktreeSession.id);
         logger.info('Loop start: acquired worktree', {
           loopRunId: id,
@@ -851,6 +877,15 @@ export class LoopCoordinator extends EventEmitter {
           branch: worktreeSession.branchName,
         });
       } catch (err) {
+        if (acquiredWorktreeLifecycle) {
+          getLoopStore().updateWorktreeLifecycle(id, {
+            ...acquiredWorktreeLifecycle,
+            phase: 'cleaned',
+            lastError: 'Managed worktree acquisition failed',
+            updatedAt: Date.now(),
+          });
+          getLoopStore().clearWorktreeInfo(id);
+        }
         // Decision D (fail-closed): isolation was requested — a silent fallback
         // to the shared root would recreate the exact collision/data-loss class
         // isolation is meant to prevent, but invisibly. Surface a block instead.
@@ -982,6 +1017,9 @@ export class LoopCoordinator extends EventEmitter {
       id,
       chatId,
       config,
+      ...(acquiredWorktreeLifecycle
+        ? { worktreeLifecycle: acquiredWorktreeLifecycle }
+        : {}),
       status: 'running',
       startedAt: Date.now(),
       endedAt: null,
@@ -1178,13 +1216,30 @@ export class LoopCoordinator extends EventEmitter {
       // terminate path (harvestWorktree + cleanupWorktree) works correctly.
       // Without this the in-memory worktreeSessionIds map is empty for restored
       // loops and the terminate path silently skips cleanup.
-      if (!this.lifecycle.hasWorktreeSession(state.id)) {
+      if (
+        state.worktreeLifecycle?.managedByAio === true
+        && !this.lifecycle.hasWorktreeSession(state.id)
+      ) {
         try {
+          const ownershipVerified = await verifyManagedWorktreeOwnership({
+            repoRoot: state.config.workspaceCwd,
+            worktreePath: state.config.executionCwd!,
+            baseDir: '.worktrees',
+            expectedBranch: state.worktreeLifecycle.sessionBranch,
+          });
+          if (!ownershipVerified) {
+            throw new Error('managed worktree ownership could not be verified');
+          }
           const worktreeManager = getWorktreeManager();
           const adopted = await worktreeManager.adoptWorktree(
             state.id,
             state.config.executionCwd!,
             state.config.initialPrompt.slice(0, 60),
+            {
+              baseBranch:
+                state.worktreeLifecycle?.baseBranch
+                ?? state.config.worktreeBaseBranch,
+            },
           );
           this.lifecycle.setWorktreeSession(state.id, adopted.id);
           logger.info('Loop restore: re-registered existing worktree', {
@@ -1655,6 +1710,9 @@ export class LoopCoordinator extends EventEmitter {
   // ============ Internal — main loop ============
 
   private async runLoop(state: LoopState, stageMachine: LoopStageMachine): Promise<void> {
+    if (state.capWrapUpIntent && !this.completionContext.getCapWrapUp(state.id)) {
+      this.completionContext.setCapWrapUp(state.id, state.capWrapUpIntent);
+    }
     // review-driven mode (the default for user-started loops) replaces the
     // evidence-ladder completion machinery with a relentless fresh-eyes
     // self-review: keep iterating until the model emits the no-outstanding
@@ -1946,6 +2004,27 @@ export class LoopCoordinator extends EventEmitter {
         // WS5: workspace-effect evidence for this attempt (unknown when a
         // throw bypassed the invoker's observers — never assumed clean).
         const attemptEvidence = resolveAttemptEvidence(childResult, invocationFailure, invocationError);
+
+        const failedWrapUpCapIntent = !childResult
+          ? this.completionContext.getCapWrapUp(state.id) ?? state.capWrapUpIntent
+          : null;
+        if (failedWrapUpCapIntent) {
+          state.capWrapUpIntent = { ...failedWrapUpCapIntent, phase: 'turn-complete' };
+          state.endEvidence = {
+            ...(state.endEvidence ?? {}),
+            cap: failedWrapUpCapIntent.cap,
+            capTriggerIteration: failedWrapUpCapIntent.triggerIteration,
+            wrapUpFailure: invocationError ?? 'iteration invocation failed',
+          };
+          this.emit('loop:cap-reached', {
+            loopRunId: state.id,
+            cap: failedWrapUpCapIntent.cap,
+            reason: failedWrapUpCapIntent.originalReason,
+            secondaryFailure: invocationError ?? 'iteration invocation failed',
+          });
+          this.terminate(state, 'cap-reached', failedWrapUpCapIntent.originalReason);
+          return;
+        }
 
         if (!childResult && invocationFailure) {
           const route = routeClassifiedLoopInvocationFailure({
@@ -2839,6 +2918,17 @@ export class LoopCoordinator extends EventEmitter {
       // The dedicated ping-pong branch resolves mutual convergence (completed),
       // human-glance (completed-needs-review), or one of the surfaced deadlock /
       // unreliable / cost terminals.
+      const activeCapIntent =
+        this.completionContext.getCapWrapUp(state.id) ?? state.capWrapUpIntent;
+      if (pingPongTerminal && activeCapIntent && pingPongTerminal.status !== 'completed') {
+        logger.info('Cap wrap-up suppressed a secondary ping-pong terminal', {
+          loopRunId: state.id,
+          cap: activeCapIntent.cap,
+          suppressedStatus: pingPongTerminal.status,
+          suppressedReason: pingPongTerminal.reason,
+        });
+        pingPongTerminal = null;
+      }
       if (pingPongTerminal) {
         if (
           pingPongTerminal.status === 'completed'
@@ -2896,6 +2986,19 @@ export class LoopCoordinator extends EventEmitter {
       // N consecutive clean fresh-eyes passes. `completed` when nothing was
       // flagged for a human; `completed-needs-review` (a SUCCESS state) when the
       // agent left items in OUTSTANDING.md's "Needs human" section.
+      if (
+        reviewDrivenTerminal
+        && activeCapIntent
+        && reviewDrivenTerminal.status !== 'completed'
+      ) {
+        logger.info('Cap wrap-up suppressed a secondary review terminal', {
+          loopRunId: state.id,
+          cap: activeCapIntent.cap,
+          suppressedStatus: reviewDrivenTerminal.status,
+          suppressedReason: reviewDrivenTerminal.reason,
+        });
+        reviewDrivenTerminal = null;
+      }
       if (reviewDrivenTerminal) {
         const finalAudit = await runLoopFinalAudit(
           state,
@@ -2967,7 +3070,22 @@ export class LoopCoordinator extends EventEmitter {
       // measure read that as a stall). Terminal is a SUCCESSFUL
       // completed-needs-review so a human can glance and either finish the
       // bookkeeping or defer the open items.
-      if (ledgerStalled && state.ledgerConvergence) {
+      if (ledgerStalled && state.ledgerConvergence && activeCapIntent) {
+        state.endEvidence = {
+          ...(state.endEvidence ?? {}),
+          secondaryLedgerStallIterations:
+            state.ledgerConvergence.noMeaningfulTransitionIterations,
+          secondaryLedgerStallLimit:
+            state.config.completion.maxLedgerStallIterations,
+        };
+        logger.info('Cap wrap-up suppressed a secondary ledger-stall terminal', {
+          loopRunId: state.id,
+          cap: activeCapIntent.cap,
+          stalledFor: state.ledgerConvergence.noMeaningfulTransitionIterations,
+          limit: state.config.completion.maxLedgerStallIterations,
+        });
+      }
+      if (ledgerStalled && state.ledgerConvergence && !activeCapIntent) {
         const tracker = state.ledgerConvergence;
         const openIds = unresolvedKnownTaskIds(tracker);
         const stalledFor = tracker.noMeaningfulTransitionIterations;
@@ -3005,67 +3123,87 @@ export class LoopCoordinator extends EventEmitter {
         return;
       }
 
-      if (reviewDriven && evaluation.verdict === 'CRITICAL') {
+      if (reviewDriven) {
         const madeProductionChange = iteration.filesChanged.some(
           (f) => isReviewDrivenProductionChange(f.path),
         );
         const advancingConvergence = (state.consecutiveCleanReviewPasses ?? 0) > 0;
-        if (!madeProductionChange && !advancingConvergence) {
-          if (isVerifiedNoChangeCompletionClaim(iteration)) {
-            const handled = await handleVerifiedNoChangeReviewDrivenCompletion({
-              state,
-              iteration,
-              stageMachine,
-              primary: evaluation.primary ?? evaluation.signals[0],
-              handleBlockedCompletion: (args) => this.handleFinalAuditBlockedCompletion(args),
-              emitCompletedNeedsReview: (payload) => this.emit('loop:completed-needs-review', payload),
-              terminate: (target, status, reason) => this.terminate(target, status, reason),
-            });
-            if (handled === 'terminal') return;
-            continue;
-          }
-          state.reviewDrivenStallIterations = (state.reviewDrivenStallIterations ?? 0) + 1;
+        if (
+          evaluation.verdict === 'CRITICAL'
+          && !ledgerMeaningfulTransition
+          && !madeProductionChange
+          && !advancingConvergence
+          && isVerifiedNoChangeCompletionClaim(iteration)
+        ) {
+          const handled = await handleVerifiedNoChangeReviewDrivenCompletion({
+            state,
+            iteration,
+            stageMachine,
+            primary: evaluation.primary ?? evaluation.signals[0],
+            handleBlockedCompletion: (args) => this.handleFinalAuditBlockedCompletion(args),
+            emitCompletedNeedsReview: (payload) => this.emit('loop:completed-needs-review', payload),
+            terminate: (target, status, reason) => this.terminate(target, status, reason),
+          });
+          if (handled === 'terminal') return;
+          continue;
+        }
+        const stallDecision = evaluateReviewStall({
+          critical: evaluation.verdict === 'CRITICAL',
+          productionChangesObserved: madeProductionChange,
+          ledgerMeaningfulTransition,
+          cleanReviewConvergenceActive: advancingConvergence,
+          consecutiveStallCount: state.reviewDrivenStallIterations ?? 0,
+          limit: state.config.completion.maxStalledReviewIterations ?? 3,
+          capWrapUpActive: Boolean(
+            this.completionContext.getCapWrapUp(state.id) ?? state.capWrapUpIntent,
+          ),
+        });
+        state.reviewDrivenStallIterations = stallDecision.nextCount;
+        if (
+          stallDecision.action === 'terminalize'
+          && !ledgerMeaningfulTransition
+          && !madeProductionChange
+          && !advancingConvergence
+        ) {
           const limit = Math.max(1, state.config.completion.maxStalledReviewIterations ?? 3);
-          if (state.reviewDrivenStallIterations >= limit) {
-            const primary = evaluation.primary ?? evaluation.signals[0];
-            const reason =
-              `Review-driven loop stalled: ${state.reviewDrivenStallIterations} consecutive ` +
-              `CRITICAL no-progress iterations with no production changes and no clean-review ` +
-              `convergence` +
-              (primary ? ` (${primary.message})` : '') +
-              `. Stopped for human review instead of spinning to a cap / circuit breaker.`;
-            if (!this.completionContext.hasConvergenceNote(state.id)) {
-              this.completionContext.setConvergenceNote(
-                state.id,
-                `review-driven stall: ${primary?.message ?? 'no progress, no convergence'}`,
-              );
-            }
-            recordLoopLearningForState({
-              state,
-              status: 'no-progress',
-              note: this.completionContext.getConvergenceNote(state.id),
-              store: this.loopMemoryStore,
-            });
-            this.emit('loop:completed-needs-review', {
-              loopRunId: state.id,
-              reason,
-              acceptedByOperator: false,
-            });
-            this.terminate(state, 'completed-needs-review', reason);
-            return;
+          const primary = evaluation.primary ?? evaluation.signals[0];
+          const reason =
+            `Review-driven loop stalled: ${state.reviewDrivenStallIterations} consecutive ` +
+            `CRITICAL no-progress iterations with no production changes, meaningful ledger ` +
+            `transition, or clean-review convergence` +
+            (primary ? ` (${primary.message})` : '') +
+            `. Stopped for human review instead of spinning to a cap / circuit breaker.`;
+          if (!this.completionContext.hasConvergenceNote(state.id)) {
+            this.completionContext.setConvergenceNote(
+              state.id,
+              `review-driven stall: ${primary?.message ?? 'no progress, no convergence'}`,
+            );
           }
+          recordLoopLearningForState({
+            state,
+            status: 'no-progress',
+            note: this.completionContext.getConvergenceNote(state.id),
+            store: this.loopMemoryStore,
+          });
+          this.emit('loop:completed-needs-review', {
+            loopRunId: state.id,
+            reason,
+            acceptedByOperator: false,
+          });
+          this.terminate(state, 'completed-needs-review', reason);
+          return;
+        }
+        if (stallDecision.action === 'increment' || stallDecision.action === 'suppress') {
+          const limit = Math.max(1, state.config.completion.maxStalledReviewIterations ?? 3);
           logger.info('Review-driven stall accumulating', {
             loopRunId: state.id,
             seq,
             stall: state.reviewDrivenStallIterations,
             limit,
+            policyReason: stallDecision.reason,
             signal: evaluation.primary?.message ?? evaluation.signals[0]?.message,
           });
-        } else {
-          state.reviewDrivenStallIterations = 0;
         }
-      } else if (reviewDriven) {
-        state.reviewDrivenStallIterations = 0;
       }
 
       // -- terminal: completion --
@@ -3080,6 +3218,26 @@ export class LoopCoordinator extends EventEmitter {
           verifyOutput: excerpt(verifyOutputForEmit, 4096),
         });
         this.terminate(state, 'completed', `signal=${stopWithSignal.id}`);
+        return;
+      }
+
+      const capIntent = this.completionContext.getCapWrapUp(state.id) ?? state.capWrapUpIntent;
+      if (capIntent) {
+        state.capWrapUpIntent = { ...capIntent, phase: 'turn-complete' };
+        state.endEvidence = {
+          ...(state.endEvidence ?? {}),
+          cap: capIntent.cap,
+          capTriggerIteration: capIntent.triggerIteration,
+          capMeasurement: capIntent.measurement,
+          capLimit: capIntent.limit,
+          secondaryReviewStallCount: state.reviewDrivenStallIterations ?? 0,
+        };
+        this.emit('loop:cap-reached', {
+          loopRunId: state.id,
+          cap: capIntent.cap,
+          reason: capIntent.originalReason,
+        });
+        this.terminate(state, 'cap-reached', capIntent.originalReason);
         return;
       }
 
@@ -3670,6 +3828,13 @@ export class LoopCoordinator extends EventEmitter {
       status,
       worktreeSessionId,
       getTerminalCleanup: (loopRunId) => this.lifecycle.getTerminalCleanup(loopRunId),
+      onTransition: () => {
+        this.emit('loop:state-changed', {
+          loopRunId: state.id,
+          state: this.cloneStateForBroadcast(state),
+          lifecycleOnly: true,
+        });
+      },
     });
     // A4: drop this run's evidence journal so the table stays compact. Evidence
     // is per-loop-run and only consumed within the run (contradiction

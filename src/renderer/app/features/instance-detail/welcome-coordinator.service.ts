@@ -11,6 +11,7 @@ import { ProviderStateService } from '../../core/services/provider-state.service
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { normalizeModelForProvider } from '../../../../shared/types/provider.types';
+import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
@@ -32,6 +33,8 @@ interface WelcomeLaunchConfig {
   agentId: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
   model?: string;
+  /** Omitted = spawn path applies the app-level per-provider default. */
+  reasoningEffort?: ReasoningEffort | null;
   modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;
   /** WS13 — run the CLI inside the macOS Seatbelt jail. */
@@ -215,6 +218,9 @@ export class WelcomeCoordinatorService {
       agentId: plan.config.agentId,
       provider: plan.config.provider,
       model: plan.config.model,
+      ...(plan.config.reasoningEffort !== undefined
+        ? { reasoningEffort: plan.config.reasoningEffort }
+        : {}),
       ...(plan.config.modelRuntimeTarget ? { modelRuntimeTarget: plan.config.modelRuntimeTarget } : {}),
       ...(typeof plan.config.yoloMode === 'boolean' ? { yoloMode: plan.config.yoloMode } : {}),
       ...(plan.config.hardened ? { hardened: true } : {}),
@@ -313,6 +319,14 @@ export class WelcomeCoordinatorService {
     const launchMode = provider === 'claude' && !modelRuntimeTarget
       ? (this.newSessionDraft.launchMode() ?? this.providerState.getLaunchModeForProvider('claude'))
       : undefined;
+    // The draft's effort is only meaningful once a provider has been chosen in
+    // the picker — `setProvider` seeds it from the app default at that point.
+    // On a pristine draft the stored `null` just means "untouched", so send
+    // `undefined` and let the spawn path apply the default. Once a provider has
+    // been picked, `null` is the user's explicit "let the provider decide".
+    const reasoningEffort = this.newSessionDraft.provider() === null
+      ? undefined
+      : this.newSessionDraft.reasoningEffort();
     const yoloMode = this.newSessionDraft.yoloMode();
     const hardened = this.newSessionDraft.hardened();
     const pendingFolders = this.pendingFolders();
@@ -359,6 +373,7 @@ export class WelcomeCoordinatorService {
         agentId: this.newSessionDraft.agentId(),
         provider,
         model,
+        ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
         ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         ...(hardened ? { hardened: true } : {}),

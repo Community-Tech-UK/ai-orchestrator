@@ -5518,12 +5518,12 @@
       "lines": 4321
     },
     {
-      "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
-      "lines": 3817
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 3910
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3745
+      "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
+      "lines": 3817
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -5535,7 +5535,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3486
+      "lines": 3493
     },
     {
       "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
@@ -5646,6 +5646,10 @@
       "lines": 2070
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 2052
+    },
+    {
       "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 2052
     },
@@ -5666,12 +5670,12 @@
       "lines": 1867
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 1842
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
       "lines": 1830
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1819
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
@@ -5683,11 +5687,7 @@
     },
     {
       "path": "src/main/session/session-continuity.ts",
-      "lines": 1800
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1795
+      "lines": 1796
     },
     {
       "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
@@ -5706,12 +5706,12 @@
       "lines": 1635
     },
     {
-      "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
-      "lines": 1613
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1620
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1597
+      "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
+      "lines": 1613
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
@@ -5735,7 +5735,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
-      "lines": 1518
+      "lines": 1520
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
@@ -5747,7 +5747,7 @@
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
-      "lines": 1501
+      "lines": 1505
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
@@ -5790,12 +5790,12 @@
       "lines": 1391
     },
     {
-      "path": "src/renderer/app/core/state/source-control.store.spec.ts",
-      "lines": 1351
+      "path": "src/main/chats/chat-service.spec.ts",
+      "lines": 1354
     },
     {
-      "path": "src/main/chats/chat-service.spec.ts",
-      "lines": 1347
+      "path": "src/renderer/app/core/state/source-control.store.spec.ts",
+      "lines": 1351
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
@@ -5834,6 +5834,10 @@
       "lines": 1324
     },
     {
+      "path": "src/main/plugins/plugin-manager.ts",
+      "lines": 1314
+    },
+    {
       "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
       "lines": 1314
     },
@@ -5842,28 +5846,28 @@
       "lines": 1304
     },
     {
-      "path": "src/main/plugins/plugin-manager.ts",
-      "lines": 1304
-    },
-    {
       "path": "src/main/workspace/git/vcs-manager.ts",
       "lines": 1296
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1291
+      "lines": 1293
     },
     {
       "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
       "lines": 1281
     },
     {
-      "path": "src/main/orchestration/cross-model-review-service.spec.ts",
-      "lines": 1272
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 1281
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1271
+      "lines": 1273
+    },
+    {
+      "path": "src/main/orchestration/cross-model-review-service.spec.ts",
+      "lines": 1272
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
@@ -5934,10 +5938,6 @@
       "lines": 1231
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
-      "lines": 1225
-    },
-    {
       "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
       "lines": 1221
     },
@@ -5971,6 +5971,10 @@
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
+      "lines": 1177
+    },
+    {
+      "path": "src/main/orchestration/loop-store.spec.ts",
       "lines": 1177
     },
     {
@@ -6034,10 +6038,6 @@
       "lines": 1109
     },
     {
-      "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1106
-    },
-    {
       "path": "docs/superpowers/specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design_completed.md",
       "lines": 1105
     },
@@ -6046,8 +6046,20 @@
       "lines": 1104
     },
     {
+      "path": "src/main/instance/instance-orchestration.ts",
+      "lines": 1104
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 1092
+    },
+    {
+      "path": "src/main/workspace/git/worktree-manager.ts",
+      "lines": 1091
+    },
+    {
+      "path": "src/renderer/app/features/loop/loop-control.component.ts",
+      "lines": 1091
     },
     {
       "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
@@ -6062,10 +6074,6 @@
       "lines": 1088
     },
     {
-      "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 1077
-    },
-    {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
       "lines": 1056
     },
@@ -6076,10 +6084,6 @@
     {
       "path": "src/main/history/history-manager.spec.ts",
       "lines": 1043
-    },
-    {
-      "path": "src/main/workspace/git/worktree-manager.ts",
-      "lines": 1041
     },
     {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
@@ -6108,6 +6112,10 @@
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1015
+    },
+    {
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 1014
     },
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
@@ -6140,10 +6148,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md",
       "lines": 990
-    },
-    {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 989
     },
     {
       "path": "src/main/context/__tests__/context-compactor.spec.ts",
@@ -6186,10 +6190,6 @@
       "lines": 973
     },
     {
-      "path": "src/main/orchestration/loop-store.spec.ts",
-      "lines": 970
-    },
-    {
       "path": "docs/superpowers/specs/2026-04-21-mcp-multi-provider-management-design.md",
       "lines": 969
     },
@@ -6202,6 +6202,10 @@
       "lines": 963
     },
     {
+      "path": "src/main/app/initialization-steps.ts",
+      "lines": 961
+    },
+    {
       "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
       "lines": 961
     },
@@ -6212,10 +6216,6 @@
     {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",
       "lines": 958
-    },
-    {
-      "path": "src/main/app/initialization-steps.ts",
-      "lines": 956
     },
     {
       "path": "docs/superpowers/plans/2026-07-11-harness-mobile-codex-redesign_completed.md",
@@ -6258,6 +6258,10 @@
       "lines": 920
     },
     {
+      "path": "packages/contracts/src/schemas/loop.schemas.ts",
+      "lines": 911
+    },
+    {
       "path": "src/main/orchestration/loop-completion-detector.spec.ts",
       "lines": 911
     },
@@ -6286,10 +6290,6 @@
       "lines": 888
     },
     {
-      "path": "packages/contracts/src/schemas/loop.schemas.ts",
-      "lines": 886
-    },
-    {
       "path": "src/main/automations/automation-store.ts",
       "lines": 885
     },
@@ -6316,6 +6316,10 @@
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
       "lines": 867
+    },
+    {
+      "path": "src/main/instance/lifecycle/__tests__/interrupt-respawn-handler.spec.ts",
+      "lines": 866
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f4-f5-transcript-performance.md",
@@ -6398,12 +6402,20 @@
       "lines": 835
     },
     {
+      "path": "src/main/orchestration/loop-store.ts",
+      "lines": 833
+    },
+    {
       "path": "src/main/memory/skills-loader.spec.ts",
       "lines": 831
     },
     {
       "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
       "lines": 829
+    },
+    {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 827
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
@@ -6414,20 +6426,16 @@
       "lines": 826
     },
     {
+      "path": "src/main/chats/chat-service.ts",
+      "lines": 825
+    },
+    {
       "path": "src/main/learning/ab-testing.ts",
       "lines": 824
     },
     {
-      "path": "src/main/chats/chat-service.ts",
-      "lines": 822
-    },
-    {
       "path": "src/main/indexing/benchmarks/benchmark-utils.ts",
       "lines": 820
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 819
     },
     {
       "path": "src/main/memory/critique-agent.ts",
@@ -6446,6 +6454,10 @@
       "lines": 814
     },
     {
+      "path": "src/main/ipc/handlers/loop-handlers.ts",
+      "lines": 810
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
       "lines": 810
     },
@@ -6462,8 +6474,8 @@
       "lines": 807
     },
     {
-      "path": "src/main/ipc/handlers/loop-handlers.ts",
-      "lines": 806
+      "path": "src/main/orchestration/orchestration-protocol.spec.ts",
+      "lines": 807
     },
     {
       "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",

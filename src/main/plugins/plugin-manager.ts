@@ -27,6 +27,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { getReactionEngine } from '../reactions';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { providerAdapterRegistry } from '../providers/provider-adapter-registry';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
@@ -1180,10 +1181,19 @@ export class OrchestratorPluginManager {
       const wd = instance?.workingDirectory || process.cwd();
       void this.emitToPlugins(wd, ctx, 'session.resumed', pluginPayload);
     });
-    sessionContinuity.on('session:compacting', (payload: unknown) => {
-      const pluginPayload = toSessionCompactingPayload(payload);
+    // `session.compacting` tracks real context compactions (native or
+    // restart-with-summary), not the continuity manager's local trim of its own
+    // saved history — that trim never reduced provider context.
+    getCompactionCoordinator().on('compaction-started', (payload: unknown) => {
+      if (!isRecord(payload) || typeof payload['instanceId'] !== 'string') return;
+      const instanceId = payload['instanceId'];
+      const instance = instanceManager.getInstance(instanceId);
+      const pluginPayload = toSessionCompactingPayload({
+        instanceId,
+        messageCount: instance?.outputBuffer.length ?? 0,
+        tokenCount: instance?.contextUsage?.used ?? 0,
+      });
       if (!pluginPayload) return;
-      const instance = instanceManager.getInstance(pluginPayload.instanceId);
       const wd = instance?.workingDirectory || process.cwd();
       void this.emitToPlugins(wd, ctx, 'session.compacting', pluginPayload);
     });

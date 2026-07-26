@@ -90,6 +90,29 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(2);
   });
 
+  it('defaults interactive loops to AIO-managed isolation and promotion', () => {
+    component.showAdvanced.set(true);
+    fixture.detectChanges();
+
+    const checkbox = fixture.nativeElement.querySelector(
+      '#loop-cfg-managed-isolation',
+    ) as HTMLInputElement | null;
+    const config = component.buildConfig();
+
+    expect(checkbox?.checked).toBe(true);
+    expect(config?.isolateLoopWorkspaces).toBe(true);
+    expect(config?.autoIntegrateWorktree).toBe(true);
+  });
+
+  it('allows an explicit compatibility opt-out from managed isolation', () => {
+    component.managedIsolation.set(false);
+
+    const config = component.buildConfig();
+
+    expect(config?.isolateLoopWorkspaces).toBe(false);
+    expect(config?.autoIntegrateWorktree).toBe(false);
+  });
+
   it('WS7: provider failover is OFF by default and emits only when enabled with providers', () => {
     expect(component.buildConfig()?.failover).toBeUndefined();
 

@@ -198,12 +198,10 @@ export class InstanceOrchestrationManager {
   }
 
   /**
-   * Returns a concise reminder steering the model to native `create_automation`
-   * when a user message expresses scheduling/automation intent, or null otherwise.
-   * Used to re-surface automation steering on turns after the first message.
+   * Returns relevant orchestration reminders for turns after the first message.
    */
-  getSchedulingReminderIfRelevant(message: string): string | null {
-    return this.orchestration.getSchedulingReminderIfRelevant(message);
+  getLaterTurnReminderIfRelevant(message: string): string | null {
+    return this.orchestration.getLaterTurnReminderIfRelevant(message);
   }
 
   // ============================================

@@ -405,6 +405,69 @@ describe('SessionContinuityManager logging', () => {
     ]);
   });
 
+  it('caps retained conversation entries at maxConversationEntries', async () => {
+    // The old context-pressure policy trimmed history to 51 entries but only
+    // once a session passed 80% context, so a session reporting no context
+    // usage grew without bound. The cap is now unconditional.
+    const manager = createManager({ maxConversationEntries: 5 });
+    await manager.readyPromise;
+
+    const state = makeState('capped-instance');
+    state.conversationHistory = [];
+    state.contextUsage = { used: 0, total: 0 };
+    await manager.importSession({ state });
+
+    for (let i = 0; i < 12; i++) {
+      await manager.addConversationEntry('capped-instance', {
+        id: `entry-${i}`,
+        role: 'assistant',
+        content: `message ${i}`,
+        timestamp: i,
+      });
+    }
+
+    const exported = await manager.exportSession('capped-instance');
+    const history = exported?.state.conversationHistory ?? [];
+    expect(history).toHaveLength(5);
+    // Newest kept, oldest dropped, and no synthetic "[Compacted N earlier
+    // messages]" summary entry is injected any more.
+    expect(history.map((e) => e.id)).toEqual([
+      'entry-7', 'entry-8', 'entry-9', 'entry-10', 'entry-11',
+    ]);
+    expect(history.some((e) => e.content.includes('Compacted'))).toBe(false);
+  });
+
+  it('does not emit a compaction display marker when trimming history', async () => {
+    const manager = createManager({ maxConversationEntries: 2 });
+    await manager.readyPromise;
+
+    const emitted: string[] = [];
+    (manager as unknown as { on(event: string, cb: () => void): void }).on(
+      'session:compaction-display',
+      () => emitted.push('display'),
+    );
+    (manager as unknown as { on(event: string, cb: () => void): void }).on(
+      'session:compacting',
+      () => emitted.push('compacting'),
+    );
+
+    const state = makeState('silent-trim');
+    state.conversationHistory = [];
+    state.contextUsage = { used: 190000, total: 200000 };
+    await manager.importSession({ state });
+
+    for (let i = 0; i < 8; i++) {
+      await manager.addConversationEntry('silent-trim', {
+        id: `entry-${i}`,
+        role: 'assistant',
+        content: `message ${i}`,
+        timestamp: i,
+      });
+    }
+
+    expect(emitted).toEqual([]);
+  });
+
   it('normalizes legacy duplicated conversation entries when resuming from disk', async () => {
     const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
     await fs.promises.mkdir(stateDir, { recursive: true });

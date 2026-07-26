@@ -30,6 +30,7 @@ export async function createPersistentLoopAdapter(opts: {
     options: {
       workingDirectory: opts.workingDirectory,
       model,
+      ...(cliType === 'codex' ? { ephemeral: false } : {}),
       yoloMode: true,
       timeout: opts.timeoutMs ?? 30 * 60 * 1000,
       maxTurns: opts.maxTurns,

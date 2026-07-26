@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { REASONING_EFFORTS } from '../../shared/types/provider.types';
 import {
   FsReadDirectoryParamsSchema,
   FsStatParamsSchema,
@@ -182,6 +183,12 @@ export const InstanceSpawnParamsSchema = z.object({
   workingDirectory: z.string().min(1),
   systemPrompt: z.string().optional(),
   model: ProviderModelIdSchema.optional(),
+  /**
+   * Optional for wire compatibility: the worker's dispatcher casts rather than
+   * re-parsing these params, so an older worker build simply ignores the extra
+   * field and degrades to the CLI's own default, as before.
+   */
+  reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
   yoloMode: z.boolean().optional(),
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),

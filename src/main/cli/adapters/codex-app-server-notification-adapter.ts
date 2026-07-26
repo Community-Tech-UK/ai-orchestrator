@@ -511,7 +511,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     stream.content += delta;
     stream.deltaSeen = true;
 
-    const extracted = extractThinkingContent(stream.content);
+    const extracted = extractThinkingContent(stream.content, { headerStyle: false });
     const accumulatedContent = extracted.hasThinking ? extracted.response : stream.content;
     this.emit('output', {
       id: stream.outputId,

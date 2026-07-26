@@ -325,12 +325,27 @@ async function invokeCliTextResponse(params: {
             ...(typeof params.activeTimeoutMs === 'number' ? { activeTimeoutMs: params.activeTimeoutMs } : {}),
           }
         : undefined;
-      return await (adapter as { sendMessage(m: CliMessage): Promise<CliResponse> })
-        .sendMessage({
+      const message: CliMessage = {
           role: 'user',
           content: prompt,
           metadata: sendMetadata,
-        });
+      };
+      if (!ownsAdapter) {
+        const requestResponse = (adapter as {
+          requestResponse?: (m: CliMessage) => Promise<CliResponse>;
+        }).requestResponse;
+        if (typeof requestResponse === 'function') {
+          return await requestResponse.call(adapter, message);
+        }
+        const initializeForRequest = (adapter as {
+          initializeForRequest?: () => Promise<void>;
+        }).initializeForRequest;
+        if (typeof initializeForRequest === 'function') {
+          await initializeForRequest.call(adapter);
+        }
+      }
+      return await (adapter as { sendMessage(m: CliMessage): Promise<CliResponse> })
+        .sendMessage(message);
     } finally {
       toolsDisable?.restore();
       detachActivity();
@@ -1374,8 +1389,16 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         enableAdapterResume(reusedAdapter);
       }
 
-      const observedDelta = attemptObserver.observe();
-      const filesChanged = observedDelta ?? [];
+      const workspaceObservation = attemptObserver.observe();
+      const filesChanged = workspaceObservation.changes;
+      logger.info('Loop workspace observation completed', {
+        loopRunId: p.loopRunId,
+        seq: p.seq,
+        coverage: workspaceObservation.coverage,
+        sources: workspaceObservation.sources,
+        changedPathCount: filesChanged.length,
+        ...(workspaceObservation.reason ? { limitation: workspaceObservation.reason } : {}),
+      });
       // FU-5: derive structured signals from the actual iteration output.
       // testPassCount/testFailCount feeds the D / D-prime signals;
       // errors feeds the E signal; toolCalls (collected via the activity
@@ -1449,7 +1472,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         attemptEvidence: buildObservedAttemptEvidence({
           outcome: result.degradedReason ? 'degraded' : 'completed',
           outputOrError: outputWithSafetyFailure,
-          observedDelta,
+          observation: workspaceObservation,
           providerThreadReusable: Boolean(sameSession && reusedAdapter),
           reason: result.degradedReason ?? attemptObserver.failureNote(),
         }),
@@ -1548,7 +1571,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       failure.attemptEvidence = buildObservedAttemptEvidence({
         outcome: 'failed',
         outputOrError: failure.error,
-        observedDelta: attemptObserver.observe(),
+        observation: attemptObserver.observe(),
         providerThreadReusable: Boolean(sameSession && reusedAdapter),
         reason: attemptObserver.failureNote(),
       });

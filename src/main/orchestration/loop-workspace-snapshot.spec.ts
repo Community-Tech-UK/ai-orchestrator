@@ -45,6 +45,44 @@ describe('snapshotWorkspaceFiles (filesystem walk)', () => {
     expect(paths.some((p) => p.startsWith('.aio-loop-state/'))).toBe(false);
   });
 
+  it('ignores scratch, archive, and vendor trees', () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-snap-'));
+    write(workspace, 'src/app.ts', 'export const app = true;');
+    write(workspace, '_scratch/result.txt', 'scratch');
+    write(workspace, '_archive/old.txt', 'archive');
+    write(workspace, 'vendor/package/index.php', 'vendor');
+
+    const paths = [...snapshotWorkspaceFiles(workspace).keys()];
+
+    expect(paths).toEqual(['src/app.ts']);
+  });
+
+  it('does not let canonical worktree, virtualenv, or cache trees consume snapshot bounds', () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-snap-'));
+    write(workspace, '.worktrees/linked/generated.ts', 'generated');
+    write(workspace, '.venv/lib/package.py', 'generated');
+    write(workspace, 'cache/result.bin', 'generated');
+    write(workspace, 'src/app.ts', 'export const app = true;');
+
+    const snapshot = snapshotWorkspaceFiles(workspace, {
+      maxFiles: 1,
+      maxDirectories: 2,
+    });
+
+    expect(snapshot.coverage).toBe('complete');
+    expect([...snapshot.keys()]).toEqual(['src/app.ts']);
+  });
+
+  it('reports partial coverage when the directory traversal bound is reached', () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-snap-'));
+    write(workspace, 'a/b/c/result.ts', 'export const result = true;');
+
+    const snapshot = snapshotWorkspaceFiles(workspace, { maxDirectories: 2 });
+
+    expect(snapshot.coverage).toBe('partial');
+    expect(snapshot.reason).toMatch(/directory limit reached/i);
+  });
+
   it('does not report churn inside ignored dirs as a file change', () => {
     workspace = mkdtempSync(join(tmpdir(), 'loop-snap-'));
     write(workspace, 'src/Main.java', 'class Main {}');
@@ -109,6 +147,22 @@ describe('snapshotWorkspaceFiles (filesystem walk)', () => {
     expect(changes.map((change) => change.path)).toContain(
       'src/main/orchestration/loop-coordinator.ts',
     );
+  });
+
+  it('reports truncation and scans root-level siblings before deep subtree files', () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-snap-'));
+    for (let i = 0; i < 12; i++) {
+      write(workspace, `aaa-deep/src/file-${i}.ts`, `export const n = ${i};`);
+    }
+    const before = snapshotWorkspaceFiles(workspace, { maxFiles: 5 });
+    write(workspace, 'deliverable.md', 'root-level result');
+
+    const after = snapshotWorkspaceFiles(workspace, { maxFiles: 5 });
+    const changes = snapshotFileChangesViaWorkspace(before, workspace, { maxFiles: 5 });
+
+    expect(after.coverage).toBe('partial');
+    expect(after.reason).toMatch(/limit/i);
+    expect(changes.map((change) => change.path)).toContain('deliverable.md');
   });
 });
 

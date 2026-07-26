@@ -631,6 +631,7 @@ export class LoopStore {
         initialPrompt: state.config.initialPrompt,
         iterationPrompt: state.config.iterationPrompt,
         lastIteration: snapshotLastIteration(state.lastIteration),
+        worktreeLifecycle: state.worktreeLifecycle,
       });
       this.clearRunningIteration(state.id);
       this.clearActive(state.chatId);
