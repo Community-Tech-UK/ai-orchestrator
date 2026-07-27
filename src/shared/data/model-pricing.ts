@@ -17,7 +17,7 @@
  * accounting. Use this helper only to price token counts when no authoritative
  * cost is reported.
  */
-import { MODEL_PRICING } from '../types/provider.types';
+import { MODEL_PRICING, PROVIDER_MODEL_LIST } from '../types/provider.types';
 
 export interface TokenCostInput {
   inputTokens?: number;
@@ -48,6 +48,13 @@ export const DEFAULT_MODEL_RATE: ModelRate = { input: 3, output: 15 };
  * committed snapshot remains the offline fallback. Keyed by model id.
  */
 const overlayRates = new Map<string, ModelRate>();
+const providerOverlayRates = new Map<string, ModelRate>();
+
+export interface ProviderModelRate {
+  provider: string;
+  id: string;
+  rate: ModelRate;
+}
 
 /**
  * Merge live per-1M-token rates into the overlay (called by the models.dev
@@ -62,14 +69,29 @@ export function registerModelRates(rates: Record<string, ModelRate>): void {
   }
 }
 
+/** Register live rates without losing the provider namespace. */
+export function registerProviderModelRates(entries: Iterable<ProviderModelRate>): void {
+  for (const entry of entries) {
+    const provider = normalizePricingProvider(entry.provider);
+    const id = entry.id.trim();
+    if (provider && id && Number.isFinite(entry.rate.input) && Number.isFinite(entry.rate.output)) {
+      providerOverlayRates.set(`${provider}:${id}`, {
+        input: entry.rate.input,
+        output: entry.rate.output,
+      });
+    }
+  }
+}
+
 /** Drop all overlay rates (used by tests and offline resets). */
 export function clearModelRateOverlay(): void {
   overlayRates.clear();
+  providerOverlayRates.clear();
 }
 
 /** Number of models currently priced by the live overlay. */
 export function modelRateOverlaySize(): number {
-  return overlayRates.size;
+  return Math.max(overlayRates.size, providerOverlayRates.size);
 }
 
 /** True when the live models.dev overlay has an explicit entry for this model. */
@@ -80,6 +102,32 @@ export function hasOverlayRate(model: string | undefined | null): boolean {
 /** True when the overlay or `MODEL_PRICING` has an explicit entry for this model. */
 export function hasModelRate(model: string | undefined | null): boolean {
   return !!(model && (overlayRates.has(model) || !!MODEL_PRICING[model]));
+}
+
+/** Resolve pricing only when the model belongs to the supplied provider namespace. */
+export function getProviderModelRate(
+  provider: string | undefined | null,
+  model: string | undefined | null,
+): ModelRate | undefined {
+  const normalizedProvider = normalizePricingProvider(provider);
+  const normalizedModel = model?.trim();
+  if (!normalizedProvider || !normalizedModel) return undefined;
+  const overlay = providerOverlayRates.get(`${normalizedProvider}:${normalizedModel}`);
+  if (overlay) return overlay;
+  if (!(PROVIDER_MODEL_LIST[normalizedProvider] ?? []).some((entry) => entry.id === normalizedModel)) {
+    return undefined;
+  }
+  return MODEL_PRICING[normalizedModel];
+}
+
+export function computeProviderTokenCost(
+  provider: string | undefined | null,
+  model: string | undefined | null,
+  usage: TokenCostInput,
+): number | undefined {
+  const rate = getProviderModelRate(provider, model);
+  if (!rate || !model) return undefined;
+  return computeCost(rate, model, usage);
 }
 
 /**
@@ -128,7 +176,14 @@ export function getCacheWriteMultiplier(model: string | undefined | null): numbe
  * input/output/cache pricing. Negative or missing counts are clamped to 0.
  */
 export function computeTokenCost(model: string | undefined | null, usage: TokenCostInput): number {
-  const rate = getModelRate(model);
+  return computeCost(getModelRate(model), model, usage);
+}
+
+function computeCost(
+  rate: ModelRate,
+  model: string | undefined | null,
+  usage: TokenCostInput,
+): number {
   const input = Math.max(0, usage.inputTokens ?? 0);
   const output = Math.max(0, usage.outputTokens ?? 0);
   const cacheRead = Math.max(0, usage.cacheReadTokens ?? 0);
@@ -143,4 +198,13 @@ export function computeTokenCost(model: string | undefined | null, usage: TokenC
     cacheWrite * rate.input * getCacheWriteMultiplier(model);
 
   return cost / 1_000_000;
+}
+
+function normalizePricingProvider(provider: string | undefined | null): string | undefined {
+  switch (provider?.trim().toLowerCase()) {
+    case 'anthropic': return 'claude';
+    case 'openai': return 'codex';
+    case 'google': return 'gemini';
+    default: return undefined;
+  }
 }

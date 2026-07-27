@@ -401,4 +401,85 @@ describe('HistoryRestoreCoordinator', () => {
       expect(createInstance.mock.calls[0]?.[0]).toMatchObject({ browserToolsMode: 'eager' });
     });
   });
+
+  describe('resume proof: definitive answers settle the probe (LT-014)', () => {
+    /** Same deps as the outer suite, but with a post-spawn window worth waiting out. */
+    function makeSlowProbeCoordinator(): HistoryRestoreCoordinator {
+      return new HistoryRestoreCoordinator({
+        history: () => ({ loadConversation, markNativeResumeFailed }),
+        outputStorage: () => ({ storeMessages }),
+        isRemoteNodeReachable: () => true,
+        postSpawnTimeoutMs: 4_000,
+        pollIntervalMs: 5,
+      });
+    }
+
+    beforeEach(() => {
+      getInstance.mockImplementation((id: string) =>
+        id === 'native-instance' ? makeInstance({ id: 'native-instance', status: 'idle' }) : undefined,
+      );
+      createInstance.mockImplementation(
+        async (config: { historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+          makeInstance({
+            id: 'native-instance',
+            historyThreadId: config.historyThreadId ?? 'history-thread',
+            outputBuffer: config.initialOutputBuffer ?? [],
+          }),
+      );
+    });
+
+    it('stops waiting as soon as the adapter disproves the resume, keeping the rung unchanged', async () => {
+      // Claude with no transcript for the id under this cwd reports fresh-fallback
+      // at spawn. That answer never changes, so burning the whole post-spawn
+      // window on it is pure latency on every restore of a dead session.
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = (id: string) =>
+        id === 'native-instance'
+          ? { getResumeAttemptResult: () => ({ source: 'fresh-fallback' as const, confirmed: false }) }
+          : undefined;
+
+      const startedAt = Date.now();
+      const result = await makeSlowProbeCoordinator().restore(manager, 'entry-1');
+      const elapsed = Date.now() - startedAt;
+
+      // Rung is deliberately unchanged — an alive instance stays usable (B1/B2).
+      expect(result.restoreMode).toBe('resume-unconfirmed');
+      expect(markNativeResumeFailed).not.toHaveBeenCalled();
+      expect(elapsed).toBeLessThan(1_000);
+    });
+
+    it('still waits out the window when the adapter has no answer either way', async () => {
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = (id: string) =>
+        id === 'native-instance'
+          ? { getResumeAttemptResult: () => ({ source: 'native' as const, confirmed: false }) }
+          : undefined;
+
+      const startedAt = Date.now();
+      const result = await makeSlowProbeCoordinator().restore(manager, 'entry-1');
+      const elapsed = Date.now() - startedAt;
+
+      expect(result.restoreMode).toBe('resume-unconfirmed');
+      expect(elapsed).toBeGreaterThanOrEqual(3_500);
+    });
+
+    it('treats a forked resume’s new session id as success, not as a wrong-session failure', async () => {
+      // A `--fork-session` resume returns a different id BY DEFINITION (LT-008).
+      // Applying the plain mismatch rule to it proves failure for every fork.
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = (id: string) =>
+        id === 'native-instance'
+          ? {
+              getResumeAttemptResult: () => ({
+                source: 'native' as const,
+                confirmed: true,
+                forked: true,
+                requestedSessionId: 'native-session',
+                actualSessionId: 'freshly-minted-fork-id',
+              }),
+            }
+          : undefined;
+
+      const result = await makeSlowProbeCoordinator().restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('native-resume');
+    });
+  });
 });

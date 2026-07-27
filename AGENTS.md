@@ -38,9 +38,15 @@ npx tsc --noEmit
 npx tsc --noEmit -p tsconfig.spec.json
 npm run lint
 npm run check:ts-max-loc
+npm run build:main
 npm run test:quiet
 ```
 
+- `npm run build:main` is a required gate, not an optional extra. Neither `tsc --noEmit`
+  invocation reads `tsconfig.electron.json`, so both can be green while the app cannot be
+  rebuilt at all — that is exactly how LT-012 shipped three days of stale `dist/main` code.
+  It is also the only gate that runs `scripts/sync-dist.js`, which asserts non-code assets
+  (built-in skills, doc-review runtime) actually reach the compiled tree.
 - During investigation, prefer `npm run test:quiet -- path/to/file.spec.ts`.
 - Reserve the full suite for the final gate. Slow tests use `npm run test:slow`.
 - After multi-file changes, the full suite and lint are required; verify imports and exports resolve.

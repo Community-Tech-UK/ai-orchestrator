@@ -220,6 +220,36 @@ describe('RuntimeReadinessCoordinator.evaluateResumeHealth', () => {
     await expect(coord.evaluateResumeHealth('inst-1')).resolves.toBe('unrecoverable');
   });
 
+  it('reports healthy for a FORKED resume whose id differs from the requested one', async () => {
+    // LT-008: `--resume <id> --fork-session` makes the CLI mint a new id for the
+    // forked branch. Treating that mismatch as a wrong-session failure meant a
+    // fork could never be proven healthy, so every yolo toggle on a
+    // conversation-bearing Claude session destroyed it.
+    const adapter = makeAdapter();
+    adapter.getResumeAttemptResult = vi.fn(() => ({
+      source: 'native',
+      confirmed: true,
+      forked: true,
+      requestedSessionId: 'session-original',
+      actualSessionId: 'session-forked',
+    }));
+    const coord = new RuntimeReadinessCoordinator(makeDeps(adapter as unknown as CliAdapter));
+    await expect(coord.evaluateResumeHealth('inst-1')).resolves.toBe('healthy');
+  });
+
+  it('still reports unrecoverable for a NON-forked resume whose id differs', async () => {
+    const adapter = makeAdapter();
+    adapter.getResumeAttemptResult = vi.fn(() => ({
+      source: 'native',
+      confirmed: true,
+      forked: false,
+      requestedSessionId: 'session-original',
+      actualSessionId: 'session-other',
+    }));
+    const coord = new RuntimeReadinessCoordinator(makeDeps(adapter as unknown as CliAdapter));
+    await expect(coord.evaluateResumeHealth('inst-1')).resolves.toBe('unrecoverable');
+  });
+
   it('reports healthy on definitive native-resume proof', async () => {
     const adapter = makeAdapter('codex-cli');
     adapter.getResumeAttemptResult = vi.fn(() => ({

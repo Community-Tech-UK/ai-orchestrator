@@ -2943,6 +2943,9 @@ export class InstanceLifecycleManager extends EventEmitter {
       const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
       const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
 
+      // Resume FROM the live id: a fork mints its own target, so `newSessionId`
+      // has no transcript and passing it as the source destroys the session (LT-008).
+      const resumeSourceSessionId = instance.sessionId;
       const newSessionId = shouldResume && shouldForkSession
         ? generateId()
         : (shouldResume ? instance.sessionId : generateId());
@@ -2950,7 +2953,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
       const spawnOptions: UnifiedSpawnOptions = {
         instanceId: instance.id,
-        sessionId: newSessionId,
+        sessionId: shouldResume ? resumeSourceSessionId : newSessionId,
         workingDirectory: instance.workingDirectory,
         systemPrompt: newAgent.systemPrompt,
         yoloMode: instance.yoloMode,
@@ -2993,6 +2996,9 @@ export class InstanceLifecycleManager extends EventEmitter {
         } catch (spawnError) {
           if (shouldResume) {
             logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
+            // Strip listeners before terminate so the doomed adapter's exit is
+            // not handled as a real instance exit → `error` (LT-008).
+            adapter.removeAllListeners();
             await adapter.terminate(true);
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
@@ -3284,7 +3290,6 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       residentClaudeForSpawn: (instance) => this.residentClaudeForSpawn(instance),
       createRuntimeAdapter: (cliType, options, executionLocation) =>
         this.createRuntimeAdapter(cliType, options, executionLocation),
-      waitForResumeHealth: (id) => this.waitForResumeHealth(id),
       evaluateResumeHealth: (id) => this.evaluateResumeHealth(id),
       waitForInputReadinessBoundary: (id, adapter) => this.waitForInputReadinessBoundary(id, adapter),
       prepareStatusForAdapterInput: (instance) => this.prepareStatusForAdapterInput(instance),

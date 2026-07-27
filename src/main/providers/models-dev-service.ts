@@ -15,7 +15,12 @@
 
 import * as https from 'https';
 import { getLogger } from '../logging/logger';
-import { registerModelRates, modelRateOverlaySize, type ModelRate } from '../../shared/data/model-pricing';
+import {
+  registerModelRates,
+  registerProviderModelRates,
+  modelRateOverlaySize,
+  type ModelRate,
+} from '../../shared/data/model-pricing';
 import { MAX_MODEL_ID_LENGTH } from '../../shared/types/provider.types';
 import { MODELS_DEV_SNAPSHOT, MODELS_DEV_SNAPSHOT_META } from './models-dev-snapshot.generated';
 
@@ -133,6 +138,7 @@ export class ModelsDevService {
     }
 
     registerModelRates(rates);
+    registerProviderModelRates(entries);
     if (this.entries.length === 0) {
       this.entries = entries;
     }
@@ -186,6 +192,7 @@ export class ModelsDevService {
     }
 
     registerModelRates(parsed.rates);
+    registerProviderModelRates(parsed.entries);
     this.contextWindows = parsed.contextWindows;
     this.entries = parsed.entries;
     this.lastFetchedAt = Date.now();

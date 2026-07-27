@@ -104,6 +104,18 @@ export class InstanceTerminationCoordinator {
     getInstanceAuthRepairHandler().forget(instanceId);
 
     if (adapter) {
+      // LT-013: a deliberate terminate must not be observed as an *unexpected*
+      // exit. markTerminated() only runs after archiving below, so the adapter's
+      // SIGTERM exit (code 143) would otherwise reach the still-attached
+      // instance-communication listener while the instance is still 'idle' and
+      // fire respawnAfterUnexpectedExit — which assigns a freshly generated fork
+      // id to instance.sessionId before it spawns anything. archiveInstance then
+      // persisted that never-spawned id as the history entry's resume anchor, so
+      // no transcript existed for it and every later restore missed the
+      // native-resume rung. Same fix as the LT-008 fresh-fallback path and the
+      // long-standing spawn rollback: detach before terminating.
+      (adapter as { removeAllListeners?: () => void }).removeAllListeners?.();
+
       // §4.G/E1: a graceful terminate can sit in a SIGTERM→SIGKILL wait for up
       // to TERMINATE_GRACE_MS. Surface that wait so the user sees a reason, then
       // clear it (the instance still exists until deleteInstance() below).

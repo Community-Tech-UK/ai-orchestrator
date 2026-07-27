@@ -235,6 +235,12 @@ export class RuntimeReconciler {
         validatedModel = selection.model;
       }
 
+      // The id the CLI must resume FROM. A fork mints its own target id, so the
+      // pre-generated `newSessionId` below has never existed as a transcript —
+      // passing it as the resume source makes the adapter skip `--resume`
+      // entirely, the health probe find no proof, and this method tear down a
+      // perfectly live session (LT-008). Mirrors interrupt-respawn-handler.
+      const resumeSourceSessionId = instance.sessionId;
       const newSessionId = shouldResume && shouldForkSession
         ? generateId()
         : (shouldResume ? instance.sessionId : generateId());
@@ -262,7 +268,7 @@ export class RuntimeReconciler {
       const spawnConfigBuilder = this.deps.spawnConfigBuilder;
       const spawnOptions: UnifiedSpawnOptions = {
         instanceId: instance.id,
-        sessionId: newSessionId,
+        sessionId: shouldResume ? resumeSourceSessionId : newSessionId,
         workingDirectory: instance.workingDirectory,
         systemPrompt: agent.systemPrompt,
         model: validatedModel,
@@ -298,13 +304,20 @@ export class RuntimeReconciler {
         try {
           pid = await adapter.spawn();
           instance.processId = pid;
-          if (shouldResume && !(await this.deps.waitForResumeHealth(instanceId))) {
+          if (shouldResume && !(await this.resolveResumeHealth(instanceId))) {
             throw new Error('Native resume did not stabilize after model change');
           }
           await this.deps.waitForInputReadinessBoundary(instanceId, adapter);
         } catch (spawnError) {
           if (shouldResume) {
             logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
+            // Strip listeners BEFORE terminating so the doomed resume adapter's
+            // exit is not handled as a real instance exit. Without this the exit
+            // handler drives the instance to `error` while this method is still
+            // respawning it, and the follow-up sendInput then dies on
+            // `Illegal transition: error → busy` (LT-008). applyRecoveryRespawn
+            // has always done this; the runtime-change path never did.
+            adapter.removeAllListeners();
             await adapter.terminate(true);
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
@@ -476,16 +489,21 @@ export class RuntimeReconciler {
    * renderer bookkeeping stays with the orchestrator.
    */
   /**
-   * Recovery resume-health policy. Keep a healthy session; destroy only a
-   * proven-unrecoverable one (process dead / session-not-found / wrong session).
-   * An `inconclusive` verdict — alive but unproven after the load-scaled window —
-   * is retried once and then accepted, so a session that was merely slow under
-   * host load is never torn down. Tearing it down is exactly what previously lost
-   * the live thread and in-flight background agents on "resume failed".
+   * Resume-health policy, shared by the recovery-respawn and runtime-change
+   * paths. Keep a healthy session; destroy only a proven-unrecoverable one
+   * (process dead / session-not-found / wrong session). An `inconclusive`
+   * verdict — alive but unproven after the load-scaled window — is retried once
+   * and then accepted, so a session that was merely slow under host load is
+   * never torn down. Tearing it down is exactly what previously lost the live
+   * thread and in-flight background agents on "resume failed".
+   *
+   * The runtime-change path used to collapse `inconclusive` to `false` via the
+   * boolean `waitForResumeHealth`, which destroyed live sessions under host
+   * load (LT-008); it now shares this policy.
    *
    * @returns true to keep the resumed session, false to fall back to a fresh one.
    */
-  private async resolveRecoveryResumeHealth(instanceId: string): Promise<boolean> {
+  private async resolveResumeHealth(instanceId: string): Promise<boolean> {
     const first = await this.deps.evaluateResumeHealth(instanceId);
     if (first === 'healthy') {
       return true;
@@ -542,7 +560,7 @@ export class RuntimeReconciler {
     try {
       pid = await adapter.spawn();
       instance.processId = pid;
-      if (request.shouldResume && !(await this.resolveRecoveryResumeHealth(instanceId))) {
+      if (request.shouldResume && !(await this.resolveResumeHealth(instanceId))) {
         throw new Error('Native resume did not stabilize during recovery respawn');
       }
       instance.providerSessionId = request.postSpawnProviderSessionId;

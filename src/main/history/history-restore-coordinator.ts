@@ -39,11 +39,28 @@ function getAdapterResumeProof(instanceManager: InstanceManager, instanceId: str
   if (!result || result.source === 'none') return null;
   // fresh-fallback means no native resume was attempted — definitively not confirmed.
   if (result.source === 'fresh-fallback') return false;
-  if (result.actualSessionId && result.requestedSessionId
+  // A `--fork-session` resume returns a NEW id by definition, so a mismatch is
+  // the success shape, not a failure (LT-008 — see ResumeAttemptResult.forked).
+  if (!result.forked && result.actualSessionId && result.requestedSessionId
       && result.actualSessionId !== result.requestedSessionId) return false;
   if (result.confirmed) return true;
   if (result.reason) return false;
   return null;
+}
+
+/**
+ * Outcome of the post-spawn resume probe. `disproven` separates "the adapter
+ * told us the native resume did NOT happen" from "we never got proof either
+ * way". It deliberately does NOT demote the restore to the replay rung: an
+ * alive-but-unresumed instance stays on `resume-unconfirmed` by design (the
+ * B1/B2 locks in `history-restore-coordinator.spec.ts`). It exists only so the
+ * probe can stop as soon as the answer is known instead of burning the full
+ * post-spawn timeout on a question already settled (LT-014).
+ */
+interface ResumeWaitState {
+  alive: boolean;
+  confirmed: boolean;
+  disproven: boolean;
 }
 
 export interface HistoryRestoreForkIds {
@@ -143,7 +160,30 @@ export class HistoryRestoreCoordinator {
     this.pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   }
 
+  /**
+   * Restore an archived conversation, then record which rung of the ladder it
+   * landed on. The rung was previously visible only in the IPC result and the
+   * rendered transcript, which made the restore live-test checks impossible to
+   * judge from the app log (LT-011). One line at the single exit point covers
+   * every rung — native-resume, resume-unconfirmed and replay-fallback.
+   */
   async restore(
+    instanceManager: InstanceManager,
+    entryId: string,
+    opts: HistoryRestoreCoordinatorOptions = {},
+  ): Promise<HistoryRestoreCoordinatorResult> {
+    const result = await this.restoreInternal(instanceManager, entryId, opts);
+    logger.info('History restore complete', {
+      entryId,
+      restoreMode: result.restoreMode,
+      instanceId: result.instanceId,
+      sessionId: result.sessionId,
+      historyThreadId: result.historyThreadId,
+    });
+    return result;
+  }
+
+  private async restoreInternal(
     instanceManager: InstanceManager,
     entryId: string,
     opts: HistoryRestoreCoordinatorOptions = {},
@@ -384,7 +424,7 @@ export class HistoryRestoreCoordinator {
     instanceManager: InstanceManager,
     instanceId: string,
     postSpawnTimeoutMs: number,
-  ): Promise<{ alive: boolean; confirmed: boolean }> {
+  ): Promise<ResumeWaitState> {
     return new Promise((resolve) => {
       let settled = false;
       const cleanup = (): void => {
@@ -392,27 +432,33 @@ export class HistoryRestoreCoordinator {
         clearTimeout(timeout);
         clearInterval(poll);
       };
-      const complete = (value: { alive: boolean; confirmed: boolean }): void => {
+      const complete = (value: ResumeWaitState): void => {
         if (!settled) {
           cleanup();
           resolve(value);
         }
       };
-      const inspect = (): { alive: boolean; confirmed: boolean } => {
+      const inspect = (): ResumeWaitState => {
         const inst = instanceManager.getInstance(instanceId);
         const alive = inst != null
           && inst.status !== 'error'
           && inst.status !== 'terminated'
           && inst.status !== 'respawning';
-        if (!alive) return { alive: false, confirmed: false };
+        if (!alive) return { alive: false, confirmed: false, disproven: false };
 
         // Prefer adapter proof (set from init events) over context-usage heuristic.
+        // A `false` here is a DEFINITIVE negative (LT-014): the adapter already
+        // knows the native resume did not happen — e.g. Claude found no
+        // transcript for the id under this cwd and spawned fresh. The rung is
+        // unchanged (still `resume-unconfirmed`), but there is nothing left to
+        // wait for, so the probe stops now rather than at the timeout.
         const proof = getAdapterResumeProof(instanceManager, instanceId);
-        if (proof !== null) return { alive: true, confirmed: proof };
+        if (proof !== null) return { alive: true, confirmed: proof, disproven: !proof };
 
-        // Fall back to context-usage heuristic (used > 0 means the provider resumed)
+        // Fall back to context-usage heuristic (used > 0 means the provider resumed).
+        // Absence of usage is not proof of failure — it stays merely unconfirmed.
         const confirmed = Boolean(inst.contextUsage && inst.contextUsage.used > 0);
-        return { alive, confirmed };
+        return { alive, confirmed, disproven: false };
       };
 
       const timeout = setTimeout(() => {
@@ -421,7 +467,7 @@ export class HistoryRestoreCoordinator {
 
       const poll = setInterval(() => {
         const state = inspect();
-        if (!state.alive || state.confirmed) {
+        if (!state.alive || state.confirmed || state.disproven) {
           complete(state);
         }
       }, this.pollIntervalMs);

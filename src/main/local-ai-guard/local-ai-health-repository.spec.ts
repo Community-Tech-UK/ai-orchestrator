@@ -1,3 +1,9 @@
+import { execFile } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver, SqliteStatement } from '../db/sqlite-driver';
@@ -13,7 +19,129 @@ import { LocalAiHealthRepository } from './local-ai-health-repository';
 import { LocalAiTargetRepository } from './local-ai-target-repository';
 
 const dbs: SqliteDriver[] = [];
+const tempDirectories: string[] = [];
 const dayMs = 24 * 60 * 60 * 1_000;
+const execFileAsync = promisify(execFile);
+const electronPath = createRequire(import.meta.url)('electron') as string;
+const recoveryProcessScript = String.raw`
+  require('tsx/cjs');
+  const path = require('node:path');
+  const [
+    mode,
+    filename,
+    targetId,
+    attemptId = '',
+    claimedAtText = '0',
+    maxAttemptsText = '0',
+    cooldownMsText = '0',
+    startAtText = '0',
+  ] = process.argv.slice(1);
+  const { defaultDriverFactory } = require(
+    path.join(process.cwd(), 'src/main/db/better-sqlite3-driver.ts'),
+  );
+  const { RLM_MIGRATIONS_051_055 } = require(
+    path.join(process.cwd(), 'src/main/persistence/rlm/rlm-migrations-051-055.ts'),
+  );
+  const {
+    claimLocalAiRecoveryAttempt,
+    listLocalAiRecoveryAttempts,
+  } = require(
+    path.join(process.cwd(), 'src/main/local-ai-guard/local-ai-recovery-attempt-store.ts'),
+  );
+  const db = defaultDriverFactory(filename);
+  try {
+    db.exec('PRAGMA foreign_keys = ON;');
+    db.pragma('busy_timeout = 5000');
+    let result;
+    if (mode === 'setup') {
+      for (const migrationName of ['054_local_ai_guard', '055_local_ai_recovery_attempts']) {
+        const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === migrationName);
+        if (!migration) throw new Error('Missing migration ' + migrationName);
+        db.exec(migration.up);
+      }
+      db.prepare(
+        "INSERT INTO local_ai_targets (" +
+        "id, label, lifecycle, location_type, worker_node_id, provider, endpoint_id, " +
+        "base_url, config_json, created_at, updated_at" +
+        ") VALUES (?, 'Recovery target', 'enrolled', 'coordinator', '', 'ollama', ?, " +
+        "'http://127.0.0.1:11434', '{}', 1, 1)"
+      ).run(targetId, targetId);
+      result = { setup: true };
+    } else if (mode === 'claim') {
+      const startAt = Number(startAtText);
+      while (Date.now() < startAt) {
+        // Synchronize independent writers so both reach the claim boundary together.
+      }
+      result = claimLocalAiRecoveryAttempt(db, {
+        id: attemptId,
+        targetId,
+        action: 'restart-ollama',
+        claimedAt: Number(claimedAtText),
+        maxAttempts: Number(maxAttemptsText),
+        cooldownMs: Number(cooldownMsText),
+      });
+    } else if (mode === 'list') {
+      result = listLocalAiRecoveryAttempts(db, targetId);
+    } else {
+      throw new Error('Unknown recovery process mode');
+    }
+    console.log('AIO_RECOVERY_RESULT:' + JSON.stringify(result));
+  } finally {
+    db.close();
+  }
+`;
+
+type RecoveryProcessMode = 'setup' | 'claim' | 'list';
+
+interface RecoveryProcessOptions {
+  attemptId?: string;
+  claimedAt?: number;
+  maxAttempts?: number;
+  cooldownMs?: number;
+  startAt?: number;
+}
+
+async function runRecoveryProcess<T>(
+  mode: RecoveryProcessMode,
+  filename: string,
+  targetId: string,
+  options: RecoveryProcessOptions = {},
+): Promise<T> {
+  const { stdout } = await execFileAsync(electronPath, [
+    '-e',
+    recoveryProcessScript,
+    mode,
+    filename,
+    targetId,
+    options.attemptId ?? '',
+    String(options.claimedAt ?? 0),
+    String(options.maxAttempts ?? 0),
+    String(options.cooldownMs ?? 0),
+    String(options.startAt ?? 0),
+  ], {
+    cwd: process.cwd(),
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  });
+  const prefix = 'AIO_RECOVERY_RESULT:';
+  const resultLine = stdout.split('\n').reverse().find((line) => line.startsWith(prefix));
+  if (!resultLine) throw new Error('Recovery process returned no result');
+  return JSON.parse(resultLine.slice(prefix.length)) as T;
+}
+
+const completionOutcomes = ['unsupported', 'failed', 'not-recovered', 'recovered'] as const;
+const booleanValues = [false, true] as const;
+const validCompletionTupleKeys: Record<(typeof completionOutcomes)[number], readonly string[]> = {
+  unsupported: ['false:false:false'],
+  failed: ['true:false:false', 'true:true:false'],
+  'not-recovered': ['true:true:false'],
+  recovered: ['true:true:true'],
+};
+const invalidRecoveryCompletions = completionOutcomes.flatMap((outcome) =>
+  booleanValues.flatMap((supported) =>
+    booleanValues.flatMap((attempted) =>
+      booleanValues.map((recovered) => ({ outcome, supported, attempted, recovered })))),
+).filter(({ outcome, supported, attempted, recovered }) =>
+  !validCompletionTupleKeys[outcome].includes(`${supported}:${attempted}:${recovered}`));
 
 function openDb(): SqliteDriver {
   const db = defaultDriverFactory(':memory:');
@@ -21,8 +149,19 @@ function openDb(): SqliteDriver {
   const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
   if (!migration) throw new Error('Missing migration 054_local_ai_guard');
   db.exec(migration.up);
+  const recoveryMigration = RLM_MIGRATIONS_051_055.find(
+    (item) => item.name === '055_local_ai_recovery_attempts',
+  );
+  if (!recoveryMigration) throw new Error('Missing migration 055_local_ai_recovery_attempts');
+  db.exec(recoveryMigration.up);
   dbs.push(db);
   return db;
+}
+
+function recoveryDbPath(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'aio-local-ai-recovery-'));
+  tempDirectories.push(directory);
+  return join(directory, 'recovery.sqlite');
 }
 
 function config(): LocalAiTargetConfig {
@@ -97,6 +236,9 @@ describe('LocalAiHealthRepository', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     for (const db of dbs.splice(0)) db.close();
+    for (const directory of tempDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('round-trips samples through strict JSON and bounds latest-sample reads to 100 rows', () => {
@@ -113,6 +255,256 @@ describe('LocalAiHealthRepository', () => {
     expect(latest[0]).toMatchObject({ id: 'sample-100', evidence: { endpointReachable: true } });
     expect(latest.at(-1)?.id).toBe('sample-1');
   });
+
+  it('atomically claims bounded recovery attempts and persists cooldown across repository restart', () => {
+    const db = openDb();
+    const target = new LocalAiTargetRepository(db).create(config());
+    const firstRepository = new LocalAiHealthRepository(db);
+
+    expect(firstRepository.claimRecoveryAttempt({
+      id: 'attempt-1',
+      targetId: target.id,
+      action: 'restart-ollama',
+      claimedAt: 1_000,
+      maxAttempts: 2,
+      cooldownMs: 60_000,
+    })).toEqual({
+      claimed: true,
+      attempt: expect.objectContaining({
+        id: 'attempt-1',
+        attemptNumber: 1,
+        outcome: 'claimed',
+      }),
+    });
+
+    const restartedRepository = new LocalAiHealthRepository(db);
+    expect(restartedRepository.claimRecoveryAttempt({
+      id: 'attempt-in-cooldown',
+      targetId: target.id,
+      action: 'restart-ollama',
+      claimedAt: 60_999,
+      maxAttempts: 2,
+      cooldownMs: 60_000,
+    })).toEqual({
+      claimed: false,
+      reason: 'cooldown',
+      attemptCount: 1,
+      nextEligibleAt: 61_000,
+    });
+    expect(restartedRepository.claimRecoveryAttempt({
+      id: 'attempt-2',
+      targetId: target.id,
+      action: 'restart-ollama',
+      claimedAt: 61_000,
+      maxAttempts: 2,
+      cooldownMs: 60_000,
+    })).toEqual({
+      claimed: true,
+      attempt: expect.objectContaining({
+        id: 'attempt-2',
+        attemptNumber: 2,
+      }),
+    });
+    expect(firstRepository.claimRecoveryAttempt({
+      id: 'attempt-exhausted',
+      targetId: target.id,
+      action: 'deep-check',
+      claimedAt: 200_000,
+      maxAttempts: 2,
+      cooldownMs: 0,
+    })).toEqual({
+      claimed: false,
+      reason: 'max-attempts',
+      attemptCount: 2,
+    });
+  });
+
+  it('persists recovery cooldown after closing and reopening a file-backed database', async () => {
+    const filename = recoveryDbPath();
+    await runRecoveryProcess('setup', filename, 'file-target');
+    const first = await runRecoveryProcess<{ claimed: boolean }>('claim', filename, 'file-target', {
+      attemptId: 'file-attempt-1',
+      claimedAt: 1_000,
+      maxAttempts: 2,
+      cooldownMs: 60_000,
+    });
+    expect(first.claimed).toBe(true);
+
+    const reopened = await runRecoveryProcess('claim', filename, 'file-target', {
+      attemptId: 'file-attempt-blocked',
+      claimedAt: 60_999,
+      maxAttempts: 2,
+      cooldownMs: 60_000,
+    });
+    expect(reopened).toEqual({
+      claimed: false,
+      reason: 'cooldown',
+      attemptCount: 1,
+      nextEligibleAt: 61_000,
+    });
+  });
+
+  it('serializes contending recovery claims across independent SQLite connections', async () => {
+    const filename = recoveryDbPath();
+    await runRecoveryProcess('setup', filename, 'contended-target');
+    const startAt = Date.now() + 1_000;
+    const results = await Promise.all([
+      runRecoveryProcess<{ claimed: boolean; reason?: string }>(
+        'claim',
+        filename,
+        'contended-target',
+        {
+          attemptId: 'contender-1',
+          claimedAt: 1_000,
+          maxAttempts: 1,
+          cooldownMs: 60_000,
+          startAt,
+        },
+      ),
+      runRecoveryProcess<{ claimed: boolean; reason?: string }>(
+        'claim',
+        filename,
+        'contended-target',
+        {
+          attemptId: 'contender-2',
+          claimedAt: 1_000,
+          maxAttempts: 1,
+          cooldownMs: 60_000,
+          startAt,
+        },
+      ),
+    ]);
+
+    expect(results.filter((result) => result.claimed)).toHaveLength(1);
+    expect(results.filter((result) => !result.claimed)).toEqual([
+      expect.objectContaining({ reason: 'max-attempts' }),
+    ]);
+    const attempts = await runRecoveryProcess<unknown[]>('list', filename, 'contended-target');
+    expect(attempts).toHaveLength(1);
+    const afterReopen = await runRecoveryProcess('claim', filename, 'contended-target', {
+      attemptId: 'after-reopen',
+      claimedAt: 100_000,
+      maxAttempts: 1,
+      cooldownMs: 0,
+    });
+    expect(afterReopen).toEqual({
+      claimed: false,
+      reason: 'max-attempts',
+      attemptCount: 1,
+    });
+  });
+
+  it('allows only one same-time automatic recovery claimant and stores metadata-only completion', () => {
+    const db = openDb();
+    const target = new LocalAiTargetRepository(db).create(config());
+    const first = new LocalAiHealthRepository(db);
+    const second = new LocalAiHealthRepository(db);
+
+    const winner = first.claimRecoveryAttempt({
+      id: 'attempt-winner',
+      targetId: target.id,
+      action: 'restart-ollama',
+      claimedAt: 5_000,
+      maxAttempts: 3,
+      cooldownMs: 60_000,
+    });
+    const loser = second.claimRecoveryAttempt({
+      id: 'attempt-loser',
+      targetId: target.id,
+      action: 'restart-ollama',
+      claimedAt: 5_000,
+      maxAttempts: 3,
+      cooldownMs: 60_000,
+    });
+
+    expect(winner.claimed).toBe(true);
+    expect(loser).toEqual({
+      claimed: false,
+      reason: 'cooldown',
+      attemptCount: 1,
+      nextEligibleAt: 65_000,
+    });
+    expect(first.completeRecoveryAttempt('attempt-winner', {
+      completedAt: 5_100,
+      outcome: 'recovered',
+      supported: true,
+      attempted: true,
+      recovered: true,
+    })).toBe(true);
+    expect(first.listRecoveryAttempts(target.id)).toEqual([
+      {
+        id: 'attempt-winner',
+        targetId: target.id,
+        action: 'restart-ollama',
+        attemptNumber: 1,
+        claimedAt: 5_000,
+        completedAt: 5_100,
+        outcome: 'recovered',
+        supported: true,
+        attempted: true,
+        recovered: true,
+      },
+    ]);
+    expect(JSON.stringify(first.listRecoveryAttempts(target.id))).not.toMatch(
+      /command|Bearer|secret|evidence|message|prompt|modelOutput|baseUrl/i,
+    );
+  });
+
+  it('enforces cooldown for an attempt claimed at the Unix epoch', () => {
+    const db = openDb();
+    const target = new LocalAiTargetRepository(db).create(config());
+    const repository = new LocalAiHealthRepository(db);
+    expect(repository.claimRecoveryAttempt({
+      id: 'attempt-at-epoch',
+      targetId: target.id,
+      action: 'deep-check',
+      claimedAt: 0,
+      maxAttempts: 2,
+      cooldownMs: 1_000,
+    }).claimed).toBe(true);
+
+    expect(repository.claimRecoveryAttempt({
+      id: 'attempt-before-epoch-cooldown',
+      targetId: target.id,
+      action: 'deep-check',
+      claimedAt: 999,
+      maxAttempts: 2,
+      cooldownMs: 1_000,
+    })).toEqual({
+      claimed: false,
+      reason: 'cooldown',
+      attemptCount: 1,
+      nextEligibleAt: 1_000,
+    });
+  });
+
+  it.each(invalidRecoveryCompletions)(
+    'rejects contradictory $outcome/$supported/$attempted/$recovered completion without mutating the claim',
+    (completion) => {
+    const db = openDb();
+    const target = new LocalAiTargetRepository(db).create(config());
+    const repository = new LocalAiHealthRepository(db);
+    repository.claimRecoveryAttempt({
+      id: 'attempt-contradictory',
+      targetId: target.id,
+      action: 'restart-ollama',
+      claimedAt: 1_000,
+      maxAttempts: 1,
+      cooldownMs: 0,
+    });
+
+    expect(() => repository.completeRecoveryAttempt('attempt-contradictory', {
+      completedAt: 1_001,
+      ...completion,
+    })).toThrow('Invalid Local AI recovery attempt outcome');
+    const [attempt] = repository.listRecoveryAttempts(target.id);
+    expect(attempt).toMatchObject({
+      id: 'attempt-contradictory',
+      outcome: 'claimed',
+    });
+    expect(attempt).not.toHaveProperty('completedAt');
+    },
+  );
 
   it('updates the existing unresolved incident for a target and failure instead of creating a duplicate', () => {
     const db = openDb();
@@ -328,6 +720,69 @@ describe('LocalAiHealthRepository', () => {
       entityId: 'late-paid',
       transitionKind: 'paid-dispatch',
     });
+  });
+
+  it('marks dispatch completion and incident accounting in one repository transaction', () => {
+    const db = openDb();
+    const target = new LocalAiTargetRepository(db).create(config());
+    const repository = new LocalAiHealthRepository(db, undefined, () => 2_000);
+    const opened = repository.upsertIncident({
+      kind: 'open-or-update',
+      incident: incident(target.id),
+    });
+    repository.appendRoutingEvent(event('atomic-dispatch', 1_500, {
+      targetId: target.id,
+      incidentId: opened.id,
+      knownCostUsd: 1.25,
+    }));
+
+    expect(repository.markFallbackDispatched('atomic-dispatch', 2_000)).toMatchObject({
+      id: 'atomic-dispatch',
+      completedAt: 2_000,
+    });
+    expect(repository.listIncidents({ targetId: target.id, limit: 10 })).toContainEqual(
+      expect.objectContaining({
+        id: opened.id,
+        fallbackCount: 1,
+        knownCostUsd: 1.25,
+      }),
+    );
+    expect(db.prepare(`
+      SELECT completed_at, incident_accounted_at
+      FROM local_ai_routing_events WHERE id = ?
+    `).get('atomic-dispatch')).toEqual({
+      completed_at: 2_000,
+      incident_accounted_at: 2_000,
+    });
+  });
+
+  it('rolls dispatch completion back when linked incident accounting is incoherent', () => {
+    const db = openDb();
+    const targets = new LocalAiTargetRepository(db);
+    const incidentTarget = targets.create(config());
+    const eventTarget = targets.create({ ...config(), endpointId: 'other-endpoint' });
+    const repository = new LocalAiHealthRepository(db, undefined, () => 2_000);
+    const opened = repository.upsertIncident({
+      kind: 'open-or-update',
+      incident: incident(incidentTarget.id),
+    });
+    repository.appendRoutingEvent(event('atomic-dispatch-rollback', 1_500, {
+      targetId: eventTarget.id,
+      incidentId: opened.id,
+      knownCostUsd: 1.25,
+    }));
+
+    expect(() => repository.markFallbackDispatched('atomic-dispatch-rollback', 2_000))
+      .toThrow(/incident accounting failed/);
+    expect(db.prepare(`
+      SELECT completed_at, incident_accounted_at
+      FROM local_ai_routing_events WHERE id = ?
+    `).get('atomic-dispatch-rollback')).toEqual({
+      completed_at: null,
+      incident_accounted_at: null,
+    });
+    expect(repository.listIncidents({ targetId: incidentTarget.id, limit: 10 }))
+      .toContainEqual(expect.objectContaining({ id: opened.id, fallbackCount: 0 }));
   });
 
   it('creates and claims a durable recovery outbox item in the resolution transaction', () => {
@@ -729,7 +1184,10 @@ describe('LocalAiHealthRepository', () => {
       status: 'allowed',
       resolution: 'allow-once',
     });
-    expect(repository.resolveFallbackRequest(request.id, 'block')).toBeUndefined();
+    expect(repository.resolveFallbackRequest(request.id, 'block')).toMatchObject({
+      status: 'allowed',
+      resolution: 'allow-once',
+    });
     expect(repository.listPendingFallbackRequests()).toEqual([]);
   });
 
@@ -756,9 +1214,15 @@ describe('LocalAiHealthRepository', () => {
     expect(repository.resolveFallbackRequest('request-before', 'allow-once')).toMatchObject({ status: 'allowed' });
     now = 1_000;
     expect(repository.listPendingFallbackRequests()).toEqual([]);
-    expect(repository.resolveFallbackRequest('request-exact', 'block')).toBeUndefined();
+    expect(repository.resolveFallbackRequest('request-exact', 'block')).toMatchObject({
+      status: 'expired',
+      resolution: 'block',
+    });
     now = 1_001;
-    expect(repository.resolveFallbackRequest('request-after', 'defer')).toBeUndefined();
+    expect(repository.resolveFallbackRequest('request-after', 'defer')).toMatchObject({
+      status: 'expired',
+      resolution: 'block',
+    });
     expect(db.prepare('SELECT status FROM local_ai_fallback_requests WHERE id = ?').get<{ status: string }>('request-exact'))
       .toEqual({ status: 'expired' });
     expect(db.prepare('SELECT status FROM local_ai_fallback_requests WHERE id = ?').get<{ status: string }>('request-after'))

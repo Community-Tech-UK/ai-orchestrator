@@ -1101,7 +1101,10 @@ export function registerOrchestrationHandlers(instanceManager: InstanceManager):
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(SkillsDiscoverPayloadSchema, payload, 'SKILLS_DISCOVER');
-        const skills = await getSkillRegistry().discoverSkills(
+        // Always include the built-in bundles. Discovering only the caller's
+        // search paths meant the Skills page never listed any of the 17
+        // builtins, so the feature looked empty even when discovery worked.
+        const skills = await getSkillRegistry().discoverSkillsWithBuiltins(
           validated.searchPaths
         );
         return { success: true, data: skills };

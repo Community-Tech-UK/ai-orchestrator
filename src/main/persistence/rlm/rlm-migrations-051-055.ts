@@ -289,4 +289,57 @@ export const RLM_MIGRATIONS_051_055: Migration[] = [
       DROP TABLE IF EXISTS local_ai_targets;
     `,
   },
+  {
+    name: '055_local_ai_recovery_attempts',
+    up: `
+      CREATE TABLE IF NOT EXISTS local_ai_recovery_attempts (
+        id TEXT PRIMARY KEY,
+        target_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (
+          action IN ('recheck-layer', 'deep-check', 'validate-models', 'reconnect-worker', 'restart-ollama')
+        ),
+        attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
+        claimed_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        outcome TEXT NOT NULL CHECK (
+          outcome IN ('claimed', 'unsupported', 'failed', 'not-recovered', 'recovered')
+        ),
+        supported INTEGER CHECK (supported IS NULL OR supported IN (0, 1)),
+        attempted INTEGER CHECK (attempted IS NULL OR attempted IN (0, 1)),
+        recovered INTEGER CHECK (recovered IS NULL OR recovered IN (0, 1)),
+        FOREIGN KEY (target_id) REFERENCES local_ai_targets(id) ON DELETE CASCADE,
+        UNIQUE (target_id, attempt_number),
+        CHECK (
+          (
+            outcome = 'claimed'
+            AND completed_at IS NULL
+            AND supported IS NULL
+            AND attempted IS NULL
+            AND recovered IS NULL
+          )
+          OR
+          (
+            completed_at IS NOT NULL
+            AND completed_at >= claimed_at
+            AND supported IS NOT NULL
+            AND attempted IS NOT NULL
+            AND recovered IS NOT NULL
+            AND (
+              (outcome = 'unsupported' AND supported = 0 AND attempted = 0 AND recovered = 0)
+              OR (outcome = 'failed' AND supported = 1 AND attempted IN (0, 1) AND recovered = 0)
+              OR (outcome = 'not-recovered' AND supported = 1 AND attempted = 1 AND recovered = 0)
+              OR (outcome = 'recovered' AND supported = 1 AND attempted = 1 AND recovered = 1)
+            )
+          )
+        )
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_local_ai_recovery_attempts_target_time
+        ON local_ai_recovery_attempts(target_id, claimed_at DESC, id DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_local_ai_recovery_attempts_target_time;
+      DROP TABLE IF EXISTS local_ai_recovery_attempts;
+    `,
+  },
 ];

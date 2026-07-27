@@ -278,6 +278,14 @@ export interface ResumeAttemptResult {
   confirmed: boolean;
   requestedSessionId?: string;
   actualSessionId?: string;
+  /**
+   * True when the attempt was a `--fork-session` resume. A fork resumes FROM
+   * `requestedSessionId` and the CLI mints a NEW id for the forked branch, so
+   * `actualSessionId !== requestedSessionId` is the success shape, not a
+   * wrong-session failure. Consumers must not treat the mismatch as proof of
+   * failure when this is set (LT-008).
+   */
+  forked?: boolean;
   requestedCursor?: unknown;
   actualCursor?: unknown;
   restoredTurnCount?: number;

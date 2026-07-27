@@ -590,6 +590,11 @@ export class WorkerAgent extends EventEmitter {
     return summary?.enabled ? summary.roots : [];
   }
 
+  /**
+   * Rebuild every handler whose allowlist derives from the file-transfer roots.
+   * Called whenever the transfer roots can change (fileTransfer config, and
+   * browser automation — which contributes the browser-downloads root).
+   */
   private rebuildFilesystemHandler(): void {
     this.fsHandler?.cleanupAllWatchers();
     this.fsHandler = new NodeFilesystemHandler(
@@ -597,6 +602,9 @@ export class WorkerAgent extends EventEmitter {
       { onFsEvent: (event) => this.sendFsEvent(event) },
       this.fileTransferRoots(),
     );
+    // Drop the memoized sync handler so it picks up the new roots too;
+    // a stale allowlist here is exactly the LT-010 failure mode.
+    this.syncHandler = null;
   }
 
   private fileTransferRootsForSummary(
@@ -926,7 +934,19 @@ export class WorkerAgent extends EventEmitter {
 
   private getSyncHandler(): SyncHandler {
     if (!this.syncHandler) {
-      this.syncHandler = new SyncHandler(this.config.workingDirectories ?? []);
+      // Sync must share the file-transfer allowlist with upload/download, not
+      // just the working directories — otherwise the sync tools reject the very
+      // roots `upload_to_node` accepts (LT-010). Read-only roots stay readable
+      // and are refused on write as read-only.
+      const workingDirectories = this.config.workingDirectories ?? [];
+      const transferRoots = this.fileTransferRoots();
+      this.syncHandler = new SyncHandler({
+        readRoots: [...workingDirectories, ...transferRoots.map((root) => root.path)],
+        writeRoots: [
+          ...workingDirectories,
+          ...transferRoots.filter((root) => root.write).map((root) => root.path),
+        ],
+      });
     }
     return this.syncHandler;
   }

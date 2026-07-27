@@ -1218,7 +1218,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     await this.primeCliVersion();
     this.lastResumeAttemptResult = this.shouldUseNativeResume()
-      ? { source: 'native', confirmed: false, requestedSessionId: this.sessionId ?? undefined }
+      ? {
+          source: 'native',
+          confirmed: false,
+          requestedSessionId: this.sessionId ?? undefined,
+          forked: this.spawnOptions.forkSession === true,
+        }
       : { source: 'fresh-fallback', confirmed: false };
     const args = this.buildArgs({ role: 'user', content: '' });
 
@@ -1826,9 +1831,16 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           this.sessionId = message.session_id;
           // Confirm or annotate the resume proof with the authoritative session_id
           if (this.lastResumeAttemptResult?.source === 'native') {
+            // A forked resume mints a new id by design, so receiving ANY
+            // authoritative session_id back is the confirmation. Requiring an
+            // exact echo made every fork read as a wrong-session failure and
+            // destroyed the live session (LT-008).
+            const confirmed = this.lastResumeAttemptResult.forked
+              ? Boolean(message.session_id)
+              : message.session_id === this.lastResumeAttemptResult.requestedSessionId;
             this.lastResumeAttemptResult = {
               ...this.lastResumeAttemptResult,
-              confirmed: message.session_id === this.lastResumeAttemptResult.requestedSessionId,
+              confirmed,
               actualSessionId: message.session_id,
             };
           } else if (this.lastResumeAttemptResult) {

@@ -334,6 +334,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auxiliaryLlmQuickModel: '',
   auxiliaryLlmQualityModel: '',
   auxiliaryLlmRoutingClassificationEnabled: true,
+  localAiGuardDefaultFallbackPolicy: 'notify-and-allow',
+  localAiGuardDailyFallbackBudgetUsd: null,
+  localAiGuardConfirmAboveInputTokens: null,
   orchestrationRoutingPolicyJson: DEFAULT_ORCHESTRATION_ROUTING_POLICY_JSON,
   auxiliaryLlmSlotsJson: JSON.stringify({
     compression: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },

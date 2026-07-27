@@ -3,8 +3,10 @@ import {
   computeTokenCost,
   getCacheWriteMultiplier,
   getModelRate,
+  getProviderModelRate,
   hasModelRate,
   registerModelRates,
+  registerProviderModelRates,
   clearModelRateOverlay,
   modelRateOverlaySize,
   DEFAULT_MODEL_RATE,
@@ -131,6 +133,17 @@ describe('model-pricing live overlay (models.dev)', () => {
     expect(hasModelRate('brand-new-model-x')).toBe(true);
     expect(computeTokenCost('brand-new-model-x', { inputTokens: 1_000_000, outputTokens: 1_000_000 }))
       .toBeCloseTo(2 + 8, 6);
+  });
+
+  it('keeps colliding live model ids isolated by their provider namespace', () => {
+    registerProviderModelRates([
+      { provider: 'openai', id: 'shared-id', rate: { input: 2, output: 8 } },
+      { provider: 'anthropic', id: 'shared-id', rate: { input: 5, output: 25 } },
+    ]);
+
+    expect(getProviderModelRate('openai', 'shared-id')).toEqual({ input: 2, output: 8 });
+    expect(getProviderModelRate('anthropic', 'shared-id')).toEqual({ input: 5, output: 25 });
+    expect(getProviderModelRate('unknown', 'shared-id')).toBeUndefined();
   });
 
   it('ignores non-finite overlay rates so a malformed registry cannot poison pricing', () => {

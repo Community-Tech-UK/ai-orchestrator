@@ -2,8 +2,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { RLM_MIGRATIONS_051_055 } from '../persistence/rlm/rlm-migrations-051-055';
+import {
+  MIGRATIONS,
+  computeMigrationChecksum,
+  createMigrationsTable,
+  runMigrations,
+} from '../persistence/rlm/rlm-schema';
 
 const dbs: SqliteDriver[] = [];
+const ORIGINAL_LOCAL_AI_GUARD_CHECKSUM = 'a05ef090ef00f86b';
 
 function openDb(): SqliteDriver {
   const db = defaultDriverFactory(':memory:');
@@ -74,20 +81,26 @@ function insertFallbackRequest(db: SqliteDriver, id: string, routingEventId: str
   `).run(id, routingEventId, incidentId);
 }
 
-describe('Local AI Guard migration 054', () => {
+describe('Local AI Guard migrations 054-055', () => {
   afterEach(() => {
     for (const db of dbs.splice(0)) db.close();
   });
 
   it('creates indexed Local AI Guard tables and completely rolls them back', () => {
     const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
+    const recoveryMigration = RLM_MIGRATIONS_051_055.find(
+      (item) => item.name === '055_local_ai_recovery_attempts',
+    );
     expect(migration).toBeDefined();
+    expect(recoveryMigration).toBeDefined();
 
     const db = openDb();
     db.exec(migration!.up);
+    db.exec(recoveryMigration!.up);
     expect(tableNames(db)).toEqual(expect.arrayContaining([
       'local_ai_targets',
       'local_ai_health_samples',
+      'local_ai_recovery_attempts',
       'local_ai_incidents',
       'local_ai_routing_events',
       'local_ai_fallback_requests',
@@ -97,6 +110,7 @@ describe('Local AI Guard migration 054', () => {
       'idx_local_ai_targets_active_endpoint_identity',
       'idx_local_ai_health_samples_target_time',
       'idx_local_ai_health_samples_time',
+      'idx_local_ai_recovery_attempts_target_time',
       'idx_local_ai_incidents_target_time',
       'idx_local_ai_incidents_state',
       'idx_local_ai_incidents_notification_outbox',
@@ -141,7 +155,37 @@ describe('Local AI Guard migration 054', () => {
       'paid_notification_delivered_at',
       'paid_notification_attempts',
     ]));
+    expect(columnNames(db, 'local_ai_recovery_attempts')).toEqual([
+      'id',
+      'target_id',
+      'action',
+      'attempt_number',
+      'claimed_at',
+      'completed_at',
+      'outcome',
+      'supported',
+      'attempted',
+      'recovered',
+    ]);
     insertActiveTarget(db, 'default-target');
+    expect(() => db.prepare(`
+      INSERT INTO local_ai_recovery_attempts (
+        id, target_id, action, attempt_number, claimed_at, completed_at,
+        outcome, supported, attempted, recovered
+      ) VALUES (
+        'invalid-recovery-audit', 'default-target', 'restart-ollama', 1, 1, 2,
+        'recovered', 1, 1, 0
+      )
+    `).run()).toThrow();
+    expect(() => db.prepare(`
+      INSERT INTO local_ai_recovery_attempts (
+        id, target_id, action, attempt_number, claimed_at, completed_at,
+        outcome, supported, attempted, recovered
+      ) VALUES (
+        'invalid-recovery-boolean', 'default-target', 'restart-ollama', 1, 1, 2,
+        'not-recovered', 2, 1, 0
+      )
+    `).run()).toThrow();
     insertIncident(db, 'default-incident', 'default-target');
     expect(db.prepare(`
       SELECT fallback_notification_state, budget_notification_state, recovery_notification_state
@@ -188,9 +232,123 @@ describe('Local AI Guard migration 054', () => {
       SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_local_ai_incidents_notification_outbox'
     `).get<{ sql: string }>()?.sql).toContain('recovery_notification_state');
 
+    db.exec(recoveryMigration!.down);
     db.exec(migration!.down);
     expect(tableNames(db).filter((name) => name.startsWith('local_ai_'))).toEqual([]);
     expect(indexNames(db).filter((name) => name.startsWith('idx_local_ai_'))).toEqual([]);
+  });
+
+  it('upgrades an applied original 054 through the real checksum-enforcing migration runner', () => {
+    const migration054 = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
+    const migration055 = RLM_MIGRATIONS_051_055.find(
+      (item) => item.name === '055_local_ai_recovery_attempts',
+    );
+    expect(migration054).toBeDefined();
+    expect(migration055).toBeDefined();
+    if (!migration054 || !migration055) throw new Error('Missing Local AI Guard recovery migrations');
+    expect(computeMigrationChecksum(migration054)).toBe(ORIGINAL_LOCAL_AI_GUARD_CHECKSUM);
+
+    const db = openDb();
+    createMigrationsTable(db);
+    db.exec(migration054.up);
+    const insertApplied = db.prepare(`
+      INSERT INTO _migrations (name, applied_at, checksum) VALUES (?, 1, ?)
+    `);
+    for (const migration of MIGRATIONS.filter((item) => item.name !== migration055.name)) {
+      insertApplied.run(
+        migration.name,
+        migration.name === migration054.name
+          ? ORIGINAL_LOCAL_AI_GUARD_CHECKSUM
+          : computeMigrationChecksum(migration),
+      );
+    }
+    expect(tableNames(db)).not.toContain('local_ai_recovery_attempts');
+
+    expect(() => runMigrations(db)).not.toThrow();
+
+    expect(db.prepare('SELECT name FROM _migrations WHERE name = ?')
+      .get<{ name: string }>(migration055.name)).toEqual({ name: migration055.name });
+    expect(tableNames(db)).toContain('local_ai_recovery_attempts');
+  });
+
+  it('accepts only coherent completed recovery audit tuples', () => {
+    const migration054 = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
+    const migration055 = RLM_MIGRATIONS_051_055.find(
+      (item) => item.name === '055_local_ai_recovery_attempts',
+    );
+    if (!migration054 || !migration055) throw new Error('Missing Local AI Guard recovery migrations');
+    const db = openDb();
+    db.exec(migration054.up);
+    db.exec(migration055.up);
+    insertActiveTarget(db, 'audit-target');
+    const insert = db.prepare(`
+      INSERT INTO local_ai_recovery_attempts (
+        id, target_id, action, attempt_number, claimed_at, completed_at,
+        outcome, supported, attempted, recovered
+      ) VALUES (?, 'audit-target', 'restart-ollama', ?, 10, ?, ?, ?, ?, ?)
+    `);
+    const valid = [
+      ['unsupported', 0, 0, 0],
+      ['failed', 1, 0, 0],
+      ['failed', 1, 1, 0],
+      ['not-recovered', 1, 1, 0],
+      ['recovered', 1, 1, 1],
+    ] as const;
+    valid.forEach(([outcome, supported, attempted, recovered], index) => {
+      expect(() => insert.run(
+        `valid-${outcome}-${index}`,
+        index + 1,
+        11,
+        outcome,
+        supported,
+        attempted,
+        recovered,
+      )).not.toThrow();
+    });
+    const invalid = [
+      ['completed-null', null, 'not-recovered', 1, 1, 0],
+      ['unsupported-supported', 11, 'unsupported', 1, 0, 0],
+      ['unsupported-attempted', 11, 'unsupported', 0, 1, 0],
+      ['failed-unsupported', 11, 'failed', 0, 1, 0],
+      ['not-recovered-not-attempted', 11, 'not-recovered', 1, 0, 0],
+      ['not-recovered-unsupported', 11, 'not-recovered', 0, 1, 0],
+      ['recovered-false', 11, 'recovered', 1, 1, 0],
+      ['non-recovered-true', 11, 'failed', 1, 1, 1],
+    ] as const;
+    invalid.forEach(([id, completedAt, outcome, supported, attempted, recovered], index) => {
+      expect(() => insert.run(
+        id,
+        valid.length + index + 1,
+        completedAt,
+        outcome,
+        supported,
+        attempted,
+        recovered,
+      )).toThrow();
+    });
+  });
+
+  it.each([
+    ['supported', null, 1, 1],
+    ['attempted', 1, null, 1],
+    ['recovered', 1, 1, null],
+  ] as const)('rejects a completed recovery audit with NULL %s', (_field, supported, attempted, recovered) => {
+    const migration054 = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
+    const migration055 = RLM_MIGRATIONS_051_055.find(
+      (item) => item.name === '055_local_ai_recovery_attempts',
+    );
+    if (!migration054 || !migration055) throw new Error('Missing Local AI Guard recovery migrations');
+    const db = openDb();
+    db.exec(migration054.up);
+    db.exec(migration055.up);
+    insertActiveTarget(db, 'null-audit-target');
+
+    expect(() => db.prepare(`
+      INSERT INTO local_ai_recovery_attempts (
+        id, target_id, action, attempt_number, claimed_at, completed_at,
+        outcome, supported, attempted, recovered
+      ) VALUES ('null-audit', 'null-audit-target', 'restart-ollama', 1, 10, 11, 'recovered', ?, ?, ?)
+    `).run(supported, attempted, recovered)).toThrow();
   });
 
   it('uses the pending-request order index without a temporary sort', () => {
@@ -198,6 +356,11 @@ describe('Local AI Guard migration 054', () => {
     if (!migration) throw new Error('Missing migration 054_local_ai_guard');
     const db = openDb();
     db.exec(migration.up);
+    const recoveryMigration = RLM_MIGRATIONS_051_055.find(
+      (item) => item.name === '055_local_ai_recovery_attempts',
+    );
+    if (!recoveryMigration) throw new Error('Missing migration 055_local_ai_recovery_attempts');
+    db.exec(recoveryMigration.up);
 
     const details = db.prepare(`
       EXPLAIN QUERY PLAN
@@ -300,12 +463,23 @@ describe('Local AI Guard migration 054', () => {
 
   it('applies cascade and nulling foreign-key actions to Local AI Guard history', () => {
     const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
-    if (!migration) throw new Error('Missing migration 054_local_ai_guard');
+    const recoveryMigration = RLM_MIGRATIONS_051_055.find(
+      (item) => item.name === '055_local_ai_recovery_attempts',
+    );
+    if (!migration || !recoveryMigration) {
+      throw new Error('Missing Local AI Guard recovery migrations');
+    }
 
     const db = openDb();
     db.exec(migration.up);
+    db.exec(recoveryMigration.up);
     insertActiveTarget(db, 'target-1');
     insertHealthSample(db, 'sample-1', 'target-1');
+    db.prepare(`
+      INSERT INTO local_ai_recovery_attempts (
+        id, target_id, action, attempt_number, claimed_at, outcome
+      ) VALUES ('attempt-1', 'target-1', 'restart-ollama', 1, 1, 'claimed')
+    `).run();
     insertIncident(db, 'incident-1', 'target-1');
     insertRoutingEvent(db, 'event-1', 'target-1', 'incident-1');
     insertFallbackRequest(db, 'request-1', 'event-1', 'incident-1');
@@ -317,6 +491,7 @@ describe('Local AI Guard migration 054', () => {
     db.prepare("DELETE FROM local_ai_targets WHERE id = 'target-1'").run();
 
     expect(db.prepare('SELECT count(*) AS count FROM local_ai_health_samples').get<{ count: number }>()?.count).toBe(0);
+    expect(db.prepare('SELECT count(*) AS count FROM local_ai_recovery_attempts').get<{ count: number }>()?.count).toBe(0);
     expect(db.prepare('SELECT count(*) AS count FROM local_ai_incidents').get<{ count: number }>()?.count).toBe(0);
     expect(db.prepare('SELECT target_id, incident_id FROM local_ai_routing_events WHERE id = ?')
       .get<{ target_id: string | null; incident_id: string | null }>('event-1'))

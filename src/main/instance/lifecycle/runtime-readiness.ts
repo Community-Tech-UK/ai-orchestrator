@@ -313,7 +313,10 @@ export class RuntimeReadinessCoordinator {
     const result = this.getResumeAttempt(adapter);
     if (!result || result.source === 'none') return null;
     if (result.source === 'fresh-fallback') return false;
-    if (result.actualSessionId && result.requestedSessionId
+    // A fork deliberately returns a different id than the one it resumed FROM,
+    // so the mismatch below is only evidence of a wrong session for a
+    // non-forking resume (LT-008).
+    if (!result.forked && result.actualSessionId && result.requestedSessionId
         && result.actualSessionId !== result.requestedSessionId) return false;
     if (result.confirmed) return true;
     return null;

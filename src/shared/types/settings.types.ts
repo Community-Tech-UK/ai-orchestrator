@@ -2,6 +2,7 @@
 
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
+import type { LocalAiFallbackPolicy } from './local-ai-guard.types';
 import type { ModelUsageEntry } from './model-usage.types';
 import type { WorkerModeSettings } from './pair-both.types';
 import type { RemoteReviewerProvider } from './reviewer-provider.types';
@@ -629,6 +630,12 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * downshift away from the balanced tier without a Claude call.
    */
   auxiliaryLlmRoutingClassificationEnabled: boolean;
+
+  // Local AI Guard paid-fallback controls. These are operator-owned because
+  // changing them alters consent and hard spend boundaries.
+  localAiGuardDefaultFallbackPolicy: LocalAiFallbackPolicy;
+  localAiGuardDailyFallbackBudgetUsd: number | null;
+  localAiGuardConfirmAboveInputTokens: number | null;
 
   /**
    * Operator-controlled model tier per orchestration gate, as JSON.

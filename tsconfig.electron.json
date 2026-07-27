@@ -10,6 +10,11 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    // TypeScript 6 errors on node10 module resolution and `baseUrl` (both used
+    // below and both still required by this CommonJS Electron build + its
+    // `paths` aliases). Acknowledge the deprecation so `build:main` compiles;
+    // migrating to node16 resolution is a separate piece of work.
+    "ignoreDeprecations": "6.0",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,

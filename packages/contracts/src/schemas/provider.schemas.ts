@@ -298,7 +298,9 @@ export const TrainingInsightIdPayloadSchema = z.object({
 // ============ Skill Payloads ============
 
 export const SkillsDiscoverPayloadSchema = z.object({
-  searchPaths: z.array(DirectoryPathSchema).min(1).max(100),
+  // May be empty: the handler always scans the built-in bundle directory, so
+  // "discover builtins only" is a legitimate request.
+  searchPaths: z.array(DirectoryPathSchema).max(100),
 });
 
 export const SkillsGetPayloadSchema = z.object({

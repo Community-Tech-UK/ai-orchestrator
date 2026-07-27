@@ -17,7 +17,6 @@ import type {
 import {
   LocalAiEffectivenessSummarySchema,
   LocalAiFallbackRequestSchema,
-  LocalAiFallbackResolutionSchema,
   LocalAiHealthSampleSchema,
   LocalAiIncidentMutationSchema,
   LocalAiIncidentQuerySchema,
@@ -43,12 +42,33 @@ import {
   type LocalAiRoutingEventRow,
 } from './local-ai-row-mappers';
 import { claimLocalAiNotification } from './local-ai-notification-outbox';
+import {
+  claimLocalAiRecoveryAttempt,
+  completeLocalAiRecoveryAttempt,
+  listLocalAiRecoveryAttempts,
+  type LocalAiRecoveryAttempt,
+  type LocalAiRecoveryAttemptClaim,
+  type LocalAiRecoveryAttemptClaimInput,
+  type LocalAiRecoveryAttemptCompletion,
+} from './local-ai-recovery-attempt-store';
+import { getLocalAiFallbackSpend, type LocalAiFallbackSpend, type LocalAiFallbackSpendQuery } from './local-ai-fallback-spend';
+import {
+  createLocalAiFallbackRoutingRequest,
+  insertLocalAiRoutingEvent,
+  insertLocalAiFallbackRequest,
+  expireLocalAiFallbackRequests,
+  getLocalAiFallbackRequest,
+  markLocalAiFallbackDispatched,
+  reserveLocalAiFallbackRoutingEvent,
+  resolveLocalAiFallbackRequest,
+  type LocalAiFallbackReservationLimits,
+  type LocalAiFallbackRoutingRequestCreation,
+} from './local-ai-fallback-store';
 export type {
   LocalAiNotificationClaim,
   LocalAiNotificationReference,
   LocalAiRoutingAccountingResult,
 } from './local-ai-row-mappers';
-
 const RAW_RETENTION_MS = 90 * 24 * 60 * 60 * 1_000;
 const MAX_LATEST_SAMPLES = 100;
 const MAX_PENDING_FALLBACKS = 1_000;
@@ -106,6 +126,13 @@ export class LocalAiHealthRepository {
       return sample ? [sample] : [];
     });
   }
+  claimRecoveryAttempt(input: LocalAiRecoveryAttemptClaimInput): LocalAiRecoveryAttemptClaim {
+    return claimLocalAiRecoveryAttempt(this.db, input);
+  }
+  completeRecoveryAttempt(attemptId: string, completion: LocalAiRecoveryAttemptCompletion): boolean {
+    return completeLocalAiRecoveryAttempt(this.db, attemptId, completion);
+  }
+  listRecoveryAttempts(targetId: string): LocalAiRecoveryAttempt[] { return listLocalAiRecoveryAttempts(this.db, targetId); }
   upsertIncident(input: LocalAiIncidentMutation): LocalAiIncident {
     const parsed = LocalAiIncidentMutationSchema.parse(input);
     if (parsed.kind === 'open-or-update') this.assertOpenIncidentMutation(parsed.incident);
@@ -154,33 +181,13 @@ export class LocalAiHealthRepository {
   }
   appendRoutingEvent(event: LocalAiRoutingEvent): void {
     const parsed = LocalAiRoutingEventSchema.parse(event);
-    this.insertRoutingEvent(parsed);
+    insertLocalAiRoutingEvent(this.db, parsed);
   }
-  private insertRoutingEvent(parsed: LocalAiRoutingEvent): void {
-    this.db.prepareCached(`
-      INSERT INTO local_ai_routing_events (
-        id, target_id, incident_id, slot, intended_route, actual_route, policy, disposition, decision_reason, provider, model,
-        input_tokens, output_tokens, known_cost_usd, estimated_cost_usd, created_at, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      parsed.id,
-      parsed.targetId ?? null,
-      parsed.incidentId ?? null,
-      parsed.slot,
-      parsed.intendedRoute,
-      parsed.actualRoute,
-      parsed.policy,
-      parsed.disposition,
-      parsed.decisionReason,
-      parsed.provider ?? null,
-      parsed.model ?? null,
-      parsed.inputTokens,
-      parsed.outputTokens,
-      parsed.knownCostUsd ?? null,
-      parsed.estimatedCostUsd ?? null,
-      parsed.createdAt,
-      parsed.completedAt ?? null,
-    );
+  reserveFallbackRoutingEvent(
+    event: LocalAiRoutingEvent,
+    limits: LocalAiFallbackReservationLimits,
+  ): LocalAiRoutingEvent {
+    return reserveLocalAiFallbackRoutingEvent(this.db, this.logger, event, limits);
   }
   getRoutingEvent(eventId: string): LocalAiRoutingEvent | undefined {
     const row = this.db.prepareCached('SELECT * FROM local_ai_routing_events WHERE id = ?').get<LocalAiRoutingEventRow>(eventId);
@@ -217,6 +224,9 @@ export class LocalAiHealthRepository {
   accountRoutingEvent(input: LocalAiRoutingEvent, accountedAt = this.clock()): LocalAiRoutingAccountingResult | undefined {
     return accountLocalAiRoutingEvent(this.db, this.logger, input, accountedAt);
   }
+  markFallbackDispatched(eventId: string, completedAt = this.clock()): LocalAiRoutingEvent | undefined {
+    return markLocalAiFallbackDispatched(this.db, this.logger, eventId, completedAt);
+  }
   listRetryableNotifications(now: number, leaseMs: number, limit: number): LocalAiNotificationReference[] {
     return listRetryableLocalAiNotifications(this.db, now, leaseMs, limit);
   }
@@ -249,44 +259,42 @@ export class LocalAiHealthRepository {
 
   createFallbackRequest(request: LocalAiFallbackRequest): void {
     const parsed = LocalAiFallbackRequestSchema.parse(request);
-    this.db.prepareCached(`
-      INSERT INTO local_ai_fallback_requests (
-        id, routing_event_id, incident_id, slot, status, estimated_input_tokens, estimated_cost_usd,
-        created_at, expires_at, resolved_at, resolution
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      parsed.id,
-      parsed.routingEventId,
-      parsed.incidentId ?? null,
-      parsed.slot,
-      parsed.status,
-      parsed.estimatedInputTokens,
-      parsed.estimatedCostUsd ?? null,
-      parsed.createdAt,
-      parsed.expiresAt,
-      parsed.resolvedAt ?? null,
-      parsed.resolution ?? null,
+    insertLocalAiFallbackRequest(this.db, parsed);
+  }
+  createFallbackRoutingRequest(
+    event: LocalAiRoutingEvent,
+    request: LocalAiFallbackRequest,
+    limits: LocalAiFallbackReservationLimits,
+  ): LocalAiFallbackRoutingRequestCreation {
+    return createLocalAiFallbackRoutingRequest(
+      this.db,
+      this.logger,
+      event,
+      request,
+      limits,
     );
   }
-  resolveFallbackRequest(requestId: string, resolution: LocalAiFallbackResolution): LocalAiFallbackRequest | undefined {
-    const parsedResolution = LocalAiFallbackResolutionSchema.parse(resolution);
-    const status = resolutionToStatus(parsedResolution);
-    const now = this.clock();
-    const operation = this.db.transaction(() => {
-      this.expirePendingRequests(now);
-      const result = this.db.prepareCached(`
-        UPDATE local_ai_fallback_requests
-        SET status = ?, resolution = ?, resolved_at = ?
-        WHERE id = ? AND status = 'pending' AND expires_at > ?
-      `).run(status, parsedResolution, now, requestId, now);
-      return result.changes === 1 ? this.getFallbackRequest(requestId) : undefined;
-    });
-    return operation();
+  resolveFallbackRequest(
+    requestId: string,
+    resolution: LocalAiFallbackResolution,
+    limits?: LocalAiFallbackReservationLimits,
+  ): LocalAiFallbackRequest | undefined {
+    return resolveLocalAiFallbackRequest(
+      this.db,
+      this.logger,
+      requestId,
+      resolution,
+      this.clock(),
+      limits,
+    );
+  }
+  getFallbackRequest(requestId: string): LocalAiFallbackRequest | undefined {
+    return getLocalAiFallbackRequest(this.db, this.logger, requestId);
   }
   listPendingFallbackRequests(): LocalAiFallbackRequest[] {
     const now = this.clock();
     const operation = this.db.transaction(() => {
-      this.expirePendingRequests(now);
+      expireLocalAiFallbackRequests(this.db, now);
       const rows = this.db.prepareCached(`
         SELECT * FROM local_ai_fallback_requests INDEXED BY idx_local_ai_fallback_requests_pending_order
         WHERE status = 'pending' AND expires_at > ? ORDER BY created_at ASC, id ASC LIMIT ?
@@ -297,6 +305,9 @@ export class LocalAiHealthRepository {
       });
     });
     return operation();
+  }
+  getFallbackSpend(query: LocalAiFallbackSpendQuery): LocalAiFallbackSpend {
+    return getLocalAiFallbackSpend(this.db, query);
   }
   summarize(window: '24h' | '7d' | '30d', now = Date.now()): LocalAiEffectivenessSummary {
     const start = now - windowDuration(window);
@@ -401,12 +412,6 @@ export class LocalAiHealthRepository {
     return incident;
   }
 
-  private getFallbackRequest(requestId: string): LocalAiFallbackRequest | undefined {
-    const row = this.db.prepareCached('SELECT * FROM local_ai_fallback_requests WHERE id = ?')
-      .get<LocalAiFallbackRequestRow>(requestId);
-    return row ? mapLocalAiFallbackRequestRow(row, this.logger) : undefined;
-  }
-
   private assertOpenIncidentMutation(incident: LocalAiIncident): void {
     if (incident.state !== 'open' || incident.acknowledgedAt !== undefined || incident.resolvedAt !== undefined) {
       throw new Error('Local AI open-or-update incidents must be open without acknowledgement or resolution timestamps');
@@ -424,13 +429,6 @@ export class LocalAiHealthRepository {
     if (incoming.openedAt !== existing.openedAt) {
       throw new RangeError('Local AI incident openedAt must remain coherent across updates');
     }
-  }
-
-  private expirePendingRequests(now: number): void {
-    this.db.prepareCached(`
-      UPDATE local_ai_fallback_requests SET status = 'expired', resolved_at = ?
-      WHERE status = 'pending' AND expires_at <= ?
-    `).run(now, now);
   }
 
   private forEachRoutingEventPage(start: number, end: number, consume: (event: LocalAiRoutingEvent) => void): void {
@@ -572,18 +570,6 @@ function incidentValues(incident: LocalAiIncident): unknown[] {
     incident.knownCostUsd,
     incident.estimatedCostUsd,
   ];
-}
-
-function resolutionToStatus(resolution: LocalAiFallbackResolution): LocalAiFallbackRequest['status'] {
-  switch (resolution) {
-    case 'allow-once':
-    case 'allow-incident':
-      return 'allowed';
-    case 'defer':
-      return 'deferred';
-    case 'block':
-      return 'blocked';
-  }
 }
 
 function windowDuration(window: LocalAiEffectivenessSummary['window']): number {

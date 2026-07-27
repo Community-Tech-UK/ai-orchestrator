@@ -21,6 +21,8 @@ import {
 } from './local-ai-row-mappers';
 
 export class LocalAiTargetRepository {
+  private readonly listeners = new Set<(target: LocalAiTarget) => void>();
+
   constructor(
     private readonly db: SqliteDriver = getRLMDatabase().getRawDb(),
     private readonly logger: LocalAiRepositoryLogger = getLogger('LocalAiTargetRepository'),
@@ -40,6 +42,7 @@ export class LocalAiTargetRepository {
       ...(parsedConfig.lifecycle === 'retired' ? { retiredAt: now } : {}),
     });
     this.insert(target);
+    this.notify(target);
     return target;
   }
 
@@ -58,6 +61,7 @@ export class LocalAiTargetRepository {
       ...(config.lifecycle === 'retired' ? { retiredAt: current.retiredAt ?? now } : {}),
     });
     this.write(target);
+    this.notify(target);
     return target;
   }
 
@@ -90,6 +94,13 @@ export class LocalAiTargetRepository {
     });
   }
 
+  subscribe(listener: (target: LocalAiTarget) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
   setLifecycle(targetId: string, lifecycle: 'enrolled' | 'paused' | 'retired', at = this.currentTimestamp()): LocalAiTarget {
     const current = this.require(targetId);
     if (!Number.isSafeInteger(at) || at < 0) {
@@ -114,6 +125,7 @@ export class LocalAiTargetRepository {
       delete target.retiredAt;
     }
     this.write(target);
+    this.notify(target);
     return target;
   }
 
@@ -188,6 +200,16 @@ export class LocalAiTargetRepository {
       ? `${config.location.nodeId}: ${config.endpointId}`
       : config.endpointId;
     return label.slice(0, 256);
+  }
+
+  private notify(target: LocalAiTarget): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(target);
+      } catch {
+        // Repository writes are authoritative; observers are fail-soft.
+      }
+    }
   }
 
   private currentTimestamp(): number {

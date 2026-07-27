@@ -531,8 +531,10 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Discover skills in a directory
      */
-    skillsDiscover: (directory?: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SKILLS_DISCOVER, { directory });
+    // SkillsDiscoverPayloadSchema expects `searchPaths`, not `directory` — the
+    // old shape failed validation on every call (LT-011).
+    skillsDiscover: (searchPaths?: string[]): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_DISCOVER, { searchPaths: searchPaths ?? [] });
     },
 
     /**
@@ -586,8 +588,10 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Match skills to a query
      */
-    skillsMatch: (query: string, maxResults?: number): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SKILLS_MATCH, { query, maxResults });
+    // SkillsMatchPayloadSchema expects `text`; `{ query, maxResults }` failed
+    // validation on every call (LT-011). Result capping stays caller-side.
+    skillsMatch: (query: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_MATCH, { text: query });
     },
 
     /**

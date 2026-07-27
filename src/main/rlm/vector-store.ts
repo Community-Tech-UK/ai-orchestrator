@@ -145,6 +145,25 @@ export class VectorStore extends EventEmitter {
     this.evictColdStores();
 
     this.emit('store:loaded', { storeId, vectors: storeVectors.size });
+    this.logResidency('store-loaded', storeId);
+  }
+
+  /**
+   * Emit cache occupancy whenever residency changes. `getStats()` previously had
+   * no log line, IPC channel or diagnostics dump behind it, so per-store
+   * residency could not be observed in a running app at all (LT-011). Logged at
+   * the two moments residency actually changes rather than on a timer.
+   */
+  private logResidency(event: 'store-loaded' | 'store-evicted', storeId: string): void {
+    const stats = this.getStats();
+    logger.info('VectorStore residency changed', {
+      event,
+      storeId,
+      totalVectors: stats.totalVectors,
+      residentStores: stats.residentStores,
+      maxResidentStores: stats.maxResidentStores,
+      storeCount: stats.storeCount,
+    });
   }
 
   /** Mark a store as most-recently-used. */
@@ -171,6 +190,7 @@ export class VectorStore extends EventEmitter {
     for (const id of ids) this.vectorCache.delete(id);
     this.storeVectorIds.delete(storeId);
     this.emit('store:evicted', { storeId, vectors: ids.size });
+    this.logResidency('store-evicted', storeId);
   }
 
   /**

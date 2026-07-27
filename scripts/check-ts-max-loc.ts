@@ -158,7 +158,10 @@ const ALLOWLIST: Record<string, number> = {
   // lifecycle/runtime-reconciler.ts (provider/model swap is its first client;
   // desired-runtime queueing lives in lifecycle/desired-runtime-queue.ts).
   // Raised 3416 -> 3442 (2026-07-17 thread-resilience work).
-  'src/main/instance/instance-lifecycle.ts': 3442,
+  // Raised 3442 -> 3447 for the two LT-008 fixes in changeAgentMode: the
+  // captured fork-resume source, and the listener strip before the
+  // fresh-fallback terminate (each with a one-line rationale).
+  'src/main/instance/instance-lifecycle.ts': 3447,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
   // Raised 2772 -> 2773 (one-line drift; re-tighten at the next manager split).

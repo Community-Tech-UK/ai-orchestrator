@@ -108,6 +108,24 @@ describe('LocalAiTargetRepository', () => {
     expect(retired).not.toHaveProperty('pausedUntil');
   });
 
+  it('notifies lifecycle subscribers after durable changes and supports disposal', () => {
+    const repository = new LocalAiTargetRepository(openDb());
+    const observed: string[] = [];
+    const unsubscribe = repository.subscribe((value) => {
+      observed.push(`${value.id}:${value.lifecycle}`);
+    });
+
+    const created = repository.create(config());
+    repository.setLifecycle(created.id, 'paused', created.updatedAt + 1);
+    unsubscribe();
+    repository.setLifecycle(created.id, 'enrolled', created.updatedAt + 2);
+
+    expect(observed).toEqual([
+      `${created.id}:enrolled`,
+      `${created.id}:paused`,
+    ]);
+  });
+
   it('rejects invalid or regressive lifecycle timestamps without corrupting the existing target', () => {
     const repository = new LocalAiTargetRepository(openDb());
     const target = repository.create(config());
@@ -123,10 +141,10 @@ describe('LocalAiTargetRepository', () => {
 
   it('keeps configuration updates and later lifecycle changes monotonic after a future explicit lifecycle timestamp', () => {
     const db = openDb();
-    let now = 1_000;
+    const now = 1_000;
     const repository = new LocalAiTargetRepository(db, undefined, () => now);
     const created = repository.create(config());
-    const paused = repository.setLifecycle(created.id, 'paused', 5_000);
+    repository.setLifecycle(created.id, 'paused', 5_000);
     const updated = repository.update(created.id, { warningLatencyMs: 3_000 });
 
     expect(updated).toMatchObject({ updatedAt: 5_000, warningLatencyMs: 3_000 });

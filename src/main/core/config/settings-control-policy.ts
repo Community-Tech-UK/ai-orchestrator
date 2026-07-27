@@ -22,6 +22,7 @@ export interface OpenSettingsToolPolicy {
 export interface ClosedSettingsToolPolicy {
   tier: 'read-only' | 'secret';
   restartRequired: boolean;
+  schema?: z.ZodType<unknown>;
 }
 
 export type SettingsToolPolicy = OpenSettingsToolPolicy | ClosedSettingsToolPolicy;
@@ -56,6 +57,9 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'graphAuthority',
   'graphScopesJson',
   'graphAgentWritableAccountsJson',
+  'localAiGuardDefaultFallbackPolicy',
+  'localAiGuardDailyFallbackBudgetUsd',
+  'localAiGuardConfirmAboveInputTokens',
 ]);
 const metadataByKey = new Map(SETTINGS_METADATA.map((metadata) => [metadata.key, metadata]));
 
@@ -77,6 +81,13 @@ const voiceSttRoutingModeSchema = z.enum([
   'this-device-or-cloud',
 ]);
 const auxiliaryRoutingModeSchema = z.enum(['off', 'local-first', 'cheap-first', 'manual-only']);
+const localAiFallbackPolicySchema = z.enum([
+  'allow-silently',
+  'notify-and-allow',
+  'require-confirmation',
+  'defer-locally',
+  'block-paid-fallback',
+]);
 const auxiliaryProviderSchema = z.enum([
   'ollama',
   'openai-compatible',
@@ -175,9 +186,13 @@ const open = (
   restartRequired,
   schema,
 });
-const readOnly = (restartRequired = false): ClosedSettingsToolPolicy => ({
+const readOnly = (
+  restartRequired = false,
+  schema?: z.ZodType<unknown>,
+): ClosedSettingsToolPolicy => ({
   tier: 'read-only',
   restartRequired,
+  ...(schema ? { schema } : {}),
 });
 const secret = (restartRequired = false): ClosedSettingsToolPolicy => ({
   tier: 'secret',
@@ -403,6 +418,15 @@ export const SETTINGS_TOOL_POLICY = {
   auxiliaryLlmQuickModel: open(modelIdSchema),
   auxiliaryLlmQualityModel: open(modelIdSchema),
   auxiliaryLlmRoutingClassificationEnabled: open(z.boolean()),
+  localAiGuardDefaultFallbackPolicy: readOnly(false, localAiFallbackPolicySchema),
+  localAiGuardDailyFallbackBudgetUsd: readOnly(
+    false,
+    z.number().finite().min(0).max(1_000_000).nullable(),
+  ),
+  localAiGuardConfirmAboveInputTokens: readOnly(
+    false,
+    z.number().finite().int().min(0).max(100_000_000).nullable(),
+  ),
   // Strictly validated rather than a free-form string: a bad tier name here
   // would silently fall back to the default for that gate, hiding the typo.
   // Agent-writable, consistent with defaultModel / modelUsageByKey, which also
@@ -496,6 +520,16 @@ export function coerceRendererSettingValue(
     return {
       key: typedKey,
       value: parseWritableSettingValue(typedKey, value, policy),
+    };
+  }
+  if (policy.schema) {
+    const parsed = policy.schema.safeParse(value);
+    if (!parsed.success) {
+      throw new Error(`Invalid value for ${typedKey}: ${formatZodError(parsed.error)}`);
+    }
+    return {
+      key: typedKey,
+      value: parsed.data as AppSettings[keyof AppSettings],
     };
   }
   const expected = typeof DEFAULT_SETTINGS[typedKey];

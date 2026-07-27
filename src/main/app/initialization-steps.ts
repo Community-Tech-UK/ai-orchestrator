@@ -95,6 +95,7 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
 import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autostart';
 import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
+import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
 
 const logger = getLogger('AppInitialization');
 const CODEMEM_MAINTENANCE_COOLDOWN_MS = 30 * 60 * 1000;
@@ -124,6 +125,23 @@ export function createContextEvidenceInitializationStep(
       } catch (error) {
         logger.warn('Context evidence initialization failed; durable capture remains unavailable', {
           error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  };
+}
+
+export function createLocalAiGuardInitializationStep(
+  initialize: () => unknown = initializeLocalAiGuardRuntime,
+): AppInitializationStep {
+  return {
+    name: 'Local AI Guard',
+    fn: () => {
+      try {
+        initialize();
+      } catch {
+        logger.warn('Local AI Guard initialization failed; local routing remains unavailable', {
+          reason: 'runtime-startup-error',
         });
       }
     },
@@ -265,6 +283,7 @@ export function createInitializationSteps(
         }
       },
     },
+    createLocalAiGuardInitializationStep(),
     {
       name: 'Quota pacing',
       fn: () => {

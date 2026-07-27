@@ -23,35 +23,71 @@ import type {
   SyncDeleteFileParams,
 } from '../shared/types/sync.types';
 
-export class SyncHandler {
-  constructor(private readonly allowedRoots: string[]) {}
+/**
+ * Roots the sync tools may touch. `readRoots` is the full readable surface
+ * (working directories plus every configured file-transfer root); `writeRoots`
+ * is the subset that may be modified. A file-transfer root declared read-only
+ * appears in `readRoots` only, so a write to it is refused *as read-only*
+ * rather than as "outside allowed roots" (LT-010).
+ */
+export interface SyncHandlerRoots {
+  readRoots: string[];
+  writeRoots: string[];
+}
 
-  private assertAllowed(targetPath: string): void {
-    if (!isPathAllowed(targetPath, this.allowedRoots)) {
+export class SyncHandler {
+  private readonly readRoots: string[];
+  private readonly writeRoots: string[];
+
+  constructor(roots: string[] | SyncHandlerRoots) {
+    if (Array.isArray(roots)) {
+      // Legacy shape: one allowlist used for both reads and writes.
+      this.readRoots = roots;
+      this.writeRoots = roots;
+    } else {
+      this.readRoots = roots.readRoots;
+      this.writeRoots = roots.writeRoots;
+    }
+  }
+
+  private assertReadable(targetPath: string): void {
+    if (!isPathAllowed(targetPath, this.readRoots)) {
       throw new Error(`Path outside allowed roots: ${targetPath}`);
     }
   }
 
+  private assertWritable(targetPath: string): void {
+    if (isPathAllowed(targetPath, this.writeRoots)) {
+      return;
+    }
+    // Distinguish "you may read here but not write" from "unknown path" so the
+    // coordinator can surface an actionable message instead of a sandbox error.
+    if (isPathAllowed(targetPath, this.readRoots)) {
+      throw new Error(`Path is in a read-only root: ${targetPath}`);
+    }
+    throw new Error(`Path outside allowed roots: ${targetPath}`);
+  }
+
   async scanDirectory(params: SyncScanParams): Promise<SyncManifest> {
-    this.assertAllowed(params.path);
+    this.assertReadable(params.path);
     return scanDirectory(params.path, params.exclude);
   }
 
   async getBlockSignatures(params: SyncBlockSigParams): Promise<FileSignatures> {
     const filePath = path.resolve(params.path, params.relativePath);
-    this.assertAllowed(filePath);
+    this.assertReadable(filePath);
     return computeBlockSignatures(filePath, params.relativePath, params.blockSize);
   }
 
   async computeDelta(params: SyncComputeDeltaParams): Promise<FileDelta> {
     const filePath = path.resolve(params.path, params.targetSignatures.relativePath);
-    this.assertAllowed(filePath);
+    this.assertReadable(filePath);
     return computeDelta(filePath, params.targetSignatures);
   }
 
   async applyDelta(params: SyncApplyDeltaParams): Promise<{ ok: boolean; hash: string }> {
     const targetFile = path.resolve(params.path, params.delta.relativePath);
-    this.assertAllowed(targetFile);
+    this.assertWritable(targetFile);
 
     const basePath = params.basePath
       ? path.resolve(params.basePath, params.delta.relativePath)
@@ -69,7 +105,7 @@ export class SyncHandler {
   }
 
   async deleteFile(params: SyncDeleteFileParams): Promise<{ ok: boolean }> {
-    this.assertAllowed(params.path);
+    this.assertWritable(params.path);
     try {
       await fs.unlink(params.path);
     } catch (err) {
