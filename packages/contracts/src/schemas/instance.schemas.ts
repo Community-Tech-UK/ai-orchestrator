@@ -208,6 +208,12 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   nodePlacement: NodePlacementPrefsSchema.optional(),
   browserToolsMode: z.enum(['eager', 'deferred', 'off']).optional(),
   hardened: z.boolean().optional(),
+  /**
+   * Stable per-submission key. A retry carrying the same key must return the
+   * original instance rather than spawning a second session — see
+   * `instance-create-idempotency.ts`.
+   */
+  idempotencyKey: z.string().min(1).max(200).optional(),
 });
 
 // ============ Instance Input ============

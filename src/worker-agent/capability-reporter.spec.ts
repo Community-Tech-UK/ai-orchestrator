@@ -32,6 +32,7 @@ vi.mock('../main/remote-node/project-discovery', () => ({
 }));
 
 import { reportCapabilities, parseLmStudioLoadedModels } from './capability-reporter';
+import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../shared/types/local-ai-guard.types';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 
@@ -49,8 +50,27 @@ describe('parseLmStudioLoadedModels', () => {
     ]);
   });
 
-  it('defaults missing context length to 0 and tolerates malformed input', () => {
-    expect(parseLmStudioLoadedModels({ data: [{ id: 'a', state: 'loaded' }] })).toEqual([{ id: 'a', contextLength: 0 }]);
+  it('omits loaded models without a valid shared-bound context while keeping valid siblings', () => {
+    const { min, max } = LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength;
+
+    expect(parseLmStudioLoadedModels({
+      data: [
+        { id: 'missing', state: 'loaded' },
+        { id: 'zero', state: 'loaded', loaded_context_length: 0 },
+        { id: 'fractional', state: 'loaded', loaded_context_length: min + 0.5 },
+        { id: 'nan', state: 'loaded', loaded_context_length: Number.NaN },
+        { id: 'infinite', state: 'loaded', loaded_context_length: Number.POSITIVE_INFINITY },
+        { id: 'over-max', state: 'loaded', loaded_context_length: max + 1 },
+        { id: 'valid-min', state: 'loaded', loaded_context_length: min },
+        { id: 'valid-max', state: 'loaded', loaded_context_length: max },
+      ],
+    })).toEqual([
+      { id: 'valid-min', contextLength: min },
+      { id: 'valid-max', contextLength: max },
+    ]);
+  });
+
+  it('tolerates malformed input', () => {
     expect(parseLmStudioLoadedModels(null)).toEqual([]);
     expect(parseLmStudioLoadedModels({})).toEqual([]);
   });
@@ -177,7 +197,7 @@ describe('capability-reporter', () => {
       fileTransfer?: {
         enabled: boolean;
         maxFileBytes: number;
-        roots: Array<{ id: string; label: string; path: string; read: boolean; write: boolean }>;
+        roots: { id: string; label: string; path: string; read: boolean; write: boolean }[];
       };
     }).fileTransfer).toEqual({
       enabled: true,
@@ -214,6 +234,26 @@ describe('capability-reporter', () => {
       expect(endpoint.healthy).toBe(true);
     });
 
+    it('caps Ollama rows before materializing the worker heartbeat model array', async () => {
+      let nameReads = 0;
+      const rawModels = Array.from({ length: 1_500 }, (_, index) => ({
+        get name() {
+          nameReads += 1;
+          return `ollama-${index}`;
+        },
+      }));
+      mockFetchByUrl({
+        ollamaTags: { ok: true, json: () => Promise.resolve({ models: rawModels }) },
+      });
+
+      const caps = await reportCapabilities(['/workspace']);
+      const endpoint = caps.localModelEndpoints?.find(({ provider }) => provider === 'ollama');
+
+      expect(endpoint?.models).toHaveLength(100);
+      expect(endpoint?.models.at(-1)).toBe('ollama-99');
+      expect(nameReads).toBe(100);
+    });
+
     it('includes Ollama endpoint with empty models list when /api/tags returns no models field', async () => {
       mockFetchByUrl({
         ollamaTags: { ok: true, json: () => Promise.resolve({}) },
@@ -244,6 +284,28 @@ describe('capability-reporter', () => {
       expect(endpoint.baseUrl).toBe('http://127.0.0.1:1234');
       expect(endpoint.models).toEqual(['qwen2.5-coder-7b', 'phi-4']);
       expect(endpoint.healthy).toBe(true);
+    });
+
+    it('caps OpenAI rows before materializing the worker heartbeat model array', async () => {
+      let idReads = 0;
+      const rawModels = Array.from({ length: 1_500 }, (_, index) => ({
+        get id() {
+          idReads += 1;
+          return `openai-${index}`;
+        },
+      }));
+      mockFetchByUrl({
+        lmStudioModels: { ok: true, json: () => Promise.resolve({ data: rawModels }) },
+      });
+
+      const caps = await reportCapabilities(['/workspace']);
+      const endpoint = caps.localModelEndpoints?.find(
+        ({ provider }) => provider === 'openai-compatible',
+      );
+
+      expect(endpoint?.models).toHaveLength(100);
+      expect(endpoint?.models.at(-1)).toBe('openai-99');
+      expect(idReads).toBe(100);
     });
 
     it('reports LM Studio loaded models + context from /api/v0/models', async () => {

@@ -62,6 +62,7 @@ const EXPECTED_PATHS = [
   '/ask-council',
   '/work',
   '/compare/split',
+  '/local-ai',
 ] as const;
 
 const VALID_GROUPS: readonly ControlSurfaceGroup[] = [
@@ -114,6 +115,21 @@ describe('control surface registry', () => {
   it('no longer registers the retired Fleet surface', () => {
     expect(CONTROL_SURFACES.some((surface) => surface.id === ('fleet' as string))).toBe(false);
     expect(CONTROL_SURFACES.some((surface) => surface.path === '/fleet')).toBe(false);
+  });
+
+  it('registers Local AI Guard as a dashboard-visible Monitoring diagnostic', () => {
+    const localAi = CONTROL_SURFACES.find((surface) => surface.id === 'local-ai');
+
+    expect(localAi).toMatchObject({
+      path: '/local-ai',
+      label: 'Local AI Guard',
+      group: 'monitoring',
+      kind: 'diagnostic',
+      layout: 'wide',
+      showInDashboardNav: true,
+      showInControlNav: true,
+    });
+    expect(localAi?.icon).toContain('<path');
   });
 
   it('has valid metadata for every surface', () => {

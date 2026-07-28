@@ -6,6 +6,7 @@
  */
 
 import {
+  AUXILIARY_DISCOVERY_MAX_MODELS,
   DEFAULT_OLLAMA_KEEP_ALIVE,
   type AuxiliaryLlmModelInfo,
 } from '../../shared/types/auxiliary-llm.types';
@@ -50,13 +51,22 @@ function endpointIdFromUrl(baseUrl: string): string {
  * Build an AbortController that fires after `timeoutMs` milliseconds.
  * Returns the controller and a cleanup function that cancels the timer.
  */
-function makeAbortController(timeoutMs: number): {
+function makeAbortController(timeoutMs: number, parentSignal?: AbortSignal): {
   controller: AbortController;
   clear: () => void;
 } {
   const controller = new AbortController();
+  const abortFromParent = () => controller.abort();
+  if (parentSignal?.aborted) {
+    controller.abort();
+  } else {
+    parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const clear = () => clearTimeout(timer);
+  const clear = () => {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', abortFromParent);
+  };
   return { controller, clear };
 }
 
@@ -67,16 +77,17 @@ function makeAbortController(timeoutMs: number): {
  */
 export async function probeOllamaEndpoint(
   baseUrl: string,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<boolean> {
-  const { controller, clear } = makeAbortController(timeoutMs);
+  const { controller, clear } = makeAbortController(timeoutMs, signal);
   try {
     const response = await fetch(`${baseUrl}/api/version`, { signal: controller.signal });
-    clear();
     return response.ok;
   } catch {
-    clear();
     return false;
+  } finally {
+    clear();
   }
 }
 
@@ -85,38 +96,44 @@ export async function probeOllamaEndpoint(
  */
 export async function listOllamaModels(
   baseUrl: string,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<AuxiliaryLlmModelInfo[]> {
-  const { controller, clear } = makeAbortController(timeoutMs);
+  const { controller, clear } = makeAbortController(timeoutMs, signal);
   try {
     const response = await fetch(`${baseUrl}/api/tags`, { signal: controller.signal });
-    clear();
     if (!response.ok) {
       return [];
     }
     const data = (await response.json()) as {
-      models?: Array<{
+      models?: {
         name: string;
         size?: number;
         parameter_size?: string;
         quantization_level?: string;
         modified_at?: string;
-      }>;
+      }[];
     };
 
     const endpointId = endpointIdFromUrl(baseUrl);
-    return (data.models ?? []).map((m) => ({
-      id: m.name,
-      name: m.name,
-      provider: 'ollama' as const,
-      endpointId,
-      parameterSize: m.parameter_size,
-      quantization: m.quantization_level,
-      modifiedAt: m.modified_at,
-    }));
+    // Cap raw advertised order before normalization. Invalid early rows are not
+    // replaced by scanning later rows beyond the public discovery work budget.
+    return (data.models ?? []).slice(0, AUXILIARY_DISCOVERY_MAX_MODELS).map((m) => {
+      const name = m.name;
+      return {
+        id: name,
+        name,
+        provider: 'ollama' as const,
+        endpointId,
+        parameterSize: m.parameter_size,
+        quantization: m.quantization_level,
+        modifiedAt: m.modified_at,
+      };
+    });
   } catch {
-    clear();
     return [];
+  } finally {
+    clear();
   }
 }
 
@@ -188,19 +205,20 @@ function openAiHeaders(apiKey: string | undefined): Record<string, string> {
 export async function probeOpenAiCompatibleEndpoint(
   baseUrl: string,
   apiKey: string | undefined,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<boolean> {
-  const { controller, clear } = makeAbortController(timeoutMs);
+  const { controller, clear } = makeAbortController(timeoutMs, signal);
   try {
     const response = await fetch(`${baseUrl}/v1/models`, {
       headers: openAiHeaders(apiKey),
       signal: controller.signal,
     });
-    clear();
     return response.ok;
   } catch {
-    clear();
     return false;
+  } finally {
+    clear();
   }
 }
 
@@ -210,32 +228,38 @@ export async function probeOpenAiCompatibleEndpoint(
 export async function listOpenAiCompatibleModels(
   baseUrl: string,
   apiKey: string | undefined,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<AuxiliaryLlmModelInfo[]> {
-  const { controller, clear } = makeAbortController(timeoutMs);
+  const { controller, clear } = makeAbortController(timeoutMs, signal);
   try {
     const response = await fetch(`${baseUrl}/v1/models`, {
       headers: openAiHeaders(apiKey),
       signal: controller.signal,
     });
-    clear();
     if (!response.ok) {
       return [];
     }
     const data = (await response.json()) as {
-      data?: Array<{ id: string; object?: string }>;
+      data?: { id: string; object?: string }[];
     };
 
     const endpointId = endpointIdFromUrl(baseUrl);
-    return (data.data ?? []).map((m) => ({
-      id: m.id,
-      name: m.id,
-      provider: 'openai-compatible' as const,
-      endpointId,
-    }));
+    // Cap raw advertised order before normalization. Invalid early rows are not
+    // replaced by scanning later rows beyond the public discovery work budget.
+    return (data.data ?? []).slice(0, AUXILIARY_DISCOVERY_MAX_MODELS).map((m) => {
+      const id = m.id;
+      return {
+        id,
+        name: id,
+        provider: 'openai-compatible' as const,
+        endpointId,
+      };
+    });
   } catch {
-    clear();
     return [];
+  } finally {
+    clear();
   }
 }
 

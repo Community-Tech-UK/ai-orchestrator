@@ -7,7 +7,7 @@
  */
 
 import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
-import type { CliMessage } from '../cli/adapters/base-cli-adapter';
+import type { CliMessage, CliUsage } from '../cli/adapters/base-cli-adapter';
 import { isCliAvailable } from '../cli/cli-detection';
 import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
@@ -24,6 +24,12 @@ import {
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
+import type { AuxiliaryLlmDecision } from '../../shared/types/auxiliary-llm.types';
+import {
+  runAuthorizedFrontierFallback,
+  runCorrelatedPaidFrontierCall,
+} from '../local-ai-guard/local-ai-cost-correlation';
+import { recordCorrelatedFrontierAttribution } from '../rlm/frontier-cost-attribution';
 
 const logger = getLogger('AutoTitle');
 
@@ -35,6 +41,10 @@ const MAX_INPUT_LENGTH = 2000;
 
 /** Timeout for the AI title generation (ms) */
 const AI_TITLE_TIMEOUT = 15_000;
+const CLI_TITLE_SYSTEM_PROMPT =
+  'You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. If the message text is generic filler with no specific subject, build the title around the attached file name instead. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.';
+const CLI_TITLE_USER_INSTRUCTION =
+  "Summarize this task in 3-6 words for a sidebar tab title. Put the most distinctive, identifying word first so it's recognizable from just the first ~25 characters. If the message text is generic filler with no specific subject, use the attached file name as the subject:";
 
 /** Provider preference order for title generation (fastest first) */
 const FAST_PROVIDER_PREFERENCE = ['antigravity', 'claude', 'codex'] as const;
@@ -89,7 +99,9 @@ function deriveInstantTitle(message: string, attachmentNames: readonly string[] 
   return title || titleFromAttachments(labels);
 }
 
-function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<{ content: string }> } {
+function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & {
+  sendMessage: (m: CliMessage) => Promise<{ content: string; usage?: CliUsage }>;
+} {
   return typeof (adapter as unknown as { sendMessage?: unknown }).sendMessage === 'function';
 }
 
@@ -216,6 +228,7 @@ export class AutoTitleService {
     const auxUserPrompt = labels.length > 0
       ? `${truncatedMessage}\n\nAttached: ${labels.join(', ')}`
       : truncatedMessage;
+    let fallbackDecision: AuxiliaryLlmDecision;
     try {
       const { text: auxTitle, decision: auxDecision } = await getAuxiliaryLlmService().generate(
         'titleGeneration',
@@ -229,8 +242,10 @@ export class AutoTitleService {
           return cleaned;
         }
       }
+      if (!auxDecision.allowFrontierFallback) return null;
+      fallbackDecision = auxDecision;
     } catch {
-      // Auxiliary unavailable — fall through to CLI adapter
+      return null;
     }
 
     let cliType: Awaited<ReturnType<typeof resolveCliType>> | null = null;
@@ -258,7 +273,7 @@ export class AutoTitleService {
       options: {
         workingDirectory: process.cwd(),
         model,
-        systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. If the message text is generic filler with no specific subject, build the title around the attached file name instead. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.',
+        systemPrompt: CLI_TITLE_SYSTEM_PROMPT,
         // One-shot, no tools: replace the CLI's default system prompt instead
         // of appending — inheriting the full default prompt would add cost and
         // latency to every title generation for no benefit.
@@ -279,11 +294,32 @@ export class AutoTitleService {
     const messageBlock = truncatedMessage.length > 0
       ? truncatedMessage
       : '(no message text — the task is about the attached file)';
+    const userInstruction = `${CLI_TITLE_USER_INSTRUCTION}\n\n${messageBlock}${attachmentLine}`;
 
-    const response = await adapter.sendMessage({
-      role: 'user',
-      content: `Summarize this task in 3-6 words for a sidebar tab title. Put the most distinctive, identifying word first so it's recognizable from just the first ~25 characters. If the message text is generic filler with no specific subject, use the attached file name as the subject:\n\n${messageBlock}${attachmentLine}`,
-    });
+    const send = async () => {
+      const result = await runCorrelatedPaidFrontierCall(() => adapter.sendMessage!({
+        role: 'user',
+        content: userInstruction,
+      }));
+      const usage = cliType === 'antigravity' && result.usage?.inputTokens === 0
+        ? { ...result.usage, inputTokens: undefined }
+        : result.usage;
+      recordCorrelatedFrontierAttribution({
+        taskType: 'aux:titleGeneration',
+        provider: cliType,
+        model,
+        inputTexts: [CLI_TITLE_SYSTEM_PROMPT, userInstruction],
+        outputText: result.content,
+        usage,
+      });
+      return result;
+    };
+    let response: { content: string };
+    try {
+      response = await runAuthorizedFrontierFallback(fallbackDecision, send);
+    } catch {
+      return null;
+    }
 
     const title = sanitizeGeneratedTitle(response.content);
     if (!title || title.length === 0 || title.length > 80) {

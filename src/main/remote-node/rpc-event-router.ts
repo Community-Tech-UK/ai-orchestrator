@@ -239,7 +239,22 @@ export class RpcEventRouter {
 
     switch (notification.method) {
       case NODE_TO_COORDINATOR.HEARTBEAT: {
-        const hbParams = notification.params as Record<string, unknown> | undefined;
+        let hbParams: {
+          capabilities: WorkerNodeCapabilities;
+          activeInstances: number;
+        };
+        try {
+          hbParams = validateRpcParams(
+            RPC_PARAM_SCHEMAS[NODE_TO_COORDINATOR.HEARTBEAT],
+            notification.params,
+          ) as typeof hbParams;
+        } catch {
+          logger.warn('Malformed node.heartbeat notification dropped', {
+            nodeId,
+            method: notification.method,
+          });
+          return;
+        }
         const node = this.registry.getNode(nodeId);
         if (!node) {
           // The socket outlived its registry entry (e.g. health-deregistered
@@ -250,12 +265,10 @@ export class RpcEventRouter {
           this.connection.disconnectNode(nodeId, 'Stale connection — re-register required');
           return;
         }
-        this.registry.updateHeartbeat(nodeId, hbParams?.['capabilities'] as WorkerNodeCapabilities);
-        this.recordTrustedPlatformFromCapabilities(nodeId, hbParams?.['capabilities'] as WorkerNodeCapabilities | undefined);
+        this.registry.updateHeartbeat(nodeId, hbParams.capabilities);
+        this.recordTrustedPlatformFromCapabilities(nodeId, hbParams.capabilities);
         this.registry.updateNodeMetrics(nodeId, {
-          activeInstances: typeof hbParams?.['activeInstances'] === 'number'
-            ? hbParams['activeInstances']
-            : node.activeInstances,
+          activeInstances: hbParams.activeInstances,
         });
         break;
       }

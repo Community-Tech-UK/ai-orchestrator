@@ -45,6 +45,7 @@ import {
 import {
   COMPARE_SPLIT_HELP,
   COST_HELP,
+  LOCAL_AI_HELP,
   WORKBOARD_HELP,
   LOGS_HELP,
   REPLAY_HELP,
@@ -101,6 +102,7 @@ export const CONTROL_SURFACE_HELP: Record<ControlSurfaceId, HelpEntry> = {
   'plan': PLAN_HELP,
   'stats': STATS_HELP,
   'cost': COST_HELP,
+  'local-ai': LOCAL_AI_HELP,
   'snapshots': SNAPSHOTS_HELP,
   'replay': REPLAY_HELP,
   'remote-access': REMOTE_ACCESS_HELP,

@@ -24,6 +24,7 @@ import {
   LocalAiHealthDiagnoseParamsSchema,
   LocalAiHealthDiagnoseResultSchema,
   LocalAiHealthRepairParamsSchema,
+  LocalAiHealthRepairResultSchema,
   BrowserExtAttachTabParamsSchema,
   BrowserExtPollCommandParamsSchema,
   BrowserExtCommandResultParamsSchema,
@@ -35,6 +36,8 @@ import {
   BoundedServiceRpcResponseError,
   parseBoundedServiceRpcResponse,
 } from '../worker-node-connection-helpers';
+import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../../../shared/types/local-ai-guard.types';
+import { LocalAiTargetConfigSchema } from '../../../shared/validation/local-ai-guard.schemas';
 
 describe('rpc-schemas', () => {
   const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
@@ -206,6 +209,122 @@ describe('rpc-schemas', () => {
         extensionReloadedAt: 1_700_000_010_000,
         lastExtensionContactAt: 1_700_000_020_000,
       });
+    });
+
+    it('accepts the standard reporter local-model endpoint payload', () => {
+      const result = NodeHeartbeatParamsSchema.safeParse({
+        nodeId: 'node-1',
+        capabilities: {
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 16,
+          totalMemoryMB: 96000,
+          availableMemoryMB: 64000,
+          supportedClis: ['claude'],
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 10,
+          workingDirectories: ['/tmp'],
+          localModelEndpoints: [
+            {
+              provider: 'ollama',
+              endpointId: 'ollama',
+              baseUrl: 'http://127.0.0.1:11434',
+              models: ['qwen3:14b'],
+              healthy: true,
+            },
+            {
+              provider: 'openai-compatible',
+              endpointId: 'openai-compatible',
+              baseUrl: 'http://127.0.0.1:1234',
+              models: ['gemma-3-12b'],
+              healthy: true,
+            },
+          ],
+        },
+        activeInstances: 0,
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('enforces the shared Local AI context boundaries for loaded-model capacity', () => {
+      const heartbeat = (contextLength: number) => ({
+        nodeId: 'node-1',
+        capabilities: {
+          platform: 'linux',
+          arch: 'x64',
+          cpuCores: 8,
+          totalMemoryMB: 32_000,
+          availableMemoryMB: 16_000,
+          supportedClis: [],
+          hasBrowserRuntime: false,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 2,
+          workingDirectories: ['/workspace'],
+          localModelEndpoints: [{
+            provider: 'openai-compatible',
+            endpointId: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:1234',
+            models: ['large-context-model'],
+            loadedModels: [{ id: 'large-context-model', contextLength }],
+            healthy: true,
+          }],
+        },
+        activeInstances: 0,
+      });
+
+      const { min, max } = LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength;
+      const cases = [
+        { contextLength: 0, accepted: false },
+        { contextLength: min, accepted: true },
+        { contextLength: max, accepted: true },
+        { contextLength: max + 1, accepted: false },
+        { contextLength: Number.NaN, accepted: false },
+        { contextLength: min + 0.5, accepted: false },
+        { contextLength: Number.MAX_SAFE_INTEGER, accepted: false },
+      ];
+
+      for (const { contextLength, accepted } of cases) {
+        expect(
+          NodeHeartbeatParamsSchema.safeParse(heartbeat(contextLength)).success,
+          `contextLength=${String(contextLength)}`,
+        ).toBe(accepted);
+      }
+    });
+
+    it('rejects heartbeats with more than 1,000 local-model endpoint descriptors', () => {
+      const result = NodeHeartbeatParamsSchema.safeParse({
+        nodeId: 'node-1',
+        capabilities: {
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 16,
+          totalMemoryMB: 96000,
+          availableMemoryMB: 64000,
+          supportedClis: ['claude'],
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 10,
+          workingDirectories: ['/tmp'],
+          localModelEndpoints: Array.from({ length: 1_001 }, (_, index) => ({
+            provider: 'ollama',
+            endpointId: `ollama-${index}`,
+            baseUrl: `http://127.0.0.1:${20_000 + index}`,
+            models: [],
+            healthy: true,
+          })),
+        },
+        activeInstances: 0,
+      });
+
+      expect(result.success).toBe(false);
     });
 
     it('accepts non-secret file transfer capability summaries', () => {
@@ -616,6 +735,20 @@ describe('rpc-schemas', () => {
       latencyThresholdMs: 2_000,
       timeoutMs: 30_000,
     };
+    const canonicalRepairOutcomes = [
+      { outcome: 'guided', supported: true, attempted: false, recovered: false },
+      { outcome: 'unsupported', supported: false, attempted: false, recovered: false },
+      { outcome: 'not-attempted', supported: true, attempted: false, recovered: false },
+      { outcome: 'execution-failed', supported: true, attempted: true, recovered: false },
+      { outcome: 'completed-not-recovered', supported: true, attempted: true, recovered: false },
+      { outcome: 'recovered', supported: true, attempted: true, recovered: true },
+    ] as const;
+    const repairBase = {
+      targetId: 'ollama',
+      action: 'restart-ollama',
+      message: 'Safe worker result.',
+      completedAt: 1_700_000_000_000,
+    };
 
     it('accepts a bounded named-canary request and registers all three service methods', () => {
       const { kind: _kind, ...diagnose } = validCheck;
@@ -632,6 +765,109 @@ describe('rpc-schemas', () => {
         .toBe(LocalAiHealthDiagnoseParamsSchema);
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localAi.health.repair'])
         .toBe(LocalAiHealthRepairParamsSchema);
+    });
+
+    it('enforces the same expected-model context boundaries as the trusted target contract', () => {
+      const targetConfig = {
+        lifecycle: 'enrolled',
+        location: { type: 'worker', nodeId: 'node-1' },
+        provider: 'ollama',
+        endpointId: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434',
+        expectedModels: [{ modelId: 'qwen3:8b', required: true }],
+        canary: { model: 'qwen3:8b', timeoutMs: 30_000, intervalMs: 600_000 },
+        endpointCheckIntervalMs: 60_000,
+        freshnessLimitMs: 120_000,
+        warningLatencyMs: 2_000,
+        routingRoles: ['compression'],
+        fallbackPolicy: 'notify-and-allow',
+        slotFallbackPolicies: {},
+        recovery: { automatic: false, maxAttempts: 2, cooldownMs: 60_000 },
+      };
+
+      for (const minContextLength of [1, 100_000_000]) {
+        expect(LocalAiTargetConfigSchema.safeParse({
+          ...targetConfig,
+          expectedModels: [{ modelId: 'qwen3:8b', required: true, minContextLength }],
+        }).success).toBe(true);
+        expect(LocalAiHealthCheckParamsSchema.safeParse({
+          ...validCheck,
+          expectedModels: [{ modelId: 'qwen3:8b', required: true, minContextLength }],
+        }).success).toBe(true);
+      }
+
+      for (const minContextLength of [0, 100_000_001]) {
+        expect(LocalAiTargetConfigSchema.safeParse({
+          ...targetConfig,
+          expectedModels: [{ modelId: 'qwen3:8b', required: true, minContextLength }],
+        }).success).toBe(false);
+        expect(LocalAiHealthCheckParamsSchema.safeParse({
+          ...validCheck,
+          expectedModels: [{ modelId: 'qwen3:8b', required: true, minContextLength }],
+        }).success).toBe(false);
+      }
+    });
+
+    it('enforces the same expected-model relationships as the trusted target contract', () => {
+      const trustedConfig = {
+        lifecycle: 'enrolled',
+        location: { type: 'worker', nodeId: 'node-1' },
+        provider: 'ollama',
+        endpointId: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434',
+        expectedModels: [
+          { modelId: 'qwen3:8b', required: true },
+          { modelId: 'qwen3:14b', required: false },
+        ],
+        canary: { model: 'qwen3:8b', timeoutMs: 30_000, intervalMs: 600_000 },
+        endpointCheckIntervalMs: 60_000,
+        freshnessLimitMs: 120_000,
+        warningLatencyMs: 2_000,
+        routingRoles: ['compression'],
+        fallbackPolicy: 'notify-and-allow',
+        slotFallbackPolicies: {},
+        recovery: { automatic: false, maxAttempts: 2, cooldownMs: 60_000 },
+      };
+      const workerCheck = {
+        ...validCheck,
+        expectedModels: trustedConfig.expectedModels,
+        canary: {
+          contract: 'exact-token-v1',
+          model: trustedConfig.canary.model,
+        },
+      };
+
+      expect(LocalAiTargetConfigSchema.safeParse(trustedConfig).success).toBe(true);
+      expect(LocalAiHealthCheckParamsSchema.safeParse(workerCheck).success).toBe(true);
+      expect(LocalAiTargetConfigSchema.parse(trustedConfig).expectedModels)
+        .toEqual(trustedConfig.expectedModels);
+
+      const invalidRelationships = [
+        {
+          expectedModels: [
+            trustedConfig.expectedModels[0],
+            { ...trustedConfig.expectedModels[0], required: false },
+          ],
+          canaryModel: trustedConfig.canary.model,
+        },
+        {
+          expectedModels: trustedConfig.expectedModels,
+          canaryModel: 'not-expected',
+        },
+      ];
+
+      for (const invalid of invalidRelationships) {
+        expect(LocalAiTargetConfigSchema.safeParse({
+          ...trustedConfig,
+          expectedModels: invalid.expectedModels,
+          canary: { ...trustedConfig.canary, model: invalid.canaryModel },
+        }).success).toBe(false);
+        expect(LocalAiHealthCheckParamsSchema.safeParse({
+          ...workerCheck,
+          expectedModels: invalid.expectedModels,
+          canary: { ...workerCheck.canary, model: invalid.canaryModel },
+        }).success).toBe(false);
+      }
     });
 
     it('rejects caller prompts, commands, URLs, executable arguments, and unknown keys', () => {
@@ -675,6 +911,27 @@ describe('rpc-schemas', () => {
         endpointId: 'ollama',
         action: 'restart-ollama',
         executable: '/bin/sh',
+      }).success).toBe(false);
+    });
+
+    it.each(canonicalRepairOutcomes)(
+      'accepts the canonical $outcome repair result tuple',
+      (result) => {
+        expect(LocalAiHealthRepairResultSchema.safeParse({
+          ...repairBase,
+          ...result,
+        }).success).toBe(true);
+      },
+    );
+
+    it.each(canonicalRepairOutcomes.flatMap((result) => [
+      { ...result, supported: !result.supported },
+      { ...result, attempted: !result.attempted },
+      { ...result, recovered: !result.recovered },
+    ]))('rejects an adjacent contradictory $outcome repair result tuple', (result) => {
+      expect(LocalAiHealthRepairResultSchema.safeParse({
+        ...repairBase,
+        ...result,
       }).success).toBe(false);
     });
 

@@ -440,7 +440,7 @@
         [isSourceControlOpen]="isSourceControlOpen()"
         [sourceControlChangeCount]="sourceControlChangeCount()"
         (selectFolder)="onSelectWelcomeFolder($event)"
-        (sendMessage)="onWelcomeSendMessage($event)"
+        (newSessionSubmit)="onWelcomeSubmit($event)"
         (startSessionWithWorkflow)="onWelcomeStartSessionWithWorkflow($event)"
         (nodeChange)="onWelcomeNodeChange($event)"
         (toggleFileExplorer)="toggleFileExplorer.emit()"

@@ -1,5 +1,18 @@
 import type { AuxiliaryLlmSlot } from './auxiliary-llm.types';
 
+export const LOCAL_AI_TARGET_NUMERIC_LIMITS = {
+  endpointCheckIntervalMs: { min: 30_000, max: 900_000 },
+  canaryIntervalMs: { min: 120_000, max: 3_600_000 },
+  canaryTimeoutMs: { min: 5_000, max: 120_000 },
+  freshnessLimitMs: { min: 30_000, max: 900_000 },
+  warningLatencyMs: { min: 100, max: 60_000 },
+  recoveryMaxAttempts: { min: 1, max: 5 },
+  recoveryCooldownMs: { min: 60_000, max: 3_600_000 },
+  minContextLength: { min: 1, max: 100_000_000 },
+  confirmAboveInputTokens: { min: 0, max: 100_000_000 },
+  fallbackBudgetUsd: { min: 0, max: 1_000_000 },
+} as const;
+
 export type LocalAiTargetLifecycle = 'unmanaged' | 'enrolled' | 'paused' | 'retired';
 export type LocalAiHealthState = 'checking' | 'healthy' | 'degraded' | 'unavailable' | 'paused';
 export type LocalAiHealthLayer = 'worker' | 'endpoint' | 'model' | 'inference' | 'effectiveness';
@@ -86,6 +99,19 @@ export interface LocalAiTargetConfig {
   dailyFallbackBudgetUsd?: number;
   incidentFallbackBudgetUsd?: number;
   recovery: { automatic: boolean; maxAttempts: number; cooldownMs: number };
+}
+
+export function localAiWorkerEndpointId(
+  provider: LocalAiTargetConfig['provider'],
+): LocalAiTargetConfig['provider'] {
+  switch (provider) {
+    case 'ollama':
+      return 'ollama';
+    case 'openai-compatible':
+      return 'openai-compatible';
+    default:
+      throw new Error(`Unsupported Local AI provider: ${String(provider)}`);
+  }
 }
 
 export type LocalAiTargetPatch = Partial<Omit<LocalAiTargetConfig, 'location' | 'provider' | 'endpointId'>>;
@@ -248,12 +274,21 @@ export interface LocalAiDiagnosticReport {
 export interface LocalAiRepairResult {
   targetId: string;
   action: LocalAiRepairAction;
+  outcome: LocalAiRepairOutcome;
   supported: boolean;
   attempted: boolean;
   recovered: boolean;
   message: string;
   completedAt: number;
 }
+
+export type LocalAiRepairOutcome =
+  | 'guided'
+  | 'unsupported'
+  | 'not-attempted'
+  | 'execution-failed'
+  | 'completed-not-recovered'
+  | 'recovered';
 
 export interface LocalAiEffectivenessSummary {
   window: '24h' | '7d' | '30d';
@@ -294,9 +329,122 @@ export interface LocalAiFallbackVerdict {
   fallbackRequestId?: string;
 }
 
+/**
+ * Canonical base-10 cursor serialized across IPC. The wire schema applies a
+ * 512-digit payload bound; the runtime counter itself remains an unbounded
+ * bigint, making transport exhaustion unreachable in practical operation.
+ */
+export type LocalAiRevisionCursor = string;
+export const LOCAL_AI_REVISION_CURSOR_MAX_DIGITS = 512;
+
+const LOCAL_AI_REVISION_CURSOR_PATTERN = /^(?:0|[1-9]\d*)$/;
+
+export function parseLocalAiRevisionCursor(cursor: LocalAiRevisionCursor): bigint {
+  if (!LOCAL_AI_REVISION_CURSOR_PATTERN.test(cursor)) {
+    throw new Error('Invalid Local AI revision cursor');
+  }
+  return BigInt(cursor);
+}
+
+export function incrementLocalAiRevisionCursor(
+  cursor: LocalAiRevisionCursor,
+): LocalAiRevisionCursor {
+  return (parseLocalAiRevisionCursor(cursor) + 1n).toString();
+}
+
+export function compareLocalAiRevisionCursors(
+  left: LocalAiRevisionCursor,
+  right: LocalAiRevisionCursor,
+): number {
+  parseLocalAiRevisionCursor(left);
+  parseLocalAiRevisionCursor(right);
+  if (left.length !== right.length) return left.length < right.length ? -1 : 1;
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
 export interface LocalAiGuardSnapshot {
+  /** Main-process monotonic cursor used to order snapshots and status deltas. */
+  revision: LocalAiRevisionCursor;
   aggregate: LocalAiAggregateStatus;
   targets: LocalAiTargetStatus[];
+  /** Strict public target records required to edit safely after a renderer restart. */
+  targetConfigs: LocalAiTarget[];
   incidents: LocalAiIncident[];
+  /** Durable, bounded recovery history projected without raw messages or errors. */
+  recoveryAttempts: LocalAiPublicRecoveryAttempt[];
   pendingFallbacks: LocalAiFallbackRequest[];
+}
+
+export interface LocalAiPublicRecoveryAttempt {
+  id: string;
+  targetId: string;
+  action: LocalAiRepairAction;
+  attemptNumber: number;
+  claimedAt: number;
+  completedAt?: number;
+  outcome: 'claimed' | 'unsupported' | 'failed' | 'not-recovered' | 'recovered';
+  supported?: boolean;
+  attempted?: boolean;
+  recovered?: boolean;
+}
+
+/** Non-secret endpoint metadata surfaced by setup discovery. */
+export interface LocalAiDiscoveredEndpoint {
+  identity: LocalAiEndpointIdentity;
+  label: string;
+  models: string[];
+  healthy: boolean;
+  enrolledTargetId?: string;
+}
+
+export interface LocalAiTargetCreateRequest {
+  config: LocalAiTargetConfig;
+}
+
+export interface LocalAiTargetUpdateRequest {
+  targetId: string;
+  patch: LocalAiTargetPatch;
+}
+
+export interface LocalAiTargetLifecycleRequest {
+  targetId: string;
+  lifecycle: 'enrolled' | 'paused' | 'retired';
+  pausedUntil?: number;
+}
+
+export type LocalAiTargetLifecycleOptions = Pick<
+  LocalAiTargetLifecycleRequest,
+  'pausedUntil'
+>;
+
+export interface LocalAiValidateRequest {
+  config: LocalAiTargetConfig;
+}
+
+export interface LocalAiRecheckRequest {
+  targetId: string;
+  kind: 'lightweight' | 'functional';
+}
+
+export interface LocalAiIncidentAcknowledgeRequest {
+  incidentId: string;
+}
+
+export interface LocalAiTargetRequest {
+  targetId: string;
+}
+
+export interface LocalAiRepairRequest extends LocalAiTargetRequest {
+  action: LocalAiRepairAction;
+  mode: 'guided' | 'automatic';
+}
+
+export interface LocalAiSummaryRequest {
+  window: LocalAiEffectivenessSummary['window'];
+}
+
+export interface LocalAiFallbackResolveRequest {
+  requestId: string;
+  resolution: LocalAiFallbackResolution;
 }

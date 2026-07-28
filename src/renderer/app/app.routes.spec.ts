@@ -106,6 +106,15 @@ describe('app routes', () => {
     expect(workRoute?.data?.['controlSurfaceId']).toBe('workboard');
   });
 
+  it('lazy-loads the Local AI health centre at /local-ai through Control Surface metadata', () => {
+    const shellRoute = findShellRoute(routes);
+    const localAiRoute = (shellRoute?.children ?? []).find((route) => route.path === 'local-ai');
+
+    expect(localAiRoute).toBeDefined();
+    expect(localAiRoute?.loadComponent).toBeTypeOf('function');
+    expect(localAiRoute?.data?.['controlSurfaceId']).toBe('local-ai');
+  });
+
   it('keeps /fleet as an explicit redirect alias to work (not a canonical surface)', () => {
     const shellRoute = findShellRoute(routes);
     const fleetRoute = (shellRoute?.children ?? []).find((route) => route.path === 'fleet');

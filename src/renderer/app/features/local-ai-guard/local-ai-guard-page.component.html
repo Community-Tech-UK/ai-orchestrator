@@ -1,0 +1,121 @@
+<div class="health-centre">
+  <span class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</span>
+
+  <header class="health-header">
+    <div>
+      <p class="eyebrow">Operational health centre</p>
+      <h1 tabindex="-1">Local capacity, proven end to end</h1>
+      <p>
+        Only enrolled endpoints are monitored. Routing follows current worker, endpoint,
+        model, and canary evidence.
+      </p>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="button secondary" [disabled]="loading()" (click)="recover()">
+        Refresh
+      </button>
+      <button type="button" class="button primary" (click)="beginEnrolment()">
+        Enrol target
+      </button>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <section class="state-card" aria-busy="true" aria-label="Loading Local AI health">
+      <strong>Loading Local AI health…</strong>
+      <span>Reading enrolled targets and current evidence.</span>
+    </section>
+  } @else if (!store.hasAuthoritativeSnapshot()) {
+    <section class="state-card unavailable" role="status">
+      <strong>Health status unavailable</strong>
+      <span>No health verdict is shown until an authoritative snapshot is available.</span>
+      <button type="button" class="button secondary" (click)="recover()">Try again</button>
+    </section>
+  } @else {
+    <section class="aggregate" [attr.data-state]="store.aggregate().state" aria-label="Local AI aggregate health">
+      <div class="aggregate-state">
+        <span class="aggregate-mark" aria-hidden="true"></span>
+        <div>
+          <span>Current aggregate</span>
+          <strong>{{ store.aggregate().state === 'not-configured' ? 'Not configured' : store.aggregate().state }}</strong>
+        </div>
+      </div>
+      <dl>
+        <div><dt>Enrolled</dt><dd>{{ store.aggregate().enrolled }}</dd></div>
+        <div><dt>Healthy</dt><dd>{{ store.aggregate().healthy }}</dd></div>
+        <div><dt>Degraded</dt><dd>{{ store.aggregate().degraded }}</dd></div>
+        <div><dt>Unavailable</dt><dd>{{ store.aggregate().unavailable }}</dd></div>
+        <div><dt>Paused</dt><dd>{{ store.aggregate().paused }}</dd></div>
+      </dl>
+    </section>
+
+    @if (store.targets().length === 0) {
+      <section class="state-card empty">
+        <strong>No enrolled targets</strong>
+        <span>
+          Discovered endpoints remain unmanaged until you validate and enrol one.
+          They do not create checks, incidents, or unhealthy status.
+        </span>
+        <button type="button" class="button primary" (click)="beginEnrolment()">Review discovery</button>
+      </section>
+    } @else {
+      <section class="targets-section" aria-labelledby="enrolled-targets-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Live evidence</p>
+            <h2 id="enrolled-targets-title">Enrolled targets</h2>
+          </div>
+          <span>{{ store.targets().length }} target{{ store.targets().length === 1 ? '' : 's' }}</span>
+        </div>
+        <div class="target-list">
+          @for (target of store.targets(); track target.targetId) {
+            <app-local-ai-target-card
+              [status]="target"
+              [targetConfig]="store.knownTarget(target.targetId)"
+              [discovery]="targetDiscovery(target.targetId)"
+              [incidents]="incidentsFor(target.targetId)"
+              [now]="now()"
+              (editRequested)="beginEdit(target.targetId)"
+              (retired)="retirementCompleted()"
+            />
+          }
+        </div>
+      </section>
+    }
+
+    @if (showSetup() || store.targets().length === 0) {
+      <app-local-ai-target-setup
+        [editingTargetId]="editingTargetId()"
+        [editingEndpoint]="editingDiscovery()"
+        [editingTarget]="store.knownTarget(editingTargetId() ?? '')"
+        [editingLifecycle]="targetLifecycle(editingTargetId() ?? '') ?? 'enrolled'"
+        (saved)="setupSaved()"
+        (cancelled)="closeSetup()"
+      />
+    }
+
+    <section class="incidents-section" aria-labelledby="active-incidents-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Operator action</p>
+          <h2 id="active-incidents-title">Active incidents</h2>
+        </div>
+        <span>{{ store.activeIncidents().length }}</span>
+      </div>
+      @if (store.activeIncidents().length === 0) {
+        <div class="quiet-state">No active Local AI incidents.</div>
+      } @else {
+        <div class="incident-list">
+          @for (incident of store.activeIncidents(); track incident.id) {
+            <app-local-ai-incident-panel
+              [incident]="incident"
+              [automaticRepairEnabled]="automaticRepairEnabled(incident.targetId)"
+            />
+          }
+        </div>
+      }
+    </section>
+
+    <app-local-ai-effectiveness-panel />
+  }
+</div>

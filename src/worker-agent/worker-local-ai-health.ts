@@ -30,8 +30,6 @@ const REPAIR_COMMAND_TIMEOUT_MS = 30_000;
 const DETACHED_LAUNCH_TIMEOUT_MS = 5_000;
 
 type LocalAiHealthCheckParams = ReturnType<typeof LocalAiHealthCheckParamsSchema.parse>;
-type LocalAiHealthDiagnoseParams = ReturnType<typeof LocalAiHealthDiagnoseParamsSchema.parse>;
-type LocalAiHealthRepairParams = ReturnType<typeof LocalAiHealthRepairParamsSchema.parse>;
 type SupportedPlatform = 'darwin' | 'win32' | 'linux';
 type FetchPort = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type ExecFilePort = (executable: string, args: readonly string[]) => Promise<void>;
@@ -195,7 +193,7 @@ export class WorkerLocalAiHealth {
       targetId: params.endpointId,
       checkedAt: this.now(),
       samples,
-      recommendedActions: recommendedActionsFor(samples),
+      recommendedActions: recommendedActionsFor(params.provider, samples),
     };
   }
 
@@ -206,6 +204,7 @@ export class WorkerLocalAiHealth {
       return {
         targetId: params.endpointId,
         action: params.action,
+        outcome: 'unsupported',
         supported: false,
         attempted: false,
         recovered: false,
@@ -219,6 +218,7 @@ export class WorkerLocalAiHealth {
       return {
         targetId: params.endpointId,
         action: params.action,
+        outcome: 'unsupported',
         supported: false,
         attempted: false,
         recovered: false,
@@ -244,9 +244,10 @@ export class WorkerLocalAiHealth {
       return {
         targetId: params.endpointId,
         action: params.action,
+        outcome: 'completed-not-recovered',
         supported: true,
         attempted: true,
-        recovered: true,
+        recovered: false,
         message: 'The fixed Ollama restart operation completed.',
         completedAt: this.now(),
       };
@@ -254,6 +255,7 @@ export class WorkerLocalAiHealth {
       return {
         targetId: params.endpointId,
         action: params.action,
+        outcome: 'execution-failed',
         supported: true,
         attempted: true,
         recovered: false,
@@ -356,7 +358,7 @@ export class WorkerLocalAiHealth {
       const output = params.provider === 'ollama'
         ? (response.data as { response?: unknown } | null)?.response
         : (response.data as {
-            choices?: Array<{ message?: { content?: unknown } }>;
+            choices?: { message?: { content?: unknown } }[];
           } | null)?.choices?.[0]?.message?.content;
       const outputValid = typeof output === 'string' && output.trim() === EXACT_TOKEN_CANARY;
       const durationMs = elapsed(this.now(), startedAt);
@@ -673,12 +675,15 @@ function responseTooLargeFailure(): ProbeFailure {
   );
 }
 
-function recommendedActionsFor(samples: LocalAiProbeResult[]): LocalAiRepairAction[] {
+function recommendedActionsFor(
+  provider: LocalAiHealthCheckParams['provider'],
+  samples: LocalAiProbeResult[],
+): LocalAiRepairAction[] {
   const actions: LocalAiRepairAction[] = ['deep-check'];
   if (samples.some((sample) => sample.failureCode === 'missing-required-model')) {
     actions.push('validate-models');
   }
-  if (samples.some((sample) =>
+  if (provider === 'ollama' && samples.some((sample) =>
     ['connection-refused', 'endpoint-timeout', 'protocol-error'].includes(sample.failureCode ?? ''))) {
     actions.push('restart-ollama');
   }

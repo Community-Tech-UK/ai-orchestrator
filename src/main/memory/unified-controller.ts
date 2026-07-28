@@ -16,6 +16,7 @@ import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getLogger } from '../logging/logger';
 import { getWakeContextBuilder } from './wake-context-builder';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
+import { runAuthorizedFrontierFallback } from '../local-ai-guard/local-ai-cost-correlation';
 
 const unifiedLogger = getLogger('UnifiedMemoryController');
 const MAX_EPISODIC_SESSIONS = 5000;
@@ -395,7 +396,7 @@ export class UnifiedMemoryController extends EventEmitter {
         results.longTerm = filteredEntries.map((e) =>
           stripMemoryTags(e.content)
         );
-      } catch (error) {
+      } catch (_error) {
         // Fallback to direct Memory-R1 if hybrid fails
         try {
           const entries = await this.memoryR1.retrieve(query, taskId);
@@ -1179,7 +1180,10 @@ export class UnifiedMemoryController extends EventEmitter {
       }
 
       const llmService = getLLMService();
-      const summary = await llmService.generate(prompts.systemPrompt, prompts.userPrompt);
+      const summary = await runAuthorizedFrontierFallback(
+        auxDecision,
+        () => llmService.generate(prompts.systemPrompt, prompts.userPrompt),
+      );
       return capSummary(summary);
     } catch (error) {
       unifiedLogger.warn('LLM summarization failed, using local fallback', {

@@ -56,26 +56,68 @@ describe('loop clean-review classifier — loopScoring offload', () => {
   });
 
   it('escalates to the frontier LLM only when the slot allows frontier fallback', async () => {
-    aux.mockResolvedValue({ text: '', source: 'fallback', allowFrontierFallback: true });
+    const decision = {
+      slot: 'loopScoring' as const,
+      provider: 'local-fallback' as const,
+      source: 'fallback' as const,
+      reason: 'authorized',
+      allowFrontierFallback: true,
+    };
+    aux.mockResolvedValue({ text: '', source: 'fallback', allowFrontierFallback: true, decision });
     frontier.mockResolvedValue('{"clean": false, "confidence": 0.9, "reason": "frontier"}');
 
     const result = await defaultCleanReviewClassifier(AMBIGUOUS_INPUT);
 
     expect(aux).toHaveBeenCalledTimes(1);
-    expect(frontier).toHaveBeenCalledTimes(1);
+    expect(frontier).toHaveBeenCalledWith(expect.any(String), expect.any(String), decision);
     expect(result.clean).toBe(false);
     expect(result.reason).toBe('frontier');
   });
 
-  it('falls back to the frontier LLM when the auxiliary backend throws', async () => {
+  it('fails unclear without the frontier LLM when the auxiliary backend throws', async () => {
     aux.mockRejectedValue(new Error('aux exploded'));
     frontier.mockResolvedValue('{"clean": false, "confidence": 0.7, "reason": "frontier saw work"}');
 
     const result = await defaultCleanReviewClassifier(AMBIGUOUS_INPUT);
 
-    expect(frontier).toHaveBeenCalledTimes(1);
+    expect(frontier).not.toHaveBeenCalled();
     expect(result.clean).toBe(false);
-    expect(result.reason).toBe('frontier saw work');
+    expect(result.confidence).toBe(0);
+    expect(result.reason).toBe('clean-review sentiment unclear');
+  });
+
+  it('fails unclear when fallback permission has no guard decision', async () => {
+    aux.mockResolvedValue({ text: '', source: 'fallback', allowFrontierFallback: true });
+
+    const result = await defaultCleanReviewClassifier(AMBIGUOUS_INPUT);
+
+    expect(frontier).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      clean: false,
+      confidence: 0,
+      reason: 'clean-review sentiment unclear',
+    });
+  });
+
+  it('does not retry a rejected authorized frontier classification', async () => {
+    const decision = {
+      slot: 'loopScoring' as const,
+      provider: 'local-fallback' as const,
+      source: 'fallback' as const,
+      reason: 'authorized',
+      allowFrontierFallback: true,
+    };
+    aux.mockResolvedValue({ text: '', source: 'fallback', allowFrontierFallback: true, decision });
+    frontier.mockRejectedValue(new Error('provider failed'));
+
+    const result = await defaultCleanReviewClassifier(AMBIGUOUS_INPUT);
+
+    expect(frontier).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      clean: false,
+      confidence: 0,
+      reason: 'clean-review sentiment unclear',
+    });
   });
 
   it('short-circuits on the deterministic classifier and never calls a model when the verdict is high-confidence', async () => {

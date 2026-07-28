@@ -139,6 +139,154 @@ describe('AutoTitleService', () => {
     expect(mockCreateAdapter).not.toHaveBeenCalled();
   });
 
+  it('fails locally without probing a paid CLI when auxiliary acquisition or authorization throws', async () => {
+    mockAuxGenerate.mockRejectedValue(new Error('authorization unavailable'));
+
+    const title = await AutoTitleService.getInstance().generateTitle(
+      'Investigate the broken deployment and summarize the fix.',
+    );
+
+    expect(title).toBeNull();
+    expect(mockIsCliAvailable).not.toHaveBeenCalled();
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('returns null without retrying when the authorized paid title call rejects', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    mockSendMessage.mockRejectedValue(new Error('provider failed'));
+
+    const title = await AutoTitleService.getInstance().generateTitle(
+      'Investigate the broken deployment and summarize the fix.',
+    );
+
+    expect(title).toBeNull();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('automatically attributes the real paid CLI adapter winner inside routing correlation', async () => {
+    mockAuxGenerate.mockResolvedValue({
+      text: '',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'local-fallback',
+        source: 'fallback',
+        reason: 'authorized',
+        allowFrontierFallback: true,
+        fallbackDisposition: 'allowed',
+        localAiRoutingEventId: 'routing-title',
+      },
+    });
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    mockSendMessage.mockResolvedValue({
+      content: 'Attributed title',
+      usage: { inputTokens: 30, outputTokens: 4, totalTokens: 34, cost: 0.01 },
+    });
+    const { subscribeCostAttribution } = await import('../core/system/cost-attribution');
+    const { applyLocalAiRoutingCostAttribution } = await import(
+      '../local-ai-guard/local-ai-runtime'
+    );
+    const records: unknown[] = [];
+    let durablePatch: Record<string, unknown> | undefined;
+    const health = {
+      getRoutingEvent: () => ({ id: 'routing-title' }),
+      updateRoutingEvent: (_eventId: string, patch: Record<string, unknown>) => {
+        durablePatch = patch;
+      },
+    };
+    const unsubscribe = subscribeCostAttribution((record) => {
+      records.push(record);
+      applyLocalAiRoutingCostAttribution({ health } as never, record);
+    });
+
+    await AutoTitleService.getInstance().generateTitle(
+      'Investigate the broken deployment and summarize the fix.',
+    );
+    unsubscribe();
+
+    const correlated = records.filter((record) => (
+      (record as { correlationId?: string }).correlationId === 'routing-title'
+    ));
+    expect(correlated).toHaveLength(1);
+    expect(correlated[0]).toEqual(expect.objectContaining({
+      correlationId: 'routing-title',
+      provider: 'anthropic',
+      usage: expect.objectContaining({ inputTokens: 30, outputTokens: 4, cost: 0.01 }),
+      costKnown: true,
+    }));
+    expect(durablePatch).toMatchObject({
+      provider: 'anthropic',
+      knownCostUsd: 0.01,
+      inputTokens: 30,
+      outputTokens: 4,
+    });
+    expect(durablePatch).not.toHaveProperty('estimatedCostUsd');
+  });
+
+  it.each([
+    ['claude', 'claude', 'anthropic', 'haiku'],
+    ['codex', 'codex', 'openai', 'gpt-5.6-luna'],
+    ['antigravity', 'antigravity', 'google', 'gemini-3.5-flash'],
+    ['antigravity', 'gemini', 'google', 'gemini-2.5-flash'],
+  ] as const)(
+    'patches a missing-cost %s CLI winner as pricing provider %s',
+    async (availableCandidate, resolvedCli, expectedProvider, expectedModel) => {
+      mockAuxGenerate.mockResolvedValue({
+        text: '',
+        decision: {
+          slot: 'titleGeneration',
+          provider: 'local-fallback',
+          source: 'fallback',
+          reason: 'authorized',
+          allowFrontierFallback: true,
+          fallbackDisposition: 'allowed',
+          localAiRoutingEventId: `routing-${resolvedCli}`,
+        },
+      });
+      mockIsCliAvailable.mockImplementation(async (type: string) => ({
+        installed: type === availableCandidate,
+      }));
+      mockResolveCliType.mockResolvedValue(resolvedCli);
+      mockSendMessage.mockResolvedValue({ content: 'Estimated title' });
+      const { subscribeCostAttribution } = await import('../core/system/cost-attribution');
+      const { applyLocalAiRoutingCostAttribution } = await import(
+        '../local-ai-guard/local-ai-runtime'
+      );
+      let durablePatch: Record<string, unknown> | undefined;
+      const health = {
+        getRoutingEvent: (eventId: string) => (
+          eventId === `routing-${resolvedCli}` ? { id: eventId } : undefined
+        ),
+        updateRoutingEvent: (_eventId: string, patch: Record<string, unknown>) => {
+          durablePatch = patch;
+        },
+      };
+      const unsubscribe = subscribeCostAttribution((record) => {
+        applyLocalAiRoutingCostAttribution({ health } as never, record);
+      });
+      const message = 'Investigate the broken deployment and summarize the fix.';
+
+      await AutoTitleService.getInstance().generateTitle(message);
+      unsubscribe();
+
+      expect(durablePatch).toMatchObject({
+        provider: expectedProvider,
+        model: expectedModel,
+        inputTokens: expect.any(Number),
+        outputTokens: expect.any(Number),
+        estimatedCostUsd: expect.any(Number),
+      });
+      expect(durablePatch?.['inputTokens']).toBeGreaterThan(Math.ceil(message.length / 4));
+      expect(durablePatch).not.toHaveProperty('knownCostUsd');
+    },
+  );
+
   it('does not accept requestedProvider parameter', async () => {
     // Verify the signature only takes 4 params
     const service = AutoTitleService.getInstance();

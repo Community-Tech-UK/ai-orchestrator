@@ -92,6 +92,7 @@ class ProbeHarness implements LocalAiRecoveryProbePort {
   checkCount = 0;
   diagnosis?: LocalAiDiagnosticReport;
   repairResult?: LocalAiRepairResult;
+  repairError?: Error;
   checkResults: LocalAiProbeResult[][] = [];
 
   async diagnose(target: LocalAiTarget): Promise<LocalAiDiagnosticReport> {
@@ -105,9 +106,11 @@ class ProbeHarness implements LocalAiRecoveryProbePort {
 
   async repair(target: LocalAiTarget, action: LocalAiRepairAction): Promise<LocalAiRepairResult> {
     this.repairCount += 1;
+    if (this.repairError) throw this.repairError;
     return this.repairResult ?? {
       targetId: target.id,
       action,
+      outcome: 'recovered',
       supported: true,
       attempted: true,
       recovered: true,
@@ -196,14 +199,45 @@ describe('LocalAiRecoveryService', () => {
     expect(result).toEqual({
       targetId: target.id,
       action: 'restart-ollama',
+      outcome: 'guided',
       supported: true,
       attempted: false,
       recovered: false,
       message: 'Quit Ollama, then open Ollama from the Applications folder.',
       completedAt: 2_000,
     });
+    expect(result).toHaveProperty('outcome', 'guided');
     expect(probes.repairCount).toBe(0);
     expect(probes.checkCount).toBe(0);
+    expect(health.listRecoveryAttempts(target.id)).toEqual([]);
+  });
+
+  it('represents an unsupported guided Ollama action as unsupported', async () => {
+    const db = openDb();
+    const targets = targetRepository(db);
+    const target = targets.create(config({
+      provider: 'openai-compatible',
+      endpointId: 'openai-compatible',
+      baseUrl: 'http://127.0.0.1:1234',
+    }));
+    const health = new LocalAiHealthRepository(db);
+    const probes = new ProbeHarness();
+
+    const result = await createService({
+      targetRepository: targets,
+      healthRepository: health,
+      probes,
+      now: () => 2_000,
+    }).repair(target.id, 'restart-ollama', 'guided');
+
+    expect(result).toMatchObject({
+      outcome: 'unsupported',
+      supported: false,
+      attempted: false,
+      recovered: false,
+      message: 'This target is not an Ollama endpoint.',
+    });
+    expect(probes.repairCount).toBe(0);
     expect(health.listRecoveryAttempts(target.id)).toEqual([]);
   });
 
@@ -229,6 +263,7 @@ describe('LocalAiRecoveryService', () => {
       recovered: false,
       message: 'Automatic Local AI repair is disabled for this target.',
     });
+    expect(result).toHaveProperty('outcome', 'not-attempted');
     expect(probes.repairCount).toBe(0);
     expect(health.listRecoveryAttempts(target.id)).toEqual([]);
   });
@@ -254,6 +289,7 @@ describe('LocalAiRecoveryService', () => {
       recovered: false,
       message: 'Ollama restart is not supported on this platform.',
     });
+    expect(result).toHaveProperty('outcome', 'unsupported');
     expect(probes.repairCount).toBe(0);
     expect(health.listRecoveryAttempts(target.id)).toEqual([]);
   });
@@ -267,6 +303,7 @@ describe('LocalAiRecoveryService', () => {
     probes.repairResult = {
       targetId: target.id,
       action: 'restart-ollama',
+      outcome: 'not-attempted',
       supported: true,
       attempted: false,
       recovered: false,
@@ -287,6 +324,7 @@ describe('LocalAiRecoveryService', () => {
       recovered: false,
       message: 'The named repair did not execute.',
     });
+    expect(result).toHaveProperty('outcome', 'not-attempted');
     expect(probes.checkCount).toBe(0);
     expect(health.listRecoveryAttempts(target.id)).toEqual([
       expect.objectContaining({
@@ -396,6 +434,7 @@ describe('LocalAiRecoveryService', () => {
       recovered: true,
       message: 'The named repair completed and required health checks passed.',
     });
+    expect(result).toHaveProperty('outcome', 'recovered');
     expect(probes.repairCount).toBe(1);
     expect(probes.checkCount).toBe(2);
     const recoverySamples = health.latestSamples(target.id)
@@ -451,6 +490,79 @@ describe('LocalAiRecoveryService', () => {
       recovered: false,
       message: 'The named repair completed, but required health checks did not pass.',
     });
+    expect(result).toHaveProperty('outcome', 'completed-not-recovered');
+  });
+
+  it('returns an explicit execution-failed outcome when the named adapter throws', async () => {
+    const db = openDb();
+    const targets = targetRepository(db);
+    const target = targets.create(config());
+    const health = new LocalAiHealthRepository(db);
+    const probes = new ProbeHarness();
+    probes.repairError = new Error('private adapter detail');
+
+    const result = await createService({
+      targetRepository: targets,
+      healthRepository: health,
+      probes,
+      now: () => 2_000,
+    }).repair(target.id, 'restart-ollama', 'automatic');
+
+    expect(result).toHaveProperty('outcome', 'execution-failed');
+    expect(result.message).toBe('The bounded Local AI repair could not be completed.');
+    expect(JSON.stringify(result)).not.toContain('private adapter detail');
+  });
+
+  it('persists a typed adapter execution failure without running recovery verification', async () => {
+    const db = openDb();
+    const targets = targetRepository(db);
+    const target = targets.create(config());
+    const health = new LocalAiHealthRepository(db);
+    const probes = new ProbeHarness();
+    probes.repairResult = {
+      targetId: target.id,
+      action: 'restart-ollama',
+      outcome: 'execution-failed',
+      supported: true,
+      attempted: true,
+      recovered: false,
+      message: 'Private adapter failure detail.',
+      completedAt: 2_001,
+    };
+    probes.checkResults = [
+      [probe(target.id, 'lightweight', 2_002)],
+      [probe(target.id, 'functional', 2_003)],
+    ];
+
+    const result = await createService({
+      targetRepository: targets,
+      healthRepository: health,
+      probes,
+      now: () => 2_000,
+    }).repair(target.id, 'restart-ollama', 'automatic');
+
+    expect(result).toEqual({
+      targetId: target.id,
+      action: 'restart-ollama',
+      outcome: 'execution-failed',
+      supported: true,
+      attempted: true,
+      recovered: false,
+      message: 'The bounded Local AI repair could not be completed.',
+      completedAt: 2_001,
+    });
+    expect(probes.repairCount).toBe(1);
+    expect(probes.checkCount).toBe(0);
+    expect(health.listRecoveryAttempts(target.id)).toEqual([
+      expect.objectContaining({
+        action: 'restart-ollama',
+        completedAt: 2_001,
+        outcome: 'failed',
+        supported: true,
+        attempted: true,
+        recovered: false,
+      }),
+    ]);
   });
 
   it('turns malformed probe identity into metadata-only monitor failures', async () => {

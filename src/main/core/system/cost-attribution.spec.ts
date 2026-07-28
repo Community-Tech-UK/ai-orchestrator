@@ -6,10 +6,12 @@ import {
   recordAuxiliaryAttribution,
   recordCostAttribution,
   recordInstanceTurnAttribution,
+  subscribeCostAttribution,
   reserveAuxiliarySpend,
   getCostAttributionFilePath,
   _resetCostAttributionForTesting,
 } from './cost-attribution';
+import { withLocalAiCostCorrelation } from '../../local-ai-guard/local-ai-cost-correlation';
 
 describe('cost-attribution', () => {
   let dir: string;
@@ -45,6 +47,50 @@ describe('cost-attribution', () => {
     recordCostAttribution({ source: 'one-shot', taskType: 'verify-orchestration' });
     // Nothing written anywhere in the temp dir.
     expect(existsSync(join(dir, `cost-attribution-${new Date().toISOString().slice(0, 10)}.jsonl`))).toBe(false);
+  });
+
+  it('notifies in-process listeners with inherited Local AI correlation when JSONL is disabled', async () => {
+    process.env['AIO_COST_ATTRIBUTION'] = '0';
+    const observed: { correlationId?: string; taskType: string }[] = [];
+    const unsubscribe = subscribeCostAttribution((record) => {
+      observed.push({ correlationId: record.correlationId, taskType: record.taskType });
+    });
+
+    await withLocalAiCostCorrelation('routing-event-1', async () => {
+      recordCostAttribution({ source: 'one-shot', taskType: 'frontier-fallback' });
+    });
+    unsubscribe();
+
+    expect(observed).toEqual([{
+      correlationId: 'routing-event-1',
+      taskType: 'frontier-fallback',
+    }]);
+    expect(getCostAttributionFilePath()).toBeNull();
+  });
+
+  it('preserves an explicit correlation id over the inherited Local AI context', async () => {
+    const observed: string[] = [];
+    const unsubscribe = subscribeCostAttribution((record) => {
+      if (record.correlationId) observed.push(record.correlationId);
+    });
+
+    await withLocalAiCostCorrelation('routing-event-context', async () => {
+      recordInstanceTurnAttribution({
+        instanceId: 'inst-explicit',
+        provider: 'claude',
+        model: 'claude-sonnet-4-6',
+        usage: { inputTokens: 12, outputTokens: 4 },
+        costKnown: false,
+      });
+      recordCostAttribution({
+        source: 'one-shot',
+        taskType: 'explicit',
+        correlationId: 'explicit-correlation',
+      });
+    });
+    unsubscribe();
+
+    expect(observed).toEqual(['routing-event-context', 'explicit-correlation']);
   });
 
   it('appends one JSON line per record when enabled', () => {

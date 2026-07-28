@@ -30,6 +30,11 @@ import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 import type { HyDEConfig, HyDEResult, CacheEntry } from './hyde-service.types';
 import { DEFAULT_CONFIG, HYDE_PROMPTS } from './hyde-service.constants';
+import {
+  runAuthorizedFrontierFallback,
+  runCorrelatedPaidFrontierCall,
+} from '../local-ai-guard/local-ai-cost-correlation';
+import { recordCorrelatedFrontierAttribution } from './frontier-cost-attribution';
 
 // Re-export public types so importers of this module continue to work unchanged
 export type { HyDEConfig, HyDEResult } from './hyde-service.types';
@@ -319,7 +324,12 @@ Generate a hypothetical document that would perfectly match this query. Write on
     const { text, decision } = await getAuxiliaryLlmService()
       .generate('retrievalHypothesis', systemPrompt, userPrompt);
     if (decision.source !== 'fallback' && text.trim()) return text;
-    if (decision.allowFrontierFallback) return this.callDirectProviders(systemPrompt, userPrompt);
+    if (decision.allowFrontierFallback) {
+      return runAuthorizedFrontierFallback(
+        decision,
+        () => this.callDirectProviders(systemPrompt, userPrompt),
+      );
+    }
     throw new HydeExpectedFallbackError();
   }
 
@@ -384,7 +394,8 @@ Generate a hypothetical document that would perfectly match this query. Write on
     userPrompt: string,
     apiKey: string
   ): Promise<string> {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await runCorrelatedPaidFrontierCall(() =>
+      fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -397,7 +408,8 @@ Generate a hypothetical document that would perfectly match this query. Write on
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
       })
-    });
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`Anthropic API error: ${response.status}`);
@@ -405,8 +417,21 @@ Generate a hypothetical document that would perfectly match this query. Write on
 
     const data = (await response.json()) as {
       content?: { text?: string }[];
+      usage?: { input_tokens?: number; output_tokens?: number };
     };
-    return data.content?.[0]?.text || '';
+    const output = data.content?.[0]?.text || '';
+    recordCorrelatedFrontierAttribution({
+      taskType: 'aux:retrievalHypothesis',
+      provider: 'anthropic',
+      model: CLAUDE_MODELS.HAIKU,
+      inputTexts: [systemPrompt, userPrompt],
+      outputText: output,
+      usage: {
+        inputTokens: data.usage?.input_tokens,
+        outputTokens: data.usage?.output_tokens,
+      },
+    });
+    return output;
   }
 
   private async callOpenAI(
@@ -414,7 +439,8 @@ Generate a hypothetical document that would perfectly match this query. Write on
     userPrompt: string,
     apiKey: string
   ): Promise<string> {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await runCorrelatedPaidFrontierCall(() =>
+      fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -428,7 +454,8 @@ Generate a hypothetical document that would perfectly match this query. Write on
           { role: 'user', content: userPrompt }
         ]
       })
-    });
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`OpenAI API error: ${response.status}`);
@@ -436,8 +463,21 @@ Generate a hypothetical document that would perfectly match this query. Write on
 
     const data = (await response.json()) as {
       choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
-    return data.choices?.[0]?.message?.content || '';
+    const output = data.choices?.[0]?.message?.content || '';
+    recordCorrelatedFrontierAttribution({
+      taskType: 'aux:retrievalHypothesis',
+      provider: 'openai',
+      model: 'gpt-3.5-turbo',
+      inputTexts: [systemPrompt, userPrompt],
+      outputText: output,
+      usage: {
+        inputTokens: data.usage?.prompt_tokens,
+        outputTokens: data.usage?.completion_tokens,
+      },
+    });
+    return output;
   }
 
   private async callOllama(

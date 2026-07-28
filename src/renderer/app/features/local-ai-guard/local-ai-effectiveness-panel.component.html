@@ -1,0 +1,114 @@
+<section class="effectiveness-panel" aria-labelledby="local-ai-effectiveness-title">
+  <div class="panel-heading">
+    <div>
+      <p class="eyebrow">Routing outcomes</p>
+      <h2 id="local-ai-effectiveness-title">Local AI effectiveness</h2>
+    </div>
+    <div class="window-filter" aria-label="Effectiveness period">
+      <button
+        type="button"
+        [attr.aria-pressed]="store.effectivenessWindow() === '24h'"
+        (click)="selectWindow('24h')"
+      >24 hours</button>
+      <button
+        type="button"
+        [attr.aria-pressed]="store.effectivenessWindow() === '7d'"
+        (click)="selectWindow('7d')"
+      >7 days</button>
+      <button
+        type="button"
+        [attr.aria-pressed]="store.effectivenessWindow() === '30d'"
+        (click)="selectWindow('30d')"
+      >30 days</button>
+    </div>
+  </div>
+
+  @if (store.effectivenessLoading() && !store.effectiveness()) {
+    <div class="panel-state" aria-busy="true">Loading effectiveness…</div>
+  } @else if (store.effectivenessError() && !store.effectiveness()) {
+    <div class="panel-state unavailable" role="status">
+      <strong>Effectiveness data unavailable</strong>
+      <span>Try another period or refresh the health centre.</span>
+    </div>
+  } @else if (store.effectiveness(); as summary) {
+    @if (isEmpty()) {
+      <div class="panel-state empty">
+        <strong>No eligible Local AI work in this period</strong>
+        <span>Routing outcomes will appear after an enrolled target handles or escalates work.</span>
+      </div>
+    } @else {
+      <div
+        class="routing-balance"
+        role="img"
+        data-effectiveness-visual
+        [attr.aria-label]="completionLabel()"
+      >
+        <div class="routing-balance-copy">
+          <strong>{{ completionPercent() }}%</strong>
+          <span>{{ summary.localTasks }} of {{ eligibleTasks() }} eligible tasks</span>
+        </div>
+        <div class="routing-rail" aria-hidden="true">
+          <span class="routing-local" [style.width.%]="completionPercent()"></span>
+        </div>
+      </div>
+
+      <dl class="outcome-metrics">
+        <div><dt>Local work</dt><dd>{{ summary.localTasks }} local tasks</dd></div>
+        <div><dt>Local tokens</dt><dd>{{ formatInteger(summary.localTokens) }} local tokens</dd></div>
+        <div><dt>Fallback proposals</dt><dd>{{ summary.proposedFallbacks }} proposed</dd></div>
+        <div><dt>Allowed</dt><dd>{{ summary.allowedFallbacks }} allowed</dd></div>
+        <div><dt>Deferred</dt><dd>{{ summary.deferredFallbacks }} deferred</dd></div>
+        <div><dt>Blocked</dt><dd>{{ summary.blockedFallbacks }} blocked</dd></div>
+      </dl>
+
+      <dl class="cost-metrics">
+        <div class="measured">
+          <dt>Measured cloud cost</dt>
+          <dd>{{ formatUsd(summary.knownCostUsd) }} measured cloud cost</dd>
+        </div>
+        <div class="estimated">
+          <dt>Estimated cloud cost</dt>
+          <dd>{{ formatUsd(summary.estimatedCostUsd) }} estimated cloud cost</dd>
+        </div>
+        <div class="estimated">
+          <dt>Estimated avoided tokens</dt>
+          <dd>{{ formatInteger(summary.avoidedEstimatedTokens) }} estimated avoided tokens</dd>
+        </div>
+        <div class="estimated">
+          <dt>Estimated avoided cost</dt>
+          <dd>{{ formatUsd(summary.avoidedEstimatedCostUsd) }} estimated avoided cost</dd>
+        </div>
+      </dl>
+
+      <div class="breakdown-heading">
+        <h3>{{ breakdownHeading() }}</h3>
+        <div class="breakdown-filter" aria-label="Effectiveness breakdown">
+          <button type="button" [attr.aria-pressed]="breakdown() === 'target'" (click)="selectBreakdown('target')">Endpoints</button>
+          <button type="button" [attr.aria-pressed]="breakdown() === 'model'" (click)="selectBreakdown('model')">Models</button>
+          <button type="button" [attr.aria-pressed]="breakdown() === 'slot'" (click)="selectBreakdown('slot')">Helper slots</button>
+          <button type="button" [attr.aria-pressed]="breakdown() === 'incident'" (click)="selectBreakdown('incident')">Incidents</button>
+        </div>
+      </div>
+
+      @if (breakdownEntries().length === 0) {
+        <p class="breakdown-empty">No {{ breakdownHeading().toLowerCase() }} in this period.</p>
+      } @else {
+        <ul class="breakdown-list">
+          @for (entry of breakdownEntries(); track entry.key) {
+            <li
+              role="img"
+              data-effectiveness-visual
+              [attr.aria-label]="breakdownVisualLabel(entry)"
+            >
+              <span class="breakdown-label">{{ entry.label }}</span>
+              <span class="breakdown-track" aria-hidden="true">
+                <span [style.width.%]="entry.percent"></span>
+              </span>
+              <strong>{{ entry.count }}</strong>
+            </li>
+          }
+        </ul>
+      }
+    }
+  }
+</section>

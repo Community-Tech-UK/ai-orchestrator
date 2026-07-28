@@ -236,12 +236,18 @@ describe('HistoryRestoreCoordinator', () => {
 
       expect(result.restoreMode).toBe('resume-unconfirmed');
       expect(queueContinuityPreamble).toHaveBeenCalledWith('native-instance', expect.any(String));
+      // Landing on a different conversation is a disproven resume: the handle
+      // is spent, so it is blacklisted even though the rung is not demoted.
+      expect(markNativeResumeFailed).toHaveBeenCalledWith('entry-1');
     });
 
-    it('returns resume-unconfirmed when adapter reports fresh-fallback but instance is alive', async () => {
+    it('keeps the rung but notices and blacklists when adapter reports fresh-fallback on a live instance', async () => {
       // fresh-fallback means the adapter did NOT attempt native resume, so proof=false.
       // The instance is still alive → coordinator returns resume-unconfirmed (not replay-fallback),
       // because the instance is up and usable even without native resume confirmation.
+      // LT-014 (James's call 2026-07-27): the rung is unchanged, but a DISPROVEN
+      // resume is no longer silent — the user gets the "could not be restored
+      // natively" notice and the spent handle is recorded.
       const aliveInstance = makeInstance({ id: 'fallback-proof-instance', status: 'idle' });
       getInstance.mockImplementation((id: string) =>
         id === 'fallback-proof-instance' ? aliveInstance : undefined,
@@ -269,8 +275,45 @@ describe('HistoryRestoreCoordinator', () => {
 
       // Alive + unconfirmed → resume-unconfirmed (proof=false short-circuits the heuristic poll)
       expect(result.restoreMode).toBe('resume-unconfirmed');
-      // markNativeResumeFailed is NOT called — the instance is alive, just unconfirmed
+      // The handle is spent, so the next restore must skip the native rung.
+      expect(markNativeResumeFailed).toHaveBeenCalledWith('entry-1');
+      // Exactly one notice, and it carries the original session id forward for
+      // that next (blacklisted) restore.
+      const notices = result.restoredMessages.filter(
+        (message) => message.metadata?.['systemMessageKind'] === 'restore-fallback',
+      );
+      expect(notices).toHaveLength(1);
+      expect(notices[0]?.content).toContain('could not be restored natively');
+      expect(notices[0]?.metadata?.['originalSessionId']).toBe('native-session');
+    });
+
+    it('stays silent when the adapter has no proof either way', async () => {
+      // Absence of proof is not proof of absence: a native attempt that simply
+      // has not echoed its session id yet must not be noticed or blacklisted.
+      const aliveInstance = makeInstance({ id: 'native-instance', status: 'idle' });
+      getInstance.mockImplementation((id: string) =>
+        id === 'native-instance' ? aliveInstance : undefined,
+      );
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = (id: string) =>
+        id === 'native-instance'
+          ? { getResumeAttemptResult: () => ({ source: 'native' as const, confirmed: false }) }
+          : undefined;
+      createInstance.mockImplementation(
+        async (config: { historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+          makeInstance({
+            id: 'native-instance',
+            historyThreadId: config.historyThreadId ?? 'history-thread',
+            outputBuffer: config.initialOutputBuffer ?? [],
+          }),
+      );
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('resume-unconfirmed');
       expect(markNativeResumeFailed).not.toHaveBeenCalled();
+      expect(result.restoredMessages.filter(
+        (message) => message.metadata?.['systemMessageKind'] === 'restore-fallback',
+      )).toHaveLength(0);
     });
   });
 
@@ -441,9 +484,10 @@ describe('HistoryRestoreCoordinator', () => {
       const result = await makeSlowProbeCoordinator().restore(manager, 'entry-1');
       const elapsed = Date.now() - startedAt;
 
-      // Rung is deliberately unchanged — an alive instance stays usable (B1/B2).
+      // Rung is deliberately unchanged — an alive instance stays usable (B1/B2) —
+      // but the disproven handle is blacklisted so the next restore skips it.
       expect(result.restoreMode).toBe('resume-unconfirmed');
-      expect(markNativeResumeFailed).not.toHaveBeenCalled();
+      expect(markNativeResumeFailed).toHaveBeenCalledWith('entry-1');
       expect(elapsed).toBeLessThan(1_000);
     });
 

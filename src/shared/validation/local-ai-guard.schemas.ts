@@ -1,4 +1,12 @@
 import { z } from 'zod';
+import {
+  AUXILIARY_DISCOVERY_MAX_CANDIDATES,
+  AUXILIARY_DISCOVERY_MAX_MODELS,
+} from '../types/auxiliary-llm.types';
+import {
+  LOCAL_AI_REVISION_CURSOR_MAX_DIGITS,
+  LOCAL_AI_TARGET_NUMERIC_LIMITS,
+} from '../types/local-ai-guard.types';
 
 const AuxiliaryLlmSlotSchema = z.enum([
   'compression',
@@ -23,6 +31,7 @@ const MAX_EVIDENCE_TEXT_LENGTH = 512;
 const MAX_EVIDENCE_ARRAY_LENGTH = 20;
 const MAX_EVIDENCE_SERIALIZED_BYTES = 4 * 1024;
 const MAX_HEALTH_STATE_TRANSITIONS = 8;
+const MAX_SUMMARY_BREAKDOWN_ENTRIES = 1_000;
 
 function isPrivateOrTailscaleIpv4(hostname: string): boolean {
   if (!hostname.split('.').every((part) => /^(0|[1-9]\d{0,2})$/.test(part))) {
@@ -170,20 +179,28 @@ const LocalAiLocationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('coordinator') }).strict(),
   z.object({ type: z.literal('worker'), nodeId: IdSchema }).strict(),
 ]);
+function boundedInteger(limit: { readonly min: number; readonly max: number }) {
+  return z.number().finite().int().min(limit.min).max(limit.max);
+}
+
+function boundedNumber(limit: { readonly min: number; readonly max: number }) {
+  return z.number().finite().min(limit.min).max(limit.max);
+}
+
 const LocalAiExpectedModelSchema = z.object({
   modelId: IdSchema,
   required: z.boolean(),
-  minContextLength: CountSchema.positive().optional(),
+  minContextLength: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength).optional(),
 }).strict();
 const LocalAiCanarySchema = z.object({
   model: IdSchema,
-  timeoutMs: CountSchema.positive(),
-  intervalMs: CountSchema.positive(),
+  timeoutMs: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.canaryTimeoutMs),
+  intervalMs: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.canaryIntervalMs),
 }).strict();
 const LocalAiRecoverySchema = z.object({
   automatic: z.boolean(),
-  maxAttempts: CountSchema,
-  cooldownMs: CountSchema,
+  maxAttempts: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.recoveryMaxAttempts),
+  cooldownMs: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.recoveryCooldownMs),
 }).strict();
 
 const LocalAiTargetConfigObjectSchema = z.object({
@@ -194,15 +211,23 @@ const LocalAiTargetConfigObjectSchema = z.object({
   baseUrl: LocalAiEndpointUrlSchema,
   expectedModels: z.array(LocalAiExpectedModelSchema).min(1).max(100),
   canary: LocalAiCanarySchema,
-  endpointCheckIntervalMs: CountSchema.positive(),
-  freshnessLimitMs: CountSchema.positive(),
-  warningLatencyMs: CountSchema.positive(),
+  endpointCheckIntervalMs: boundedInteger(
+    LOCAL_AI_TARGET_NUMERIC_LIMITS.endpointCheckIntervalMs,
+  ),
+  freshnessLimitMs: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.freshnessLimitMs),
+  warningLatencyMs: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.warningLatencyMs),
   routingRoles: z.array(AuxiliaryLlmSlotSchema).max(50),
   fallbackPolicy: LocalAiFallbackPolicySchema,
   slotFallbackPolicies: z.partialRecord(AuxiliaryLlmSlotSchema, LocalAiFallbackPolicySchema),
-  confirmAboveInputTokens: CountSchema.optional(),
-  dailyFallbackBudgetUsd: CostSchema.optional(),
-  incidentFallbackBudgetUsd: CostSchema.optional(),
+  confirmAboveInputTokens: boundedInteger(
+    LOCAL_AI_TARGET_NUMERIC_LIMITS.confirmAboveInputTokens,
+  ).optional(),
+  dailyFallbackBudgetUsd: boundedNumber(
+    LOCAL_AI_TARGET_NUMERIC_LIMITS.fallbackBudgetUsd,
+  ).optional(),
+  incidentFallbackBudgetUsd: boundedNumber(
+    LOCAL_AI_TARGET_NUMERIC_LIMITS.fallbackBudgetUsd,
+  ).optional(),
   recovery: LocalAiRecoverySchema,
 }).strict();
 
@@ -219,13 +244,36 @@ function requireEnrolledRoutingRole(
   }
 }
 
+function requireValidTargetModelRelationships(
+  target: { expectedModels?: { modelId: string }[]; canary?: { model: string } },
+  context: z.core.$RefinementCtx,
+): void {
+  const modelIds = target.expectedModels?.map(({ modelId }) => modelId);
+  if (modelIds && new Set(modelIds).size !== modelIds.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['expectedModels'],
+      message: 'Expected Local AI model IDs must be unique',
+    });
+  }
+  if (modelIds && target.canary && !modelIds.includes(target.canary.model)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['canary', 'model'],
+      message: 'Canary model must be present in expectedModels',
+    });
+  }
+}
+
 export const LocalAiTargetConfigSchema = LocalAiTargetConfigObjectSchema
-  .superRefine(requireEnrolledRoutingRole);
+  .superRefine(requireEnrolledRoutingRole)
+  .superRefine(requireValidTargetModelRelationships);
 
 export const LocalAiTargetPatchSchema = LocalAiTargetConfigObjectSchema
   .omit({ location: true, provider: true, endpointId: true })
   .partial()
-  .strict();
+  .strict()
+  .superRefine(requireValidTargetModelRelationships);
 
 export const LocalAiTargetSchema = LocalAiTargetConfigObjectSchema.extend({
   id: IdSchema,
@@ -234,7 +282,9 @@ export const LocalAiTargetSchema = LocalAiTargetConfigObjectSchema.extend({
   updatedAt: TimestampSchema,
   pausedUntil: TimestampSchema.optional(),
   retiredAt: TimestampSchema.optional(),
-}).strict().superRefine(requireEnrolledRoutingRole);
+}).strict()
+  .superRefine(requireEnrolledRoutingRole)
+  .superRefine(requireValidTargetModelRelationships);
 
 export const LocalAiEndpointIdentitySchema = z.object({
   location: LocalAiLocationSchema,
@@ -242,6 +292,17 @@ export const LocalAiEndpointIdentitySchema = z.object({
   endpointId: IdSchema,
   baseUrl: LocalAiEndpointUrlSchema,
 }).strict();
+
+export const LocalAiDiscoveredEndpointSchema = z.object({
+  identity: LocalAiEndpointIdentitySchema,
+  label: IdSchema,
+  models: z.array(IdSchema).max(AUXILIARY_DISCOVERY_MAX_MODELS),
+  healthy: z.boolean(),
+  enrolledTargetId: IdSchema.optional(),
+}).strict();
+
+export const LocalAiDiscoveredEndpointsSchema = z.array(LocalAiDiscoveredEndpointSchema)
+  .max(AUXILIARY_DISCOVERY_MAX_CANDIDATES);
 
 const LocalAiEvidenceTextSchema = z.string().trim().min(1).max(MAX_EVIDENCE_TEXT_LENGTH);
 const LocalAiEvidenceValueSchema = z.union([
@@ -294,6 +355,8 @@ export const LocalAiProbeResultSchema = z.object({
   message: z.string().trim().min(1).max(4_000).optional(),
   evidence: LocalAiProbeEvidenceSchema,
 }).strict();
+
+export const LocalAiProbeResultsSchema = z.array(LocalAiProbeResultSchema).max(10);
 
 export const LocalAiHealthSampleSchema = LocalAiProbeResultSchema.extend({
   id: IdSchema,
@@ -421,6 +484,8 @@ export const LocalAiFallbackRequestInputSchema = LocalAiFallbackRequestSchema
   .omit({ id: true, status: true, createdAt: true, resolvedAt: true, resolution: true })
   .strict();
 export const LocalAiFallbackResolutionSchema = z.enum(['allow-once', 'allow-incident', 'defer', 'block']);
+export const LocalAiPendingFallbackRequestsSchema = z.array(LocalAiFallbackRequestSchema)
+  .max(1_000);
 
 export const LocalAiDiagnosticReportSchema = z.object({
   targetId: IdSchema,
@@ -429,15 +494,70 @@ export const LocalAiDiagnosticReportSchema = z.object({
   recommendedActions: z.array(LocalAiRepairActionSchema),
 }).strict();
 
+export const LocalAiPublicDiagnosticReportSchema = LocalAiDiagnosticReportSchema.extend({
+  samples: LocalAiProbeResultsSchema,
+  recommendedActions: z.array(LocalAiRepairActionSchema).max(10),
+}).strict();
+
+export const LocalAiRepairOutcomeSchema = z.enum([
+  'guided',
+  'unsupported',
+  'not-attempted',
+  'execution-failed',
+  'completed-not-recovered',
+  'recovered',
+]);
+
 export const LocalAiRepairResultSchema = z.object({
   targetId: IdSchema,
   action: LocalAiRepairActionSchema,
+  outcome: LocalAiRepairOutcomeSchema,
   supported: z.boolean(),
   attempted: z.boolean(),
   recovered: z.boolean(),
   message: z.string().trim().min(1).max(4_000),
   completedAt: TimestampSchema,
-}).strict();
+}).strict().superRefine((result, context) => {
+  const coherent =
+    (result.outcome === 'guided' && result.supported && !result.attempted && !result.recovered)
+    || (
+      result.outcome === 'unsupported'
+      && !result.supported
+      && !result.attempted
+      && !result.recovered
+    )
+    || (
+      result.outcome === 'not-attempted'
+      && result.supported
+      && !result.attempted
+      && !result.recovered
+    )
+    || (
+      result.outcome === 'execution-failed'
+      && result.supported
+      && result.attempted
+      && !result.recovered
+    )
+    || (
+      result.outcome === 'completed-not-recovered'
+      && result.supported
+      && result.attempted
+      && !result.recovered
+    )
+    || (
+      result.outcome === 'recovered'
+      && result.supported
+      && result.attempted
+      && result.recovered
+    );
+  if (!coherent) {
+    context.addIssue({
+      code: 'custom',
+      path: ['outcome'],
+      message: 'Local AI repair outcome is inconsistent with execution flags',
+    });
+  }
+});
 
 export const LocalAiEffectivenessSummarySchema = z.object({
   window: z.enum(['24h', '7d', '30d']),
@@ -455,6 +575,22 @@ export const LocalAiEffectivenessSummarySchema = z.object({
   byModel: z.record(z.string(), CountSchema),
   bySlot: z.partialRecord(AuxiliaryLlmSlotSchema, CountSchema),
   byIncident: z.record(z.string(), CountSchema),
+}).strict();
+
+const LocalAiPublicSummaryBreakdownSchema = z.record(IdSchema, CountSchema)
+  .superRefine((breakdown, context) => {
+    if (Object.keys(breakdown).length > MAX_SUMMARY_BREAKDOWN_ENTRIES) {
+      context.addIssue({
+        code: 'custom',
+        message: `Local AI summary breakdowns must not exceed ${MAX_SUMMARY_BREAKDOWN_ENTRIES} entries`,
+      });
+    }
+  });
+
+export const LocalAiPublicEffectivenessSummarySchema = LocalAiEffectivenessSummarySchema.extend({
+  byTarget: LocalAiPublicSummaryBreakdownSchema,
+  byModel: LocalAiPublicSummaryBreakdownSchema,
+  byIncident: LocalAiPublicSummaryBreakdownSchema,
 }).strict();
 
 export const LocalAiRetentionReportSchema = z.object({
@@ -478,9 +614,85 @@ export const LocalAiFallbackVerdictSchema = z.object({
   fallbackRequestId: IdSchema.optional(),
 }).strict();
 
+export const LocalAiRevisionCursorSchema = z.string()
+  .max(LOCAL_AI_REVISION_CURSOR_MAX_DIGITS)
+  .regex(/^(?:0|[1-9]\d*)$/);
+
+export const LocalAiPublicRecoveryAttemptSchema = z.object({
+  id: IdSchema,
+  targetId: IdSchema,
+  action: LocalAiRepairActionSchema,
+  attemptNumber: CountSchema,
+  claimedAt: TimestampSchema,
+  completedAt: TimestampSchema.optional(),
+  outcome: z.enum(['claimed', 'unsupported', 'failed', 'not-recovered', 'recovered']),
+  supported: z.boolean().optional(),
+  attempted: z.boolean().optional(),
+  recovered: z.boolean().optional(),
+}).strict();
+
 export const LocalAiGuardSnapshotSchema = z.object({
+  revision: LocalAiRevisionCursorSchema,
   aggregate: LocalAiAggregateStatusSchema,
-  targets: z.array(LocalAiTargetStatusSchema),
-  incidents: z.array(LocalAiIncidentSchema),
-  pendingFallbacks: z.array(LocalAiFallbackRequestSchema),
+  targets: z.array(LocalAiTargetStatusSchema).max(1_000),
+  targetConfigs: z.array(LocalAiTargetSchema).max(1_000),
+  incidents: z.array(LocalAiIncidentSchema).max(100),
+  recoveryAttempts: z.array(LocalAiPublicRecoveryAttemptSchema).max(1_000),
+  pendingFallbacks: z.array(LocalAiFallbackRequestSchema).max(1_000),
+}).strict();
+
+export const LocalAiEmptyRequestSchema = z.undefined();
+
+export const LocalAiTargetCreateRequestSchema = z.object({
+  config: LocalAiTargetConfigSchema,
+}).strict();
+
+export const LocalAiTargetUpdateRequestSchema = z.object({
+  targetId: IdSchema,
+  patch: LocalAiTargetPatchSchema,
+}).strict();
+
+export const LocalAiTargetLifecycleRequestSchema = z.object({
+  targetId: IdSchema,
+  lifecycle: z.enum(['enrolled', 'paused', 'retired']),
+  pausedUntil: TimestampSchema.optional(),
+}).strict().superRefine((request, context) => {
+  if (request.lifecycle !== 'paused' && request.pausedUntil !== undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['pausedUntil'],
+      message: 'A pause deadline is valid only for a paused Local AI target',
+    });
+  }
+});
+
+export const LocalAiValidateRequestSchema = z.object({
+  config: LocalAiTargetConfigSchema,
+}).strict();
+
+export const LocalAiRecheckRequestSchema = z.object({
+  targetId: IdSchema,
+  kind: z.enum(['lightweight', 'functional']),
+}).strict();
+
+export const LocalAiIncidentAcknowledgeRequestSchema = z.object({
+  incidentId: IdSchema,
+}).strict();
+
+export const LocalAiTargetRequestSchema = z.object({
+  targetId: IdSchema,
+}).strict();
+
+export const LocalAiRepairRequestSchema = LocalAiTargetRequestSchema.extend({
+  action: LocalAiRepairActionSchema,
+  mode: z.enum(['guided', 'automatic']),
+}).strict();
+
+export const LocalAiSummaryRequestSchema = z.object({
+  window: z.enum(['24h', '7d', '30d']),
+}).strict();
+
+export const LocalAiFallbackResolveRequestSchema = z.object({
+  requestId: IdSchema,
+  resolution: LocalAiFallbackResolutionSchema,
 }).strict();

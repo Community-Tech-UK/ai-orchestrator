@@ -32,6 +32,11 @@ import { getAuxiliaryLlmService } from './auxiliary-llm-service';
 import type { AuxiliaryLlmSlot } from '../../shared/types/auxiliary-llm.types';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 import { generateLocalFallback, fallbackSummarize } from './llm-service-fallbacks';
+import {
+  runAuthorizedFrontierFallback,
+  runCorrelatedPaidFrontierCall,
+} from '../local-ai-guard/local-ai-cost-correlation';
+import { recordCorrelatedFrontierAttribution } from './frontier-cost-attribution';
 
 // Re-export public API so existing importers are unaffected.
 export type {
@@ -123,62 +128,64 @@ export class LLMService extends EventEmitter {
 ${request.content}
 
 Summary:`;
+    const localFallback = (): string => {
+      const summary = fallbackSummarize(request.content, request.targetTokens);
+      this.emit('summarize:complete', {
+        requestId: request.requestId,
+        summary,
+        originalTokens: this.countTokens(request.content),
+        summaryTokens: this.countTokens(summary),
+      } as SummarizeResponse);
+      return summary;
+    };
 
     // Try auxiliary LLM first (local/cheap model) before calling the primary LLM.
+    let auxiliary: Awaited<ReturnType<ReturnType<typeof getAuxiliaryLlmService>['generate']>>;
     try {
-      const { text: auxText, decision: auxDecision } = await getAuxiliaryLlmService().generate(
+      auxiliary = await getAuxiliaryLlmService().generate(
         'compression',
         SUMMARIZE_SYSTEM_PROMPT,
         userPrompt
       );
-      if (auxDecision.source !== 'fallback' && auxText.trim()) {
-        const originalTokens = this.countTokens(request.content);
-        const summaryTokens = this.countTokens(auxText);
-        this.emit('summarize:complete', {
-          requestId: request.requestId,
-          summary: auxText,
-          originalTokens,
-          summaryTokens,
-        } as SummarizeResponse);
-        return auxText;
-      }
-      if (!auxDecision.allowFrontierFallback) {
-        // Frontier fallback disabled for the compression slot — return the
-        // deterministic local summary instead of calling the primary (cloud) LLM.
-        const summary = fallbackSummarize(request.content, request.targetTokens);
-        this.emit('summarize:complete', {
-          requestId: request.requestId,
-          summary,
-          originalTokens: this.countTokens(request.content),
-          summaryTokens: this.countTokens(summary),
-        } as SummarizeResponse);
-        return summary;
-      }
     } catch {
-      // Auxiliary service unavailable in this context — fall through to primary LLM
+      return localFallback();
     }
-
-    try {
-      const summary = await this.generateCompletion(SUMMARIZE_SYSTEM_PROMPT, userPrompt);
+    const { text: auxText, decision: auxDecision } = auxiliary;
+    if (auxDecision.source !== 'fallback' && auxText.trim()) {
       const originalTokens = this.countTokens(request.content);
-      const summaryTokens = this.countTokens(summary);
-
+      const summaryTokens = this.countTokens(auxText);
       this.emit('summarize:complete', {
         requestId: request.requestId,
-        summary,
+        summary: auxText,
         originalTokens,
         summaryTokens,
       } as SummarizeResponse);
-
-      return summary;
+      return auxText;
+    }
+    if (!auxDecision.allowFrontierFallback) {
+      // Frontier fallback disabled for the compression slot — return the
+      // deterministic local summary instead of calling the primary (cloud) LLM.
+      return localFallback();
+    }
+    try {
+      return await runAuthorizedFrontierFallback(auxDecision, async () => {
+        const summary = await this.generateCompletion(SUMMARIZE_SYSTEM_PROMPT, userPrompt);
+        const originalTokens = this.countTokens(request.content);
+        const summaryTokens = this.countTokens(summary);
+        this.emit('summarize:complete', {
+          requestId: request.requestId,
+          summary,
+          originalTokens,
+          summaryTokens,
+        } as SummarizeResponse);
+        return summary;
+      });
     } catch (error) {
       this.emit('summarize:error', {
         requestId: request.requestId,
         error: (error as Error).message,
       });
-
-      // Return fallback summary
-      return fallbackSummarize(request.content, request.targetTokens);
+      return localFallback();
     }
   }
 
@@ -303,35 +310,7 @@ ${request.context}
 Question: ${request.prompt}
 
 Answer:`;
-
-    try {
-      const { text, decision } = await getAuxiliaryLlmService().generate(
-        slot,
-        SUBQUERY_SYSTEM_PROMPT,
-        userPrompt
-      );
-
-      if (decision.source !== 'fallback' && text.trim()) {
-        this.emit('sub_query:complete', {
-          requestId: request.requestId,
-          response: text,
-          depth: request.depth,
-          tokens: {
-            input: this.countTokens(request.context + request.prompt),
-            output: this.countTokens(text),
-          },
-        } as SubQueryResponse);
-        return text;
-      }
-
-      if (decision.allowFrontierFallback) {
-        // Preserve today's behavior: cloud/localhost ladder + subQuery's fallback.
-        return this.subQuery(request);
-      }
-
-      // Frontier escalation disallowed for this slot — deterministic local result.
-      // Emit a completion for parity with subQuery() and the real-aux path above,
-      // so event consumers (telemetry/UI) still see a terminal sub_query:complete.
+    const localUnavailable = (): string => {
       this.emit('sub_query:complete', {
         requestId: request.requestId,
         response: LLM_UNAVAILABLE_TEXT,
@@ -342,13 +321,45 @@ Answer:`;
         },
       } as SubQueryResponse);
       return LLM_UNAVAILABLE_TEXT;
+    };
+
+    let auxiliary: Awaited<ReturnType<ReturnType<typeof getAuxiliaryLlmService>['generate']>>;
+    try {
+      auxiliary = await getAuxiliaryLlmService().generate(
+        slot,
+        SUBQUERY_SYSTEM_PROMPT,
+        userPrompt
+      );
     } catch (error) {
-      // Auxiliary service unavailable in this context — preserve old behavior.
-      logger.debug('Auxiliary subQuery failed; falling back to frontier subQuery', {
+      logger.debug('Auxiliary subQuery failed; staying local', {
         slot,
         error: error instanceof Error ? error.message : String(error),
       });
-      return this.subQuery(request);
+      return localUnavailable();
+    }
+    const { text, decision } = auxiliary;
+    if (decision.source !== 'fallback' && text.trim()) {
+      this.emit('sub_query:complete', {
+        requestId: request.requestId,
+        response: text,
+        depth: request.depth,
+        tokens: {
+          input: this.countTokens(request.context + request.prompt),
+          output: this.countTokens(text),
+        },
+      } as SubQueryResponse);
+      return text;
+    }
+    if (!decision.allowFrontierFallback) return localUnavailable();
+    try {
+      // Preserve today's provider ladder, but only inside the authorized scope.
+      return await runAuthorizedFrontierFallback(decision, () => this.subQuery(request));
+    } catch (error) {
+      logger.debug('Authorized frontier subQuery failed; staying local', {
+        slot,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return localUnavailable();
     }
   }
 
@@ -583,18 +594,20 @@ Answer:`;
     requestId: string,
     signal: AbortSignal
   ): AsyncGenerator<StreamChunk, void, unknown> {
-    if (!this.config.anthropicApiKey) {
+    const apiKey = this.config.anthropicApiKey;
+    if (!apiKey) {
       throw new Error('Anthropic API key not configured');
     }
 
     const model = this.config.model || CLAUDE_MODELS.HAIKU;
     const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await runCorrelatedPaidFrontierCall(() =>
+      fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': this.config.anthropicApiKey,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -606,7 +619,8 @@ Answer:`;
         stream: true,
       }),
       signal,
-    });
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`Anthropic error: ${response.status} ${response.statusText}`);
@@ -757,7 +771,8 @@ Answer:`;
     const model = this.config.model || OPENAI_MODELS.GPT55_MINI;
     const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await runCorrelatedPaidFrontierCall(() =>
+      fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -774,7 +789,8 @@ Answer:`;
         stream: true,
       }),
       signal,
-    });
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`OpenAI error: ${response.status} ${response.statusText}`);
@@ -838,18 +854,20 @@ Answer:`;
    * Generate completion using Anthropic API (non-streaming)
    */
   private async generateWithAnthropic(systemPrompt: string, userPrompt: string): Promise<string> {
-    if (!this.config.anthropicApiKey) {
+    const apiKey = this.config.anthropicApiKey;
+    if (!apiKey) {
       throw new Error('Anthropic API key not configured');
     }
 
     const model = this.config.model || CLAUDE_MODELS.HAIKU; // Use Haiku for speed
     const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await runCorrelatedPaidFrontierCall(() =>
+      fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': this.config.anthropicApiKey,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -859,7 +877,8 @@ Answer:`;
         system: safePrompts.systemPrompt,
         messages: [{ role: 'user', content: safePrompts.userPrompt }],
       }),
-    });
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`Anthropic error: ${response.status} ${response.statusText}`);
@@ -867,10 +886,23 @@ Answer:`;
 
     const data = (await response.json()) as {
       content: { type: string; text: string }[];
+      usage?: { input_tokens?: number; output_tokens?: number };
     };
 
     this.anthropicAvailable = true;
-    return data.content[0]?.text || '';
+    const output = data.content[0]?.text || '';
+    recordCorrelatedFrontierAttribution({
+      taskType: 'local-ai-frontier-fallback',
+      provider: 'anthropic',
+      model,
+      inputTexts: [systemPrompt, userPrompt],
+      outputText: output,
+      usage: {
+        inputTokens: data.usage?.input_tokens,
+        outputTokens: data.usage?.output_tokens,
+      },
+    });
+    return output;
   }
 
   /**
@@ -915,7 +947,8 @@ Answer:`;
     const model = this.config.model || OPENAI_MODELS.GPT55_MINI; // Use mini for speed
     const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await runCorrelatedPaidFrontierCall(() =>
+      fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -930,7 +963,8 @@ Answer:`;
           { role: 'user', content: safePrompts.userPrompt },
         ],
       }),
-    });
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`OpenAI error: ${response.status} ${response.statusText}`);
@@ -938,10 +972,23 @@ Answer:`;
 
     const data = (await response.json()) as {
       choices: { message: { content: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
 
     this.openaiAvailable = true;
-    return data.choices[0]?.message?.content || '';
+    const output = data.choices[0]?.message?.content || '';
+    recordCorrelatedFrontierAttribution({
+      taskType: 'local-ai-frontier-fallback',
+      provider: 'openai',
+      model,
+      inputTexts: [systemPrompt, userPrompt],
+      outputText: output,
+      usage: {
+        inputTokens: data.usage?.prompt_tokens,
+        outputTokens: data.usage?.completion_tokens,
+      },
+    });
+    return output;
   }
 
   /**

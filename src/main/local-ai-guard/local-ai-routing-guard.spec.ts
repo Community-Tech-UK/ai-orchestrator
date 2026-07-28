@@ -42,14 +42,14 @@ function config(overrides: Partial<LocalAiTargetConfig> = {}): LocalAiTargetConf
     endpointId: 'local-main',
     baseUrl: 'http://127.0.0.1:11434',
     expectedModels: [{ modelId: 'local-model', required: true }],
-    canary: { model: 'local-model', timeoutMs: 1_000, intervalMs: 60_000 },
+    canary: { model: 'local-model', timeoutMs: 5_000, intervalMs: 120_000 },
     endpointCheckIntervalMs: 30_000,
     freshnessLimitMs: 60_000,
     warningLatencyMs: 2_000,
     routingRoles: ['compression', 'titleGeneration'],
     fallbackPolicy: 'notify-and-allow',
     slotFallbackPolicies: {},
-    recovery: { automatic: false, maxAttempts: 0, cooldownMs: 0 },
+    recovery: { automatic: false, maxAttempts: 1, cooldownMs: 60_000 },
     ...overrides,
   };
 }

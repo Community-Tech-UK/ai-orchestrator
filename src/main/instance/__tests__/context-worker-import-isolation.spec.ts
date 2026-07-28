@@ -30,10 +30,11 @@ import { fileURLToPath } from 'node:url';
 const SPEC_DIR = dirname(fileURLToPath(import.meta.url));
 const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 
-// Baseline closure size after the barrel→deep-import fix is 56 modules; the
-// barrel-coupled regression was 228. This ceiling catches a re-coupling long
-// before it reaches that, with headroom for legitimate growth.
-const CLOSURE_SIZE_CEILING = 120;
+// Baseline closure size after the barrel→deep-import fix was 56 modules; the
+// barrel-coupled regression was 228. Task 9's worker-safe Local AI Guard
+// routing/correlation integration brings the measured closure to 121 modules.
+// This ceiling still catches a re-coupling long before the 228-module failure.
+const CLOSURE_SIZE_CEILING = 124;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

@@ -12,6 +12,8 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getLessonStore } from '../memory/lesson-store';
 import { redactForEgress } from '../security/content-egress-gate';
+import { getLLMService } from '../rlm/llm-service';
+import { runAuthorizedFrontierFallback } from '../local-ai-guard/local-ai-cost-correlation';
 import {
   captureReviewLesson,
   type ReviewLessonKind,
@@ -55,6 +57,13 @@ export function captureReviewLessonForVerdict(opts: {
         // may run on a remote frontier model — gate the prompt before egress.
         const gatedPrompt = redactForEgress(userPrompt, { kind: 'prompt' }).content;
         const { text, decision } = await getAuxiliaryLlmService().generate('memoryDistillation', systemPrompt, gatedPrompt);
+        if (decision.source === 'fallback' && decision.allowFrontierFallback) {
+          const frontierText = await runAuthorizedFrontierFallback(
+            decision,
+            () => getLLMService().generate(systemPrompt, gatedPrompt),
+          );
+          return { text: frontierText, source: 'frontier' };
+        }
         return { text, source: decision.source };
       },
       captureLesson: (text) => {

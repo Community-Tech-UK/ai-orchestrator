@@ -72,6 +72,8 @@ interface Harness {
   retention: ReturnType<typeof vi.fn<LocalAiHealthSchedulerDependencies['health']['runRetention']>>;
   appended: LocalAiHealthSample[];
   transitions: LocalAiTargetStatus[];
+  statusEvents: LocalAiTargetStatus[];
+  lifecycleChanges: ReturnType<typeof vi.fn>;
   replaceTarget(value: LocalAiTarget): void;
 }
 
@@ -89,16 +91,40 @@ function harness(
   const activity = new LocalAiActivityRegistry();
   const appended: LocalAiHealthSample[] = [];
   const transitions: LocalAiTargetStatus[] = [];
+  const statusEvents: LocalAiTargetStatus[] = [];
   const checks = vi.fn(checkImplementation ?? (async (value, kind) => probe(value, kind)));
   const retention = vi.fn(options.retention ?? (() => ({
     samplesDeleted: 0,
     routingEventsDeleted: 0,
     daysAggregated: 0,
   })));
+  const lifecycleChanges = vi.fn((
+    targetId: string,
+    lifecycle: 'enrolled' | 'paused' | 'retired',
+    lifecycleOptions?: { pausedUntil?: number },
+  ) => {
+    const current = byId.get(targetId);
+    if (!current) throw new Error('missing target');
+    const updated = {
+      ...current,
+      lifecycle,
+      updatedAt: Date.now(),
+      ...(lifecycle === 'paused' && lifecycleOptions?.pausedUntil !== undefined
+        ? { pausedUntil: lifecycleOptions.pausedUntil }
+        : {}),
+      ...(lifecycle === 'retired' ? { retiredAt: Date.now() } : {}),
+    };
+    if (lifecycle !== 'paused') delete updated.pausedUntil;
+    if (lifecycle !== 'retired') delete updated.retiredAt;
+    byId.set(targetId, updated);
+    scheduler.targetChanged(targetId);
+    return updated;
+  });
   const scheduler = new LocalAiHealthScheduler({
     targets: {
       get: (id) => byId.get(id),
       list: () => [...byId.values()],
+      setLifecycle: lifecycleChanges,
     },
     health: {
       appendSample: (sample) => appended.push(sample),
@@ -124,6 +150,7 @@ function harness(
     },
     createId: randomUUID,
   });
+  scheduler.subscribe((status) => statusEvents.push(status));
   return {
     scheduler,
     activity,
@@ -131,6 +158,8 @@ function harness(
     retention,
     appended,
     transitions,
+    statusEvents,
+    lifecycleChanges,
     replaceTarget: (value) => byId.set(value.id, value),
   };
 }
@@ -260,6 +289,119 @@ describe('LocalAiHealthScheduler', () => {
     expect(checks).toHaveBeenCalledTimes(2);
     scheduler.stop();
   });
+
+  it('keeps a timed pause excluded until its deadline, then resumes and checks without renderer involvement', async () => {
+    const value = target('target-a', {
+      lifecycle: 'paused',
+      pausedUntil: START + 5_000,
+      updatedAt: START - 1_000,
+    });
+    const { scheduler, checks, lifecycleChanges, statusEvents } = harness([value]);
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(checks).not.toHaveBeenCalled();
+    expect(lifecycleChanges).not.toHaveBeenCalled();
+    expect(scheduler.getStatus(value.id)).toMatchObject({
+      lifecycle: 'paused',
+      state: 'paused',
+      routableRoles: [],
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(lifecycleChanges).toHaveBeenCalledOnce();
+    expect(lifecycleChanges).toHaveBeenCalledWith(value.id, 'enrolled');
+    expect(checks).toHaveBeenCalledOnce();
+    expect(statusEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: value.id,
+        lifecycle: 'enrolled',
+        state: 'checking',
+        routableRoles: [],
+      }),
+      expect.objectContaining({
+        targetId: value.id,
+        lifecycle: 'enrolled',
+        state: 'healthy',
+        routableRoles: ['compression'],
+      }),
+    ]));
+    scheduler.stop();
+  });
+
+  it('restores a timed pause after restart and resumes an already expired deadline once', async () => {
+    const value = target('target-a', {
+      lifecycle: 'paused',
+      pausedUntil: START - 1,
+      updatedAt: START - 10,
+    });
+    const { scheduler, checks, lifecycleChanges } = harness([value]);
+
+    scheduler.start();
+    scheduler.targetChanged(value.id);
+    await flush();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(lifecycleChanges).toHaveBeenCalledOnce();
+    expect(checks).toHaveBeenCalledOnce();
+    expect(scheduler.getStatus(value.id)).toMatchObject({
+      lifecycle: 'enrolled',
+      state: 'healthy',
+    });
+    scheduler.stop();
+  });
+
+  it('leaves an indefinite pause suspended across arbitrary time', async () => {
+    const value = target('target-a', {
+      lifecycle: 'paused',
+      updatedAt: START,
+    });
+    const { scheduler, checks, lifecycleChanges } = harness([value]);
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(DAY_MS * 30);
+
+    expect(lifecycleChanges).not.toHaveBeenCalled();
+    expect(checks).not.toHaveBeenCalled();
+    expect(scheduler.getStatus(value.id)).toMatchObject({
+      lifecycle: 'paused',
+      state: 'paused',
+    });
+    scheduler.stop();
+  });
+
+  it.each(['enrolled', 'retired'] as const)(
+    'gives a manual %s transition precedence over a pending timed-pause expiry',
+    async (lifecycle) => {
+      const value = target('target-a', {
+        lifecycle: 'paused',
+        pausedUntil: START + 5_000,
+        updatedAt: START,
+      });
+      const harnessValue = harness([value]);
+      harnessValue.scheduler.start();
+
+      harnessValue.replaceTarget(target(value.id, {
+        lifecycle,
+        updatedAt: START + 1_000,
+        ...(lifecycle === 'retired' ? { retiredAt: START + 1_000 } : {}),
+      }));
+      harnessValue.scheduler.targetChanged(value.id);
+      harnessValue.lifecycleChanges.mockClear();
+      harnessValue.checks.mockClear();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(harnessValue.lifecycleChanges).not.toHaveBeenCalled();
+      if (lifecycle === 'enrolled') {
+        expect(harnessValue.checks).toHaveBeenCalled();
+      } else {
+        expect(harnessValue.checks).not.toHaveBeenCalled();
+      }
+      harnessValue.scheduler.stop();
+    },
+  );
 
   it('uses both lightweight and functional target interval overrides', async () => {
     const value = target('target-a', {
@@ -919,5 +1061,33 @@ describe('LocalAiHealthScheduler', () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(checks).toHaveBeenCalledTimes(2);
     scheduler.stop();
+  });
+
+  it('preserves allow-listed model drift evidence while dropping raw probe messages', async () => {
+    const value = target('target-a');
+    const { scheduler, appended } = harness([value], async () => [{
+      targetId: value.id,
+      layer: 'model',
+      checkType: 'lightweight',
+      ok: false,
+      required: true,
+      affectedRoles: ['compression'],
+      checkedAt: START,
+      durationMs: 4,
+      failureCode: 'configuration-drift',
+      message: 'private raw backend detail',
+      evidence: {
+        advertisedModels: ['qwen3:8b'],
+        missingModels: ['qwen3:14b'],
+        requiredModelCount: 2,
+      },
+    }]);
+    await scheduler.recheck(value.id, 'lightweight');
+    expect(appended[0]?.evidence).toEqual({
+      advertisedModels: ['qwen3:8b'],
+      missingModels: ['qwen3:14b'],
+      requiredModelCount: 2,
+    });
+    expect(appended[0]).not.toHaveProperty('message');
   });
 });

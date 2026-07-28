@@ -6,6 +6,7 @@ import type {
   LocalAiRepairResult,
   LocalAiTarget,
 } from '../../shared/types/local-ai-guard.types';
+import { localAiWorkerEndpointId } from '../../shared/types/local-ai-guard.types';
 import {
   LocalAiHealthCheckResultSchema,
   LocalAiHealthDiagnoseResultSchema,
@@ -64,7 +65,7 @@ export class LocalAiProbeService {
         targetId: target.id,
         checkedAt: this.now(),
         samples,
-        recommendedActions: recommendedActionsFor(samples),
+        recommendedActions: recommendedActionsFor(target.provider, samples),
       };
     }
 
@@ -97,7 +98,7 @@ export class LocalAiProbeService {
         targetId: target.id,
         checkedAt: this.now(),
         samples: [sample],
-        recommendedActions: recommendedActionsFor([sample]),
+        recommendedActions: recommendedActionsFor(target.provider, [sample]),
       };
     }
   }
@@ -117,6 +118,9 @@ export class LocalAiProbeService {
       return {
         targetId: target.id,
         action,
+        outcome: relevant.length > 0 && relevant.every((sample) => sample.ok || !sample.required)
+          ? 'recovered'
+          : 'completed-not-recovered',
         supported: true,
         attempted: true,
         recovered: relevant.length > 0 && relevant.every((sample) => sample.ok || !sample.required),
@@ -129,6 +133,7 @@ export class LocalAiProbeService {
       return {
         targetId: target.id,
         action,
+        outcome: 'unsupported',
         supported: false,
         attempted: false,
         recovered: false,
@@ -141,7 +146,7 @@ export class LocalAiProbeService {
       const health = this.coordinatorHealth(target);
       const result = await health.repair({
         provider: target.provider,
-        endpointId: canonicalWorkerEndpointId(target.provider),
+        endpointId: localAiWorkerEndpointId(target.provider),
         action,
       });
       return { ...result, targetId: target.id };
@@ -153,7 +158,7 @@ export class LocalAiProbeService {
         COORDINATOR_TO_NODE.LOCAL_AI_HEALTH_REPAIR,
         {
           provider: target.provider,
-          endpointId: target.endpointId,
+          endpointId: localAiWorkerEndpointId(target.provider),
           action,
         },
         LOCAL_AI_REPAIR_RPC_TIMEOUT_MS,
@@ -164,8 +169,9 @@ export class LocalAiProbeService {
       return {
         targetId: target.id,
         action,
-        supported: false,
-        attempted: false,
+        outcome: 'execution-failed',
+        supported: true,
+        attempted: true,
         recovered: false,
         message: 'The bounded worker repair request could not be completed.',
         completedAt: this.now(),
@@ -228,9 +234,7 @@ export class LocalAiProbeService {
   private healthParams(target: LocalAiTarget) {
     return {
       provider: target.provider,
-      endpointId: target.location.type === 'worker'
-        ? target.endpointId
-        : canonicalWorkerEndpointId(target.provider),
+      endpointId: localAiWorkerEndpointId(target.provider),
       expectedModels: target.expectedModels,
       canary: {
         contract: 'exact-token-v1' as const,
@@ -361,10 +365,6 @@ function classifyWorkerRpcFailure(error: unknown): {
   };
 }
 
-function canonicalWorkerEndpointId(provider: LocalAiTarget['provider']): string {
-  return provider === 'ollama' ? 'ollama' : 'openai-compatible';
-}
-
 function boundedTimeout(timeoutMs: number): number {
   return Math.min(Math.max(1, timeoutMs), LOCAL_AI_HEALTH_MAX_TIMEOUT_MS);
 }
@@ -389,7 +389,10 @@ function elapsed(now: number, startedAt: number): number {
   return Math.max(0, Math.round(now - startedAt));
 }
 
-function recommendedActionsFor(samples: LocalAiProbeResult[]): LocalAiRepairAction[] {
+function recommendedActionsFor(
+  provider: LocalAiTarget['provider'],
+  samples: LocalAiProbeResult[],
+): LocalAiRepairAction[] {
   const actions: LocalAiRepairAction[] = ['deep-check'];
   if (samples.some((sample) => sample.failureCode === 'missing-required-model')) {
     actions.push('validate-models');
@@ -397,7 +400,7 @@ function recommendedActionsFor(samples: LocalAiProbeResult[]): LocalAiRepairActi
   if (samples.some((sample) => sample.failureCode === 'worker-offline')) {
     actions.push('reconnect-worker');
   }
-  if (samples.some((sample) =>
+  if (provider === 'ollama' && samples.some((sample) =>
     ['connection-refused', 'endpoint-timeout', 'protocol-error'].includes(sample.failureCode ?? ''))) {
     actions.push('restart-ollama');
   }

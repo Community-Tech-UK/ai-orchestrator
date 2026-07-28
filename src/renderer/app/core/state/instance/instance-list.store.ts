@@ -19,8 +19,10 @@ import type {
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
+import { buildCreateWithMessagePayload } from './instance-create-payload';
 import {
   fileToAttachments,
+  validateAttachmentCount,
   validateFiles,
   type InstanceAttachment,
 } from './instance-attachments';
@@ -43,7 +45,24 @@ export interface CreateInstanceWithMessageOptions {
   hardened?: boolean;
   launchMode?: Instance['launchMode'];
   forceNodeId?: string;
+  /**
+   * Stable per-submission key from `ComposerSubmissionService`. Sent to the
+   * main process so a retry after a slow acknowledgement returns the original
+   * instance instead of spawning a duplicate session.
+   */
+  idempotencyKey?: string;
 }
+
+/**
+ * Outcome of a create-with-message attempt.
+ *
+ * The old contract collapsed every failure to `null`, so the caller could not
+ * tell the user *why* the session was not created — and the composer had
+ * already been cleared by then anyway. Callers now get a reason they can show.
+ */
+export type CreateInstanceWithMessageResult =
+  | { ok: true; instanceId: string }
+  | { ok: false; error: string };
 
 function supportsResumeRestart(provider: Instance['provider']): boolean {
   return provider === 'claude' || provider === 'codex';
@@ -205,92 +224,78 @@ export class InstanceListStore {
   /**
    * Create instance and immediately send a message
    */
-  async createInstanceWithMessage(
-    options: CreateInstanceWithMessageOptions,
-  ): Promise<boolean> {
-    return (await this.createInstanceWithMessageAndReturnId(options)) !== null;
-  }
-
   /**
    * Create instance and immediately send a message, returning the new instance ID.
    */
   async createInstanceWithMessageAndReturnId(
     options: CreateInstanceWithMessageOptions,
   ): Promise<string | null> {
-    const {
-      message,
-      files,
-      workingDirectory,
-      agentId,
-      provider,
-      model,
-      modelRuntimeTarget,
-      yoloMode,
-      bareMode,
-      fastMode,
-      forceNodeId,
-    } = options;
+    const result = await this.createInstanceWithMessageResult(options);
+    return result.ok ? result.instanceId : null;
+  }
 
-    console.log('InstanceListStore: createInstanceWithMessage called with:', {
-      message,
-      filesCount: files?.length,
-      workingDirectory,
-      agentId,
-      provider,
-      model,
-      yoloMode,
-      bareMode,
-    });
+  /**
+   * Create instance and immediately send a message, reporting the failure
+   * reason so the caller can surface it and offer a retry.
+   */
+  async createInstanceWithMessageResult(
+    options: CreateInstanceWithMessageOptions,
+  ): Promise<CreateInstanceWithMessageResult> {
+    const files = options.files;
 
-    if (files && files.length > 0) {
-      const validationErrors = this.validateFiles(files);
-      if (validationErrors.length > 0) {
-        const errorMessage = validationErrors.join('\n');
-        console.error('InstanceListStore: File validation failed:', errorMessage);
-        this.stateService.setError(`Cannot create instance:\n${errorMessage}`);
-        return null;
-      }
+    const fileError = files?.length ? this.validateFiles(files).join('\n') : '';
+    if (fileError) {
+      this.stateService.setError(`Cannot create instance:\n${fileError}`);
+      return { ok: false, error: fileError };
     }
 
     this.stateService.setLoading(true);
 
     try {
-      const attachments =
-        files && files.length > 0
-          ? (await Promise.all(files.map((f) => this.fileToAttachments(f)))).flat()
-          : undefined;
+      const attachments = files?.length
+        ? (await Promise.all(files.map((f) => this.fileToAttachments(f)))).flat()
+        : undefined;
 
-      const result = await this.ipc.createInstanceWithMessage({
-        workingDirectory: workingDirectory || '.',
-        message,
-        attachments,
-        launchMode: options.launchMode,
-        agentId,
-        provider: provider === 'auto' ? undefined : provider,
-        model,
-        ...(options.reasoningEffort !== undefined
-          ? { reasoningEffort: options.reasoningEffort }
-          : {}),
-        ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
-        ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
-        bareMode,
-        fastMode: this.resolveFastModeForCreate(fastMode, provider),
-        ...(options.hardened ? { hardened: true } : {}),
-        forceNodeId,
-      });
-      console.log('InstanceListStore: createInstanceWithMessage result:', result);
+      // Large images are tiled into several attachments, so the staged file
+      // count is not the payload count. Past the main-process cap the whole
+      // payload is rejected by Zod with nothing logged, so refuse here where we
+      // can still explain what happened.
+      const countError = attachments
+        ? validateAttachmentCount(attachments, files?.length ?? 0)
+        : null;
+      if (countError) {
+        this.stateService.setLoading(false);
+        this.stateService.setError(`Cannot create instance:\n${countError}`);
+        return { ok: false, error: countError };
+      }
+
+      const result = await this.ipc.createInstanceWithMessage(
+        buildCreateWithMessagePayload(
+          options,
+          attachments,
+          this.resolveFastModeForCreate(options.fastMode, options.provider),
+        ),
+      );
       this.stateService.setLoading(false);
       if (!result.success) {
-        this.stateService.setError(result.error?.message || 'Failed to create instance');
-      } else {
-        return this.syncInstanceFromResponse(result.data, true);
+        const error = result.error?.message || 'Failed to create instance';
+        this.stateService.setError(error);
+        return { ok: false, error };
       }
-      return null;
+
+      const instanceId = this.syncInstanceFromResponse(result.data, true);
+      if (!instanceId) {
+        const error = 'The session was created but returned no id.';
+        this.stateService.setError(error);
+        return { ok: false, error };
+      }
+      return { ok: true, instanceId };
     } catch (error) {
       console.error('InstanceListStore: createInstanceWithMessage error:', error);
       this.stateService.setLoading(false);
-      this.stateService.setError(`Failed to create instance: ${(error as Error).message}`);
-      return null;
+      const message = `Failed to create instance: ${(error as Error).message}`;
+      this.stateService.setError(message);
+      return { ok: false, error: message };
     }
   }
 

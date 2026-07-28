@@ -12,6 +12,8 @@ import type {
   WorkerNodeExtensionRelaySummary,
   WorkerNodeFileTransferSummary,
 } from '../shared/types/worker-node.types';
+import { AUXILIARY_DISCOVERY_MAX_MODELS } from '../shared/types/auxiliary-llm.types';
+import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../shared/types/local-ai-guard.types';
 
 /** WS15 — stable per-process epoch; a restart invalidates coordinator cursors. */
 const STREAM_EPOCH = Date.now();
@@ -151,7 +153,11 @@ async function probeOllamaCapability(): Promise<WorkerLocalModelCapability | nul
       provider: 'ollama',
       endpointId: endpointIdForLocalModelProvider('ollama'),
       baseUrl: OLLAMA_LOCAL_BASE_URL,
-      models: (data.models ?? []).map((m) => m.name),
+      // Bound raw advertised work before normalization; do not scan later rows
+      // to replace malformed entries in the first advertised page.
+      models: (data.models ?? [])
+        .slice(0, AUXILIARY_DISCOVERY_MAX_MODELS)
+        .map((m) => m.name),
       healthy: true,
     };
   } catch {
@@ -176,7 +182,11 @@ async function probeLmStudioCapability(): Promise<WorkerLocalModelCapability | n
       provider: 'openai-compatible',
       endpointId: endpointIdForLocalModelProvider('openai-compatible'),
       baseUrl: LMSTUDIO_LOCAL_BASE_URL,
-      models: (data.data ?? []).map((m) => m.id),
+      // Bound raw advertised work before normalization; do not scan later rows
+      // to replace malformed entries in the first advertised page.
+      models: (data.data ?? [])
+        .slice(0, AUXILIARY_DISCOVERY_MAX_MODELS)
+        .map((m) => m.id),
       loadedModels: await probeLmStudioLoadedModels(),
       healthy: true,
     };
@@ -259,9 +269,15 @@ interface LmStudioV0Model {
 /** Pure: extract loaded models + their context from an `/api/v0/models` body. */
 export function parseLmStudioLoadedModels(data: unknown): WorkerLoadedModel[] {
   const rows = (data as { data?: LmStudioV0Model[] } | null)?.data ?? [];
+  const contextLimits = LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength;
   return rows
-    .filter((m) => m.state === 'loaded')
-    .map((m) => ({ id: m.id, contextLength: m.loaded_context_length ?? 0 }));
+    .filter((m): m is LmStudioV0Model & { loaded_context_length: number } =>
+      m.state === 'loaded'
+      && typeof m.loaded_context_length === 'number'
+      && Number.isInteger(m.loaded_context_length)
+      && m.loaded_context_length >= contextLimits.min
+      && m.loaded_context_length <= contextLimits.max)
+    .map((m) => ({ id: m.id, contextLength: m.loaded_context_length }));
 }
 
 /**

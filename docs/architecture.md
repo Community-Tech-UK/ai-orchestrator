@@ -177,6 +177,35 @@ All wired into `index.ts` at startup and cleaned up on shutdown.
 - Schema subpath imports under `@contracts/schemas/*` must be synchronized across `tsconfig.json`, `tsconfig.electron.json`, `src/main/register-aliases.ts`, and `vitest.config.ts`.
 - `scripts/check-contracts-aliases.ts` is part of `prebuild` and `prestart` to catch missing runtime aliases before packaging.
 
+## Local AI Guard
+
+Local AI Guard protects explicitly enrolled coordinator-local and worker-hosted
+auxiliary-model endpoints. Application initialization constructs its fail-soft
+singleton runtime before IPC registration. The runtime wires worker roster and
+target lifecycle events into `LocalAiHealthScheduler`, whose probe results pass
+through `LocalAiHealthEngine` before they can affect routing or incidents.
+
+Durable state lives in the RLM SQLite database: targets, bounded health samples,
+incidents and notification outbox state, paid-fallback approvals and routing
+events, recovery attempts, and long-term daily aggregates. A restart reconstructs
+targets and open incidents into a non-routable state; the current runtime
+generation must obtain fresh probe evidence, including the two-success recovery
+threshold, before `LocalAiRoutingGuard` admits work.
+
+Auxiliary routing integration is installed by `local-ai-runtime.ts`.
+`AuxiliaryLlmService` retains compatibility for unmanaged endpoints, while an
+enrolled endpoint must receive a fresh eligible verdict and an activity lease.
+Failed local work invalidates routing immediately. Paid fallback authorization
+is reserved atomically before dispatch; confirmation requests, budget decisions,
+provider cost correlation, and incident impact all use the same durable routing
+event.
+
+The renderer boundary is a bounded Zod-validated snapshot and status-delta IPC
+domain. `/local-ai` consumes it through a signal store for enrolment, target and
+incident controls, pending fallback decisions, recovery, and 24-hour/7-day/30-day
+effectiveness summaries. Raw database rows, endpoint credentials, prompts,
+model output, and arbitrary repair commands never cross this boundary.
+
 ## Session Recovery
 
 Located in `src/main/session/`:

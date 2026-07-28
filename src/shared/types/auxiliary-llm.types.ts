@@ -62,6 +62,40 @@ export type AuxiliaryLlmRoutingMode = 'off' | 'local-first' | 'cheap-first' | 'm
  */
 export const DEFAULT_OLLAMA_KEEP_ALIVE = '30m';
 
+/** Shared work/output bounds for auxiliary endpoint discovery. */
+export const AUXILIARY_DISCOVERY_MAX_CANDIDATES = 1_000;
+export const AUXILIARY_DISCOVERY_MAX_MODELS = 100;
+/** Maximum raw worker heartbeat endpoint descriptors inspected per collection. */
+export const AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS = AUXILIARY_DISCOVERY_MAX_CANDIDATES;
+/** One worst-case 5s health probe plus one 5s model-list operation. */
+export const AUXILIARY_DISCOVERY_DEADLINE_MS = 10_000;
+
+/**
+ * Canonical physical identity for a worker-local model server.
+ *
+ * Endpoint IDs are user-controlled persisted identifiers and therefore cannot
+ * identify the underlying worker source. URL parsing normalizes protocol and
+ * hostname case, default ports, and a trailing slash while retaining schemes,
+ * non-default ports, paths, and any legacy query/fragment spelling.
+ */
+export function auxiliaryWorkerPhysicalSourceKey(
+  workerNodeId: string,
+  provider: string,
+  baseUrl: string,
+): string {
+  let canonicalUrl = baseUrl.trim();
+  try {
+    const url = new URL(canonicalUrl);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      url.pathname = url.pathname.replace(/\/+$/, '');
+      canonicalUrl = url.toString().replace(/\/+$/, '');
+    }
+  } catch {
+    // Preserve malformed legacy values as exact, non-conflated identities.
+  }
+  return JSON.stringify([workerNodeId, provider, canonicalUrl]);
+}
+
 export interface AuxiliaryLlmModelInfo {
   id: string;
   name: string;
@@ -137,6 +171,12 @@ export interface AuxiliaryLlmDecision {
   model?: string;
   source: 'local' | 'cheap-cloud' | 'fallback';
   reason: string;
+  /** Durable Local AI Guard routing event for an authorized fallback. */
+  localAiRoutingEventId?: string;
+  /** Enrolled target the helper intended to use, when the endpoint is managed. */
+  intendedTargetId?: string;
+  /** Guard disposition after fallback policy/budget/confirmation evaluation. */
+  fallbackDisposition?: 'not-needed' | 'allowed' | 'pending-confirmation' | 'deferred' | 'blocked';
   /**
    * Whether the caller may escalate to a frontier/cloud model when this result
    * is a fallback (i.e. no local/cheap model produced output). Mirrors the

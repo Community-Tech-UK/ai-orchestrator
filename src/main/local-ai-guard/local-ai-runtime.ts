@@ -1,14 +1,23 @@
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import { computeProviderTokenCost } from '../../shared/data/model-pricing';
+import { getSettingsManager } from '../core/config/settings-manager';
+import {
+  subscribeCostAttribution,
+  type CostAttributionRecord,
+} from '../core/system/cost-attribution';
 import { getNotificationService } from '../notifications/notification-service';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { registerCleanup } from '../util/cleanup-registry';
 import { LocalAiActivityRegistry } from './local-ai-activity-registry';
+import { installLocalAiAuxiliaryRuntimeHooks } from './local-ai-auxiliary-bridge';
+import { LocalAiFallbackApprovalService } from './local-ai-fallback-approval-service';
 import { LocalAiHealthEngine } from './local-ai-health-engine';
 import { LocalAiHealthRepository } from './local-ai-health-repository';
 import { LocalAiHealthScheduler } from './local-ai-health-scheduler';
 import { LocalAiIncidentService } from './local-ai-incident-service';
 import { LocalAiProbeService } from './local-ai-probe-service';
 import { LocalAiRecoveryService } from './local-ai-recovery-service';
+import { LocalAiRoutingGuard } from './local-ai-routing-guard';
 import { LocalAiTargetRepository } from './local-ai-target-repository';
 
 interface WorkerRosterEvents {
@@ -32,6 +41,8 @@ export interface LocalAiGuardRuntimeServices {
   recovery: LocalAiRecoveryService;
   activity: LocalAiActivityRegistry;
   scheduler: LocalAiHealthScheduler;
+  approvals: LocalAiFallbackApprovalService;
+  routing: LocalAiRoutingGuard;
 }
 
 export class LocalAiGuardRuntime {
@@ -43,9 +54,13 @@ export class LocalAiGuardRuntime {
   readonly recovery: LocalAiRecoveryService;
   readonly activity: LocalAiActivityRegistry;
   readonly scheduler: LocalAiHealthScheduler;
+  readonly approvals: LocalAiFallbackApprovalService;
+  readonly routing: LocalAiRoutingGuard;
   private readonly disposers: (() => void)[] = [];
   private unregisterCleanup?: () => void;
   private disposed = false;
+  private readonly listeners = new Set<() => void>();
+  private statusRevision = 0n;
 
   constructor(
     services: LocalAiGuardRuntimeServices,
@@ -59,6 +74,40 @@ export class LocalAiGuardRuntime {
     this.recovery = services.recovery;
     this.activity = services.activity;
     this.scheduler = services.scheduler;
+    this.approvals = services.approvals;
+    this.routing = services.routing;
+    if (services.scheduler && typeof services.scheduler.subscribe === 'function') {
+      this.addDisposer(services.scheduler.subscribe(() => this.notifyChanged()));
+    }
+    if (services.approvals && typeof services.approvals.subscribe === 'function') {
+      this.addDisposer(services.approvals.subscribe(() => this.notifyChanged()));
+    }
+  }
+
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+
+  get revision(): string {
+    return this.statusRevision.toString();
+  }
+
+  subscribe(listener: () => void): () => void {
+    if (this.disposed) return () => undefined;
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  notifyChanged(): void {
+    if (this.disposed) return;
+    this.statusRevision += 1n;
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch {
+        // Renderer status observers are isolated from Local AI routing.
+      }
+    }
   }
 
   addDisposer(disposer: () => void): void {
@@ -76,6 +125,7 @@ export class LocalAiGuardRuntime {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.listeners.clear();
     runCleanupStep(this.releaseOwnership);
     const unregisterCleanup = this.unregisterCleanup;
     this.unregisterCleanup = undefined;
@@ -84,6 +134,7 @@ export class LocalAiGuardRuntime {
       runCleanupStep(dispose);
     }
     runCleanupStep(() => this.scheduler.stop());
+    runCleanupStep(() => this.approvals.dispose());
     runCleanupStep(() => this.incidents.dispose());
   }
 }
@@ -138,6 +189,50 @@ export function initializeLocalAiGuardRuntime(
         incidents,
         engine,
       });
+      const approvals = new LocalAiFallbackApprovalService(health, {
+        resolveReservationLimits: (request) => {
+          const event = health.getRoutingEvent(request.routingEventId);
+          const settings = getSettingsManager().getAll();
+          const target = event?.targetId ? targets.get(event.targetId) : undefined;
+          const incident = event?.incidentId
+            ? health.listIncidents({ targetId: event.targetId, limit: 1_000 })
+              .find((candidate) => candidate.id === event.incidentId)
+            : undefined;
+          const at = Date.now();
+          return {
+            at,
+            dayStart: Date.UTC(
+              new Date(at).getUTCFullYear(),
+              new Date(at).getUTCMonth(),
+              new Date(at).getUTCDate(),
+            ),
+            globalDailyBudgetUsd: settings.localAiGuardDailyFallbackBudgetUsd,
+            targetDailyBudgetUsd: target?.dailyFallbackBudgetUsd,
+            incidentBudgetUsd: incident ? target?.incidentFallbackBudgetUsd : undefined,
+          };
+        },
+      });
+      const routing = new LocalAiRoutingGuard({
+        targets,
+        scheduler,
+        health,
+        approvals,
+        incidents,
+        settings: () => {
+          const settings = getSettingsManager().getAll();
+          return {
+            localAiGuardDefaultFallbackPolicy: settings.localAiGuardDefaultFallbackPolicy,
+            localAiGuardDailyFallbackBudgetUsd: settings.localAiGuardDailyFallbackBudgetUsd,
+            localAiGuardConfirmAboveInputTokens: settings.localAiGuardConfirmAboveInputTokens,
+          };
+        },
+        resolveFallbackModel: () => {
+          const settings = getSettingsManager().getAll();
+          const provider = settings.defaultCli;
+          const model = settings.defaultModelByProvider[provider] ?? settings.defaultModel;
+          return provider !== 'auto' && model ? { provider, model } : undefined;
+        },
+      });
       services = {
         targets,
         health,
@@ -147,6 +242,8 @@ export function initializeLocalAiGuardRuntime(
         activity,
         scheduler,
         incidents,
+        approvals,
+        routing,
       };
     }
     runtime = new LocalAiGuardRuntime(services, () => {
@@ -154,7 +251,10 @@ export function initializeLocalAiGuardRuntime(
     });
     constructedIncidents = undefined;
 
-    const targetChanged = (target: { id: string }) => runtime!.scheduler.targetChanged(target.id);
+    const targetChanged = (target: { id: string }) => {
+      runtime!.scheduler.targetChanged(target.id);
+      runtime!.notifyChanged();
+    };
     const connectedWorkers = new Set<string>();
     const workerStatusChanged = (node: WorkerNodeInfo, force = false) => {
       if (node.status === 'connected') {
@@ -179,6 +279,11 @@ export function initializeLocalAiGuardRuntime(
       }
     };
     runtime.addDisposer(runtime.targets.subscribe(targetChanged));
+    runtime.addDisposer(installLocalAiAuxiliaryRuntimeHooks(runtime));
+    runtime.addDisposer(subscribeCostAttribution((record) => {
+      applyLocalAiRoutingCostAttribution(runtime!, record);
+      runtime!.notifyChanged();
+    }));
     runtime.addDisposer(acquireWorkerListener(workers, 'node:connected', workerStatusChanged));
     runtime.addDisposer(acquireWorkerListener(workers, 'node:updated', workerStatusChanged));
     runtime.addDisposer(acquireWorkerListener(
@@ -201,6 +306,46 @@ export function initializeLocalAiGuardRuntime(
     if (runtimeInstance === runtime) runtimeInstance = undefined;
     throw error;
   }
+}
+
+export function applyLocalAiRoutingCostAttribution(
+  runtime: Pick<LocalAiGuardRuntime, 'health'>,
+  record: CostAttributionRecord,
+): void {
+  if (!record.correlationId || !runtime.health.getRoutingEvent(record.correlationId)) return;
+  const inputTokens = finiteTokenCount(record.usage?.inputTokens);
+  const outputTokens = finiteTokenCount(record.usage?.outputTokens);
+  const knownCostUsd = record.costKnown === true
+    && typeof record.usage?.cost === 'number'
+    && Number.isFinite(record.usage.cost)
+    && record.usage.cost >= 0
+    ? record.usage.cost
+    : undefined;
+  const estimatedCostUsd = knownCostUsd === undefined
+    && record.provider
+    && record.model
+    && (inputTokens !== undefined || outputTokens !== undefined)
+    ? computeProviderTokenCost(record.provider, record.model, {
+        inputTokens: inputTokens ?? 0,
+        outputTokens: outputTokens ?? 0,
+      })
+    : undefined;
+  runtime.health.updateRoutingEvent(record.correlationId, {
+    ...(record.provider ? { provider: record.provider } : {}),
+    ...(record.model ? { model: record.model } : {}),
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+    ...(knownCostUsd === undefined ? {} : { knownCostUsd }),
+    ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }),
+  });
+}
+
+function finiteTokenCount(value: number | undefined): number | undefined {
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= 0
+    ? value
+    : undefined;
 }
 
 export function getLocalAiGuardRuntime(): LocalAiGuardRuntime {

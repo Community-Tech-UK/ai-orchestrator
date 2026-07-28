@@ -1,3 +1,5 @@
+import { FILE_LIMITS } from './instance.types';
+
 export interface InstanceAttachment {
   name: string;
   type: string;
@@ -11,16 +13,54 @@ const MAX_IMAGE_DIMENSION = 2000;
 
 export function validateFiles(files: File[]): string[] {
   const errors: string[] = [];
+
+  if (files.length > FILE_LIMITS.MAX_ATTACHMENTS) {
+    errors.push(
+      `Too many attachments (${files.length}). A message can carry at most ` +
+        `${FILE_LIMITS.MAX_ATTACHMENTS}. Remove some and send the rest separately.`,
+    );
+  }
+
   for (const file of files) {
-    const isImage = file.type.startsWith('image/');
-    const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_FILE_SIZE;
-    const maxSizeMB = isImage ? 5 : 30;
-    if (!isImage && file.size > maxSize) {
+    // Images are deliberately NOT size-checked here. `fileToAttachments`
+    // compresses them, and any image past `MAX_IMAGE_DIMENSION` is tiled
+    // without consulting `file.size` at all — so a 25MB high-resolution
+    // screenshot encodes fine today. A size gate here would reject staged sets
+    // that currently work. An image that genuinely cannot be encoded throws
+    // from `fileToAttachments`, which is now surfaced as a typed failure with
+    // the composition intact.
+    if (!file.type.startsWith('image/') && file.size > MAX_FILE_SIZE) {
       const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-      errors.push(`${file.name} is too large (${sizeMB}MB). Maximum size is ${maxSizeMB}MB.`);
+      errors.push(`${file.name} is too large (${sizeMB}MB). Maximum size is 30MB.`);
     }
   }
+
   return errors;
+}
+
+/**
+ * Post-expansion attachment-count check.
+ *
+ * `fileToAttachments` tiles any image whose longest edge exceeds
+ * `MAX_IMAGE_DIMENSION`, so N staged files can become more than N attachments.
+ * The main process caps the array at `FILE_LIMITS.MAX_ATTACHMENTS` and rejects
+ * the entire payload past that — silently, because Zod failures are not logged
+ * on the create path. Callers must run this on the *produced* attachments,
+ * before the IPC call, so the user gets a real message instead of nothing.
+ */
+export function validateAttachmentCount(attachments: InstanceAttachment[], stagedFileCount: number): string | null {
+  if (attachments.length <= FILE_LIMITS.MAX_ATTACHMENTS) {
+    return null;
+  }
+
+  const expanded = attachments.length > stagedFileCount;
+  return (
+    `Too many attachments (${attachments.length}, limit ${FILE_LIMITS.MAX_ATTACHMENTS}).` +
+    (expanded
+      ? ` ${stagedFileCount} file(s) expanded to ${attachments.length} because large images are` +
+        ` split into tiles. Remove some images or crop them below ${MAX_IMAGE_DIMENSION}px.`
+      : ' Remove some and send the rest separately.')
+  );
 }
 
 export async function fileToAttachments(file: File): Promise<InstanceAttachment[]> {

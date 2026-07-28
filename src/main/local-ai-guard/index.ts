@@ -1,5 +1,10 @@
 export { LocalAiActivityRegistry } from './local-ai-activity-registry';
 export {
+  runAuthorizedFrontierFallback,
+  runCorrelatedPaidFrontierCall,
+  withLocalAiCostCorrelation,
+} from './local-ai-cost-correlation';
+export {
   LocalAiFallbackApprovalService,
   type LocalAiFallbackApprovalCreation,
   type LocalAiFallbackApprovalServiceOptions,

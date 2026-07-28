@@ -55,6 +55,8 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       forceNodeId?: string;
       browserToolsMode?: 'eager' | 'deferred' | 'off';
       hardened?: boolean;
+      /** Stable per-submission key; a retry with the same key is deduplicated. */
+      idempotencyKey?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(
         ch.INSTANCE_CREATE_WITH_MESSAGE,

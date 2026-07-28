@@ -1,5 +1,9 @@
 import type { AuxiliaryLlmEndpointConfig, AuxiliaryLlmSlotConfig } from '../../shared/types/auxiliary-llm.types';
-import { DEFAULT_SLOT_TIERS } from '../../shared/types/auxiliary-llm.types';
+import {
+  AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS,
+  DEFAULT_SLOT_TIERS,
+  auxiliaryWorkerPhysicalSourceKey,
+} from '../../shared/types/auxiliary-llm.types';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 
@@ -184,10 +188,17 @@ export function workerEndpointHealthy(
   baseUrl: string,
 ): boolean {
   if (!workerNodeId) return false;
+  const expectedSourceKey = auxiliaryWorkerPhysicalSourceKey(workerNodeId, provider, baseUrl);
+  let inspectedDescriptors = 0;
   for (const node of nodes) {
     if (node.id !== workerNodeId) continue;
     for (const cap of node.capabilities.localModelEndpoints ?? []) {
-      if (cap.provider === provider && cap.baseUrl === baseUrl) return cap.healthy;
+      if (inspectedDescriptors >= AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS) return false;
+      inspectedDescriptors += 1;
+      if (
+        auxiliaryWorkerPhysicalSourceKey(node.id, cap.provider, cap.baseUrl)
+        === expectedSourceKey
+      ) return cap.healthy;
     }
   }
   return false;
@@ -206,11 +217,19 @@ export function workerLoadedContexts(
 ): Map<string, number> {
   const map = new Map<string, number>();
   if (!workerNodeId) return map;
+  const expectedSourceKey = auxiliaryWorkerPhysicalSourceKey(workerNodeId, provider, baseUrl);
+  let inspectedDescriptors = 0;
   for (const node of nodes) {
     if (node.id !== workerNodeId) continue;
     for (const cap of node.capabilities.localModelEndpoints ?? []) {
-      if (cap.provider === provider && cap.baseUrl === baseUrl) {
+      if (inspectedDescriptors >= AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS) return map;
+      inspectedDescriptors += 1;
+      if (
+        auxiliaryWorkerPhysicalSourceKey(node.id, cap.provider, cap.baseUrl)
+        === expectedSourceKey
+      ) {
         for (const lm of cap.loadedModels ?? []) map.set(lm.id, lm.contextLength);
+        return map;
       }
     }
   }
@@ -254,17 +273,24 @@ export function pickModelForTier(
   const pool = chat.length > 0 ? chat : modelIds;
 
   if (loaded && loaded.size > 0) {
-    const loadedPool = pool.filter((id) => loaded.has(id));
+    const loadedPool = pool.flatMap((id) => {
+      const contextLength = loaded.get(id);
+      return contextLength === undefined ? [] : [{ id, contextLength }];
+    });
     if (loadedPool.length > 0) {
       if (tier === 'quality') {
         return loadedPool.reduce((a, b) =>
-          loaded.get(b)! > loaded.get(a)!
-          || (loaded.get(b)! === loaded.get(a)! && modelSizeScore(b) > modelSizeScore(a)) ? b : a);
+          b.contextLength > a.contextLength
+          || (
+            b.contextLength === a.contextLength
+            && modelSizeScore(b.id) > modelSizeScore(a.id)
+          ) ? b : a).id;
       }
       if (tier === 'quick') {
-        return loadedPool.reduce((a, b) => (modelSizeScore(b) < modelSizeScore(a) ? b : a));
+        return loadedPool.reduce((a, b) =>
+          modelSizeScore(b.id) < modelSizeScore(a.id) ? b : a).id;
       }
-      return loadedPool[0];
+      return loadedPool[0].id;
     }
   }
 

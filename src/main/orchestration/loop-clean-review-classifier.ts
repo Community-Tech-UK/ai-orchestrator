@@ -1,8 +1,10 @@
+import { createRequire } from 'node:module';
 import type { LoopCompletionConfig } from '../../shared/types/loop.types';
 import {
   CLEAN_REVIEW_SENTINEL,
   hasTerminalSentinelLine,
 } from './loop-terminal-sentinels';
+import type { AuxiliaryLlmDecision } from '../../shared/types/auxiliary-llm.types';
 
 export { CLEAN_REVIEW_SENTINEL } from './loop-terminal-sentinels';
 
@@ -46,10 +48,17 @@ interface CleanReviewAuxResult {
   text: string;
   source: string;
   allowFrontierFallback: boolean;
+  decision?: AuxiliaryLlmDecision;
 }
 type CleanReviewAuxBackend = (prompt: string, context: string) => Promise<CleanReviewAuxResult>;
 /** Frontier/primary backend. Returns null when unavailable. */
-type CleanReviewFrontierBackend = (prompt: string, context: string) => Promise<string | null>;
+type CleanReviewFrontierBackend = (
+  prompt: string,
+  context: string,
+  decision: AuxiliaryLlmDecision,
+) => Promise<string | null>;
+
+const loadCleanReviewModule = createRequire(__filename);
 
 // Production backends use lazy require() so worker contexts never eagerly pull in
 // electron-laden modules (auxiliary-llm-service → remote-node → settings-manager).
@@ -59,15 +68,29 @@ const defaultAuxBackend: CleanReviewAuxBackend = async (prompt, context) => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getAuxiliaryLlmService } = require('../rlm/auxiliary-llm-service') as typeof import('../rlm/auxiliary-llm-service');
   const { text, decision } = await getAuxiliaryLlmService().generate('loopScoring', prompt, context);
-  return { text, source: decision.source, allowFrontierFallback: decision.allowFrontierFallback };
+  return {
+    text,
+    source: decision.source,
+    allowFrontierFallback: decision.allowFrontierFallback,
+    decision,
+  };
 };
 
-const defaultFrontierBackend: CleanReviewFrontierBackend = async (prompt, context) => {
+const defaultFrontierBackend: CleanReviewFrontierBackend = async (prompt, context, decision) => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getLLMService } = require('../rlm/llm-service') as typeof import('../rlm/llm-service');
   const llm = getLLMService();
   if (!(await llm.isAvailable())) return null;
-  return llm.subQuery({ requestId: `loop-clean-review-${Date.now()}`, prompt, context, depth: 0 });
+  const run = () => llm.subQuery({
+    requestId: `loop-clean-review-${Date.now()}`,
+    prompt,
+    context,
+    depth: 0,
+  });
+  const { runAuthorizedFrontierFallback } = loadCleanReviewModule(
+    '../local-ai-guard/local-ai-cost-correlation',
+  ) as typeof import('../local-ai-guard/local-ai-cost-correlation');
+  return runAuthorizedFrontierFallback(decision, run);
 };
 
 let auxBackend: CleanReviewAuxBackend = defaultAuxBackend;
@@ -108,24 +131,23 @@ async function runModelCleanReviewClassifier(
   // is the `loopScoring` offload slot. Only escalate to the primary/frontier LLM
   // when the slot's frontier-fallback policy allows it (i.e. no local model was
   // available and the user hasn't opted into a hard local-only guarantee).
+  let aux: CleanReviewAuxResult;
   try {
-    const aux = await auxBackend(prompt, context);
-    if (aux.source !== 'fallback') {
-      return parseCleanReviewClassification(aux.text);
-    }
-    if (!aux.allowFrontierFallback) {
-      // Local unavailable and frontier disallowed for this slot → stay unclear
-      // rather than burning a frontier call. The caller folds this back into the
-      // deterministic verdict.
-      return UNCLEAR_CLEAN_REVIEW;
-    }
-    // else: fall through to the frontier/primary LLM below.
+    aux = await auxBackend(prompt, context);
   } catch {
-    // Auxiliary service unavailable in this context — fall through to primary LLM.
+    return UNCLEAR_CLEAN_REVIEW;
+  }
+  if (aux.source !== 'fallback') {
+    return parseCleanReviewClassification(aux.text);
+  }
+  if (!aux.allowFrontierFallback || !aux.decision) {
+    // Local unavailable, guard authorization missing, or frontier disallowed:
+    // remain unclear rather than issuing an uncorrelated paid call.
+    return UNCLEAR_CLEAN_REVIEW;
   }
 
   try {
-    const raw = await frontierBackend(prompt, context);
+    const raw = await frontierBackend(prompt, context, aux.decision);
     if (raw == null) return UNCLEAR_CLEAN_REVIEW;
     return parseCleanReviewClassification(raw);
   } catch {

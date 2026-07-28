@@ -35,6 +35,7 @@ import { UserActionRequestComponent } from './user-action-request.component';
 import { BrowserApprovalRequestComponent } from './browser-approval-request.component';
 import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
+import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
@@ -1244,11 +1245,37 @@ export class InstanceDetailComponent {
     this.welcomeCoordinator.onWelcomeNodeChange(nodeId);
   }
 
-  async onWelcomeSendMessage(message: string): Promise<void> {
-    await this.welcomeCoordinator.onWelcomeSendMessage(
-      message,
-      (creating) => this.isCreatingInstance.set(creating),
-    );
+  /**
+   * Acknowledgement-driven new-session launch. `onResolved` must be called on
+   * every path — the composer is still holding the user's text and attachments
+   * until it is, which is the whole point of the contract.
+   */
+  async onWelcomeSubmit(request: NewSessionSubmitRequest): Promise<void> {
+    // If the composer stops waiting, drop the "Starting conversation…" view —
+    // it replaces the welcome screen, so leaving it up would hide the recovery
+    // banner behind a spinner that never goes away.
+    request.onTimeout(() => this.isCreatingInstance.set(false));
+    try {
+      const result = await this.welcomeCoordinator.submitWelcomeMessage(
+        request.text,
+        (creating) => this.isCreatingInstance.set(creating),
+        request.submissionId,
+        { files: request.files, pendingFolders: request.pendingFolders },
+      );
+      // Only a confirmed success keeps the "Starting conversation…" view up —
+      // an effect swaps it out once the instance lands. Any other outcome must
+      // put the composer back so the retained composition is reachable.
+      if (!result.ok) {
+        this.isCreatingInstance.set(false);
+      }
+      request.onResolved(result);
+    } catch (error) {
+      this.isCreatingInstance.set(false);
+      request.onResolved({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async onLoopStartRequested(payload: {

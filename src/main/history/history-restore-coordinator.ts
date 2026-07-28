@@ -51,11 +51,19 @@ function getAdapterResumeProof(instanceManager: InstanceManager, instanceId: str
 /**
  * Outcome of the post-spawn resume probe. `disproven` separates "the adapter
  * told us the native resume did NOT happen" from "we never got proof either
- * way". It deliberately does NOT demote the restore to the replay rung: an
+ * way".
+ *
+ * It deliberately does NOT demote the restore to the replay rung: an
  * alive-but-unresumed instance stays on `resume-unconfirmed` by design (the
- * B1/B2 locks in `history-restore-coordinator.spec.ts`). It exists only so the
- * probe can stop as soon as the answer is known instead of burning the full
- * post-spawn timeout on a question already settled (LT-014).
+ * B1/B2 locks in `history-restore-coordinator.spec.ts`). Killing a healthy
+ * process only to spawn an identical one buys nothing — the archived
+ * transcript is already in its buffer and the continuity preamble is queued.
+ *
+ * It does drive two things a silent `resume-unconfirmed` used to skip
+ * (LT-014, James's call 2026-07-27): the user-facing "could not be restored
+ * natively" notice, and recording `nativeResumeFailedAt` so the next restore
+ * skips the doomed native rung. A merely-unproven resume (`disproven: false`)
+ * stays silent — absence of proof is not proof of absence.
  */
 interface ResumeWaitState {
   alive: boolean;
@@ -92,7 +100,16 @@ export interface HistoryRestoreCoordinatorResult {
  * so it must be kept for the next attempt.
  */
 type NativeResumeAttempt =
-  | { kind: 'restored'; result: HistoryRestoreCoordinatorResult }
+  | {
+      kind: 'restored';
+      result: HistoryRestoreCoordinatorResult;
+      /**
+       * The instance is alive and usable, but the adapter proved the native
+       * resume did not happen, so the archived handle is spent and must be
+       * blacklisted even though the rung is not demoted (LT-014).
+       */
+      markResumeFailed?: boolean;
+    }
   | { kind: 'session-dead' }
   | { kind: 'infrastructure'; error: string };
 
@@ -122,6 +139,48 @@ function buildRestoreContinuityPreamble(
     });
   }
   return buildReplayContinuityMessage(messages, { reason });
+}
+
+/**
+ * Notice for a resume the adapter definitively disproved while the instance
+ * stayed alive (LT-014).
+ *
+ * Deliberately shares the replay rung's wording, `isRestoreNotice` flag and
+ * `restore-fallback` kind: both mean "the provider did not resume natively".
+ * The shared shape is what keeps `getMessagesForRestoreTranscript` from
+ * replaying this notice into a later transcript, and what lets
+ * `getOriginalSessionIdFromRestoreNotices` still name the original session if
+ * THIS instance is re-archived and that thread later lands on the replay rung.
+ * (It does not help a re-restore of the entry being restored right now — that
+ * entry was archived before this notice existed.)
+ */
+function buildDisprovenResumeNotice(
+  params: {
+    restoreProvider: Instance['provider'];
+    restoreTranscriptMessages: OutputMessage[];
+    nativeResumeSessionId: string;
+    restoreNodeId?: string;
+  },
+  continuityInjectionQueued: boolean,
+): OutputMessage {
+  const providerName = getProviderDisplayName(params.restoreProvider);
+  return {
+    id: generateId(),
+    timestamp: Date.now(),
+    type: 'system',
+    content: `Previous ${providerName} CLI session could not be restored natively. Your conversation history is displayed above, and a condensed transcript will be attached automatically to your next message.`,
+    metadata: {
+      isRestoreNotice: true,
+      systemMessageKind: 'restore-fallback',
+      provider: params.restoreProvider,
+      restoredMessageCount: params.restoreTranscriptMessages.length,
+      hiddenMessageCount: 0,
+      continuityInjectionQueued,
+      nativeResumeFailedAt: Date.now(),
+      originalSessionId: params.nativeResumeSessionId,
+      restoreNodeId: params.restoreNodeId ?? null,
+    },
+  };
 }
 
 export class HistoryRestoreError extends Error {
@@ -259,18 +318,17 @@ export class HistoryRestoreCoordinator {
         restoreNodeId,
       });
       if (attempt.kind === 'restored') {
+        // An alive-but-disproven resume keeps its rung but still burns the
+        // handle: without this, every later restore re-attempts the same
+        // doomed native resume (LT-014).
+        if (attempt.markResumeFailed) {
+          await this.recordNativeResumeFailure(entryId);
+        }
         return attempt.result;
       }
 
       if (attempt.kind === 'session-dead') {
-        try {
-          await this.history().markNativeResumeFailed(entryId);
-        } catch (error) {
-          logger.warn('History restore: failed to persist native resume failure state', {
-            entryId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+        await this.recordNativeResumeFailure(entryId);
       } else {
         // Do NOT blacklist the archived session handle: the failure was local
         // (CLI detection timeout, spawn error, starved cold start), so the
@@ -305,6 +363,23 @@ export class HistoryRestoreCoordinator {
       originalSessionId: data.entry.sessionId,
       storedMessages: data.messages,
     });
+  }
+
+  /**
+   * Blacklist the archived session handle. Never called for an infrastructure
+   * failure: the provider was never asked, so nothing was learned about the
+   * handle and keeping it is what stops a transient host hiccup from
+   * permanently downgrading the thread to replay.
+   */
+  private async recordNativeResumeFailure(entryId: string): Promise<void> {
+    try {
+      await this.history().markNativeResumeFailed(entryId);
+    } catch (error) {
+      logger.warn('History restore: failed to persist native resume failure state', {
+        entryId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async tryNativeResume(params: {
@@ -383,8 +458,20 @@ export class HistoryRestoreCoordinator {
         if (preamble) {
           params.instanceManager.queueContinuityPreamble(instance.id, preamble);
         }
+
+        // Disproven ⇒ tell the user. The process is alive and usable, but the
+        // provider lost its native memory of this conversation, and only the
+        // queued preamble carries it forward. Staying silent here let the user
+        // believe the CLI still remembered everything (LT-014).
+        if (resumeState.disproven) {
+          instance.outputBuffer.push(
+            buildDisprovenResumeNotice(params, Boolean(preamble)),
+          );
+        }
+
         return {
           kind: 'restored',
+          markResumeFailed: resumeState.disproven,
           result: {
             instanceId: instance.id,
             restoredMessages: instance.outputBuffer,

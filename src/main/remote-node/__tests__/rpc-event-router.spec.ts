@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
+import { isDeepStrictEqual } from 'node:util';
 
 // Mock the logger to avoid electron / filesystem dependencies
+const mockLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+}));
+
 vi.mock('../../logging/logger', () => ({
-  getLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
-  }),
+  getLogger: () => mockLogger,
 }));
 
 // ---------------------------------------------------------------------------
@@ -39,23 +42,32 @@ vi.mock('../../auth/remote-auth', () => ({
 // The router spec focuses on routing logic only.
 // ---------------------------------------------------------------------------
 
-vi.mock('../rpc-schemas', () => ({
-  BROWSER_CDP_MAX_FRAME_BYTES: 8,
-  validateRpcParams: vi.fn((_schema, params) => params),
-  RPC_PARAM_SCHEMAS: {
-    'node.register': {},
-    'node.heartbeat': {},
-    'instance.stateChange': {},
-    'instance.permissionRequest': {},
-    'fs.event': {},
-    'browser.cdp.message': {},
-    'browser.ext.pollCommand': {},
-  },
-}));
+vi.mock('../rpc-schemas', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../rpc-schemas')>();
+  const nodeHeartbeatSchema = actual.NodeHeartbeatParamsSchema;
+
+  return {
+    BROWSER_CDP_MAX_FRAME_BYTES: 8,
+    validateRpcParams: vi.fn((schema, params) =>
+      schema === nodeHeartbeatSchema
+        ? actual.validateRpcParams(nodeHeartbeatSchema, params)
+        : params),
+    RPC_PARAM_SCHEMAS: {
+      'node.register': {},
+      'node.heartbeat': nodeHeartbeatSchema,
+      'instance.stateChange': {},
+      'instance.permissionRequest': {},
+      'fs.event': {},
+      'browser.cdp.message': {},
+      'browser.ext.pollCommand': {},
+    },
+  };
+});
 
 import { WorkerNodeRegistry } from '../worker-node-registry';
 import { RpcEventRouter } from '../rpc-event-router';
 import type { WorkerNodeCapabilities, WorkerNodeInfo } from '../../../shared/types/worker-node.types';
+import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../../../shared/types/local-ai-guard.types';
 import type { RpcRequest } from '../worker-node-rpc';
 
 // ---------------------------------------------------------------------------
@@ -227,7 +239,11 @@ describe('RpcEventRouter', () => {
     registry.registerNode(makeNode('node-4', { status: 'degraded' }));
 
     const newCaps = makeCapabilities({ availableMemoryMB: 7000 });
-    const request = makeRpcRequest('node.heartbeat', { capabilities: newCaps, activeInstances: 3 }, 2);
+    const request = makeRpcRequest('node.heartbeat', {
+      nodeId: 'node-4',
+      capabilities: newCaps,
+      activeInstances: 3,
+    }, 2);
 
     mockConnection.emit('rpc:request', 'node-4', request);
 
@@ -247,6 +263,7 @@ describe('RpcEventRouter', () => {
 
   it('returns NODE_NOT_FOUND when heartbeat arrives for an unknown node', () => {
     const request = makeRpcRequest('node.heartbeat', {
+      nodeId: 'missing-node',
       capabilities: makeCapabilities(),
       activeInstances: 1,
     }, 22);
@@ -270,7 +287,12 @@ describe('RpcEventRouter', () => {
     const notification = {
       jsonrpc: '2.0',
       method: 'node.heartbeat',
-      params: { capabilities: makeCapabilities(), activeInstances: 0, token: 't' },
+      params: {
+        nodeId: 'zombie-node',
+        capabilities: makeCapabilities(),
+        activeInstances: 0,
+        token: 't',
+      },
     };
 
     mockConnection.emit('rpc:notification', 'zombie-node', notification);
@@ -286,7 +308,12 @@ describe('RpcEventRouter', () => {
     const notification = {
       jsonrpc: '2.0',
       method: 'node.heartbeat',
-      params: { capabilities: makeCapabilities(), activeInstances: 0, token: 't' },
+      params: {
+        nodeId: 'live-node',
+        capabilities: makeCapabilities(),
+        activeInstances: 0,
+        token: 't',
+      },
     };
 
     mockConnection.emit('rpc:notification', 'live-node', notification);
@@ -653,13 +680,164 @@ describe('RpcEventRouter', () => {
     mockConnection.emit('rpc:notification', 'node-8', {
       jsonrpc: '2.0',
       method: 'node.heartbeat',
-      params: { capabilities: newCaps, activeInstances: 2 },
+      params: { nodeId: 'node-8', capabilities: newCaps, activeInstances: 2 },
     });
 
     expect(registry.getNode('node-8')?.capabilities.availableMemoryMB).toBe(5000);
     expect(registry.getNode('node-8')?.activeInstances).toBe(2);
     expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith('node-8', 'linux');
     expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('drops malformed authenticated heartbeat notifications before any trusted-state mutation', () => {
+    const { min, max } = LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength;
+    const initial = makeNode('node-guarded', {
+      activeInstances: 1,
+      capabilities: makeCapabilities({
+        platform: 'darwin',
+        availableMemoryMB: 4_096,
+        localModelEndpoints: [{
+          provider: 'openai-compatible',
+          endpointId: 'openai-compatible',
+          baseUrl: 'http://127.0.0.1:1234',
+          models: ['known-model'],
+          loadedModels: [{ id: 'known-model', contextLength: min }],
+          healthy: true,
+        }],
+      }),
+      lastHeartbeat: 1_700_000_000_000,
+    });
+    registry.registerNode(initial);
+    const updated = vi.fn();
+    registry.on('node:updated', updated);
+
+    const capabilitiesWithContext = (contextLength: number) => makeCapabilities({
+      platform: 'linux',
+      availableMemoryMB: 7_000,
+      localModelEndpoints: [{
+        provider: 'openai-compatible',
+        endpointId: 'openai-compatible',
+        baseUrl: 'http://127.0.0.1:1234',
+        models: ['candidate-model'],
+        loadedModels: [{ id: 'candidate-model', contextLength }],
+        healthy: true,
+      }],
+    });
+    const heartbeat = (capabilities: unknown) => ({
+      nodeId: 'node-guarded',
+      capabilities,
+      activeInstances: 3,
+      token: 'session-token',
+    });
+    const malformed = [
+      heartbeat(capabilitiesWithContext(0)),
+      heartbeat(capabilitiesWithContext(max + 1)),
+      heartbeat(capabilitiesWithContext(Number.NaN)),
+      heartbeat(capabilitiesWithContext(min + 0.5)),
+      heartbeat(capabilitiesWithContext(Number.MAX_SAFE_INTEGER)),
+      heartbeat(makeCapabilities({
+        localModelEndpoints: Array.from({ length: 1_001 }, (_, index) => ({
+          provider: 'ollama',
+          endpointId: `ollama-${index}`,
+          baseUrl: `http://127.0.0.1:${20_000 + index}`,
+          models: [],
+          healthy: true,
+        })),
+      })),
+      heartbeat(makeCapabilities({
+        localModelEndpoints: [{
+          provider: 'openai-compatible',
+          endpointId: 'openai-compatible',
+          baseUrl: 'http://127.0.0.1:1234',
+          models: ['candidate-model'],
+          loadedModels: [{
+            id: 'x'.repeat(257),
+            contextLength: min,
+          }],
+          healthy: true,
+        }],
+      })),
+      {
+        nodeId: 'node-guarded',
+        activeInstances: 3,
+        token: 'session-token',
+      },
+    ];
+
+    const results = malformed.map((params) => {
+      registry.registerNode(initial);
+      updated.mockClear();
+      mockRemoteAuth.recordTrustedPlatform.mockClear();
+      mockLogger.warn.mockClear();
+      let threw = false;
+      try {
+        mockConnection.emit('rpc:notification', 'node-guarded', {
+          jsonrpc: '2.0',
+          method: 'node.heartbeat',
+          params,
+        });
+      } catch {
+        threw = true;
+      }
+      return {
+        threw,
+        unchanged: isDeepStrictEqual(registry.getNode('node-guarded'), initial),
+        updateEvents: updated.mock.calls.length,
+        trustedPlatformWrites: mockRemoteAuth.recordTrustedPlatform.mock.calls.length,
+        warnings: mockLogger.warn.mock.calls,
+      };
+    });
+
+    expect(results).toEqual(malformed.map(() => ({
+      threw: false,
+      unchanged: true,
+      updateEvents: 0,
+      trustedPlatformWrites: 0,
+      warnings: [[
+        'Malformed node.heartbeat notification dropped',
+        { nodeId: 'node-guarded', method: 'node.heartbeat' },
+      ]],
+    })));
+  });
+
+  it('accepts exact shared context boundaries in heartbeat notifications', () => {
+    const { min, max } = LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength;
+
+    for (const [index, contextLength] of [min, max].entries()) {
+      const nodeId = `node-valid-${index}`;
+      registry.registerNode(makeNode(nodeId, {
+        activeInstances: 0,
+        capabilities: makeCapabilities({ platform: 'darwin' }),
+      }));
+
+      expect(() => mockConnection.emit('rpc:notification', nodeId, {
+        jsonrpc: '2.0',
+        method: 'node.heartbeat',
+        params: {
+          nodeId,
+          capabilities: makeCapabilities({
+            platform: 'linux',
+            availableMemoryMB: 6_000 + index,
+            localModelEndpoints: [{
+              provider: 'openai-compatible',
+              endpointId: 'openai-compatible',
+              baseUrl: 'http://127.0.0.1:1234',
+              models: ['candidate-model'],
+              loadedModels: [{ id: 'candidate-model', contextLength }],
+              healthy: true,
+            }],
+          }),
+          activeInstances: index + 1,
+          token: 'session-token',
+        },
+      })).not.toThrow();
+
+      const node = registry.getNode(nodeId);
+      expect(node?.capabilities.localModelEndpoints?.[0]?.loadedModels?.[0]?.contextLength)
+        .toBe(contextLength);
+      expect(node?.activeInstances).toBe(index + 1);
+      expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith(nodeId, 'linux');
+    }
   });
 
   it('returns METHOD_NOT_FOUND for unknown RPC requests', () => {

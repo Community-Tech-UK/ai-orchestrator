@@ -125,6 +125,21 @@ describe('WorkerLocalAiHealth', () => {
     }
   });
 
+  it('does not recommend an Ollama restart for an OpenAI-compatible endpoint failure', async () => {
+    const health = new WorkerLocalAiHealth({
+      fetch: vi.fn(async () => jsonResponse({}, 500)),
+    });
+    const { kind: _kind, ...diagnoseParams } = baseParams;
+
+    const report = await health.diagnose({
+      ...diagnoseParams,
+      provider: 'openai-compatible',
+      endpointId: 'openai-compatible',
+    });
+
+    expect(report.recommendedActions).toEqual(['deep-check']);
+  });
+
   it('cancels a chunked endpoint response as soon as the HTTP body byte limit is crossed', async () => {
     let pullCount = 0;
     let cancelled = false;
@@ -204,9 +219,10 @@ describe('WorkerLocalAiHealth', () => {
 
     expect(result).toMatchObject({
       action: 'restart-ollama',
+      outcome: 'completed-not-recovered',
       supported: true,
       attempted: true,
-      recovered: true,
+      recovered: false,
     });
     expect(execFile.mock.calls).toEqual([
       ['/usr/bin/osascript', ['-e', 'tell application "Ollama" to quit']],
@@ -238,9 +254,10 @@ describe('WorkerLocalAiHealth', () => {
     });
 
     expect(result).toMatchObject({
+      outcome: 'completed-not-recovered',
       supported: true,
       attempted: true,
-      recovered: true,
+      recovered: false,
     });
     expect(execFile).toHaveBeenCalledOnce();
     expect(execFile).toHaveBeenCalledWith(
@@ -296,9 +313,10 @@ describe('WorkerLocalAiHealth', () => {
     });
 
     expect(result).toMatchObject({
+      outcome: 'completed-not-recovered',
       supported: true,
       attempted: true,
-      recovered: true,
+      recovered: false,
     });
     expect(execFile.mock.calls).toEqual([
       ['/usr/bin/systemctl', ['--user', 'restart', 'ollama.service']],

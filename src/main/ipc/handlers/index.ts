@@ -75,3 +75,4 @@ export { registerNotificationHandlers } from './notification-handlers';
 export { registerSkillAttributionHandlers } from './skill-attribution-handlers';
 export { registerContextEvidenceHandlers } from './context-evidence.handlers';
 export { registerRendererTelemetryHandlers } from './renderer-telemetry-handlers';
+export { registerLocalAiGuardHandlers } from './local-ai-guard-handlers';

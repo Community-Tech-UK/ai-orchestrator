@@ -50,6 +50,8 @@ export interface CreateInstanceWithMessageConfig {
   forceNodeId?: string;
   /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** Stable per-submission key; a retry with the same key is deduplicated. */
+  idempotencyKey?: string;
 }
 
 export interface PersistedQueuedMessage {

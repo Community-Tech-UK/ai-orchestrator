@@ -57,7 +57,7 @@ function makeRemoteNode(
 describe('WelcomeCoordinatorService workflow launch', () => {
   let service: WelcomeCoordinatorService;
   let store: {
-    createInstanceWithMessage: ReturnType<typeof vi.fn>;
+    createInstanceWithMessageResult: ReturnType<typeof vi.fn>;
     createInstanceAndReturnId: ReturnType<typeof vi.fn>;
     createInstanceWithMessageAndReturnId: ReturnType<typeof vi.fn>;
     setError: ReturnType<typeof vi.fn>;
@@ -93,7 +93,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
 
   beforeEach(() => {
     store = {
-      createInstanceWithMessage: vi.fn().mockResolvedValue(true),
+      createInstanceWithMessageResult: vi.fn().mockResolvedValue({ ok: true, instanceId: 'inst-new' }),
       createInstanceAndReturnId: vi.fn().mockResolvedValue('inst-new'),
       createInstanceWithMessageAndReturnId: vi.fn().mockResolvedValue('inst-new'),
       setError: vi.fn(),
@@ -247,14 +247,14 @@ describe('WelcomeCoordinatorService workflow launch', () => {
   it('passes interactive launch mode through normal welcome session creation', async () => {
     newSessionDraft.launchMode.set('interactive');
 
-    const launched = await service.onWelcomeSendMessage(
+    const launched = (await service.submitWelcomeMessage(
       'Open a terminal session',
       vi.fn(),
-    );
+    )).ok;
 
     expect(launched).toBe(true);
     expect(store.createInstanceWithMessageAndReturnId).not.toHaveBeenCalled();
-    expect(store.createInstanceWithMessage).toHaveBeenCalledWith({
+    expect(store.createInstanceWithMessageResult).toHaveBeenCalledWith({
       message: 'Folders:\nplans\n\nOpen a terminal session',
       files: [],
       workingDirectory: '/repo',
@@ -270,13 +270,13 @@ describe('WelcomeCoordinatorService workflow launch', () => {
   it('passes the explicit draft yolo override through normal welcome session creation', async () => {
     newSessionDraft.yoloMode.set(true);
 
-    const launched = await service.onWelcomeSendMessage(
+    const launched = (await service.submitWelcomeMessage(
       'Delete the stale copy',
       vi.fn(),
-    );
+    )).ok;
 
     expect(launched).toBe(true);
-    expect(store.createInstanceWithMessage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(store.createInstanceWithMessageResult).toHaveBeenCalledWith(expect.objectContaining({
       message: 'Folders:\nplans\n\nDelete the stale copy',
       workingDirectory: '/repo',
       yoloMode: true,
@@ -286,13 +286,13 @@ describe('WelcomeCoordinatorService workflow launch', () => {
   it('passes the draft hardened toggle through normal welcome session creation', async () => {
     newSessionDraft.hardened.set(true);
 
-    const launched = await service.onWelcomeSendMessage(
+    const launched = (await service.submitWelcomeMessage(
       'Investigate the flaky spec',
       vi.fn(),
-    );
+    )).ok;
 
     expect(launched).toBe(true);
-    expect(store.createInstanceWithMessage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(store.createInstanceWithMessageResult).toHaveBeenCalledWith(expect.objectContaining({
       workingDirectory: '/repo',
       hardened: true,
     }));
@@ -305,10 +305,10 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     // the app default and make the control do the opposite of its label).
     newSessionDraft.reasoningEffort.set(null);
 
-    const launched = await service.onWelcomeSendMessage('Provider decides', vi.fn());
+    const launched = (await service.submitWelcomeMessage('Provider decides', vi.fn())).ok;
 
     expect(launched).toBe(true);
-    expect(store.createInstanceWithMessage).toHaveBeenCalledWith(
+    expect(store.createInstanceWithMessageResult).toHaveBeenCalledWith(
       expect.objectContaining({ reasoningEffort: null }),
     );
   });
@@ -319,10 +319,10 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     newSessionDraft.provider.set(null);
     newSessionDraft.reasoningEffort.set(null);
 
-    const launched = await service.onWelcomeSendMessage('Untouched draft', vi.fn());
+    const launched = (await service.submitWelcomeMessage('Untouched draft', vi.fn())).ok;
 
     expect(launched).toBe(true);
-    const payload = store.createInstanceWithMessage.mock.calls[0][0] as Record<string, unknown>;
+    const payload = store.createInstanceWithMessageResult.mock.calls[0][0] as Record<string, unknown>;
     expect('reasoningEffort' in payload).toBe(false);
   });
 
@@ -341,13 +341,13 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     newSessionDraft.modelRuntimeTarget.set(modelRuntimeTarget);
     remoteNodeStore.nodeById.mockReturnValue(makeRemoteNode('connected', true));
 
-    const launched = await service.onWelcomeSendMessage(
+    const launched = (await service.submitWelcomeMessage(
       'Use the worker model',
       vi.fn(),
-    );
+    )).ok;
 
     expect(launched).toBe(true);
-    expect(store.createInstanceWithMessage).toHaveBeenCalledWith({
+    expect(store.createInstanceWithMessageResult).toHaveBeenCalledWith({
       message: 'Folders:\nplans\n\nUse the worker model',
       files: [],
       workingDirectory: '/repo',
@@ -367,13 +367,13 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     newSessionDraft.nodeId.set(null);
     TestBed.flushEffects();
 
-    const launched = await service.onWelcomeSendMessage(
+    const launched = (await service.submitWelcomeMessage(
       'Start locally',
       creatingChange,
-    );
+    )).ok;
 
     expect(launched).toBe(true);
-    expect(store.createInstanceWithMessage).toHaveBeenCalledWith({
+    expect(store.createInstanceWithMessageResult).toHaveBeenCalledWith({
       message: 'Folders:\nplans\n\nStart locally',
       files: [],
       workingDirectory: '/repo',
@@ -391,16 +391,16 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     service.onWelcomeNodeChange('node-1');
     const creatingChange = vi.fn();
 
-    const launched = await service.onWelcomeSendMessage(
+    const launched = (await service.submitWelcomeMessage(
       'Run on the selected node',
       creatingChange,
-    );
+    )).ok;
 
     expect(launched).toBe(false);
     expect(store.setError).toHaveBeenCalledWith(
       'Selected remote node is no longer connected. Please choose another node or use Local.',
     );
-    expect(store.createInstanceWithMessage).not.toHaveBeenCalled();
+    expect(store.createInstanceWithMessageResult).not.toHaveBeenCalled();
     expect(creatingChange).not.toHaveBeenCalled();
   });
 
@@ -444,5 +444,55 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     expect(store.setError).toHaveBeenCalledWith(
       'Interactive Claude sessions are human-driven and cannot start Loop Mode. Switch to Orchestrated to use Loop Mode.',
     );
+  });
+
+  it('uses the submission-supplied attachments rather than the live draft', async () => {
+    // A retry of a composition recovered after a restart has an empty live
+    // draft — `pendingFilesByKey` is in-memory only. Reading the draft here
+    // would send a text-only message and then delete the images as "accepted".
+    newSessionDraft.pendingFiles.set([]);
+    newSessionDraft.pendingFolders.set([]);
+    const journalled = new File([new Uint8Array(16)], 'pasted-image-1.png', { type: 'image/png' });
+
+    const result = await service.submitWelcomeMessage(
+      'recovered prompt',
+      vi.fn(),
+      'sub-42',
+      { files: [journalled], pendingFolders: ['plans'] },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(store.createInstanceWithMessageResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [journalled],
+        message: 'Folders:\nplans\n\nrecovered prompt',
+        idempotencyKey: 'sub-42',
+      }),
+    );
+  });
+
+  it('keeps the selected remote node after a failure so a retry still targets it', async () => {
+    remoteNodeStore.nodeById.mockReturnValue(makeRemoteNode('connected', true));
+    service.onWelcomeNodeChange('node-1');
+    store.createInstanceWithMessageResult.mockResolvedValue({ ok: false, error: 'spawn failed' });
+
+    const result = await service.submitWelcomeMessage('try this', vi.fn(), 'sub-1');
+
+    expect(result).toEqual({ ok: false, error: 'spawn failed' });
+    // Clearing it here would make the retry silently launch on the local
+    // machine instead of the node the user picked.
+    expect(service.welcomeSelectedNodeId()).toBe('node-1');
+    expect(newSessionDraft.nodeId()).toBe('node-1');
+  });
+
+  it('reports the preparation failure reason instead of a bare false', async () => {
+    remoteNodeStore.nodeById.mockReturnValue(makeRemoteNode('disconnected', false));
+    service.onWelcomeNodeChange('node-1');
+
+    const result = await service.submitWelcomeMessage('go', vi.fn(), 'sub-2');
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('no longer connected');
+    expect(store.createInstanceWithMessageResult).not.toHaveBeenCalled();
   });
 });

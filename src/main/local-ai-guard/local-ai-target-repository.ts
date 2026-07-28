@@ -5,6 +5,7 @@ import type {
   LocalAiEndpointIdentity,
   LocalAiTarget,
   LocalAiTargetConfig,
+  LocalAiTargetLifecycleOptions,
   LocalAiTargetPatch,
 } from '../../shared/types/local-ai-guard.types';
 import {
@@ -38,7 +39,6 @@ export class LocalAiTargetRepository {
       label: this.labelFor(parsedConfig),
       createdAt: now,
       updatedAt: now,
-      ...(parsedConfig.lifecycle === 'paused' ? { pausedUntil: now } : {}),
       ...(parsedConfig.lifecycle === 'retired' ? { retiredAt: now } : {}),
     });
     this.insert(target);
@@ -57,7 +57,9 @@ export class LocalAiTargetRepository {
       label: current.label,
       createdAt: current.createdAt,
       updatedAt: now,
-      ...(config.lifecycle === 'paused' ? { pausedUntil: current.pausedUntil ?? now } : {}),
+      ...(config.lifecycle === 'paused' && current.pausedUntil !== undefined
+        ? { pausedUntil: current.pausedUntil }
+        : {}),
       ...(config.lifecycle === 'retired' ? { retiredAt: current.retiredAt ?? now } : {}),
     });
     this.write(target);
@@ -101,20 +103,30 @@ export class LocalAiTargetRepository {
     };
   }
 
-  setLifecycle(targetId: string, lifecycle: 'enrolled' | 'paused' | 'retired', at = this.currentTimestamp()): LocalAiTarget {
+  setLifecycle(
+    targetId: string,
+    lifecycle: 'enrolled' | 'paused' | 'retired',
+    options: LocalAiTargetLifecycleOptions = {},
+  ): LocalAiTarget {
     const current = this.require(targetId);
-    if (!Number.isSafeInteger(at) || at < 0) {
-      throw new RangeError('Local AI lifecycle timestamp must be a non-negative safe integer');
+    const observedAt = this.currentTimestamp();
+    const updatedAt = Math.max(observedAt, current.updatedAt);
+    const pausedUntil = options.pausedUntil;
+    if (lifecycle !== 'paused' && pausedUntil !== undefined) {
+      throw new RangeError('A Local AI pause deadline requires the paused lifecycle');
     }
-    if (at < current.createdAt || at < current.updatedAt) {
-      throw new RangeError('Local AI lifecycle timestamp must not precede the target creation or latest update');
+    if (
+      pausedUntil !== undefined
+      && (!Number.isSafeInteger(pausedUntil) || pausedUntil <= updatedAt)
+    ) {
+      throw new RangeError('Local AI pause deadline must be a future safe-integer timestamp');
     }
     const target = LocalAiTargetSchema.parse({
       ...current,
       lifecycle,
-      updatedAt: at,
-      ...(lifecycle === 'paused' ? { pausedUntil: at } : {}),
-      ...(lifecycle === 'retired' ? { retiredAt: at } : {}),
+      updatedAt,
+      ...(lifecycle === 'paused' && pausedUntil !== undefined ? { pausedUntil } : {}),
+      ...(lifecycle === 'retired' ? { retiredAt: updatedAt } : {}),
     });
     if (lifecycle === 'enrolled') {
       delete target.pausedUntil;
@@ -123,6 +135,7 @@ export class LocalAiTargetRepository {
       delete target.pausedUntil;
     } else {
       delete target.retiredAt;
+      if (pausedUntil === undefined) delete target.pausedUntil;
     }
     this.write(target);
     this.notify(target);

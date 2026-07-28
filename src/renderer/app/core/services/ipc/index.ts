@@ -47,6 +47,7 @@ export { ChannelIpcService } from './channel-ipc.service';
 export { IpcEventBusService } from './ipc-event-bus.service';
 export { OperatorIpcService } from './operator-ipc.service';
 export { ChatIpcService } from './chat-ipc.service';
+export { LocalAiGuardIpcService } from './local-ai-guard-ipc.service';
 
 // Import services for facade
 import { Injectable, inject } from '@angular/core';

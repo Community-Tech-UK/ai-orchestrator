@@ -45,8 +45,12 @@ describe('LLMService.summarize() — auxiliary routing', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllGlobals();
+    const { __resetLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __resetLocalAiAuxiliaryHooksForTesting();
   });
 
   it('emits summarize:complete after successful auxiliary generation', async () => {
@@ -119,6 +123,236 @@ describe('LLMService.summarize() — auxiliary routing', () => {
 
     expect(frontierSpy).toHaveBeenCalledTimes(1);
     expect(result).toBe('frontier summary');
+  });
+
+  it('fails locally without a frontier call when auxiliary acquisition or authorization throws', async () => {
+    auxMockControls.generate.mockRejectedValue(new Error('authorization unavailable'));
+
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService();
+    const frontierSpy = vi.spyOn(
+      service as unknown as {
+        generateCompletion: (systemPrompt: string, userPrompt: string) => Promise<string>;
+      },
+      'generateCompletion',
+    );
+
+    const result = await service.summarize({
+      requestId: 'r-aux-error',
+      content: 'sensitive content must remain local',
+      targetTokens: 50,
+      preserveKeyPoints: false,
+    });
+
+    expect(frontierSpy).not.toHaveBeenCalled();
+    expect(result).toBeTruthy();
+  });
+
+  it('does not retry an authorized frontier rejection as a direct paid call', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: {
+        source: 'fallback' as const,
+        provider: 'local-fallback' as const,
+        slot: 'compression',
+        reason: 'authorized',
+        allowFrontierFallback: true,
+      },
+    });
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService();
+    const frontierSpy = vi.spyOn(
+      service as unknown as {
+        generateCompletion: (systemPrompt: string, userPrompt: string) => Promise<string>;
+      },
+      'generateCompletion',
+    ).mockRejectedValue(new Error('provider failed'));
+
+    const result = await service.summarize({
+      requestId: 'r-frontier-error',
+      content: 'content',
+      targetTokens: 50,
+      preserveKeyPoints: false,
+    });
+
+    expect(frontierSpy).toHaveBeenCalledTimes(1);
+    expect(result).toBeTruthy();
+  });
+
+  it('does not mark or attribute an authorized fallback that wins on local Ollama', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: {
+        source: 'fallback' as const,
+        provider: 'local-fallback' as const,
+        slot: 'compression',
+        reason: 'authorized',
+        allowFrontierFallback: true,
+        fallbackDisposition: 'allowed' as const,
+        localAiRoutingEventId: 'routing-ollama',
+      },
+    });
+    const mark = vi.fn();
+    const { __setLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __setLocalAiAuxiliaryHooksForTesting({
+      findTarget: () => undefined,
+      evaluateLocalTarget: async () => ({ eligible: true, reason: 'test' }),
+      acquireTarget: () => () => undefined,
+      invalidateTarget: () => undefined,
+      authorizeFallback: async () => ({
+        allowed: true,
+        disposition: 'allowed',
+        policy: 'allow-silently',
+        routingEventId: 'routing-ollama',
+      }),
+      markFallbackDispatched: mark,
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (
+      url.endsWith('/api/tags')
+        ? mockJsonResponse({ models: [] })
+        : mockJsonResponse({ response: 'local summary' })
+    )));
+    const { subscribeCostAttribution } = await import('../../core/system/cost-attribution');
+    const records: unknown[] = [];
+    const unsubscribe = subscribeCostAttribution((record) => records.push(record));
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService({
+      provider: 'ollama',
+      ollamaHost: 'http://ollama.test',
+    });
+
+    await service.summarize({
+      requestId: 'ollama-winner',
+      content: 'summarize locally',
+      targetTokens: 50,
+      preserveKeyPoints: false,
+    });
+    unsubscribe();
+
+    expect(mark).not.toHaveBeenCalled();
+    expect(records.filter((record) => (
+      (record as { correlationId?: string }).correlationId === 'routing-ollama'
+    ))).toHaveLength(0);
+  });
+
+  it('marks exactly once before the paid Anthropic network boundary', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: {
+        source: 'fallback' as const,
+        provider: 'local-fallback' as const,
+        slot: 'compression',
+        reason: 'authorized',
+        allowFrontierFallback: true,
+        fallbackDisposition: 'allowed' as const,
+        localAiRoutingEventId: 'routing-anthropic',
+      },
+    });
+    const order: string[] = [];
+    const mark = vi.fn(async () => {
+      order.push('mark');
+    });
+    const { __setLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __setLocalAiAuxiliaryHooksForTesting({
+      findTarget: () => undefined,
+      evaluateLocalTarget: async () => ({ eligible: true, reason: 'test' }),
+      acquireTarget: () => () => undefined,
+      invalidateTarget: () => undefined,
+      authorizeFallback: async () => ({
+        allowed: true,
+        disposition: 'allowed',
+        policy: 'allow-silently',
+        routingEventId: 'routing-anthropic',
+      }),
+      markFallbackDispatched: mark,
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://api.anthropic.com/v1/messages') {
+        order.push('network');
+        return mockJsonResponse({
+          content: [{ type: 'text', text: 'paid summary' }],
+          usage: { input_tokens: 10, output_tokens: 3 },
+        });
+      }
+      return mockJsonResponse({}, false, 503);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService({
+      provider: 'anthropic',
+      anthropicApiKey: 'test-placeholder',
+      model: 'haiku',
+    });
+
+    await service.summarize({
+      requestId: 'paid-order',
+      content: 'summarize with paid model',
+      targetTokens: 50,
+      preserveKeyPoints: false,
+    });
+
+    expect(order).toEqual(['mark', 'network']);
+    expect(mark).toHaveBeenCalledTimes(1);
+  });
+
+  it('prevents the paid Anthropic network boundary when dispatch marking fails', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: {
+        source: 'fallback' as const,
+        provider: 'local-fallback' as const,
+        slot: 'compression',
+        reason: 'authorized',
+        allowFrontierFallback: true,
+        fallbackDisposition: 'allowed' as const,
+        localAiRoutingEventId: 'routing-mark-failure',
+      },
+    });
+    const { __setLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __setLocalAiAuxiliaryHooksForTesting({
+      findTarget: () => undefined,
+      evaluateLocalTarget: async () => ({ eligible: true, reason: 'test' }),
+      acquireTarget: () => () => undefined,
+      invalidateTarget: () => undefined,
+      authorizeFallback: async () => ({
+        allowed: true,
+        disposition: 'allowed',
+        policy: 'allow-silently',
+        routingEventId: 'routing-mark-failure',
+      }),
+      markFallbackDispatched: async () => {
+        throw new Error('durable mark failed');
+      },
+    });
+    const fetchMock = vi.fn(async (url: string) => (
+      url === 'https://api.anthropic.com/v1/messages'
+        ? mockJsonResponse({ content: [{ type: 'text', text: 'must not happen' }] })
+        : mockJsonResponse({}, false, 503)
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService({
+      provider: 'anthropic',
+      anthropicApiKey: 'test-placeholder',
+      model: 'haiku',
+    });
+
+    await service.summarize({
+      requestId: 'mark-failure',
+      content: 'stay local when accounting fails',
+      targetTokens: 50,
+      preserveKeyPoints: false,
+    });
+
+    expect(fetchMock.mock.calls.filter(
+      ([url]) => url === 'https://api.anthropic.com/v1/messages',
+    )).toHaveLength(0);
   });
 });
 
@@ -202,16 +436,39 @@ describe('LLMService.subQueryViaAux() — auxiliary routing', () => {
     expect(out).toBe('frontier answer');
   });
 
-  it('preserves old behavior (calls subQuery) when the aux service throws', async () => {
+  it('fails locally without calling subQuery when auxiliary acquisition or authorization throws', async () => {
     auxMockControls.generate.mockRejectedValue(new Error('aux boom'));
     const { getLLMService } = await import('../llm-service');
+    const { LLM_UNAVAILABLE_TEXT } = await import('../llm-service.constants');
     const service = getLLMService();
     const subSpy = vi.spyOn(service, 'subQuery').mockResolvedValue('frontier answer');
 
     const out = await service.subQueryViaAux('subQueryExecution', req);
 
+    expect(subSpy).not.toHaveBeenCalled();
+    expect(out).toBe(LLM_UNAVAILABLE_TEXT);
+  });
+
+  it('does not retry an authorized subQuery rejection as a direct paid call', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: {
+        source: 'fallback' as const,
+        provider: 'local-fallback' as const,
+        slot: 'subQueryExecution',
+        reason: 'authorized',
+        allowFrontierFallback: true,
+      },
+    });
+    const { getLLMService } = await import('../llm-service');
+    const { LLM_UNAVAILABLE_TEXT } = await import('../llm-service.constants');
+    const service = getLLMService();
+    const subSpy = vi.spyOn(service, 'subQuery').mockRejectedValue(new Error('provider failed'));
+
+    const out = await service.subQueryViaAux('subQueryExecution', req);
+
     expect(subSpy).toHaveBeenCalledTimes(1);
-    expect(out).toBe('frontier answer');
+    expect(out).toBe(LLM_UNAVAILABLE_TEXT);
   });
 });
 

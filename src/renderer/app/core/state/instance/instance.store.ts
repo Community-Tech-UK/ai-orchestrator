@@ -28,7 +28,10 @@ import { AutomationStore } from '../automation.store';
 
 // Types
 import type { Instance, InstanceStatus, CreateInstanceConfig, OutputMessage } from './instance.types';
-import type { CreateInstanceWithMessageOptions } from './instance-list.store';
+import type {
+  CreateInstanceWithMessageOptions,
+  CreateInstanceWithMessageResult,
+} from './instance-list.store';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
@@ -566,18 +569,18 @@ export class InstanceStore implements OnDestroy {
     return this.listStore.createInstanceAndReturnId(config);
   }
 
-  /** Create instance and immediately send a message */
-  async createInstanceWithMessage(
-    options: CreateInstanceWithMessageOptions,
-  ): Promise<boolean> {
-    return this.listStore.createInstanceWithMessage(options);
-  }
-
   /** Create instance and immediately send a message, returning the new instance ID. */
   async createInstanceWithMessageAndReturnId(
     options: CreateInstanceWithMessageOptions,
   ): Promise<string | null> {
     return this.listStore.createInstanceWithMessageAndReturnId(options);
+  }
+
+  /** Create instance and immediately send a message, reporting the failure reason. */
+  async createInstanceWithMessageResult(
+    options: CreateInstanceWithMessageOptions,
+  ): Promise<CreateInstanceWithMessageResult> {
+    return this.listStore.createInstanceWithMessageResult(options);
   }
 
   /** Set an error message */

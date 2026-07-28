@@ -164,6 +164,24 @@ describe('LocalAiProbeService', () => {
     });
   });
 
+  it('does not recommend an Ollama restart for a coordinator OpenAI-compatible failure', async () => {
+    const service = new LocalAiProbeService({
+      fetch: vi.fn(async () => new Response('{}', { status: 500 })),
+      now: () => 1_700_000_000_000,
+    });
+
+    const report = await service.diagnose(target(
+      { type: 'coordinator' },
+      {
+        provider: 'openai-compatible',
+        endpointId: 'openai-compatible',
+        baseUrl: 'http://127.0.0.1:1234',
+      },
+    ));
+
+    expect(report.recommendedActions).toEqual(['deep-check']);
+  });
+
   it('preserves a worker inference-timeout result by budgeting the full functional RPC sequence', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn<typeof fetch>()
@@ -258,6 +276,7 @@ describe('LocalAiProbeService', () => {
     ) => ({
       targetId: 'ollama',
       action: 'restart-ollama',
+      outcome: 'recovered',
       supported: true,
       attempted: true,
       recovered: true,

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1084,
+    "channelCount": 1098,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5423,11 +5423,81 @@
         "name": "CONTEXT_EVIDENCE_STATE_CHANGED",
         "value": "context-evidence:state-changed",
         "line": 1400
+      },
+      {
+        "name": "LOCAL_AI_GUARD_GET_SNAPSHOT",
+        "value": "local-ai-guard:get-snapshot",
+        "line": 1402
+      },
+      {
+        "name": "LOCAL_AI_GUARD_TARGET_CREATE",
+        "value": "local-ai-guard:target-create",
+        "line": 1403
+      },
+      {
+        "name": "LOCAL_AI_GUARD_TARGET_UPDATE",
+        "value": "local-ai-guard:target-update",
+        "line": 1404
+      },
+      {
+        "name": "LOCAL_AI_GUARD_TARGET_SET_LIFECYCLE",
+        "value": "local-ai-guard:target-set-lifecycle",
+        "line": 1405
+      },
+      {
+        "name": "LOCAL_AI_GUARD_DISCOVER",
+        "value": "local-ai-guard:discover",
+        "line": 1406
+      },
+      {
+        "name": "LOCAL_AI_GUARD_VALIDATE",
+        "value": "local-ai-guard:validate",
+        "line": 1407
+      },
+      {
+        "name": "LOCAL_AI_GUARD_RECHECK",
+        "value": "local-ai-guard:recheck",
+        "line": 1408
+      },
+      {
+        "name": "LOCAL_AI_GUARD_INCIDENT_ACKNOWLEDGE",
+        "value": "local-ai-guard:incident-acknowledge",
+        "line": 1409
+      },
+      {
+        "name": "LOCAL_AI_GUARD_DIAGNOSE",
+        "value": "local-ai-guard:diagnose",
+        "line": 1410
+      },
+      {
+        "name": "LOCAL_AI_GUARD_REPAIR",
+        "value": "local-ai-guard:repair",
+        "line": 1411
+      },
+      {
+        "name": "LOCAL_AI_GUARD_SUMMARY_QUERY",
+        "value": "local-ai-guard:summary-query",
+        "line": 1412
+      },
+      {
+        "name": "LOCAL_AI_GUARD_PENDING_FALLBACK_LIST",
+        "value": "local-ai-guard:pending-fallback-list",
+        "line": 1413
+      },
+      {
+        "name": "LOCAL_AI_GUARD_PENDING_FALLBACK_RESOLVE",
+        "value": "local-ai-guard:pending-fallback-resolve",
+        "line": 1414
+      },
+      {
+        "name": "LOCAL_AI_GUARD_STATUS_DELTA",
+        "value": "local-ai-guard:status-delta",
+        "line": 1415
       }
     ]
   },
   "preload": {
-    "domainCount": 31,
+    "domainCount": 32,
     "domains": [
       "automation.preload.ts",
       "auxiliary-llm.preload.ts",
@@ -5443,6 +5513,7 @@
       "infrastructure.preload.ts",
       "instance.preload.ts",
       "learning.preload.ts",
+      "local-ai-guard.preload.ts",
       "loop.preload.ts",
       "memory.preload.ts",
       "mobile-gateway.preload.ts",
@@ -5690,12 +5761,12 @@
       "lines": 1796
     },
     {
-      "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
-      "lines": 1764
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1785
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1759
+      "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
+      "lines": 1764
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
@@ -5710,16 +5781,24 @@
       "lines": 1620
     },
     {
+      "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
+      "lines": 1617
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
       "lines": 1613
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1586
+      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
+      "lines": 1613
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1583
+      "lines": 1610
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1586
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -5778,10 +5857,6 @@
       "lines": 1426
     },
     {
-      "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
-      "lines": 1415
-    },
-    {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
       "lines": 1414
     },
@@ -5806,6 +5881,10 @@
       "lines": 1351
     },
     {
+      "path": "src/main/memory/unified-controller.ts",
+      "lines": 1346
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
       "lines": 1344
     },
@@ -5816,10 +5895,6 @@
     {
       "path": "src/main/ipc/orchestration-ipc-handler.ts",
       "lines": 1343
-    },
-    {
-      "path": "src/main/memory/unified-controller.ts",
-      "lines": 1342
     },
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
@@ -5875,7 +5950,7 @@
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1273
+      "lines": 1276
     },
     {
       "path": "src/main/orchestration/cross-model-review-service.spec.ts",
@@ -5911,10 +5986,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f11-scale-operations.md",
-      "lines": 1253
-    },
-    {
-      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
       "lines": 1253
     },
     {
@@ -5986,6 +6057,10 @@
       "lines": 1177
     },
     {
+      "path": "src/renderer/app/core/state/local-ai-guard.store.spec.ts",
+      "lines": 1169
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase3-monorepo-consolidation_completed.md",
       "lines": 1167
     },
@@ -6026,6 +6101,10 @@
       "lines": 1126
     },
     {
+      "path": "src/main/ipc/handlers/local-ai-guard-handlers.spec.ts",
+      "lines": 1119
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
       "lines": 1116
     },
@@ -6062,6 +6141,10 @@
       "lines": 1104
     },
     {
+      "path": "src/main/local-ai-guard/local-ai-health-scheduler.spec.ts",
+      "lines": 1094
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 1092
     },
@@ -6084,6 +6167,10 @@
     {
       "path": "src/main/review/local-review-tool-runner.spec.ts",
       "lines": 1088
+    },
+    {
+      "path": "src/main/rlm/llm-service.ts",
+      "lines": 1072
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
@@ -6118,8 +6205,8 @@
       "lines": 1025
     },
     {
-      "path": "src/main/rlm/llm-service.ts",
-      "lines": 1025
+      "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
+      "lines": 1023
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
@@ -6218,12 +6305,12 @@
       "lines": 963
     },
     {
-      "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
-      "lines": 961
+      "path": "src/main/context/context-compactor.ts",
+      "lines": 963
     },
     {
-      "path": "src/main/context/context-compactor.ts",
-      "lines": 959
+      "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
+      "lines": 961
     },
     {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",
@@ -6246,6 +6333,10 @@
       "lines": 947
     },
     {
+      "path": "src/main/remote-node/__tests__/rpc-event-router.spec.ts",
+      "lines": 938
+    },
+    {
       "path": "src/main/orchestration/cli-verification-extension.ts",
       "lines": 937
     },
@@ -6264,10 +6355,6 @@
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 925
-    },
-    {
-      "path": "src/main/local-ai-guard/local-ai-health-scheduler.spec.ts",
-      "lines": 924
     },
     {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
@@ -6378,6 +6465,10 @@
       "lines": 850
     },
     {
+      "path": "src/main/local-ai-guard/local-ai-guard.integration.spec.ts",
+      "lines": 847
+    },
+    {
       "path": "src/main/orchestration/embedding-service.ts",
       "lines": 845
     },
@@ -6422,16 +6513,16 @@
       "lines": 833
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 832
+    },
+    {
       "path": "src/main/memory/skills-loader.spec.ts",
       "lines": 831
     },
     {
       "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
       "lines": 829
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 827
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
@@ -6484,6 +6575,10 @@
     {
       "path": "docs/superpowers/specs/2026-07-08-desktop-computer-use-gateway-design_completed.md",
       "lines": 809
+    },
+    {
+      "path": "docs/plans/livetest-remediation-register.md",
+      "lines": 808
     },
     {
       "path": "src/main/orchestration/loop-completion-detector.ts",

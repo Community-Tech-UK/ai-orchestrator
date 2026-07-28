@@ -730,6 +730,291 @@ describe('AuxiliaryLlmService — allowFrontierFallback in decision', () => {
   });
 });
 
+describe('AuxiliaryLlmService — bounded discovery', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    resetRemoteState();
+    await installRemoteHooks();
+    const { AuxiliaryLlmService } = await import('../auxiliary-llm-service');
+    AuxiliaryLlmService._resetForTesting();
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    const { __resetAuxiliaryRemoteHooksForTesting } = await import('../auxiliary-llm-service');
+    __resetAuxiliaryRemoteHooksForTesting();
+  });
+
+  it('never probes configured endpoints beyond the aggregate discovery cap', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    const endpoints = Array.from({ length: 1_500 }, (_, index) => ({
+      id: `configured-${index}`,
+      label: `Configured ${index}`,
+      provider: 'ollama',
+      baseUrl: `http://127.0.0.1:${20_000 + index}`,
+      source: 'manual',
+      enabled: true,
+    }));
+    service.configure(baseSettings({
+      auxiliaryLlmUseLocalhostOllama: false,
+      auxiliaryLlmEndpointsJson: JSON.stringify(endpoints),
+    }));
+
+    const candidates = await service.discoverCandidates();
+
+    expect(candidates).toHaveLength(1_000);
+    expect(candidates.at(-1)?.endpoint.id).toBe('configured-999');
+    expect(mocks.probeOllama).toHaveBeenCalledTimes(1_000);
+  });
+
+  it('stops materializing worker endpoints when the aggregate cap is reached', async () => {
+    const service = await getService();
+    let baseUrlReads = 0;
+    remoteState.nodes = [{
+      id: 'node-many',
+      name: 'Many Endpoints',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: Array.from({ length: 1_500 }, (_, index) => {
+          const baseUrl = `http://127.0.0.1:${20_000 + index}`;
+          return {
+            provider: 'ollama' as const,
+            get baseUrl() {
+              baseUrlReads += 1;
+              return baseUrl;
+            },
+            models: ['qwen3:14b'],
+            healthy: true,
+          };
+        }),
+      },
+    }];
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+
+    const candidates = await service.discoverCandidates();
+
+    expect(candidates).toHaveLength(1_000);
+    expect(candidates.at(-1)?.endpoint.id).toContain(':20999');
+    expect(baseUrlReads).toBeLessThanOrEqual(2_000);
+  });
+
+  it('inspects at most 1,000 duplicate worker descriptors before materializing the first source', async () => {
+    const service = await getService();
+    let baseUrlReads = 0;
+    let modelsReads = 0;
+    remoteState.nodes = [{
+      id: 'node-duplicate-descriptors',
+      name: 'Duplicate Descriptors',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: Array.from({ length: 1_500 }, () => ({
+          provider: 'ollama' as const,
+          get baseUrl() {
+            baseUrlReads += 1;
+            return 'http://127.0.0.1:11434';
+          },
+          get models() {
+            modelsReads += 1;
+            return ['qwen3:14b'];
+          },
+          healthy: true,
+        })),
+      },
+    }];
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+
+    const candidates = await service.discoverCandidates();
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.models.map(({ id }) => id)).toEqual(['qwen3:14b']);
+    expect(baseUrlReads).toBe(1_000);
+    expect(modelsReads).toBe(1);
+  });
+
+  it('caps worker heartbeat models before materializing discovery model objects', async () => {
+    const service = await getService();
+    let modelReads = 0;
+    const models = Array.from({ length: 1_500 }, (_, index) => `worker-${index}`);
+    for (let index = 0; index < models.length; index += 1) {
+      Object.defineProperty(models, index, {
+        configurable: true,
+        get() {
+          modelReads += 1;
+          return `worker-${index}`;
+        },
+      });
+    }
+    remoteState.nodes = [{
+      id: 'node-models',
+      name: 'Many Models',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models,
+          healthy: true,
+        }],
+      },
+    }];
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+
+    const candidates = await service.discoverCandidates();
+
+    expect(candidates[0]?.models).toHaveLength(100);
+    expect(candidates[0]?.models.at(-1)?.id).toBe('worker-99');
+    expect(modelReads).toBe(100);
+  });
+
+  it('deduplicates a legacy persisted worker ID against its normalized heartbeat source', async () => {
+    const service = await getService();
+    let modelReads = 0;
+    const models = Array.from({ length: 1_500 }, (_, index) => `worker-${index}`);
+    for (let index = 0; index < models.length; index += 1) {
+      Object.defineProperty(models, index, {
+        configurable: true,
+        get() {
+          modelReads += 1;
+          return `worker-${index}`;
+        },
+      });
+    }
+    remoteState.nodes = [{
+      id: 'node-persisted',
+      name: 'Persisted Worker',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://localhost',
+          models,
+          healthy: true,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-persisted']);
+    service.configure(baseSettings({
+      auxiliaryLlmUseLocalhostOllama: false,
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'legacy-custom-worker-endpoint',
+        label: 'Persisted Worker · ollama',
+        provider: 'ollama',
+        baseUrl: 'HTTP://LOCALHOST:80/',
+        source: 'worker-node',
+        workerNodeId: 'node-persisted',
+        enabled: true,
+      }]),
+    }));
+
+    const candidates = await service.discoverCandidates();
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.endpoint.id).toBe('legacy-custom-worker-endpoint');
+    expect(candidates[0]?.models).toHaveLength(100);
+    expect(modelReads).toBe(100);
+  });
+
+  it('aborts a stalled probe at the aggregate deadline and returns completed candidates only', async () => {
+    vi.useFakeTimers();
+    const service = await getService();
+    const mocks = await getMocks();
+    let call = 0;
+    let aborted = false;
+    mocks.probeOllama.mockImplementation(((...args: unknown[]) => {
+      call += 1;
+      if (call === 1) return Promise.resolve(false);
+      const signal = args[2] as AbortSignal | undefined;
+      return new Promise<boolean>((resolve) => {
+        signal?.addEventListener('abort', () => {
+          aborted = true;
+          resolve(false);
+        }, { once: true });
+      });
+    }) as never);
+    service.configure(baseSettings({
+      auxiliaryLlmUseLocalhostOllama: false,
+      auxiliaryLlmEndpointsJson: JSON.stringify(
+        Array.from({ length: 3 }, (_, index) => ({
+          id: `deadline-${index}`,
+          label: `Deadline ${index}`,
+          provider: 'ollama',
+          baseUrl: `http://127.0.0.1:${20_000 + index}`,
+          source: 'manual',
+          enabled: true,
+        })),
+      ),
+    }));
+
+    let result: Awaited<ReturnType<typeof service.discoverCandidates>> | undefined;
+    void service.discoverCandidates().then((candidates) => {
+      result = candidates;
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await Promise.resolve();
+
+    expect(aborted).toBe(true);
+    expect(result?.map((candidate) => candidate.endpoint.id)).toEqual(['deadline-0']);
+    expect(mocks.probeOllama).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not invoke worker materialization after the aggregate deadline aborts discovery', async () => {
+    vi.useFakeTimers();
+    const service = await getService();
+    const mocks = await getMocks();
+    let modelReads = 0;
+    const models = Array.from({ length: 1_500 }, (_, index) => `worker-${index}`);
+    for (let index = 0; index < models.length; index += 1) {
+      Object.defineProperty(models, index, {
+        configurable: true,
+        get() {
+          modelReads += 1;
+          return `worker-${index}`;
+        },
+      });
+    }
+    remoteState.nodes = [{
+      id: 'node-after-deadline',
+      name: 'Late Worker',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models,
+          healthy: true,
+        }],
+      },
+    }];
+    mocks.probeOllama.mockImplementation(((_baseUrl: string, _timeoutMs: number, signal?: AbortSignal) =>
+      new Promise<boolean>((resolve) => {
+        signal?.addEventListener('abort', () => resolve(false), { once: true });
+      })) as never);
+    service.configure(baseSettings({
+      auxiliaryLlmUseLocalhostOllama: false,
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'deadline-stall',
+        label: 'Deadline Stall',
+        provider: 'ollama',
+        baseUrl: 'http://127.0.0.1:20000',
+        source: 'manual',
+        enabled: true,
+      }]),
+    }));
+
+    let result: Awaited<ReturnType<typeof service.discoverCandidates>> | undefined;
+    void service.discoverCandidates().then((candidates) => {
+      result = candidates;
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await Promise.resolve();
+
+    expect(result).toEqual([]);
+    expect(modelReads).toBe(0);
+  });
+});
+
 describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -819,6 +1104,44 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     // its ~4k default for long-input slots.
     expect((params as { numCtx: number }).numCtx).toBeGreaterThanOrEqual(4096);
     expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('normalizes at most 100 worker heartbeat models across auto-routing', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'bounded worker result' });
+    let modelReads = 0;
+    const models = Array.from({ length: 1_500 }, (_, index) => `worker-${index}`);
+    for (let index = 0; index < models.length; index += 1) {
+      Object.defineProperty(models, index, {
+        configurable: true,
+        get() {
+          modelReads += 1;
+          return `worker-${index}`;
+        },
+      });
+    }
+    remoteState.nodes = [{
+      id: 'node-models',
+      name: 'Many Models',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models,
+          healthy: true,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-models']);
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+
+    const result = await service.generate('compression', 'sys', 'user');
+
+    expect(result.text).toBe('bounded worker result');
+    expect(modelReads).toBe(100);
   });
 
   it('passes sanitized prompts to worker-node RPC generation', async () => {
@@ -1194,6 +1517,43 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     expect(new Set(ids).size).toBe(2); // ids are distinct, neither overwrites the other
     expect(ids).toContain('worker:node-1:ollama:127.0.0.1:11434');
     expect(ids).toContain('worker:node-1:ollama:127.0.0.1:11435');
+  });
+
+  it('keeps the same endpoint URL distinct across providers and worker nodes', async () => {
+    const service = await getService();
+    remoteState.nodes = [
+      {
+        id: 'node-a',
+        name: 'Worker A',
+        status: 'connected',
+        capabilities: {
+          localModelEndpoints: [
+            { provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', models: ['ollama-a'], healthy: true },
+            { provider: 'openai-compatible', baseUrl: 'http://127.0.0.1:11434', models: ['openai-a'], healthy: true },
+          ],
+        },
+      },
+      {
+        id: 'node-b',
+        name: 'Worker B',
+        status: 'connected',
+        capabilities: {
+          localModelEndpoints: [
+            { provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', models: ['ollama-b'], healthy: true },
+          ],
+        },
+      },
+    ];
+    remoteState.connected = new Set(['node-a', 'node-b']);
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+
+    const candidates = await service.discoverCandidates();
+
+    expect(candidates.map(({ endpoint }) => endpoint.id)).toEqual([
+      'worker:node-a:ollama:127.0.0.1:11434',
+      'worker:node-a:openai-compatible:127.0.0.1:11434',
+      'worker:node-b:ollama:127.0.0.1:11434',
+    ]);
   });
 
   it('does not route to a worker that is not connected', async () => {

@@ -31,6 +31,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getLogger } from '../../logging/logger';
+import { getLocalAiCostCorrelationId } from '../../local-ai-guard/local-ai-cost-correlation';
 
 const logger = getLogger('CostAttribution');
 
@@ -82,6 +83,7 @@ export interface CostAttributionRecord {
 
 let cachedDir: string | null | undefined;
 let warnedOnce = false;
+const attributionListeners = new Set<(record: CostAttributionRecord) => void>();
 
 function isEnabled(): boolean {
   // Default-on: only an explicit opt-out disables the sink. '1'/'true' remain
@@ -144,11 +146,21 @@ export function getCostAttributionFilePath(): string | null {
  * ('0'/'false') or no sink directory is resolvable. Never throws.
  */
 export function recordCostAttribution(record: CostAttributionRecord): void {
+  const correlatedRecord = record.correlationId || !getLocalAiCostCorrelationId()
+    ? record
+    : { ...record, correlationId: getLocalAiCostCorrelationId() };
+  for (const listener of attributionListeners) {
+    try {
+      listener(correlatedRecord);
+    } catch {
+      // Attribution observers are fail-soft and cannot break provider calls.
+    }
+  }
   if (!isEnabled()) return;
   try {
     const file = getCostAttributionFilePath();
     if (!file) return;
-    const line = JSON.stringify({ ts: Date.now(), ...record });
+    const line = JSON.stringify({ ts: Date.now(), ...correlatedRecord });
     appendFileSync(file, line + '\n', 'utf8');
   } catch (err) {
     if (!warnedOnce) {
@@ -158,6 +170,15 @@ export function recordCostAttribution(record: CostAttributionRecord): void {
       });
     }
   }
+}
+
+export function subscribeCostAttribution(
+  listener: (record: CostAttributionRecord) => void,
+): () => void {
+  attributionListeners.add(listener);
+  return () => {
+    attributionListeners.delete(listener);
+  };
 }
 
 /**
@@ -174,7 +195,6 @@ export function recordInstanceTurnAttribution(args: {
   usage: CostAttributionUsage;
   costKnown: boolean;
 }): void {
-  if (!isEnabled()) return;
   const role = args.parentId ? 'child' : 'chat';
   recordCostAttribution({
     source: 'instance-turn',
@@ -215,7 +235,6 @@ export function recordAuxiliaryAttribution(args: {
   usage?: CostAttributionUsage;
   reason?: string;
 }): void {
-  if (!isEnabled()) return;
   recordCostAttribution({
     source: 'auxiliary',
     taskType: `aux:${args.slot}`,

@@ -11,17 +11,18 @@
  */
 
 import { EventEmitter } from 'events';
-import type { AppSettings } from '../../shared/types/settings.types';
-import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
-import type {
-  AuxiliaryLlmSlot,
-  AuxiliaryLlmProvider,
-  AuxiliaryLlmSlotConfig,
-  AuxiliaryLlmSlotConfigMap,
-  AuxiliaryLlmEndpointConfig,
-  AuxiliaryLlmCandidate,
-  AuxiliaryLlmDecision,
-  AuxiliaryLlmModelInfo,
+import { DEFAULT_SETTINGS, type AppSettings } from '../../shared/types/settings.types';
+import {
+  AUXILIARY_DISCOVERY_DEADLINE_MS,
+  AUXILIARY_DISCOVERY_MAX_CANDIDATES,
+  type AuxiliaryLlmCandidate,
+  type AuxiliaryLlmDecision,
+  type AuxiliaryLlmEndpointConfig,
+  type AuxiliaryLlmModelInfo,
+  type AuxiliaryLlmProvider,
+  type AuxiliaryLlmSlot,
+  type AuxiliaryLlmSlotConfig,
+  type AuxiliaryLlmSlotConfigMap,
 } from '../../shared/types/auxiliary-llm.types';
 import { auxiliaryRemoteHooks } from './auxiliary-remote-hooks';
 import {
@@ -35,11 +36,29 @@ import {
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
 import { retryAuxiliaryGeneration } from './auxiliary-generation-retry';
-import { recordAuxiliaryAttribution } from '../core/system/cost-attribution';
 import { AuxiliaryDailySpendCap } from './auxiliary-daily-spend-cap';
 import { resolveAuxiliaryEndpointApiKey } from './auxiliary-api-key-resolver';
-import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
+import { computeNumCtx, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
+import {
+  buildAuthorizedAuxiliaryFallback,
+  classifyAuxiliarySource,
+  evaluateManagedAuxiliaryEndpoint,
+  invalidateManagedAuxiliaryTarget,
+  managedAuxiliaryModelsAvailable,
+  recordSuccessfulAuxiliary,
+  requireAuxiliaryText,
+  runWithLocalAiTargetLease,
+  type LocalAiResolutionContext,
+  type ResolvedAuxiliaryEndpoint,
+} from './auxiliary-local-ai-guard';
+import {
+  auxiliaryWorkerSourceKeys,
+  collectAuxiliaryWorkerEndpointConfigs,
+  collectAuxiliaryWorkerEndpoints,
+  modelsForAuxiliaryWorkerEndpoint,
+  settleBeforeAbort,
+} from './auxiliary-discovery';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
 // crashes in worker_thread contexts. We must NOT top-level-import them.
@@ -55,14 +74,6 @@ const logger = getLogger('AuxiliaryLlmService');
 // ─── Constants ────────────────────────────────────────────────────────────────
 const HEALTH_CACHE_TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 5_000;
-
-const JSON_FALLBACK_TEXT =
-  '{"score":0,"confidence":0,"reason":"No auxiliary model available"}';
-
-/** Slots that return empty string (not JSON) on fallback. */
-const EMPTY_FALLBACK_SLOTS = new Set<AuxiliaryLlmSlot>(['compression', 'memoryDistillation', 'retrievalHypothesis', 'verifyOutputSummary']);
-
-// ─── Internal types ───────────────────────────────────────────────────────────
 
 type AuxiliaryLlmConfigSubset = Pick<
   AppSettings,
@@ -82,8 +93,6 @@ interface HealthCacheEntry {
   checkedAt: number;
 }
 
-// ─── Helper: parse default slots from DEFAULT_SETTINGS ────────────────────────
-
 function parseDefaultSlots(): AuxiliaryLlmSlotConfigMap {
   try {
     return JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as AuxiliaryLlmSlotConfigMap;
@@ -95,7 +104,6 @@ function parseDefaultSlots(): AuxiliaryLlmSlotConfigMap {
 
 export class AuxiliaryLlmService extends EventEmitter {
   private static instance: AuxiliaryLlmService | null = null;
-
   private enabled = true;
   private routingMode: AppSettings['auxiliaryLlmRoutingMode'] = 'local-first';
   private allowRemoteWorkerModels = true;
@@ -167,41 +175,54 @@ export class AuxiliaryLlmService extends EventEmitter {
 
   async discoverCandidates(): Promise<AuxiliaryLlmCandidate[]> {
     const candidates: AuxiliaryLlmCandidate[] = [];
-
-    // Probe the coordinator's localhost Ollama unless it has been excluded from
-    // auxiliary routing (auxiliaryLlmUseLocalhostOllama = false).
-    const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
-    if (localOllama) {
-      candidates.push(await this.probeCandidate(localOllama));
-    }
-
-    // Probe all configured endpoints
-    const endpointsToProbe = this.endpoints.filter(
-      (ep) => ep.enabled && (this.allowRemoteWorkerModels || ep.source !== 'worker-node')
+    const controller = new AbortController();
+    const deadline = setTimeout(
+      () => controller.abort(),
+      AUXILIARY_DISCOVERY_DEADLINE_MS,
     );
-    for (const endpoint of endpointsToProbe) {
-      candidates.push(await this.probeCandidate(endpoint));
+    const appendProbe = async (endpoint: AuxiliaryLlmEndpointConfig): Promise<void> => {
+      if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) return;
+      const candidate = await settleBeforeAbort(
+        this.probeCandidate(endpoint, controller.signal),
+        controller.signal,
+      );
+      if (candidate && !controller.signal.aborted) candidates.push(candidate);
+    };
+    try {
+      const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
+      if (localOllama) await appendProbe(localOllama);
+      for (const endpoint of this.endpoints) {
+        if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
+        if (endpoint.enabled && (this.allowRemoteWorkerModels || endpoint.source !== 'worker-node')) {
+          await appendProbe(endpoint);
+        }
+      }
+      const persistedWorkerSources = auxiliaryWorkerSourceKeys(this.endpoints);
+      const remaining = AUXILIARY_DISCOVERY_MAX_CANDIDATES - candidates.length;
+      if (controller.signal.aborted || remaining <= 0) return candidates;
+      const workers = this.allowRemoteWorkerModels
+        ? collectAuxiliaryWorkerEndpoints(
+            auxiliaryRemoteHooks.connectedWorkerNodes(),
+            remaining,
+            persistedWorkerSources,
+          )
+        : [];
+      for (const worker of workers) {
+        if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
+        candidates.push({
+          endpoint: worker.endpoint,
+          models: worker.models,
+          healthy: worker.healthy,
+          reason: worker.healthy
+            ? worker.models.length === 0 ? 'No models reported' : undefined
+            : 'Worker Ollama unhealthy',
+        });
+      }
+      return candidates;
+    } finally {
+      clearTimeout(deadline);
+      controller.abort();
     }
-
-    // Surface local models reported by connected worker nodes. This data comes
-    // from the heartbeat — we never dial the worker's 127.0.0.1 directly;
-    // generation is proxied through the worker-agent RPC channel.
-    const persistedIds = new Set(this.endpoints.map((ep) => ep.id));
-    for (const wc of this.workerNodeEndpoints()) {
-      if (persistedIds.has(wc.endpoint.id)) continue; // avoid duplicating a persisted entry
-      candidates.push({
-        endpoint: wc.endpoint,
-        models: wc.models,
-        healthy: wc.healthy,
-        reason: wc.healthy
-          ? wc.models.length === 0
-            ? 'No models reported'
-            : undefined
-          : 'Worker Ollama unhealthy',
-      });
-    }
-
-    return candidates;
   }
 
   // ─── Generation ────────────────────────────────────────────────────────────
@@ -211,33 +232,37 @@ export class AuxiliaryLlmService extends EventEmitter {
     systemPrompt: string,
     userPrompt: string
   ): Promise<{ text: string; decision: AuxiliaryLlmDecision }> {
-    // Service disabled / routing off → behave normally (allow frontier fallback).
+    const fallback = (
+      reason: string,
+      slotAllowsFrontier: boolean,
+      prompts = { system: systemPrompt, user: userPrompt },
+      intendedTargetId?: string,
+      estimatedOutputTokens = 0,
+    ) => buildAuthorizedAuxiliaryFallback({
+      slot, reason, slotAllowsFrontier, intendedTargetId, estimatedOutputTokens,
+      systemPrompt: prompts.system, userPrompt: prompts.user,
+    });
     if (!this.enabled || this.routingMode === 'off') {
-      return this.buildFallback(slot, 'Service disabled or routing mode is off', true);
+      return fallback('Service disabled or routing mode is off', true);
     }
 
     const slotConfig = this.slots[slot];
     if (!slotConfig?.enabled) {
-      // Slot explicitly turned off → normal (frontier-allowed) behavior.
-      return this.buildFallback(slot, 'Slot is disabled', true);
+      return fallback('Slot is disabled', true);
     }
 
     const truncated = this.maybeTruncatePrompt(slot, slotConfig, systemPrompt, userPrompt);
-    const resolved = await this.resolveEndpointForSlot(slot, slotConfig);
+    const localAiContext: LocalAiResolutionContext = {};
+    const resolved = await this.resolveEndpointForSlot(slot, slotConfig, localAiContext);
     if (!resolved) {
-      // Enabled but nothing healthy found — honor the slot's frontier-fallback policy.
-      return this.buildFallback(slot, 'No healthy auxiliary endpoint/model available', slotConfig.allowFrontierFallback);
+      return fallback('No healthy auxiliary endpoint/model available',
+        slotConfig.allowFrontierFallback, truncated,
+        localAiContext.intendedTargetId, slotConfig.maxOutputTokens);
     }
 
-    const { endpoint, model } = resolved;
+    const { endpoint, model, intendedTargetId } = resolved;
 
-    // Worker-node localhost models count as local; only manual remote APIs are cheap-cloud.
-    const source: AuxiliaryLlmDecision['source'] =
-      endpoint.source === 'localhost' ||
-      endpoint.source === 'worker-node' ||
-      endpoint.provider === 'ollama'
-        ? 'local'
-        : 'cheap-cloud';
+    const source = classifyAuxiliarySource(endpoint, intendedTargetId);
 
     const spendCapReason = this.dailySpendCap.reserve({
       slot,
@@ -250,14 +275,17 @@ export class AuxiliaryLlmService extends EventEmitter {
       source,
     });
     if (spendCapReason) {
-      // This also prevents callers such as ContextCompactor from escaping the
-      // cap by re-running the same prompt on a primary frontier model.
-      return this.buildFallback(slot, spendCapReason, false);
+      return fallback(spendCapReason, false, truncated,
+        intendedTargetId, slotConfig.maxOutputTokens);
     }
 
-    // Actually call the model
     try {
-      const text = await this.callEndpoint(endpoint, model, slotConfig, truncated.system, truncated.user);
+      const text = await runWithLocalAiTargetLease(
+        intendedTargetId,
+        async () => requireAuxiliaryText(
+          await this.callEndpoint(endpoint, model, slotConfig, truncated.system, truncated.user),
+        ),
+      );
       const decision: AuxiliaryLlmDecision = {
         slot,
         provider: endpoint.provider as AuxiliaryLlmProvider,
@@ -266,30 +294,19 @@ export class AuxiliaryLlmService extends EventEmitter {
         source,
         reason: `Routed via ${this.routingMode} to ${endpoint.label}`,
         allowFrontierFallback: slotConfig.allowFrontierFallback,
+        ...(intendedTargetId ? { intendedTargetId } : {}),
       };
-      // Record the offload that DID happen. Local endpoints report no dollar
-      // cost, so the token counts are the signal — they quantify the frontier
-      // spend we avoided, which is otherwise unmeasurable.
-      const tokenCounter = getTokenCounter();
-      recordAuxiliaryAttribution({
-        slot,
-        provider: endpoint.provider,
-        endpointId: endpoint.id,
-        model,
-        routedTo: source,
-        escalatedToFrontier: false,
-        usage: {
-          inputTokens:
-            tokenCounter.countTokens(truncated.system) + tokenCounter.countTokens(truncated.user),
-          outputTokens: tokenCounter.countTokens(text),
-        },
-        reason: decision.reason,
+      recordSuccessfulAuxiliary({
+        slot, endpoint, model, source, text, reason: decision.reason,
+        systemPrompt: truncated.system, userPrompt: truncated.user,
       });
       return { text, decision };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn(`Auxiliary generation failed for slot "${slot}": ${message}`);
-      return this.buildFallback(slot, `Generation error: ${message}`, slotConfig.allowFrontierFallback);
+      return fallback(`Generation error: ${message}`,
+        slotConfig.allowFrontierFallback, truncated,
+        intendedTargetId, slotConfig.maxOutputTokens);
     }
   }
 
@@ -297,16 +314,31 @@ export class AuxiliaryLlmService extends EventEmitter {
 
   private async resolveEndpointForSlot(
     slot: AuxiliaryLlmSlot,
-    slotConfig: AuxiliaryLlmSlotConfig
-  ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
+    slotConfig: AuxiliaryLlmSlotConfig,
+    localAiContext: LocalAiResolutionContext,
+  ): Promise<ResolvedAuxiliaryEndpoint | null> {
     // Explicit endpointId + model first — but validate the endpoint offers it.
     if (slotConfig.endpointId && slotConfig.model) {
       const ep = this.endpoints.find((e) => e.id === slotConfig.endpointId && e.enabled);
-      if (ep && (await this.isEndpointHealthy(ep))) {
-        const ids = (await this.listModels(ep)).map((m) => m.id);
-        if (endpointAdvertisesModel(ep.source, slotConfig.model, ids)) {
-          return { endpoint: ep, model: slotConfig.model };
+      const managedTarget = ep
+        ? await evaluateManagedAuxiliaryEndpoint(ep, slot, localAiContext)
+        : undefined;
+      if (ep && managedTarget !== null) {
+        const healthy = await this.isEndpointHealthy(ep);
+        if (!healthy) {
+          invalidateManagedAuxiliaryTarget(managedTarget);
+          return null;
         }
+        const ids = (await this.listModels(ep)).map((m) => m.id);
+        if (!managedAuxiliaryModelsAvailable(managedTarget, ids)) return null;
+        if (endpointAdvertisesModel(ep.source, slotConfig.model, ids)) {
+          return {
+            endpoint: ep,
+            model: slotConfig.model,
+            ...(managedTarget ? { intendedTargetId: managedTarget.targetId } : {}),
+          };
+        }
+        invalidateManagedAuxiliaryTarget(managedTarget);
       }
     }
 
@@ -316,11 +348,11 @@ export class AuxiliaryLlmService extends EventEmitter {
     }
 
     if (this.routingMode === 'local-first') {
-      return this.resolveLocalFirst(slot, slotConfig);
+      return this.resolveLocalFirst(slot, slotConfig, localAiContext);
     }
 
     if (this.routingMode === 'cheap-first') {
-      return this.resolveCheapFirst(slot, slotConfig);
+      return this.resolveCheapFirst(slot, slotConfig, localAiContext);
     }
 
     return null;
@@ -328,8 +360,9 @@ export class AuxiliaryLlmService extends EventEmitter {
 
   private async resolveLocalFirst(
     slot: AuxiliaryLlmSlot,
-    slotConfig: AuxiliaryLlmSlotConfig
-  ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
+    slotConfig: AuxiliaryLlmSlotConfig,
+    localAiContext: LocalAiResolutionContext,
+  ): Promise<ResolvedAuxiliaryEndpoint | null> {
     const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
     const enabled = this.enabledEndpoints();
     // local-first defaults to the remote node machine for remote work: worker-node models first, this host's localhost as fallback, then the rest.
@@ -341,7 +374,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     ];
 
     for (const ep of ordered) {
-      const result = await this.tryEndpointForSlot(ep, slot, slotConfig);
+      const result = await this.tryEndpointForSlot(ep, slot, slotConfig, localAiContext);
       if (result) return result;
     }
     return null;
@@ -349,8 +382,9 @@ export class AuxiliaryLlmService extends EventEmitter {
 
   private async resolveCheapFirst(
     slot: AuxiliaryLlmSlot,
-    slotConfig: AuxiliaryLlmSlotConfig
-  ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
+    slotConfig: AuxiliaryLlmSlotConfig,
+    localAiContext: LocalAiResolutionContext,
+  ): Promise<ResolvedAuxiliaryEndpoint | null> {
     const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
 
     const configured = this.enabledEndpoints();
@@ -370,7 +404,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       ...(localOllama ? [localOllama] : []),
     ];
     for (const ep of ordered) {
-      const result = await this.tryEndpointForSlot(ep, slot, slotConfig);
+      const result = await this.tryEndpointForSlot(ep, slot, slotConfig, localAiContext);
       if (result) return result;
     }
     return null;
@@ -379,19 +413,30 @@ export class AuxiliaryLlmService extends EventEmitter {
   private async tryEndpointForSlot(
     ep: AuxiliaryLlmEndpointConfig,
     slot: AuxiliaryLlmSlot,
-    slotConfig: AuxiliaryLlmSlotConfig
-  ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
+    slotConfig: AuxiliaryLlmSlotConfig,
+    localAiContext: LocalAiResolutionContext,
+  ): Promise<ResolvedAuxiliaryEndpoint | null> {
+    const managedTarget = await evaluateManagedAuxiliaryEndpoint(ep, slot, localAiContext);
+    if (managedTarget === null) return null;
     const healthy = await this.isEndpointHealthy(ep);
-    if (!healthy) return null;
+    if (!healthy) {
+      invalidateManagedAuxiliaryTarget(managedTarget);
+      return null;
+    }
 
     // Effective tier: explicit tier, or name-based default for legacy configs.
     const tier = slotConfig.tier ?? DEFAULT_SLOT_TIERS[slot];
     const ids = (await this.listModels(ep)).map((m) => m.id);
+    if (!managedAuxiliaryModelsAvailable(managedTarget, ids)) return null;
     const preferred = resolveSlotModel(slotConfig, tier, this.quickModel, this.qualityModel);
     // Use a pinned/tier model only if the endpoint advertises it (see helper for
     // the empty-list rule); otherwise auto-pick by tier from what's listed.
     if (preferred && endpointAdvertisesModel(ep.source, preferred, ids)) {
-      return { endpoint: ep, model: preferred };
+      return {
+        endpoint: ep,
+        model: preferred,
+        ...(managedTarget ? { intendedTargetId: managedTarget.targetId } : {}),
+      };
     }
     if (ids.length === 0) return null;
     // Prefer a model already loaded with adequate context (worker endpoints only).
@@ -399,12 +444,22 @@ export class AuxiliaryLlmService extends EventEmitter {
       ? workerLoadedContexts(auxiliaryRemoteHooks.connectedWorkerNodes(), ep.workerNodeId, ep.provider, ep.baseUrl)
       : undefined;
     const picked = pickModelForTier(ids, tier, loaded);
-    return picked ? { endpoint: ep, model: picked } : null;
+    return picked
+      ? {
+          endpoint: ep,
+          model: picked,
+          ...(managedTarget ? { intendedTargetId: managedTarget.targetId } : {}),
+        }
+      : null;
   }
 
   // ─── Private: health cache ──────────────────────────────────────────────────
 
-  private async isEndpointHealthy(ep: AuxiliaryLlmEndpointConfig): Promise<boolean> {
+  private async isEndpointHealthy(
+    ep: AuxiliaryLlmEndpointConfig,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (signal?.aborted) return false;
     const cached = this.healthCache.get(ep.id);
     if (cached && Date.now() - cached.checkedAt < HEALTH_CACHE_TTL_MS) {
       return cached.healthy;
@@ -417,54 +472,52 @@ export class AuxiliaryLlmService extends EventEmitter {
         healthy = !!ep.workerNodeId && auxiliaryRemoteHooks.isNodeConnected(ep.workerNodeId)
           && workerEndpointHealthy(auxiliaryRemoteHooks.connectedWorkerNodes(), ep.workerNodeId, ep.provider, ep.baseUrl);
       } else if (ep.provider === 'ollama') {
-        healthy = await probeOllamaEndpoint(ep.baseUrl, PROBE_TIMEOUT_MS);
+        healthy = signal
+          ? await probeOllamaEndpoint(ep.baseUrl, PROBE_TIMEOUT_MS, signal)
+          : await probeOllamaEndpoint(ep.baseUrl, PROBE_TIMEOUT_MS);
       } else {
         const apiKey = await resolveAuxiliaryEndpointApiKey(ep);
-        healthy = await probeOpenAiCompatibleEndpoint(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS);
+        if (signal?.aborted) return false;
+        healthy = signal
+          ? await probeOpenAiCompatibleEndpoint(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS, signal)
+          : await probeOpenAiCompatibleEndpoint(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS);
       }
     } catch {
       healthy = false;
     }
 
-    this.healthCache.set(ep.id, { healthy, checkedAt: Date.now() });
+    if (!signal?.aborted) this.healthCache.set(ep.id, { healthy, checkedAt: Date.now() });
     return healthy;
   }
 
   // ─── Private: model listing ─────────────────────────────────────────────────
 
-  private async listModels(ep: AuxiliaryLlmEndpointConfig): Promise<AuxiliaryLlmModelInfo[]> {
+  private async listModels(
+    ep: AuxiliaryLlmEndpointConfig,
+    signal?: AbortSignal,
+  ): Promise<AuxiliaryLlmModelInfo[]> {
+    if (signal?.aborted) return [];
     try {
       if (ep.source === 'worker-node') {
         // Never dial the worker's localhost — use the models reported on heartbeat.
-        return this.workerNodeModels(ep);
+        return modelsForAuxiliaryWorkerEndpoint(
+          auxiliaryRemoteHooks.connectedWorkerNodes(),
+          ep,
+        );
       }
       if (ep.provider === 'ollama') {
-        return await listOllamaModels(ep.baseUrl, PROBE_TIMEOUT_MS);
+        return signal
+          ? await listOllamaModels(ep.baseUrl, PROBE_TIMEOUT_MS, signal)
+          : await listOllamaModels(ep.baseUrl, PROBE_TIMEOUT_MS);
       }
       const apiKey = await resolveAuxiliaryEndpointApiKey(ep);
-      return await listOpenAiCompatibleModels(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS);
+      if (signal?.aborted) return [];
+      return signal
+        ? await listOpenAiCompatibleModels(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS, signal)
+        : await listOpenAiCompatibleModels(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS);
     } catch {
       return [];
     }
-  }
-
-  /** Models a connected worker reported for the given endpoint (no direct dial). */
-  private workerNodeModels(ep: AuxiliaryLlmEndpointConfig): AuxiliaryLlmModelInfo[] {
-    if (!ep.workerNodeId) return [];
-    for (const node of auxiliaryRemoteHooks.connectedWorkerNodes()) {
-      if (node.id !== ep.workerNodeId) continue;
-      for (const cap of node.capabilities.localModelEndpoints ?? []) {
-        if (cap.provider === ep.provider && cap.baseUrl === ep.baseUrl) {
-          return cap.models.map<AuxiliaryLlmModelInfo>((m) => ({
-            id: m,
-            name: m,
-            provider: cap.provider,
-            endpointId: ep.id,
-          }));
-        }
-      }
-    }
-    return [];
   }
 
   // ─── Private: actual HTTP call ──────────────────────────────────────────────
@@ -579,35 +632,6 @@ export class AuxiliaryLlmService extends EventEmitter {
     return { system: systemPrompt, user: truncatedUser };
   }
 
-  // ─── Private: fallback builder ──────────────────────────────────────────────
-
-  private buildFallback(
-    slot: AuxiliaryLlmSlot,
-    reason: string,
-    allowFrontierFallback: boolean
-  ): { text: string; decision: AuxiliaryLlmDecision } {
-    const text = EMPTY_FALLBACK_SLOTS.has(slot) ? '' : JSON_FALLBACK_TEXT;
-    const decision: AuxiliaryLlmDecision = {
-      slot,
-      provider: 'local-fallback',
-      source: 'fallback',
-      reason,
-      allowFrontierFallback,
-    };
-    // Single choke point for every fallback, so this catches all escalations.
-    // When allowFrontierFallback is true the caller (e.g. ContextCompactor)
-    // re-runs the prompt on a paid frontier model — spend that was previously
-    // invisible because nothing on this path recorded cost.
-    recordAuxiliaryAttribution({
-      slot,
-      provider: 'local-fallback',
-      routedTo: 'fallback',
-      escalatedToFrontier: allowFrontierFallback,
-      reason,
-    });
-    return { text, decision };
-  }
-
   // ─── Private: utility ───────────────────────────────────────────────────────
 
   private enabledEndpoints(): AuxiliaryLlmEndpointConfig[] {
@@ -618,69 +642,29 @@ export class AuxiliaryLlmService extends EventEmitter {
     );
   }
 
-  /**
-   * Build auxiliary endpoint configs (with reported models + health) from the
-   * local models advertised by connected worker nodes. Gated by
-   * allowRemoteWorkerModels. The baseUrl is worker-local and is NEVER dialed
-   * directly by the coordinator — listing and generation for these endpoints go
-   * through the worker-agent RPC channel.
-   */
-  private workerNodeEndpoints(): {
-    endpoint: AuxiliaryLlmEndpointConfig;
-    models: AuxiliaryLlmModelInfo[];
-    healthy: boolean;
-  }[] {
-    if (!this.allowRemoteWorkerModels) return [];
-
-    const result: {
-      endpoint: AuxiliaryLlmEndpointConfig;
-      models: AuxiliaryLlmModelInfo[];
-      healthy: boolean;
-    }[] = [];
-    for (const node of auxiliaryRemoteHooks.connectedWorkerNodes()) {
-      for (const cap of node.capabilities.localModelEndpoints ?? []) {
-        // Include host:port so a node advertising two endpoints of the same
-        // provider (e.g. two Ollama instances on different ports) yields
-        // distinct ids instead of one silently overwriting the other.
-        const hostKey = hostKeyFromUrl(cap.baseUrl);
-        const endpoint: AuxiliaryLlmEndpointConfig = {
-          id: `worker:${node.id}:${cap.provider}:${hostKey}`,
-          label: `${node.name} · ${cap.provider}`,
-          provider: cap.provider,
-          baseUrl: cap.baseUrl,
-          source: 'worker-node',
-          workerNodeId: node.id,
-          enabled: true,
-        };
-        const models = cap.models.map<AuxiliaryLlmModelInfo>((m) => ({
-          id: m,
-          name: m,
-          provider: cap.provider,
-          endpointId: endpoint.id,
-        }));
-        result.push({ endpoint, models, healthy: cap.healthy });
-      }
-    }
-    return result;
-  }
-
   /** Auto-discovered worker endpoints that are not already persisted in config. */
   private autoWorkerEndpoints(): AuxiliaryLlmEndpointConfig[] {
-    const persistedIds = new Set(this.endpoints.map((e) => e.id));
-    return this.workerNodeEndpoints()
-      .map((w) => w.endpoint)
-      .filter((e) => !persistedIds.has(e.id));
+    return collectAuxiliaryWorkerEndpointConfigs(
+      auxiliaryRemoteHooks.connectedWorkerNodes(),
+      AUXILIARY_DISCOVERY_MAX_CANDIDATES,
+      auxiliaryWorkerSourceKeys(this.endpoints),
+    );
   }
 
   // ─── Private: candidate probing (for discoverCandidates) ───────────────────
 
-  private async probeCandidate(ep: AuxiliaryLlmEndpointConfig): Promise<AuxiliaryLlmCandidate> {
-    const healthy = await this.isEndpointHealthy(ep);
+  private async probeCandidate(
+    ep: AuxiliaryLlmEndpointConfig,
+    signal: AbortSignal,
+  ): Promise<AuxiliaryLlmCandidate | undefined> {
+    const healthy = await this.isEndpointHealthy(ep, signal);
+    if (signal.aborted) return undefined;
     let models: AuxiliaryLlmModelInfo[] = [];
     let reason: string | undefined;
 
     if (healthy) {
-      models = await this.listModels(ep);
+      models = await this.listModels(ep, signal);
+      if (signal.aborted) return undefined;
       if (models.length === 0) {
         reason = 'No models available';
       }

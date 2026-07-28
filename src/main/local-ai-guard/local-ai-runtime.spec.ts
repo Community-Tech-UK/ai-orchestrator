@@ -1,6 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LocalAiTarget } from '../../shared/types/local-ai-guard.types';
+import {
+  compareLocalAiRevisionCursors,
+  incrementLocalAiRevisionCursor,
+  parseLocalAiRevisionCursor,
+} from '../../shared/types/local-ai-guard.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { WorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { LocalAiActivityRegistry } from './local-ai-activity-registry';
@@ -121,6 +126,61 @@ describe('Local AI Guard runtime', () => {
     _resetLocalAiGuardRuntimeForTesting();
   });
 
+  it('advances a server-authored revision before notifying status subscribers', () => {
+    const runtime = new LocalAiGuardRuntime(services(
+      schedulerDouble(),
+      { dispose: vi.fn() },
+      { subscribe: () => () => undefined },
+    ));
+    const observed = vi.fn(() => runtime.revision);
+    runtime.subscribe(observed);
+
+    expect(runtime.revision).toBe('0');
+    runtime.notifyChanged();
+    runtime.notifyChanged();
+
+    expect(observed.mock.results.map(({ value }) => value)).toEqual(['1', '2']);
+    expect(runtime.revision).toBe('2');
+
+    runtime.dispose();
+    runtime.notifyChanged();
+    expect(runtime.revision).toBe('2');
+    expect(observed).toHaveBeenCalledTimes(2);
+  });
+
+  it('continues advancing after the old numeric safe-integer boundary', () => {
+    let committedSourceNotification: (() => void) | undefined;
+    const scheduler = schedulerDouble({
+      subscribe: vi.fn((listener: () => void) => {
+        committedSourceNotification = listener;
+        return () => undefined;
+      }),
+    });
+    const runtime = new LocalAiGuardRuntime(services(
+      scheduler,
+      { dispose: vi.fn() },
+      { subscribe: () => () => undefined },
+    ));
+    const listener = vi.fn();
+    runtime.subscribe(listener);
+    (runtime as unknown as { statusRevision: bigint }).statusRevision =
+      BigInt(Number.MAX_SAFE_INTEGER);
+
+    expect(() => committedSourceNotification?.()).not.toThrow();
+    expect(runtime.revision).toBe('9007199254740992');
+    expect(listener).toHaveBeenCalledOnce();
+
+    runtime.dispose();
+  });
+
+  it('compares, parses, and increments canonical cursors without Number conversion', () => {
+    expect(parseLocalAiRevisionCursor('9007199254740992')).toBe(9_007_199_254_740_992n);
+    expect(incrementLocalAiRevisionCursor('9007199254740991')).toBe('9007199254740992');
+    expect(compareLocalAiRevisionCursors('99', '100')).toBeLessThan(0);
+    expect(compareLocalAiRevisionCursors('100', '99')).toBeGreaterThan(0);
+    expect(compareLocalAiRevisionCursors('9007199254740992', '9007199254740992')).toBe(0);
+  });
+
   it('starts once, exposes Task 1-7 services, and disposes scheduler and incident resources', () => {
     const scheduler = {
       start: vi.fn(),
@@ -198,6 +258,7 @@ describe('Local AI Guard runtime', () => {
     const targets = {
       get: (id: string) => id === value.id ? value : undefined,
       list: () => [value],
+      setLifecycle: vi.fn(),
       subscribe: () => () => undefined,
     };
     const scheduler = new LocalAiHealthScheduler({

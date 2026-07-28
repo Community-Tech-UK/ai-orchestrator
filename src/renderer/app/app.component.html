@@ -19,6 +19,7 @@
         Startup {{ report.status }}
       </button>
     }
+    <app-local-ai-status-chip />
     <app-cli-update-pill />
     @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
       <app-pause-toggle />
@@ -82,6 +83,8 @@
   <app-computer-use-permission-banner />
 
   <app-browser-approvals-banner />
+
+  <app-local-ai-fallback-banner />
 
   <main class="app-main">
     @if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'unset') {

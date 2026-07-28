@@ -226,4 +226,13 @@ export const FILE_LIMITS = {
   MAX_IMAGE_SIZE: 5 * 1024 * 1024,     // 5MB for images (API hard limit)
   MAX_FILE_SIZE: 30 * 1024 * 1024,      // 30MB for other files (API limit)
   MAX_IMAGE_DIMENSION: 8000,            // Maximum dimension for images
+  /**
+   * Hard ceiling on attachments in a single IPC payload. Must stay in step with
+   * `.max(10)` on `InstanceCreateWithMessagePayloadSchema.attachments` and
+   * `InstanceSendInputPayloadSchema.attachments` in
+   * `packages/contracts/src/schemas/instance.schemas.ts` — the main process
+   * rejects the whole payload past this count, so the renderer has to refuse
+   * first and say why. Both sides are pinned by tests.
+   */
+  MAX_ATTACHMENTS: 10,
 } as const;

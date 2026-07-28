@@ -89,6 +89,9 @@ export class WelcomeCoordinatorService {
 
   private welcomeContextRequestId = 0;
 
+  /** Reason the last `prepareWelcomeLaunch` bailed out, for the caller to surface. */
+  private lastPreparationError: string | null = null;
+
   constructor() {
     effect(() => {
       this.welcomeSelectedNodeId.set(this.newSessionDraft.nodeId());
@@ -165,31 +168,47 @@ export class WelcomeCoordinatorService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Validates the selected remote node (if any), then delegates to
-   * InstanceStore.createInstanceWithMessage.
+   * Acknowledgement-driven new-session launch.
    *
-   * Returns `true` when the instance was successfully launched, `false`
-   * on validation failure or when the store rejects the creation.
+   * The composer keeps its text and attachments until this resolves, so the
+   * result must say what happened — a bare `false` used to mean the user lost
+   * the composition with no idea why.
+   *
+   * `submissionId` is threaded to the main process as an idempotency key so a
+   * retry after a slow acknowledgement returns the original session rather than
+   * starting a second one.
    */
-  async onWelcomeSendMessage(
+  async submitWelcomeMessage(
     message: string,
     onCreatingChange: (creating: boolean) => void,
-  ): Promise<boolean> {
-    const plan = this.prepareWelcomeLaunch(message);
-    if (!plan) return false;
+    submissionId?: string,
+    content?: { files: File[]; pendingFolders: string[] },
+  ): Promise<{ ok: true; instanceId: string } | { ok: false; error: string }> {
+    const plan = this.prepareWelcomeLaunch(message, content);
+    if (!plan) {
+      // `prepareWelcomeLaunch` has already published the specific reason
+      // (offline node / working directory unavailable on the node).
+      return { ok: false, error: this.lastPreparationError ?? 'The session could not be prepared.' };
+    }
 
     onCreatingChange(true);
-    const launched = await this.store.createInstanceWithMessage(plan.config);
+    const result = await this.store.createInstanceWithMessageResult({
+      ...plan.config,
+      ...(submissionId ? { idempotencyKey: submissionId } : {}),
+    });
 
-    if (!launched) {
+    if (!result.ok) {
       onCreatingChange(false);
-      // Clear node selection so it doesn't leak into the next attempt
-      this.clearWelcomeNodeSelection();
-      return false;
+      // The node selection is deliberately NOT cleared here. It feeds
+      // `forceNodeId` in `prepareWelcomeLaunch`, so clearing it would make a
+      // retry of this composition silently launch locally instead of on the
+      // node the user picked. It is cleared on success, in
+      // `finalizeWelcomeLaunch`.
+      return result;
     }
 
     await this.finalizeWelcomeLaunch(plan);
-    return true;
+    return result;
   }
 
   async onWelcomeStartSessionWithLoop(
@@ -297,7 +316,23 @@ export class WelcomeCoordinatorService {
     return true;
   }
 
-  private prepareWelcomeLaunch(message: string): WelcomeLaunchPlan | null {
+  private failPreparation(reason: string): null {
+    this.lastPreparationError = reason;
+    this.store.setError(reason);
+    return null;
+  }
+
+  /**
+   * @param content Attachments/folders for this specific submission. Supplied
+   * when retrying a composition recovered from the journal, whose files are no
+   * longer in the live draft (the in-memory `pendingFilesByKey` does not
+   * survive a reload). Omitted for a first send, which reads the live draft.
+   */
+  private prepareWelcomeLaunch(
+    message: string,
+    content?: { files: File[]; pendingFolders: string[] },
+  ): WelcomeLaunchPlan | null {
+    this.lastPreparationError = null;
     const workingDir = this.workingDirectory() || '.';
     const modelRuntimeTarget = this.newSessionDraft.modelRuntimeTarget() ?? undefined;
     const localModelTarget = modelRuntimeTarget?.kind === 'local-model'
@@ -329,7 +364,7 @@ export class WelcomeCoordinatorService {
       : this.newSessionDraft.reasoningEffort();
     const yoloMode = this.newSessionDraft.yoloMode();
     const hardened = this.newSessionDraft.hardened();
-    const pendingFolders = this.pendingFolders();
+    const pendingFolders = content?.pendingFolders ?? this.pendingFolders();
     const finalMessage = this.fileAttachment.prependPendingFolders(
       message,
       pendingFolders,
@@ -340,10 +375,9 @@ export class WelcomeCoordinatorService {
     if (forceNodeId) {
       const node = this.remoteNodeStore.nodeById(forceNodeId);
       if (!node || !isRemoteNodeOnline(node)) {
-        this.store.setError(
+        return this.failPreparation(
           'Selected remote node is no longer connected. Please choose another node or use Local.',
         );
-        return null;
       }
 
       // If the working directory is a local path that doesn't exist on the
@@ -358,17 +392,16 @@ export class WelcomeCoordinatorService {
       if (!isWorkingDirOnNode && allowedDirs.length > 0) {
         effectiveWorkingDir = allowedDirs[0];
       } else if (!isWorkingDirOnNode) {
-        this.store.setError(
+        return this.failPreparation(
           'The current working directory is not available on the remote node. Please browse and select a remote folder first.',
         );
-        return null;
       }
     }
 
     return {
       config: {
         message: finalMessage,
-        files: this.pendingFiles(),
+        files: content?.files ?? this.pendingFiles(),
         workingDirectory: effectiveWorkingDir,
         agentId: this.newSessionDraft.agentId(),
         provider,

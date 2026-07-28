@@ -1,11 +1,71 @@
 import { describe, expect, it } from 'vitest';
 import {
   LocalAiProbeResultSchema,
+  LocalAiRepairResultSchema,
+  LocalAiGuardSnapshotSchema,
+  LocalAiRevisionCursorSchema,
   LocalAiRoutingDecisionReasonSchema,
   LocalAiRoutingEventSchema,
   LocalAiTargetConfigSchema,
+  LocalAiTargetCreateRequestSchema,
+  LocalAiTargetLifecycleRequestSchema,
+  LocalAiTargetSchema,
+  LocalAiTargetUpdateRequestSchema,
   LocalAiTargetStatusSchema,
+  LocalAiValidateRequestSchema,
 } from './local-ai-guard.schemas';
+
+const validSnapshot = {
+  revision: '0',
+  aggregate: {
+    state: 'not-configured',
+    enrolled: 0,
+    healthy: 0,
+    degraded: 0,
+    unavailable: 0,
+    paused: 0,
+  },
+  targets: [],
+  targetConfigs: [],
+  incidents: [],
+  recoveryAttempts: [],
+  pendingFallbacks: [],
+};
+
+describe('LocalAiGuardSnapshotSchema', () => {
+  it('requires a canonical bounded decimal-string revision cursor', () => {
+    expect(LocalAiGuardSnapshotSchema.parse(validSnapshot).revision).toBe('0');
+    expect(LocalAiGuardSnapshotSchema.parse({
+      ...validSnapshot,
+      revision: '9'.repeat(512),
+    }).revision).toBe('9'.repeat(512));
+
+    for (const revision of [
+      undefined,
+      -1,
+      '00',
+      '01',
+      '+1',
+      '-1',
+      '1.0',
+      '1e3',
+      ' 1',
+      '1 ',
+      '9'.repeat(513),
+    ]) {
+      expect(() => LocalAiGuardSnapshotSchema.parse({
+        ...validSnapshot,
+        revision,
+      })).toThrow();
+    }
+  });
+
+  it('validates the cursor independently at IPC boundaries', () => {
+    expect(LocalAiRevisionCursorSchema.parse('9007199254740992'))
+      .toBe('9007199254740992');
+    expect(() => LocalAiRevisionCursorSchema.parse('09007199254740992')).toThrow();
+  });
+});
 
 const validTargetConfig = {
   lifecycle: 'enrolled',
@@ -39,11 +99,156 @@ describe('LocalAiTargetConfigSchema', () => {
     })).toThrow();
   });
 
+  it('enforces unique expected models and canary membership across authoritative target contracts', () => {
+    const duplicateModels = [
+      validTargetConfig.expectedModels[0],
+      { ...validTargetConfig.expectedModels[0], required: false },
+    ];
+    const missingCanary = {
+      ...validTargetConfig.canary,
+      model: 'not-expected',
+    };
+    const persisted = {
+      ...validTargetConfig,
+      id: 'target-1',
+      label: 'Worker target',
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    for (const invalid of [
+      { ...validTargetConfig, expectedModels: duplicateModels },
+      { ...validTargetConfig, canary: missingCanary },
+    ]) {
+      expect(LocalAiTargetConfigSchema.safeParse(invalid).success).toBe(false);
+      expect(LocalAiTargetCreateRequestSchema.safeParse({ config: invalid }).success).toBe(false);
+      expect(LocalAiValidateRequestSchema.safeParse({ config: invalid }).success).toBe(false);
+      expect(LocalAiTargetSchema.safeParse({ ...persisted, ...invalid }).success).toBe(false);
+    }
+
+    expect(LocalAiTargetUpdateRequestSchema.safeParse({
+      targetId: 'target-1',
+      patch: {
+        expectedModels: duplicateModels,
+        canary: validTargetConfig.canary,
+      },
+    }).success).toBe(false);
+    expect(LocalAiTargetUpdateRequestSchema.safeParse({
+      targetId: 'target-1',
+      patch: {
+        expectedModels: validTargetConfig.expectedModels,
+        canary: missingCanary,
+      },
+    }).success).toBe(false);
+  });
+
+  it('preserves distinct expected-model order and objects when the canary is a member', () => {
+    const expectedModels = [
+      validTargetConfig.expectedModels[0],
+      { modelId: 'qwen3:8b', required: false, minContextLength: 8_192 },
+    ];
+
+    expect(LocalAiTargetConfigSchema.parse({
+      ...validTargetConfig,
+      expectedModels,
+    }).expectedModels).toEqual(expectedModels);
+  });
+
   it('rejects an enrolled target without any routing capability', () => {
     expect(() => LocalAiTargetConfigSchema.parse({
       ...validTargetConfig,
       routingRoles: [],
     })).toThrow();
+  });
+
+  it('accepts the exact trusted numeric boundaries through config, create, update, and validate schemas', () => {
+    const minimum = {
+      ...validTargetConfig,
+      expectedModels: [{
+        ...validTargetConfig.expectedModels[0],
+        minContextLength: 1,
+      }],
+      canary: { ...validTargetConfig.canary, timeoutMs: 5_000, intervalMs: 120_000 },
+      endpointCheckIntervalMs: 30_000,
+      freshnessLimitMs: 30_000,
+      warningLatencyMs: 100,
+      confirmAboveInputTokens: 0,
+      dailyFallbackBudgetUsd: 0,
+      incidentFallbackBudgetUsd: 0,
+      recovery: { ...validTargetConfig.recovery, maxAttempts: 1, cooldownMs: 60_000 },
+    };
+    const maximum = {
+      ...validTargetConfig,
+      expectedModels: [{
+        ...validTargetConfig.expectedModels[0],
+        minContextLength: 100_000_000,
+      }],
+      canary: { ...validTargetConfig.canary, timeoutMs: 120_000, intervalMs: 3_600_000 },
+      endpointCheckIntervalMs: 900_000,
+      freshnessLimitMs: 900_000,
+      warningLatencyMs: 60_000,
+      confirmAboveInputTokens: 100_000_000,
+      dailyFallbackBudgetUsd: 1_000_000,
+      incidentFallbackBudgetUsd: 1_000_000,
+      recovery: { ...validTargetConfig.recovery, maxAttempts: 5, cooldownMs: 3_600_000 },
+    };
+
+    expect(LocalAiTargetConfigSchema.parse(minimum)).toMatchObject(minimum);
+    expect(LocalAiTargetCreateRequestSchema.parse({ config: maximum }).config)
+      .toMatchObject(maximum);
+    expect(LocalAiValidateRequestSchema.parse({ config: minimum }).config)
+      .toMatchObject(minimum);
+    const {
+      location: _location,
+      provider: _provider,
+      endpointId: _endpointId,
+      ...maximumPatch
+    } = maximum;
+    expect(LocalAiTargetUpdateRequestSchema.parse({
+      targetId: 'target-1',
+      patch: maximumPatch,
+    }).patch).toMatchObject(maximumPatch);
+  });
+
+  it.each([
+    ['endpointCheckIntervalMs', (value: number) => ({
+      ...validTargetConfig, endpointCheckIntervalMs: value,
+    }), [1, 0, -1, Number.NaN, 1.5, 1_000_000_000]],
+    ['canary.intervalMs', (value: number) => ({
+      ...validTargetConfig, canary: { ...validTargetConfig.canary, intervalMs: value },
+    }), [1, 0, -1, Number.NaN, 1.5, 1_000_000_000]],
+    ['canary.timeoutMs', (value: number) => ({
+      ...validTargetConfig, canary: { ...validTargetConfig.canary, timeoutMs: value },
+    }), [1, 0, -1, Number.NaN, 1.5, 1_000_000_000]],
+    ['freshnessLimitMs', (value: number) => ({
+      ...validTargetConfig, freshnessLimitMs: value,
+    }), [1, 0, -1, Number.NaN, 1.5, 1_000_000_000]],
+    ['warningLatencyMs', (value: number) => ({
+      ...validTargetConfig, warningLatencyMs: value,
+    }), [1, 0, -1, Number.NaN, 1.5, 1_000_000_000]],
+    ['recovery.maxAttempts', (value: number) => ({
+      ...validTargetConfig, recovery: { ...validTargetConfig.recovery, maxAttempts: value },
+    }), [0, -1, Number.NaN, 1.5, 1_000_000_000]],
+    ['recovery.cooldownMs', (value: number) => ({
+      ...validTargetConfig, recovery: { ...validTargetConfig.recovery, cooldownMs: value },
+    }), [1, 0, -1, Number.NaN, 1.5, 1_000_000_000]],
+    ['expectedModels.minContextLength', (value: number) => ({
+      ...validTargetConfig,
+      expectedModels: [{ ...validTargetConfig.expectedModels[0], minContextLength: value }],
+    }), [0, -1, Number.NaN, 1.5, 1_000_000_000]],
+    ['confirmAboveInputTokens', (value: number) => ({
+      ...validTargetConfig, confirmAboveInputTokens: value,
+    }), [-1, Number.NaN, 1.5, 1_000_000_000]],
+    ['dailyFallbackBudgetUsd', (value: number) => ({
+      ...validTargetConfig, dailyFallbackBudgetUsd: value,
+    }), [-1, Number.NaN, Number.POSITIVE_INFINITY, 1_000_000_000]],
+    ['incidentFallbackBudgetUsd', (value: number) => ({
+      ...validTargetConfig, incidentFallbackBudgetUsd: value,
+    }), [-1, Number.NaN, Number.POSITIVE_INFINITY, 1_000_000_000]],
+  ] as const)('rejects hostile or out-of-policy %s values', (_field, build, invalidValues) => {
+    for (const value of invalidValues) {
+      expect(() => LocalAiTargetConfigSchema.parse(build(value))).toThrow();
+    }
   });
 
   it.each(['unmanaged', 'paused', 'retired'] as const)(
@@ -122,6 +327,99 @@ describe('LocalAiTargetConfigSchema', () => {
     'http://127.0.0.1:11434/#section',
   ])('rejects every disallowed Local AI endpoint URL %s', (baseUrl) => {
     expect(() => LocalAiTargetConfigSchema.parse({ ...validTargetConfig, baseUrl })).toThrow();
+  });
+});
+
+describe('LocalAiTargetLifecycleRequestSchema', () => {
+  it('keeps an explicit pause deadline distinct from the lifecycle mutation timestamp', () => {
+    expect(LocalAiTargetLifecycleRequestSchema.parse({
+      targetId: 'target-1',
+      lifecycle: 'paused',
+      pausedUntil: 5_000,
+    })).toEqual({
+      targetId: 'target-1',
+      lifecycle: 'paused',
+      pausedUntil: 5_000,
+    });
+    expect(() => LocalAiTargetLifecycleRequestSchema.parse({
+      targetId: 'target-1',
+      lifecycle: 'paused',
+      at: 5_000,
+    })).toThrow();
+  });
+
+  it('allows indefinite pause but rejects pause deadlines on resume or retirement', () => {
+    expect(LocalAiTargetLifecycleRequestSchema.parse({
+      targetId: 'target-1',
+      lifecycle: 'paused',
+    })).toEqual({
+      targetId: 'target-1',
+      lifecycle: 'paused',
+    });
+    for (const lifecycle of ['enrolled', 'retired'] as const) {
+      expect(() => LocalAiTargetLifecycleRequestSchema.parse({
+        targetId: 'target-1',
+        lifecycle,
+        pausedUntil: 5_000,
+      })).toThrow();
+    }
+  });
+});
+
+describe('LocalAiRepairResultSchema', () => {
+  const base = {
+    targetId: 'target-1',
+    action: 'restart-ollama',
+    message: 'Fixed safe result.',
+    completedAt: 1_000,
+  };
+  const canonicalOutcomes = [
+    { outcome: 'guided', supported: true, attempted: false, recovered: false },
+    { outcome: 'unsupported', supported: false, attempted: false, recovered: false },
+    { outcome: 'not-attempted', supported: true, attempted: false, recovered: false },
+    { outcome: 'execution-failed', supported: true, attempted: true, recovered: false },
+    { outcome: 'completed-not-recovered', supported: true, attempted: true, recovered: false },
+    { outcome: 'recovered', supported: true, attempted: true, recovered: true },
+  ] as const;
+
+  it.each(canonicalOutcomes)('accepts the canonical $outcome outcome tuple', (result) => {
+    expect(LocalAiRepairResultSchema.parse({
+      ...base,
+      ...result,
+    })).toMatchObject(result);
+  });
+
+  it.each(canonicalOutcomes.flatMap((result) => [
+    { ...result, supported: !result.supported },
+    { ...result, attempted: !result.attempted },
+    { ...result, recovered: !result.recovered },
+  ]))('rejects an adjacent contradictory $outcome tuple', (result) => {
+    expect(LocalAiRepairResultSchema.safeParse({
+      ...base,
+      ...result,
+    }).success).toBe(false);
+  });
+
+  it('rejects missing, unknown, or boolean-incoherent outcomes', () => {
+    for (const candidate of [
+      { ...base, supported: true, attempted: true, recovered: true },
+      {
+        ...base,
+        outcome: 'maybe-fixed',
+        supported: true,
+        attempted: true,
+        recovered: true,
+      },
+      {
+        ...base,
+        outcome: 'recovered',
+        supported: true,
+        attempted: true,
+        recovered: false,
+      },
+    ]) {
+      expect(() => LocalAiRepairResultSchema.parse(candidate)).toThrow();
+    }
   });
 });
 

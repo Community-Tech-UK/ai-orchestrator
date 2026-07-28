@@ -16,6 +16,7 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
 import { NodePickerComponent } from '../../shared/components/node-picker/node-picker.component';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
+import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
 
 interface WelcomeProjectContext {
   branch: string | null;
@@ -154,7 +155,7 @@ interface WelcomeProjectContext {
                 [pendingFolders]="pendingFolders()"
                 [workingDirectory]="workingDirectory() || null"
                 [loopChatId]="null"
-                (sendMessage)="sendMessage.emit($event)"
+                (newSessionSubmit)="newSessionSubmit.emit($event)"
                 (startSessionWithWorkflow)="startSessionWithWorkflow.emit($event)"
                 (removeFile)="removeFile.emit($event)"
                 (removeFolder)="removeFolder.emit($event)"
@@ -462,7 +463,13 @@ export class InstanceWelcomeComponent {
 
   // Actions
   selectFolder = output<string>();
-  sendMessage = output<string>();
+  /**
+   * New-session submission with an acknowledgement callback. The composer holds
+   * its text and attachments until `onResolved` reports an instance id, so the
+   * handler must always call it. (Replaces the old fire-and-forget
+   * `sendMessage`, which let the composer clear before anything was accepted.)
+   */
+  newSessionSubmit = output<NewSessionSubmitRequest>();
   startSessionWithWorkflow = output<{ message: string; templateId: string }>();
   nodeChange = output<string | null>();
   toggleFileExplorer = output<void>();

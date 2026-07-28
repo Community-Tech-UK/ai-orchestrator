@@ -97,6 +97,26 @@ describe('listOllamaModels', () => {
     expect(models[1].provider).toBe('ollama');
   });
 
+  it('caps raw /api/tags rows before normalizing model objects', async () => {
+    let nameReads = 0;
+    const rawModels = Array.from({ length: 1_500 }, (_, index) => ({
+      get name() {
+        nameReads += 1;
+        return `ollama-${index}`;
+      },
+    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      mockResponse({ models: rawModels }, true),
+    ));
+    const { listOllamaModels } = await import('../auxiliary-model-client');
+
+    const models = await listOllamaModels('http://127.0.0.1:11434', 5000);
+
+    expect(models).toHaveLength(100);
+    expect(models.at(-1)?.id).toBe('ollama-99');
+    expect(nameReads).toBe(100);
+  });
+
   it('returns empty array on non-ok response', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({}, false, 500)));
     const { listOllamaModels } = await import('../auxiliary-model-client');
@@ -271,6 +291,30 @@ describe('listOpenAiCompatibleModels', () => {
     expect(models[0].id).toBe('gpt-4o-mini');
     expect(models[0].provider).toBe('openai-compatible');
     expect(models[1].id).toBe('llama-3.1-8b');
+  });
+
+  it('caps raw /v1/models rows before normalizing model objects', async () => {
+    let idReads = 0;
+    const rawModels = Array.from({ length: 1_500 }, (_, index) => ({
+      get id() {
+        idReads += 1;
+        return `openai-${index}`;
+      },
+    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      mockResponse({ data: rawModels }, true),
+    ));
+    const { listOpenAiCompatibleModels } = await import('../auxiliary-model-client');
+
+    const models = await listOpenAiCompatibleModels(
+      'http://localhost:1234',
+      undefined,
+      5000,
+    );
+
+    expect(models).toHaveLength(100);
+    expect(models.at(-1)?.id).toBe('openai-99');
+    expect(idReads).toBe(100);
   });
 });
 

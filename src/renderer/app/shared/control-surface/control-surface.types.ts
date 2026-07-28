@@ -50,6 +50,7 @@ export type ControlSurfaceId =
   | 'plan'
   | 'stats'
   | 'cost'
+  | 'local-ai'
   | 'snapshots'
   | 'replay'
   | 'remote-access'

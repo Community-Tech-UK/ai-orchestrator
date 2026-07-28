@@ -91,6 +91,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'plan', path: '/plan', label: 'Plan Mode', subtitle: 'Draft and review structured implementation plans.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'stats', path: '/stats', label: 'Statistics', subtitle: 'Inspect app metrics and throughput.', group: 'monitoring', kind: 'diagnostic', dashboard: true }),
   surface({ id: 'cost', path: '/cost', label: 'Costs & Usage', subtitle: 'Track provider spend and usage.', group: 'monitoring', kind: 'diagnostic', dashboard: true }),
+  surface({ id: 'local-ai', path: '/local-ai', label: 'Local AI Guard', title: 'Local AI Health Centre', subtitle: 'Prove local capacity, control routing, and recover enrolled targets.', group: 'monitoring', kind: 'diagnostic', layout: 'wide', dashboard: true }),
   surface({ id: 'snapshots', path: '/snapshots', label: 'Snapshots', subtitle: 'Capture and restore workspace checkpoints.', group: 'storage', kind: 'tool', dashboard: true, settings: true }),
   surface({ id: 'replay', path: '/replay', label: 'Replay', subtitle: 'Replay sessions and observation streams.', group: 'monitoring', kind: 'view', layout: 'wide', dashboard: true }),
   surface({ id: 'remote-access', path: '/remote-access', label: 'Remote Access', subtitle: 'Control remote access and pairing surfaces.', group: 'integrations', kind: 'integration', dashboard: true }),

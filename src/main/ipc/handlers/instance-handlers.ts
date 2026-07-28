@@ -42,7 +42,12 @@ import { getSelfPermissionGranter } from '../../security/self-permission-granter
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { clearInstanceQueueStore, loadAllInstanceQueues, saveInstanceQueue } from './instance-queue-store';
 import { registerInstanceCompactionHandlers } from './instance-compaction-handlers';
-import { createInitialUserMessage, serializeInstance } from './instance-handler-serializers';
+import { serializeInstance } from './instance-handler-serializers';
+import {
+  createInstanceWithMessage,
+  logCreateWithMessageReceived,
+} from './instance-create-with-message';
+import { getInstanceCreateIdempotencyCache } from './instance-create-idempotency';
 
 const logger = getLogger('InstanceHandlers');
 
@@ -119,6 +124,10 @@ export function registerInstanceHandlers(deps: {
       _event: IpcMainInvokeEvent,
       payload: unknown
     ): Promise<IpcResponse> => {
+      // Logged before validation: a rejected payload used to leave no trace at
+      // all in the main process, which is why a lost new-session submission
+      // could not be told apart from one that was never sent.
+      logCreateWithMessageReceived(logger, payload);
       try {
         const validated = validateIpcPayload(
           InstanceCreateWithMessagePayloadSchema,
@@ -129,31 +138,25 @@ export function registerInstanceHandlers(deps: {
 
         const attachments = validated.attachments as FileAttachment[] | undefined;
 
-        const instance = await instanceManager.createInstance({
-          workingDirectory,
-          initialPrompt: validated.message,
-          attachments,
-          initialOutputBuffer: [createInitialUserMessage(validated.message, attachments)],
-          launchMode: validated.launchMode,
-          agentId: validated.agentId,
-          provider: validated.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
-          modelOverride: validated.model,
-          reasoningEffort: validated.reasoningEffort,
-          modelRuntimeTarget: validated.modelRuntimeTarget,
-          yoloMode: validated.yoloMode,
-          bareMode: validated.bareMode,
-          fastModeOverride: validated.fastMode,
-          forceNodeId: validated.forceNodeId,
-          nodePlacement: validated.nodePlacement,
-          browserToolsMode: validated.browserToolsMode,
-          hardened: validated.hardened,
-        });
+        if (validated.idempotencyKey) {
+          const cache = getInstanceCreateIdempotencyCache();
+          const key = `create-with-message:${validated.idempotencyKey}`;
+          if (cache.has(key)) {
+            logger.info('Duplicate INSTANCE_CREATE_WITH_MESSAGE replayed (idempotency)', {
+              submissionId: validated.idempotencyKey,
+            });
+          }
+          return await cache.run(key, () =>
+            createInstanceWithMessage(instanceManager, validated, workingDirectory, attachments),
+          );
+        }
 
-        return {
-          success: true,
-          data: serializeInstance(instance)
-        };
+        return await createInstanceWithMessage(instanceManager, validated, workingDirectory, attachments);
       } catch (error) {
+        logger.error('INSTANCE_CREATE_WITH_MESSAGE failed', error as Error, {
+          // Read off the raw payload: validation may be what just failed.
+          submissionId: (payload as { idempotencyKey?: unknown } | null)?.idempotencyKey ?? null,
+        });
         return {
           success: false,
           error: {

@@ -109,6 +109,7 @@ import {
   registerNotificationHandlers,
   registerSkillAttributionHandlers,
   registerContextEvidenceHandlers,
+  registerLocalAiGuardHandlers,
 } from './handlers';
 import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
 import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
@@ -280,6 +281,10 @@ export class IpcMainHandler {
     registerContextEvidenceHandlers({
       instanceManager: this.instanceManager,
       windowManager: this.windowManager,
+    });
+    registerLocalAiGuardHandlers({
+      windowManager: this.windowManager,
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
     });
 
     // RTK token-savings panel

@@ -71,6 +71,7 @@ export class LocalAiFallbackApprovalService {
   ) => LocalAiFallbackReservationLimits | undefined;
   private readonly awaiters = new Map<string, PendingAwaiter>();
   private readonly incidentAllowances = new Set<string>();
+  private readonly listeners = new Set<() => void>();
   private disposed = false;
 
   constructor(
@@ -147,6 +148,7 @@ export class LocalAiFallbackApprovalService {
         reason: 'notification-error',
       });
     }
+    this.notifyChanged();
     return promise;
   }
 
@@ -163,11 +165,15 @@ export class LocalAiFallbackApprovalService {
     const limits = pending ? this.resolveReservationLimits(pending) : undefined;
     const request = this.repository.resolveFallbackRequest(requestId, decision, limits);
     if (!request?.resolution) throw new Error(`Local AI fallback request not found: ${requestId}`);
-    if (request.resolution === 'allow-incident' && request.incidentId) {
-      this.incidentAllowances.add(request.incidentId);
-    }
+    this.installIncidentAllowance(request);
     this.settle(requestId, request.resolution);
+    this.notifyChanged();
     return request;
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   hasIncidentAllowance(incidentId: string): boolean {
@@ -190,6 +196,7 @@ export class LocalAiFallbackApprovalService {
       }
     }
     this.incidentAllowances.clear();
+    this.listeners.clear();
   }
 
   private sweepRestartOrphans(): void {
@@ -221,7 +228,9 @@ export class LocalAiFallbackApprovalService {
           this.reject(requestId, new Error(`Local AI fallback request has no resolution: ${requestId}`));
           return;
         }
+        this.installIncidentAllowance(stored);
         this.settle(requestId, stored.resolution);
+        this.notifyChanged();
         return;
       }
       if (this.currentTimestamp() >= awaiter.expiresAt) {
@@ -230,7 +239,9 @@ export class LocalAiFallbackApprovalService {
           this.reject(requestId, new Error(`Local AI fallback request did not resolve: ${requestId}`));
           return;
         }
+        this.installIncidentAllowance(resolved);
         this.settle(requestId, resolved.resolution);
+        this.notifyChanged();
         return;
       }
       this.armTimeout(requestId);
@@ -258,6 +269,12 @@ export class LocalAiFallbackApprovalService {
     awaiter.reject(error instanceof Error ? error : new Error(String(error)));
   }
 
+  private installIncidentAllowance(request: LocalAiFallbackRequest): void {
+    if (request.resolution === 'allow-incident' && request.incidentId) {
+      this.incidentAllowances.add(request.incidentId);
+    }
+  }
+
   private armTimeout(requestId: string): void {
     const awaiter = this.awaiters.get(requestId);
     if (!awaiter) return;
@@ -274,5 +291,15 @@ export class LocalAiFallbackApprovalService {
       throw new RangeError('Local AI fallback approval clock returned an invalid timestamp');
     }
     return now;
+  }
+
+  private notifyChanged(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch {
+        this.logger.warn('Local AI fallback listener failed', { reason: 'listener-error' });
+      }
+    }
   }
 }

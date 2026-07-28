@@ -13,8 +13,16 @@ import { LocalAiActivityRegistry } from './local-ai-activity-registry';
 import { LocalAiHealthEngine } from './local-ai-health-engine';
 import type { LocalAiHealthRepository } from './local-ai-health-repository';
 import type { LocalAiIncidentService } from './local-ai-incident-service';
+import { LocalAiPauseExpiryController } from './local-ai-pause-expiry-controller';
 import type { LocalAiProbeService } from './local-ai-probe-service';
 import type { LocalAiTargetRepository } from './local-ai-target-repository';
+import {
+  groupLocalAiHealthSamples as groupSamples,
+  localAiCheckKey as checkKey,
+  localAiDeferredCheckKey as deferredKey,
+  newestLocalAiProbeTimestamp as newestTimestamp,
+  runLocalAiFailSoft,
+} from './local-ai-health-scheduler-utils';
 
 export type LocalAiCheckKind = 'lightweight' | 'functional';
 
@@ -28,7 +36,7 @@ export interface LocalAiHealthSchedulerLogger {
 }
 
 export interface LocalAiHealthSchedulerDependencies {
-  targets: Pick<LocalAiTargetRepository, 'get' | 'list'>;
+  targets: Pick<LocalAiTargetRepository, 'get' | 'list' | 'setLifecycle'>;
   health: Pick<
     LocalAiHealthRepository,
     'appendSample' | 'latestSamples' | 'listIncidents' | 'runRetention'
@@ -51,7 +59,6 @@ const FUNCTIONAL_BUSY_RETRY_MS = 5_000;
 const RETENTION_INTERVAL_MS = 24 * 60 * 60_000;
 const MAX_OUTAGE_BACKOFF_MS = 15 * 60_000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
-
 interface ScheduledTimer {
   handle: unknown;
   token: symbol;
@@ -78,6 +85,7 @@ export class LocalAiHealthScheduler {
   private readonly timers: LocalAiSchedulerTimerPort;
   private readonly createId: () => string;
   private readonly logger: LocalAiHealthSchedulerLogger;
+  private readonly pauseExpiries: LocalAiPauseExpiryController;
   private readonly scheduled = new Map<string, ScheduledTimer>();
   private readonly inFlight = new Map<string, InFlightCheck>();
   private readonly replacementChecks = new Map<string, ReplacementCheck>();
@@ -87,6 +95,7 @@ export class LocalAiHealthScheduler {
   private readonly connectedWorkerNodes = new Set<string>();
   private readonly targetRevisions = new Map<string, number>();
   private readonly validatedGenerations = new Map<string, number>();
+  private readonly listeners = new Set<(status: LocalAiTargetStatus) => void>();
   private started = false;
   private generation = 0;
 
@@ -101,6 +110,10 @@ export class LocalAiHealthScheduler {
     };
     this.createId = dependencies.createId ?? randomUUID;
     this.logger = dependencies.logger ?? getLogger('LocalAiHealthScheduler');
+    this.pauseExpiries = new LocalAiPauseExpiryController(
+      dependencies.targets, this.timers, this.now,
+      (targetId) => this.targetRevisions.get(targetId) ?? 0,
+      (targetId) => this.targetChanged(targetId), this.logger);
   }
 
   start(): void {
@@ -109,7 +122,8 @@ export class LocalAiHealthScheduler {
     this.generation += 1;
     for (const target of this.dependencies.targets.list({ includeRetired: true })) {
       this.reconstructSafeStatus(target);
-      if (this.shouldPoll(target)) this.scheduleTarget(target, true);
+      if (target.lifecycle === 'paused') this.pauseExpiries.schedule(target);
+      else if (this.shouldPoll(target)) this.scheduleTarget(target, true);
     }
     this.scheduleRetention(0);
   }
@@ -122,6 +136,7 @@ export class LocalAiHealthScheduler {
     this.generation += 1;
     for (const timer of this.scheduled.values()) this.timers.cancel(timer.handle);
     this.scheduled.clear();
+    this.pauseExpiries.stop();
     for (const deferred of this.deferredChecks.values()) {
       deferred.reject(new Error('Local AI Guard scheduler stopped'));
     }
@@ -175,6 +190,11 @@ export class LocalAiHealthScheduler {
     return this.statuses.get(targetId);
   }
 
+  subscribe(listener: (status: LocalAiTargetStatus) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   targetChanged(targetId: string): void {
     this.invalidateTarget(targetId);
     this.validatedGenerations.delete(targetId);
@@ -190,9 +210,11 @@ export class LocalAiHealthScheduler {
         target.id,
         this.engine.apply(target, previous, [], this.currentTimestamp()).current,
       );
+      this.notify(this.statuses.get(target.id)!);
+      if (this.started && target.lifecycle === 'paused') this.pauseExpiries.schedule(target);
       return;
     }
-    this.reconstructSafeStatus(target);
+    this.notify(this.reconstructSafeStatus(target));
     if (this.started) this.scheduleTarget(target, true);
   }
 
@@ -204,7 +226,7 @@ export class LocalAiHealthScheduler {
       if (!this.started) continue;
       if (!this.shouldPoll(target)) continue;
       this.scheduleTarget(target, false);
-      this.runFailSoft(() => this.recheck(target.id, 'lightweight'), 'worker-reconnect-check');
+      runLocalAiFailSoft(() => this.recheck(target.id, 'lightweight'), this.logger, 'worker-reconnect-check');
     }
   }
 
@@ -410,6 +432,7 @@ export class LocalAiHealthScheduler {
     } catch {
       this.logger.warn('Local AI Guard incident transition failed', { reason: 'incident-error' });
     }
+    this.notify(transition.current);
     return transition.current;
   }
 
@@ -457,7 +480,7 @@ export class LocalAiHealthScheduler {
         checkedAt: parsed.data.checkedAt,
         durationMs: parsed.data.durationMs,
         ...(parsed.data.failureCode ? { failureCode: parsed.data.failureCode } : {}),
-        evidence: {},
+        evidence: { ...parsed.data.evidence },
         origin,
       }];
     });
@@ -630,17 +653,8 @@ export class LocalAiHealthScheduler {
     this.scheduled.set(key, { handle, token });
   }
 
-  private runFailSoft(operation: () => Promise<unknown>, reason: string): void {
-    try {
-      void operation().catch(() => {
-        this.logger.warn('Local AI Guard asynchronous callback failed', { reason });
-      });
-    } catch {
-      this.logger.warn('Local AI Guard asynchronous callback failed', { reason });
-    }
-  }
-
   private cancelTarget(targetId: string): void {
+    this.pauseExpiries.cancel(targetId);
     this.cancelTimer(checkKey(targetId, 'lightweight'));
     this.cancelTimer(checkKey(targetId, 'functional'));
     this.cancelTimer(deferredKey(checkKey(targetId, 'functional')));
@@ -673,28 +687,14 @@ export class LocalAiHealthScheduler {
     const now = this.now();
     return Number.isSafeInteger(now) && now >= 0 ? now : 0;
   }
-}
 
-function checkKey(targetId: string, kind: LocalAiCheckKind): string {
-  return `${targetId}:${kind}`;
-}
-
-function deferredKey(key: string): string {
-  return `deferred:${key}`;
-}
-
-function newestTimestamp(samples: LocalAiProbeResult[]): number {
-  return samples.reduce((latest, sample) => Math.max(latest, sample.checkedAt), 0);
-}
-
-function groupSamples(samples: LocalAiHealthSample[]): LocalAiHealthSample[][] {
-  const groups = new Map<string, LocalAiHealthSample[]>();
-  for (const sample of [...samples].sort((left, right) =>
-    left.checkedAt - right.checkedAt || left.id.localeCompare(right.id))) {
-    const key = `${sample.checkedAt}:${sample.checkType}:${sample.origin}`;
-    const group = groups.get(key) ?? [];
-    group.push(sample);
-    groups.set(key, group);
+  private notify(status: LocalAiTargetStatus): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(status);
+      } catch {
+        this.logger.warn('Local AI Guard status listener failed', { reason: 'listener-error' });
+      }
+    }
   }
-  return [...groups.values()];
 }

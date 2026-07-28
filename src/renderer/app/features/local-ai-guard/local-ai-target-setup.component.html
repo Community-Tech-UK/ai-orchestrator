@@ -1,0 +1,382 @@
+<section class="setup" aria-labelledby="local-ai-setup-title">
+  <span class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</span>
+
+  @if (!selectedEndpoint()) {
+    <div class="setup-heading">
+      <div>
+        <p class="eyebrow">Enrolment</p>
+        <h2 id="local-ai-setup-title">Discovered endpoints</h2>
+        <p>Discovery is read-only. Monitoring begins only after validation and enrolment.</p>
+      </div>
+      <button type="button" class="button secondary" [disabled]="isBusy()" (click)="refreshDiscovery()">
+        Refresh discovery
+      </button>
+    </div>
+
+    @if (store.discoveries().length === 0) {
+      <div class="empty">
+        <strong>No local endpoints discovered</strong>
+        <span>Connect a worker or start a supported local model endpoint, then refresh.</span>
+      </div>
+    } @else {
+      <div class="discovery-list">
+        @for (endpoint of store.discoveries(); track endpoint.identity.endpointId + endpoint.identity.baseUrl) {
+          <article class="discovery-row">
+            <div>
+              <span class="discovery-label">{{ endpoint.label }}</span>
+              <span class="discovery-meta">
+                {{ endpoint.identity.location.type === 'worker' ? 'Worker' : 'Coordinator' }}
+                · {{ endpoint.identity.provider === 'ollama' ? 'Ollama' : 'OpenAI-compatible' }}
+                · {{ endpoint.models.length }} model{{ endpoint.models.length === 1 ? '' : 's' }}
+              </span>
+            </div>
+            <span class="neutral-pill">{{ endpoint.enrolledTargetId ? 'Enrolled' : 'Unmanaged' }}</span>
+            @if (!endpoint.enrolledTargetId) {
+              <button
+                type="button"
+                class="button secondary"
+                (click)="chooseEndpoint(endpoint)"
+              >Configure {{ endpoint.label }}</button>
+            }
+          </article>
+        }
+      </div>
+    }
+  } @else if (selectedEndpoint(); as endpoint) {
+    <div class="setup-heading">
+      <div>
+        <p class="eyebrow">{{ isEditing() ? 'Target settings' : 'New enrolment' }}</p>
+        <h2 id="local-ai-setup-title">{{ endpoint.label }}</h2>
+        <p>Validate the complete local path once before saving.</p>
+      </div>
+      <button type="button" class="button secondary" [disabled]="isBusy()" (click)="close()">Cancel</button>
+    </div>
+
+    <form (submit)="$event.preventDefault(); validate()" novalidate>
+      <fieldset>
+        <legend>Expected models</legend>
+        <p class="field-help">Required models are checked for drift before this target can route work.</p>
+        <div class="choice-grid">
+          @for (model of endpoint.models; track model) {
+            <label class="choice">
+              <input
+                type="checkbox"
+                [attr.aria-label]="'Expected model ' + model"
+                [checked]="modelChecked(model)"
+                (change)="toggleExpectedModel(model, $event)"
+              />
+              <span>{{ model }}</span>
+            </label>
+          }
+        </div>
+        @if (form().expectedModels.length === 0) {
+          <p class="field-error" role="alert">Select at least one expected model.</p>
+        }
+        @for (model of form().expectedModelRules; track model.modelId) {
+          <div class="form-grid compact">
+            <label class="choice">
+              <input
+                type="checkbox"
+                [attr.aria-label]="model.modelId + ' required'"
+                [checked]="model.required"
+                (change)="updateModelRequired(model.modelId, $event)"
+              />
+              <span>{{ model.modelId }} is required</span>
+            </label>
+            <label>
+              <span>{{ model.modelId }} minimum context length</span>
+              <input
+                type="number"
+                [attr.aria-label]="model.modelId + ' minimum context length'"
+                [min]="limits.minContextLength.min"
+                [max]="limits.minContextLength.max"
+                [value]="model.minContextLength ?? ''"
+                [attr.aria-invalid]="modelContextError(model.modelId) ? 'true' : null"
+                [attr.aria-describedby]="modelContextError(model.modelId) ? 'model-context-error-' + $index : null"
+                (input)="updateModelContext(model.modelId, $event)"
+              />
+              @if (modelContextError(model.modelId); as error) {
+                <span
+                  class="field-error"
+                  role="alert"
+                  [id]="'model-context-error-' + $index"
+                >{{ error }}</span>
+              }
+            </label>
+          </div>
+        }
+      </fieldset>
+
+      <div class="form-grid">
+        <label>
+          <span>Canary model</span>
+          <select
+            aria-label="Canary model"
+            [value]="form().canaryModel"
+            (change)="updateCanary($event)"
+          >
+            <option value="">Select a model</option>
+            @for (model of form().expectedModels; track model) {
+              <option [value]="model">{{ model }}</option>
+            }
+          </select>
+        </label>
+
+        <label>
+          <span>Fallback policy</span>
+          <select
+            aria-label="Fallback policy"
+            [value]="form().fallbackPolicy"
+            (change)="updateFallbackPolicy($event)"
+          >
+            <option value="notify-and-allow">Notify and allow</option>
+            <option value="require-confirmation">Require confirmation</option>
+            <option value="defer-locally">Keep work local</option>
+            <option value="block-paid-fallback">Block paid fallback</option>
+            <option value="allow-silently">Allow silently</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Endpoint check interval (seconds)</span>
+          <input
+            type="number"
+            aria-label="Endpoint check interval (seconds)"
+            [min]="limits.endpointCheckIntervalMs.min / 1000"
+            [max]="limits.endpointCheckIntervalMs.max / 1000"
+            [value]="form().endpointIntervalSeconds"
+            [attr.aria-invalid]="endpointIntervalError() ? 'true' : null"
+            aria-describedby="endpoint-interval-help"
+            (input)="updateNumber('endpointIntervalSeconds', $event)"
+          />
+          <small id="endpoint-interval-help">Safe range: 30–900 seconds.</small>
+          @if (endpointIntervalError()) {
+            <span class="field-error" role="alert">{{ endpointIntervalError() }}</span>
+          }
+        </label>
+
+        <label>
+          <span>Canary interval (minutes)</span>
+          <input
+            type="number"
+            aria-label="Canary interval (minutes)"
+            [min]="limits.canaryIntervalMs.min / 60000"
+            [max]="limits.canaryIntervalMs.max / 60000"
+            [value]="form().canaryIntervalMinutes"
+            [attr.aria-invalid]="canaryIntervalError() ? 'true' : null"
+            aria-describedby="canary-interval-help"
+            (input)="updateNumber('canaryIntervalMinutes', $event)"
+          />
+          <small id="canary-interval-help">Safe range: 2–60 minutes.</small>
+          @if (canaryIntervalError()) {
+            <span class="field-error" role="alert">{{ canaryIntervalError() }}</span>
+          }
+        </label>
+
+        <label>
+          <span>Canary timeout (seconds)</span>
+          <input
+            type="number"
+            aria-label="Canary timeout (seconds)"
+            [min]="limits.canaryTimeoutMs.min / 1000"
+            [max]="limits.canaryTimeoutMs.max / 1000"
+            [value]="form().canaryTimeoutSeconds"
+            (input)="updateNumber('canaryTimeoutSeconds', $event)"
+          />
+        </label>
+
+        <label>
+          <span>Evidence freshness (seconds)</span>
+          <input
+            type="number"
+            aria-label="Evidence freshness (seconds)"
+            [min]="limits.freshnessLimitMs.min / 1000"
+            [max]="limits.freshnessLimitMs.max / 1000"
+            [value]="form().freshnessSeconds"
+            (input)="updateNumber('freshnessSeconds', $event)"
+          />
+        </label>
+
+        <label>
+          <span>Latency warning (milliseconds)</span>
+          <input
+            type="number"
+            aria-label="Latency warning (milliseconds)"
+            [min]="limits.warningLatencyMs.min"
+            [max]="limits.warningLatencyMs.max"
+            [value]="form().warningLatencyMs"
+            (input)="updateNumber('warningLatencyMs', $event)"
+          />
+        </label>
+      </div>
+
+      <fieldset>
+        <legend>Routing roles</legend>
+        <div class="choice-grid">
+          @for (role of roleOptions; track role.value) {
+            <label class="choice">
+              <input
+                type="checkbox"
+                [attr.aria-label]="role.label"
+                [checked]="roleChecked(role.value)"
+                (change)="toggleRole(role.value, $event)"
+              />
+              <span>{{ role.label }}</span>
+            </label>
+          }
+        </div>
+        @if (form().routingRoles.length === 0) {
+          <p class="field-error" role="alert">Select at least one routing role.</p>
+        }
+        @for (role of form().routingRoles; track role) {
+          <label>
+            <span>{{ roleLabel(role) }} fallback override</span>
+            <select
+              [attr.aria-label]="roleLabel(role) + ' fallback override'"
+              [value]="form().slotFallbackPolicies[role] ?? ''"
+              (change)="updateSlotFallbackPolicy(role, $event)"
+            >
+              <option value="">Use target policy</option>
+              <option value="notify-and-allow">Notify and allow</option>
+              <option value="require-confirmation">Require confirmation</option>
+              <option value="defer-locally">Keep work local</option>
+              <option value="block-paid-fallback">Block paid fallback</option>
+              <option value="allow-silently">Allow silently</option>
+            </select>
+          </label>
+        }
+      </fieldset>
+
+      <fieldset>
+        <legend>Paid fallback limits</legend>
+        <div class="form-grid">
+          <label>
+            <span>Confirm above input tokens</span>
+            <input
+              type="number"
+              aria-label="Confirm above input tokens"
+              [min]="limits.confirmAboveInputTokens.min"
+              [max]="limits.confirmAboveInputTokens.max"
+              [value]="form().confirmAboveInputTokens ?? ''"
+              (input)="updateOptionalNumber('confirmAboveInputTokens', $event)"
+            />
+          </label>
+          <label>
+            <span>Daily fallback budget (USD)</span>
+            <input
+              type="number"
+              aria-label="Daily fallback budget (USD)"
+              [min]="limits.fallbackBudgetUsd.min"
+              [max]="limits.fallbackBudgetUsd.max"
+              step="0.01"
+              [value]="form().dailyFallbackBudgetUsd ?? ''"
+              (input)="updateOptionalNumber('dailyFallbackBudgetUsd', $event)"
+            />
+          </label>
+          <label>
+            <span>Incident fallback budget (USD)</span>
+            <input
+              type="number"
+              aria-label="Incident fallback budget (USD)"
+              [min]="limits.fallbackBudgetUsd.min"
+              [max]="limits.fallbackBudgetUsd.max"
+              step="0.01"
+              [value]="form().incidentFallbackBudgetUsd ?? ''"
+              (input)="updateOptionalNumber('incidentFallbackBudgetUsd', $event)"
+            />
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Recovery</legend>
+        <label class="choice automatic-repair">
+          <input
+            type="checkbox"
+            aria-label="Automatic repair"
+            [checked]="form().automaticRepair"
+            (change)="updateAutomaticRepair($event)"
+          />
+          <span>Allow bounded automatic repair</span>
+        </label>
+        @if (form().automaticRepair) {
+          <p class="warning-copy">
+            Automatic repair may restart only a named, supported local service.
+            It never runs an operator-provided command.
+          </p>
+          <div class="form-grid compact">
+            <label>
+              <span>Maximum attempts</span>
+              <input
+                type="number"
+                aria-label="Maximum automatic repair attempts"
+                [min]="limits.recoveryMaxAttempts.min"
+                [max]="limits.recoveryMaxAttempts.max"
+                [value]="form().maxAttempts"
+                (input)="updateNumber('maxAttempts', $event)"
+              />
+            </label>
+            <label>
+              <span>Cooldown (minutes)</span>
+              <input
+                type="number"
+                aria-label="Automatic repair cooldown (minutes)"
+                [min]="limits.recoveryCooldownMs.min / 60000"
+                [max]="limits.recoveryCooldownMs.max / 60000"
+                [value]="form().cooldownMinutes"
+                (input)="updateNumber('cooldownMinutes', $event)"
+              />
+            </label>
+          </div>
+        }
+      </fieldset>
+
+      <section class="validation" aria-labelledby="validation-title">
+        <div class="validation-heading">
+          <div>
+            <h3 id="validation-title">Validation evidence</h3>
+            <p>Each layer is reported separately; a missing result is not treated as healthy.</p>
+          </div>
+          <button
+            type="submit"
+            class="button secondary"
+            [disabled]="!formValid() || isBusy()"
+          >{{ isEditing() ? 'Validate changes' : 'Validate endpoint' }}</button>
+        </div>
+
+        <ol class="validation-rail">
+          @for (layer of validationLayers(); track layer.id) {
+            <li
+              [attr.data-validation-layer]="layer.id"
+              [attr.data-state]="layer.result ? (layer.result.ok ? 'ok' : 'failed') : 'unchecked'"
+            >
+              <span class="rail-node" aria-hidden="true"></span>
+              <strong>{{ layer.label }}</strong>
+              <span>
+                @if (layer.result) {
+                  {{ layer.result.ok ? 'Passed' : 'Needs attention' }}
+                  · {{ layer.result.durationMs }} ms
+                } @else {
+                  Not checked
+                }
+              </span>
+            </li>
+          }
+        </ol>
+      </section>
+
+      @if (safeOperationError()) {
+        <p class="operation-error" role="alert">{{ safeOperationError() }}</p>
+      }
+
+      <div class="form-actions">
+        <button type="button" class="button secondary" [disabled]="isBusy()" (click)="close()">
+          Cancel
+        </button>
+        <button type="button" class="button primary" [disabled]="!canSave() || isBusy()" (click)="save()">
+          {{ isEditing() ? 'Save changes' : 'Enrol target' }}
+        </button>
+      </div>
+    </form>
+  }
+</section>

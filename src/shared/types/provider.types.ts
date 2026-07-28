@@ -470,6 +470,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: GOOGLE_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced', pinned: true, family: 'Gemini Flash' },
     { id: GOOGLE_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful', family: 'Gemini Pro' },
     { id: GOOGLE_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast', family: 'Gemini Flash' },
+    { id: GOOGLE_MODELS.GEMINI_35_FLASH, name: 'Gemini 3.5 Flash', tier: 'fast', family: 'Gemini Flash' },
   ],
   copilot: [
     // Order matters: getPrimaryModelForProvider returns [0]; the entry at index 0

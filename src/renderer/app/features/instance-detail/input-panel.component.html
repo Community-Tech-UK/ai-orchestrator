@@ -6,6 +6,17 @@
     [instanceStatus]="instanceStatus()"
   />
 
+  <!-- Unsent new-session composition: in flight, or recovered for retry -->
+  @if (isDraftComposer()) {
+    <app-composer-recovery-banner
+      [record]="submission.recoverable()"
+      [submitting]="submission.submitting()"
+      [error]="submission.error()"
+      (retry)="submission.retry($event)"
+      (discard)="submission.discard($event)"
+    />
+  }
+
   <!-- Pending files and folders preview -->
   @if (pendingFilePreviews().length > 0 || pendingFolders().length > 0) {
     <div class="pending-files">

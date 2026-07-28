@@ -37,6 +37,9 @@ import { BrowserApprovalsBannerComponent } from './core/state/browser-approvals-
 import { ComputerUsePermissionChipComponent } from './core/state/computer-use-permission-chip.component';
 import { NotificationCenterComponent } from './features/title-bar/notification-center.component';
 import { RlmStorageMaintenanceComponent } from './features/loop/rlm-storage-maintenance.component';
+import { LocalAiGuardStore } from './core/state/local-ai-guard.store';
+import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
+import { LocalAiFallbackBannerComponent } from './features/local-ai-guard/local-ai-fallback-banner.component';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -91,6 +94,8 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     ComputerUsePermissionChipComponent,
     NotificationCenterComponent,
     RlmStorageMaintenanceComponent,
+    LocalAiStatusChipComponent,
+    LocalAiFallbackBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',
@@ -116,6 +121,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly scratchDirectory = inject(ScratchDirectoryService);
   private readonly remoteNodeStore = inject(RemoteNodeStore);
   private readonly appUpdateStore = inject(AppUpdateStore);
+  private readonly localAiGuardStore = inject(LocalAiGuardStore);
 
   private menuListenerCleanup: (() => void) | null = null;
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -233,6 +239,7 @@ export class AppComponent implements OnInit, OnDestroy {
     // the Remote Terminal toggle on a connected worker. initialize() is idempotent.
     void this.remoteNodeStore.initialize();
     void this.appUpdateStore.init();
+    void this.localAiGuardStore.initialize();
     this.skillStore.initObservability();
 
     this.ipcService.onStartupCapabilities((report) => {
@@ -304,6 +311,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.windowControlsOverlayCleanup?.();
     this.windowControlsOverlayCleanup = null;
     this.appUpdateStore.dispose();
+    this.localAiGuardStore.destroy();
   }
 
   startupCapabilitySummary(): string {

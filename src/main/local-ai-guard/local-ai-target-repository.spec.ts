@@ -89,23 +89,52 @@ describe('LocalAiTargetRepository', () => {
   });
 
   it('records pause, resume, and retirement lifecycle timestamps', () => {
-    const repository = new LocalAiTargetRepository(openDb());
+    let now = 1_000;
+    const repository = new LocalAiTargetRepository(openDb(), undefined, () => now);
     const target = repository.create(config());
 
-    const pausedAt = target.updatedAt + 1_000;
-    const resumedAt = pausedAt + 1_000;
-    const retiredAt = resumedAt + 1_000;
-    const paused = repository.setLifecycle(target.id, 'paused', pausedAt);
-    const resumed = repository.setLifecycle(target.id, 'enrolled', resumedAt);
-    const retired = repository.setLifecycle(target.id, 'retired', retiredAt);
+    now = 2_000;
+    const paused = repository.setLifecycle(target.id, 'paused', { pausedUntil: 5_000 });
+    now = 3_000;
+    const resumed = repository.setLifecycle(target.id, 'enrolled');
+    now = 4_000;
+    const retired = repository.setLifecycle(target.id, 'retired');
 
-    expect(paused).toMatchObject({ lifecycle: 'paused', pausedUntil: pausedAt, updatedAt: pausedAt });
+    expect(paused).toMatchObject({ lifecycle: 'paused', pausedUntil: 5_000, updatedAt: 2_000 });
     expect(paused).not.toHaveProperty('retiredAt');
-    expect(resumed).toMatchObject({ lifecycle: 'enrolled', updatedAt: resumedAt });
+    expect(resumed).toMatchObject({ lifecycle: 'enrolled', updatedAt: 3_000 });
     expect(resumed).not.toHaveProperty('pausedUntil');
     expect(resumed).not.toHaveProperty('retiredAt');
-    expect(retired).toMatchObject({ lifecycle: 'retired', retiredAt, updatedAt: retiredAt });
+    expect(retired).toMatchObject({ lifecycle: 'retired', retiredAt: 4_000, updatedAt: 4_000 });
     expect(retired).not.toHaveProperty('pausedUntil');
+  });
+
+  it('persists an indefinite pause without inventing a deadline', () => {
+    let now = 1_000;
+    const repository = new LocalAiTargetRepository(openDb(), undefined, () => now);
+    const target = repository.create(config());
+    now = 2_000;
+
+    const paused = repository.setLifecycle(target.id, 'paused');
+
+    expect(paused).toMatchObject({ lifecycle: 'paused', updatedAt: 2_000 });
+    expect(paused).not.toHaveProperty('pausedUntil');
+    expect(repository.get(target.id)).toEqual(paused);
+  });
+
+  it('replaces a timed pause with an indefinite pause by clearing the old deadline', () => {
+    let now = 1_000;
+    const repository = new LocalAiTargetRepository(openDb(), undefined, () => now);
+    const target = repository.create(config());
+    now = 2_000;
+    repository.setLifecycle(target.id, 'paused', { pausedUntil: 5_000 });
+    now = 3_000;
+
+    const indefinitelyPaused = repository.setLifecycle(target.id, 'paused');
+
+    expect(indefinitelyPaused).toMatchObject({ lifecycle: 'paused', updatedAt: 3_000 });
+    expect(indefinitelyPaused).not.toHaveProperty('pausedUntil');
+    expect(repository.get(target.id)).toEqual(indefinitelyPaused);
   });
 
   it('notifies lifecycle subscribers after durable changes and supports disposal', () => {
@@ -116,9 +145,9 @@ describe('LocalAiTargetRepository', () => {
     });
 
     const created = repository.create(config());
-    repository.setLifecycle(created.id, 'paused', created.updatedAt + 1);
+    repository.setLifecycle(created.id, 'paused');
     unsubscribe();
-    repository.setLifecycle(created.id, 'enrolled', created.updatedAt + 2);
+    repository.setLifecycle(created.id, 'enrolled');
 
     expect(observed).toEqual([
       `${created.id}:enrolled`,
@@ -126,34 +155,104 @@ describe('LocalAiTargetRepository', () => {
     ]);
   });
 
-  it('rejects invalid or regressive lifecycle timestamps without corrupting the existing target', () => {
-    const repository = new LocalAiTargetRepository(openDb());
+  it('rejects invalid or non-future pause deadlines without corrupting the existing target', () => {
+    const repository = new LocalAiTargetRepository(openDb(), undefined, () => 1_000);
     const target = repository.create(config());
-    const invalidTimes = [Number.NaN, -1, Number.MAX_SAFE_INTEGER + 1, target.createdAt - 1];
+    const invalidTimes = [Number.NaN, -1, 999, 1_000, Number.MAX_SAFE_INTEGER + 1];
 
-    for (const at of invalidTimes) expect(() => repository.setLifecycle(target.id, 'paused', at)).toThrow();
+    for (const pausedUntil of invalidTimes) {
+      expect(() => repository.setLifecycle(target.id, 'paused', { pausedUntil })).toThrow();
+    }
     expect(repository.get(target.id)).toEqual(target);
-
-    const paused = repository.setLifecycle(target.id, 'paused', target.updatedAt + 1);
-    expect(() => repository.setLifecycle(target.id, 'enrolled', paused.updatedAt - 1)).toThrow();
-    expect(repository.get(target.id)).toEqual(paused);
   });
 
-  it('keeps configuration updates and later lifecycle changes monotonic after a future explicit lifecycle timestamp', () => {
+  it('keeps configuration mutation time truthful while a future pause deadline is active', () => {
     const db = openDb();
-    const now = 1_000;
+    let now = 1_000;
     const repository = new LocalAiTargetRepository(db, undefined, () => now);
     const created = repository.create(config());
-    repository.setLifecycle(created.id, 'paused', 5_000);
+    now = 2_000;
+    repository.setLifecycle(created.id, 'paused', { pausedUntil: 5_000 });
+    now = 3_000;
     const updated = repository.update(created.id, { warningLatencyMs: 3_000 });
 
-    expect(updated).toMatchObject({ updatedAt: 5_000, warningLatencyMs: 3_000 });
-    expect(() => repository.setLifecycle(created.id, 'enrolled', 2_000)).toThrow();
+    expect(updated).toMatchObject({
+      lifecycle: 'paused',
+      pausedUntil: 5_000,
+      updatedAt: 3_000,
+      warningLatencyMs: 3_000,
+    });
     expect(() => repository.update(created.id, { warningLatencyMs: 0 })).toThrow();
     expect(repository.get(created.id)).toEqual(updated);
-    expect(repository.setLifecycle(created.id, 'enrolled', 5_001)).toMatchObject({
-      lifecycle: 'enrolled', updatedAt: 5_001,
+  });
+
+  it('rejects direct create and update calls outside trusted numeric bounds without writing', () => {
+    const repository = new LocalAiTargetRepository(openDb());
+    for (const invalid of [
+      config({ endpointCheckIntervalMs: 1 }),
+      config({ canary: { ...config().canary, intervalMs: Number.NaN } }),
+      config({ warningLatencyMs: 1.5 }),
+      config({ recovery: { automatic: true, maxAttempts: 0, cooldownMs: 1_000_000_000 } }),
+    ]) {
+      expect(() => repository.create(invalid)).toThrow();
+    }
+    expect(repository.list()).toEqual([]);
+
+    const target = repository.create(config());
+    for (const patch of [
+      { endpointCheckIntervalMs: 1 },
+      { canary: { ...target.canary, timeoutMs: 1_000_000_000 } },
+      { freshnessLimitMs: Number.NaN },
+      { recovery: { ...target.recovery, maxAttempts: 1.5 } },
+    ]) {
+      expect(() => repository.update(target.id, patch)).toThrow();
+    }
+    expect(repository.get(target.id)).toEqual(target);
+  });
+
+  it('rejects invalid expected-model relationships before create or update persistence', () => {
+    const repository = new LocalAiTargetRepository(openDb());
+    const duplicateModels = [
+      config().expectedModels[0],
+      { ...config().expectedModels[0], required: false },
+    ];
+
+    expect(() => repository.create(config({
+      expectedModels: duplicateModels,
+    }))).toThrow();
+    expect(() => repository.create(config({
+      canary: { ...config().canary, model: 'not-expected' },
+    }))).toThrow();
+    expect(repository.list()).toEqual([]);
+
+    const target = repository.create(config());
+    expect(() => repository.update(target.id, {
+      expectedModels: duplicateModels,
+    })).toThrow();
+    expect(() => repository.update(target.id, {
+      canary: { ...target.canary, model: 'not-expected' },
+    })).toThrow();
+    expect(repository.get(target.id)).toEqual(target);
+  });
+
+  it('accepts exact trusted numeric boundaries for direct repository calls', () => {
+    const repository = new LocalAiTargetRepository(openDb());
+    const created = repository.create(config({
+      canary: { model: 'qwen3:14b', timeoutMs: 5_000, intervalMs: 120_000 },
+      endpointCheckIntervalMs: 30_000,
+      freshnessLimitMs: 30_000,
+      warningLatencyMs: 100,
+      recovery: { automatic: true, maxAttempts: 1, cooldownMs: 60_000 },
+    }));
+
+    const updated = repository.update(created.id, {
+      canary: { model: 'qwen3:14b', timeoutMs: 120_000, intervalMs: 3_600_000 },
+      endpointCheckIntervalMs: 900_000,
+      freshnessLimitMs: 900_000,
+      warningLatencyMs: 60_000,
+      recovery: { automatic: true, maxAttempts: 5, cooldownMs: 3_600_000 },
     });
+    expect(updated.endpointCheckIntervalMs).toBe(900_000);
   });
 
   it('logs and omits a target whose persisted JSON no longer matches the strict configuration schema', () => {
@@ -165,5 +264,49 @@ describe('LocalAiTargetRepository', () => {
 
     expect(repository.list()).toEqual([]);
     expect(warnings).toEqual([expect.objectContaining({ targetId: target.id })]);
+  });
+
+  it('fails safe when a legacy persisted target contains newly out-of-policy numeric values', () => {
+    const db = openDb();
+    const warnings: Record<string, unknown>[] = [];
+    const repository = new LocalAiTargetRepository(
+      db,
+      { warn: (_message, data) => warnings.push(data ?? {}) },
+    );
+    const target = repository.create(config());
+    db.prepare('UPDATE local_ai_targets SET config_json = ? WHERE id = ?').run(
+      JSON.stringify(config({ endpointCheckIntervalMs: 1 })),
+      target.id,
+    );
+
+    expect(repository.get(target.id)).toBeUndefined();
+    expect(repository.list()).toEqual([]);
+    expect(warnings).toEqual([
+      expect.objectContaining({ targetId: target.id }),
+      expect.objectContaining({ targetId: target.id }),
+    ]);
+  });
+
+  it('fails safe when persisted target model relationships violate the worker contract', () => {
+    const db = openDb();
+    const warnings: Record<string, unknown>[] = [];
+    const repository = new LocalAiTargetRepository(
+      db,
+      { warn: (_message, data) => warnings.push(data ?? {}) },
+    );
+    const target = repository.create(config());
+    db.prepare('UPDATE local_ai_targets SET config_json = ? WHERE id = ?').run(
+      JSON.stringify(config({
+        canary: { ...target.canary, model: 'not-expected' },
+      })),
+      target.id,
+    );
+
+    expect(repository.get(target.id)).toBeUndefined();
+    expect(repository.list()).toEqual([]);
+    expect(warnings).toEqual([
+      expect.objectContaining({ targetId: target.id }),
+      expect.objectContaining({ targetId: target.id }),
+    ]);
   });
 });

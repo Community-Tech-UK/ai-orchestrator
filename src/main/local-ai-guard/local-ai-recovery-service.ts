@@ -5,6 +5,7 @@ import type {
   LocalAiHealthTransition,
   LocalAiProbeResult,
   LocalAiRepairAction,
+  LocalAiRepairOutcome,
   LocalAiRepairResult,
   LocalAiTarget,
   LocalAiTargetStatus,
@@ -97,6 +98,7 @@ export class LocalAiRecoveryService {
     return {
       targetId: target.id,
       action,
+      outcome: guided.supported ? 'guided' : 'unsupported',
       supported: guided.supported,
       attempted: false,
       recovered: false,
@@ -114,6 +116,7 @@ export class LocalAiRecoveryService {
       return fixedResult(
         target,
         action,
+        'not-attempted',
         true,
         false,
         false,
@@ -125,6 +128,7 @@ export class LocalAiRecoveryService {
       return fixedResult(
         target,
         action,
+        'unsupported',
         false,
         false,
         false,
@@ -147,6 +151,7 @@ export class LocalAiRecoveryService {
       return fixedResult(
         target,
         action,
+        'not-attempted',
         true,
         false,
         false,
@@ -159,43 +164,68 @@ export class LocalAiRecoveryService {
 
     try {
       const namedRepair = await this.dependencies.probes.repair(target, action);
-      if (!namedRepair.supported) {
-        const completedAt = this.completionTimestamp(startedAt, namedRepair.completedAt);
-        this.completeAttempt(claim.attempt.id, {
-          completedAt,
-          outcome: 'unsupported',
-          supported: false,
-          attempted: false,
-          recovered: false,
-        });
-        return fixedResult(
-          target,
-          action,
-          false,
-          false,
-          false,
-          'The named repair is not supported for this target.',
-          completedAt,
-        );
-      }
-      if (!namedRepair.attempted) {
-        const completedAt = this.completionTimestamp(startedAt, namedRepair.completedAt);
-        this.completeAttempt(claim.attempt.id, {
-          completedAt,
-          outcome: 'failed',
-          supported: true,
-          attempted: false,
-          recovered: false,
-        });
-        return fixedResult(
-          target,
-          action,
-          true,
-          false,
-          false,
-          'The named repair did not execute.',
-          completedAt,
-        );
+      const completedAt = this.completionTimestamp(startedAt, namedRepair.completedAt);
+      switch (namedRepair.outcome) {
+        case 'unsupported':
+          this.completeAttempt(claim.attempt.id, {
+            completedAt,
+            outcome: 'unsupported',
+            supported: false,
+            attempted: false,
+            recovered: false,
+          });
+          return fixedResult(
+            target,
+            action,
+            'unsupported',
+            false,
+            false,
+            false,
+            'The named repair is not supported for this target.',
+            completedAt,
+          );
+        case 'guided':
+        case 'not-attempted':
+          this.completeAttempt(claim.attempt.id, {
+            completedAt,
+            outcome: 'failed',
+            supported: true,
+            attempted: false,
+            recovered: false,
+          });
+          return fixedResult(
+            target,
+            action,
+            'not-attempted',
+            true,
+            false,
+            false,
+            'The named repair did not execute.',
+            completedAt,
+          );
+        case 'execution-failed':
+          this.completeAttempt(claim.attempt.id, {
+            completedAt,
+            outcome: 'failed',
+            supported: true,
+            attempted: true,
+            recovered: false,
+          });
+          return fixedResult(
+            target,
+            action,
+            'execution-failed',
+            true,
+            true,
+            false,
+            'The bounded Local AI repair could not be completed.',
+            completedAt,
+          );
+        case 'completed-not-recovered':
+        case 'recovered':
+          break;
+        default:
+          return assertNever(namedRepair.outcome);
       }
 
       const verification = await this.verifyHealth(target);
@@ -210,6 +240,7 @@ export class LocalAiRecoveryService {
       return fixedResult(
         target,
         action,
+        verification.recovered ? 'recovered' : 'completed-not-recovered',
         true,
         true,
         verification.recovered,
@@ -230,6 +261,7 @@ export class LocalAiRecoveryService {
       return fixedResult(
         target,
         action,
+        'execution-failed',
         true,
         true,
         false,
@@ -476,6 +508,7 @@ function requiredChecksPassed(samples: LocalAiProbeResult[]): boolean {
 function fixedResult(
   target: LocalAiTarget,
   action: LocalAiRepairAction,
+  outcome: LocalAiRepairOutcome,
   supported: boolean,
   attempted: boolean,
   recovered: boolean,
@@ -485,10 +518,15 @@ function fixedResult(
   return {
     targetId: target.id,
     action,
+    outcome,
     supported,
     attempted,
     recovered,
     message,
     completedAt,
   };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled Local AI repair outcome: ${String(value)}`);
 }

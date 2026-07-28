@@ -18,6 +18,8 @@ import {
   LocalAiRepairActionSchema,
   LocalAiRepairResultSchema,
 } from '../../shared/validation/local-ai-guard.schemas';
+import { AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS } from '../../shared/types/auxiliary-llm.types';
+import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../../shared/types/local-ai-guard.types';
 
 export { FsReadFileParamsSchema, FsWriteFileParamsSchema };
 
@@ -35,7 +37,9 @@ export const LOCAL_AI_HEALTH_MAX_LATENCY_THRESHOLD_MS = 300_000;
 
 const WorkerLoadedLocalModelSchema = z.object({
   id: z.string().min(1).max(256),
-  contextLength: z.number().int().nonnegative().max(10_000_000),
+  contextLength: z.number().int()
+    .min(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength.min)
+    .max(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength.max),
 });
 
 const WorkerAgentBuildSummarySchema = z.object({
@@ -129,7 +133,9 @@ const WorkerNodeCapabilitiesSchema = z.object({
     name: z.string(),
     markers: z.array(z.string()),
   })).default([]),
-  localModelEndpoints: z.array(WorkerLocalModelCapabilitySchema).optional(),
+  localModelEndpoints: z.array(WorkerLocalModelCapabilitySchema)
+    .max(AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS)
+    .optional(),
   localSttEndpoints: z.array(z.object({
     provider: z.enum(['openai-compatible', 'whisper-cli']),
     baseUrl: z.string(),
@@ -446,7 +452,12 @@ export const AudioTranscribeParamsSchema = z.discriminatedUnion('provider', [
 const LocalAiExpectedModelRpcSchema = z.object({
   modelId: LocalAiModelIdSchema,
   required: z.boolean(),
-  minContextLength: z.number().int().positive().max(10_000_000).optional(),
+  minContextLength: z.number()
+    .finite()
+    .int()
+    .min(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength.min)
+    .max(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength.max)
+    .optional(),
 }).strict();
 
 const LocalAiCanaryContractSchema = z.object({
@@ -467,7 +478,7 @@ function validateLocalAiHealthTarget(
   value: {
     provider: 'ollama' | 'openai-compatible';
     endpointId: string;
-    expectedModels: Array<{ modelId: string }>;
+    expectedModels: { modelId: string }[];
     canary: { model: string };
   },
   context: z.RefinementCtx,

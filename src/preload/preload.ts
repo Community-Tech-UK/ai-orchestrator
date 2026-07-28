@@ -43,6 +43,7 @@ import { createAuxiliaryLlmDomain } from './domains/auxiliary-llm.preload';
 import { createDocReviewDomain } from './domains/doc-review.preload';
 import { createNotificationDomain } from './domains/notification.preload';
 import { createContextEvidenceDomain } from './domains/context-evidence.preload';
+import { createLocalAiGuardDomain } from './domains/local-ai-guard.preload';
 import type { IpcResponse } from './domains/types';
 
 // --- Auth token shared across domains that need authenticated IPC calls ---
@@ -89,6 +90,7 @@ const electronAPI = {
   ...createDocReviewDomain(ipcRenderer, IPC_CHANNELS),
   ...createNotificationDomain(ipcRenderer, IPC_CHANNELS),
   ...createContextEvidenceDomain(ipcRenderer, IPC_CHANNELS),
+  ...createLocalAiGuardDomain(ipcRenderer, IPC_CHANNELS),
 
   /**
    * Get current platform

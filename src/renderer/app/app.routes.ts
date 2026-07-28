@@ -181,6 +181,13 @@ const controlSurfaceRoutes: Routes = [
       import('./features/cost/cost-page.component').then((m) => m.CostPageComponent),
   },
   {
+    path: 'local-ai',
+    data: controlSurfaceRouteData('local-ai'),
+    loadComponent: () =>
+      import('./features/local-ai-guard/local-ai-guard-page.component')
+        .then((m) => m.LocalAiGuardPageComponent),
+  },
+  {
     path: 'snapshots',
     data: controlSurfaceRouteData('snapshots'),
     loadComponent: () =>

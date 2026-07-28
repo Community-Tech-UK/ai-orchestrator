@@ -144,6 +144,41 @@ export const COST_HELP: HelpEntry = {
   ],
 };
 
+export const LOCAL_AI_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Shows whether enrolled local AI targets can complete real work across the worker, endpoint, model, and canary layers. Discovered endpoints remain neutral until you enrol them.',
+    },
+    {
+      kind: 'steps',
+      heading: 'Enrol a target',
+      items: [
+        'Review a discovered endpoint and select the models you expect it to serve.',
+        'Choose a canary model, health cadence, routing roles, and fallback policy.',
+        'Validate every layer, then enrol the target.',
+      ],
+    },
+    {
+      kind: 'list',
+      heading: 'Safe recovery',
+      items: [
+        'Run a manual check when current evidence needs refreshing.',
+        'Diagnose an incident before choosing a guided repair.',
+        'Automatic repair is opt-in and limited to named, supported service operations.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'warning',
+      heading: 'Pausing changes routing immediately',
+      body: 'A paused or retired target stops receiving health checks and local routing work. Retiring keeps its historical incidents and impact records.',
+    },
+  ],
+};
+
 export const REPLAY_HELP: HelpEntry = {
   sections: [
     {

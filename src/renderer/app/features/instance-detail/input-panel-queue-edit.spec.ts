@@ -584,6 +584,7 @@ function createProviderStateMock(): Partial<ProviderStateService> {
 function createNewSessionDraftMock(): Partial<NewSessionDraftService> {
   return {
     revision: signal(0),
+    activeKey: signal('__default__'),
     prompt: signal(''),
     provider: signal<ProviderType | null>(null),
     model: signal<string | null>(null),

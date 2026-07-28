@@ -54,6 +54,10 @@
   top: 12px;
 }
 
+.title-bar-overlay app-local-ai-status-chip {
+  display: inline-flex;
+}
+
 /* On Windows the native minimise/maximise/close controls live in the top-right
  * corner via Electron's titleBarOverlay. AppComponent measures the real control
  * strip from the Window Controls Overlay geometry and sets an inline `right`

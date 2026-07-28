@@ -1,0 +1,350 @@
+:host {
+  display: block;
+}
+
+.setup {
+  padding: var(--spacing-lg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
+  background: var(--card-bg);
+}
+
+.setup-heading,
+.validation-heading,
+.form-actions,
+.discovery-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.setup-heading {
+  margin-bottom: var(--spacing-lg);
+}
+
+.eyebrow,
+.setup-heading p,
+.validation-heading p,
+.field-help {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+
+h2,
+h3 {
+  margin: 0.2rem 0;
+  color: var(--text-primary);
+}
+
+h2 {
+  font-size: var(--text-xl);
+}
+
+h3 {
+  font-size: var(--text-md);
+}
+
+.discovery-list,
+form {
+  display: grid;
+  gap: var(--spacing-md);
+}
+
+.discovery-row {
+  align-items: center;
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.discovery-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.discovery-label {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.discovery-meta {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.neutral-pill {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--pill-neutral-border);
+  border-radius: var(--radius-full);
+  background: var(--pill-neutral-bg);
+  color: var(--pill-neutral-fg);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+
+fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+legend {
+  padding: 0 var(--spacing-xs);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.form-grid,
+.choice-grid {
+  display: grid;
+  gap: var(--spacing-md);
+}
+
+.form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid.compact {
+  max-width: 560px;
+  margin-top: var(--spacing-md);
+}
+
+.choice-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: var(--spacing-sm);
+}
+
+label:not(.choice) {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+input[type='number'],
+select {
+  width: 100%;
+  min-height: 36px;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+input[aria-invalid='true'] {
+  border-color: var(--error-border);
+}
+
+small {
+  color: var(--text-muted);
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-height: 34px;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.choice input {
+  accent-color: var(--primary-color);
+}
+
+.field-error,
+.operation-error {
+  margin: var(--spacing-xs) 0 0;
+  color: var(--error-color);
+  font-size: var(--text-sm);
+}
+
+.warning-copy {
+  margin: var(--spacing-sm) 0 0;
+  padding: var(--spacing-sm);
+  border-left: 3px solid var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.validation {
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.validation-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: var(--spacing-lg) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.validation-rail li {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: var(--text-xs);
+}
+
+.validation-rail li::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.validation-rail li:first-child::before {
+  left: 50%;
+}
+
+.validation-rail li:last-child::before {
+  right: 50%;
+}
+
+.rail-node {
+  position: relative;
+  z-index: 1;
+  width: 15px;
+  height: 15px;
+  border: 3px solid var(--bg-primary);
+  border-radius: var(--radius-full);
+  background: var(--pill-neutral-fg);
+  box-shadow: 0 0 0 1px var(--border-color);
+}
+
+[data-state='ok'] .rail-node {
+  background: var(--success-color);
+}
+
+[data-state='failed'] .rail-node {
+  background: var(--error-color);
+}
+
+.form-actions {
+  justify-content: flex-end;
+}
+
+.button {
+  min-height: 34px;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--glass-medium);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.button.primary {
+  border-color: var(--primary-muted);
+  background: var(--primary-color);
+  color: var(--button-on-primary);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--glass-strong);
+}
+
+.button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.empty {
+  display: grid;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-lg);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 760px) {
+  .setup-heading,
+  .validation-heading,
+  .discovery-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .validation-rail {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-sm);
+  }
+
+  .validation-rail li {
+    grid-template-columns: 20px 1fr;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .validation-rail li::before {
+    top: 0;
+    bottom: 0;
+    left: 7px;
+    right: auto;
+    width: 1px;
+    height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto;
+    transition: none !important;
+  }
+}

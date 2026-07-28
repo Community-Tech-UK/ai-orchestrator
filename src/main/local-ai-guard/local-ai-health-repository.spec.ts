@@ -48,12 +48,15 @@ const recoveryProcessScript = String.raw`
   } = require(
     path.join(process.cwd(), 'src/main/local-ai-guard/local-ai-recovery-attempt-store.ts'),
   );
+  const { LocalAiHealthRepository } = require(
+    path.join(process.cwd(), 'src/main/local-ai-guard/local-ai-health-repository.ts'),
+  );
   const db = defaultDriverFactory(filename);
   try {
     db.exec('PRAGMA foreign_keys = ON;');
     db.pragma('busy_timeout = 5000');
     let result;
-    if (mode === 'setup') {
+    if (mode === 'setup' || mode === 'aggregate-setup') {
       for (const migrationName of ['054_local_ai_guard', '055_local_ai_recovery_attempts']) {
         const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === migrationName);
         if (!migration) throw new Error('Missing migration ' + migrationName);
@@ -66,6 +69,15 @@ const recoveryProcessScript = String.raw`
         ") VALUES (?, 'Recovery target', 'enrolled', 'coordinator', '', 'ollama', ?, " +
         "'http://127.0.0.1:11434', '{}', 1, 1)"
       ).run(targetId, targetId);
+      if (mode === 'aggregate-setup') {
+        db.prepare(
+          "INSERT INTO local_ai_routing_events (" +
+          "id, target_id, slot, intended_route, actual_route, policy, disposition, " +
+          "decision_reason, input_tokens, output_tokens, estimated_cost_usd, created_at" +
+          ") VALUES ('restart-event', ?, 'compression', 'local', 'local', " +
+          "'notify-and-allow', 'not-needed', 'health', 80, 20, 0.25, ?)"
+        ).run(targetId, Number(startAtText));
+      }
       result = { setup: true };
     } else if (mode === 'claim') {
       const startAt = Number(startAtText);
@@ -82,6 +94,20 @@ const recoveryProcessScript = String.raw`
       });
     } else if (mode === 'list') {
       result = listLocalAiRecoveryAttempts(db, targetId);
+    } else if (mode === 'aggregate-retain') {
+      result = new LocalAiHealthRepository(db).runRetention(Number(claimedAtText));
+    } else if (mode === 'aggregate-inspect') {
+      result = {
+        events: db.prepare(
+          'SELECT count(*) AS count FROM local_ai_routing_events',
+        ).get().count,
+        aggregates: db.prepare(
+          'SELECT count(*) AS count FROM local_ai_daily_aggregates',
+        ).get().count,
+        aggregateJson: db.prepare(
+          'SELECT aggregate_json FROM local_ai_daily_aggregates',
+        ).get()?.aggregate_json,
+      };
     } else {
       throw new Error('Unknown recovery process mode');
     }
@@ -91,7 +117,13 @@ const recoveryProcessScript = String.raw`
   }
 `;
 
-type RecoveryProcessMode = 'setup' | 'claim' | 'list';
+type RecoveryProcessMode =
+  | 'setup'
+  | 'claim'
+  | 'list'
+  | 'aggregate-setup'
+  | 'aggregate-retain'
+  | 'aggregate-inspect';
 
 interface RecoveryProcessOptions {
   attemptId?: string;
@@ -1255,6 +1287,132 @@ describe('LocalAiHealthRepository', () => {
     });
   });
 
+  it('aggregates every effectiveness metric and endpoint, model, slot, and incident breakdown', () => {
+    const db = openDb();
+    const targets = new LocalAiTargetRepository(db);
+    const first = targets.create(config());
+    const second = targets.create({
+      ...config(),
+      endpointId: 'ollama-studio',
+      baseUrl: 'http://127.0.0.1:11435',
+    });
+    const repository = new LocalAiHealthRepository(db);
+    const now = 100 * dayMs;
+    const allowedIncident = repository.upsertIncident({
+      kind: 'open-or-update',
+      incident: incident(first.id, 'incident-allowed'),
+    });
+    const deferredIncident = repository.upsertIncident({
+      kind: 'open-or-update',
+      incident: {
+        ...incident(first.id, 'incident-deferred'),
+        failureCode: 'inference-timeout',
+        affectedLayers: ['inference'],
+      },
+    });
+    const blockedIncident = repository.upsertIncident({
+      kind: 'open-or-update',
+      incident: {
+        ...incident(second.id, 'incident-blocked'),
+        failureCode: 'authentication-error',
+      },
+    });
+    repository.appendRoutingEvent(event('local-first', now - 5_000, {
+      targetId: first.id,
+      actualRoute: 'local',
+      disposition: 'not-needed',
+      model: 'qwen3:14b',
+      inputTokens: 80,
+      outputTokens: 20,
+      estimatedCostUsd: 0.4,
+    }));
+    repository.appendRoutingEvent(event('local-second', now - 4_000, {
+      targetId: second.id,
+      slot: 'titleGeneration',
+      actualRoute: 'local',
+      disposition: 'not-needed',
+      model: 'qwen3:8b',
+      inputTokens: 30,
+      outputTokens: 10,
+      estimatedCostUsd: 0.1,
+    }));
+    repository.appendRoutingEvent(event('frontier-allowed', now - 3_000, {
+      targetId: first.id,
+      incidentId: allowedIncident.id,
+      model: 'claude-sonnet',
+      knownCostUsd: 1.25,
+      estimatedCostUsd: 0.75,
+    }));
+    repository.appendRoutingEvent(event('frontier-deferred', now - 2_000, {
+      targetId: first.id,
+      incidentId: deferredIncident.id,
+      actualRoute: 'deferred',
+      disposition: 'deferred',
+      slot: 'memoryDistillation',
+    }));
+    repository.appendRoutingEvent(event('frontier-blocked', now - 1_000, {
+      targetId: second.id,
+      incidentId: blockedIncident.id,
+      actualRoute: 'blocked',
+      disposition: 'blocked',
+      slot: 'webExtract',
+    }));
+
+    expect(repository.summarize('24h', now)).toEqual({
+      window: '24h',
+      localTasks: 2,
+      localTokens: 140,
+      proposedFallbacks: 3,
+      allowedFallbacks: 1,
+      deferredFallbacks: 1,
+      blockedFallbacks: 1,
+      knownCostUsd: 1.25,
+      estimatedCostUsd: 0.75,
+      avoidedEstimatedTokens: 140,
+      avoidedEstimatedCostUsd: 0.5,
+      byTarget: { [first.id]: 3, [second.id]: 2 },
+      byModel: { 'qwen3:14b': 1, 'qwen3:8b': 1, 'claude-sonnet': 1 },
+      bySlot: {
+        compression: 2,
+        titleGeneration: 1,
+        memoryDistillation: 1,
+        webExtract: 1,
+      },
+      byIncident: {
+        'incident-allowed': 1,
+        'incident-deferred': 1,
+        'incident-blocked': 1,
+      },
+    });
+  });
+
+  it('honours exact rolling-window boundaries for 24 hours, 7 days, and 30 days', () => {
+    const db = openDb();
+    const repository = new LocalAiHealthRepository(db);
+    const now = Date.UTC(2026, 6, 1, 12);
+    const windows = [
+      ['24h', dayMs],
+      ['7d', 7 * dayMs],
+      ['30d', 30 * dayMs],
+    ] as const;
+    for (const [window, duration] of windows) {
+      repository.appendRoutingEvent(event(`${window}-inside`, now - duration, {
+        actualRoute: 'local',
+        disposition: 'not-needed',
+      }));
+      repository.appendRoutingEvent(event(`${window}-outside`, now - duration - 1, {
+        actualRoute: 'local',
+        disposition: 'not-needed',
+      }));
+      const summary = repository.summarize(window, now);
+      expect(summary.bySlot.compression).toBe(summary.localTasks + summary.proposedFallbacks);
+      expect(summary.byModel).toEqual({});
+      expect(summary.localTasks).toBe(
+        window === '24h' ? 1 : window === '7d' ? 3 : 5,
+      );
+    }
+  });
+
   it('summarizes every event beyond the former 10,000-row limit', () => {
     const db = openDb();
     const repository = new LocalAiHealthRepository(db);
@@ -1309,6 +1467,50 @@ describe('LocalAiHealthRepository', () => {
     expect(db.prepare('SELECT aggregate_json FROM local_ai_daily_aggregates').get<{ aggregate_json: string }>())
       .toEqual(expect.objectContaining({ aggregate_json: expect.stringContaining('"knownCostUsd":3') }));
     expect(repository.runRetention(now)).toEqual({ samplesDeleted: 0, routingEventsDeleted: 0, daysAggregated: 0 });
+  });
+
+  it('keeps daily aggregation idempotent across a repository restart', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'aio-local-ai-aggregation-'));
+    tempDirectories.push(directory);
+    const filename = join(directory, 'aggregation.sqlite');
+    const now = Date.UTC(2026, 6, 1);
+    const createdAt = now - (91 * dayMs);
+    await runRecoveryProcess('aggregate-setup', filename, 'aggregate-target', {
+      startAt: createdAt,
+    });
+    expect(await runRecoveryProcess('aggregate-retain', filename, 'aggregate-target', {
+      claimedAt: now,
+    })).toEqual({
+      samplesDeleted: 0,
+      routingEventsDeleted: 1,
+      daysAggregated: 1,
+    });
+    const before = await runRecoveryProcess<{
+      events: number;
+      aggregates: number;
+      aggregateJson: string;
+    }>('aggregate-inspect', filename, 'aggregate-target');
+    expect(before.events).toBe(0);
+    expect(before.aggregates).toBe(1);
+    expect(JSON.parse(before.aggregateJson)).toMatchObject({
+      localTasks: 1,
+      localTokens: 100,
+      avoidedEstimatedTokens: 100,
+      avoidedEstimatedCostUsd: 0.25,
+    });
+
+    expect(await runRecoveryProcess('aggregate-retain', filename, 'aggregate-target', {
+      claimedAt: now + dayMs,
+    })).toEqual({
+      samplesDeleted: 0,
+      routingEventsDeleted: 0,
+      daysAggregated: 0,
+    });
+    expect(await runRecoveryProcess(
+      'aggregate-inspect',
+      filename,
+      'aggregate-target',
+    )).toEqual(before);
   });
 
   it('keeps one target/day aggregate across a page split with tied timestamps and ID keysets', () => {

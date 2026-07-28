@@ -36,6 +36,9 @@ const remoteResolutionScript = String.raw`
   const { LocalAiFallbackApprovalService } = require(
     path.join(process.cwd(), 'src/main/local-ai-guard/local-ai-fallback-approval-service.ts'),
   );
+  const { LocalAiRoutingGuard } = require(
+    path.join(process.cwd(), 'src/main/local-ai-guard/local-ai-routing-guard.ts'),
+  );
   (async () => {
     const firstDb = defaultDriverFactory(filename);
     const migration = RLM_MIGRATIONS_051_055.find(
@@ -47,8 +50,45 @@ const remoteResolutionScript = String.raw`
     secondDb.pragma('busy_timeout = 5000');
     const firstRepository = new LocalAiHealthRepository(firstDb, undefined, () => 1000);
     const secondRepository = new LocalAiHealthRepository(secondDb, undefined, () => 1000);
+    firstDb.prepare(
+      'INSERT INTO local_ai_targets ('
+        + 'id, label, lifecycle, location_type, worker_node_id, provider, endpoint_id, '
+        + 'base_url, config_json, created_at, updated_at'
+        + ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(
+      'target-remote',
+      'Remote target',
+      'enrolled',
+      'coordinator',
+      '',
+      'ollama',
+      'remote-target',
+      'http://127.0.0.1:11434',
+      '{}',
+      1000,
+      1000,
+    );
+    firstRepository.upsertIncident({
+      kind: 'open-or-update',
+      incident: {
+        id: 'incident-remote',
+        targetId: 'target-remote',
+        state: 'open',
+        severity: 'critical',
+        failureCode: 'endpoint-timeout',
+        affectedLayers: ['endpoint'],
+        affectedRoles: ['compression'],
+        openedAt: 900,
+        updatedAt: 900,
+        fallbackCount: 0,
+        knownCostUsd: 0,
+        estimatedCostUsd: 0,
+      },
+    });
     firstRepository.appendRoutingEvent({
       id: 'event-remote',
+      targetId: 'target-remote',
+      incidentId: 'incident-remote',
       slot: 'compression',
       intendedRoute: 'local',
       actualRoute: 'deferred',
@@ -61,16 +101,24 @@ const remoteResolutionScript = String.raw`
       createdAt: 1000,
     });
     const timers = [];
-    const first = new LocalAiFallbackApprovalService(firstRepository, {
+    let notificationCount = 0;
+    let requestSequence = 0;
+    let first;
+    first = new LocalAiFallbackApprovalService(firstRepository, {
       now: () => 1000,
-      createId: () => 'request-remote',
+      createId: () => requestSequence++ === 0
+        ? 'request-remote'
+        : 'request-subsequent-' + requestSequence,
       schedule: (callback) => {
         const handle = { callback, cancelled: false };
         timers.push(handle);
         return handle;
       },
       cancelScheduled: (handle) => { handle.cancelled = true; },
-      notifyPending: () => undefined,
+      notifyPending: (request) => {
+        notificationCount += 1;
+        if (request.id !== 'request-remote') first.resolve(request.id, 'block');
+      },
       pollIntervalMs: 10,
     });
     const second = new LocalAiFallbackApprovalService(secondRepository, {
@@ -79,6 +127,7 @@ const remoteResolutionScript = String.raw`
     });
     const pending = first.request({
       routingEventId: 'event-remote',
+      incidentId: 'incident-remote',
       slot: 'compression',
       estimatedInputTokens: 2000,
       estimatedCostUsd: 0.01,
@@ -88,11 +137,48 @@ const remoteResolutionScript = String.raw`
     timers[0].callback();
     const winner = await pending;
     const stored = firstRepository.getRoutingEvent('event-remote');
-    console.log('AIO_REMOTE_RESOLUTION:' + JSON.stringify({
+    const result = {
       winner,
       disposition: stored.disposition,
       allCancelled: timers.every((timer) => timer.cancelled),
-    }));
+    };
+    if (decision === 'allow-incident') {
+      const target = {
+        id: 'target-remote',
+        lifecycle: 'enrolled',
+        fallbackPolicy: 'require-confirmation',
+        slotFallbackPolicies: {},
+      };
+      const guard = new LocalAiRoutingGuard({
+        targets: { get: () => target },
+        scheduler: {
+          getStatus: () => undefined,
+          ensureFresh: async () => { throw new Error('scheduler must not run'); },
+        },
+        health: firstRepository,
+        approvals: first,
+        settings: () => ({
+          localAiGuardDefaultFallbackPolicy: 'require-confirmation',
+          localAiGuardDailyFallbackBudgetUsd: null,
+          localAiGuardConfirmAboveInputTokens: null,
+        }),
+        now: () => 1000,
+        createId: () => 'event-subsequent',
+      });
+      const subsequent = await guard.authorizeFallback({
+        slot: 'compression',
+        intendedTargetId: 'target-remote',
+        reason: 'same incident retry',
+        estimatedInputTokens: 2000,
+        estimatedOutputTokens: 200,
+        slotAllowsFrontier: true,
+      });
+      result.incidentAllowance = first.hasIncidentAllowance('incident-remote');
+      result.subsequentAllowed = subsequent.allowed;
+      result.subsequentPolicy = subsequent.policy;
+      result.notificationCount = notificationCount;
+    }
+    console.log('AIO_REMOTE_RESOLUTION:' + JSON.stringify(result));
     first.dispose();
     second.dispose();
     firstDb.close();
@@ -182,6 +268,25 @@ function persistedRequest(db: SqliteDriver, requestId: string): {
   return db.prepare(`
     SELECT status, resolution, resolved_at FROM local_ai_fallback_requests WHERE id = ?
   `).get(requestId);
+}
+
+async function runRemoteResolution(
+  decision: 'allow-once' | 'allow-incident' | 'block',
+): Promise<Record<string, unknown>> {
+  const filename = sharedDbPath();
+  const { stdout } = await execFileAsync(electronPath, [
+    '-e',
+    remoteResolutionScript,
+    filename,
+    decision,
+  ], {
+    cwd: process.cwd(),
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  });
+  const prefix = 'AIO_REMOTE_RESOLUTION:';
+  const line = stdout.split('\n').find((candidate) => candidate.startsWith(prefix));
+  if (!line) throw new Error('Remote resolution process returned no result');
+  return JSON.parse(line.slice(prefix.length)) as Record<string, unknown>;
 }
 
 describe('LocalAiFallbackApprovalService', () => {
@@ -360,26 +465,25 @@ describe('LocalAiFallbackApprovalService', () => {
     async (
     decision,
   ) => {
-    const filename = sharedDbPath();
-    const { stdout } = await execFileAsync(electronPath, [
-      '-e',
-      remoteResolutionScript,
-      filename,
-      decision,
-    ], {
-      cwd: process.cwd(),
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    });
-    const prefix = 'AIO_REMOTE_RESOLUTION:';
-    const line = stdout.split('\n').find((candidate) => candidate.startsWith(prefix));
-    if (!line) throw new Error('Remote resolution process returned no result');
-    expect(JSON.parse(line.slice(prefix.length))).toEqual({
+    await expect(runRemoteResolution(decision)).resolves.toEqual({
       winner: decision,
       disposition: decision === 'allow-once' ? 'allowed' : 'blocked',
       allCancelled: true,
     });
     },
   );
+
+  it('installs a remotely won incident allowance before the next fallback in that incident', async () => {
+    await expect(runRemoteResolution('allow-incident')).resolves.toEqual({
+      winner: 'allow-incident',
+      disposition: 'allowed',
+      allCancelled: true,
+      incidentAllowance: true,
+      subsequentAllowed: true,
+      subsequentPolicy: 'allow-silently',
+      notificationCount: 1,
+    });
+  });
 
   it('expires timed-out requests durably to block and cleans up the awaiter', async () => {
     const db = openDb();

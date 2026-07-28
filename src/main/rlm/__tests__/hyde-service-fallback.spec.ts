@@ -76,8 +76,12 @@ describe('HyDEService fallback behavior', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllGlobals();
+    const { __resetLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __resetLocalAiAuxiliaryHooksForTesting();
   });
 
   it('uses a 3 second default generation timeout', async () => {
@@ -164,6 +168,109 @@ describe('HyDEService fallback behavior', () => {
     await expect(patched.callLLM('sys', 'user')).resolves.toBe('frontier doc');
 
     expect(patched.callDirectProviders).toHaveBeenCalledWith('sys', 'user');
+  });
+
+  it('automatically attributes the real paid HyDE provider winner inside routing correlation', async () => {
+    mockGetConfig.mockReturnValue({
+      anthropicApiKey: 'test-placeholder',
+      ollamaHost: 'http://ollama.test',
+    });
+    mockAuxGenerate.mockResolvedValue({
+      text: '',
+      decision: {
+        slot: 'retrievalHypothesis',
+        provider: 'local-fallback',
+        source: 'fallback',
+        reason: 'authorized',
+        allowFrontierFallback: true,
+        fallbackDisposition: 'allowed',
+        localAiRoutingEventId: 'routing-hyde',
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        content: [{ text: 'frontier document' }],
+        usage: { input_tokens: 13, output_tokens: 5 },
+      }),
+    }));
+    const { subscribeCostAttribution } = await import('../../core/system/cost-attribution');
+    const records: unknown[] = [];
+    const unsubscribe = subscribeCostAttribution((record) => records.push(record));
+    const { getHyDEService } = await import('../hyde-service');
+    const service = getHyDEService({ enabled: true, minQueryLength: 0 });
+    const patched = service as unknown as {
+      callLLM: (systemPrompt: string, userPrompt: string) => Promise<string>;
+    };
+
+    await patched.callLLM('sys', 'user');
+    unsubscribe();
+
+    const correlated = records.filter((record) => (
+      (record as { correlationId?: string }).correlationId === 'routing-hyde'
+    ));
+    expect(correlated).toHaveLength(1);
+    expect(correlated[0]).toEqual(expect.objectContaining({
+      correlationId: 'routing-hyde',
+      provider: 'anthropic',
+      usage: expect.objectContaining({
+        inputTokens: 13,
+        outputTokens: 5,
+      }),
+      costKnown: false,
+    }));
+  });
+
+  it('does not mark or attribute an authorized fallback that wins on local Ollama', async () => {
+    mockAuxGenerate.mockResolvedValue({
+      text: '',
+      decision: {
+        slot: 'retrievalHypothesis',
+        provider: 'local-fallback',
+        source: 'fallback',
+        reason: 'authorized',
+        allowFrontierFallback: true,
+        fallbackDisposition: 'allowed',
+        localAiRoutingEventId: 'routing-hyde-ollama',
+      },
+    });
+    const mark = vi.fn();
+    const { __setLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __setLocalAiAuxiliaryHooksForTesting({
+      findTarget: () => undefined,
+      evaluateLocalTarget: async () => ({ eligible: true, reason: 'test' }),
+      acquireTarget: () => () => undefined,
+      invalidateTarget: () => undefined,
+      authorizeFallback: async () => ({
+        allowed: true,
+        disposition: 'allowed',
+        policy: 'allow-silently',
+        routingEventId: 'routing-hyde-ollama',
+      }),
+      markFallbackDispatched: mark,
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: 'local hypothetical document' }),
+    }));
+    const { subscribeCostAttribution } = await import('../../core/system/cost-attribution');
+    const records: unknown[] = [];
+    const unsubscribe = subscribeCostAttribution((record) => records.push(record));
+    const { getHyDEService } = await import('../hyde-service');
+    const service = getHyDEService({ enabled: true, minQueryLength: 0 });
+    const patched = service as unknown as {
+      callLLM: (systemPrompt: string, userPrompt: string) => Promise<string>;
+    };
+
+    await expect(patched.callLLM('sys', 'user')).resolves.toBe('local hypothetical document');
+    unsubscribe();
+
+    expect(mark).not.toHaveBeenCalled();
+    expect(records.filter((record) => (
+      (record as { correlationId?: string }).correlationId === 'routing-hyde-ollama'
+    ))).toHaveLength(0);
   });
 
   it('embed() direct-embeds expected auxiliary fallback without error log or error event', async () => {

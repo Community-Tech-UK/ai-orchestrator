@@ -23,6 +23,8 @@ import { IpcFacadeService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
 import { WorkspaceBenchService } from './core/services/workspace-bench.service';
+import { LocalAiGuardStore } from './core/state/local-ai-guard.store';
+import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './app.component.html'), 'utf8');
@@ -117,6 +119,10 @@ async function setupAppComponent(platform = 'darwin'): Promise<{
       },
       { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
       {
+        provide: LocalAiGuardStore,
+        useValue: { initialize: vi.fn(async () => void 0), destroy: vi.fn() },
+      },
+      {
         provide: SettingsStore,
         useValue: {
           initialize: vi.fn(async () => void 0),
@@ -192,6 +198,10 @@ describe('AppComponent startup banner', () => {
         },
         { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
         {
+          provide: LocalAiGuardStore,
+          useValue: { initialize: vi.fn(async () => void 0), destroy: vi.fn() },
+        },
+        {
           provide: SettingsStore,
           useValue: {
             initialize: vi.fn(async () => void 0),
@@ -265,6 +275,119 @@ describe('AppComponent startup banner', () => {
 });
 
 describe('AppComponent title bar layout', () => {
+  it('initializes and destroys the Local AI Guard store exactly once with the root shell', async () => {
+    const localAiGuardStore = {
+      initialize: vi.fn(async () => void 0),
+      destroy: vi.fn(),
+    };
+    TestBed.overrideProvider(LocalAiGuardStore, { useValue: localAiGuardStore });
+    const { fixture } = await setupAppComponent();
+
+    expect(localAiGuardStore.initialize).toHaveBeenCalledOnce();
+
+    fixture.destroy();
+    expect(localAiGuardStore.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('mounts the Local AI status chip in the title cluster and fallback banner near approvals', () => {
+    expect(template.match(/<app-local-ai-status-chip/g)).toHaveLength(1);
+    expect(template.match(/<app-local-ai-fallback-banner/g)).toHaveLength(1);
+
+    const overlayStart = template.indexOf('class="title-bar-overlay"');
+    const overlayEnd = template.indexOf('</div>', overlayStart);
+    const chipIndex = template.indexOf('<app-local-ai-status-chip');
+    expect(chipIndex).toBeGreaterThan(overlayStart);
+    expect(chipIndex).toBeLessThan(overlayEnd);
+
+    const browserBannerIndex = template.indexOf('<app-browser-approvals-banner');
+    const fallbackBannerIndex = template.indexOf('<app-local-ai-fallback-banner');
+    expect(fallbackBannerIndex).toBeGreaterThan(browserBannerIndex);
+    expect(fallbackBannerIndex).toBeLessThan(template.indexOf('<main class="app-main">'));
+  });
+
+  it('renders Status unavailable in the root shell when initialization has no snapshot', async () => {
+    TestBed.resetTestingModule();
+    const isInitialized = signal(true);
+    const hasAuthoritativeSnapshot = signal(false);
+    const aggregate = signal({
+      state: 'not-configured' as const,
+      enrolled: 0,
+      healthy: 0,
+      degraded: 0,
+      unavailable: 0,
+      paused: 0,
+    });
+    TestBed.overrideComponent(AppComponent, {
+      set: {
+        imports: [LocalAiStatusChipComponent],
+        template,
+        templateUrl: undefined,
+        styles: [styles],
+        styleUrl: undefined,
+        styleUrls: [],
+        schemas: [CUSTOM_ELEMENTS_SCHEMA],
+      },
+    });
+    await TestBed.configureTestingModule({
+      imports: [AppComponent],
+      providers: [
+        { provide: Router, useValue: createRouterMock() },
+        {
+          provide: IpcFacadeService,
+          useValue: {
+            platform: 'darwin',
+            onStartupCapabilities: vi.fn(() => () => void 0),
+            on: vi.fn(() => () => void 0),
+            appReady: vi.fn(async () => ({ success: true })),
+            getStartupCapabilities: vi.fn(async () => null),
+          },
+        },
+        { provide: PerfInstrumentationService, useValue: {} },
+        { provide: StressFixturesService, useValue: {} },
+        { provide: WorkspaceBenchService, useValue: {} },
+        { provide: UsageStore, useValue: { init: vi.fn() } },
+        { provide: PromptHistoryStore, useValue: { init: vi.fn() } },
+        {
+          provide: ModelFavoritesService,
+          useValue: { favorites: signal<string[]>([]).asReadonly(), writeFavorites: vi.fn() },
+        },
+        { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
+        {
+          provide: LocalAiGuardStore,
+          useValue: {
+            initialize: vi.fn(async () => void 0),
+            destroy: vi.fn(),
+            isInitialized: isInitialized.asReadonly(),
+            hasAuthoritativeSnapshot: hasAuthoritativeSnapshot.asReadonly(),
+            aggregate: aggregate.asReadonly(),
+          },
+        },
+        {
+          provide: SettingsStore,
+          useValue: {
+            initialize: vi.fn(async () => void 0),
+            isInitialized: signal(false).asReadonly(),
+            get: vi.fn(() => false),
+          },
+        },
+        { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },
+        { provide: PauseRendererController, useValue: { bindReactive: vi.fn() } },
+      ],
+      schemas: [CUSTOM_ELEMENTS_SCHEMA],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const chip = fixture.nativeElement.querySelector(
+      '[data-testid="local-ai-status-chip"]',
+    ) as HTMLButtonElement;
+    expect(chip.textContent).toContain('Local AI: Status unavailable');
+    expect(chip.getAttribute('aria-label')).toContain('Status unavailable');
+  });
+
   it('mounts the application update banner once at the root', () => {
     expect(template.match(/<app-update-banner/g)).toHaveLength(1);
   });

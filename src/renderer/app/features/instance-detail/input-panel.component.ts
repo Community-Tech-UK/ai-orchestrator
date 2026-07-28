@@ -85,10 +85,16 @@ import type { InstanceRuntimeSummary } from '../../../../shared/types/local-mode
 import type { InstanceWaitReason, DesiredRuntime } from '../../../../shared/types/instance.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import { ComposerBannersComponent } from './composer-banners.component';
+import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
 import {
   tryStartLoopFromPanel,
   type LoopStartRequestPayload,
 } from './input-panel-loop-start';
+import {
+  NewSessionSubmissionController,
+  type NewSessionSubmitRequest,
+} from './input-panel-new-session-submit';
+import { ComposerSubmissionService } from '../../core/services/composer-submission.service';
 import {
   ImageLightboxComponent,
   type LightboxItem,
@@ -106,6 +112,10 @@ import {
   toLoopPickerProvider,
 } from './input-panel-formatters';
 import { fuzzyRank } from '../../shared/utils/fuzzy';
+import {
+  stepPromptRecall,
+  type PromptRecallDirection,
+} from './input-panel-prompt-recall';
 
 const LOOP_START_ACK_TIMEOUT_MS = 30_000;
 
@@ -118,6 +128,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     ComposerAutocompleteComponent,
     ComposerBannersComponent,
     ComposerQueueComponent,
+    ComposerRecoveryBannerComponent,
     ComposerToolbarComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
@@ -143,6 +154,7 @@ export class InputPanelComponent implements OnDestroy {
   private instanceStoreRef = inject(InstanceStore);
   private promptHistoryStore = inject(PromptHistoryStore);
   private loopPanelOpener = inject(LoopPanelOpenerService);
+  private submissions = inject(ComposerSubmissionService);
   protected voice = inject(VoiceConversationStore);
   private filePreviewUrls = new Map<File, string>();
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
@@ -216,6 +228,12 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   sendMessage = output<string>();
+  /**
+   * New-session submission. Unlike `sendMessage` this carries an
+   * `onResolved` callback: the composer is not cleared until the handler
+   * confirms an instance id.
+   */
+  newSessionSubmit = output<NewSessionSubmitRequest>();
   steerMessage = output<string>();
   startSessionWithWorkflow = output<{ message: string; templateId: string }>();
   draftStarted = output<void>();
@@ -248,6 +266,22 @@ export class InputPanelComponent implements OnDestroy {
    * interrupt the active turn (same effect as pressing Esc).
    */
   interruptRequested = output<void>();
+
+  /**
+   * New-session submission state: in-flight flag, last error, and the unsent
+   * composition recovered from the durable journal.
+   */
+  readonly submission = new NewSessionSubmissionController({
+    submissions: this.submissions,
+    draftKey: () => this.newSessionDraft.activeKey(),
+    workingDirectory: () => this.workingDirectory(),
+    pendingFolders: () => this.pendingFolders(),
+    pendingFiles: () => this.pendingFiles(),
+    currentText: () => this.message(),
+    isDraftComposer: () => this.isDraftComposer(),
+    emit: (request) => this.newSessionSubmit.emit(request),
+    clearComposer: () => this.clearSubmittedMessage(),
+  });
 
   loopArmed = signal(false);
   showLoopPanel = signal(false);
@@ -667,6 +701,9 @@ export class InputPanelComponent implements OnDestroy {
     // Load commands on init
     this.commandStore.loadCommands();
 
+    // Surface any composition that was still unsent when the app last closed.
+    void this.submissions.restore();
+
     // Reset edit-mode state when switching between instances. The composer is
     // mounted once at the dashboard level and reused for every session, so
     // component-local signals (editMode, stashedDraft, editMessageIndex)
@@ -831,6 +868,7 @@ export class InputPanelComponent implements OnDestroy {
 
   canSend(): boolean {
     if (this.loopStarting()) return false; // double-start dedupe
+    if (this.submission.submitting()) return false; // one in-flight submission at a time
     if (this.loopArmed()) {
       // When the loop panel is open, Send means "start loop". Validity is
       // owned by the panel's config, not the textarea. Keep the button
@@ -1286,7 +1324,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   async onSend(): Promise<void> {
-    if (!this.canSend() || this.disabled()) return;
+    if (!this.canSend() || this.disabled() || this.submission.submitting()) return;
 
     // When the loop config panel is open, Send means "start the loop with
     // this config + textarea content". This replaces the panel's removed
@@ -1302,10 +1340,18 @@ export class InputPanelComponent implements OnDestroy {
       return;
     }
 
+    // New sessions have nothing durable behind them until the main process
+    // returns an instance id, so the composer must survive until it does.
+    if (this.isDraftComposer()) {
+      await this.submission.submit(text);
+      return;
+    }
+
     this.recordPromptHistory(text, false);
     this.sendMessage.emit(text);
     this.clearSubmittedMessage();
   }
+
 
   onInterruptClick(): void {
     this.interruptRequested.emit();
@@ -1627,34 +1673,14 @@ export class InputPanelComponent implements OnDestroy {
     this.draftService.clearDraft(this.instanceId());
   }
 
-  private recallPrompt(direction: -1 | 1): boolean {
-    const entries = this.recallEntries();
-    if (entries.length === 0) {
-      return false;
-    }
-
-    const currentIndex = this.recallIndex();
-    if (direction === -1) {
-      const nextIndex = currentIndex === null
-        ? 0
-        : Math.min(currentIndex + 1, entries.length - 1);
-      if (currentIndex === nextIndex && this.recalledEntryId() === entries[nextIndex]?.id) {
-        return false;
-      }
-      this.applyRecalledEntry(entries[nextIndex], nextIndex);
-      return true;
-    }
-
-    if (currentIndex === null) {
-      return false;
-    }
-    if (currentIndex === 0) {
-      this.resetPromptRecall({ restoreStash: true });
-      return true;
-    }
-
-    this.applyRecalledEntry(entries[currentIndex - 1], currentIndex - 1);
-    return true;
+  private recallPrompt(direction: PromptRecallDirection): boolean {
+    return stepPromptRecall({
+      entries: () => this.recallEntries(),
+      recallIndex: () => this.recallIndex(),
+      recalledEntryId: () => this.recalledEntryId(),
+      apply: (entry, index) => this.applyRecalledEntry(entry, index),
+      reset: (options) => this.resetPromptRecall(options),
+    }, direction);
   }
 
   private applyRecalledEntry(entry: PromptHistoryEntry, index?: number): void {

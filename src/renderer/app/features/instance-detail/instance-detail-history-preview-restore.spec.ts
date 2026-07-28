@@ -322,7 +322,8 @@ function createSettingsStoreMock(): Partial<SettingsStore> {
 function createNewSessionDraftMock(): Partial<NewSessionDraftService> {
   return {
     setWorkingDirectory: vi.fn(),
-  };
+    activeKey: signal('__default__'),
+  } as unknown as Partial<NewSessionDraftService>;
 }
 
 function createTodoStoreMock(): Partial<TodoStore> {
