@@ -1,5 +1,6 @@
 import type { Instance, InstanceStatus, QueuedMessage } from './instance.types';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
+import { validateAttachmentCount } from './instance-attachments';
 
 export interface SendInputImmediateOptions {
   skipUserBubble?: boolean;
@@ -116,7 +117,18 @@ export async function inputFilesToAttachments(
   }
 
   try {
-    return (await Promise.all(files.map((f) => adapter.fileToAttachments(f)))).flat();
+    const attachments = (await Promise.all(files.map((f) => adapter.fileToAttachments(f)))).flat();
+
+    // Large images are tiled, so the staged file count is not the payload
+    // count. Past the main-process cap the whole payload is rejected by Zod
+    // with nothing logged, which looks to the user like the send vanished.
+    const countError = validateAttachmentCount(attachments, files.length);
+    if (countError) {
+      addErrorToOutput(instanceId, `Failed to ${action} message:\n${countError}`);
+      return null;
+    }
+
+    return attachments;
   } catch (error) {
     console.error('InstanceMessagingStore: File conversion failed:', error);
     addErrorToOutput(

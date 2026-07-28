@@ -207,6 +207,22 @@ export class ComposerSubmissionService {
     await this.remove(id);
   }
 
+  /**
+   * Accept only while the record is still settled (not `pending`).
+   *
+   * A create that answers after the composer gave up still means the session
+   * exists, so the entry is no longer unsent. But if a Retry has re-opened the
+   * record since, that retry owns it — removing it here would leave the retry
+   * with no recoverable entry should it fail.
+   */
+  async acceptIfStillSettled(id: string, instanceId: string): Promise<void> {
+    const record = this.records().find((candidate) => candidate.id === id);
+    if (record?.status === 'pending') {
+      return;
+    }
+    await this.markAccepted(id, instanceId);
+  }
+
   /** The attempt failed. Keep the composition and surface it for retry. */
   async markFailed(id: string, error: string): Promise<ComposerSubmissionRecord | null> {
     const record = this.records().find((candidate) => candidate.id === id);

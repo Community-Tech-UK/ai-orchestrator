@@ -16,7 +16,7 @@ function makeScreenshot(index: number): File {
 }
 
 const LONG_PROMPT =
-  'None of the Community Tech automations are working — see the screenshots.\n'.repeat(300);
+  'None of the Community Tech automations are working — see the screenshots.\n'.repeat(300).trim();
 
 interface Harness {
   service: ComposerSubmissionService;
@@ -52,6 +52,7 @@ function createHarness(files: File[] = [0, 1, 2, 3, 4, 5].map(makeScreenshot)): 
           currentFolders: () => harness.composer.folders,
           amend: (id, content) => service.amend(id, content),
           accept: (id, instanceId) => service.markAccepted(id, instanceId),
+          acceptIfStillSettled: (id, instanceId) => service.acceptIfStillSettled(id, instanceId),
           fail: async (id, error) => {
             await service.markFailed(id, error);
           },
@@ -77,6 +78,7 @@ function createHarness(files: File[] = [0, 1, 2, 3, 4, 5].map(makeScreenshot)): 
               files,
             }),
           accept: (id, instanceId) => service.markAccepted(id, instanceId),
+          acceptIfStillSettled: (id, instanceId) => service.acceptIfStillSettled(id, instanceId),
           fail: async (id, error) => {
             await service.markFailed(id, error);
           },
@@ -289,8 +291,11 @@ describe('submitNewSession — gate regressions', () => {
     const recovered = harness.service.recoverableFor('project:/Users/suas/work/communitytech');
     expect(recovered).not.toBeNull();
 
-    // Composer is empty, as it is after a reload — the journal is the only copy.
-    harness.composer = { text: '', files: [], folders: [] };
+    // The real post-restart state: the draft PROMPT is persisted to
+    // localStorage and is pushed back into the composer, but `pendingFilesByKey`
+    // is in-memory only — so text is present and attachments are not. An
+    // all-or-nothing "live content wins" rule amended the images away here.
+    harness.composer = { text: LONG_PROMPT, files: [], folders: [] };
     const retryPromise = harness.retry(recovered!);
     await vi.advanceTimersByTimeAsync(0);
 
@@ -373,6 +378,7 @@ describe('submitNewSession — gate regressions', () => {
     const ok = await submitNewSession({
       begin: () => Promise.reject(new Error('journal unavailable')),
       accept: (id, instanceId) => service.markAccepted(id, instanceId),
+      acceptIfStillSettled: (id, instanceId) => service.acceptIfStillSettled(id, instanceId),
       fail: async () => undefined,
       emit: () => undefined,
       setSubmitting: (value) => submitting.push(value),
@@ -385,5 +391,148 @@ describe('submitNewSession — gate regressions', () => {
     expect(ok).toBe(false);
     expect(submitting).toEqual([true, false]);
     expect(errors.at(-1)).toBe('journal unavailable');
+  });
+});
+
+describe('retryNewSession — content fallback', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  async function failedRecord(harness: Harness) {
+    const promise = harness.run();
+    await vi.advanceTimersByTimeAsync(0);
+    harness.emitted[0].onResolved({ ok: false, error: 'boom' });
+    await promise;
+    await vi.advanceTimersByTimeAsync(0);
+    return harness.service.recoverableFor('project:/Users/suas/work/communitytech')!;
+  }
+
+  it('keeps the journalled attachments when only the text survived the restart', async () => {
+    const harness = createHarness();
+    const recovered = await failedRecord(harness);
+
+    // localStorage restores the prompt; the staged File[] is gone. Falling back
+    // per field is the only rule that keeps both halves.
+    harness.composer = { text: LONG_PROMPT, files: [], folders: [] };
+    const retryPromise = harness.retry(recovered);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const retried = harness.emitted.at(-1)!;
+    expect(retried.files).toHaveLength(6);
+    expect(retried.text).toBe(LONG_PROMPT);
+    expect((await harness.storage.list())[0].files).toHaveLength(6);
+
+    retried.onResolved({ ok: true, instanceId: 'inst-1' });
+    await retryPromise;
+  });
+
+  it('takes edited text but keeps journalled files when the composer has no attachments', async () => {
+    const harness = createHarness();
+    const recovered = await failedRecord(harness);
+
+    harness.composer = { text: 'reworded prompt', files: [], folders: [] };
+    const retryPromise = harness.retry(recovered);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const retried = harness.emitted.at(-1)!;
+    expect(retried.text).toBe('reworded prompt');
+    expect(retried.files).toHaveLength(6);
+
+    retried.onResolved({ ok: true, instanceId: 'inst-2' });
+    await retryPromise;
+  });
+
+  it('marks itself submitting before the awaited journal reopen', async () => {
+    const harness = createHarness();
+    const recovered = await failedRecord(harness);
+    const before = harness.submitting.length;
+
+    const retryPromise = harness.retry(recovered);
+    expect(harness.submitting.slice(before)[0]).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(0);
+    harness.emitted.at(-1)!.onResolved({ ok: true, instanceId: 'inst-3' });
+    await retryPromise;
+  });
+
+  it('does not delete a record a retry has re-opened when a late success lands', async () => {
+    const harness = createHarness();
+    const promise = harness.run({ ackTimeoutMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(0);
+    const original = harness.emitted[0];
+    await vi.advanceTimersByTimeAsync(1_001);
+    await promise;
+    await vi.advanceTimersByTimeAsync(0);
+
+    const recovered = harness.service.recoverableFor('project:/Users/suas/work/communitytech')!;
+    const retryPromise = harness.retry(recovered);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The original slow create finally answers while the retry is in flight.
+    original.onResolved({ ok: true, instanceId: 'inst-original' });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Deleting here would leave the in-flight retry with nothing to fall back
+    // on if it fails.
+    harness.emitted.at(-1)!.onResolved({ ok: false, error: 'retry failed' });
+    await retryPromise;
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(harness.service.recoverableFor('project:/Users/suas/work/communitytech')?.id)
+      .toBe(recovered.id);
+  });
+});
+
+describe('retryNewSession — swapped attachments', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('re-sends a swapped attachment even though the count is unchanged', async () => {
+    const harness = createHarness([makeScreenshot(1)]);
+    const promise = harness.run();
+    await vi.advanceTimersByTimeAsync(0);
+    harness.emitted[0].onResolved({ ok: false, error: 'too large' });
+    await promise;
+    await vi.advanceTimersByTimeAsync(0);
+
+    const recovered = harness.service.recoverableFor('project:/Users/suas/work/communitytech')!;
+    // The user removes the rejected image and drops in a cropped one. Comparing
+    // lengths alone would call this "unchanged" and re-send the original.
+    const replacement = makeScreenshot(99);
+    harness.composer = { text: LONG_PROMPT, files: [replacement], folders: [] };
+
+    const retryPromise = harness.retry(recovered);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const retried = harness.emitted.at(-1)!;
+    expect(retried.files.map((f) => f.name)).toEqual(['pasted-image-99.png']);
+
+    retried.onResolved({ ok: true, instanceId: 'inst-1' });
+    await retryPromise;
+  });
+
+  it('skips the amend when nothing actually changed', async () => {
+    const files = [makeScreenshot(1)];
+    const harness = createHarness(files);
+    const promise = harness.run();
+    await vi.advanceTimersByTimeAsync(0);
+    harness.emitted[0].onResolved({ ok: false, error: 'boom' });
+    await promise;
+    await vi.advanceTimersByTimeAsync(0);
+
+    const recovered = harness.service.recoverableFor('project:/Users/suas/work/communitytech')!;
+    harness.composer = { text: LONG_PROMPT, files, folders: [] };
+
+    const retryPromise = harness.retry(recovered);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const retried = harness.emitted.at(-1)!;
+    expect(retried.files).toEqual(files);
+    // No 'amended' stage: the content is identical, so the record is untouched.
+    const stored = (await harness.storage.list())[0];
+    expect(stored.stages.map((e) => e.stage)).toEqual(['begin', 'failed', 'retry']);
+
+    retried.onResolved({ ok: true, instanceId: 'inst-2' });
+    await retryPromise;
   });
 });
