@@ -41,6 +41,13 @@ export interface NewSessionSubmitDeps {
   begin: () => Promise<ComposerSubmissionRecord>;
   /** Removes the journal entry and the staged attachments. */
   accept: (submissionId: string, instanceId: string) => Promise<void>;
+  /**
+   * Accept only if nothing has re-opened the record since. Used for a success
+   * that lands after this submission already gave up: a Retry started in the
+   * meantime owns the record, and deleting it underneath would leave that retry
+   * with nothing to fall back on if it fails.
+   */
+  acceptIfStillSettled: (submissionId: string, instanceId: string) => Promise<void>;
   /** Keeps the journal entry and marks it recoverable. */
   fail: (submissionId: string, error: string) => Promise<void>;
   emit: (request: NewSessionSubmitRequest) => void;
@@ -92,7 +99,7 @@ export async function submitNewSession(
         // permanent "not sent" banner for a session that was created. The
         // composer is NOT cleared: the user may have refilled it since.
         if (result.ok) {
-          void deps.accept(record.id, result.instanceId);
+          void deps.acceptIfStillSettled(record.id, result.instanceId);
         }
         return;
       }
@@ -156,6 +163,7 @@ export interface NewSessionRetryDeps {
     content: { text: string; files: File[]; pendingFolders: string[] },
   ) => Promise<ComposerSubmissionRecord | null>;
   accept: (submissionId: string, instanceId: string) => Promise<void>;
+  acceptIfStillSettled: (submissionId: string, instanceId: string) => Promise<void>;
   fail: (submissionId: string, error: string) => Promise<void>;
   emit: (request: NewSessionSubmitRequest) => void;
   setSubmitting: (value: boolean) => void;
@@ -177,27 +185,58 @@ export async function retryNewSession(
   ackTimeoutMs: number = COMPOSER_SUBMISSION_ACK_TIMEOUT_MS,
 ): Promise<boolean> {
   if (deps.isSubmitting()) return false;
-  const retried = await deps.retry(record.id);
-  if (!retried) return false;
+  // Claimed before the two awaits below, for the same reason `submitNewSession`
+  // claims it before its journal write: a second Retry click in that window
+  // would otherwise start an overlapping submission on the same record.
+  deps.setSubmitting(true);
 
-  // The composer still holds this composition when the failure happened in
-  // this session, and the user may have edited it since — sending the
-  // journalled copy would silently discard that edit. After a restart the
-  // composer is empty and the journal is the only copy, so fall back to it.
-  const liveText = deps.currentText().trim();
-  const liveFiles = deps.currentFiles();
-  const amended = liveText.length > 0 || liveFiles.length > 0
-    ? await deps.amend(retried.id, {
-        text: liveText,
-        files: [...liveFiles],
-        pendingFolders: [...deps.currentFolders()],
-      })
-    : retried;
+  let retried: ComposerSubmissionRecord | null;
+  let amended: ComposerSubmissionRecord | null;
+  try {
+    retried = await deps.retry(record.id);
+    if (!retried) {
+      deps.setSubmitting(false);
+      return false;
+    }
+
+    // Each field falls back independently. The two stores do not survive a
+    // restart together: the draft *prompt* is persisted to localStorage, the
+    // staged `File[]` is in-memory only. So after a restart the composer has
+    // text and no attachments — an all-or-nothing rule would amend the record's
+    // images away and send a text-only message, losing exactly what this fix
+    // exists to protect. Live content wins per field so a post-failure edit is
+    // honoured without discarding anything the composer no longer holds.
+    const liveText = deps.currentText().trim();
+    const liveFiles = deps.currentFiles();
+    const liveFolders = deps.currentFolders();
+    const content = {
+      text: liveText.length > 0 ? liveText : retried.text,
+      files: liveFiles.length > 0 ? [...liveFiles] : retried.files,
+      pendingFolders: liveFolders.length > 0 ? [...liveFolders] : retried.pendingFolders,
+    };
+    // Identity, not just length: swapping one attachment for another (remove A,
+    // add B) leaves the count unchanged, and skipping the amend there would
+    // re-send A and then clear B out of the composer on success.
+    const changed =
+      content.text !== retried.text
+      || content.files.length !== retried.files.length
+      || content.files.some((file, index) => file !== retried!.files[index])
+      || content.pendingFolders.length !== retried.pendingFolders.length
+      || content.pendingFolders.some((folder, index) => folder !== retried!.pendingFolders[index]);
+    amended = changed ? await deps.amend(retried.id, content) : retried;
+  } catch (error) {
+    // Nothing here can reject with the real journal (its writes swallow storage
+    // errors), but the flag must not stick if that ever changes.
+    deps.setSubmitting(false);
+    deps.setSubmitError(error instanceof Error ? error.message : String(error));
+    return false;
+  }
 
   return submitNewSession(
     {
       begin: async () => amended ?? retried,
       accept: deps.accept,
+      acceptIfStillSettled: deps.acceptIfStillSettled,
       fail: deps.fail,
       emit: deps.emit,
       setSubmitting: deps.setSubmitting,
@@ -277,6 +316,7 @@ export class NewSessionSubmissionController {
     return {
       isSubmitting: () => this.submitting(),
       retry: (id) => submissions.retry(id),
+      acceptIfStillSettled: (id, instanceId) => submissions.acceptIfStillSettled(id, instanceId),
       currentText: () => this.host.currentText(),
       currentFiles: () => this.host.pendingFiles(),
       currentFolders: () => this.host.pendingFolders(),
