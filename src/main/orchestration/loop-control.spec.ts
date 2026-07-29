@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -29,6 +29,25 @@ afterEach(() => {
 });
 
 describe('loop-control CLI contract', () => {
+  it('writes concurrent control updates safely when they start in the same millisecond', async () => {
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now);
+
+    try {
+      await expect(Promise.all([
+        writeLoopControlFile(runtime, 1),
+        writeLoopControlFile(runtime, 2),
+      ])).resolves.toEqual([undefined, undefined]);
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    const control = JSON.parse(fs.readFileSync(runtime.controlFile, 'utf8')) as {
+      currentIterationSeq: number;
+    };
+    expect([1, 2]).toContain(control.currentIterationSeq);
+  });
+
   it('records the current iteration from control.json rather than from immutable env', async () => {
     await writeLoopControlFile(runtime, 3);
     const stderr: string[] = [];
