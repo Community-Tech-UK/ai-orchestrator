@@ -61,13 +61,73 @@ function readIndexedFiles() {
     })
       .split('\0')
       .filter(Boolean)
-      .map((file) => path.join(ROOT, file))
-      .filter((file) => fs.existsSync(file));
+      .map((file) => path.join(ROOT, file));
     return indexedFilesCache;
   } catch {
     indexedFilesCache = walk(ROOT, (file) => true);
     return indexedFilesCache;
   }
+}
+
+/**
+ * Read each file's content as it exists **in the git index**, not on disk.
+ *
+ * Same determinism contract as `toPosixPath` above, one layer down: this file is
+ * a generated artifact committed to the repo, so its content must be a pure
+ * function of the tree being committed. Reading the working tree broke that —
+ * a tracked file left modified-but-unstaged made `--write` (pre-commit) bake in
+ * a value no clean checkout can reproduce, so `--check` passed locally and
+ * failed in CI on the very same commit.
+ *
+ * That is not a hypothetical: this repo's plan/livetest lifecycle deliberately
+ * keeps tracked docs (e.g. `docs/plans/livetest-remediation-register.md`) dirty
+ * and unstaged for long stretches, and `git commit --only <path>` leaves every
+ * other modified file unstaged too. The index is exactly what the resulting
+ * commit will contain — and in CI, index, HEAD and working tree are identical —
+ * so keying off it makes local and CI runs agree by construction.
+ *
+ * One `git cat-file --batch` process for the whole set; per-file `git show`
+ * would be thousands of spawns.
+ */
+function readIndexedFileContents(files) {
+  const contents = new Map();
+  if (files.length === 0) return contents;
+
+  let batch;
+  try {
+    batch = execFileSync('git', ['cat-file', '--batch', '-z'], {
+      cwd: ROOT,
+      // NUL-delimited input so paths containing spaces or newlines survive.
+      input: `${files.map((file) => `:${relative(file)}`).join('\0')}\0`,
+      maxBuffer: 512 * 1024 * 1024,
+    });
+  } catch {
+    // No git available — same fallback as readIndexedFiles().
+    for (const file of files) {
+      contents.set(file, fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
+    }
+    return contents;
+  }
+
+  // Response per object: "<oid> <type> <size>\n<content>\n".
+  let offset = 0;
+  for (const file of files) {
+    const headerEnd = batch.indexOf(0x0a, offset);
+    if (headerEnd === -1) break;
+    const header = batch.toString('utf8', offset, headerEnd);
+    offset = headerEnd + 1;
+
+    const size = Number(header.split(' ')[2]);
+    if (!Number.isFinite(size)) {
+      // "<rev> missing" — no content follows, so don't advance past any.
+      contents.set(file, '');
+      continue;
+    }
+
+    contents.set(file, batch.toString('utf8', offset, offset + size));
+    offset += size + 1;
+  }
+  return contents;
 }
 
 function readIndexedFilesMatching(matcher) {
@@ -92,15 +152,18 @@ function readPreloadDomains() {
 }
 
 function readLargeFiles() {
-  return readIndexedFilesMatching((file) => {
+  const files = readIndexedFilesMatching((file) => {
     if (!/\.(ts|js|html|scss|md)$/.test(file)) return false;
     const rel = relative(file);
     return !rel.startsWith('node_modules/') && !rel.startsWith('dist/');
-  })
-    .map((file) => {
-      const lineCount = fs.readFileSync(file, 'utf8').split(/\r?\n/).length;
-      return { path: relative(file), lines: lineCount };
-    })
+  });
+  const contents = readIndexedFileContents(files);
+
+  return files
+    .map((file) => ({
+      path: relative(file),
+      lines: (contents.get(file) ?? '').split(/\r?\n/).length,
+    }))
     .filter((entry) => entry.lines >= 800)
     .sort((a, b) => b.lines - a.lines);
 }
@@ -110,13 +173,17 @@ function readPackageDependencyGraph() {
   const packageFiles = readIndexedFilesMatching((file) =>
     file.startsWith(`${packagesDir}${path.sep}`) && path.basename(file) === 'package.json',
   );
+  const contents = readIndexedFileContents(packageFiles);
+  const manifests = new Map(
+    packageFiles.map((file) => [file, JSON.parse(contents.get(file))]),
+  );
   const packageNames = new Set(
-    packageFiles.map((file) => JSON.parse(fs.readFileSync(file, 'utf8')).name).filter(Boolean),
+    [...manifests.values()].map((manifest) => manifest.name).filter(Boolean),
   );
 
   return packageFiles
     .map((file) => {
-      const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const manifest = manifests.get(file);
       const dependencyNames = [
         ...Object.keys(manifest.dependencies ?? {}),
         ...Object.keys(manifest.peerDependencies ?? {}),
@@ -134,6 +201,13 @@ function readPackageDependencyGraph() {
 }
 
 function buildInventory() {
+  // Known residual: this still reads the working tree, because it resolves and
+  // follows re-exports across several channel files and is shared with
+  // `verify:ipc`, which legitimately wants your live edits. Far lower risk than
+  // the largeFiles case it is deliberately not grouped with — a dirty
+  // `packages/contracts/src/channels/*.ts` is source mid-edit that gets staged
+  // with its commit, not a doc the lifecycle parks unstaged for weeks. Route it
+  // through readIndexedFileContents() if it ever does drift local-vs-CI.
   const channels = extractContractsChannelEntries(CONTRACTS_CHANNELS_INDEX_PATH);
   const domains = readPreloadDomains();
   const providerFiles = readProviderNames();
@@ -215,4 +289,5 @@ module.exports = {
   toPosixPath,
   buildInventory,
   assertDeterministicPaths,
+  readIndexedFileContents,
 };

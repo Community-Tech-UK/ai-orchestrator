@@ -6577,10 +6577,6 @@
       "lines": 809
     },
     {
-      "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 808
-    },
-    {
       "path": "src/main/orchestration/loop-completion-detector.ts",
       "lines": 807
     },
